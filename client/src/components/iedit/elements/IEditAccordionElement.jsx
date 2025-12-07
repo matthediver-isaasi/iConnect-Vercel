@@ -794,8 +794,9 @@ export function IEditAccordionElementRenderer({ element, content: contentProp, v
   const uniqueId = rawId.replace(/:/g, '');
   const isMobile = useIsMobile();
   
-  // Use element.content as the source of truth (same pattern as IEditFiftyFiftyElement)
-  const content = element?.content || contentProp || {};
+  // Use contentProp as primary source (fresh from editor state), fall back to element.content (persisted)
+  // This matches IEditFiftyFiftyElement pattern where content prop takes precedence
+  const content = contentProp || element?.content || {};
   const items = content.items || [];
   const backgroundType = content.background_type || 'none';
 
