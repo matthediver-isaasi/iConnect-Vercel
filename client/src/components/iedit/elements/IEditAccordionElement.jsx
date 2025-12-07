@@ -5,8 +5,47 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
-import { ChevronDown, ChevronUp, Plus, Trash2, GripVertical } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { 
+  ChevronDown, 
+  ChevronUp, 
+  Plus, 
+  Trash2, 
+  GripVertical,
+  FileText,
+  ExternalLink,
+  Video,
+  Download,
+  Mail,
+  Phone,
+  Link as LinkIcon,
+  Image,
+  Music,
+  Calendar,
+  MapPin,
+  BookOpen
+} from "lucide-react";
 import TypographyStyleSelector, { applyTypographyStyle } from "../TypographyStyleSelector";
+
+const LINK_ICON_TYPES = [
+  { value: 'external', label: 'External Link', icon: ExternalLink },
+  { value: 'document', label: 'Document', icon: FileText },
+  { value: 'video', label: 'Video', icon: Video },
+  { value: 'download', label: 'Download', icon: Download },
+  { value: 'email', label: 'Email', icon: Mail },
+  { value: 'phone', label: 'Phone', icon: Phone },
+  { value: 'link', label: 'Generic Link', icon: LinkIcon },
+  { value: 'image', label: 'Image', icon: Image },
+  { value: 'audio', label: 'Audio', icon: Music },
+  { value: 'calendar', label: 'Calendar/Event', icon: Calendar },
+  { value: 'location', label: 'Location', icon: MapPin },
+  { value: 'resource', label: 'Resource', icon: BookOpen }
+];
+
+const getLinkIcon = (iconType) => {
+  const found = LINK_ICON_TYPES.find(t => t.value === iconType);
+  return found ? found.icon : ExternalLink;
+};
 
 const fontFamilies = [
   'Poppins',
@@ -113,6 +152,48 @@ export function IEditAccordionElementEditor({ element, onChange }) {
     [newItems[index], newItems[newIndex]] = [newItems[newIndex], newItems[index]];
     updateContent('items', newItems);
     setExpandedItem(newIndex);
+  };
+
+  const addLinkToItem = (itemIndex) => {
+    const newItems = [...items];
+    const links = newItems[itemIndex].links || [];
+    newItems[itemIndex] = {
+      ...newItems[itemIndex],
+      links: [...links, {
+        id: Date.now().toString(),
+        icon_type: 'external',
+        label: 'New Link',
+        url: '',
+        open_in_new_tab: true
+      }]
+    };
+    updateContent('items', newItems);
+  };
+
+  const updateItemLink = (itemIndex, linkIndex, field, value) => {
+    const newItems = [...items];
+    const links = [...(newItems[itemIndex].links || [])];
+    links[linkIndex] = { ...links[linkIndex], [field]: value };
+    newItems[itemIndex] = { ...newItems[itemIndex], links };
+    updateContent('items', newItems);
+  };
+
+  const removeItemLink = (itemIndex, linkIndex) => {
+    const newItems = [...items];
+    const links = (newItems[itemIndex].links || []).filter((_, i) => i !== linkIndex);
+    newItems[itemIndex] = { ...newItems[itemIndex], links };
+    updateContent('items', newItems);
+  };
+
+  const moveLinkInItem = (itemIndex, linkIndex, direction) => {
+    const newLinkIndex = linkIndex + direction;
+    const links = [...(items[itemIndex].links || [])];
+    if (newLinkIndex < 0 || newLinkIndex >= links.length) return;
+    
+    [links[linkIndex], links[newLinkIndex]] = [links[newLinkIndex], links[linkIndex]];
+    const newItems = [...items];
+    newItems[itemIndex] = { ...newItems[itemIndex], links };
+    updateContent('items', newItems);
   };
 
   const gradientPreview = `linear-gradient(${content.gradient_angle || 135}deg, ${content.gradient_start_color || '#3b82f6'}, ${content.gradient_end_color || '#8b5cf6'})`;
@@ -759,7 +840,7 @@ export function IEditAccordionElementEditor({ element, onChange }) {
                 </div>
                 
                 {expandedItem === index && (
-                  <div className="p-3 space-y-3 border-t">
+                  <div className="p-3 space-y-4 border-t">
                     <div>
                       <Label>Title / Question</Label>
                       <Input
@@ -776,6 +857,129 @@ export function IEditAccordionElementEditor({ element, onChange }) {
                         placeholder="Enter the accordion content"
                         rows={4}
                       />
+                    </div>
+                    
+                    {/* Links Section */}
+                    <div className="border-t pt-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <Label className="text-sm font-semibold">Links</Label>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => addLinkToItem(index)}
+                          className="h-7 text-xs"
+                        >
+                          <Plus className="w-3 h-3 mr-1" />
+                          Add Link
+                        </Button>
+                      </div>
+                      
+                      {(item.links || []).length === 0 ? (
+                        <p className="text-xs text-slate-500 italic">No links added yet</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {(item.links || []).map((link, linkIndex) => {
+                            const IconComponent = getLinkIcon(link.icon_type);
+                            return (
+                              <div 
+                                key={link.id || linkIndex} 
+                                className="bg-slate-50 rounded-lg p-3 border border-slate-200"
+                              >
+                                <div className="flex items-start gap-2">
+                                  <div className="flex flex-col gap-0.5 mt-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => moveLinkInItem(index, linkIndex, -1)}
+                                      disabled={linkIndex === 0}
+                                      className="p-0.5 hover:bg-slate-200 rounded disabled:opacity-30"
+                                    >
+                                      <ChevronUp className="w-3 h-3" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => moveLinkInItem(index, linkIndex, 1)}
+                                      disabled={linkIndex === (item.links || []).length - 1}
+                                      className="p-0.5 hover:bg-slate-200 rounded disabled:opacity-30"
+                                    >
+                                      <ChevronDown className="w-3 h-3" />
+                                    </button>
+                                  </div>
+                                  
+                                  <div className="flex-1 space-y-2">
+                                    <div className="grid grid-cols-2 gap-2">
+                                      <div>
+                                        <Label className="text-xs">Icon Type</Label>
+                                        <select
+                                          value={link.icon_type || 'external'}
+                                          onChange={(e) => updateItemLink(index, linkIndex, 'icon_type', e.target.value)}
+                                          className="w-full px-2 py-1.5 border border-slate-300 rounded-md text-sm"
+                                        >
+                                          {LINK_ICON_TYPES.map(type => (
+                                            <option key={type.value} value={type.value}>
+                                              {type.label}
+                                            </option>
+                                          ))}
+                                        </select>
+                                      </div>
+                                      <div>
+                                        <Label className="text-xs">Link Label</Label>
+                                        <Input
+                                          value={link.label || ''}
+                                          onChange={(e) => updateItemLink(index, linkIndex, 'label', e.target.value)}
+                                          placeholder="Display text"
+                                          className="h-8 text-sm"
+                                        />
+                                      </div>
+                                    </div>
+                                    
+                                    <div>
+                                      <Label className="text-xs">URL</Label>
+                                      <Input
+                                        value={link.url || ''}
+                                        onChange={(e) => updateItemLink(index, linkIndex, 'url', e.target.value)}
+                                        placeholder="https://..."
+                                        className="h-8 text-sm"
+                                      />
+                                    </div>
+                                    
+                                    <div className="flex items-center gap-2">
+                                      <Checkbox
+                                        id={`link-newtab-${index}-${linkIndex}`}
+                                        checked={link.open_in_new_tab !== false}
+                                        onCheckedChange={(checked) => updateItemLink(index, linkIndex, 'open_in_new_tab', checked)}
+                                      />
+                                      <label 
+                                        htmlFor={`link-newtab-${index}-${linkIndex}`}
+                                        className="text-xs text-slate-600 cursor-pointer"
+                                      >
+                                        Open in new tab
+                                      </label>
+                                    </div>
+                                  </div>
+                                  
+                                  <button
+                                    type="button"
+                                    onClick={() => removeItemLink(index, linkIndex)}
+                                    className="p-1 hover:bg-red-100 rounded text-red-600"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </div>
+                                
+                                {/* Link Preview */}
+                                <div className="mt-2 pt-2 border-t border-slate-200">
+                                  <p className="text-xs text-slate-500 mb-1">Preview:</p>
+                                  <div className="flex items-center gap-2 text-sm text-blue-600">
+                                    <IconComponent className="w-4 h-4" />
+                                    <span>{link.label || 'Link text'}</span>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
@@ -971,6 +1175,30 @@ export function IEditAccordionElementRenderer({ element, content: contentProp, v
                         {line || '\u00A0'}
                       </p>
                     ))}
+                    
+                    {/* Render Links */}
+                    {item.links && item.links.length > 0 && (
+                      <div className="mt-4 pt-3 border-t border-slate-200/50">
+                        <div className="flex flex-wrap gap-3">
+                          {item.links.map((link, linkIndex) => {
+                            const IconComponent = getLinkIcon(link.icon_type);
+                            return (
+                              <a
+                                key={link.id || linkIndex}
+                                href={link.url || '#'}
+                                target={link.open_in_new_tab !== false ? '_blank' : '_self'}
+                                rel={link.open_in_new_tab !== false ? 'noopener noreferrer' : undefined}
+                                className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-white/80 border border-slate-200 text-blue-600 hover:bg-blue-50 hover:border-blue-300 transition-colors text-sm font-medium"
+                                data-testid={`accordion-link-${index}-${linkIndex}`}
+                              >
+                                <IconComponent className="w-4 h-4 flex-shrink-0" />
+                                <span>{link.label || 'Link'}</span>
+                              </a>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
