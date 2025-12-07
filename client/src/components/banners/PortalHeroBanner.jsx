@@ -45,6 +45,20 @@ export default function PortalHeroBanner({ banner }) {
     'right': 'ml-auto'
   };
 
+  const paddingTopClasses = {
+    'none': 'pt-0',
+    'small': 'pt-4',
+    'medium': 'pt-8',
+    'large': 'pt-16'
+  };
+
+  const paddingBottomClasses = {
+    'none': 'pb-0',
+    'small': 'pb-4',
+    'medium': 'pb-8',
+    'large': 'pb-16'
+  };
+
   const containerClass = sizeClasses[banner.size] || sizeClasses['full'];
   const heightClass = heightClasses[banner.height] || heightClasses['medium'];
   const positionClass = positionClasses[banner.position] || positionClasses['center'];
@@ -55,8 +69,11 @@ export default function PortalHeroBanner({ banner }) {
     ? (horizontalAlignmentClasses[banner.horizontal_alignment] || horizontalAlignmentClasses['center'])
     : '';
 
+  const paddingTopClass = paddingTopClasses[banner.padding_top] || paddingTopClasses['none'];
+  const paddingBottomClass = paddingBottomClasses[banner.padding_bottom] || paddingBottomClasses['none'];
+
   return (
-    <div className={`${containerClass} ${alignmentClass} overflow-hidden`}>
+    <div className={`${containerClass} ${alignmentClass} ${paddingTopClass} ${paddingBottomClass} overflow-hidden`}>
       <div className={`${heightClass} w-full`}>
         <img
           src={banner.image_url}

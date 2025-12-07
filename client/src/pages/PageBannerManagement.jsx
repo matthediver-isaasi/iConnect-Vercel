@@ -128,6 +128,8 @@ export default function PageBannerManagementPage() {
       height: "medium",
       position: "center",
       horizontal_alignment: "center",
+      padding_top: "none",
+      padding_bottom: "none",
       page_position: "top",
       associated_pages: [],
       display_order: 0,
@@ -236,6 +238,8 @@ export default function PageBannerManagementPage() {
       height: editingBanner.height,
       position: editingBanner.position,
       horizontal_alignment: bannerType === 'image' ? (editingBanner.horizontal_alignment || 'center') : null,
+      padding_top: bannerType === 'image' ? (editingBanner.padding_top || 'none') : null,
+      padding_bottom: bannerType === 'image' ? (editingBanner.padding_bottom || 'none') : null,
       page_position: bannerType === 'image' ? (editingBanner.page_position || 'top') : null,
       hero_content: bannerType === 'hero' ? editingBanner.hero_content : null,
       associated_pages: editingBanner.associated_pages,
@@ -626,6 +630,45 @@ export default function PageBannerManagementPage() {
                       </div>
                     )}
 
+                    {/* Padding Top & Bottom */}
+                    <div className="grid md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="padding-top">Padding Top</Label>
+                        <Select
+                          value={editingBanner.padding_top || 'none'}
+                          onValueChange={(value) => setEditingBanner({ ...editingBanner, padding_top: value })}
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">None</SelectItem>
+                            <SelectItem value="small">Small</SelectItem>
+                            <SelectItem value="medium">Medium</SelectItem>
+                            <SelectItem value="large">Large</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="padding-bottom">Padding Bottom</Label>
+                        <Select
+                          value={editingBanner.padding_bottom || 'none'}
+                          onValueChange={(value) => setEditingBanner({ ...editingBanner, padding_bottom: value })}
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">None</SelectItem>
+                            <SelectItem value="small">Small</SelectItem>
+                            <SelectItem value="medium">Medium</SelectItem>
+                            <SelectItem value="large">Large</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+
                     {/* Page Position */}
                     <div className="space-y-2">
                       <Label htmlFor="page-position">Position on Page</Label>
@@ -841,6 +884,12 @@ export default function PageBannerManagementPage() {
                           </span>
                         </div>
                       )}
+                      <div>
+                        <span className="font-medium text-slate-700">Padding:</span>
+                        <span className="ml-2 text-slate-600 capitalize">
+                          Top: {previewBanner.padding_top || 'none'}, Bottom: {previewBanner.padding_bottom || 'none'}
+                        </span>
+                      </div>
                       <div>
                         <span className="font-medium text-slate-700">Page Position:</span>
                         <span className="ml-2 text-slate-600">
