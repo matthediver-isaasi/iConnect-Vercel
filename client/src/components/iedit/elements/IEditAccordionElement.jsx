@@ -1,11 +1,13 @@
-import React, { useState, useId, useMemo } from "react";
+import React, { useState, useId, useMemo, useRef, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { base44 } from "@/api/base44Client";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
+import ReactQuill from "react-quill";
+import "react-quill/dist/quill.snow.css";
+import DOMPurify from "dompurify";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
@@ -82,6 +84,21 @@ const fontWeights = [
   { value: 700, label: 'Bold' },
   { value: 800, label: 'Extra Bold' }
 ];
+
+// Quill editor modules configuration for accordion content
+const accordionQuillModules = {
+  toolbar: {
+    container: [
+      [{ 'header': [1, 2, 3, false] }],
+      ['bold', 'italic', 'underline', 'strike'],
+      [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+      [{ 'indent': '-1'}, { 'indent': '+1' }],
+      ['blockquote'],
+      ['link'],
+      ['clean']
+    ]
+  }
+};
 
 export function IEditAccordionElementEditor({ element, onChange }) {
   const [isUploading, setIsUploading] = useState(false);
@@ -1115,12 +1132,16 @@ export function IEditAccordionElementEditor({ element, onChange }) {
                     </div>
                     <div>
                       <Label>Content / Answer</Label>
-                      <Textarea
-                        value={item.content || ''}
-                        onChange={(e) => updateItem(index, 'content', e.target.value)}
-                        placeholder="Enter the accordion content"
-                        rows={4}
-                      />
+                      <div className="accordion-quill-editor border rounded-md overflow-hidden">
+                        <ReactQuill
+                          theme="snow"
+                          value={item.content || ''}
+                          onChange={(value) => updateItem(index, 'content', value)}
+                          modules={accordionQuillModules}
+                          placeholder="Enter the accordion content..."
+                          style={{ minHeight: '150px' }}
+                        />
+                      </div>
                     </div>
                     
                     {/* Links Section */}
@@ -1685,12 +1706,13 @@ export function IEditAccordionElementRenderer({ element, content: contentProp, v
                     className="p-4 border-t"
                     style={itemContentStyle}
                   >
-                    {/* Render content with line breaks preserved */}
-                    {item.content?.split('\n').map((line, i) => (
-                      <p key={i} className={i > 0 ? 'mt-2' : ''}>
-                        {line || '\u00A0'}
-                      </p>
-                    ))}
+                    {/* Render rich text content with proper HTML sanitization */}
+                    <div 
+                      className="accordion-content-html prose prose-sm max-w-none"
+                      dangerouslySetInnerHTML={{ 
+                        __html: DOMPurify.sanitize(item.content || '') 
+                      }}
+                    />
                     
                     {/* Render Links */}
                     {item.links && item.links.length > 0 && (

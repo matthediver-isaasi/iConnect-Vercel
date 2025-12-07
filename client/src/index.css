@@ -288,3 +288,119 @@
     inset: -1px;
   }
 }
+
+/* Accordion Quill Editor Styles */
+.accordion-quill-editor .ql-container {
+  min-height: 120px;
+  font-family: inherit;
+}
+
+.accordion-quill-editor .ql-editor {
+  min-height: 120px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.accordion-quill-editor .ql-editor.ql-blank::before {
+  font-style: italic;
+  color: #94a3b8;
+}
+
+.accordion-quill-editor .ql-toolbar {
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+/* Accordion Content HTML Rendering */
+.accordion-content-html {
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+.accordion-content-html p {
+  margin-bottom: 0.75rem;
+}
+
+.accordion-content-html p:last-child {
+  margin-bottom: 0;
+}
+
+.accordion-content-html ul,
+.accordion-content-html ol {
+  margin-left: 1.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.accordion-content-html ul {
+  list-style-type: disc;
+}
+
+.accordion-content-html ol {
+  list-style-type: decimal;
+}
+
+.accordion-content-html li {
+  margin-bottom: 0.25rem;
+}
+
+.accordion-content-html h1,
+.accordion-content-html h2,
+.accordion-content-html h3 {
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+  margin-top: 1rem;
+}
+
+.accordion-content-html h1:first-child,
+.accordion-content-html h2:first-child,
+.accordion-content-html h3:first-child {
+  margin-top: 0;
+}
+
+.accordion-content-html h1 {
+  font-size: 1.5rem;
+}
+
+.accordion-content-html h2 {
+  font-size: 1.25rem;
+}
+
+.accordion-content-html h3 {
+  font-size: 1.1rem;
+}
+
+.accordion-content-html a {
+  color: #2563eb;
+  text-decoration: underline;
+}
+
+.accordion-content-html a:hover {
+  color: #1d4ed8;
+}
+
+.accordion-content-html blockquote {
+  border-left: 4px solid #e2e8f0;
+  padding-left: 1rem;
+  margin-left: 0;
+  margin-right: 0;
+  font-style: italic;
+  color: #64748b;
+}
+
+.accordion-content-html strong,
+.accordion-content-html b {
+  font-weight: 600;
+}
+
+.accordion-content-html em,
+.accordion-content-html i {
+  font-style: italic;
+}
+
+.accordion-content-html u {
+  text-decoration: underline;
+}
+
+.accordion-content-html s {
+  text-decoration: line-through;
+}
