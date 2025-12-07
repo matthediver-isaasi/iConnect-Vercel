@@ -40,7 +40,7 @@ const safeHexColor = (color, fallback = '#000000') => {
   return fallback;
 };
 
-export default function IEditCardDeckElement({ content, variant, settings }) {
+export function IEditCardDeckElementRenderer({ content, variant, settings }) {
   const isMobile = useIsMobile();
   
   const {
