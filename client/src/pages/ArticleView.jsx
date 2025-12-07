@@ -14,7 +14,7 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useArticleUrl } from "@/contexts/ArticleUrlContext";
 
 export default function ArticleViewPage() {
-  const { memberInfo } = useMemberAccess();
+  const { memberInfo, isAdmin } = useMemberAccess();
   const { getArticleListUrl, getArticleEditorUrl, getPublicArticlesUrl } = useArticleUrl();
   console.log('[ArticleView] Component initialized');
   console.log('[ArticleView] window.location.href:', window.location.href);
@@ -26,7 +26,9 @@ export default function ArticleViewPage() {
   console.log('[ArticleView] urlParams created from window.location.search');
   
   const slug = urlParams.get('slug');
+  const isPreviewMode = urlParams.get('preview') === 'true';
   console.log('[ArticleView] slug extracted from urlParams:', slug);
+  console.log('[ArticleView] isPreviewMode:', isPreviewMode);
   
   const [userIdentifier, setUserIdentifier] = useState("");
   const [viewRecorded, setViewRecorded] = useState(false);
@@ -267,12 +269,12 @@ export default function ArticleViewPage() {
     },
   });
 
-  // Record view when article and user identifier are available
+  // Record view when article and user identifier are available (skip in preview mode)
   useEffect(() => {
-    if (article && userIdentifier && !viewRecorded) {
+    if (article && userIdentifier && !viewRecorded && !isPreviewMode) {
       recordViewMutation.mutate();
     }
-  }, [article, userIdentifier, viewRecorded]);
+  }, [article, userIdentifier, viewRecorded, isPreviewMode]);
 
   // Share handlers
   const handleLinkedInShare = () => {
@@ -319,9 +321,49 @@ export default function ArticleViewPage() {
   // Check if current user is the author
   const isAuthor = memberInfo && article.author_id === memberInfo.id;
 
+  // Check if article is a draft and if user has permission to view it
+  const isDraft = article.status !== 'published';
+  const canViewDraft = isDraft && isPreviewMode && (isAuthor || isAdmin);
+
+  // If it's a draft and user doesn't have permission, show not found
+  if (isDraft && !canViewDraft) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+        <div className="max-w-4xl mx-auto text-center py-16">
+          <h2 className="text-2xl font-bold text-slate-900 mb-4">{singularDisplayName} not found</h2>
+          <p className="text-slate-600 mb-6">This {singularDisplayName.toLowerCase()} is not available.</p>
+          <Link to={isLoggedIn ? getArticleListUrl() : getPublicArticlesUrl()}>
+            <Button>Back to {articleDisplayName}</Button>
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
       <div className="max-w-4xl mx-auto">
+        {/* Preview Mode Banner */}
+        {isDraft && canViewDraft && (
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-6 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-amber-100 rounded-full">
+                <Eye className="w-5 h-5 text-amber-600" />
+              </div>
+              <div>
+                <p className="font-medium text-amber-800">Preview Mode</p>
+                <p className="text-sm text-amber-600">This {singularDisplayName.toLowerCase()} is in {article.status} status and not visible to the public.</p>
+              </div>
+            </div>
+            <Link to={getArticleEditorUrl(article.id)}>
+              <Button size="sm" className="bg-amber-600 hover:bg-amber-700 gap-2">
+                <Edit className="w-4 h-4" />
+                Edit
+              </Button>
+            </Link>
+          </div>
+        )}
+
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <Link 

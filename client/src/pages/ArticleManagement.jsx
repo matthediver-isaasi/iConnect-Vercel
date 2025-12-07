@@ -297,11 +297,18 @@ export default function ArticleManagementPage() {
                             Edit
                           </Button>
                         </Link>
-                        {article.status === 'published' && (
+                        {article.status === 'published' ? (
                           <Link to={getArticleViewUrl(article.slug)} className="flex-1">
                             <Button variant="outline" size="sm" className="w-full gap-2">
                               <Eye className="w-3 h-3" />
                               View
+                            </Button>
+                          </Link>
+                        ) : (
+                          <Link to={`${getArticleViewUrl(article.slug)}&preview=true`} className="flex-1">
+                            <Button variant="outline" size="sm" className="w-full gap-2 text-amber-600 border-amber-200 hover:bg-amber-50">
+                              <Eye className="w-3 h-3" />
+                              Preview
                             </Button>
                           </Link>
                         )}
