@@ -750,7 +750,7 @@ export default function PublicHeader() {
                 {navItems.mainNav?.map(item => renderNavItem(item, false))}
 
                 {/* Static Join Us Button */}
-                <Link to={createPageUrl('PublicJoinUs')}>
+                <Link to="/Membership">
                   <Button 
                     className="text-white font-bold hover:opacity-90 transition-opacity px-6 py-5 rounded-none" 
                     style={{ 
@@ -831,7 +831,7 @@ export default function PublicHeader() {
             
             {/* Join Us Button */}
             <Link 
-              to={createPageUrl('PublicJoinUs')}
+              to="/Membership"
               onClick={() => setMobileMenuOpen(false)}
             >
               <div 
