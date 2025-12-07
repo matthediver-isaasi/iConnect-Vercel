@@ -6,6 +6,8 @@ import IEditElementRenderer from "../components/iedit/IEditElementRenderer";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useLayoutContext } from "@/contexts/LayoutContext";
 import { useArticleUrl } from "@/contexts/ArticleUrlContext";
+import { useBelowFirstElementBanners } from "@/contexts/BannerContext";
+import PortalHeroBanner from "@/components/banners/PortalHeroBanner";
 import Articles from "./Articles";
 import ArticleView from "./ArticleView";
 import ArticleEditor from "./ArticleEditor";
@@ -221,14 +223,24 @@ export default function DynamicPage() {
     );
   }
 
+  // Get banners that should appear below the first element
+  const belowFirstElementBanners = useBelowFirstElementBanners();
+
   // Render the page content - Layout handles the appropriate wrapper (PublicLayout or sidebar)
   return (
     <div className="w-full" data-testid={`dynamic-page-${slug}`}>
-      {elements.map((element) => (
-        <IEditElementRenderer
-          key={element.id}
-          element={element}
-        />
+      {elements.map((element, index) => (
+        <React.Fragment key={element.id}>
+          <IEditElementRenderer element={element} />
+          {/* Insert below-first-element banners after the first element */}
+          {index === 0 && belowFirstElementBanners.length > 0 && (
+            <div className="w-full">
+              {belowFirstElementBanners.map((banner) => (
+                <PortalHeroBanner key={banner.id} banner={banner} />
+              ))}
+            </div>
+          )}
+        </React.Fragment>
       ))}
       
       {elements.length === 0 && (

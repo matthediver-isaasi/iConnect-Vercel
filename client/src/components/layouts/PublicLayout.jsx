@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { base44 } from "@/api/base44Client";
@@ -10,6 +10,7 @@ import PageBannerDisplay from "../banners/PageBannerDisplay";
 import PortalHeroBanner from "../banners/PortalHeroBanner";
 import FloaterDisplay from "../floaters/FloaterDisplay";
 import { useArticleUrl } from "@/contexts/ArticleUrlContext";
+import { BannerProvider } from "@/contexts/BannerContext";
 
 // Map page names to portal page identifiers for banner matching
 // These identifiers must match the PORTAL_PAGES values in PageBannerManagement.jsx
@@ -127,6 +128,17 @@ export default function PublicLayout({ children, currentPageName }) {
     fetchBanners();
   }, [currentPageName, isCustomSlug, urlSlug, publicSlug, articleUrlLoading]);
 
+  // Split banners by page_position
+  const topBanners = useMemo(() => 
+    banners.filter(b => !b.page_position || b.page_position === 'top'),
+    [banners]
+  );
+  
+  const belowFirstElementBanners = useMemo(() => 
+    banners.filter(b => b.page_position === 'below_first_element'),
+    [banners]
+  );
+
   return (
     <>
       <div className="flex flex-col min-h-screen" style={{ fontFamily: 'Poppins, sans-serif' }}>
@@ -156,19 +168,20 @@ export default function PublicLayout({ children, currentPageName }) {
         {/* Public Header - Now using dedicated component */}
         <PublicHeader />
 
-        {/* Page Banners - Displayed between header and main content */}
-        {/* Use PortalHeroBanner to support both regular banners and hero content */}
-        {!loadingBanners && banners.length > 0 && (
+        {/* Top Page Banners - Displayed between header and main content */}
+        {!loadingBanners && topBanners.length > 0 && (
           <div className="w-full">
-            {banners.map((banner) => (
+            {topBanners.map((banner) => (
               <PortalHeroBanner key={banner.id} banner={banner} />
             ))}
           </div>
         )}
 
-        {/* Main Content Area */}
+        {/* Main Content Area - wrapped in BannerProvider for below-first-element banners */}
         <main className="flex-1">
-          {children}
+          <BannerProvider belowFirstElementBanners={belowFirstElementBanners}>
+            {children}
+          </BannerProvider>
         </main>
 
         {/* Public Footer */}
