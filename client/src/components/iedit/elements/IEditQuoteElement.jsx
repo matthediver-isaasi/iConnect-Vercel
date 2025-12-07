@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { ChevronDown, ChevronUp, Upload, X } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Upload, X, Plus, Trash2, GripVertical } from "lucide-react";
 import TypographyStyleSelector, { applyTypographyStyle } from "../TypographyStyleSelector";
 
 const fontFamilies = [
@@ -24,9 +24,11 @@ const fontWeights = [
 
 export default function IEditQuoteElement({ content, variant, settings }) {
   const {
-    profile_image_url,
-    quote_text = '',
-    author_name = '',
+    quotes = [],
+    carousel_delay = 5000,
+    show_navigation = true,
+    show_indicators = true,
+    pause_on_hover = true,
     background_type = 'color',
     background_color = '#f8fafc',
     gradient_start_color = '#3b82f6',
@@ -62,8 +64,40 @@ export default function IEditQuoteElement({ content, variant, settings }) {
     profile_border_radius = 50,
     profile_border_color = '#e2e8f0',
     profile_border_width = 2,
-    layout = 'stacked'
+    layout = 'stacked',
+    quote_text = '',
+    author_name = '',
+    profile_image_url
   } = content || {};
+
+  const allQuotes = quotes.length > 0 
+    ? quotes 
+    : (quote_text ? [{ quote_text, author_name, profile_image_url }] : []);
+
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [isPaused, setIsPaused] = useState(false);
+
+  const goToNext = useCallback(() => {
+    if (allQuotes.length > 1) {
+      setCurrentIndex((prev) => (prev + 1) % allQuotes.length);
+    }
+  }, [allQuotes.length]);
+
+  const goToPrev = useCallback(() => {
+    if (allQuotes.length > 1) {
+      setCurrentIndex((prev) => (prev - 1 + allQuotes.length) % allQuotes.length);
+    }
+  }, [allQuotes.length]);
+
+  useEffect(() => {
+    if (allQuotes.length <= 1 || isPaused) return;
+
+    const interval = setInterval(() => {
+      goToNext();
+    }, carousel_delay);
+
+    return () => clearInterval(interval);
+  }, [allQuotes.length, carousel_delay, isPaused, goToNext]);
 
   const getBackgroundStyle = () => {
     if (background_type === 'color') {
@@ -113,6 +147,24 @@ export default function IEditQuoteElement({ content, variant, settings }) {
     objectFit: 'cover'
   };
 
+  const currentQuote = allQuotes[currentIndex] || {};
+
+  if (allQuotes.length === 0) {
+    return (
+      <div 
+        className="relative w-full text-center py-8"
+        style={{
+          ...getBackgroundStyle(),
+          padding: `${box_padding}px`,
+          borderRadius: `${box_border_radius}px`,
+          border: `${box_border_width}px solid ${box_border_color}`
+        }}
+      >
+        <p className="text-slate-400 italic">Add quotes to display them here</p>
+      </div>
+    );
+  }
+
   return (
     <div 
       className="relative w-full"
@@ -122,8 +174,9 @@ export default function IEditQuoteElement({ content, variant, settings }) {
         borderRadius: `${box_border_radius}px`,
         border: `${box_border_width}px solid ${box_border_color}`
       }}
+      onMouseEnter={() => pause_on_hover && setIsPaused(true)}
+      onMouseLeave={() => pause_on_hover && setIsPaused(false)}
     >
-      {/* Background image */}
       {background_type === 'image' && background_image_url && (
         <>
           <img 
@@ -148,7 +201,6 @@ export default function IEditQuoteElement({ content, variant, settings }) {
         </>
       )}
 
-      {/* Top-right quote mark */}
       <div 
         className="absolute select-none pointer-events-none"
         style={{ 
@@ -160,7 +212,6 @@ export default function IEditQuoteElement({ content, variant, settings }) {
         "
       </div>
 
-      {/* Bottom-left quote mark */}
       <div 
         className="absolute select-none pointer-events-none"
         style={{ 
@@ -173,51 +224,90 @@ export default function IEditQuoteElement({ content, variant, settings }) {
         "
       </div>
 
-      {/* Content */}
       <div className="relative z-10">
         {layout === 'stacked' ? (
           <div className="flex flex-col items-center gap-4">
-            {profile_image_url && (
+            {currentQuote.profile_image_url && (
               <img 
-                src={profile_image_url} 
-                alt={author_name || 'Profile'} 
+                src={currentQuote.profile_image_url} 
+                alt={currentQuote.author_name || 'Profile'} 
                 style={profileStyle}
               />
             )}
-            {quote_text && (
-              <p style={quoteStyle} className="max-w-3xl">
-                {quote_text}
+            {currentQuote.quote_text && (
+              <p style={quoteStyle} className="max-w-3xl transition-opacity duration-300">
+                {currentQuote.quote_text}
               </p>
             )}
-            {author_name && (
+            {currentQuote.author_name && (
               <p style={nameStyle}>
-                — {author_name}
+                — {currentQuote.author_name}
               </p>
             )}
           </div>
         ) : (
           <div className="flex items-start gap-6">
-            {profile_image_url && (
+            {currentQuote.profile_image_url && (
               <img 
-                src={profile_image_url} 
-                alt={author_name || 'Profile'} 
+                src={currentQuote.profile_image_url} 
+                alt={currentQuote.author_name || 'Profile'} 
                 style={profileStyle}
                 className="flex-shrink-0"
               />
             )}
             <div className="flex-1">
-              {quote_text && (
-                <p style={{ ...quoteStyle, textAlign: 'left' }} className="mb-4">
-                  {quote_text}
+              {currentQuote.quote_text && (
+                <p style={{ ...quoteStyle, textAlign: 'left' }} className="mb-4 transition-opacity duration-300">
+                  {currentQuote.quote_text}
                 </p>
               )}
-              {author_name && (
+              {currentQuote.author_name && (
                 <p style={{ ...nameStyle, textAlign: 'left' }}>
-                  — {author_name}
+                  — {currentQuote.author_name}
                 </p>
               )}
             </div>
           </div>
+        )}
+
+        {allQuotes.length > 1 && (
+          <>
+            {show_navigation && (
+              <div className="flex justify-center gap-4 mt-6">
+                <button
+                  onClick={goToPrev}
+                  className="p-2 rounded-full bg-white/80 hover:bg-white shadow-sm transition-colors"
+                  aria-label="Previous quote"
+                >
+                  <ChevronLeft className="w-5 h-5 text-slate-600" />
+                </button>
+                <button
+                  onClick={goToNext}
+                  className="p-2 rounded-full bg-white/80 hover:bg-white shadow-sm transition-colors"
+                  aria-label="Next quote"
+                >
+                  <ChevronRight className="w-5 h-5 text-slate-600" />
+                </button>
+              </div>
+            )}
+
+            {show_indicators && (
+              <div className="flex justify-center gap-2 mt-4">
+                {allQuotes.map((_, index) => (
+                  <button
+                    key={index}
+                    onClick={() => setCurrentIndex(index)}
+                    className={`w-2 h-2 rounded-full transition-colors ${
+                      index === currentIndex 
+                        ? 'bg-slate-600' 
+                        : 'bg-slate-300 hover:bg-slate-400'
+                    }`}
+                    aria-label={`Go to quote ${index + 1}`}
+                  />
+                ))}
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
@@ -228,7 +318,8 @@ export function IEditQuoteElementEditor({ element, onChange }) {
   const content = element.content || {};
   const [isUploading, setIsUploading] = useState({});
   const [expandedSections, setExpandedSections] = useState({
-    content: true,
+    quotes: true,
+    carousel: true,
     background: false,
     box: false,
     quoteTypography: false,
@@ -236,6 +327,9 @@ export function IEditQuoteElementEditor({ element, onChange }) {
     quoteMarks: false,
     profile: false
   });
+  const [expandedQuoteIndex, setExpandedQuoteIndex] = useState(0);
+
+  const quotes = content.quotes || [];
 
   const toggleSection = (section) => {
     setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
@@ -245,7 +339,41 @@ export function IEditQuoteElementEditor({ element, onChange }) {
     onChange({ ...element, content: { ...content, [key]: value } });
   };
 
-  const handleImageUpload = async (file, field) => {
+  const addQuote = () => {
+    if (quotes.length >= 10) {
+      alert('Maximum of 10 quotes allowed');
+      return;
+    }
+    const newQuotes = [...quotes, { quote_text: '', author_name: '', profile_image_url: '' }];
+    updateContent('quotes', newQuotes);
+    setExpandedQuoteIndex(newQuotes.length - 1);
+  };
+
+  const removeQuote = (index) => {
+    const newQuotes = quotes.filter((_, i) => i !== index);
+    updateContent('quotes', newQuotes);
+    if (expandedQuoteIndex >= newQuotes.length) {
+      setExpandedQuoteIndex(Math.max(0, newQuotes.length - 1));
+    }
+  };
+
+  const updateQuote = (index, field, value) => {
+    const newQuotes = [...quotes];
+    newQuotes[index] = { ...newQuotes[index], [field]: value };
+    updateContent('quotes', newQuotes);
+  };
+
+  const moveQuote = (index, direction) => {
+    const newIndex = index + direction;
+    if (newIndex < 0 || newIndex >= quotes.length) return;
+    
+    const newQuotes = [...quotes];
+    [newQuotes[index], newQuotes[newIndex]] = [newQuotes[newIndex], newQuotes[index]];
+    updateContent('quotes', newQuotes);
+    setExpandedQuoteIndex(newIndex);
+  };
+
+  const handleImageUpload = async (file, field, quoteIndex = null) => {
     if (!file) return;
 
     const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
@@ -259,15 +387,22 @@ export function IEditQuoteElementEditor({ element, onChange }) {
       return;
     }
 
-    setIsUploading(prev => ({ ...prev, [field]: true }));
+    const uploadKey = quoteIndex !== null ? `quote_${quoteIndex}_${field}` : field;
+    setIsUploading(prev => ({ ...prev, [uploadKey]: true }));
+    
     try {
       const { base44 } = await import("@/api/base44Client");
       const response = await base44.integrations.Core.UploadFile({ file });
-      updateContent(field, response.file_url);
+      
+      if (quoteIndex !== null) {
+        updateQuote(quoteIndex, field, response.file_url);
+      } else {
+        updateContent(field, response.file_url);
+      }
     } catch (error) {
       alert('Failed to upload image: ' + error.message);
     } finally {
-      setIsUploading(prev => ({ ...prev, [field]: false }));
+      setIsUploading(prev => ({ ...prev, [uploadKey]: false }));
     }
   };
 
@@ -287,9 +422,137 @@ export function IEditQuoteElementEditor({ element, onChange }) {
 
   return (
     <div className="space-y-4">
-      {/* Content Section */}
-      <SectionHeader title="Content" section="content" />
-      {expandedSections.content && (
+      {/* Quotes Section */}
+      <SectionHeader title={`Quotes (${quotes.length}/10)`} section="quotes" />
+      {expandedSections.quotes && (
+        <div className="space-y-3 pl-2">
+          {quotes.length === 0 && (
+            <p className="text-sm text-slate-500 italic">No quotes added yet. Click "Add Quote" to get started.</p>
+          )}
+          
+          {quotes.map((quote, index) => (
+            <div key={index} className="border border-slate-200 rounded-lg overflow-hidden">
+              <div 
+                className="flex items-center gap-2 p-2 bg-slate-50 cursor-pointer"
+                onClick={() => setExpandedQuoteIndex(expandedQuoteIndex === index ? -1 : index)}
+              >
+                <GripVertical className="w-4 h-4 text-slate-400" />
+                <span className="flex-1 text-sm font-medium truncate">
+                  {quote.author_name || quote.quote_text?.substring(0, 30) || `Quote ${index + 1}`}
+                  {quote.quote_text && quote.quote_text.length > 30 && '...'}
+                </span>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); moveQuote(index, -1); }}
+                    disabled={index === 0}
+                    className="p-1 text-slate-400 hover:text-slate-600 disabled:opacity-30"
+                  >
+                    <ChevronUp className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); moveQuote(index, 1); }}
+                    disabled={index === quotes.length - 1}
+                    className="p-1 text-slate-400 hover:text-slate-600 disabled:opacity-30"
+                  >
+                    <ChevronDown className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); removeQuote(index); }}
+                    className="p-1 text-red-400 hover:text-red-600"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+              
+              {expandedQuoteIndex === index && (
+                <div className="p-3 space-y-3 bg-white">
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Quote Text</label>
+                    <textarea
+                      value={quote.quote_text || ''}
+                      onChange={(e) => updateQuote(index, 'quote_text', e.target.value)}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+                      rows={3}
+                      placeholder="Enter the quote text..."
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Author Name</label>
+                    <input
+                      type="text"
+                      value={quote.author_name || ''}
+                      onChange={(e) => updateQuote(index, 'author_name', e.target.value)}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+                      placeholder="Author name"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Profile Picture</label>
+                    <div className="space-y-2">
+                      <label className="inline-block">
+                        <div className={`px-3 py-1.5 rounded-md text-xs font-medium cursor-pointer ${
+                          isUploading[`quote_${index}_profile_image_url`]
+                            ? 'bg-slate-300 cursor-not-allowed' 
+                            : 'bg-blue-600 hover:bg-blue-700 text-white'
+                        }`}>
+                          {isUploading[`quote_${index}_profile_image_url`] ? 'Uploading...' : 'Upload'}
+                        </div>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) handleImageUpload(file, 'profile_image_url', index);
+                            e.target.value = '';
+                          }}
+                          className="hidden"
+                          disabled={isUploading[`quote_${index}_profile_image_url`]}
+                        />
+                      </label>
+                    </div>
+                    {quote.profile_image_url && (
+                      <div className="mt-2 relative inline-block">
+                        <img
+                          src={quote.profile_image_url}
+                          alt="Profile"
+                          className="w-16 h-16 object-cover rounded-full"
+                        />
+                        <button
+                          onClick={() => updateQuote(index, 'profile_image_url', '')}
+                          className="absolute -top-1 -right-1 p-0.5 bg-red-600 hover:bg-red-700 text-white rounded-full"
+                          type="button"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+          
+          <button
+            type="button"
+            onClick={addQuote}
+            disabled={quotes.length >= 10}
+            className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Plus className="w-4 h-4" />
+            Add Quote
+          </button>
+        </div>
+      )}
+
+      {/* Carousel Settings Section */}
+      <SectionHeader title="Carousel Settings" section="carousel" />
+      {expandedSections.carousel && (
         <div className="space-y-3 pl-2">
           <div>
             <label className="block text-sm font-medium mb-1">Layout</label>
@@ -304,67 +567,55 @@ export function IEditQuoteElementEditor({ element, onChange }) {
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-1">Quote Text</label>
-            <textarea
-              value={content.quote_text || ''}
-              onChange={(e) => updateContent('quote_text', e.target.value)}
-              className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
-              rows={4}
-              placeholder="Enter the quote text..."
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">Author Name</label>
+            <label className="block text-sm font-medium mb-1">
+              Auto-rotate Delay: {((content.carousel_delay || 5000) / 1000).toFixed(1)}s
+            </label>
             <input
-              type="text"
-              value={content.author_name || ''}
-              onChange={(e) => updateContent('author_name', e.target.value)}
-              className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
-              placeholder="Author name"
+              type="range"
+              min="2000"
+              max="15000"
+              step="500"
+              value={content.carousel_delay || 5000}
+              onChange={(e) => updateContent('carousel_delay', parseInt(e.target.value))}
+              className="w-full"
             />
+            <div className="flex justify-between text-xs text-slate-500 mt-1">
+              <span>2s</span>
+              <span>15s</span>
+            </div>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium mb-1">Profile Picture</label>
-            <div className="space-y-2">
-              <label className="inline-block">
-                <div className={`px-4 py-2 rounded-md text-sm font-medium cursor-pointer ${
-                  isUploading.profile_image_url
-                    ? 'bg-slate-300 cursor-not-allowed' 
-                    : 'bg-blue-600 hover:bg-blue-700 text-white'
-                }`}>
-                  {isUploading.profile_image_url ? 'Uploading...' : 'Upload Image'}
-                </div>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) handleImageUpload(file, 'profile_image_url');
-                    e.target.value = '';
-                  }}
-                  className="hidden"
-                  disabled={isUploading.profile_image_url}
-                />
-              </label>
-            </div>
-            {content.profile_image_url && (
-              <div className="mt-2 relative inline-block">
-                <img
-                  src={content.profile_image_url}
-                  alt="Profile"
-                  className="w-20 h-20 object-cover rounded-full"
-                />
-                <button
-                  onClick={() => updateContent('profile_image_url', '')}
-                  className="absolute -top-2 -right-2 p-1 bg-red-600 hover:bg-red-700 text-white rounded-full"
-                  type="button"
-                >
-                  <X className="w-3 h-3" />
-                </button>
-              </div>
-            )}
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              id="show_navigation"
+              checked={content.show_navigation !== false}
+              onChange={(e) => updateContent('show_navigation', e.target.checked)}
+              className="rounded"
+            />
+            <label htmlFor="show_navigation" className="text-sm">Show navigation arrows</label>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              id="show_indicators"
+              checked={content.show_indicators !== false}
+              onChange={(e) => updateContent('show_indicators', e.target.checked)}
+              className="rounded"
+            />
+            <label htmlFor="show_indicators" className="text-sm">Show dot indicators</label>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              id="pause_on_hover"
+              checked={content.pause_on_hover !== false}
+              onChange={(e) => updateContent('pause_on_hover', e.target.checked)}
+              className="rounded"
+            />
+            <label htmlFor="pause_on_hover" className="text-sm">Pause on hover</label>
           </div>
         </div>
       )}
@@ -618,239 +869,225 @@ export function IEditQuoteElementEditor({ element, onChange }) {
             value={content.quote_typography_style_id}
             onChange={(styleId) => updateContent('quote_typography_style_id', styleId)}
             onApplyStyle={(style) => {
-              const styleProps = applyTypographyStyle(style);
-              if (styleProps.font_family) updateContent('quote_font_family', styleProps.font_family);
-              if (styleProps.font_size) updateContent('quote_font_size', styleProps.font_size);
-              if (styleProps.font_size_mobile) updateContent('quote_font_size_mobile', styleProps.font_size_mobile);
-              if (styleProps.font_weight) updateContent('quote_font_weight', styleProps.font_weight);
-              if (styleProps.line_height) updateContent('quote_line_height', styleProps.line_height);
-              if (styleProps.letter_spacing) updateContent('quote_letter_spacing', styleProps.letter_spacing);
-              if (styleProps.text_transform) updateContent('quote_text_transform', styleProps.text_transform);
-              if (styleProps.color) updateContent('quote_color', styleProps.color);
-              updateContent('quote_typography_style_id', style.id);
+              const mapped = applyTypographyStyle(style);
+              if (mapped.font_family) updateContent('quote_font_family', mapped.font_family);
+              if (mapped.font_size) updateContent('quote_font_size', mapped.font_size);
+              if (mapped.font_weight) updateContent('quote_font_weight', mapped.font_weight);
+              if (mapped.line_height) updateContent('quote_line_height', mapped.line_height);
+              if (mapped.letter_spacing !== undefined) updateContent('quote_letter_spacing', mapped.letter_spacing);
+              if (mapped.color) updateContent('quote_color', mapped.color);
             }}
-            filterTypes={['paragraph', 'h3', 'h4']}
+            filterTypes={['paragraph', 'quote']}
             label="Quote Typography Style"
           />
-          
-          <details className="text-xs">
-            <summary className="cursor-pointer text-slate-500 hover:text-slate-700 font-medium">Manual Font Settings</summary>
-            <div className="space-y-3 mt-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Font Family</label>
-                  <select
-                    value={content.quote_font_family || 'Georgia'}
-                    onChange={(e) => updateContent('quote_font_family', e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
-                  >
-                    {fontFamilies.map(font => (
-                      <option key={font} value={font}>{font}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Font Weight</label>
-                  <select
-                    value={content.quote_font_weight || 400}
-                    onChange={(e) => updateContent('quote_font_weight', parseInt(e.target.value))}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
-                  >
-                    {fontWeights.map(w => (
-                      <option key={w.value} value={w.value}>{w.label}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Font Size (px)</label>
-                  <input
-                    type="number"
-                    value={content.quote_font_size || 20}
-                    onChange={(e) => updateContent('quote_font_size', parseInt(e.target.value))}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
-                    min="10"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Font Style</label>
-                  <select
-                    value={content.quote_font_style || 'italic'}
-                    onChange={(e) => updateContent('quote_font_style', e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
-                  >
-                    <option value="normal">Normal</option>
-                    <option value="italic">Italic</option>
-                  </select>
-                </div>
-              </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Font Family</label>
+            <select
+              value={content.quote_font_family || 'Georgia'}
+              onChange={(e) => updateContent('quote_font_family', e.target.value)}
+              className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+            >
+              {fontFamilies.map(font => (
+                <option key={font} value={font}>{font}</option>
+              ))}
+            </select>
+          </div>
 
-              <div>
-                <label className="block text-sm font-medium mb-1">Text Color</label>
-                <div className="flex gap-2 items-center">
-                  <input
-                    type="color"
-                    value={content.quote_color || '#1e293b'}
-                    onChange={(e) => updateContent('quote_color', e.target.value)}
-                    className="w-16 h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
-                  />
-                  <input
-                    type="text"
-                    value={content.quote_color || '#1e293b'}
-                    onChange={(e) => updateContent('quote_color', e.target.value)}
-                    className="flex-1 px-3 py-2 border border-slate-300 rounded-md font-mono text-sm"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Letter Spacing (px)</label>
-                  <input
-                    type="number"
-                    value={content.quote_letter_spacing || 0}
-                    onChange={(e) => updateContent('quote_letter_spacing', parseFloat(e.target.value))}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
-                    step="0.5"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Line Height</label>
-                  <input
-                    type="number"
-                    value={content.quote_line_height || 1.6}
-                    onChange={(e) => updateContent('quote_line_height', parseFloat(e.target.value))}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
-                    step="0.1"
-                    min="1"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-1">Text Alignment</label>
-                <select
-                  value={content.quote_align || 'center'}
-                  onChange={(e) => updateContent('quote_align', e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
-                >
-                  <option value="left">Left</option>
-                  <option value="center">Center</option>
-                  <option value="right">Right</option>
-                </select>
-              </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium mb-1">Font Size (px)</label>
+              <input
+                type="number"
+                value={content.quote_font_size || 20}
+                onChange={(e) => updateContent('quote_font_size', parseInt(e.target.value))}
+                className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+                min="12"
+              />
             </div>
-          </details>
+            <div>
+              <label className="block text-sm font-medium mb-1">Font Weight</label>
+              <select
+                value={content.quote_font_weight || 400}
+                onChange={(e) => updateContent('quote_font_weight', parseInt(e.target.value))}
+                className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+              >
+                {fontWeights.map(w => (
+                  <option key={w.value} value={w.value}>{w.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium mb-1">Font Style</label>
+              <select
+                value={content.quote_font_style || 'italic'}
+                onChange={(e) => updateContent('quote_font_style', e.target.value)}
+                className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+              >
+                <option value="normal">Normal</option>
+                <option value="italic">Italic</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Text Align</label>
+              <select
+                value={content.quote_align || 'center'}
+                onChange={(e) => updateContent('quote_align', e.target.value)}
+                className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+              >
+                <option value="left">Left</option>
+                <option value="center">Center</option>
+                <option value="right">Right</option>
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1">Text Color</label>
+            <div className="flex gap-2 items-center">
+              <input
+                type="color"
+                value={content.quote_color || '#1e293b'}
+                onChange={(e) => updateContent('quote_color', e.target.value)}
+                className="w-16 h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+              />
+              <input
+                type="text"
+                value={content.quote_color || '#1e293b'}
+                onChange={(e) => updateContent('quote_color', e.target.value)}
+                className="flex-1 px-3 py-2 border border-slate-300 rounded-md font-mono text-sm"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium mb-1">Letter Spacing (px)</label>
+              <input
+                type="number"
+                value={content.quote_letter_spacing || 0}
+                onChange={(e) => updateContent('quote_letter_spacing', parseFloat(e.target.value))}
+                className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+                step="0.1"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Line Height</label>
+              <input
+                type="number"
+                value={content.quote_line_height || 1.6}
+                onChange={(e) => updateContent('quote_line_height', parseFloat(e.target.value))}
+                className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+                step="0.1"
+                min="1"
+              />
+            </div>
+          </div>
         </div>
       )}
 
       {/* Name Typography Section */}
-      <SectionHeader title="Name Typography" section="nameTypography" />
+      <SectionHeader title="Author Typography" section="nameTypography" />
       {expandedSections.nameTypography && (
         <div className="space-y-3 pl-2">
           <TypographyStyleSelector
             value={content.name_typography_style_id}
             onChange={(styleId) => updateContent('name_typography_style_id', styleId)}
             onApplyStyle={(style) => {
-              const styleProps = applyTypographyStyle(style);
-              if (styleProps.font_family) updateContent('name_font_family', styleProps.font_family);
-              if (styleProps.font_size) updateContent('name_font_size', styleProps.font_size);
-              if (styleProps.font_size_mobile) updateContent('name_font_size_mobile', styleProps.font_size_mobile);
-              if (styleProps.font_weight) updateContent('name_font_weight', styleProps.font_weight);
-              if (styleProps.letter_spacing) updateContent('name_letter_spacing', styleProps.letter_spacing);
-              if (styleProps.color) updateContent('name_color', styleProps.color);
-              updateContent('name_typography_style_id', style.id);
+              const mapped = applyTypographyStyle(style);
+              if (mapped.font_family) updateContent('name_font_family', mapped.font_family);
+              if (mapped.font_size) updateContent('name_font_size', mapped.font_size);
+              if (mapped.font_weight) updateContent('name_font_weight', mapped.font_weight);
+              if (mapped.letter_spacing !== undefined) updateContent('name_letter_spacing', mapped.letter_spacing);
+              if (mapped.color) updateContent('name_color', mapped.color);
             }}
             filterTypes={['paragraph']}
-            label="Name Typography Style"
+            label="Author Typography Style"
           />
-          
-          <details className="text-xs">
-            <summary className="cursor-pointer text-slate-500 hover:text-slate-700 font-medium">Manual Font Settings</summary>
-            <div className="space-y-3 mt-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Font Family</label>
-                  <select
-                    value={content.name_font_family || 'Poppins'}
-                    onChange={(e) => updateContent('name_font_family', e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
-                  >
-                    {fontFamilies.map(font => (
-                      <option key={font} value={font}>{font}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Font Weight</label>
-                  <select
-                    value={content.name_font_weight || 600}
-                    onChange={(e) => updateContent('name_font_weight', parseInt(e.target.value))}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
-                  >
-                    {fontWeights.map(w => (
-                      <option key={w.value} value={w.value}>{w.label}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
 
-              <div>
-                <label className="block text-sm font-medium mb-1">Font Size (px)</label>
-                <input
-                  type="number"
-                  value={content.name_font_size || 16}
-                  onChange={(e) => updateContent('name_font_size', parseInt(e.target.value))}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
-                  min="10"
-                />
-              </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Font Family</label>
+            <select
+              value={content.name_font_family || 'Poppins'}
+              onChange={(e) => updateContent('name_font_family', e.target.value)}
+              className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+            >
+              {fontFamilies.map(font => (
+                <option key={font} value={font}>{font}</option>
+              ))}
+            </select>
+          </div>
 
-              <div>
-                <label className="block text-sm font-medium mb-1">Text Color</label>
-                <div className="flex gap-2 items-center">
-                  <input
-                    type="color"
-                    value={content.name_color || '#475569'}
-                    onChange={(e) => updateContent('name_color', e.target.value)}
-                    className="w-16 h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
-                  />
-                  <input
-                    type="text"
-                    value={content.name_color || '#475569'}
-                    onChange={(e) => updateContent('name_color', e.target.value)}
-                    className="flex-1 px-3 py-2 border border-slate-300 rounded-md font-mono text-sm"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-1">Letter Spacing (px)</label>
-                <input
-                  type="number"
-                  value={content.name_letter_spacing || 0}
-                  onChange={(e) => updateContent('name_letter_spacing', parseFloat(e.target.value))}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
-                  step="0.5"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-1">Text Alignment</label>
-                <select
-                  value={content.name_align || 'center'}
-                  onChange={(e) => updateContent('name_align', e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
-                >
-                  <option value="left">Left</option>
-                  <option value="center">Center</option>
-                  <option value="right">Right</option>
-                </select>
-              </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium mb-1">Font Size (px)</label>
+              <input
+                type="number"
+                value={content.name_font_size || 16}
+                onChange={(e) => updateContent('name_font_size', parseInt(e.target.value))}
+                className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+                min="10"
+              />
             </div>
-          </details>
+            <div>
+              <label className="block text-sm font-medium mb-1">Font Weight</label>
+              <select
+                value={content.name_font_weight || 600}
+                onChange={(e) => updateContent('name_font_weight', parseInt(e.target.value))}
+                className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+              >
+                {fontWeights.map(w => (
+                  <option key={w.value} value={w.value}>{w.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1">Text Color</label>
+            <div className="flex gap-2 items-center">
+              <input
+                type="color"
+                value={content.name_color || '#475569'}
+                onChange={(e) => updateContent('name_color', e.target.value)}
+                className="w-16 h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+              />
+              <input
+                type="text"
+                value={content.name_color || '#475569'}
+                onChange={(e) => updateContent('name_color', e.target.value)}
+                className="flex-1 px-3 py-2 border border-slate-300 rounded-md font-mono text-sm"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium mb-1">Letter Spacing (px)</label>
+              <input
+                type="number"
+                value={content.name_letter_spacing || 0}
+                onChange={(e) => updateContent('name_letter_spacing', parseFloat(e.target.value))}
+                className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+                step="0.1"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Text Align</label>
+              <select
+                value={content.name_align || 'center'}
+                onChange={(e) => updateContent('name_align', e.target.value)}
+                className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+              >
+                <option value="left">Left</option>
+                <option value="center">Center</option>
+                <option value="right">Right</option>
+              </select>
+            </div>
+          </div>
         </div>
       )}
 
@@ -927,7 +1164,6 @@ export function IEditQuoteElementEditor({ element, onChange }) {
               min="0"
               max="50"
             />
-            <p className="text-xs text-slate-500 mt-1">50% = circle, 0% = square</p>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
