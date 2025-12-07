@@ -152,11 +152,15 @@ export function IEditAccordionElementEditor({ element, onChange }) {
   );
 
   // Filter files based on folder and search
+  // When no folder selected (root view), show ALL files to make selection easier
+  // When a folder is selected, show only files in that folder
   const filteredRepositoryFiles = useMemo(() => {
     return repositoryFiles.filter(file => {
+      // When at root (null), show ALL files; when folder selected, filter by folder
+      // Use string comparison to handle potential type mismatches (number vs string IDs)
       const matchesFolder = fileSelectorFolder === null 
-        ? !file.folder_id 
-        : file.folder_id === fileSelectorFolder;
+        ? true  // Show all files when at root
+        : String(file.folder_id) === String(fileSelectorFolder);
       
       const matchesSearch = !fileSelectorSearch || 
         file.file_name?.toLowerCase().includes(fileSelectorSearch.toLowerCase()) ||
@@ -195,9 +199,9 @@ export function IEditAccordionElementEditor({ element, onChange }) {
     return pages;
   };
 
-  // Get file count per folder
+  // Get file count per folder - use string comparison for ID matching
   const getFileSelectorFolderFileCount = (folderId) => {
-    return repositoryFiles.filter(f => f.folder_id === folderId).length;
+    return repositoryFiles.filter(f => String(f.folder_id) === String(folderId)).length;
   };
 
   // Toggle folder expansion in file selector
@@ -1343,7 +1347,7 @@ export function IEditAccordionElementEditor({ element, onChange }) {
                   className="flex items-center gap-1 text-xs text-slate-600 hover:text-slate-900"
                 >
                   <Home className="w-3 h-3" />
-                  Root
+                  All Files
                 </button>
                 {fileSelectorBreadcrumb.map((folder, idx) => (
                   <span key={folder.id} className="inline-flex items-center">
@@ -1377,9 +1381,9 @@ export function IEditAccordionElementEditor({ element, onChange }) {
                   }}
                 >
                   <FolderOpen className="w-4 h-4 text-slate-600" />
-                  <span className="flex-1 text-sm font-medium">Root</span>
+                  <span className="flex-1 text-sm font-medium">All Files</span>
                   <span className="text-xs text-slate-500">
-                    ({repositoryFiles.filter(f => !f.folder_id).length})
+                    ({repositoryFiles.length})
                   </span>
                 </div>
                 {renderFileSelectorFolderTree(fileSelectorFolderHierarchy)}
