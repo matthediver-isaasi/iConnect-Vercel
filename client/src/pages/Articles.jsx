@@ -45,15 +45,9 @@ export default function ArticlesPage() {
     enabled: !!memberInfo
   });
 
-  // Fetch current member for author comparison
-  const { data: currentMember } = useQuery({
-    queryKey: ['current-member', memberInfo?.email],
-    queryFn: async () => {
-      const allMembers = await base44.entities.Member.listAll();
-      return allMembers.find(m => m.email === memberInfo?.email) || null;
-    },
-    enabled: !!memberInfo
-  });
+  // Use memberInfo.id directly for author comparison - no need to look up by email
+  // This ensures consistency with how articles are created (using memberInfo.id as author_id)
+  const currentMemberId = memberInfo?.id;
 
   const { data: articles = [], isLoading: articlesLoading } = useQuery({
     queryKey: ['published-articles'],
@@ -196,11 +190,17 @@ export default function ArticlesPage() {
       const matchesSubcategory = selectedSubcategories.length === 0 ||
         (article.subcategories && article.subcategories.some(sub => selectedSubcategories.includes(sub)));
 
-      const matchesAuthor = !showMyArticlesOnly || article.author_id === currentMember?.id;
+      // Use String() for type-safe comparison since IDs may be numbers or strings
+      const matchesAuthor = !showMyArticlesOnly || String(article.author_id) === String(currentMemberId);
+
+      // Debug logging for author matching
+      if (showMyArticlesOnly) {
+        console.log('[Articles] Checking article:', article.title, 'author_id:', article.author_id, 'currentMemberId:', currentMemberId, 'match:', String(article.author_id) === String(currentMemberId));
+      }
 
       return matchesSearch && matchesSubcategory && matchesAuthor;
     });
-  }, [articles, searchQuery, selectedSubcategories, showMyArticlesOnly, currentMember?.id]);
+  }, [articles, searchQuery, selectedSubcategories, showMyArticlesOnly, currentMemberId]);
 
   const sortedArticles = useMemo(() => {
     const sorted = [...filteredArticles];
@@ -465,7 +465,7 @@ export default function ArticlesPage() {
                       displayName={articleDisplayName}
                       hasAdminEditPermission={hasAdminEditPermission}
                       hasAdminDeletePermission={hasAdminDeletePermission}
-                      currentMemberId={currentMember?.id}
+                      currentMemberId={currentMemberId}
                       onEdit={handleEditArticle}
                       onDelete={handleDeleteArticle}
                     />
