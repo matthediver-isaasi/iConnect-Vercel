@@ -1,72 +1,284 @@
-import React from "react";
+import { useState, useEffect } from "react";
+import ReactMarkdown from "react-markdown";
 import { base44 } from "@/api/base44Client";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { Upload, Loader2, Trash2, ArrowRight, ExternalLink, Image as ImageIcon } from "lucide-react";
+import { Upload, Loader2, Trash2, ArrowRight, ExternalLink, Image as ImageIcon, ChevronDown, ChevronUp, X } from "lucide-react";
 import { toast } from "sonner";
 import { useQuery } from "@tanstack/react-query";
 import TypographyStyleSelector, { applyTypographyStyle } from "../TypographyStyleSelector";
+import { useIsMobile } from "@/hooks/use-mobile";
+
+const fontFamilies = [
+  'Poppins',
+  'Degular Medium', 
+  'Degular Bold',
+  'Degular Semibold',
+  'Inter',
+  'Arial',
+  'Georgia',
+  'Times New Roman'
+];
+
+const fontWeights = [
+  { value: 300, label: 'Light' },
+  { value: 400, label: 'Regular' },
+  { value: 500, label: 'Medium' },
+  { value: 600, label: 'Semibold' },
+  { value: 700, label: 'Bold' },
+  { value: 800, label: 'Extra Bold' }
+];
+
+const safeHexColor = (color, fallback = '#000000') => {
+  if (!color || typeof color !== 'string') return fallback;
+  const trimmed = color.trim();
+  if (/^#[0-9A-Fa-f]{6}$/.test(trimmed)) return trimmed;
+  if (/^#[0-9A-Fa-f]{3}$/.test(trimmed)) {
+    return '#' + trimmed[1] + trimmed[1] + trimmed[2] + trimmed[2] + trimmed[3] + trimmed[3];
+  }
+  return fallback;
+};
+
+export default function IEditCardDeckElement({ content, variant, settings }) {
+  const isMobile = useIsMobile();
+  
+  const {
+    background_type = 'none',
+    background_color = '#ffffff',
+    gradient_start_color = '#3b82f6',
+    gradient_end_color = '#8b5cf6',
+    gradient_angle = 135,
+    background_image_url,
+    background_image_fit = 'cover',
+    overlay_enabled = false,
+    overlay_color = '#000000',
+    overlay_opacity = 50,
+    heading,
+    subheading,
+    body_content,
+    text_alignment = 'center',
+    vertical_padding = 48,
+    horizontal_padding = 16,
+    cardCount = 3,
+    cardIds = [],
+    cardBorderRadius = 12,
+    cardBackgroundColor = '#ffffff',
+    cardShadow = true,
+    showCardImage = true,
+    imageHeightPercent = 50,
+    showCardDescription = true,
+    descriptionLineClamp = 3,
+    showCardButton = true,
+    cardButtonText = 'Learn More',
+    cardButtonBgColor = '#2563eb',
+    cardButtonTextColor = '#ffffff',
+    cardTitleFontSize = 20,
+    cardTitleColor = '#0f172a',
+    cardDescriptionFontSize = 14,
+    cardDescriptionColor = '#64748b',
+    gap = 24
+  } = content || {};
+
+  const { data: allCards = [] } = useQuery({
+    queryKey: ['card-deck-renderer'],
+    queryFn: () => base44.entities.CardDeck.list('display_order'),
+    staleTime: 60000,
+  });
+
+  const selectedCards = (cardIds || [])
+    .filter(id => id)
+    .map(id => allCards.find(c => c.id === id))
+    .filter(Boolean)
+    .slice(0, cardCount);
+
+  const getBackgroundStyle = () => {
+    if (background_type === 'color') {
+      return { backgroundColor: background_color };
+    }
+    if (background_type === 'gradient') {
+      return { 
+        background: `linear-gradient(${gradient_angle}deg, ${gradient_start_color}, ${gradient_end_color})` 
+      };
+    }
+    return {};
+  };
+
+  const hasBackground = background_type && background_type !== 'none';
+
+  const getTextStyle = (prefix) => {
+    const fontSize = content?.[`${prefix}_font_size`] || 16;
+    const mobileFontSize = content?.[`${prefix}_font_size_mobile`];
+    
+    return {
+      fontFamily: content?.[`${prefix}_font_family`] || 'Poppins',
+      fontWeight: content?.[`${prefix}_font_weight`] || 400,
+      fontSize: `${(isMobile && mobileFontSize) ? mobileFontSize : fontSize}px`,
+      color: content?.[`${prefix}_color`] || '#1e293b',
+      letterSpacing: `${content?.[`${prefix}_letter_spacing`] || 0}px`,
+      lineHeight: content?.[`${prefix}_line_height`] || 1.5
+    };
+  };
+
+  const alignmentClass = {
+    left: 'text-left',
+    center: 'text-center',
+    right: 'text-right'
+  }[text_alignment] || 'text-center';
+
+  const getGridCols = () => {
+    if (cardCount === 2) return 'grid-cols-1 md:grid-cols-2';
+    if (cardCount === 3) return 'grid-cols-1 md:grid-cols-3';
+    if (cardCount === 4) return 'grid-cols-1 md:grid-cols-2 lg:grid-cols-4';
+    if (cardCount === 6) return 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3';
+    return 'grid-cols-1 md:grid-cols-3';
+  };
+
+  return (
+    <div 
+      className="relative w-full"
+      style={hasBackground && background_type !== 'image' ? getBackgroundStyle() : {}}
+    >
+      {background_type === 'image' && background_image_url && (
+        <>
+          <img 
+            src={background_image_url} 
+            alt="Background" 
+            className="absolute inset-0 w-full h-full"
+            style={{ objectFit: background_image_fit }}
+          />
+          {overlay_enabled && (
+            <div 
+              className="absolute inset-0" 
+              style={{ 
+                backgroundColor: overlay_color, 
+                opacity: parseInt(overlay_opacity) / 100 
+              }} 
+            />
+          )}
+        </>
+      )}
+
+      <div 
+        className="relative max-w-7xl mx-auto"
+        style={{ 
+          paddingTop: `${vertical_padding}px`, 
+          paddingBottom: `${vertical_padding}px`,
+          paddingLeft: `${horizontal_padding}px`,
+          paddingRight: `${horizontal_padding}px`
+        }}
+      >
+        {(heading || subheading || body_content) && (
+          <div className={`mb-8 ${alignmentClass}`}>
+            {heading && (
+              <h2 style={getTextStyle('heading')} className="m-0 mb-4">
+                {heading}
+              </h2>
+            )}
+            {subheading && (
+              <h3 style={getTextStyle('subheading')} className="m-0 mb-4">
+                {subheading}
+              </h3>
+            )}
+            {body_content && (
+              <div className="prose max-w-none mx-auto" style={getTextStyle('content')}>
+                <ReactMarkdown>{body_content}</ReactMarkdown>
+              </div>
+            )}
+          </div>
+        )}
+
+        {selectedCards.length > 0 ? (
+          <div className={`grid ${getGridCols()}`} style={{ gap: `${gap}px` }}>
+            {selectedCards.map((card) => (
+              <div
+                key={card.id}
+                className={`flex flex-col overflow-hidden ${cardShadow ? 'shadow-lg' : ''}`}
+                style={{
+                  backgroundColor: cardBackgroundColor,
+                  borderRadius: `${cardBorderRadius}px`
+                }}
+              >
+                {showCardImage && card.image_url && (
+                  <div 
+                    className="w-full"
+                    style={{ height: `${imageHeightPercent * 2}px` }}
+                  >
+                    <img
+                      src={card.image_url}
+                      alt={card.title || ''}
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                )}
+                <div className="flex flex-col flex-1 p-4">
+                  {card.title && (
+                    <h4 
+                      className="font-semibold m-0 mb-2"
+                      style={{ 
+                        fontSize: `${cardTitleFontSize}px`,
+                        color: cardTitleColor
+                      }}
+                    >
+                      {card.title}
+                    </h4>
+                  )}
+                  {showCardDescription && card.description && (
+                    <p 
+                      className="m-0 mb-4 flex-1"
+                      style={{
+                        fontSize: `${cardDescriptionFontSize}px`,
+                        color: cardDescriptionColor,
+                        display: '-webkit-box',
+                        WebkitLineClamp: descriptionLineClamp,
+                        WebkitBoxOrient: 'vertical',
+                        overflow: 'hidden'
+                      }}
+                    >
+                      {card.description}
+                    </p>
+                  )}
+                  {showCardButton && card.target_url && (
+                    <a
+                      href={card.target_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-md font-medium transition-colors mt-auto"
+                      style={{
+                        backgroundColor: cardButtonBgColor,
+                        color: cardButtonTextColor
+                      }}
+                    >
+                      {card.button_text || cardButtonText}
+                      <ArrowRight className="w-4 h-4" />
+                    </a>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="text-center py-12 text-slate-500">
+            No cards selected. Please select cards in the editor.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export function IEditCardDeckElementEditor({ element, onChange }) {
-  const [isUploadingBg, setIsUploadingBg] = React.useState(false);
-  
-  const defaultContent = {
-    headerText: '',
-    subheaderText: '',
-    heading_font_family: 'Poppins',
-    heading_font_size: 36,
-    heading_font_size_mobile: 28,
-    heading_letter_spacing: 0,
-    heading_color: '#0f172a',
-    heading_underline_enabled: false,
-    heading_underline_color: '#000000',
-    heading_underline_width: 100,
-    heading_underline_weight: 2,
-    heading_underline_spacing: 16,
-    heading_underline_to_content_spacing: 24,
-    heading_underline_alignment: 'center',
-    subheading_font_family: 'Poppins',
-    subheading_font_size: 18,
-    subheading_font_size_mobile: 16,
-    subheading_color: '#64748b',
-    text_align: 'center',
-    backgroundColor: '#ffffff',
-    gradient_enabled: false,
-    gradient_start_color: '#3b82f6',
-    gradient_end_color: '#8b5cf6',
-    gradient_angle: 135,
-    backgroundImage: '',
-    padding_top: 48,
-    padding_bottom: 48,
-    padding_left: 16,
-    padding_right: 16,
-    cardCount: 3,
-    cardIds: ['', '', '', '', '', ''],
-    cardHeight: 'auto',
-    cardMinHeight: 300,
-    cardBorderRadius: 12,
-    cardBackgroundColor: '#ffffff',
-    cardShadow: true,
-    showCardImage: true,
-    imageHeightPercent: 50,
-    showCardDescription: true,
-    descriptionLineClamp: 3,
-    showCardButton: true,
-    cardButtonText: 'Learn More',
-    cardButtonBgColor: '#2563eb',
-    cardButtonTextColor: '#ffffff',
-    cardTitleFontSize: 20,
-    cardTitleFontSize_mobile: 18,
-    cardTitleColor: '#0f172a',
-    cardDescriptionFontSize: 14,
-    cardDescriptionColor: '#64748b',
-    gap: 24
-  };
-  
-  const [content, setContent] = React.useState({ ...defaultContent, ...(element.content || {}) });
+  const content = element.content || {};
+  const [isUploading, setIsUploading] = useState({});
+  const [expandedSections, setExpandedSections] = useState({
+    text: true,
+    background: false,
+    cards: true,
+    cardStyling: false,
+    buttonOptions: false
+  });
 
   const { data: cards = [] } = useQuery({
     queryKey: ['card-deck-list'],
@@ -78,9 +290,11 @@ export function IEditCardDeckElementEditor({ element, onChange }) {
   const activeCards = cards.filter(c => c.status === 'active');
 
   const updateContent = (key, value) => {
-    const newContent = { ...content, [key]: value };
-    setContent(newContent);
-    onChange({ ...element, content: newContent });
+    onChange({ ...element, content: { ...content, [key]: value } });
+  };
+
+  const updateMultipleContent = (updates) => {
+    onChange({ ...element, content: { ...content, ...updates } });
   };
 
   const updateCardId = (index, value) => {
@@ -89,10 +303,14 @@ export function IEditCardDeckElementEditor({ element, onChange }) {
     updateContent('cardIds', newCardIds);
   };
 
-  const handleBgImageUpload = async (file) => {
+  const toggleSection = (section) => {
+    setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
+  };
+
+  const handleImageUpload = async (file, field) => {
     if (!file) return;
 
-    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'];
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
     if (!allowedTypes.includes(file.type)) {
       toast.error('Please upload a valid image file');
       return;
@@ -103,820 +321,762 @@ export function IEditCardDeckElementEditor({ element, onChange }) {
       return;
     }
 
-    setIsUploadingBg(true);
-
+    setIsUploading(prev => ({ ...prev, [field]: true }));
     try {
       const response = await base44.integrations.Core.UploadFile({ file });
-      updateContent('backgroundImage', response.file_url);
+      updateContent(field, response.file_url);
       toast.success('Image uploaded');
     } catch (error) {
-      toast.error('Upload failed: ' + error.message);
+      toast.error('Failed to upload image: ' + error.message);
     } finally {
-      setIsUploadingBg(false);
+      setIsUploading(prev => ({ ...prev, [field]: false }));
     }
   };
 
+  const backgroundType = content.background_type || 'none';
+  const gradientPreview = `linear-gradient(${content.gradient_angle || 135}deg, ${content.gradient_start_color || '#3b82f6'}, ${content.gradient_end_color || '#8b5cf6'})`;
   const cardCount = content.cardCount || 3;
   const cardSlots = Array(cardCount).fill(null);
 
-  return (
-    <div className="space-y-4">
-      <div>
-        <Label htmlFor="headerText">Section Header</Label>
-        <Input
-          id="headerText"
-          value={content.headerText || ''}
-          onChange={(e) => updateContent('headerText', e.target.value)}
-          placeholder="Featured Cards"
-        />
-      </div>
+  const renderTypographyControls = (prefix, label, defaultValues = {}) => {
+    const defaults = {
+      font_family: 'Poppins',
+      font_weight: prefix.includes('heading') ? 700 : 400,
+      font_size: prefix.includes('heading') ? 32 : (prefix.includes('subheading') ? 20 : 16),
+      color: '#1e293b',
+      letter_spacing: 0,
+      line_height: prefix.includes('heading') ? 1.2 : 1.6,
+      ...defaultValues
+    };
 
-      <TypographyStyleSelector
-        value={content.heading_typography_style_id}
-        onChange={(styleId) => updateContent('heading_typography_style_id', styleId)}
-        onApplyStyle={(style) => {
-          const mapped = applyTypographyStyle(style);
-          if (mapped.font_family) updateContent('heading_font_family', mapped.font_family);
-          if (mapped.font_size) updateContent('heading_font_size', mapped.font_size);
-          if (mapped.font_size_mobile) updateContent('heading_font_size_mobile', mapped.font_size_mobile);
-          if (mapped.letter_spacing !== undefined) updateContent('heading_letter_spacing', mapped.letter_spacing);
-          if (mapped.color) updateContent('heading_color', mapped.color);
-        }}
-        filterTypes={['h1', 'h2']}
-        label="Heading Typography Style"
-      />
-
-      <details className="text-xs">
-        <summary className="cursor-pointer text-slate-500 hover:text-slate-700 font-medium">Manual Header Settings</summary>
-        <div className="mt-2 space-y-3">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label htmlFor="heading_font_family">Font</Label>
-              <Select
-                value={content.heading_font_family || 'Poppins'}
-                onValueChange={(value) => updateContent('heading_font_family', value)}
-              >
-                <SelectTrigger className="h-9">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Poppins">Poppins</SelectItem>
-                  <SelectItem value="Degular Medium">Degular Medium</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label htmlFor="heading_font_size">Size (px)</Label>
-              <Input
-                id="heading_font_size"
-                type="number"
-                value={content.heading_font_size || 36}
-                onChange={(e) => updateContent('heading_font_size', parseInt(e.target.value) || 36)}
-                min="12"
-                max="100"
-              />
-            </div>
-          </div>
-          <div>
-            <Label htmlFor="heading_color">Color</Label>
-            <div className="flex gap-2">
-              <input
-                id="heading_color"
-                type="color"
-                value={content.heading_color || '#0f172a'}
-                onChange={(e) => updateContent('heading_color', e.target.value)}
-                className="w-16 h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
-              />
-              <Input
-                value={content.heading_color || '#0f172a'}
-                onChange={(e) => updateContent('heading_color', e.target.value)}
-                className="flex-1"
-              />
-            </div>
-          </div>
-        </div>
-      </details>
-
-      <div>
-        <Label htmlFor="subheaderText">Subheader (Optional)</Label>
-        <Textarea
-          id="subheaderText"
-          value={content.subheaderText || ''}
-          onChange={(e) => updateContent('subheaderText', e.target.value)}
-          placeholder="Optional description text..."
-          rows={2}
-        />
-      </div>
-
-      <div>
-        <Label htmlFor="text_align">Text Alignment</Label>
-        <Select
-          value={content.text_align || 'center'}
-          onValueChange={(value) => updateContent('text_align', value)}
-        >
-          <SelectTrigger className="h-9">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="left">Left</SelectItem>
-            <SelectItem value="center">Center</SelectItem>
-            <SelectItem value="right">Right</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div>
-        <Label htmlFor="cardCount">Number of Cards</Label>
-        <Select
-          value={String(content.cardCount || 3)}
-          onValueChange={(value) => updateContent('cardCount', parseInt(value))}
-        >
-          <SelectTrigger className="h-9">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="2">2 Cards</SelectItem>
-            <SelectItem value="3">3 Cards</SelectItem>
-            <SelectItem value="4">4 Cards</SelectItem>
-            <SelectItem value="6">6 Cards</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div>
-        <Label>Select Cards</Label>
-        <p className="text-xs text-slate-500 mb-2">Choose cards from your Card Deck to display</p>
-        <div className="space-y-2">
-          {cardSlots.map((_, index) => (
-            <Select
-              key={index}
-              value={(Array.isArray(content.cardIds) && content.cardIds[index]) || ''}
-              onValueChange={(value) => updateCardId(index, value)}
-            >
-              <SelectTrigger className="h-9">
-                <SelectValue placeholder={`Card ${index + 1} (optional)`} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="">None</SelectItem>
-                {activeCards.map((card) => (
-                  <SelectItem key={card.id} value={card.id}>
-                    {card.title}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          ))}
-        </div>
-      </div>
-
-      <div className="space-y-3 p-3 bg-slate-50 rounded-lg">
-        <div className="flex items-center gap-2">
-          <input
-            type="checkbox"
-            id="gradient_enabled"
-            checked={content.gradient_enabled || false}
-            onChange={(e) => updateContent('gradient_enabled', e.target.checked)}
-            className="w-4 h-4"
-          />
-          <Label htmlFor="gradient_enabled" className="cursor-pointer">
-            Use Gradient Background
-          </Label>
-        </div>
-
-        {content.gradient_enabled ? (
-          <>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label htmlFor="gradient_start_color">Start Color</Label>
-                <input
-                  id="gradient_start_color"
-                  type="color"
-                  value={content.gradient_start_color || '#3b82f6'}
-                  onChange={(e) => updateContent('gradient_start_color', e.target.value)}
-                  className="w-full h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
-                />
-              </div>
-              <div>
-                <Label htmlFor="gradient_end_color">End Color</Label>
-                <input
-                  id="gradient_end_color"
-                  type="color"
-                  value={content.gradient_end_color || '#8b5cf6'}
-                  onChange={(e) => updateContent('gradient_end_color', e.target.value)}
-                  className="w-full h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
-                />
-              </div>
-            </div>
-            <div>
-              <Label htmlFor="gradient_angle">Angle (degrees)</Label>
-              <Input
-                id="gradient_angle"
-                type="number"
-                value={content.gradient_angle || 135}
-                onChange={(e) => updateContent('gradient_angle', parseInt(e.target.value) || 0)}
-                min="0"
-                max="360"
-              />
-            </div>
-          </>
-        ) : (
-          <div>
-            <Label htmlFor="backgroundColor">Background Color</Label>
-            <div className="flex gap-2">
-              <input
-                id="backgroundColor"
-                type="color"
-                value={content.backgroundColor || '#ffffff'}
-                onChange={(e) => updateContent('backgroundColor', e.target.value)}
-                className="w-16 h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
-              />
-              <Input
-                value={content.backgroundColor || '#ffffff'}
-                onChange={(e) => updateContent('backgroundColor', e.target.value)}
-                className="flex-1"
-              />
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div>
-        <Label htmlFor="backgroundImage">Background Image</Label>
-        <div className="flex gap-2">
-          <Input
-            id="backgroundImage"
-            value={content.backgroundImage || ''}
-            onChange={(e) => updateContent('backgroundImage', e.target.value)}
-            placeholder="Background image URL"
-            className="flex-1"
-          />
-          <Label htmlFor="bg-upload" className="cursor-pointer">
-            <div className={`flex items-center gap-2 px-4 py-2 rounded-md transition-colors ${
-              isUploadingBg
-                ? 'bg-slate-300 cursor-not-allowed'
-                : 'bg-blue-600 hover:bg-blue-700 text-white'
-            }`}>
-              {isUploadingBg ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Upload className="w-4 h-4" />
-              )}
-            </div>
-            <input
-              id="bg-upload"
-              type="file"
-              accept="image/*"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) handleBgImageUpload(file);
-                e.target.value = '';
-              }}
-              className="hidden"
-              disabled={isUploadingBg}
-            />
-          </Label>
-          {content.backgroundImage && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => updateContent('backgroundImage', '')}
-              className="text-red-600"
-              type="button"
-            >
-              <Trash2 className="w-4 h-4" />
-            </Button>
-          )}
-        </div>
-        {content.backgroundImage && (
-          <img
-            src={content.backgroundImage}
-            alt="Background preview"
-            className="mt-2 w-full h-24 object-cover rounded"
-          />
-        )}
-      </div>
-
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <Label htmlFor="padding_top">Padding Top (px)</Label>
-          <Input
-            id="padding_top"
-            type="number"
-            value={content.padding_top ?? 48}
-            onChange={(e) => updateContent('padding_top', parseInt(e.target.value) || 0)}
-            min="0"
-            max="200"
-          />
-        </div>
-        <div>
-          <Label htmlFor="padding_bottom">Padding Bottom (px)</Label>
-          <Input
-            id="padding_bottom"
-            type="number"
-            value={content.padding_bottom ?? 48}
-            onChange={(e) => updateContent('padding_bottom', parseInt(e.target.value) || 0)}
-            min="0"
-            max="200"
-          />
-        </div>
-      </div>
-
-      <details className="text-xs">
-        <summary className="cursor-pointer text-slate-500 hover:text-slate-700 font-medium">Card Styling Options</summary>
-        <div className="mt-2 space-y-3">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label htmlFor="cardBorderRadius">Border Radius (px)</Label>
-              <Input
-                id="cardBorderRadius"
-                type="number"
-                value={content.cardBorderRadius ?? 12}
-                onChange={(e) => updateContent('cardBorderRadius', parseInt(e.target.value) || 0)}
-                min="0"
-                max="50"
-              />
-            </div>
-            <div>
-              <Label htmlFor="gap">Card Gap (px)</Label>
-              <Input
-                id="gap"
-                type="number"
-                value={content.gap ?? 24}
-                onChange={(e) => updateContent('gap', parseInt(e.target.value) || 0)}
-                min="0"
-                max="100"
-              />
-            </div>
-          </div>
-
-          <div>
-            <Label htmlFor="cardBackgroundColor">Card Background</Label>
-            <div className="flex gap-2">
-              <input
-                id="cardBackgroundColor"
-                type="color"
-                value={content.cardBackgroundColor || '#ffffff'}
-                onChange={(e) => updateContent('cardBackgroundColor', e.target.value)}
-                className="w-16 h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
-              />
-              <Input
-                value={content.cardBackgroundColor || '#ffffff'}
-                onChange={(e) => updateContent('cardBackgroundColor', e.target.value)}
-                className="flex-1"
-              />
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              id="cardShadow"
-              checked={content.cardShadow ?? true}
-              onChange={(e) => updateContent('cardShadow', e.target.checked)}
-              className="w-4 h-4"
-            />
-            <Label htmlFor="cardShadow" className="cursor-pointer">
-              Show Card Shadow
-            </Label>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              id="showCardImage"
-              checked={content.showCardImage ?? true}
-              onChange={(e) => updateContent('showCardImage', e.target.checked)}
-              className="w-4 h-4"
-            />
-            <Label htmlFor="showCardImage" className="cursor-pointer">
-              Show Card Images
-            </Label>
-          </div>
-
-          {content.showCardImage !== false && (
-            <div>
-              <Label htmlFor="imageHeightPercent">Image Height (%)</Label>
-              <Input
-                id="imageHeightPercent"
-                type="number"
-                value={content.imageHeightPercent ?? 50}
-                onChange={(e) => updateContent('imageHeightPercent', parseInt(e.target.value) || 50)}
-                min="20"
-                max="80"
-              />
-            </div>
-          )}
-
-          <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              id="showCardDescription"
-              checked={content.showCardDescription ?? true}
-              onChange={(e) => updateContent('showCardDescription', e.target.checked)}
-              className="w-4 h-4"
-            />
-            <Label htmlFor="showCardDescription" className="cursor-pointer">
-              Show Card Descriptions
-            </Label>
-          </div>
-
-          {content.showCardDescription !== false && (
-            <div>
-              <Label htmlFor="descriptionLineClamp">Description Max Lines</Label>
-              <Input
-                id="descriptionLineClamp"
-                type="number"
-                value={content.descriptionLineClamp ?? 3}
-                onChange={(e) => updateContent('descriptionLineClamp', parseInt(e.target.value) || 3)}
-                min="1"
-                max="10"
-              />
-            </div>
-          )}
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label htmlFor="cardTitleFontSize">Title Font Size (px)</Label>
-              <Input
-                id="cardTitleFontSize"
-                type="number"
-                value={content.cardTitleFontSize ?? 20}
-                onChange={(e) => updateContent('cardTitleFontSize', parseInt(e.target.value) || 20)}
-                min="12"
-                max="48"
-              />
-            </div>
-            <div>
-              <Label htmlFor="cardTitleColor">Title Color</Label>
-              <input
-                id="cardTitleColor"
-                type="color"
-                value={content.cardTitleColor || '#0f172a'}
-                onChange={(e) => updateContent('cardTitleColor', e.target.value)}
-                className="w-full h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label htmlFor="cardDescriptionFontSize">Description Font Size (px)</Label>
-              <Input
-                id="cardDescriptionFontSize"
-                type="number"
-                value={content.cardDescriptionFontSize ?? 14}
-                onChange={(e) => updateContent('cardDescriptionFontSize', parseInt(e.target.value) || 14)}
-                min="10"
-                max="24"
-              />
-            </div>
-            <div>
-              <Label htmlFor="cardDescriptionColor">Description Color</Label>
-              <input
-                id="cardDescriptionColor"
-                type="color"
-                value={content.cardDescriptionColor || '#64748b'}
-                onChange={(e) => updateContent('cardDescriptionColor', e.target.value)}
-                className="w-full h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
-              />
-            </div>
-          </div>
-        </div>
-      </details>
-
-      <details className="text-xs">
-        <summary className="cursor-pointer text-slate-500 hover:text-slate-700 font-medium">Button Options</summary>
-        <div className="mt-2 space-y-3">
-          <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              id="showCardButton"
-              checked={content.showCardButton ?? true}
-              onChange={(e) => updateContent('showCardButton', e.target.checked)}
-              className="w-4 h-4"
-            />
-            <Label htmlFor="showCardButton" className="cursor-pointer">
-              Show Card Buttons
-            </Label>
-          </div>
-
-          {content.showCardButton !== false && (
-            <>
-              <div>
-                <Label htmlFor="cardButtonText">Default Button Text</Label>
-                <Input
-                  id="cardButtonText"
-                  value={content.cardButtonText || 'Learn More'}
-                  onChange={(e) => updateContent('cardButtonText', e.target.value)}
-                  placeholder="Learn More"
-                />
-                <p className="text-xs text-slate-500 mt-1">This can be overridden per-card in Card Deck Management</p>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label htmlFor="cardButtonBgColor">Button Background</Label>
-                  <input
-                    id="cardButtonBgColor"
-                    type="color"
-                    value={content.cardButtonBgColor || '#2563eb'}
-                    onChange={(e) => updateContent('cardButtonBgColor', e.target.value)}
-                    className="w-full h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="cardButtonTextColor">Button Text Color</Label>
-                  <input
-                    id="cardButtonTextColor"
-                    type="color"
-                    value={content.cardButtonTextColor || '#ffffff'}
-                    onChange={(e) => updateContent('cardButtonTextColor', e.target.value)}
-                    className="w-full h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
-                  />
-                </div>
-              </div>
-            </>
-          )}
-        </div>
-      </details>
-    </div>
-  );
-}
-
-export function IEditCardDeckElementRenderer({ element, settings }) {
-  const defaultContent = {
-    headerText: '',
-    subheaderText: '',
-    heading_font_family: 'Poppins',
-    heading_font_size: 36,
-    heading_font_size_mobile: 28,
-    heading_letter_spacing: 0,
-    heading_color: '#0f172a',
-    heading_underline_enabled: false,
-    heading_underline_color: '#000000',
-    heading_underline_width: 100,
-    heading_underline_weight: 2,
-    heading_underline_spacing: 16,
-    heading_underline_to_content_spacing: 24,
-    heading_underline_alignment: 'center',
-    subheading_font_family: 'Poppins',
-    subheading_font_size: 18,
-    subheading_font_size_mobile: 16,
-    subheading_color: '#64748b',
-    text_align: 'center',
-    backgroundColor: '#ffffff',
-    gradient_enabled: false,
-    gradient_start_color: '#3b82f6',
-    gradient_end_color: '#8b5cf6',
-    gradient_angle: 135,
-    backgroundImage: '',
-    padding_top: 48,
-    padding_bottom: 48,
-    padding_left: 16,
-    padding_right: 16,
-    cardCount: 3,
-    cardIds: ['', '', '', '', '', ''],
-    cardHeight: 'auto',
-    cardMinHeight: 300,
-    cardBorderRadius: 12,
-    cardBackgroundColor: '#ffffff',
-    cardShadow: true,
-    showCardImage: true,
-    imageHeightPercent: 50,
-    showCardDescription: true,
-    descriptionLineClamp: 3,
-    showCardButton: true,
-    cardButtonText: 'Learn More',
-    cardButtonBgColor: '#2563eb',
-    cardButtonTextColor: '#ffffff',
-    cardTitleFontSize: 20,
-    cardTitleFontSize_mobile: 18,
-    cardTitleColor: '#0f172a',
-    cardDescriptionFontSize: 14,
-    cardDescriptionColor: '#64748b',
-    gap: 24
-  };
-
-  const content = { ...defaultContent, ...(element?.content || {}) };
-
-  const { data: allCards = [] } = useQuery({
-    queryKey: ['card-deck-render'],
-    queryFn: () => base44.entities.CardDeck.list('display_order'),
-    staleTime: 0,
-  });
-
-  const cardIds = Array.isArray(content.cardIds) ? content.cardIds.filter(id => id) : [];
-  const selectedCards = cardIds
-    .map(id => allCards.find(c => c.id === id))
-    .filter(Boolean);
-
-  const [isMobile, setIsMobile] = React.useState(false);
-  
-  React.useEffect(() => {
-    const checkMobile = () => setIsMobile(window.innerWidth < 768);
-    checkMobile();
-    window.addEventListener('resize', checkMobile);
-    return () => window.removeEventListener('resize', checkMobile);
-  }, []);
-
-  const backgroundStyle = React.useMemo(() => {
-    const style = {};
-    
-    if (content.backgroundImage) {
-      style.backgroundImage = `url(${content.backgroundImage})`;
-      style.backgroundSize = 'cover';
-      style.backgroundPosition = 'center';
-    } else if (content.gradient_enabled) {
-      style.background = `linear-gradient(${content.gradient_angle || 135}deg, ${content.gradient_start_color || '#3b82f6'}, ${content.gradient_end_color || '#8b5cf6'})`;
-    } else {
-      style.backgroundColor = content.backgroundColor || '#ffffff';
-    }
-
-    style.paddingTop = `${content.padding_top ?? 48}px`;
-    style.paddingBottom = `${content.padding_bottom ?? 48}px`;
-    style.paddingLeft = `${content.padding_left ?? 16}px`;
-    style.paddingRight = `${content.padding_right ?? 16}px`;
-
-    return style;
-  }, [content]);
-
-  const headingStyle = {
-    fontFamily: content.heading_font_family || 'Poppins',
-    fontSize: isMobile ? `${content.heading_font_size_mobile || 28}px` : `${content.heading_font_size || 36}px`,
-    letterSpacing: `${content.heading_letter_spacing || 0}px`,
-    color: content.heading_color || '#0f172a',
-    textAlign: content.text_align || 'center',
-    marginBottom: content.heading_underline_enabled 
-      ? `${content.heading_underline_spacing || 16}px` 
-      : (content.subheaderText ? '8px' : '24px')
-  };
-
-  const subheadingStyle = {
-    fontFamily: content.subheading_font_family || 'Poppins',
-    fontSize: isMobile ? `${content.subheading_font_size_mobile || 16}px` : `${content.subheading_font_size || 18}px`,
-    color: content.subheading_color || '#64748b',
-    textAlign: content.text_align || 'center',
-    marginBottom: content.heading_underline_enabled 
-      ? 0 
-      : `${content.heading_underline_to_content_spacing || 24}px`
-  };
-
-  const getGridColumns = () => {
-    const count = content.cardCount || 3;
-    if (isMobile) return 1;
-    if (count === 2) return 2;
-    if (count === 3) return 3;
-    if (count === 4) return 2;
-    if (count === 6) return 3;
-    return 3;
-  };
-
-  const handleCardClick = (card) => {
-    if (card.target_url) {
-      window.open(card.target_url, '_blank');
-    }
-  };
-
-  if (selectedCards.length === 0) {
     return (
-      <div style={backgroundStyle}>
-        <div className="max-w-7xl mx-auto text-center py-12">
-          <ImageIcon className="w-16 h-16 text-slate-300 mx-auto mb-4" />
-          <p className="text-slate-500">No cards selected. Edit this element to choose cards from your Card Deck.</p>
+      <div className="space-y-3 p-3 bg-white rounded-md border border-slate-200">
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label className="text-xs">Font Family</Label>
+            <select
+              value={content[`${prefix}_font_family`] || defaults.font_family}
+              onChange={(e) => updateContent(`${prefix}_font_family`, e.target.value)}
+              className="w-full px-2 py-1.5 border border-slate-300 rounded-md text-sm"
+            >
+              {fontFamilies.map(font => (
+                <option key={font} value={font}>{font}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <Label className="text-xs">Font Weight</Label>
+            <select
+              value={content[`${prefix}_font_weight`] || defaults.font_weight}
+              onChange={(e) => updateContent(`${prefix}_font_weight`, parseInt(e.target.value))}
+              className="w-full px-2 py-1.5 border border-slate-300 rounded-md text-sm"
+            >
+              {fontWeights.map(weight => (
+                <option key={weight.value} value={weight.value}>{weight.label}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-3 gap-3">
+          <div>
+            <Label className="text-xs">Font Size (px)</Label>
+            <Input
+              type="number"
+              value={content[`${prefix}_font_size`] || defaults.font_size}
+              onChange={(e) => updateContent(`${prefix}_font_size`, parseInt(e.target.value) || defaults.font_size)}
+              min="10"
+              max="120"
+              className="h-8"
+            />
+          </div>
+          <div>
+            <Label className="text-xs">Mobile Size (px)</Label>
+            <Input
+              type="number"
+              value={content[`${prefix}_font_size_mobile`] || ''}
+              onChange={(e) => updateContent(`${prefix}_font_size_mobile`, e.target.value ? parseInt(e.target.value) : '')}
+              min="10"
+              max="120"
+              placeholder="Same"
+              className="h-8"
+            />
+          </div>
+          <div>
+            <Label className="text-xs">Text Color</Label>
+            <input
+              type="color"
+              value={safeHexColor(content[`${prefix}_color`], defaults.color)}
+              onChange={(e) => updateContent(`${prefix}_color`, e.target.value)}
+              className="w-full h-8 px-0.5 py-0.5 border border-slate-300 rounded cursor-pointer"
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label className="text-xs">Letter Spacing (px)</Label>
+            <Input
+              type="number"
+              step="0.5"
+              value={content[`${prefix}_letter_spacing`] || defaults.letter_spacing}
+              onChange={(e) => updateContent(`${prefix}_letter_spacing`, parseFloat(e.target.value) || 0)}
+              min="-2"
+              max="10"
+              className="h-8"
+            />
+          </div>
+          <div>
+            <Label className="text-xs">Line Height</Label>
+            <Input
+              type="number"
+              step="0.1"
+              value={content[`${prefix}_line_height`] || defaults.line_height}
+              onChange={(e) => updateContent(`${prefix}_line_height`, parseFloat(e.target.value) || defaults.line_height)}
+              min="0.8"
+              max="3"
+              className="h-8"
+            />
+          </div>
         </div>
       </div>
     );
-  }
+  };
 
   return (
-    <div style={backgroundStyle}>
-      <div className="max-w-7xl mx-auto">
-        {content.headerText && (
-          <>
-            <h2 style={headingStyle}>{content.headerText}</h2>
-            {content.heading_underline_enabled && (
-              <div
-                style={{
-                  width: `${content.heading_underline_width || 100}px`,
-                  height: `${content.heading_underline_weight || 2}px`,
-                  backgroundColor: content.heading_underline_color || '#000000',
-                  margin: content.heading_underline_alignment === 'center' ? '0 auto' : 
-                          content.heading_underline_alignment === 'right' ? '0 0 0 auto' : '0',
-                  marginBottom: `${content.heading_underline_to_content_spacing || 24}px`
-                }}
-              />
-            )}
-          </>
-        )}
-
-        {content.subheaderText && (
-          <p style={subheadingStyle}>{content.subheaderText}</p>
-        )}
-
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: `repeat(${getGridColumns()}, 1fr)`,
-            gap: `${content.gap || 24}px`
-          }}
+    <div className="space-y-4">
+      {/* Text Content Section */}
+      <div className="border rounded-lg overflow-hidden">
+        <button
+          type="button"
+          onClick={() => toggleSection('text')}
+          className="w-full flex items-center justify-between p-3 bg-slate-100 hover:bg-slate-200 text-left"
         >
-          {selectedCards.map((card) => (
-            <div
-              key={card.id}
-              onClick={() => handleCardClick(card)}
-              style={{
-                backgroundColor: content.cardBackgroundColor || '#ffffff',
-                borderRadius: `${content.cardBorderRadius || 12}px`,
-                overflow: 'hidden',
-                cursor: card.target_url ? 'pointer' : 'default',
-                boxShadow: content.cardShadow !== false ? '0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -2px rgba(0,0,0,0.1)' : 'none',
-                transition: 'transform 0.2s ease, box-shadow 0.2s ease',
-                display: 'flex',
-                flexDirection: 'column'
-              }}
-              className="hover:shadow-lg hover:scale-[1.02]"
-              data-testid={`card-deck-card-${card.id}`}
-            >
-              {content.showCardImage !== false && card.image_url && (
-                <div
-                  style={{
-                    height: `${content.imageHeightPercent || 50}%`,
-                    minHeight: '150px'
-                  }}
-                >
-                  <img
-                    src={card.image_url}
-                    alt={card.title}
-                    style={{
-                      width: '100%',
-                      height: '100%',
-                      objectFit: 'cover'
-                    }}
+          <span className="font-semibold text-sm">Header, Subheader & Content</span>
+          {expandedSections.text ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+        </button>
+        
+        {expandedSections.text && (
+          <div className="p-4 space-y-4">
+            <div>
+              <Label className="text-xs">Text Alignment</Label>
+              <select
+                value={content.text_alignment || 'center'}
+                onChange={(e) => updateContent('text_alignment', e.target.value)}
+                className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+              >
+                <option value="left">Left</option>
+                <option value="center">Center</option>
+                <option value="right">Right</option>
+              </select>
+            </div>
+
+            <div className="border-b pb-4">
+              <h5 className="font-medium text-sm mb-3">Heading</h5>
+              <div className="space-y-3">
+                <div>
+                  <Label className="text-xs">Heading Text</Label>
+                  <Input
+                    value={content.heading || ''}
+                    onChange={(e) => updateContent('heading', e.target.value)}
+                    placeholder="Enter heading..."
                   />
                 </div>
-              )}
-
-              <div style={{ padding: '24px', flex: 1, display: 'flex', flexDirection: 'column' }}>
-                <h3
-                  style={{
-                    fontSize: isMobile ? `${content.cardTitleFontSize_mobile || 18}px` : `${content.cardTitleFontSize || 20}px`,
-                    color: content.cardTitleColor || '#0f172a',
-                    fontWeight: 600,
-                    marginBottom: '12px',
-                    lineHeight: 1.3
+                <TypographyStyleSelector
+                  value={content.heading_typography_style_id || null}
+                  onChange={(styleId, style) => {
+                    const updates = { heading_typography_style_id: styleId };
+                    if (style) {
+                      const mapped = applyTypographyStyle(style);
+                      if (mapped.font_family) updates.heading_font_family = mapped.font_family;
+                      if (mapped.font_size) updates.heading_font_size = mapped.font_size;
+                      if (mapped.font_size_mobile) updates.heading_font_size_mobile = mapped.font_size_mobile;
+                      if (mapped.font_weight) updates.heading_font_weight = mapped.font_weight;
+                      if (mapped.line_height) updates.heading_line_height = mapped.line_height;
+                      if (mapped.letter_spacing !== undefined) updates.heading_letter_spacing = mapped.letter_spacing;
+                      if (mapped.color) updates.heading_color = mapped.color;
+                    }
+                    updateMultipleContent(updates);
                   }}
-                >
-                  {card.title}
-                </h3>
+                  filterTypes={['h1', 'h2']}
+                  label="Heading Typography Style"
+                />
+                <details className="text-xs">
+                  <summary className="cursor-pointer text-slate-500 hover:text-slate-700 font-medium">Manual Font Settings</summary>
+                  {renderTypographyControls('heading', 'Heading Typography')}
+                </details>
+              </div>
+            </div>
 
-                {content.showCardDescription !== false && card.description && (
-                  <p
-                    style={{
-                      fontSize: `${content.cardDescriptionFontSize || 14}px`,
-                      color: content.cardDescriptionColor || '#64748b',
-                      lineHeight: 1.6,
-                      flex: 1,
-                      WebkitLineClamp: content.descriptionLineClamp || 3,
-                      display: '-webkit-box',
-                      WebkitBoxOrient: 'vertical',
-                      overflow: 'hidden'
-                    }}
-                  >
-                    {card.description}
-                  </p>
-                )}
+            <div className="border-b pb-4">
+              <h5 className="font-medium text-sm mb-3">Subheading</h5>
+              <div className="space-y-3">
+                <div>
+                  <Label className="text-xs">Subheading Text</Label>
+                  <Input
+                    value={content.subheading || ''}
+                    onChange={(e) => updateContent('subheading', e.target.value)}
+                    placeholder="Enter subheading..."
+                  />
+                </div>
+                <TypographyStyleSelector
+                  value={content.subheading_typography_style_id || null}
+                  onChange={(styleId, style) => {
+                    const updates = { subheading_typography_style_id: styleId };
+                    if (style) {
+                      const mapped = applyTypographyStyle(style);
+                      if (mapped.font_family) updates.subheading_font_family = mapped.font_family;
+                      if (mapped.font_size) updates.subheading_font_size = mapped.font_size;
+                      if (mapped.font_size_mobile) updates.subheading_font_size_mobile = mapped.font_size_mobile;
+                      if (mapped.font_weight) updates.subheading_font_weight = mapped.font_weight;
+                      if (mapped.line_height) updates.subheading_line_height = mapped.line_height;
+                      if (mapped.letter_spacing !== undefined) updates.subheading_letter_spacing = mapped.letter_spacing;
+                      if (mapped.color) updates.subheading_color = mapped.color;
+                    }
+                    updateMultipleContent(updates);
+                  }}
+                  filterTypes={['h3', 'h4']}
+                  label="Subheading Typography Style"
+                />
+                <details className="text-xs">
+                  <summary className="cursor-pointer text-slate-500 hover:text-slate-700 font-medium">Manual Font Settings</summary>
+                  {renderTypographyControls('subheading', 'Subheading Typography')}
+                </details>
+              </div>
+            </div>
 
-                {content.showCardButton !== false && card.target_url && (
-                  <div style={{ marginTop: '16px' }}>
+            <div>
+              <h5 className="font-medium text-sm mb-3">Content</h5>
+              <div className="space-y-3">
+                <div>
+                  <Label className="text-xs">Content (Markdown supported)</Label>
+                  <Textarea
+                    value={content.body_content || ''}
+                    onChange={(e) => updateContent('body_content', e.target.value)}
+                    placeholder="Enter content..."
+                    rows={4}
+                  />
+                </div>
+                <TypographyStyleSelector
+                  value={content.content_typography_style_id || null}
+                  onChange={(styleId, style) => {
+                    const updates = { content_typography_style_id: styleId };
+                    if (style) {
+                      const mapped = applyTypographyStyle(style);
+                      if (mapped.font_family) updates.content_font_family = mapped.font_family;
+                      if (mapped.font_size) updates.content_font_size = mapped.font_size;
+                      if (mapped.font_size_mobile) updates.content_font_size_mobile = mapped.font_size_mobile;
+                      if (mapped.font_weight) updates.content_font_weight = mapped.font_weight;
+                      if (mapped.line_height) updates.content_line_height = mapped.line_height;
+                      if (mapped.color) updates.content_color = mapped.color;
+                    }
+                    updateMultipleContent(updates);
+                  }}
+                  filterTypes={['paragraph']}
+                  label="Content Typography Style"
+                />
+                <details className="text-xs">
+                  <summary className="cursor-pointer text-slate-500 hover:text-slate-700 font-medium">Manual Font Settings</summary>
+                  {renderTypographyControls('content', 'Content Typography')}
+                </details>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Background Section */}
+      <div className="border rounded-lg overflow-hidden">
+        <button
+          type="button"
+          onClick={() => toggleSection('background')}
+          className="w-full flex items-center justify-between p-3 bg-slate-100 hover:bg-slate-200 text-left"
+        >
+          <span className="font-semibold text-sm">Section Background</span>
+          {expandedSections.background ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+        </button>
+        
+        {expandedSections.background && (
+          <div className="p-4 space-y-4">
+            <div>
+              <Label>Background Type</Label>
+              <select
+                value={backgroundType}
+                onChange={(e) => updateContent('background_type', e.target.value)}
+                className="w-full px-3 py-2 border border-slate-300 rounded-md"
+              >
+                <option value="none">None</option>
+                <option value="color">Solid Color</option>
+                <option value="gradient">Gradient</option>
+                <option value="image">Image</option>
+              </select>
+            </div>
+
+            {backgroundType === 'color' && (
+              <div>
+                <Label>Background Color</Label>
+                <div className="flex gap-2 items-center">
+                  <input
+                    type="color"
+                    value={safeHexColor(content.background_color, '#ffffff')}
+                    onChange={(e) => updateContent('background_color', e.target.value)}
+                    className="w-16 h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+                  />
+                  <Input
+                    value={content.background_color || '#ffffff'}
+                    onChange={(e) => updateContent('background_color', e.target.value)}
+                    className="flex-1 font-mono text-sm"
+                  />
+                </div>
+              </div>
+            )}
+
+            {backgroundType === 'gradient' && (
+              <div className="space-y-3 p-3 bg-slate-50 rounded-md">
+                <div 
+                  className="w-full h-16 rounded-md border border-slate-300"
+                  style={{ background: gradientPreview }}
+                />
+                
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label className="text-xs">Start Color</Label>
+                    <div className="flex gap-2 items-center">
+                      <input
+                        type="color"
+                        value={safeHexColor(content.gradient_start_color, '#3b82f6')}
+                        onChange={(e) => updateContent('gradient_start_color', e.target.value)}
+                        className="w-12 h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+                      />
+                      <Input
+                        value={content.gradient_start_color || '#3b82f6'}
+                        onChange={(e) => updateContent('gradient_start_color', e.target.value)}
+                        className="flex-1 font-mono text-xs"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <Label className="text-xs">End Color</Label>
+                    <div className="flex gap-2 items-center">
+                      <input
+                        type="color"
+                        value={safeHexColor(content.gradient_end_color, '#8b5cf6')}
+                        onChange={(e) => updateContent('gradient_end_color', e.target.value)}
+                        className="w-12 h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+                      />
+                      <Input
+                        value={content.gradient_end_color || '#8b5cf6'}
+                        onChange={(e) => updateContent('gradient_end_color', e.target.value)}
+                        className="flex-1 font-mono text-xs"
+                      />
+                    </div>
+                  </div>
+                </div>
+                
+                <div>
+                  <Label className="text-xs">Angle: {content.gradient_angle || 135}°</Label>
+                  <input
+                    type="range"
+                    min="0"
+                    max="360"
+                    value={content.gradient_angle || 135}
+                    onChange={(e) => updateContent('gradient_angle', parseInt(e.target.value))}
+                    className="w-full"
+                  />
+                </div>
+              </div>
+            )}
+
+            {backgroundType === 'image' && (
+              <div className="space-y-3">
+                <div>
+                  <Label>Background Image</Label>
+                  <label className="inline-block mt-2">
+                    <div className={`px-4 py-2 rounded-md text-sm font-medium cursor-pointer inline-flex items-center gap-2 ${
+                      isUploading.background_image_url 
+                        ? 'bg-slate-300 cursor-not-allowed' 
+                        : 'bg-blue-600 hover:bg-blue-700 text-white'
+                    }`}>
+                      <Upload className="w-4 h-4" />
+                      {isUploading.background_image_url ? 'Uploading...' : 'Upload Image'}
+                    </div>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) handleImageUpload(file, 'background_image_url');
+                        e.target.value = '';
+                      }}
+                      className="hidden"
+                      disabled={isUploading.background_image_url}
+                    />
+                  </label>
+                </div>
+
+                {content.background_image_url && (
+                  <div className="relative">
+                    <img
+                      src={content.background_image_url}
+                      alt="Background preview"
+                      className="w-full h-32 object-cover rounded"
+                    />
                     <button
-                      style={{
-                        backgroundColor: content.cardButtonBgColor || '#2563eb',
-                        color: content.cardButtonTextColor || '#ffffff',
-                        padding: '10px 20px',
-                        borderRadius: '8px',
-                        border: 'none',
-                        cursor: 'pointer',
-                        fontWeight: 500,
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '8px',
-                        transition: 'opacity 0.2s ease'
-                      }}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        window.open(card.target_url, '_blank');
-                      }}
-                      className="hover:opacity-90"
+                      onClick={() => updateContent('background_image_url', '')}
+                      className="absolute top-2 right-2 p-1 bg-red-600 hover:bg-red-700 text-white rounded"
+                      type="button"
                     >
-                      {card.button_text || content.cardButtonText || 'Learn More'}
-                      <ArrowRight style={{ width: '16px', height: '16px' }} />
+                      <X className="w-4 h-4" />
                     </button>
                   </div>
                 )}
+
+                <div>
+                  <Label className="text-xs">Image Fit</Label>
+                  <select
+                    value={content.background_image_fit || 'cover'}
+                    onChange={(e) => updateContent('background_image_fit', e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+                  >
+                    <option value="cover">Cover</option>
+                    <option value="contain">Contain</option>
+                    <option value="fill">Fill</option>
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="overlay-enabled"
+                    checked={content.overlay_enabled || false}
+                    onChange={(e) => updateContent('overlay_enabled', e.target.checked)}
+                    className="w-4 h-4"
+                  />
+                  <Label htmlFor="overlay-enabled" className="cursor-pointer">Enable Overlay</Label>
+                </div>
+
+                {content.overlay_enabled && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label className="text-xs">Overlay Color</Label>
+                      <input
+                        type="color"
+                        value={safeHexColor(content.overlay_color, '#000000')}
+                        onChange={(e) => updateContent('overlay_color', e.target.value)}
+                        className="w-full h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Overlay Opacity: {content.overlay_opacity || 50}%</Label>
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        value={content.overlay_opacity || 50}
+                        onChange={(e) => updateContent('overlay_opacity', parseInt(e.target.value))}
+                        className="w-full"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs">Vertical Padding: {content.vertical_padding || 48}px</Label>
+                <input
+                  type="range"
+                  min="0"
+                  max="120"
+                  value={content.vertical_padding || 48}
+                  onChange={(e) => updateContent('vertical_padding', parseInt(e.target.value))}
+                  className="w-full"
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Horizontal Padding: {content.horizontal_padding || 16}px</Label>
+                <input
+                  type="range"
+                  min="0"
+                  max="80"
+                  value={content.horizontal_padding || 16}
+                  onChange={(e) => updateContent('horizontal_padding', parseInt(e.target.value))}
+                  className="w-full"
+                />
               </div>
             </div>
-          ))}
-        </div>
+          </div>
+        )}
+      </div>
+
+      {/* Card Selection Section */}
+      <div className="border rounded-lg overflow-hidden">
+        <button
+          type="button"
+          onClick={() => toggleSection('cards')}
+          className="w-full flex items-center justify-between p-3 bg-slate-100 hover:bg-slate-200 text-left"
+        >
+          <span className="font-semibold text-sm">Card Selection</span>
+          {expandedSections.cards ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+        </button>
+        
+        {expandedSections.cards && (
+          <div className="p-4 space-y-4">
+            <div>
+              <Label>Number of Cards</Label>
+              <select
+                value={String(content.cardCount || 3)}
+                onChange={(e) => updateContent('cardCount', parseInt(e.target.value))}
+                className="w-full px-3 py-2 border border-slate-300 rounded-md"
+              >
+                <option value="2">2 Cards</option>
+                <option value="3">3 Cards</option>
+                <option value="4">4 Cards</option>
+                <option value="6">6 Cards</option>
+              </select>
+            </div>
+
+            <div>
+              <Label>Select Cards</Label>
+              <p className="text-xs text-slate-500 mb-2">Choose cards from your Card Deck to display</p>
+              <div className="space-y-2">
+                {cardSlots.map((_, index) => (
+                  <select
+                    key={index}
+                    value={(Array.isArray(content.cardIds) && content.cardIds[index]) || ''}
+                    onChange={(e) => updateCardId(index, e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+                  >
+                    <option value="">Card {index + 1} (optional)</option>
+                    {activeCards.map((card) => (
+                      <option key={card.id} value={card.id}>
+                        {card.title}
+                      </option>
+                    ))}
+                  </select>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <Label className="text-xs">Card Gap: {content.gap || 24}px</Label>
+              <input
+                type="range"
+                min="8"
+                max="64"
+                value={content.gap || 24}
+                onChange={(e) => updateContent('gap', parseInt(e.target.value))}
+                className="w-full"
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Card Styling Section */}
+      <div className="border rounded-lg overflow-hidden">
+        <button
+          type="button"
+          onClick={() => toggleSection('cardStyling')}
+          className="w-full flex items-center justify-between p-3 bg-slate-100 hover:bg-slate-200 text-left"
+        >
+          <span className="font-semibold text-sm">Card Styling</span>
+          {expandedSections.cardStyling ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+        </button>
+        
+        {expandedSections.cardStyling && (
+          <div className="p-4 space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs">Border Radius (px)</Label>
+                <Input
+                  type="number"
+                  value={content.cardBorderRadius ?? 12}
+                  onChange={(e) => updateContent('cardBorderRadius', parseInt(e.target.value) || 0)}
+                  min="0"
+                  max="50"
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Card Background</Label>
+                <input
+                  type="color"
+                  value={safeHexColor(content.cardBackgroundColor, '#ffffff')}
+                  onChange={(e) => updateContent('cardBackgroundColor', e.target.value)}
+                  className="w-full h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="cardShadow"
+                checked={content.cardShadow ?? true}
+                onChange={(e) => updateContent('cardShadow', e.target.checked)}
+                className="w-4 h-4"
+              />
+              <Label htmlFor="cardShadow" className="cursor-pointer">Show Card Shadow</Label>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="showCardImage"
+                checked={content.showCardImage ?? true}
+                onChange={(e) => updateContent('showCardImage', e.target.checked)}
+                className="w-4 h-4"
+              />
+              <Label htmlFor="showCardImage" className="cursor-pointer">Show Card Images</Label>
+            </div>
+
+            {content.showCardImage !== false && (
+              <div>
+                <Label className="text-xs">Image Height: {content.imageHeightPercent || 50}%</Label>
+                <input
+                  type="range"
+                  min="20"
+                  max="80"
+                  value={content.imageHeightPercent || 50}
+                  onChange={(e) => updateContent('imageHeightPercent', parseInt(e.target.value))}
+                  className="w-full"
+                />
+              </div>
+            )}
+
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="showCardDescription"
+                checked={content.showCardDescription ?? true}
+                onChange={(e) => updateContent('showCardDescription', e.target.checked)}
+                className="w-4 h-4"
+              />
+              <Label htmlFor="showCardDescription" className="cursor-pointer">Show Card Descriptions</Label>
+            </div>
+
+            {content.showCardDescription !== false && (
+              <div>
+                <Label className="text-xs">Description Max Lines: {content.descriptionLineClamp || 3}</Label>
+                <input
+                  type="range"
+                  min="1"
+                  max="10"
+                  value={content.descriptionLineClamp || 3}
+                  onChange={(e) => updateContent('descriptionLineClamp', parseInt(e.target.value))}
+                  className="w-full"
+                />
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs">Title Font Size (px)</Label>
+                <Input
+                  type="number"
+                  value={content.cardTitleFontSize ?? 20}
+                  onChange={(e) => updateContent('cardTitleFontSize', parseInt(e.target.value) || 20)}
+                  min="12"
+                  max="48"
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Title Color</Label>
+                <input
+                  type="color"
+                  value={safeHexColor(content.cardTitleColor, '#0f172a')}
+                  onChange={(e) => updateContent('cardTitleColor', e.target.value)}
+                  className="w-full h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs">Description Font Size (px)</Label>
+                <Input
+                  type="number"
+                  value={content.cardDescriptionFontSize ?? 14}
+                  onChange={(e) => updateContent('cardDescriptionFontSize', parseInt(e.target.value) || 14)}
+                  min="10"
+                  max="24"
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Description Color</Label>
+                <input
+                  type="color"
+                  value={safeHexColor(content.cardDescriptionColor, '#64748b')}
+                  onChange={(e) => updateContent('cardDescriptionColor', e.target.value)}
+                  className="w-full h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+                />
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Button Options Section */}
+      <div className="border rounded-lg overflow-hidden">
+        <button
+          type="button"
+          onClick={() => toggleSection('buttonOptions')}
+          className="w-full flex items-center justify-between p-3 bg-slate-100 hover:bg-slate-200 text-left"
+        >
+          <span className="font-semibold text-sm">Button Options</span>
+          {expandedSections.buttonOptions ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+        </button>
+        
+        {expandedSections.buttonOptions && (
+          <div className="p-4 space-y-4">
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="showCardButton"
+                checked={content.showCardButton ?? true}
+                onChange={(e) => updateContent('showCardButton', e.target.checked)}
+                className="w-4 h-4"
+              />
+              <Label htmlFor="showCardButton" className="cursor-pointer">Show Card Buttons</Label>
+            </div>
+
+            {content.showCardButton !== false && (
+              <>
+                <div>
+                  <Label className="text-xs">Default Button Text</Label>
+                  <Input
+                    value={content.cardButtonText || 'Learn More'}
+                    onChange={(e) => updateContent('cardButtonText', e.target.value)}
+                    placeholder="Learn More"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">This can be overridden per-card in Card Deck Management</p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label className="text-xs">Button Background</Label>
+                    <input
+                      type="color"
+                      value={safeHexColor(content.cardButtonBgColor, '#2563eb')}
+                      onChange={(e) => updateContent('cardButtonBgColor', e.target.value)}
+                      className="w-full h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Button Text Color</Label>
+                    <input
+                      type="color"
+                      value={safeHexColor(content.cardButtonTextColor, '#ffffff')}
+                      onChange={(e) => updateContent('cardButtonTextColor', e.target.value)}
+                      className="w-full h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+                    />
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
