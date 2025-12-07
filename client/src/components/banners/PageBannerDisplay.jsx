@@ -4,6 +4,9 @@ export default function PageBannerDisplay({ banner }) {
   if (!banner || !banner.image_url) return null;
 
   const sizeClasses = {
+    'full': 'w-full',
+    'half': 'w-1/2',
+    'quarter': 'w-1/4',
     'full-width': 'w-full',
     'contained': 'max-w-7xl mx-auto',
     'wide': 'max-w-screen-2xl mx-auto'
@@ -22,7 +25,7 @@ export default function PageBannerDisplay({ banner }) {
     'bottom': 'object-bottom'
   };
 
-  const containerClass = sizeClasses[banner.size] || sizeClasses['full-width'];
+  const containerClass = sizeClasses[banner.size] || sizeClasses['full'];
   const heightClass = heightClasses[banner.height] || heightClasses['medium'];
   const positionClass = positionClasses[banner.position] || positionClasses['center'];
 
@@ -37,4 +40,8 @@ export default function PageBannerDisplay({ banner }) {
       </div>
     </div>
   );
+}
+
+export function getPagePosition(banner) {
+  return banner?.page_position || 'top';
 }

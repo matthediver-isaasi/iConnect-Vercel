@@ -6,9 +6,15 @@
         "type": "string",
         "description": "Descriptive name for the banner (e.g., 'Homepage Hero Banner')"
       },
+      "banner_type": {
+        "type": "string",
+        "enum": ["image", "hero"],
+        "default": "image",
+        "description": "Type of banner - 'image' for simple image or 'hero' for rich hero element"
+      },
       "image_url": {
         "type": "string",
-        "description": "URL of the uploaded banner image"
+        "description": "URL of the uploaded banner image (for image type)"
       },
       "alt_text": {
         "type": "string",
@@ -17,12 +23,12 @@
       "size": {
         "type": "string",
         "enum": [
-          "full-width",
-          "contained",
-          "wide"
+          "full",
+          "half",
+          "quarter"
         ],
-        "default": "full-width",
-        "description": "Banner size option"
+        "default": "full",
+        "description": "Banner width: full (100%), half (50%), or quarter (25%)"
       },
       "height": {
         "type": "string",
@@ -45,6 +51,19 @@
         "default": "center",
         "description": "Vertical positioning of the image within the banner"
       },
+      "page_position": {
+        "type": "string",
+        "enum": [
+          "top",
+          "below_first_element"
+        ],
+        "default": "top",
+        "description": "Where the banner appears on the page: at the top or below the first dynamic element"
+      },
+      "hero_content": {
+        "type": "object",
+        "description": "Hero element configuration (for hero type banners)"
+      },
       "associated_pages": {
         "type": "array",
         "items": {
@@ -66,7 +85,6 @@
     },
     "required": [
       "name",
-      "image_url",
       "associated_pages"
     ]
   }

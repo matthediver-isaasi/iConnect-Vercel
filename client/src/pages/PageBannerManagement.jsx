@@ -124,9 +124,10 @@ export default function PageBannerManagementPage() {
       banner_type: "image",
       image_url: "",
       alt_text: "",
-      size: "full-width",
+      size: "full",
       height: "medium",
       position: "center",
+      page_position: "top",
       associated_pages: [],
       display_order: 0,
       is_active: true,
@@ -233,6 +234,7 @@ export default function PageBannerManagementPage() {
       size: editingBanner.size,
       height: editingBanner.height,
       position: editingBanner.position,
+      page_position: bannerType === 'image' ? (editingBanner.page_position || 'top') : null,
       hero_content: bannerType === 'hero' ? editingBanner.hero_content : null,
       associated_pages: editingBanner.associated_pages,
       display_order: editingBanner.display_order || 0,
@@ -563,18 +565,21 @@ export default function PageBannerManagementPage() {
                       <div className="space-y-2">
                         <Label htmlFor="size">Banner Width</Label>
                         <Select
-                          value={editingBanner.size}
+                          value={editingBanner.size || 'full'}
                           onValueChange={(value) => setEditingBanner({ ...editingBanner, size: value })}
                         >
                           <SelectTrigger>
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="full-width">Full Width</SelectItem>
-                            <SelectItem value="contained">Contained</SelectItem>
-                            <SelectItem value="wide">Wide</SelectItem>
+                            <SelectItem value="full">Full Width</SelectItem>
+                            <SelectItem value="half">Half Width</SelectItem>
+                            <SelectItem value="quarter">Quarter Width</SelectItem>
                           </SelectContent>
                         </Select>
+                        <p className="text-xs text-slate-500">
+                          Full = 100%, Half = 50%, Quarter = 25% of container
+                        </p>
                       </div>
 
                       <div className="space-y-2">
@@ -596,9 +601,29 @@ export default function PageBannerManagementPage() {
                       </div>
                     </div>
 
-                    {/* Position */}
+                    {/* Page Position */}
                     <div className="space-y-2">
-                      <Label htmlFor="position">Image Position</Label>
+                      <Label htmlFor="page-position">Position on Page</Label>
+                      <Select
+                        value={editingBanner.page_position || 'top'}
+                        onValueChange={(value) => setEditingBanner({ ...editingBanner, page_position: value })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="top">Top of Page</SelectItem>
+                          <SelectItem value="below_first_element">Below First Element</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-slate-500">
+                        Choose whether the banner appears at the very top or after the first dynamic page element
+                      </p>
+                    </div>
+
+                    {/* Image Position */}
+                    <div className="space-y-2">
+                      <Label htmlFor="position">Image Alignment</Label>
                       <Select
                         value={editingBanner.position}
                         onValueChange={(value) => setEditingBanner({ ...editingBanner, position: value })}
@@ -772,14 +797,25 @@ export default function PageBannerManagementPage() {
                     <>
                       <div>
                         <span className="font-medium text-slate-700">Width:</span>
-                        <span className="ml-2 text-slate-600">{previewBanner.size}</span>
+                        <span className="ml-2 text-slate-600">
+                          {previewBanner.size === 'full' ? 'Full Width' : 
+                           previewBanner.size === 'half' ? 'Half Width' : 
+                           previewBanner.size === 'quarter' ? 'Quarter Width' : 
+                           previewBanner.size}
+                        </span>
                       </div>
                       <div>
                         <span className="font-medium text-slate-700">Height:</span>
                         <span className="ml-2 text-slate-600">{previewBanner.height}</span>
                       </div>
                       <div>
-                        <span className="font-medium text-slate-700">Position:</span>
+                        <span className="font-medium text-slate-700">Page Position:</span>
+                        <span className="ml-2 text-slate-600">
+                          {previewBanner.page_position === 'below_first_element' ? 'Below First Element' : 'Top of Page'}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="font-medium text-slate-700">Image Alignment:</span>
                         <span className="ml-2 text-slate-600">{previewBanner.position}</span>
                       </div>
                     </>
