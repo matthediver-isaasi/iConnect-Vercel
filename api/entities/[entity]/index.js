@@ -78,6 +78,7 @@ const entityToTable = {
   'OrganizationPreferenceValue': 'organization_preference_value',
   'Speaker': 'speaker',
   'TypographyStyle': 'typography_style',
+  'CardDeck': 'card_deck',
 };
 
 const getTableName = (entity) => entityToTable[entity] || entity.toLowerCase().replace(/([A-Z])/g, '_$1').toLowerCase().replace(/^_/, '');
