@@ -4,10 +4,26 @@ import IEditHeroElement from "@/components/iedit/elements/IEditHeroElement";
 export default function PortalHeroBanner({ banner }) {
   if (!banner) return null;
 
-  const isHero = banner.banner_type === 'hero';
+  const bannerType = banner.banner_type;
+  const hasHeroContent = banner.hero_content && Object.keys(banner.hero_content).length > 0;
+  const hasImageUrl = !!banner.image_url;
 
-  if (isHero) {
-    if (!banner.hero_content) return null;
+  console.log('[PortalHeroBanner] Rendering banner:', banner.name, 'type:', bannerType, 'hasHeroContent:', hasHeroContent, 'hasImageUrl:', hasImageUrl);
+
+  // Render hero content for:
+  // - 'hero' type banners
+  // - 'simple' type banners (legacy from Base44) with hero_content
+  // - 'image' type banners with hero_content but no image_url
+  const shouldRenderAsHero = bannerType === 'hero' || 
+                              bannerType === 'simple' ||
+                              (hasHeroContent && !hasImageUrl);
+
+  if (shouldRenderAsHero) {
+    if (!hasHeroContent) {
+      console.log('[PortalHeroBanner] Skipping banner - no hero content:', banner.name);
+      return null;
+    }
+    console.log('[PortalHeroBanner] Rendering as hero element:', banner.name);
     return (
       <div className="w-full">
         <IEditHeroElement content={banner.hero_content} />
@@ -15,7 +31,11 @@ export default function PortalHeroBanner({ banner }) {
     );
   }
 
-  if (!banner.image_url) return null;
+  // For image banners, require image_url
+  if (!hasImageUrl) {
+    console.log('[PortalHeroBanner] Skipping banner - no image_url:', banner.name);
+    return null;
+  }
 
   const sizeClasses = {
     'full': 'w-full',
