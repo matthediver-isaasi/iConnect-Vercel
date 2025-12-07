@@ -1,10 +1,23 @@
 import { useState } from "react";
-import ReactMarkdown from "react-markdown";
+import ReactQuill from 'react-quill';
+import 'react-quill/dist/quill.snow.css';
+import DOMPurify from 'dompurify';
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { ChevronDown, ChevronUp, Upload, X } from "lucide-react";
 import TypographyStyleSelector, { applyTypographyStyle } from "../TypographyStyleSelector";
+
+const twoColumnQuillModules = {
+  toolbar: [
+    [{ 'header': [1, 2, 3, false] }],
+    ['bold', 'italic', 'underline', 'strike'],
+    [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+    [{ 'indent': '-1'}, { 'indent': '+1' }],
+    ['blockquote'],
+    ['link'],
+    ['clean']
+  ]
+};
 
 const fontFamilies = [
   'Poppins',
@@ -79,9 +92,11 @@ export default function IEditTwoColumnElement({ content, variant, settings }) {
     );
 
     const contentElement = columnContent && (
-      <div className="prose max-w-none" style={getContentStyle(side)}>
-        <ReactMarkdown>{columnContent}</ReactMarkdown>
-      </div>
+      <div 
+        className="prose max-w-none" 
+        style={getContentStyle(side)}
+        dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(columnContent) }}
+      />
     );
 
     const imageElement = imageUrl && (
@@ -426,13 +441,17 @@ export function IEditTwoColumnElementEditor({ element, onChange }) {
           <h5 className="font-medium text-sm mb-3">Content</h5>
           <div className="space-y-3">
             <div>
-              <Label className="text-xs">Content (Markdown supported)</Label>
-              <Textarea
-                value={content[contentKey] || ''}
-                onChange={(e) => updateContent(contentKey, e.target.value)}
-                placeholder="Enter content..."
-                rows={4}
-              />
+              <Label className="text-xs">Content</Label>
+              <div className="two-column-quill-editor border border-slate-300 rounded-md overflow-hidden bg-white">
+                <ReactQuill
+                  theme="snow"
+                  value={content[contentKey] || ''}
+                  onChange={(value) => updateContent(contentKey, value)}
+                  modules={twoColumnQuillModules}
+                  placeholder="Enter content..."
+                  style={{ minHeight: '120px' }}
+                />
+              </div>
             </div>
             <TypographyStyleSelector
               value={content[`${side}_content_typography_style_id`] || null}
