@@ -426,3 +426,96 @@
 .accordion-content-html s {
   text-decoration: line-through;
 }
+
+/* Hero Rich Text Content Rendering */
+.hero-rich-text-content {
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+.hero-rich-text-content p {
+  margin-bottom: 0.5rem;
+}
+
+.hero-rich-text-content p:last-child {
+  margin-bottom: 0;
+}
+
+.hero-rich-text-content ul,
+.hero-rich-text-content ol {
+  margin-left: 1.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.hero-rich-text-content ul {
+  list-style-type: disc;
+}
+
+.hero-rich-text-content ol {
+  list-style-type: decimal;
+}
+
+.hero-rich-text-content li {
+  margin-bottom: 0.25rem;
+}
+
+.hero-rich-text-content h1,
+.hero-rich-text-content h2,
+.hero-rich-text-content h3 {
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.hero-rich-text-content h1:first-child,
+.hero-rich-text-content h2:first-child,
+.hero-rich-text-content h3:first-child {
+  margin-top: 0;
+}
+
+.hero-rich-text-content h1 {
+  font-size: 1.5em;
+}
+
+.hero-rich-text-content h2 {
+  font-size: 1.25em;
+}
+
+.hero-rich-text-content h3 {
+  font-size: 1.1em;
+}
+
+.hero-rich-text-content a {
+  text-decoration: underline;
+}
+
+.hero-rich-text-content a:hover {
+  opacity: 0.8;
+}
+
+.hero-rich-text-content blockquote {
+  border-left: 4px solid currentColor;
+  padding-left: 1rem;
+  margin-left: 0;
+  margin-right: 0;
+  font-style: italic;
+  opacity: 0.9;
+}
+
+.hero-rich-text-content strong,
+.hero-rich-text-content b {
+  font-weight: 600;
+}
+
+.hero-rich-text-content em,
+.hero-rich-text-content i {
+  font-style: italic;
+}
+
+.hero-rich-text-content u {
+  text-decoration: underline;
+}
+
+.hero-rich-text-content s {
+  text-decoration: line-through;
+}

@@ -1,6 +1,21 @@
 import { useState, useEffect, useId } from "react";
 import AGCASButton from "../../ui/AGCASButton";
 import TypographyStyleSelector, { applyTypographyStyle } from "../TypographyStyleSelector";
+import ReactQuill from 'react-quill';
+import 'react-quill/dist/quill.snow.css';
+import DOMPurify from 'dompurify';
+
+const heroQuillModules = {
+  toolbar: [
+    [{ 'header': [1, 2, 3, false] }],
+    ['bold', 'italic', 'underline', 'strike'],
+    [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+    [{ 'indent': '-1'}, { 'indent': '+1' }],
+    ['blockquote'],
+    ['link'],
+    ['clean']
+  ]
+};
 
 export default function IEditHeroElement({ content, variant, settings }) {
   const {
@@ -269,25 +284,19 @@ export default function IEditHeroElement({ content, variant, settings }) {
                 </div>
               )}
               {content.subheading && (
-                <p 
-                  className="hero-subheading opacity-90"
+                <div 
+                  className="hero-subheading opacity-90 hero-rich-text-content"
                   style={{ 
-                    whiteSpace: 'pre-line',
                     marginBottom: content_text ? '0' : (button && button.text) ? '24px' : '0'
                   }}
-                >
-                  {content.subheading}
-                </p>
+                  dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(content.subheading) }}
+                />
               )}
               {content_text && (
-                <p 
-                  className="hero-content-text opacity-90"
-                  style={{ 
-                    whiteSpace: 'pre-line'
-                  }}
-                >
-                  {content_text}
-                </p>
+                <div 
+                  className="hero-content-text opacity-90 hero-rich-text-content"
+                  dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(content_text) }}
+                />
               )}
               {button && button.text && (
                 <div className="hero-button-wrapper" style={{ marginBottom: 0 }}>
@@ -367,25 +376,19 @@ export default function IEditHeroElement({ content, variant, settings }) {
             </div>
           )}
           {content.subheading && (
-            <p 
-              className="hero-subheading opacity-90"
+            <div 
+              className="hero-subheading opacity-90 hero-rich-text-content"
               style={{ 
-                whiteSpace: 'pre-line',
                 marginBottom: content_text ? '0' : (button && button.text) ? '24px' : '0'
               }}
-            >
-              {content.subheading}
-            </p>
+              dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(content.subheading) }}
+            />
           )}
           {content_text && (
-            <p 
-              className="hero-content-text opacity-90"
-              style={{ 
-                whiteSpace: 'pre-line'
-              }}
-            >
-              {content_text}
-            </p>
+            <div 
+              className="hero-content-text opacity-90 hero-rich-text-content"
+              dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(content_text) }}
+            />
           )}
           {button && button.text && (
             <div className="hero-button-wrapper" style={{ marginBottom: 0 }}>
@@ -929,13 +932,16 @@ export function IEditHeroElementEditor({ element, onChange }) {
 
       <div>
         <label className="block text-sm font-medium mb-1">Subheading</label>
-        <textarea
-          value={content.subheading || ''}
-          onChange={(e) => updateContent('subheading', e.target.value)}
-          className="w-full px-3 py-2 border border-slate-300 rounded-md"
-          rows="3"
-          placeholder="Enter subheading..."
-        />
+        <div className="hero-quill-editor border border-slate-300 rounded-md overflow-hidden bg-white">
+          <ReactQuill
+            theme="snow"
+            value={content.subheading || ''}
+            onChange={(value) => updateContent('subheading', value)}
+            modules={heroQuillModules}
+            placeholder="Enter subheading..."
+            style={{ minHeight: '100px' }}
+          />
+        </div>
       </div>
 
       <TypographyStyleSelector
@@ -1015,13 +1021,16 @@ export function IEditHeroElementEditor({ element, onChange }) {
         
         <div>
           <label className="block text-sm font-medium mb-1">Content</label>
-          <textarea
-            value={content.content_text || ''}
-            onChange={(e) => updateContent('content_text', e.target.value)}
-            className="w-full px-3 py-2 border border-slate-300 rounded-md"
-            rows="4"
-            placeholder="Enter content text (optional)..."
-          />
+          <div className="hero-quill-editor border border-slate-300 rounded-md overflow-hidden bg-white">
+            <ReactQuill
+              theme="snow"
+              value={content.content_text || ''}
+              onChange={(value) => updateContent('content_text', value)}
+              modules={heroQuillModules}
+              placeholder="Enter content text (optional)..."
+              style={{ minHeight: '120px' }}
+            />
+          </div>
         </div>
 
         <div className="mt-3">
