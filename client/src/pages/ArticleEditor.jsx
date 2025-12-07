@@ -269,6 +269,9 @@ export default function ArticleEditorPage() {
     },
     onSuccess: (data, publishNow) => {
       queryClient.invalidateQueries({ queryKey: ['articles'] });
+      queryClient.invalidateQueries({ queryKey: ['my-articles'] });
+      queryClient.invalidateQueries({ queryKey: ['all-articles-admin'] });
+      queryClient.invalidateQueries({ queryKey: ['published-articles'] });
       toast.success(publishNow ? `${singularDisplayName} published successfully!` : `${singularDisplayName} saved successfully!`);
       setLastSaved(new Date());
       
@@ -285,6 +288,9 @@ export default function ArticleEditorPage() {
     mutationFn: () => base44.entities.BlogPost.delete(articleId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['articles'] });
+      queryClient.invalidateQueries({ queryKey: ['my-articles'] });
+      queryClient.invalidateQueries({ queryKey: ['all-articles-admin'] });
+      queryClient.invalidateQueries({ queryKey: ['published-articles'] });
       toast.success(`${singularDisplayName} deleted successfully`);
       window.location.href = getArticleListUrl();
     },

@@ -37,16 +37,14 @@ export default function MyArticlesPage() {
   const singularDisplayName = displayName.endsWith('s') ? displayName.slice(0, -1) : displayName;
 
   const { data: articles = [], isLoading: articlesLoading } = useQuery({
-    queryKey: ['my-articles', memberInfo?.email],
+    queryKey: ['my-articles', memberInfo?.id],
     queryFn: async () => {
       const allArticles = await base44.entities.BlogPost.list('-created_at');
-      const allMembers = await base44.entities.Member.listAll();
-      const currentMember = allMembers.find(m => m.email === memberInfo?.email);
-      
-      return allArticles.filter(article => article.author_id === currentMember?.id);
+      // Filter by memberInfo.id directly - same ID used when creating articles
+      return allArticles.filter(article => article.author_id === memberInfo?.id);
     },
     staleTime: 0, // Always fetch fresh content for my articles
-    enabled: !!memberInfo
+    enabled: !!memberInfo?.id
   });
 
   const { data: categories = [], isLoading: categoriesLoading } = useQuery({
