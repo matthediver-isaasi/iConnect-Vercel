@@ -80,6 +80,7 @@ export default function PublicLayout({ children, currentPageName }) {
   };
 
   // Fetch banners for current page - wait for article URL context to load first
+  // Uses public API endpoint to ensure banners load for logged-out users
   useEffect(() => {
     const fetchBanners = async () => {
       // Wait for article URL context to finish loading before resolving page IDs
@@ -93,9 +94,12 @@ export default function PublicLayout({ children, currentPageName }) {
       }
 
       try {
-        const allBanners = await base44.entities.PageBanner.filter({
-          is_active: true
-        });
+        // Use public API endpoint that doesn't require authentication
+        const response = await fetch('/api/public/banners');
+        if (!response.ok) {
+          throw new Error('Failed to fetch banners');
+        }
+        const allBanners = await response.json();
         
         // Get the portal page identifier for this page (handles dynamic article slugs)
         const portalPageId = resolvePortalPageId(currentPageName);

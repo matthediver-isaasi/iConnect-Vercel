@@ -429,6 +429,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Public endpoint for page banners (used by PublicLayout for logged-out users)
+  app.get('/api/public/banners', async (req: Request, res: Response) => {
+    if (!supabase) {
+      return res.status(503).json({ error: 'Supabase not configured' });
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('page_banner')
+        .select('*')
+        .eq('is_active', true)
+        .order('display_order', { ascending: true });
+
+      if (error) {
+        console.error('Error fetching public banners:', error);
+        return res.status(500).json({ error: error.message });
+      }
+
+      res.json(data || []);
+    } catch (error) {
+      console.error('Public banners fetch error:', error);
+      res.status(500).json({ error: 'Failed to fetch banners' });
+    }
+  });
+
   // ============ Auth Routes ============
   
   app.get('/api/auth/me', async (req: Request, res: Response) => {
