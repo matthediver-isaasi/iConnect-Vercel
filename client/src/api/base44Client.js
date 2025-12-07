@@ -239,6 +239,7 @@ class EntitiesProxy {
   get OrganizationPreferenceValue() { return this._getEntity('OrganizationPreferenceValue'); }
   get Speaker() { return this._getEntity('Speaker'); }
   get TypographyStyle() { return this._getEntity('TypographyStyle'); }
+  get CardDeck() { return this._getEntity('CardDeck'); }
 }
 
 class CoreIntegration {
