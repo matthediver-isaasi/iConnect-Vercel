@@ -5,6 +5,9 @@ export default function IEditPageHeaderHeroElement({ content, variant, settings,
   const { 
     background_type = 'color',
     background_color = '#1e3a5f',
+    gradient_start_color = '#1e3a5f',
+    gradient_end_color = '#3b82f6',
+    gradient_angle = 135,
     image_url,
     header_text,
     header_position = 'left',
@@ -67,6 +70,11 @@ export default function IEditPageHeaderHeroElement({ content, variant, settings,
   const getBackgroundStyle = () => {
     if (background_type === 'color') {
       return { backgroundColor: background_color };
+    }
+    if (background_type === 'gradient') {
+      return { 
+        background: `linear-gradient(${gradient_angle}deg, ${gradient_start_color}, ${gradient_end_color})` 
+      };
     }
     return {};
   };
@@ -263,6 +271,7 @@ export function IEditPageHeaderHeroElementEditor({ element, onChange }) {
           className="w-full px-3 py-2 border border-slate-300 rounded-md"
         >
           <option value="color">Solid Color</option>
+          <option value="gradient">Gradient</option>
           <option value="image">Image</option>
         </select>
       </div>
@@ -277,6 +286,67 @@ export function IEditPageHeaderHeroElementEditor({ element, onChange }) {
             onChange={(e) => updateContent('background_color', e.target.value)}
             className="w-full h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
           />
+        </div>
+      )}
+
+      {/* Gradient Background Options */}
+      {content.background_type === 'gradient' && (
+        <div className="space-y-3 p-3 bg-slate-50 rounded-md">
+          <div 
+            className="w-full h-16 rounded-md border border-slate-300"
+            style={{ 
+              background: `linear-gradient(${content.gradient_angle || 135}deg, ${content.gradient_start_color || '#1e3a5f'}, ${content.gradient_end_color || '#3b82f6'})` 
+            }}
+          />
+          
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium mb-1">Start Color</label>
+              <div className="flex gap-2 items-center">
+                <input
+                  type="color"
+                  value={content.gradient_start_color || '#1e3a5f'}
+                  onChange={(e) => updateContent('gradient_start_color', e.target.value)}
+                  className="w-12 h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+                />
+                <input
+                  type="text"
+                  value={content.gradient_start_color || '#1e3a5f'}
+                  onChange={(e) => updateContent('gradient_start_color', e.target.value)}
+                  className="flex-1 px-2 py-1 border border-slate-300 rounded-md font-mono text-xs"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-medium mb-1">End Color</label>
+              <div className="flex gap-2 items-center">
+                <input
+                  type="color"
+                  value={content.gradient_end_color || '#3b82f6'}
+                  onChange={(e) => updateContent('gradient_end_color', e.target.value)}
+                  className="w-12 h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+                />
+                <input
+                  type="text"
+                  value={content.gradient_end_color || '#3b82f6'}
+                  onChange={(e) => updateContent('gradient_end_color', e.target.value)}
+                  className="flex-1 px-2 py-1 border border-slate-300 rounded-md font-mono text-xs"
+                />
+              </div>
+            </div>
+          </div>
+          
+          <div>
+            <label className="block text-xs font-medium mb-1">Angle: {content.gradient_angle || 135}°</label>
+            <input
+              type="range"
+              min="0"
+              max="360"
+              value={content.gradient_angle || 135}
+              onChange={(e) => updateContent('gradient_angle', parseInt(e.target.value))}
+              className="w-full"
+            />
+          </div>
         </div>
       )}
 
