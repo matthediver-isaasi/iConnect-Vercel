@@ -1,4 +1,5 @@
 import React, { useState, useId } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { base44 } from "@/api/base44Client";
 import { Label } from "@/components/ui/label";
@@ -23,7 +24,9 @@ import {
   Music,
   Calendar,
   MapPin,
-  BookOpen
+  BookOpen,
+  FolderOpen,
+  File
 } from "lucide-react";
 import TypographyStyleSelector, { applyTypographyStyle } from "../TypographyStyleSelector";
 
@@ -70,10 +73,40 @@ const fontWeights = [
 export function IEditAccordionElementEditor({ element, onChange }) {
   const [isUploading, setIsUploading] = useState(false);
   const [expandedItem, setExpandedItem] = useState(null);
+  const [showFilePicker, setShowFilePicker] = useState(null); // { itemIndex, linkIndex }
+  const [fileSearchQuery, setFileSearchQuery] = useState('');
 
   const content = element.content || {};
   const backgroundType = content.background_type || 'none';
   const items = content.items || [];
+
+  // Fetch files from repository
+  const { data: files = [], isLoading: filesLoading } = useQuery({
+    queryKey: ['file-repository-for-accordion'],
+    queryFn: () => base44.entities.FileRepository.list('-created_date'),
+    staleTime: 60000
+  });
+
+  // Fetch folders for context
+  const { data: folders = [] } = useQuery({
+    queryKey: ['file-repository-folders-for-accordion'],
+    queryFn: () => base44.entities.FileRepositoryFolder.list('display_order'),
+    staleTime: 60000
+  });
+
+  // Get folder name by ID
+  const getFolderName = (folderId) => {
+    const folder = folders.find(f => f.id === folderId);
+    return folder ? folder.name : 'Root';
+  };
+
+  // Filter files based on search
+  const filteredFiles = files.filter(file => {
+    if (!fileSearchQuery) return true;
+    const query = fileSearchQuery.toLowerCase();
+    return file.file_name?.toLowerCase().includes(query) ||
+           file.description?.toLowerCase().includes(query);
+  });
 
   const updateContent = (key, value) => {
     onChange({
@@ -194,6 +227,50 @@ export function IEditAccordionElementEditor({ element, onChange }) {
     const newItems = [...items];
     newItems[itemIndex] = { ...newItems[itemIndex], links };
     updateContent('items', newItems);
+  };
+
+  const handleFileSelect = (file, itemIndex, linkIndex) => {
+    const newItems = [...items];
+    const links = [...(newItems[itemIndex].links || [])];
+    
+    // Update the link with file info
+    links[linkIndex] = { 
+      ...links[linkIndex], 
+      url: file.file_url,
+      file_id: file.id,
+      file_name: file.file_name,
+      // Auto-set icon based on file type
+      icon_type: file.file_type === 'video' ? 'video' : 
+                 file.file_type === 'image' ? 'image' : 
+                 file.file_type === 'document' ? 'document' : 'download',
+      // If no label set, use file name
+      label: links[linkIndex].label === 'New Link' ? file.file_name : links[linkIndex].label
+    };
+    newItems[itemIndex] = { ...newItems[itemIndex], links };
+    updateContent('items', newItems);
+    setShowFilePicker(null);
+    setFileSearchQuery('');
+  };
+
+  const clearFileSelection = (itemIndex, linkIndex) => {
+    const newItems = [...items];
+    const links = [...(newItems[itemIndex].links || [])];
+    links[linkIndex] = { 
+      ...links[linkIndex], 
+      file_id: null,
+      file_name: null
+    };
+    newItems[itemIndex] = { ...newItems[itemIndex], links };
+    updateContent('items', newItems);
+  };
+
+  const getFileTypeIcon = (fileType) => {
+    switch (fileType) {
+      case 'video': return Video;
+      case 'image': return Image;
+      case 'document': return FileText;
+      default: return File;
+    }
   };
 
   const gradientPreview = `linear-gradient(${content.gradient_angle || 135}deg, ${content.gradient_start_color || '#3b82f6'}, ${content.gradient_end_color || '#8b5cf6'})`;
@@ -933,14 +1010,99 @@ export function IEditAccordionElementEditor({ element, onChange }) {
                                       </div>
                                     </div>
                                     
-                                    <div>
-                                      <Label className="text-xs">URL</Label>
-                                      <Input
-                                        value={link.url || ''}
-                                        onChange={(e) => updateItemLink(index, linkIndex, 'url', e.target.value)}
-                                        placeholder="https://..."
-                                        className="h-8 text-sm"
-                                      />
+                                    {/* URL or File Selection */}
+                                    <div className="space-y-2">
+                                      <div className="flex items-center justify-between">
+                                        <Label className="text-xs">Link Target</Label>
+                                        <Button
+                                          type="button"
+                                          variant="outline"
+                                          size="sm"
+                                          onClick={() => {
+                                            setShowFilePicker(
+                                              showFilePicker?.itemIndex === index && showFilePicker?.linkIndex === linkIndex
+                                                ? null
+                                                : { itemIndex: index, linkIndex }
+                                            );
+                                            setFileSearchQuery('');
+                                          }}
+                                          className="h-6 text-xs px-2"
+                                        >
+                                          <FolderOpen className="w-3 h-3 mr-1" />
+                                          {link.file_id ? 'Change File' : 'Select File'}
+                                        </Button>
+                                      </div>
+                                      
+                                      {/* Show selected file info */}
+                                      {link.file_id && link.file_name && (
+                                        <div className="flex items-center gap-2 p-2 bg-blue-50 border border-blue-200 rounded-md text-xs">
+                                          <File className="w-4 h-4 text-blue-600 flex-shrink-0" />
+                                          <span className="flex-1 truncate text-blue-800">{link.file_name}</span>
+                                          <button
+                                            type="button"
+                                            onClick={() => clearFileSelection(index, linkIndex)}
+                                            className="p-0.5 hover:bg-blue-100 rounded text-blue-600"
+                                          >
+                                            <Trash2 className="w-3 h-3" />
+                                          </button>
+                                        </div>
+                                      )}
+                                      
+                                      {/* File Picker Dropdown */}
+                                      {showFilePicker?.itemIndex === index && showFilePicker?.linkIndex === linkIndex && (
+                                        <div className="border border-slate-300 rounded-md bg-white shadow-lg max-h-60 overflow-hidden">
+                                          <div className="p-2 border-b sticky top-0 bg-white">
+                                            <Input
+                                              value={fileSearchQuery}
+                                              onChange={(e) => setFileSearchQuery(e.target.value)}
+                                              placeholder="Search files..."
+                                              className="h-7 text-xs"
+                                            />
+                                          </div>
+                                          <div className="max-h-48 overflow-y-auto">
+                                            {filesLoading ? (
+                                              <p className="p-3 text-xs text-slate-500 text-center">Loading files...</p>
+                                            ) : filteredFiles.length === 0 ? (
+                                              <p className="p-3 text-xs text-slate-500 text-center">No files found</p>
+                                            ) : (
+                                              filteredFiles.slice(0, 50).map(file => {
+                                                const FileIcon = getFileTypeIcon(file.file_type);
+                                                return (
+                                                  <button
+                                                    key={file.id}
+                                                    type="button"
+                                                    onClick={() => handleFileSelect(file, index, linkIndex)}
+                                                    className="w-full flex items-center gap-2 p-2 hover:bg-slate-50 text-left border-b border-slate-100 last:border-b-0"
+                                                  >
+                                                    <FileIcon className="w-4 h-4 text-slate-500 flex-shrink-0" />
+                                                    <div className="flex-1 min-w-0">
+                                                      <p className="text-xs font-medium truncate">{file.file_name}</p>
+                                                      <p className="text-[10px] text-slate-400">{getFolderName(file.folder_id)}</p>
+                                                    </div>
+                                                  </button>
+                                                );
+                                              })
+                                            )}
+                                          </div>
+                                        </div>
+                                      )}
+                                      
+                                      {/* Manual URL input */}
+                                      <div>
+                                        <Label className="text-xs text-slate-500">Or enter URL manually:</Label>
+                                        <Input
+                                          value={link.url || ''}
+                                          onChange={(e) => {
+                                            updateItemLink(index, linkIndex, 'url', e.target.value);
+                                            // Clear file selection if manually entering URL
+                                            if (link.file_id) {
+                                              clearFileSelection(index, linkIndex);
+                                            }
+                                          }}
+                                          placeholder="https://..."
+                                          className="h-8 text-sm"
+                                        />
+                                      </div>
                                     </div>
                                     
                                     <div className="flex items-center gap-2">
