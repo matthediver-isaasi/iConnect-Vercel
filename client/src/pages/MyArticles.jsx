@@ -22,6 +22,11 @@ export default function MyArticlesPage() {
   const [selectedSubcategories, setSelectedSubcategories] = useState([]);
   const [sortBy, setSortBy] = useState("newest");
 
+  // Debug: Log memberInfo on every render to see what's available
+  console.log('[MyArticles] memberInfo:', memberInfo);
+  console.log('[MyArticles] memberInfo?.id:', memberInfo?.id);
+  console.log('[MyArticles] Query enabled:', !!memberInfo?.id);
+
   // Fetch article display name setting
   const { data: displayNameSetting, isLoading: displayNameLoading } = useQuery({
     queryKey: ['article-display-name-setting'],
