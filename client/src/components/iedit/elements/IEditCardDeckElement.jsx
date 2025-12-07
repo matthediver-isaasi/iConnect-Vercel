@@ -1,12 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { base44 } from "@/api/base44Client";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Button } from "@/components/ui/button";
-import { Upload, Loader2, Trash2, ArrowRight, ExternalLink, Image as ImageIcon, ChevronDown, ChevronUp, X } from "lucide-react";
+import { Upload, ArrowRight, ChevronDown, ChevronUp, X } from "lucide-react";
 import { toast } from "sonner";
 import { useQuery } from "@tanstack/react-query";
 import TypographyStyleSelector, { applyTypographyStyle } from "../TypographyStyleSelector";
