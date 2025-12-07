@@ -46,6 +46,7 @@ const hardcodedPublicPages = [
   { name: "ButtonElements", label: "Button Elements" },
   { name: "ButtonStyleManagement", label: "Button Styles" },
   { name: "BuyProgramTickets", label: "Buy Program Tickets" },
+  { name: "CardDeckManagement", label: "Card Deck Management" },
   { name: "CategoryManagement", label: "Category Management" },
   { name: "Dashboard", label: "Dashboard" },
   { name: "DataExport", label: "Data Export" },

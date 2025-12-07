@@ -36,6 +36,7 @@ const builtInPages = [
   { value: "ButtonElements", label: "Button Elements" },
   { value: "ButtonStyleManagement", label: "Button Styles" },
   { value: "BuyProgramTickets", label: "Buy Program Tickets" },
+  { value: "CardDeckManagement", label: "Card Deck Management" },
   { value: "CategoryManagement", label: "Category Management" },
   { value: "CommunicationsManagement", label: "Communications Management" },
   { value: "CustomFieldsAdmin", label: "Custom Fields Admin" },
