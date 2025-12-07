@@ -100,4 +100,5 @@ export const PAGE_NAMES = [
   "CommunicationsManagement",
   "CustomFieldsAdmin",
   "SpeakerManagement",
+  "CardDeckManagement",
 ];

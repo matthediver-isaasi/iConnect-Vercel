@@ -179,6 +179,8 @@ import ArticlesSettings from "./ArticlesSettings";
 import GuestWriterManagement from "./GuestWriterManagement";
 import SpeakerManagement from "./SpeakerManagement";
 
+import CardDeckManagement from "./CardDeckManagement";
+
 import OrganisationDirectorySettings from "./OrganisationDirectorySettings";
 
 import InstalledFonts from "./InstalledFonts";
@@ -394,6 +396,8 @@ const PAGES = {
     GuestWriterManagement: GuestWriterManagement,
     
     SpeakerManagement: SpeakerManagement,
+    
+    CardDeckManagement: CardDeckManagement,
     
     OrganisationDirectorySettings: OrganisationDirectorySettings,
     
@@ -646,6 +650,8 @@ function PagesContent() {
                 <Route path="/GuestWriterManagement" element={<GuestWriterManagement />} />
                 
                 <Route path="/SpeakerManagement" element={<SpeakerManagement />} />
+                
+                <Route path="/CardDeckManagement" element={<CardDeckManagement />} />
                 
                 <Route path="/OrganisationDirectorySettings" element={<OrganisationDirectorySettings />} />
                 

@@ -26,6 +26,7 @@ import { IEditTwoColumnElementEditor } from "./elements/IEditTwoColumnElement";
 import { IEditQuoteElementEditor } from "./elements/IEditQuoteElement";
 import { IEditFiftyFiftyElementEditor } from "./elements/IEditFiftyFiftyElement";
 import { IEditFormElementEditor } from "./elements/IEditFormElement";
+import { IEditCardDeckElementEditor } from "./elements/IEditCardDeckElement";
 
 export default function IEditElementEditor({ element, onClose, onSave }) {
   const [editedContent, setEditedContent] = useState(element.content || {});
@@ -157,6 +158,9 @@ export default function IEditElementEditor({ element, onClose, onSave }) {
 
   // Check if this is a Form element (needs form selector)
   const isFormElement = element.element_type === 'form';
+
+  // Check if this is a Card Deck element (custom editor)
+  const isCardDeck = element.element_type === 'card_deck';
 
   // Fetch available forms for form element
   const { data: forms = [] } = useQuery({
@@ -503,6 +507,11 @@ export default function IEditElementEditor({ element, onClose, onSave }) {
             />
           ) : isFormElement ? (
             <IEditFormElementEditor 
+              element={{ ...element, content: editedContent }}
+              onChange={(updatedElement) => setEditedContent(updatedElement.content || {})}
+            />
+          ) : isCardDeck ? (
+            <IEditCardDeckElementEditor 
               element={{ ...element, content: editedContent }}
               onChange={(updatedElement) => setEditedContent(updatedElement.content || {})}
             />

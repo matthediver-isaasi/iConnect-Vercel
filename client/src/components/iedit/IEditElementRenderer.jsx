@@ -20,6 +20,7 @@ import IEditImagePanelElement from "./elements/IEditImagePanelElement";
 import { IEditAccordionElementRenderer } from "./elements/IEditAccordionElement";
 import IEditQuoteElement from "./elements/IEditQuoteElement";
 import IEditFiftyFiftyElement from "./elements/IEditFiftyFiftyElement";
+import { IEditCardDeckElementRenderer } from "./elements/IEditCardDeckElement";
 
 export default function IEditElementRenderer({ element, memberInfo, organizationInfo, isFirst }) {
   // Map element types to their corresponding components
@@ -45,6 +46,7 @@ export default function IEditElementRenderer({ element, memberInfo, organization
     'accordion': IEditAccordionElementRenderer,
     'quote': IEditQuoteElement,
     'fifty_fifty': IEditFiftyFiftyElement,
+    'card_deck': IEditCardDeckElementRenderer,
   };
 
   const Component = elementComponents[element.element_type];
