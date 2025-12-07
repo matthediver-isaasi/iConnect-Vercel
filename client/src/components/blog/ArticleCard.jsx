@@ -20,11 +20,14 @@ export default function ArticleCard({
   showImage = true
 }) {
   const { getArticleViewUrl } = useArticleUrl();
-  const articleUrl = getArticleViewUrl(article.slug);
-
+  
   // Use String() for type-safe comparison
   const isAuthor = currentMemberId && String(article.author_id) === String(currentMemberId);
   const isDraft = article.status === 'draft';
+  
+  // For drafts, add preview=true to the URL so the author can view them
+  const baseArticleUrl = getArticleViewUrl(article.slug);
+  const articleUrl = isDraft ? `${baseArticleUrl}${baseArticleUrl.includes('?') ? '&' : '?'}preview=true` : baseArticleUrl;
   
   const canEdit = hasAdminEditPermission || isAuthor;
   const canDelete = hasAdminDeletePermission || isAuthor;
