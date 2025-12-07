@@ -49,14 +49,31 @@ export default function ArticlesPage() {
   // This ensures consistency with how articles are created (using memberInfo.id as author_id)
   const currentMemberId = memberInfo?.id;
 
-  const { data: articles = [], isLoading: articlesLoading } = useQuery({
+  // Fetch published articles for public view
+  const { data: publishedArticles = [], isLoading: publishedLoading } = useQuery({
     queryKey: ['published-articles'],
     queryFn: async () => {
       const allArticles = await base44.entities.BlogPost.list('-published_date');
       return allArticles.filter(article => article.status === 'published');
     },
-    staleTime: 0, // Always fetch fresh content for articles feed
+    staleTime: 0,
   });
+
+  // Fetch user's own articles (including drafts) when "My Blogs" is active
+  const { data: myArticles = [], isLoading: myArticlesLoading } = useQuery({
+    queryKey: ['my-articles', currentMemberId],
+    queryFn: async () => {
+      const allArticles = await base44.entities.BlogPost.list('-published_date');
+      // Get all articles by this author (published + drafts)
+      return allArticles.filter(article => String(article.author_id) === String(currentMemberId));
+    },
+    enabled: !!currentMemberId && showMyArticlesOnly,
+    staleTime: 0,
+  });
+
+  // Use the appropriate article list based on filter
+  const articles = showMyArticlesOnly ? myArticles : publishedArticles;
+  const articlesLoading = showMyArticlesOnly ? myArticlesLoading : publishedLoading;
 
   const { data: categories = [], isLoading: categoriesLoading } = useQuery({
     queryKey: ['resourceCategories-articles'], // Updated queryKey
@@ -190,17 +207,12 @@ export default function ArticlesPage() {
       const matchesSubcategory = selectedSubcategories.length === 0 ||
         (article.subcategories && article.subcategories.some(sub => selectedSubcategories.includes(sub)));
 
-      // Use String() for type-safe comparison since IDs may be numbers or strings
-      const matchesAuthor = !showMyArticlesOnly || String(article.author_id) === String(currentMemberId);
+      // Note: author filtering is now handled by the separate myArticles query
+      // so we don't need to filter by author here anymore
 
-      // Debug logging for author matching
-      if (showMyArticlesOnly) {
-        console.log('[Articles] Checking article:', article.title, 'author_id:', article.author_id, 'currentMemberId:', currentMemberId, 'match:', String(article.author_id) === String(currentMemberId));
-      }
-
-      return matchesSearch && matchesSubcategory && matchesAuthor;
+      return matchesSearch && matchesSubcategory;
     });
-  }, [articles, searchQuery, selectedSubcategories, showMyArticlesOnly, currentMemberId]);
+  }, [articles, searchQuery, selectedSubcategories]);
 
   const sortedArticles = useMemo(() => {
     const sorted = [...filteredArticles];

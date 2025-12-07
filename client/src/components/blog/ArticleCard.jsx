@@ -22,7 +22,9 @@ export default function ArticleCard({
   const { getArticleViewUrl } = useArticleUrl();
   const articleUrl = getArticleViewUrl(article.slug);
 
-  const isAuthor = currentMemberId && article.author_id === currentMemberId;
+  // Use String() for type-safe comparison
+  const isAuthor = currentMemberId && String(article.author_id) === String(currentMemberId);
+  const isDraft = article.status === 'draft';
   
   const canEdit = hasAdminEditPermission || isAuthor;
   const canDelete = hasAdminDeletePermission || isAuthor;
@@ -71,6 +73,13 @@ export default function ArticleCard({
       className="border-slate-200 hover:shadow-lg transition-shadow duration-300 overflow-hidden h-full flex flex-col relative"
       data-testid={`card-article-${article.id}`}
     >
+      {isDraft && (
+        <div className="absolute top-3 left-3 z-10">
+          <Badge variant="secondary" className="bg-amber-100 text-amber-800 border-amber-300">
+            Draft
+          </Badge>
+        </div>
+      )}
       {showImage && article.feature_image_url && (
         <>
           <div className="h-48 overflow-hidden bg-slate-100">
