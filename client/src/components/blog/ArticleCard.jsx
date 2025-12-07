@@ -76,13 +76,6 @@ export default function ArticleCard({
       className="border-slate-200 hover:shadow-lg transition-shadow duration-300 overflow-hidden h-full flex flex-col relative"
       data-testid={`card-article-${article.id}`}
     >
-      {isDraft && (
-        <div className="absolute top-3 left-3 z-10">
-          <Badge variant="secondary" className="bg-amber-100 text-amber-800 border-amber-300">
-            Draft
-          </Badge>
-        </div>
-      )}
       {showImage && article.feature_image_url && (
         <>
           <div className="h-48 overflow-hidden bg-slate-100">
@@ -136,8 +129,13 @@ export default function ArticleCard({
       </CardHeader>
 
       <div className="mt-auto flex items-end justify-end">
-        <div className="mr-auto">
+        <div className="mr-auto flex items-center gap-2">
           <ActionButtons />
+          {isDraft && (
+            <Badge variant="secondary" className="bg-amber-100 text-amber-800 border-amber-300">
+              Draft
+            </Badge>
+          )}
         </div>
         <Link 
           to={articleUrl}
