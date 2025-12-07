@@ -127,6 +127,7 @@ export default function PageBannerManagementPage() {
       size: "full",
       height: "medium",
       position: "center",
+      horizontal_alignment: "center",
       page_position: "top",
       associated_pages: [],
       display_order: 0,
@@ -234,6 +235,7 @@ export default function PageBannerManagementPage() {
       size: editingBanner.size,
       height: editingBanner.height,
       position: editingBanner.position,
+      horizontal_alignment: bannerType === 'image' ? (editingBanner.horizontal_alignment || 'center') : null,
       page_position: bannerType === 'image' ? (editingBanner.page_position || 'top') : null,
       hero_content: bannerType === 'hero' ? editingBanner.hero_content : null,
       associated_pages: editingBanner.associated_pages,
@@ -601,6 +603,29 @@ export default function PageBannerManagementPage() {
                       </div>
                     </div>
 
+                    {/* Horizontal Alignment - Only show for half/quarter width */}
+                    {(editingBanner.size === 'half' || editingBanner.size === 'quarter') && (
+                      <div className="space-y-2">
+                        <Label htmlFor="horizontal-alignment">Horizontal Alignment</Label>
+                        <Select
+                          value={editingBanner.horizontal_alignment || 'center'}
+                          onValueChange={(value) => setEditingBanner({ ...editingBanner, horizontal_alignment: value })}
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="left">Left</SelectItem>
+                            <SelectItem value="center">Center</SelectItem>
+                            <SelectItem value="right">Right</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-slate-500">
+                          Horizontal positioning of the banner within the page
+                        </p>
+                      </div>
+                    )}
+
                     {/* Page Position */}
                     <div className="space-y-2">
                       <Label htmlFor="page-position">Position on Page</Label>
@@ -808,6 +833,14 @@ export default function PageBannerManagementPage() {
                         <span className="font-medium text-slate-700">Height:</span>
                         <span className="ml-2 text-slate-600">{previewBanner.height}</span>
                       </div>
+                      {(previewBanner.size === 'half' || previewBanner.size === 'quarter') && (
+                        <div>
+                          <span className="font-medium text-slate-700">Horizontal Alignment:</span>
+                          <span className="ml-2 text-slate-600 capitalize">
+                            {previewBanner.horizontal_alignment || 'center'}
+                          </span>
+                        </div>
+                      )}
                       <div>
                         <span className="font-medium text-slate-700">Page Position:</span>
                         <span className="ml-2 text-slate-600">

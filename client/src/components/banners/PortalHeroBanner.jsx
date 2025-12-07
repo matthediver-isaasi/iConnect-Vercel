@@ -39,12 +39,24 @@ export default function PortalHeroBanner({ banner }) {
     'bottom': 'object-bottom'
   };
 
+  const horizontalAlignmentClasses = {
+    'left': 'mr-auto',
+    'center': 'mx-auto',
+    'right': 'ml-auto'
+  };
+
   const containerClass = sizeClasses[banner.size] || sizeClasses['full'];
   const heightClass = heightClasses[banner.height] || heightClasses['medium'];
   const positionClass = positionClasses[banner.position] || positionClasses['center'];
+  
+  // Only apply horizontal alignment for non-full-width banners
+  const needsAlignment = banner.size === 'half' || banner.size === 'quarter';
+  const alignmentClass = needsAlignment 
+    ? (horizontalAlignmentClasses[banner.horizontal_alignment] || horizontalAlignmentClasses['center'])
+    : '';
 
   return (
-    <div className={`${containerClass} overflow-hidden`}>
+    <div className={`${containerClass} ${alignmentClass} overflow-hidden`}>
       <div className={`${heightClass} w-full`}>
         <img
           src={banner.image_url}

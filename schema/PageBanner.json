@@ -51,6 +51,16 @@
         "default": "center",
         "description": "Vertical positioning of the image within the banner"
       },
+      "horizontal_alignment": {
+        "type": "string",
+        "enum": [
+          "left",
+          "center",
+          "right"
+        ],
+        "default": "center",
+        "description": "Horizontal alignment for half/quarter width banners"
+      },
       "page_position": {
         "type": "string",
         "enum": [
