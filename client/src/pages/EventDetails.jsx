@@ -976,8 +976,12 @@ export default function EventDetailsPage() {
                           <div className="font-medium text-slate-900 group-hover:text-purple-700">
                             {speaker.full_name}
                           </div>
-                          {speaker.title && (
-                            <div className="text-sm text-slate-500">{speaker.title}</div>
+                          {(speaker.job_title || speaker.organization) && (
+                            <div className="text-sm text-slate-500">
+                              {speaker.job_title}
+                              {speaker.job_title && speaker.organization && ', '}
+                              {speaker.organization}
+                            </div>
                           )}
                         </div>
                         <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-purple-600 ml-2" />
@@ -1439,8 +1443,12 @@ export default function EventDetailsPage() {
                   <h3 className="text-lg font-semibold text-slate-900" data-testid="text-speaker-name">
                     {selectedSpeaker.full_name}
                   </h3>
-                  {selectedSpeaker.title && (
-                    <p className="text-slate-500" data-testid="text-speaker-title">{selectedSpeaker.title}</p>
+                  {(selectedSpeaker.job_title || selectedSpeaker.organization) && (
+                    <p className="text-slate-500" data-testid="text-speaker-role">
+                      {selectedSpeaker.job_title}
+                      {selectedSpeaker.job_title && selectedSpeaker.organization && ', '}
+                      {selectedSpeaker.organization}
+                    </p>
                   )}
                   {selectedSpeaker.email && (
                     <a 
