@@ -1461,11 +1461,11 @@ export default function EventDetailsPage() {
                   )}
                 </div>
               </div>
-              {selectedSpeaker.bio && (
+              {selectedSpeaker.biography && (
                 <div>
                   <h4 className="font-medium text-slate-900 mb-2">Biography</h4>
                   <p className="text-slate-600 whitespace-pre-wrap leading-relaxed" data-testid="text-speaker-bio">
-                    {selectedSpeaker.bio}
+                    {selectedSpeaker.biography}
                   </p>
                 </div>
               )}
