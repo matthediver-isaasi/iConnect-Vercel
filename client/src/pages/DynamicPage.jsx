@@ -133,7 +133,13 @@ export default function DynamicPage() {
     };
   }, [page, pageLoading, isPublicPage, isHybridPage, isLoggedIn, setForcePublicLayout, dynamicArticleRoute]);
 
+  // Debug: Log what's being rendered
+  console.log('[DynamicPage] slug:', slug);
+  console.log('[DynamicPage] dynamicArticleRoute:', dynamicArticleRoute);
+  console.log('[DynamicPage] mySlug:', mySlug, 'isCustomSlug:', isCustomSlug);
+
   if (dynamicArticleRoute) {
+    console.log('[DynamicPage] Rendering component:', dynamicArticleRoute.component);
     switch (dynamicArticleRoute.component) {
       case 'Articles':
         return <Articles />;

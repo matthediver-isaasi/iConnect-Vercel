@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
@@ -23,9 +23,14 @@ export default function MyArticlesPage() {
   const [sortBy, setSortBy] = useState("newest");
 
   // Debug: Log memberInfo on every render to see what's available
-  console.log('[MyArticles] memberInfo:', memberInfo);
+  console.log('[MyArticles] COMPONENT LOADED - memberInfo:', memberInfo);
   console.log('[MyArticles] memberInfo?.id:', memberInfo?.id);
   console.log('[MyArticles] Query enabled:', !!memberInfo?.id);
+  
+  // Temporary alert to confirm deployment - remove after debugging
+  useEffect(() => {
+    console.log('[MyArticles] useEffect ran - this confirms component mounted');
+  }, []);
 
   // Fetch article display name setting
   const { data: displayNameSetting, isLoading: displayNameLoading } = useQuery({
