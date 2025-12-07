@@ -40,8 +40,19 @@ export default function MyArticlesPage() {
     queryKey: ['my-articles', memberInfo?.id],
     queryFn: async () => {
       const allArticles = await base44.entities.BlogPost.list('-created_at');
-      // Filter by memberInfo.id directly - same ID used when creating articles
-      return allArticles.filter(article => article.author_id === memberInfo?.id);
+      const currentMemberId = String(memberInfo?.id || '');
+      
+      // Debug logging to help diagnose filtering issue
+      console.log('[MyArticles] Current member ID:', currentMemberId, 'type:', typeof memberInfo?.id);
+      console.log('[MyArticles] Total articles fetched:', allArticles.length);
+      allArticles.forEach(a => {
+        console.log('[MyArticles] Article:', a.title, 'author_id:', a.author_id, 'type:', typeof a.author_id, 'match:', String(a.author_id) === currentMemberId);
+      });
+      
+      // Use String() conversion to ensure type-safe comparison
+      const myArticles = allArticles.filter(article => String(article.author_id) === currentMemberId);
+      console.log('[MyArticles] Filtered articles count:', myArticles.length);
+      return myArticles;
     },
     staleTime: 0, // Always fetch fresh content for my articles
     enabled: !!memberInfo?.id
