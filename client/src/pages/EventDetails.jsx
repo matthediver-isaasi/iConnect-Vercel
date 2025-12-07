@@ -1424,7 +1424,7 @@ export default function EventDetailsPage() {
 
       {/* Speaker Profile Modal */}
       <Dialog open={showSpeakerModal} onOpenChange={setShowSpeakerModal}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-xl font-semibold">{speakerSingular} Profile</DialogTitle>
           </DialogHeader>
