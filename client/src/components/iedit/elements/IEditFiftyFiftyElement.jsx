@@ -1,12 +1,25 @@
 import { useState, useEffect } from "react";
-import ReactMarkdown from "react-markdown";
+import ReactQuill from 'react-quill';
+import 'react-quill/dist/quill.snow.css';
+import DOMPurify from 'dompurify';
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { ChevronDown, ChevronUp, Upload, X } from "lucide-react";
 import AGCASButton from "../../ui/AGCASButton";
 import TypographyStyleSelector, { applyTypographyStyle } from "../TypographyStyleSelector";
 import { useIsMobile } from "@/hooks/use-mobile";
+
+const fiftyFiftyQuillModules = {
+  toolbar: [
+    [{ 'header': [1, 2, 3, false] }],
+    ['bold', 'italic', 'underline', 'strike'],
+    [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+    [{ 'indent': '-1'}, { 'indent': '+1' }],
+    ['blockquote'],
+    ['link'],
+    ['clean']
+  ]
+};
 
 const fontFamilies = [
   'Poppins',
@@ -131,14 +144,18 @@ export default function IEditFiftyFiftyElement({ content, variant, settings }) {
           </h2>
         )}
         {subheading && (
-          <h3 style={getTextStyle(`${side}_subheading`)} className="m-0">
-            {subheading}
-          </h3>
+          <div 
+            style={getTextStyle(`${side}_subheading`)} 
+            className="m-0 prose max-w-none"
+            dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(subheading) }}
+          />
         )}
         {textContent && (
-          <div className="prose max-w-none" style={getTextStyle(`${side}_content`)}>
-            <ReactMarkdown>{textContent}</ReactMarkdown>
-          </div>
+          <div 
+            className="prose max-w-none" 
+            style={getTextStyle(`${side}_content`)}
+            dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(textContent) }}
+          />
         )}
       </div>
     );
@@ -526,11 +543,16 @@ export function IEditFiftyFiftyElementEditor({ element, onChange }) {
           <div className="space-y-3">
             <div>
               <Label className="text-xs">Subheading Text</Label>
-              <Input
-                value={content[`${side}_subheading`] || ''}
-                onChange={(e) => updateContent(`${side}_subheading`, e.target.value)}
-                placeholder="Enter subheading..."
-              />
+              <div className="fifty-fifty-quill-editor border border-slate-300 rounded-md overflow-hidden bg-white">
+                <ReactQuill
+                  theme="snow"
+                  value={content[`${side}_subheading`] || ''}
+                  onChange={(value) => updateContent(`${side}_subheading`, value)}
+                  modules={fiftyFiftyQuillModules}
+                  placeholder="Enter subheading..."
+                  style={{ minHeight: '80px' }}
+                />
+              </div>
             </div>
             <TypographyStyleSelector
               value={content[`${side}_subheading_typography_style_id`] || null}
@@ -562,13 +584,17 @@ export function IEditFiftyFiftyElementEditor({ element, onChange }) {
           <h5 className="font-medium text-sm mb-3">Content</h5>
           <div className="space-y-3">
             <div>
-              <Label className="text-xs">Content (Markdown supported)</Label>
-              <Textarea
-                value={content[`${side}_content`] || ''}
-                onChange={(e) => updateContent(`${side}_content`, e.target.value)}
-                placeholder="Enter content..."
-                rows={4}
-              />
+              <Label className="text-xs">Content</Label>
+              <div className="fifty-fifty-quill-editor border border-slate-300 rounded-md overflow-hidden bg-white">
+                <ReactQuill
+                  theme="snow"
+                  value={content[`${side}_content`] || ''}
+                  onChange={(value) => updateContent(`${side}_content`, value)}
+                  modules={fiftyFiftyQuillModules}
+                  placeholder="Enter content..."
+                  style={{ minHeight: '120px' }}
+                />
+              </div>
             </div>
             <TypographyStyleSelector
               value={content[`${side}_content_typography_style_id`] || null}
