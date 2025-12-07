@@ -1,5 +1,23 @@
 import { useState, useId } from "react";
 import TypographyStyleSelector, { applyTypographyStyle } from "../TypographyStyleSelector";
+import ReactQuill from "react-quill";
+import "react-quill/dist/quill.snow.css";
+import DOMPurify from "dompurify";
+
+// Quill editor modules configuration for hero text content
+const heroQuillModules = {
+  toolbar: {
+    container: [
+      [{ 'header': [1, 2, 3, false] }],
+      ['bold', 'italic', 'underline', 'strike'],
+      [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+      [{ 'indent': '-1'}, { 'indent': '+1' }],
+      ['blockquote'],
+      ['link'],
+      ['clean']
+    ]
+  }
+};
 
 export default function IEditPageHeaderHeroElement({ content, variant, settings, isFirst }) {
   const { 
@@ -10,10 +28,16 @@ export default function IEditPageHeaderHeroElement({ content, variant, settings,
     gradient_angle = 135,
     image_url,
     header_text,
+    subheading_text = '',
+    content_text = '',
     header_position = 'left',
     header_font_family = 'Poppins',
     header_font_size = '48',
     header_color = '#ffffff',
+    subheading_color = '#ffffff',
+    subheading_font_size = '24',
+    content_color = '#ffffff',
+    content_font_size = '16',
     text_alignment = 'left',
     padding_vertical = '80',
     padding_horizontal = '16',
@@ -30,6 +54,8 @@ export default function IEditPageHeaderHeroElement({ content, variant, settings,
     overlay_opacity = '50',
     // Mobile-specific settings with sensible defaults
     mobile_font_size,
+    mobile_subheading_font_size,
+    mobile_content_font_size,
     mobile_height_type = 'auto',
     mobile_custom_height = '250',
     mobile_padding_vertical,
@@ -43,6 +69,8 @@ export default function IEditPageHeaderHeroElement({ content, variant, settings,
 
   // Calculate mobile values with fallbacks
   const mobileFontSize = mobile_font_size || Math.max(24, Math.round(parseInt(header_font_size) * 0.6));
+  const mobileSubheadingFontSize = mobile_subheading_font_size || Math.max(16, Math.round(parseInt(subheading_font_size) * 0.75));
+  const mobileContentFontSize = mobile_content_font_size || Math.max(14, Math.round(parseInt(content_font_size) * 0.9));
   const mobilePaddingVertical = mobile_padding_vertical || Math.max(32, Math.round(parseInt(padding_vertical) * 0.5));
   const mobilePaddingHorizontal = mobile_padding_horizontal || Math.max(16, parseInt(padding_horizontal));
   const mobileTextAlignment = mobile_text_alignment || text_alignment;
@@ -113,6 +141,28 @@ export default function IEditPageHeaderHeroElement({ content, variant, settings,
             line-height: ${line_spacing};
           }
           
+          .${instanceId} .hero-subheading {
+            font-size: ${subheading_font_size}px;
+            color: ${subheading_color};
+            margin-top: 16px;
+          }
+          
+          .${instanceId} .hero-body-text {
+            font-size: ${content_font_size}px;
+            color: ${content_color};
+            margin-top: 16px;
+          }
+          
+          .${instanceId} .hero-subheading p,
+          .${instanceId} .hero-body-text p {
+            margin: 0 0 0.5em 0;
+          }
+          
+          .${instanceId} .hero-subheading p:last-child,
+          .${instanceId} .hero-body-text p:last-child {
+            margin-bottom: 0;
+          }
+          
           /* Mobile styles - below 768px */
           @media (max-width: 767px) {
             .${instanceId} {
@@ -140,6 +190,16 @@ export default function IEditPageHeaderHeroElement({ content, variant, settings,
             
             .${instanceId} .hero-title {
               font-size: ${mobileFontSize}px;
+            }
+            
+            .${instanceId} .hero-subheading {
+              font-size: ${mobileSubheadingFontSize}px;
+              margin-top: 12px;
+            }
+            
+            .${instanceId} .hero-body-text {
+              font-size: ${mobileContentFontSize}px;
+              margin-top: 12px;
             }
           }
         `}
@@ -182,6 +242,22 @@ export default function IEditPageHeaderHeroElement({ content, variant, settings,
                 {header_text}
               </h1>
             )}
+            {subheading_text && (
+              <div 
+                className="hero-subheading"
+                dangerouslySetInnerHTML={{ 
+                  __html: DOMPurify.sanitize(subheading_text) 
+                }}
+              />
+            )}
+            {content_text && (
+              <div 
+                className="hero-body-text"
+                dangerouslySetInnerHTML={{ 
+                  __html: DOMPurify.sanitize(content_text) 
+                }}
+              />
+            )}
           </div>
         </div>
       </div>
@@ -193,12 +269,21 @@ export function IEditPageHeaderHeroElementEditor({ element, onChange }) {
   const content = element.content || {
     background_type: 'color',
     background_color: '#1e3a5f',
+    gradient_start_color: '#1e3a5f',
+    gradient_end_color: '#3b82f6',
+    gradient_angle: 135,
     image_url: '',
     header_text: '',
+    subheading_text: '',
+    content_text: '',
     header_position: 'left',
     header_font_family: 'Poppins',
     header_font_size: '48',
     header_color: '#ffffff',
+    subheading_color: '#ffffff',
+    subheading_font_size: '24',
+    content_color: '#ffffff',
+    content_font_size: '16',
     text_alignment: 'left',
     padding_vertical: '80',
     padding_horizontal: '16',
@@ -478,6 +563,80 @@ export function IEditPageHeaderHeroElementEditor({ element, onChange }) {
         filterTypes={['h1', 'h2']}
         label="Header Typography Style"
       />
+
+      {/* Subheading Text - Rich Text Editor */}
+      <div>
+        <label className="block text-sm font-medium mb-1">Subheading (Optional)</label>
+        <div className="hero-quill-editor border border-slate-300 rounded-md overflow-hidden bg-white">
+          <ReactQuill
+            theme="snow"
+            value={content.subheading_text || ''}
+            onChange={(value) => updateContent('subheading_text', value)}
+            modules={heroQuillModules}
+            placeholder="Enter subheading text..."
+            style={{ minHeight: '100px' }}
+          />
+        </div>
+        <div className="mt-2 grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-medium mb-1">Subheading Color</label>
+            <input
+              type="color"
+              value={content.subheading_color || '#ffffff'}
+              onChange={(e) => updateContent('subheading_color', e.target.value)}
+              className="w-full h-8 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium mb-1">Font Size (px)</label>
+            <input
+              type="number"
+              value={content.subheading_font_size || 24}
+              onChange={(e) => updateContent('subheading_font_size', e.target.value)}
+              className="w-full px-3 py-1 border border-slate-300 rounded-md"
+              min="12"
+              max="72"
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Content Text - Rich Text Editor */}
+      <div>
+        <label className="block text-sm font-medium mb-1">Content Text (Optional)</label>
+        <div className="hero-quill-editor border border-slate-300 rounded-md overflow-hidden bg-white">
+          <ReactQuill
+            theme="snow"
+            value={content.content_text || ''}
+            onChange={(value) => updateContent('content_text', value)}
+            modules={heroQuillModules}
+            placeholder="Enter content text..."
+            style={{ minHeight: '120px' }}
+          />
+        </div>
+        <div className="mt-2 grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-medium mb-1">Content Color</label>
+            <input
+              type="color"
+              value={content.content_color || '#ffffff'}
+              onChange={(e) => updateContent('content_color', e.target.value)}
+              className="w-full h-8 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium mb-1">Font Size (px)</label>
+            <input
+              type="number"
+              value={content.content_font_size || 16}
+              onChange={(e) => updateContent('content_font_size', e.target.value)}
+              className="w-full px-3 py-1 border border-slate-300 rounded-md"
+              min="10"
+              max="48"
+            />
+          </div>
+        </div>
+      </div>
 
       {/* Header Position */}
       <div>
