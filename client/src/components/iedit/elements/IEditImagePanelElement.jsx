@@ -851,22 +851,24 @@ export function IEditImagePanelElementEditor({ element, onChange }) {
                       
                       <TypographyStyleSelector
                         value={panel.header_typography_style_id}
-                        onChange={(styleId) => updatePanel(index, 'header_typography_style_id', styleId)}
-                        onApplyStyle={(style) => {
-                          const styleProps = applyTypographyStyle(style);
-                          const updates = {};
-                          if (styleProps.font_family) updates.header_font_family = styleProps.font_family;
-                          if (styleProps.font_size) updates.header_font_size = styleProps.font_size;
-                          if (styleProps.font_size_mobile) updates.header_font_size_mobile = styleProps.font_size_mobile;
-                          if (styleProps.font_weight) updates.header_font_weight = styleProps.font_weight;
-                          if (styleProps.line_height) updates.header_line_height = styleProps.line_height;
-                          if (styleProps.letter_spacing !== undefined) updates.header_letter_spacing = styleProps.letter_spacing;
-                          if (styleProps.text_transform) updates.header_text_transform = styleProps.text_transform;
-                          if (styleProps.color) updates.header_color = styleProps.color;
-                          
+                        onChange={(styleId, style) => {
                           const newPanels = [...panels];
                           if (!newPanels[index]) newPanels[index] = { ...defaultPanel };
-                          newPanels[index] = { ...newPanels[index], ...updates, header_typography_style_id: style.id };
+                          
+                          const updates = { header_typography_style_id: styleId };
+                          if (style) {
+                            const styleProps = applyTypographyStyle(style);
+                            if (styleProps.font_family) updates.header_font_family = styleProps.font_family;
+                            if (styleProps.font_size) updates.header_font_size = styleProps.font_size;
+                            if (styleProps.font_size_mobile) updates.header_font_size_mobile = styleProps.font_size_mobile;
+                            if (styleProps.font_weight) updates.header_font_weight = styleProps.font_weight;
+                            if (styleProps.line_height) updates.header_line_height = styleProps.line_height;
+                            if (styleProps.letter_spacing !== undefined) updates.header_letter_spacing = styleProps.letter_spacing;
+                            if (styleProps.text_transform) updates.header_text_transform = styleProps.text_transform;
+                            if (styleProps.color) updates.header_color = styleProps.color;
+                          }
+                          
+                          newPanels[index] = { ...newPanels[index], ...updates };
                           updateContent('panels', newPanels);
                         }}
                         label="Typography Style"
@@ -968,22 +970,24 @@ export function IEditImagePanelElementEditor({ element, onChange }) {
                       
                       <TypographyStyleSelector
                         value={panel.bottom_typography_style_id}
-                        onChange={(styleId) => updatePanel(index, 'bottom_typography_style_id', styleId)}
-                        onApplyStyle={(style) => {
-                          const styleProps = applyTypographyStyle(style);
-                          const updates = {};
-                          if (styleProps.font_family) updates.bottom_font_family = styleProps.font_family;
-                          if (styleProps.font_size) updates.bottom_font_size = styleProps.font_size;
-                          if (styleProps.font_size_mobile) updates.bottom_font_size_mobile = styleProps.font_size_mobile;
-                          if (styleProps.font_weight) updates.bottom_font_weight = styleProps.font_weight;
-                          if (styleProps.line_height) updates.bottom_line_height = styleProps.line_height;
-                          if (styleProps.letter_spacing !== undefined) updates.bottom_letter_spacing = styleProps.letter_spacing;
-                          if (styleProps.text_transform) updates.bottom_text_transform = styleProps.text_transform;
-                          if (styleProps.color) updates.bottom_color = styleProps.color;
-                          
+                        onChange={(styleId, style) => {
                           const newPanels = [...panels];
                           if (!newPanels[index]) newPanels[index] = { ...defaultPanel };
-                          newPanels[index] = { ...newPanels[index], ...updates, bottom_typography_style_id: style.id };
+                          
+                          const updates = { bottom_typography_style_id: styleId };
+                          if (style) {
+                            const styleProps = applyTypographyStyle(style);
+                            if (styleProps.font_family) updates.bottom_font_family = styleProps.font_family;
+                            if (styleProps.font_size) updates.bottom_font_size = styleProps.font_size;
+                            if (styleProps.font_size_mobile) updates.bottom_font_size_mobile = styleProps.font_size_mobile;
+                            if (styleProps.font_weight) updates.bottom_font_weight = styleProps.font_weight;
+                            if (styleProps.line_height) updates.bottom_line_height = styleProps.line_height;
+                            if (styleProps.letter_spacing !== undefined) updates.bottom_letter_spacing = styleProps.letter_spacing;
+                            if (styleProps.text_transform) updates.bottom_text_transform = styleProps.text_transform;
+                            if (styleProps.color) updates.bottom_color = styleProps.color;
+                          }
+                          
+                          newPanels[index] = { ...newPanels[index], ...updates };
                           updateContent('panels', newPanels);
                         }}
                         label="Typography Style"
