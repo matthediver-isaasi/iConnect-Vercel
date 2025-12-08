@@ -331,10 +331,10 @@ export default function IEditEventSpotlightElement({ content, variant, settings 
                   <div className="flex flex-wrap gap-4">
                     {eventSpeakers.map(speaker => (
                       <div key={speaker.id} className="flex items-center gap-3">
-                        {speaker.profile_image_url ? (
+                        {speaker.profile_photo_url ? (
                           <img 
-                            src={speaker.profile_image_url} 
-                            alt={speaker.name}
+                            src={speaker.profile_photo_url} 
+                            alt={speaker.full_name}
                             className="w-12 h-12 rounded-full object-cover"
                           />
                         ) : (
@@ -343,12 +343,12 @@ export default function IEditEventSpotlightElement({ content, variant, settings 
                           </div>
                         )}
                         <div>
-                          <p className="font-medium text-slate-900">{speaker.name}</p>
+                          <p className="font-medium text-slate-900">{speaker.full_name}</p>
                           {speaker.organization && (
                             <p className="text-sm text-slate-600">{speaker.organization}</p>
                           )}
-                          {speaker.title && (
-                            <p className="text-sm text-slate-500">{speaker.title}</p>
+                          {speaker.job_title && (
+                            <p className="text-sm text-slate-500">{speaker.job_title}</p>
                           )}
                         </div>
                       </div>
