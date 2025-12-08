@@ -198,15 +198,22 @@ export function IEditLogoGridElementRenderer({ content, variant, settings }) {
         )}
 
         {validLogos.length > 0 && (
-          <div className={`flex ${getGridJustify()}`}>
-            <div 
-              className={`grid ${getGridCols()} w-full`}
-              style={{ gap: `${logo_gap}px` }}
-            >
-              {validLogos.map((logo, index) => (
+          <div 
+            className={`flex flex-wrap ${getGridJustify()}`}
+            style={{ gap: `${logo_gap}px` }}
+          >
+            {validLogos.map((logo, index) => {
+              const cols = parseInt(columns_per_row) || 4;
+              const itemWidth = `calc((100% - ${(cols - 1) * logo_gap}px) / ${cols})`;
+              return (
                 <div 
                   key={index}
                   className="relative aspect-square rounded-lg overflow-hidden bg-slate-100 flex items-center justify-center group"
+                  style={{ 
+                    width: itemWidth,
+                    maxWidth: '300px',
+                    minWidth: '120px'
+                  }}
                 >
                   <img
                     src={logo.image_url}
@@ -223,8 +230,8 @@ export function IEditLogoGridElementRenderer({ content, variant, settings }) {
                     </div>
                   )}
                 </div>
-              ))}
-            </div>
+              );
+            })}
           </div>
         )}
 
