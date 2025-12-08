@@ -48,6 +48,7 @@ export default function IEditTextBlockElement({ content, variant, settings }) {
 
   const reactId = useId();
   const instanceId = `textblock-${reactId.replace(/:/g, '')}`;
+  const fullWidth = settings?.fullWidth;
 
   const mobileHeadingFontSize = mobile_heading_font_size || Math.max(22, Math.round(heading_font_size * 0.75));
   const mobileContentFontSize = mobile_content_font_size || Math.max(14, Math.round(content_font_size * 0.9));
@@ -67,13 +68,16 @@ export default function IEditTextBlockElement({ content, variant, settings }) {
   };
 
   const scopedStyles = `
-    .${instanceId} {
+    .${instanceId} .textblock-background {
       ${getBackgroundStyle()}
-      ${padding_top ? `padding-top: ${padding_top}px;` : ''}
-      ${padding_bottom ? `padding-bottom: ${padding_bottom}px;` : ''}
-      ${padding_left ? `padding-left: ${padding_left}px;` : ''}
-      ${padding_right ? `padding-right: ${padding_right}px;` : ''}
       ${border_radius ? `border-radius: ${border_radius}px;` : ''}
+    }
+
+    .${instanceId} .textblock-inner {
+      padding-top: ${padding_top}px;
+      padding-bottom: ${padding_bottom}px;
+      padding-left: ${padding_left}px;
+      padding-right: ${padding_right}px;
     }
 
     .${instanceId} .textblock-heading {
@@ -113,11 +117,11 @@ export default function IEditTextBlockElement({ content, variant, settings }) {
     }
 
     @media (max-width: 767px) {
-      .${instanceId} {
-        ${mobilePaddingTop !== undefined ? `padding-top: ${mobilePaddingTop}px;` : ''}
-        ${mobilePaddingBottom !== undefined ? `padding-bottom: ${mobilePaddingBottom}px;` : ''}
-        ${mobilePaddingLeft !== undefined ? `padding-left: ${mobilePaddingLeft}px;` : ''}
-        ${mobilePaddingRight !== undefined ? `padding-right: ${mobilePaddingRight}px;` : ''}
+      .${instanceId} .textblock-inner {
+        padding-top: ${mobilePaddingTop}px;
+        padding-bottom: ${mobilePaddingBottom}px;
+        padding-left: ${mobilePaddingLeft}px;
+        padding-right: ${mobilePaddingRight}px;
       }
 
       .${instanceId} .textblock-heading {
@@ -132,21 +136,27 @@ export default function IEditTextBlockElement({ content, variant, settings }) {
     }
   `;
 
+  const fullWidthClass = fullWidth ? 'w-screen relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw]' : '';
+
   return (
-    <div className={instanceId} data-testid="textblock-container">
+    <div className={`${instanceId} ${fullWidthClass}`} data-testid="textblock-container">
       <style>{scopedStyles}</style>
-      {heading && (
-        <h2 className="textblock-heading" data-testid="textblock-heading">
-          {heading}
-        </h2>
-      )}
-      {text && (
-        <div 
-          className="prose max-w-none textblock-content"
-          data-testid="textblock-content"
-          dangerouslySetInnerHTML={{ __html: text }}
-        />
-      )}
+      <div className="textblock-background">
+        <div className="textblock-inner">
+          {heading && (
+            <h2 className="textblock-heading" data-testid="textblock-heading">
+              {heading}
+            </h2>
+          )}
+          {text && (
+            <div 
+              className="prose max-w-none textblock-content"
+              data-testid="textblock-content"
+              dangerouslySetInnerHTML={{ __html: text }}
+            />
+          )}
+        </div>
+      </div>
     </div>
   );
 }

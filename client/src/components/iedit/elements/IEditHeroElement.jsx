@@ -81,6 +81,7 @@ export default function IEditHeroElement({ content, variant, settings }) {
 
   const reactId = useId();
   const instanceId = `hero-${reactId.replace(/:/g, '')}`;
+  const fullWidth = settings?.fullWidth;
 
   const mobileHeadingFontSize = mobile_heading_font_size || Math.max(28, Math.round(heading_font_size * 0.6));
   const mobileSubheadingFontSize = mobile_subheading_font_size || Math.max(16, Math.round(subheading_font_size * 0.8));
@@ -227,9 +228,11 @@ export default function IEditHeroElement({ content, variant, settings }) {
     }
   `;
 
+  const fullWidthClass = fullWidth ? 'w-screen relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw]' : '';
+
   if (isImageSized) {
     return (
-      <div className={instanceId}>
+      <div className={`${instanceId} ${fullWidthClass}`}>
         <style>{responsiveStyles}</style>
         <div 
           style={{ 
@@ -269,7 +272,7 @@ export default function IEditHeroElement({ content, variant, settings }) {
               justifyContent: getTextVerticalAlign()
             }}
           >
-            <div className="hero-content max-w-7xl mx-auto px-4 w-full">
+            <div className="hero-content max-w-7xl mx-auto w-full">
               {content.heading && (
                 <div>
                   <h1 
@@ -334,7 +337,7 @@ export default function IEditHeroElement({ content, variant, settings }) {
   }
 
   return (
-    <div className={instanceId}>
+    <div className={`${instanceId} ${fullWidthClass}`}>
       <style>{responsiveStyles}</style>
       <div 
         className="hero-container relative w-full overflow-hidden"
@@ -360,7 +363,7 @@ export default function IEditHeroElement({ content, variant, settings }) {
           </>
         )}
         
-        <div className="hero-content relative max-w-7xl mx-auto px-4">
+        <div className="hero-content relative max-w-7xl mx-auto">
           {content.heading && (
             <div>
               <h1 
