@@ -183,7 +183,7 @@ export default function IEditHeroElement({ content, variant, settings }) {
     
     .${instanceId} .hero-button-wrapper {
       margin-top: ${button_top_margin}px;
-      text-align: ${text_align};
+      text-align: ${content.button_align || text_align};
     }
     
     @media (max-width: 767px) {
@@ -222,7 +222,7 @@ export default function IEditHeroElement({ content, variant, settings }) {
       
       .${instanceId} .hero-button-wrapper {
         margin-top: ${mobileButtonTopMargin}px;
-        text-align: ${mobileTextAlign};
+        text-align: ${content.mobile_button_align || content.button_align || mobileTextAlign};
       }
     }
   `;
@@ -311,7 +311,7 @@ export default function IEditHeroElement({ content, variant, settings }) {
                   dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(content_text) }}
                 />
               )}
-              {button && button.text && (
+              {button && button.link && (button.text || button.show_arrow) && (
                 <div className="hero-button-wrapper" style={{ marginBottom: 0 }}>
                   <AGCASButton
                     text={button.text}
@@ -402,7 +402,7 @@ export default function IEditHeroElement({ content, variant, settings }) {
               dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(content_text) }}
             />
           )}
-          {button && button.text && (
+          {button && button.link && (button.text || button.show_arrow) && (
             <div className="hero-button-wrapper" style={{ marginBottom: 0 }}>
               <AGCASButton
                 text={button.text}
@@ -1384,6 +1384,13 @@ export function IEditHeroElementEditor({ element, onChange }) {
                   placeholder="https://..."
                 />
               </div>
+
+              <AlignmentButtons 
+                value={content.button_align || content.text_align || 'center'} 
+                onChange={(val) => updateContent('button_align', val)}
+                label="Button Alignment"
+                testIdPrefix="hero-button-align"
+              />
 
               <div>
                 <label className="block text-sm font-medium mb-1">Button Style Type</label>
