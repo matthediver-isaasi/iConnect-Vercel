@@ -42,18 +42,54 @@ export default function IEditImageElement({ content, variant, settings }) {
   const isCircle = content?.is_circle || false;
   const alignment = content?.alignment || 'center';
   const widthPercent = Math.min(100, Math.max(25, content?.width_percent ?? 100));
+  const backgroundType = content?.background_type || 'none';
   
+  const getBackgroundStyle = () => {
+    if (backgroundType === 'none') return {};
+    
+    if (backgroundType === 'color') {
+      return { backgroundColor: content?.background_color || '#f1f5f9' };
+    }
+    
+    if (backgroundType === 'gradient') {
+      const angle = content?.gradient_angle || 135;
+      const startColor = content?.gradient_start_color || '#3b82f6';
+      const endColor = content?.gradient_end_color || '#8b5cf6';
+      return { 
+        background: `linear-gradient(${angle}deg, ${startColor}, ${endColor})` 
+      };
+    }
+    
+    return {};
+  };
+
   const getContainerStyles = () => {
     const alignments = {
       left: 'flex-start',
       center: 'center',
       right: 'flex-end'
     };
-    return {
+    
+    const styles = {
       display: 'flex',
       justifyContent: alignments[alignment] || 'center',
       width: '100%',
+      ...getBackgroundStyle(),
     };
+    
+    // Add padding if background is enabled
+    if (backgroundType !== 'none') {
+      const padding = content?.background_padding ?? 24;
+      styles.padding = `${padding}px`;
+      
+      // Add border radius to background
+      const bgRadius = content?.background_border_radius ?? 8;
+      if (bgRadius > 0) {
+        styles.borderRadius = `${bgRadius}px`;
+      }
+    }
+    
+    return styles;
   };
 
   const getFigureStyles = () => {
@@ -171,7 +207,8 @@ export function IEditImageElementEditor({ element, onChange }) {
   const [expandedSections, setExpandedSections] = useState({
     image: true,
     details: false,
-    effects: false
+    effects: false,
+    background: false
   });
   const [isUploading, setIsUploading] = useState(false);
   const [showFileSelector, setShowFileSelector] = useState(false);
@@ -793,6 +830,165 @@ export function IEditImageElementEditor({ element, onChange }) {
                 </div>
               )}
             </div>
+          </div>
+        )}
+      </div>
+
+      {/* Section Background */}
+      <div className="border rounded-lg overflow-hidden">
+        <button
+          type="button"
+          onClick={() => toggleSection('background')}
+          className="w-full flex items-center justify-between p-3 bg-slate-100 hover:bg-slate-200 text-left"
+          data-testid="accordion-image-background"
+        >
+          <span className="font-semibold text-sm">Section Background</span>
+          {expandedSections.background ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+        </button>
+        
+        {expandedSections.background && (
+          <div className="p-4 space-y-4">
+            <div>
+              <Label className="text-xs mb-1 block">Background Type</Label>
+              <select
+                value={content.background_type || 'none'}
+                onChange={(e) => updateContent('background_type', e.target.value)}
+                className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                data-testid="select-background-type"
+              >
+                <option value="none">None</option>
+                <option value="color">Solid Color</option>
+                <option value="gradient">Gradient</option>
+              </select>
+            </div>
+
+            {content.background_type === 'color' && (
+              <div>
+                <Label className="text-xs mb-1 block">Background Color</Label>
+                <div className="flex gap-2 items-center">
+                  <input
+                    type="color"
+                    value={content.background_color || '#f1f5f9'}
+                    onChange={(e) => updateContent('background_color', e.target.value)}
+                    className="w-16 h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+                    data-testid="input-background-color"
+                  />
+                  <Input
+                    type="text"
+                    value={content.background_color || '#f1f5f9'}
+                    onChange={(e) => updateContent('background_color', e.target.value)}
+                    className="flex-1 font-mono text-sm"
+                    placeholder="#f1f5f9"
+                  />
+                </div>
+              </div>
+            )}
+
+            {content.background_type === 'gradient' && (
+              <div className="space-y-3 p-3 bg-slate-50 rounded-md">
+                <div 
+                  className="w-full h-12 rounded-md border border-slate-300"
+                  style={{
+                    background: `linear-gradient(${content.gradient_angle || 135}deg, ${content.gradient_start_color || '#3b82f6'}, ${content.gradient_end_color || '#8b5cf6'})`
+                  }}
+                />
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label className="text-xs mb-1 block">Start Color</Label>
+                    <div className="flex gap-2 items-center">
+                      <input
+                        type="color"
+                        value={content.gradient_start_color || '#3b82f6'}
+                        onChange={(e) => updateContent('gradient_start_color', e.target.value)}
+                        className="w-10 h-8 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+                        data-testid="input-gradient-start-color"
+                      />
+                      <Input
+                        type="text"
+                        value={content.gradient_start_color || '#3b82f6'}
+                        onChange={(e) => updateContent('gradient_start_color', e.target.value)}
+                        className="flex-1 font-mono text-xs h-8"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <Label className="text-xs mb-1 block">End Color</Label>
+                    <div className="flex gap-2 items-center">
+                      <input
+                        type="color"
+                        value={content.gradient_end_color || '#8b5cf6'}
+                        onChange={(e) => updateContent('gradient_end_color', e.target.value)}
+                        className="w-10 h-8 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+                        data-testid="input-gradient-end-color"
+                      />
+                      <Input
+                        type="text"
+                        value={content.gradient_end_color || '#8b5cf6'}
+                        onChange={(e) => updateContent('gradient_end_color', e.target.value)}
+                        className="flex-1 font-mono text-xs h-8"
+                      />
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <Label className="text-xs mb-1 block">Gradient Angle: {content.gradient_angle || 135}°</Label>
+                  <input
+                    type="range"
+                    min="0"
+                    max="360"
+                    value={content.gradient_angle || 135}
+                    onChange={(e) => updateContent('gradient_angle', parseInt(e.target.value))}
+                    className="w-full"
+                    data-testid="slider-gradient-angle"
+                  />
+                  <div className="flex justify-between text-xs text-slate-400 mt-1">
+                    <span>0°</span>
+                    <span>180°</span>
+                    <span>360°</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Background Padding and Border Radius - only show when background is enabled */}
+            {content.background_type && content.background_type !== 'none' && (
+              <div className="space-y-3 pt-3 border-t border-slate-200">
+                <div>
+                  <Label className="text-xs mb-1 block">Background Padding: {content.background_padding ?? 24}px</Label>
+                  <input
+                    type="range"
+                    min="0"
+                    max="64"
+                    value={content.background_padding ?? 24}
+                    onChange={(e) => updateContent('background_padding', parseInt(e.target.value))}
+                    className="w-full"
+                    data-testid="slider-background-padding"
+                  />
+                  <div className="flex justify-between text-xs text-slate-400 mt-1">
+                    <span>0px</span>
+                    <span>32px</span>
+                    <span>64px</span>
+                  </div>
+                </div>
+                <div>
+                  <Label className="text-xs mb-1 block">Background Corner Radius: {content.background_border_radius ?? 8}px</Label>
+                  <input
+                    type="range"
+                    min="0"
+                    max="32"
+                    value={content.background_border_radius ?? 8}
+                    onChange={(e) => updateContent('background_border_radius', parseInt(e.target.value))}
+                    className="w-full"
+                    data-testid="slider-background-border-radius"
+                  />
+                  <div className="flex justify-between text-xs text-slate-400 mt-1">
+                    <span>0px</span>
+                    <span>16px</span>
+                    <span>32px</span>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
