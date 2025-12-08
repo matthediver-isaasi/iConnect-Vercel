@@ -7,10 +7,13 @@ import 'react-quill/dist/quill.snow.css';
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ChevronDown, ChevronUp, Upload, X, Calendar, MapPin, Clock, Users, Ticket, Tag } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { ChevronDown, ChevronUp, Upload, X, Calendar, MapPin, Clock, Users, Ticket, Tag, ExternalLink } from "lucide-react";
 import TypographyStyleSelector, { applyTypographyStyle } from "../TypographyStyleSelector";
+import AGCASButton from "../../ui/AGCASButton";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { format, parseISO } from "date-fns";
+import { createPageUrl } from "@/utils";
 
 const quillModules = {
   toolbar: [
@@ -70,7 +73,9 @@ export default function IEditEventSpotlightElement({ content, variant, settings 
     show_description = true,
     show_ticket_prices = true,
     show_speakers = true,
-    layout = 'card'
+    show_cta_button = true,
+    layout = 'card',
+    button = {}
   } = content || {};
 
   const { data: event } = useQuery({
@@ -82,6 +87,7 @@ export default function IEditEventSpotlightElement({ content, variant, settings 
     enabled: !!event_id
   });
 
+  const eventViewUrl = event?.slug ? `${createPageUrl('EventView')}?slug=${event.slug}` : null;
   const eventSpeakerIds = event?.speaker_ids || [];
   const needsRoles = !!event_id && !!event && show_ticket_prices;
   const needsSpeakers = !!event_id && !!event && show_speakers && eventSpeakerIds.length > 0;
@@ -385,6 +391,22 @@ export default function IEditEventSpotlightElement({ content, variant, settings 
               dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(additional_content) }}
             />
           )}
+
+          {show_cta_button && eventViewUrl && (
+            <div className="mt-8 flex justify-center">
+              <AGCASButton
+                text={button.text || 'View Event & Register'}
+                link={eventViewUrl}
+                buttonStyleId={button.button_style_id}
+                customBgColor={button.custom_bg_color}
+                customTextColor={button.custom_text_color}
+                customBorderColor={button.custom_border_color}
+                openInNewTab={button.open_in_new_tab}
+                size={button.size || 'large'}
+                showArrow={button.show_arrow !== false}
+              />
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -397,15 +419,31 @@ export function IEditEventSpotlightElementEditor({ element, onChange }) {
     event: true,
     content: false,
     display: false,
+    button: false,
     background: false,
     layout: false,
     typography: false
   });
+  const [buttonStyles, setButtonStyles] = useState([]);
 
-  const { data: events = [], isLoading: eventsLoading } = useQuery({
+  const { data: events = [], isLoading: eventsLoading, error: eventsError } = useQuery({
     queryKey: ['/api/entities/Event'],
-    queryFn: () => base44.entities.Event.list({ sort: { start_date: 'desc' } })
+    queryFn: () => base44.entities.Event.list({ sort: { start_date: 'desc' } }),
+    staleTime: 30 * 1000,
+    retry: 2
   });
+
+  useEffect(() => {
+    const fetchStyles = async () => {
+      try {
+        const styles = await base44.entities.ButtonStyle.list();
+        setButtonStyles(styles.filter(s => s.is_active));
+      } catch (error) {
+        console.error('Failed to fetch button styles:', error);
+      }
+    };
+    fetchStyles();
+  }, []);
 
   const toggleSection = (section) => {
     setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
@@ -417,6 +455,11 @@ export function IEditEventSpotlightElementEditor({ element, onChange }) {
 
   const updateMultipleContent = (updates) => {
     onChange({ ...element, content: { ...content, ...updates } });
+  };
+
+  const updateButton = (key, value) => {
+    const currentButton = content.button || {};
+    updateContent('button', { ...currentButton, [key]: value });
   };
 
   const upcomingEvents = useMemo(() => {
@@ -458,40 +501,54 @@ export function IEditEventSpotlightElementEditor({ element, onChange }) {
           <div className="p-4 space-y-4">
             <div>
               <Label className="text-sm">Select Event</Label>
-              <Select
-                value={content.event_id || ''}
-                onValueChange={(value) => updateContent('event_id', value)}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Choose an event..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {upcomingEvents.length > 0 && (
-                    <>
-                      <div className="px-2 py-1.5 text-xs font-semibold text-slate-500 bg-slate-50">
-                        Upcoming Events
-                      </div>
-                      {upcomingEvents.map(event => (
-                        <SelectItem key={event.id} value={event.id}>
-                          {event.name}
-                        </SelectItem>
-                      ))}
-                    </>
-                  )}
-                  {pastEvents.length > 0 && (
-                    <>
-                      <div className="px-2 py-1.5 text-xs font-semibold text-slate-500 bg-slate-50 mt-2">
-                        Past Events
-                      </div>
-                      {pastEvents.map(event => (
-                        <SelectItem key={event.id} value={event.id}>
-                          {event.name}
-                        </SelectItem>
-                      ))}
-                    </>
-                  )}
-                </SelectContent>
-              </Select>
+              {eventsLoading ? (
+                <div className="p-3 text-sm text-slate-500 bg-slate-50 rounded-md">
+                  Loading events...
+                </div>
+              ) : eventsError ? (
+                <div className="p-3 text-sm text-red-500 bg-red-50 rounded-md">
+                  Failed to load events. Please try again.
+                </div>
+              ) : events.length === 0 ? (
+                <div className="p-3 text-sm text-slate-500 bg-slate-50 rounded-md">
+                  No events found. Create an event first.
+                </div>
+              ) : (
+                <Select
+                  value={content.event_id || ''}
+                  onValueChange={(value) => updateContent('event_id', value)}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Choose an event..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {upcomingEvents.length > 0 && (
+                      <>
+                        <div className="px-2 py-1.5 text-xs font-semibold text-slate-500 bg-slate-50">
+                          Upcoming Events ({upcomingEvents.length})
+                        </div>
+                        {upcomingEvents.map(event => (
+                          <SelectItem key={event.id} value={event.id}>
+                            {event.name}
+                          </SelectItem>
+                        ))}
+                      </>
+                    )}
+                    {pastEvents.length > 0 && (
+                      <>
+                        <div className="px-2 py-1.5 text-xs font-semibold text-slate-500 bg-slate-50 mt-2">
+                          Past Events ({pastEvents.length})
+                        </div>
+                        {pastEvents.map(event => (
+                          <SelectItem key={event.id} value={event.id}>
+                            {event.name}
+                          </SelectItem>
+                        ))}
+                      </>
+                    )}
+                  </SelectContent>
+                </Select>
+              )}
             </div>
           </div>
         )}
@@ -608,6 +665,163 @@ export function IEditEventSpotlightElementEditor({ element, onChange }) {
                 className="w-4 h-4"
               />
               <Label htmlFor="show-ticket-prices" className="cursor-pointer">Show Ticket Prices</Label>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="show-cta-button"
+                checked={content.show_cta_button !== false}
+                onChange={(e) => updateContent('show_cta_button', e.target.checked)}
+                className="w-4 h-4"
+              />
+              <Label htmlFor="show-cta-button" className="cursor-pointer">Show CTA Button</Label>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="border-b border-slate-200">
+        <button
+          onClick={() => toggleSection('button')}
+          className="w-full flex items-center justify-between p-3 bg-slate-100 hover:bg-slate-200 text-left"
+        >
+          <span className="font-semibold text-sm">CTA Button Settings</span>
+          {expandedSections.button ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+        </button>
+        
+        {expandedSections.button && (
+          <div className="p-4 space-y-4">
+            <div>
+              <Label className="text-sm">Button Text</Label>
+              <Input
+                value={content.button?.text || ''}
+                onChange={(e) => updateButton('text', e.target.value)}
+                placeholder="View Event & Register"
+              />
+              <p className="text-xs text-slate-500 mt-1">Leave empty to use default: "View Event & Register"</p>
+            </div>
+
+            <div>
+              <Label className="text-sm">Button Style</Label>
+              <Select
+                value={content.button?.button_style_id || ''}
+                onValueChange={(value) => updateButton('button_style_id', value || undefined)}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Select a style..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">Default</SelectItem>
+                  {buttonStyles.map(style => (
+                    <SelectItem key={style.id} value={style.id}>
+                      {style.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <Label className="text-sm">Button Size</Label>
+              <Select
+                value={content.button?.size || 'large'}
+                onValueChange={(value) => updateButton('size', value)}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="small">Small</SelectItem>
+                  <SelectItem value="medium">Medium</SelectItem>
+                  <SelectItem value="large">Large</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="button-show-arrow"
+                checked={content.button?.show_arrow !== false}
+                onChange={(e) => updateButton('show_arrow', e.target.checked)}
+                className="w-4 h-4"
+              />
+              <Label htmlFor="button-show-arrow" className="cursor-pointer">Show Arrow</Label>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="button-new-tab"
+                checked={content.button?.open_in_new_tab === true}
+                onChange={(e) => updateButton('open_in_new_tab', e.target.checked)}
+                className="w-4 h-4"
+              />
+              <Label htmlFor="button-new-tab" className="cursor-pointer">Open in New Tab</Label>
+            </div>
+
+            <div className="border-t border-slate-200 pt-4 mt-4">
+              <Label className="text-sm font-medium">Custom Colors (optional)</Label>
+              <div className="grid grid-cols-3 gap-3 mt-2">
+                <div>
+                  <Label className="text-xs">Background</Label>
+                  <div className="flex gap-1">
+                    <input
+                      type="color"
+                      value={content.button?.custom_bg_color || '#3b82f6'}
+                      onChange={(e) => updateButton('custom_bg_color', e.target.value)}
+                      className="w-10 h-8 rounded border border-slate-300"
+                    />
+                    <button
+                      onClick={() => updateButton('custom_bg_color', undefined)}
+                      className="text-xs text-slate-500 hover:text-slate-700"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <Label className="text-xs">Text</Label>
+                  <div className="flex gap-1">
+                    <input
+                      type="color"
+                      value={content.button?.custom_text_color || '#ffffff'}
+                      onChange={(e) => updateButton('custom_text_color', e.target.value)}
+                      className="w-10 h-8 rounded border border-slate-300"
+                    />
+                    <button
+                      onClick={() => updateButton('custom_text_color', undefined)}
+                      className="text-xs text-slate-500 hover:text-slate-700"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <Label className="text-xs">Border</Label>
+                  <div className="flex gap-1">
+                    <input
+                      type="color"
+                      value={content.button?.custom_border_color || '#3b82f6'}
+                      onChange={(e) => updateButton('custom_border_color', e.target.value)}
+                      className="w-10 h-8 rounded border border-slate-300"
+                    />
+                    <button
+                      onClick={() => updateButton('custom_border_color', undefined)}
+                      className="text-xs text-slate-500 hover:text-slate-700"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-blue-50 border border-blue-200 rounded-md p-3 mt-4">
+              <p className="text-sm text-blue-700">
+                <ExternalLink className="w-4 h-4 inline mr-1" />
+                The button will automatically link to the event's detail page where visitors can register.
+              </p>
             </div>
           </div>
         )}
