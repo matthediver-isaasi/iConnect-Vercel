@@ -459,9 +459,7 @@ export function IEditTextBlockElementEditor({ element, onChange }) {
                 }
                 updateMultipleContent(updates);
               }}
-              filterTypes={['h1', 'h2', 'h3', 'h4']}
-              label="Typography Style"
-              placeholder="Select a heading style..."
+              label="Heading Typography Style"
             />
 
             <details className="text-sm">
@@ -606,9 +604,7 @@ export function IEditTextBlockElementEditor({ element, onChange }) {
                 }
                 updateMultipleContent(updates);
               }}
-              filterTypes={['paragraph']}
-              label="Typography Style"
-              placeholder="Select a paragraph style..."
+              label="Content Typography Style"
             />
 
             <details className="text-sm">
