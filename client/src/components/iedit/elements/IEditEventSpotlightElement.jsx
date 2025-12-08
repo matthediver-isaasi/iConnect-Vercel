@@ -518,30 +518,38 @@ export function IEditEventSpotlightElementEditor({ element, onChange }) {
                   value={content.event_id || ''}
                   onValueChange={(value) => updateContent('event_id', value)}
                 >
-                  <SelectTrigger className="w-full">
+                  <SelectTrigger className="w-full bg-white text-slate-900 border-slate-300">
                     <SelectValue placeholder="Choose an event..." />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="bg-white border border-slate-200 shadow-lg z-[9999]">
                     {upcomingEvents.length > 0 && (
                       <>
-                        <div className="px-2 py-1.5 text-xs font-semibold text-slate-500 bg-slate-50">
+                        <div className="px-2 py-1.5 text-xs font-semibold text-slate-600 bg-slate-100">
                           Upcoming Events ({upcomingEvents.length})
                         </div>
-                        {upcomingEvents.map(event => (
-                          <SelectItem key={event.id} value={event.id}>
-                            {event.name}
+                        {upcomingEvents.map(evt => (
+                          <SelectItem 
+                            key={evt.id} 
+                            value={evt.id}
+                            className="text-slate-900 cursor-pointer"
+                          >
+                            {evt.name}
                           </SelectItem>
                         ))}
                       </>
                     )}
                     {pastEvents.length > 0 && (
                       <>
-                        <div className="px-2 py-1.5 text-xs font-semibold text-slate-500 bg-slate-50 mt-2">
+                        <div className="px-2 py-1.5 text-xs font-semibold text-slate-600 bg-slate-100 mt-2">
                           Past Events ({pastEvents.length})
                         </div>
-                        {pastEvents.map(event => (
-                          <SelectItem key={event.id} value={event.id}>
-                            {event.name}
+                        {pastEvents.map(evt => (
+                          <SelectItem 
+                            key={evt.id} 
+                            value={evt.id}
+                            className="text-slate-900 cursor-pointer"
+                          >
+                            {evt.name}
                           </SelectItem>
                         ))}
                       </>
