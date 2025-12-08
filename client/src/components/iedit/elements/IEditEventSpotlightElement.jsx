@@ -474,18 +474,6 @@ export function IEditEventSpotlightElementEditor({ element, onChange }) {
     });
   }, [events]);
 
-  const pastEvents = useMemo(() => {
-    const now = new Date();
-    return events.filter(e => {
-      if (!e.start_date) return false;
-      try {
-        return new Date(e.start_date) < now;
-      } catch {
-        return false;
-      }
-    });
-  }, [events]);
-
   return (
     <div className="space-y-0 border border-slate-200 rounded-lg overflow-hidden">
       <div className="border-b border-slate-200">
@@ -513,49 +501,23 @@ export function IEditEventSpotlightElementEditor({ element, onChange }) {
                 <div className="p-3 text-sm text-slate-500 bg-slate-50 rounded-md">
                   No events found. Create an event first.
                 </div>
+              ) : upcomingEvents.length === 0 ? (
+                <div className="p-3 text-sm text-slate-500 bg-slate-50 rounded-md">
+                  No upcoming events found.
+                </div>
               ) : (
-                <Select
+                <select
                   value={content.event_id || ''}
-                  onValueChange={(value) => updateContent('event_id', value)}
+                  onChange={(e) => updateContent('event_id', e.target.value)}
+                  className="w-full h-9 px-3 py-2 text-sm bg-white text-slate-900 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  <SelectTrigger className="w-full bg-white text-slate-900 border-slate-300">
-                    <SelectValue placeholder="Choose an event..." />
-                  </SelectTrigger>
-                  <SelectContent className="bg-white border border-slate-200 shadow-lg z-[9999]">
-                    {upcomingEvents.length > 0 && (
-                      <>
-                        <div className="px-2 py-1.5 text-xs font-semibold text-slate-600 bg-slate-100">
-                          Upcoming Events ({upcomingEvents.length})
-                        </div>
-                        {upcomingEvents.map(evt => (
-                          <SelectItem 
-                            key={evt.id} 
-                            value={evt.id}
-                            className="text-slate-900 cursor-pointer"
-                          >
-                            {evt.name}
-                          </SelectItem>
-                        ))}
-                      </>
-                    )}
-                    {pastEvents.length > 0 && (
-                      <>
-                        <div className="px-2 py-1.5 text-xs font-semibold text-slate-600 bg-slate-100 mt-2">
-                          Past Events ({pastEvents.length})
-                        </div>
-                        {pastEvents.map(evt => (
-                          <SelectItem 
-                            key={evt.id} 
-                            value={evt.id}
-                            className="text-slate-900 cursor-pointer"
-                          >
-                            {evt.name}
-                          </SelectItem>
-                        ))}
-                      </>
-                    )}
-                  </SelectContent>
-                </Select>
+                  <option value="">Choose an event...</option>
+                  {upcomingEvents.map(evt => (
+                    <option key={evt.id} value={evt.id}>
+                      {evt.name}
+                    </option>
+                  ))}
+                </select>
               )}
             </div>
           </div>
