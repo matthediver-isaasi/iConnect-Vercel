@@ -168,7 +168,7 @@ export default function IEditFiftyFiftyElement({ content, variant, settings }) {
     if (!imageUrl) {
       return (
         <div 
-          className="w-full h-full min-h-64 bg-slate-200 flex items-center justify-center flex-1"
+          className="w-full min-h-64 bg-slate-200 flex items-center justify-center"
           style={{ borderRadius: `${column_border_radius}px` }}
         >
           <span className="text-slate-500">No image</span>
@@ -177,18 +177,15 @@ export default function IEditFiftyFiftyElement({ content, variant, settings }) {
     }
 
     return (
-      <div className="w-full h-full flex-1">
-        <img 
-          src={imageUrl} 
-          alt="" 
-          className="w-full h-full object-cover"
-          style={{ 
-            objectFit: imageFit,
-            borderRadius: `${column_border_radius}px`,
-            minHeight: '100%'
-          }}
-        />
-      </div>
+      <img 
+        src={imageUrl} 
+        alt="" 
+        className="w-full object-cover"
+        style={{ 
+          objectFit: imageFit,
+          borderRadius: `${column_border_radius}px`
+        }}
+      />
     );
   };
 
@@ -231,77 +228,129 @@ export default function IEditFiftyFiftyElement({ content, variant, settings }) {
         style={{ paddingTop: `${vertical_padding}px`, paddingBottom: `${vertical_padding}px` }}
       >
         <div 
-          className="grid grid-cols-1 md:grid-cols-2"
+          className="grid grid-cols-1 md:grid-cols-2 items-stretch"
           style={{ gap: `${column_gap}px` }}
         >
           <div 
-            className={`${reverse_on_mobile ? 'order-2 md:order-1' : ''} flex flex-col h-full`}
+            className={`${reverse_on_mobile ? 'order-2 md:order-1' : ''} flex flex-col`}
             style={{
               ...(left_content_type === 'text' && left_column_bg_color ? { 
                 backgroundColor: left_column_bg_color,
                 padding: `${left_column_padding}px`,
                 borderRadius: `${column_border_radius}px`
-              } : {})
+              } : {}),
+              ...(left_content_type === 'image' ? { minHeight: 0 } : {})
             }}
           >
-            <div className={`flex-1 flex flex-col ${leftAlignmentClass} h-full`}>
-              {renderColumn('left')}
-            </div>
-            {(button?.text || button?.show_arrow) && button_column === 'left' && left_content_type === 'text' && (
-              <div 
-                className="flex justify-end"
-                style={{
-                  marginRight: left_column_bg_color ? `${-left_column_padding + button_inset_right}px` : `${button_inset_right}px`,
-                  marginBottom: left_column_bg_color ? `${-left_column_padding + button_inset_bottom}px` : `${button_inset_bottom}px`
-                }}
-              >
-                <AGCASButton
-                  text={button.text}
-                  link={button.link}
-                  buttonStyleId={button.button_style_id}
-                  customBgColor={button.custom_bg_color}
-                  customTextColor={button.custom_text_color}
-                  customBorderColor={button.custom_border_color}
-                  openInNewTab={button.open_in_new_tab}
-                  size={button.size || 'medium'}
-                  showArrow={button.show_arrow}
-                />
+            {left_content_type === 'image' ? (
+              <div className="flex-1 flex flex-col min-h-0">
+                {left_image_url ? (
+                  <img 
+                    src={left_image_url} 
+                    alt="" 
+                    className="w-full flex-1 min-h-0"
+                    style={{ 
+                      objectFit: left_image_fit || 'cover',
+                      borderRadius: `${column_border_radius}px`
+                    }}
+                  />
+                ) : (
+                  <div 
+                    className="w-full flex-1 min-h-64 bg-slate-200 flex items-center justify-center"
+                    style={{ borderRadius: `${column_border_radius}px` }}
+                  >
+                    <span className="text-slate-500">No image</span>
+                  </div>
+                )}
               </div>
+            ) : (
+              <>
+                <div className={`flex-1 flex flex-col ${leftAlignmentClass}`}>
+                  {renderColumn('left')}
+                </div>
+                {(button?.text || button?.show_arrow) && button_column === 'left' && (
+                  <div 
+                    className="flex justify-end"
+                    style={{
+                      marginRight: left_column_bg_color ? `${-left_column_padding + button_inset_right}px` : `${button_inset_right}px`,
+                      marginBottom: left_column_bg_color ? `${-left_column_padding + button_inset_bottom}px` : `${button_inset_bottom}px`
+                    }}
+                  >
+                    <AGCASButton
+                      text={button.text}
+                      link={button.link}
+                      buttonStyleId={button.button_style_id}
+                      customBgColor={button.custom_bg_color}
+                      customTextColor={button.custom_text_color}
+                      customBorderColor={button.custom_border_color}
+                      openInNewTab={button.open_in_new_tab}
+                      size={button.size || 'medium'}
+                      showArrow={button.show_arrow}
+                    />
+                  </div>
+                )}
+              </>
             )}
           </div>
           <div 
-            className={`${reverse_on_mobile ? 'order-1 md:order-2' : ''} flex flex-col h-full`}
+            className={`${reverse_on_mobile ? 'order-1 md:order-2' : ''} flex flex-col`}
             style={{
               ...(right_content_type === 'text' && right_column_bg_color ? { 
                 backgroundColor: right_column_bg_color,
                 padding: `${right_column_padding}px`,
                 borderRadius: `${column_border_radius}px`
-              } : {})
+              } : {}),
+              ...(right_content_type === 'image' ? { minHeight: 0 } : {})
             }}
           >
-            <div className={`flex-1 flex flex-col ${rightAlignmentClass} h-full`}>
-              {renderColumn('right')}
-            </div>
-            {(button?.text || button?.show_arrow) && button_column === 'right' && right_content_type === 'text' && (
-              <div 
-                className="flex justify-end"
-                style={{
-                  marginRight: right_column_bg_color ? `${-right_column_padding + button_inset_right}px` : `${button_inset_right}px`,
-                  marginBottom: right_column_bg_color ? `${-right_column_padding + button_inset_bottom}px` : `${button_inset_bottom}px`
-                }}
-              >
-                <AGCASButton
-                  text={button.text}
-                  link={button.link}
-                  buttonStyleId={button.button_style_id}
-                  customBgColor={button.custom_bg_color}
-                  customTextColor={button.custom_text_color}
-                  customBorderColor={button.custom_border_color}
-                  openInNewTab={button.open_in_new_tab}
-                  size={button.size || 'medium'}
-                  showArrow={button.show_arrow}
-                />
+            {right_content_type === 'image' ? (
+              <div className="flex-1 flex flex-col min-h-0">
+                {right_image_url ? (
+                  <img 
+                    src={right_image_url} 
+                    alt="" 
+                    className="w-full flex-1 min-h-0"
+                    style={{ 
+                      objectFit: right_image_fit || 'cover',
+                      borderRadius: `${column_border_radius}px`
+                    }}
+                  />
+                ) : (
+                  <div 
+                    className="w-full flex-1 min-h-64 bg-slate-200 flex items-center justify-center"
+                    style={{ borderRadius: `${column_border_radius}px` }}
+                  >
+                    <span className="text-slate-500">No image</span>
+                  </div>
+                )}
               </div>
+            ) : (
+              <>
+                <div className={`flex-1 flex flex-col ${rightAlignmentClass}`}>
+                  {renderColumn('right')}
+                </div>
+                {(button?.text || button?.show_arrow) && button_column === 'right' && (
+                  <div 
+                    className="flex justify-end"
+                    style={{
+                      marginRight: right_column_bg_color ? `${-right_column_padding + button_inset_right}px` : `${button_inset_right}px`,
+                      marginBottom: right_column_bg_color ? `${-right_column_padding + button_inset_bottom}px` : `${button_inset_bottom}px`
+                    }}
+                  >
+                    <AGCASButton
+                      text={button.text}
+                      link={button.link}
+                      buttonStyleId={button.button_style_id}
+                      customBgColor={button.custom_bg_color}
+                      customTextColor={button.custom_text_color}
+                      customBorderColor={button.custom_border_color}
+                      openInNewTab={button.open_in_new_tab}
+                      size={button.size || 'medium'}
+                      showArrow={button.show_arrow}
+                    />
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>
