@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,7 +16,7 @@ import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import IEditHeroElement, { IEditHeroElementEditor } from "@/components/iedit/elements/IEditHeroElement";
 
-const PUBLIC_PAGES = [
+const BUILT_IN_PUBLIC_PAGES = [
   { value: "Home", label: "Home Page" },
   { value: "JobBoard", label: "Job Board" },
   { value: "JobDetails", label: "Job Details" },
@@ -24,10 +24,14 @@ const PUBLIC_PAGES = [
   { value: "PublicEvents", label: "Public Events" },
   { value: "PublicAbout", label: "About Us" },
   { value: "PublicContact", label: "Contact Us" },
-  { value: "PublicResources", label: "Public Resources" }
+  { value: "PublicResources", label: "Public Resources" },
+  { value: "PublicArticles", label: "Public Articles" },
+  { value: "PublicNews", label: "Public News" },
+  { value: "Login", label: "Login" },
+  { value: "ResetPassword", label: "Reset Password" }
 ];
 
-const PORTAL_PAGES = [
+const BUILT_IN_PORTAL_PAGES = [
   { value: "portal_events", label: "Browse Events" },
   { value: "portal_buy_tickets", label: "Buy Tickets" },
   { value: "portal_bookings", label: "Bookings" },
@@ -47,7 +51,37 @@ const PORTAL_PAGES = [
   { value: "portal_support", label: "Support" },
   { value: "portal_dashboard", label: "Dashboard" },
   { value: "portal_profile", label: "Profile" },
-  { value: "portal_job_board", label: "Job Board" }
+  { value: "portal_job_board", label: "Job Board" },
+  { value: "portal_my_organisation", label: "My Organisation" },
+  { value: "portal_member_role_report", label: "Member Role Report" },
+  { value: "portal_role_management", label: "Role Management" },
+  { value: "portal_member_role_assignment", label: "Member Role Assignment" },
+  { value: "portal_member_group_management", label: "Member Group Management" },
+  { value: "portal_member_group_assignment_report", label: "Member Group Assignment Report" },
+  { value: "portal_team_engagement_report", label: "Team Engagement Report" },
+  { value: "portal_award_management", label: "Award Management" },
+  { value: "portal_wall_of_fame", label: "Wall of Fame" },
+  { value: "portal_form_management", label: "Form Management" },
+  { value: "portal_form_submissions", label: "Form Submissions" },
+  { value: "portal_page_builder", label: "Page Builder" },
+  { value: "portal_page_banners", label: "Page Banners" },
+  { value: "portal_navigation", label: "Navigation Management" },
+  { value: "portal_portal_menu", label: "Portal Menu Management" },
+  { value: "portal_event_settings", label: "Event Settings" },
+  { value: "portal_job_board_settings", label: "Job Board Settings" },
+  { value: "portal_resource_management", label: "Resource Management" },
+  { value: "portal_article_management", label: "Article Management" },
+  { value: "portal_tag_management", label: "Tag Management" },
+  { value: "portal_category_management", label: "Category Management" },
+  { value: "portal_speaker_management", label: "Speaker Management" },
+  { value: "portal_card_deck_management", label: "Card Deck Management" },
+  { value: "portal_floater_management", label: "Floater Management" },
+  { value: "portal_communications_management", label: "Communications Management" },
+  { value: "portal_custom_fields_admin", label: "Custom Fields Admin" },
+  { value: "portal_zoom_webinar_provisioning", label: "Zoom Webinar Management" },
+  { value: "portal_data_export", label: "Data Export" },
+  { value: "portal_ticket_sales_analytics", label: "Ticket Sales Analytics" },
+  { value: "portal_discount_code_management", label: "Discount Code Management" }
 ];
 
 export default function PageBannerManagementPage() {
@@ -78,6 +112,48 @@ export default function PageBannerManagementPage() {
     staleTime: 0,
     refetchOnMount: true,
   });
+
+  const { data: ieditPages = [] } = useQuery({
+    queryKey: ['iedit-pages-for-banners'],
+    queryFn: async () => {
+      const pages = await base44.entities.IEditPage.listAll();
+      return pages;
+    },
+    staleTime: 0,
+    refetchOnMount: true,
+  });
+
+  const PUBLIC_PAGES = useMemo(() => {
+    const publicCmsPages = ieditPages
+      .filter(page => page.status === 'published' && page.access_type === 'public')
+      .map(page => ({
+        value: `cms_${page.slug}`,
+        label: `CMS: ${page.title}`
+      }));
+    
+    return [
+      ...BUILT_IN_PUBLIC_PAGES,
+      ...publicCmsPages
+    ].sort((a, b) => a.label.localeCompare(b.label));
+  }, [ieditPages]);
+
+  const PORTAL_PAGES = useMemo(() => {
+    const memberCmsPages = ieditPages
+      .filter(page => page.status === 'published' && page.access_type === 'member')
+      .map(page => ({
+        value: `cms_${page.slug}`,
+        label: `CMS: ${page.title}`
+      }));
+    
+    return [
+      ...BUILT_IN_PORTAL_PAGES,
+      ...memberCmsPages
+    ].sort((a, b) => a.label.localeCompare(b.label));
+  }, [ieditPages]);
+
+  const allPages = useMemo(() => {
+    return [...PUBLIC_PAGES, ...PORTAL_PAGES];
+  }, [PUBLIC_PAGES, PORTAL_PAGES]);
 
   const createBannerMutation = useMutation({
     mutationFn: (bannerData) => base44.entities.PageBanner.create(bannerData),
@@ -318,8 +394,7 @@ export default function PageBannerManagementPage() {
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
             {banners.map((banner) => {
               const isHero = banner.banner_type === 'hero';
-              const isPortalBanner = banner.associated_pages?.some(p => p.startsWith('portal_'));
-              const allPages = [...PUBLIC_PAGES, ...PORTAL_PAGES];
+              const isPortalBanner = banner.associated_pages?.some(p => p.startsWith('portal_') || p.startsWith('cms_'));
               
               return (
                 <Card key={banner.id} className="border-slate-200 shadow-sm hover:shadow-md transition-shadow">
