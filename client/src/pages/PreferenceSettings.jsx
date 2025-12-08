@@ -19,7 +19,7 @@ import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 const DEFAULT_SECTION_ORDER = [
   { id: 'organization_logo', label: 'Organisation Logo', icon: Building2, description: 'Organisation branding and logo upload (shown to org members only)', visible: true },
   { id: 'profile_information', label: 'Profile Information', icon: User, description: 'Personal details, photo, biography and contact information', visible: true },
-  { id: 'password_security', label: 'Password & Security', icon: Shield, description: 'Change password and account security settings', visible: true },
+  { id: 'password_security', label: 'Password', icon: Shield, description: 'Change password and account security settings', visible: true },
   { id: 'communications', label: 'Communication Preferences', icon: Mail, description: 'Marketing communication opt-in/opt-out settings based on role', visible: true },
   { id: 'additional_info', label: 'Additional Info', icon: ClipboardList, description: 'Custom preference fields defined by administrators', visible: true },
   { id: 'engagement', label: 'Engagement', icon: BarChart3, description: 'Activity statistics, awards, and group memberships', visible: true },

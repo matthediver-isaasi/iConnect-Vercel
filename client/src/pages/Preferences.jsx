@@ -1211,7 +1211,7 @@ export default function PreferencesPage() {
             <CardHeader>
               <div className="flex items-center gap-2">
                 <Shield className="w-5 h-5 text-blue-600" />
-                <CardTitle>Password & Security</CardTitle>
+                <CardTitle>Password</CardTitle>
               </div>
               <CardDescription>
                 Keep your account secure by using a strong password
