@@ -29,19 +29,46 @@ import {
 export default function IEditImageElement({ content, variant, settings }) {
   const isCircle = content?.is_circle || false;
   const alignment = content?.alignment || 'center';
-  const widthPercent = content?.width_percent ?? 100;
+  const widthPercent = Math.min(100, Math.max(25, content?.width_percent ?? 100));
   
-  const getWrapperStyles = () => {
-    const styles = {
-      display: 'inline-flex',
-      alignItems: 'flex-start',
-      overflow: 'hidden',
+  const getContainerStyles = () => {
+    const alignments = {
+      left: 'flex-start',
+      center: 'center',
+      right: 'flex-end'
+    };
+    return {
+      display: 'flex',
+      justifyContent: alignments[alignment] || 'center',
+      width: '100%',
+    };
+  };
+
+  const getFigureStyles = () => {
+    return {
+      margin: 0,
+      padding: 0,
+      flex: `0 0 ${widthPercent}%`,
       maxWidth: `${widthPercent}%`,
+      display: 'flex',
+      flexDirection: 'column',
+    };
+  };
+
+  const getMediaFrameStyles = () => {
+    const styles = {
+      position: 'relative',
+      overflow: 'hidden',
+      display: 'block',
+      lineHeight: 0,
+      fontSize: 0,
+      width: '100%',
     };
     
-    // Circle shape takes precedence for border radius
+    // Circle shape
     if (isCircle) {
       styles.borderRadius = '50%';
+      styles.aspectRatio = '1 / 1';
     } else {
       const borderRadius = content?.border_radius;
       if (borderRadius !== undefined) {
@@ -50,21 +77,20 @@ export default function IEditImageElement({ content, variant, settings }) {
         const variantRadii = {
           default: '8px',
           rounded: '16px',
-          circle: '50%',
           none: '0',
         };
         styles.borderRadius = variantRadii[variant] || variantRadii.default;
       }
     }
     
-    // Border styles on wrapper
+    // Border styles
     if (content?.border_enabled) {
       styles.borderWidth = `${content?.border_width || 2}px`;
       styles.borderStyle = 'solid';
       styles.borderColor = content?.border_color || '#e2e8f0';
     }
     
-    // Drop shadow on wrapper
+    // Drop shadow
     if (content?.shadow_enabled) {
       const shadowSize = content?.shadow_size || 'medium';
       const shadowColor = content?.shadow_color || 'rgba(0,0,0,0.15)';
@@ -81,31 +107,11 @@ export default function IEditImageElement({ content, variant, settings }) {
   };
 
   const getImageStyles = () => {
-    const styles = {
+    return {
       display: 'block',
       width: '100%',
-      height: 'auto',
-    };
-    
-    // Circle needs aspect ratio on image
-    if (isCircle) {
-      styles.aspectRatio = '1 / 1';
-      styles.objectFit = 'cover';
-    }
-    
-    return styles;
-  };
-
-  const getContainerStyles = () => {
-    const alignments = {
-      left: 'flex-start',
-      center: 'center',
-      right: 'flex-end'
-    };
-    return {
-      display: 'flex',
-      justifyContent: alignments[alignment] || 'center',
-      width: '100%',
+      height: isCircle ? '100%' : 'auto',
+      objectFit: isCircle ? 'cover' : undefined,
     };
   };
 
@@ -119,8 +125,8 @@ export default function IEditImageElement({ content, variant, settings }) {
 
   return (
     <div style={getContainerStyles()}>
-      <div style={{ maxWidth: `${widthPercent}%`, width: '100%' }}>
-        <div style={getWrapperStyles()}>
+      <figure style={getFigureStyles()}>
+        <div style={getMediaFrameStyles()}>
           <img
             src={content.imageUrl}
             alt={content.altText || ""}
@@ -128,11 +134,11 @@ export default function IEditImageElement({ content, variant, settings }) {
           />
         </div>
         {content.caption && (
-          <p className="text-sm text-slate-600 mt-2 text-center italic">
+          <figcaption className="text-sm text-slate-600 mt-2 text-center italic">
             {content.caption}
-          </p>
+          </figcaption>
         )}
-      </div>
+      </figure>
     </div>
   );
 }
