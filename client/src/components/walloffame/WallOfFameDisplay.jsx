@@ -5,6 +5,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { User, Mail, Linkedin, Loader2 } from "lucide-react";
+import DOMPurify from 'dompurify';
 
 export default function WallOfFameDisplay({ 
   sectionId,
@@ -26,7 +27,32 @@ export default function WallOfFameDisplay({
   backgroundImageFit = 'cover',
   overlayEnabled = false,
   overlayColor = '#000000',
-  overlayOpacity = 50
+  overlayOpacity = 50,
+  headingText,
+  headingFontFamily = 'Poppins',
+  headingFontSize = 36,
+  headingFontSizeMobile,
+  headingFontWeight = 700,
+  headingLineHeight = 1.2,
+  headingLetterSpacing = 0,
+  headingColor = '#1e293b',
+  subheadingText,
+  subheadingFontFamily = 'Poppins',
+  subheadingFontSize = 20,
+  subheadingFontSizeMobile,
+  subheadingFontWeight = 400,
+  subheadingLineHeight = 1.5,
+  subheadingLetterSpacing = 0,
+  subheadingColor = '#475569',
+  bodyContent,
+  contentFontFamily = 'Poppins',
+  contentFontSize = 16,
+  contentFontSizeMobile,
+  contentFontWeight = 400,
+  contentLineHeight = 1.6,
+  contentLetterSpacing = 0,
+  contentColor = '#64748b',
+  textAlign = 'center'
 }) {
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [flippedPerson, setFlippedPerson] = useState(null);
@@ -190,6 +216,54 @@ export default function WallOfFameDisplay({
 
       {/* Content layer */}
       <div className="relative max-w-7xl mx-auto px-4">
+        {/* Custom Header, Subheader & Content */}
+        {(headingText || subheadingText || bodyContent) && (
+          <div className={`mb-8 ${textAlign === 'left' ? 'text-left' : textAlign === 'right' ? 'text-right' : 'text-center'}`}>
+            {headingText && (
+              <div 
+                style={{
+                  fontFamily: headingFontFamily,
+                  fontSize: `${headingFontSize}px`,
+                  fontWeight: headingFontWeight,
+                  lineHeight: headingLineHeight,
+                  letterSpacing: `${headingLetterSpacing}px`,
+                  color: headingColor
+                }}
+                className="mb-4 prose max-w-none"
+                dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(headingText) }}
+              />
+            )}
+            {subheadingText && (
+              <div 
+                style={{
+                  fontFamily: subheadingFontFamily,
+                  fontSize: `${subheadingFontSize}px`,
+                  fontWeight: subheadingFontWeight,
+                  lineHeight: subheadingLineHeight,
+                  letterSpacing: `${subheadingLetterSpacing}px`,
+                  color: subheadingColor
+                }}
+                className="mb-4 prose max-w-none"
+                dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(subheadingText) }}
+              />
+            )}
+            {bodyContent && (
+              <div 
+                style={{
+                  fontFamily: contentFontFamily,
+                  fontSize: `${contentFontSize}px`,
+                  fontWeight: contentFontWeight,
+                  lineHeight: contentLineHeight,
+                  letterSpacing: `${contentLetterSpacing}px`,
+                  color: contentColor
+                }}
+                className="prose max-w-none"
+                dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(bodyContent) }}
+              />
+            )}
+          </div>
+        )}
+
         {/* Section header - only show if no category selected OR if multiple categories exist */}
         {!selectedCategory && (
           <div className="text-center mb-12">
