@@ -276,11 +276,12 @@ export default function IEditPageHeaderHeroElement({ content, variant, settings,
             className={`hero-text-box max-w-2xl ${header_position === 'right' ? 'ml-auto' : 'mr-auto'} ${textAlignClass}`}
           >
             {header_text && (
-              <h1 
-                className="hero-title whitespace-pre-line"
-              >
-                {header_text}
-              </h1>
+              <div 
+                className="hero-title"
+                dangerouslySetInnerHTML={{ 
+                  __html: DOMPurify.sanitize(header_text) 
+                }}
+              />
             )}
             {subheading_text && (
               <div 
@@ -306,56 +307,25 @@ export default function IEditPageHeaderHeroElement({ content, variant, settings,
 }
 
 export function IEditPageHeaderHeroElementEditor({ element, onChange }) {
-  const content = element.content || {
-    background_type: 'color',
-    background_color: '#1e3a5f',
-    gradient_start_color: '#1e3a5f',
-    gradient_end_color: '#3b82f6',
-    gradient_angle: 135,
-    image_url: '',
-    header_text: '',
-    subheading_text: '',
-    content_text: '',
-    header_position: 'left',
-    header_font_family: 'Poppins',
-    header_font_size: '48',
-    header_color: '#ffffff',
-    subheading_color: '#ffffff',
-    subheading_font_size: '24',
-    content_color: '#ffffff',
-    content_font_size: '16',
-    text_alignment: 'left',
-    padding_vertical: '80',
-    padding_horizontal: '16',
-    line_spacing: '1.2',
-    text_padding_left: '0',
-    text_padding_right: '0',
-    text_padding_top: '0',
-    text_padding_bottom: '0',
-    height_type: 'auto',
-    custom_height: '400',
-    image_fit: 'cover',
-    overlay_enabled: false,
-    overlay_color: '#000000',
-    overlay_opacity: '50',
-    // Mobile defaults
-    mobile_font_size: '',
-    mobile_height_type: 'auto',
-    mobile_custom_height: '250',
-    mobile_padding_vertical: '',
-    mobile_padding_horizontal: '',
-    mobile_text_alignment: ''
-  };
+  const content = element.content || {};
 
   const [isUploading, setIsUploading] = useState(false);
-  const [showMobileSettings, setShowMobileSettings] = useState(false);
+  const [expandedSections, setExpandedSections] = useState({
+    textContent: true,
+    background: false,
+    mobile: false
+  });
+
+  const toggleSection = (section) => {
+    setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
+  };
 
   const updateContent = (key, value) => {
-    onChange({ ...element, content: { ...content, [key]: value } });
+    onChange({ ...element, content: { ...(element.content || {}), [key]: value } });
   };
 
   const updateMultipleContent = (updates) => {
-    onChange({ ...element, content: { ...content, ...updates } });
+    onChange({ ...element, content: { ...(element.content || {}), ...updates } });
   };
 
   const renderTypographyControls = (prefix, label, defaultValues = {}) => {
@@ -495,535 +465,525 @@ export function IEditPageHeaderHeroElementEditor({ element, onChange }) {
   const defaultMobilePaddingHorizontal = Math.max(16, parseInt(content.padding_horizontal || 16));
 
   return (
-    <div className="space-y-4">
-      {/* Background Type Selection */}
-      <div>
-        <label className="block text-sm font-medium mb-1">Background Type</label>
-        <select
-          value={content.background_type || 'color'}
-          onChange={(e) => updateContent('background_type', e.target.value)}
-          className="w-full px-3 py-2 border border-slate-300 rounded-md"
+    <div className="space-y-2">
+      {/* Section 1: Header / Subheader / Content */}
+      <div className="border border-slate-200 rounded-lg overflow-hidden">
+        <button
+          type="button"
+          onClick={() => toggleSection('textContent')}
+          className="w-full flex items-center justify-between p-3 bg-slate-50 hover:bg-slate-100 transition-colors text-left"
+          data-testid="accordion-text-content"
         >
-          <option value="color">Solid Color</option>
-          <option value="gradient">Gradient</option>
-          <option value="image">Image</option>
-        </select>
-      </div>
-
-      {/* Color Background Options */}
-      {content.background_type === 'color' && (
-        <div>
-          <label className="block text-sm font-medium mb-1">Background Color</label>
-          <input
-            type="color"
-            value={content.background_color || '#1e3a5f'}
-            onChange={(e) => updateContent('background_color', e.target.value)}
-            className="w-full h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
-          />
-        </div>
-      )}
-
-      {/* Gradient Background Options */}
-      {content.background_type === 'gradient' && (
-        <div className="space-y-3 p-3 bg-slate-50 rounded-md">
-          <div 
-            className="w-full h-16 rounded-md border border-slate-300"
-            style={{ 
-              background: `linear-gradient(${content.gradient_angle || 135}deg, ${content.gradient_start_color || '#1e3a5f'}, ${content.gradient_end_color || '#3b82f6'})` 
-            }}
-          />
-          
-          <div className="grid grid-cols-2 gap-3">
+          <span className="font-medium text-sm">Header / Subheader / Content</span>
+          <svg 
+            className={`w-4 h-4 transition-transform ${expandedSections.textContent ? 'rotate-180' : ''}`} 
+            fill="none" stroke="currentColor" viewBox="0 0 24 24"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+        
+        {expandedSections.textContent && (
+          <div className="p-4 space-y-4 border-t border-slate-200">
+            {/* Header Text */}
             <div>
-              <label className="block text-xs font-medium mb-1">Start Color</label>
-              <div className="flex gap-2 items-center">
-                <input
-                  type="color"
-                  value={content.gradient_start_color || '#1e3a5f'}
-                  onChange={(e) => updateContent('gradient_start_color', e.target.value)}
-                  className="w-12 h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
-                />
-                <input
-                  type="text"
-                  value={content.gradient_start_color || '#1e3a5f'}
-                  onChange={(e) => updateContent('gradient_start_color', e.target.value)}
-                  className="flex-1 px-2 py-1 border border-slate-300 rounded-md font-mono text-xs"
+              <label className="block text-sm font-medium mb-1">Header Text</label>
+              <div className="border border-slate-300 rounded-md overflow-hidden bg-white">
+                <ReactQuill
+                  theme="snow"
+                  value={content.header_text || ''}
+                  onChange={(value) => updateContent('header_text', value)}
+                  modules={heroQuillModules}
+                  placeholder="Enter header text..."
+                  style={{ minHeight: '80px' }}
                 />
               </div>
             </div>
-            <div>
-              <label className="block text-xs font-medium mb-1">End Color</label>
-              <div className="flex gap-2 items-center">
-                <input
-                  type="color"
-                  value={content.gradient_end_color || '#3b82f6'}
-                  onChange={(e) => updateContent('gradient_end_color', e.target.value)}
-                  className="w-12 h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
-                />
-                <input
-                  type="text"
-                  value={content.gradient_end_color || '#3b82f6'}
-                  onChange={(e) => updateContent('gradient_end_color', e.target.value)}
-                  className="flex-1 px-2 py-1 border border-slate-300 rounded-md font-mono text-xs"
-                />
-              </div>
-            </div>
-          </div>
-          
-          <div>
-            <label className="block text-xs font-medium mb-1">Angle: {content.gradient_angle || 135}°</label>
-            <input
-              type="range"
-              min="0"
-              max="360"
-              value={content.gradient_angle || 135}
-              onChange={(e) => updateContent('gradient_angle', parseInt(e.target.value))}
-              className="w-full"
+            <TypographyStyleSelector
+              value={content.header_typography_style_id || null}
+              onChange={(styleId, style) => {
+                const updates = { header_typography_style_id: styleId };
+                if (style) {
+                  const mapped = applyTypographyStyle(style);
+                  if (mapped.font_family) updates.header_font_family = mapped.font_family;
+                  if (mapped.font_size) updates.header_font_size = mapped.font_size;
+                  if (mapped.font_size_mobile) updates.mobile_font_size = mapped.font_size_mobile;
+                  if (mapped.font_weight) updates.header_font_weight = mapped.font_weight;
+                  if (mapped.line_height) updates.line_spacing = mapped.line_height;
+                  if (mapped.letter_spacing !== undefined) updates.header_letter_spacing = mapped.letter_spacing;
+                  if (mapped.color) updates.header_color = mapped.color;
+                }
+                updateMultipleContent(updates);
+              }}
+              label="Header Typography Style"
             />
-          </div>
-        </div>
-      )}
+            <details className="text-xs">
+              <summary className="cursor-pointer text-slate-500 hover:text-slate-700 font-medium">Manual Header Font Settings</summary>
+              {renderTypographyControls('header', 'Header Typography', { font_size: 48, color: '#ffffff', line_height: 1.2 })}
+            </details>
 
-      {/* Image Background Options */}
-      {content.background_type === 'image' && (
-        <>
-          <div>
-            <label className="block text-sm font-medium mb-1">Hero Image *</label>
-            <div className="space-y-2">
-              <label className="inline-block">
-                <div className={`px-4 py-2 rounded-md text-sm font-medium cursor-pointer ${
-                  isUploading 
-                    ? 'bg-slate-300 cursor-not-allowed' 
-                    : 'bg-blue-600 hover:bg-blue-700 text-white'
-                }`}>
-                  {isUploading ? 'Uploading...' : 'Upload Image'}
-                </div>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) handleImageUpload(file);
-                    e.target.value = '';
-                  }}
-                  className="hidden"
-                  disabled={isUploading}
+            {/* Subheading Text */}
+            <div className="pt-4 border-t border-slate-100">
+              <label className="block text-sm font-medium mb-1">Subheading Text</label>
+              <div className="border border-slate-300 rounded-md overflow-hidden bg-white">
+                <ReactQuill
+                  theme="snow"
+                  value={content.subheading_text || ''}
+                  onChange={(value) => updateContent('subheading_text', value)}
+                  modules={heroQuillModules}
+                  placeholder="Enter subheading text..."
+                  style={{ minHeight: '100px' }}
                 />
-              </label>
+              </div>
             </div>
-            {content.image_url && (
-              <div className="mt-2 relative">
-                <img
-                  src={content.image_url}
-                  alt="Preview"
-                  className="w-full h-32 object-cover rounded"
-                  onError={(e) => { e.target.style.display = 'none'; }}
+            <TypographyStyleSelector
+              value={content.subheading_typography_style_id || null}
+              onChange={(styleId, style) => {
+                const updates = { subheading_typography_style_id: styleId };
+                if (style) {
+                  const mapped = applyTypographyStyle(style);
+                  if (mapped.font_family) updates.subheading_font_family = mapped.font_family;
+                  if (mapped.font_size) updates.subheading_font_size = mapped.font_size;
+                  if (mapped.font_size_mobile) updates.mobile_subheading_font_size = mapped.font_size_mobile;
+                  if (mapped.font_weight) updates.subheading_font_weight = mapped.font_weight;
+                  if (mapped.line_height) updates.subheading_line_height = mapped.line_height;
+                  if (mapped.letter_spacing !== undefined) updates.subheading_letter_spacing = mapped.letter_spacing;
+                  if (mapped.color) updates.subheading_color = mapped.color;
+                }
+                updateMultipleContent(updates);
+              }}
+              label="Subheading Typography Style"
+            />
+            <details className="text-xs">
+              <summary className="cursor-pointer text-slate-500 hover:text-slate-700 font-medium">Manual Subheading Font Settings</summary>
+              {renderTypographyControls('subheading', 'Subheading Typography')}
+            </details>
+
+            {/* Content Text */}
+            <div className="pt-4 border-t border-slate-100">
+              <label className="block text-sm font-medium mb-1">Content Text</label>
+              <div className="border border-slate-300 rounded-md overflow-hidden bg-white">
+                <ReactQuill
+                  theme="snow"
+                  value={content.content_text || ''}
+                  onChange={(value) => updateContent('content_text', value)}
+                  modules={heroQuillModules}
+                  placeholder="Enter content text..."
+                  style={{ minHeight: '120px' }}
                 />
-                <button
-                  onClick={() => updateContent('image_url', '')}
-                  className="absolute bottom-2 right-2 px-2 py-1 bg-red-600 hover:bg-red-700 text-white text-xs rounded"
-                  type="button"
-                >
-                  Remove
-                </button>
               </div>
-            )}
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">Image Display</label>
-            <select
-              value={content.image_fit || 'cover'}
-              onChange={(e) => updateContent('image_fit', e.target.value)}
-              className="w-full px-3 py-2 border border-slate-300 rounded-md"
-            >
-              <option value="cover">Cover (Fill & Crop)</option>
-              <option value="contain">Contain (Fit Within)</option>
-              <option value="original">Original (Full Width, Natural Height)</option>
-            </select>
-          </div>
-
-          {/* Overlay Options */}
-          <div className="space-y-3 p-3 bg-slate-50 rounded-md">
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                id="overlay_enabled"
-                checked={content.overlay_enabled || false}
-                onChange={(e) => updateContent('overlay_enabled', e.target.checked)}
-                className="rounded"
-              />
-              <label htmlFor="overlay_enabled" className="text-sm font-medium">Enable Overlay</label>
             </div>
-            
-            {content.overlay_enabled && (
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Overlay Color</label>
-                  <input
-                    type="color"
-                    value={content.overlay_color || '#000000'}
-                    onChange={(e) => updateContent('overlay_color', e.target.value)}
-                    className="w-full h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Opacity (%)</label>
-                  <input
-                    type="number"
-                    value={content.overlay_opacity || 50}
-                    onChange={(e) => updateContent('overlay_opacity', e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-md"
-                    min="0"
-                    max="100"
-                  />
-                </div>
-              </div>
-            )}
-          </div>
-        </>
-      )}
-
-      {/* Header Text */}
-      <div>
-        <label className="block text-sm font-medium mb-1">Header Text *</label>
-        <textarea
-          value={content.header_text || ''}
-          onChange={(e) => updateContent('header_text', e.target.value)}
-          className="w-full px-3 py-2 border border-slate-300 rounded-md"
-          placeholder="Enter header text..."
-          rows={3}
-        />
-      </div>
-
-      {/* Typography Style Selector */}
-      <TypographyStyleSelector
-        value={content.header_typography_style_id}
-        onChange={(styleId) => updateContent('header_typography_style_id', styleId)}
-        onApplyStyle={(style) => {
-          const styleProps = applyTypographyStyle(style);
-          if (styleProps.font_family) updateContent('header_font_family', styleProps.font_family);
-          if (styleProps.font_size) updateContent('header_font_size', styleProps.font_size);
-          if (styleProps.font_size_mobile) updateContent('mobile_font_size', styleProps.font_size_mobile);
-          if (styleProps.line_height) updateContent('line_spacing', styleProps.line_height);
-          if (styleProps.color) updateContent('header_color', styleProps.color);
-          updateContent('header_typography_style_id', style.id);
-        }}
-        filterTypes={['h1', 'h2']}
-        label="Header Typography Style"
-      />
-
-      {/* Subheading Text - Rich Text Editor */}
-      <div className="space-y-3 border-b pb-4">
-        <h5 className="font-medium text-sm">Subheading</h5>
-        <div>
-          <label className="block text-xs font-medium mb-1">Subheading Text</label>
-          <div className="hero-quill-editor border border-slate-300 rounded-md overflow-hidden bg-white">
-            <ReactQuill
-              theme="snow"
-              value={content.subheading_text || ''}
-              onChange={(value) => updateContent('subheading_text', value)}
-              modules={heroQuillModules}
-              placeholder="Enter subheading text..."
-              style={{ minHeight: '100px' }}
+            <TypographyStyleSelector
+              value={content.content_typography_style_id || null}
+              onChange={(styleId, style) => {
+                const updates = { content_typography_style_id: styleId };
+                if (style) {
+                  const mapped = applyTypographyStyle(style);
+                  if (mapped.font_family) updates.content_font_family = mapped.font_family;
+                  if (mapped.font_size) updates.content_font_size = mapped.font_size;
+                  if (mapped.font_size_mobile) updates.mobile_content_font_size = mapped.font_size_mobile;
+                  if (mapped.font_weight) updates.content_font_weight = mapped.font_weight;
+                  if (mapped.line_height) updates.content_line_height = mapped.line_height;
+                  if (mapped.letter_spacing !== undefined) updates.content_letter_spacing = mapped.letter_spacing;
+                  if (mapped.color) updates.content_color = mapped.color;
+                }
+                updateMultipleContent(updates);
+              }}
+              label="Content Typography Style"
             />
-          </div>
-        </div>
-        <TypographyStyleSelector
-          value={content.subheading_typography_style_id || null}
-          onChange={(styleId, style) => {
-            const updates = { subheading_typography_style_id: styleId };
-            if (style) {
-              const mapped = applyTypographyStyle(style);
-              if (mapped.font_family) updates.subheading_font_family = mapped.font_family;
-              if (mapped.font_size) updates.subheading_font_size = mapped.font_size;
-              if (mapped.font_size_mobile) updates.mobile_subheading_font_size = mapped.font_size_mobile;
-              if (mapped.font_weight) updates.subheading_font_weight = mapped.font_weight;
-              if (mapped.line_height) updates.subheading_line_height = mapped.line_height;
-              if (mapped.letter_spacing !== undefined) updates.subheading_letter_spacing = mapped.letter_spacing;
-              if (mapped.color) updates.subheading_color = mapped.color;
-            }
-            updateMultipleContent(updates);
-          }}
-          filterTypes={['h2', 'h3', 'body']}
-          label="Subheading Typography Style"
-        />
-        <details className="text-xs">
-          <summary className="cursor-pointer text-slate-500 hover:text-slate-700 font-medium">Manual Font Settings</summary>
-          {renderTypographyControls('subheading', 'Subheading Typography')}
-        </details>
-      </div>
+            <details className="text-xs">
+              <summary className="cursor-pointer text-slate-500 hover:text-slate-700 font-medium">Manual Content Font Settings</summary>
+              {renderTypographyControls('content', 'Content Typography')}
+            </details>
 
-      {/* Content Text - Rich Text Editor */}
-      <div className="space-y-3 border-b pb-4">
-        <h5 className="font-medium text-sm">Content Text</h5>
-        <div>
-          <label className="block text-xs font-medium mb-1">Content Text</label>
-          <div className="hero-quill-editor border border-slate-300 rounded-md overflow-hidden bg-white">
-            <ReactQuill
-              theme="snow"
-              value={content.content_text || ''}
-              onChange={(value) => updateContent('content_text', value)}
-              modules={heroQuillModules}
-              placeholder="Enter content text..."
-              style={{ minHeight: '120px' }}
-            />
-          </div>
-        </div>
-        <TypographyStyleSelector
-          value={content.content_typography_style_id || null}
-          onChange={(styleId, style) => {
-            const updates = { content_typography_style_id: styleId };
-            if (style) {
-              const mapped = applyTypographyStyle(style);
-              if (mapped.font_family) updates.content_font_family = mapped.font_family;
-              if (mapped.font_size) updates.content_font_size = mapped.font_size;
-              if (mapped.font_size_mobile) updates.mobile_content_font_size = mapped.font_size_mobile;
-              if (mapped.font_weight) updates.content_font_weight = mapped.font_weight;
-              if (mapped.line_height) updates.content_line_height = mapped.line_height;
-              if (mapped.letter_spacing !== undefined) updates.content_letter_spacing = mapped.letter_spacing;
-              if (mapped.color) updates.content_color = mapped.color;
-            }
-            updateMultipleContent(updates);
-          }}
-          filterTypes={['body', 'h3']}
-          label="Content Typography Style"
-        />
-        <details className="text-xs">
-          <summary className="cursor-pointer text-slate-500 hover:text-slate-700 font-medium">Manual Font Settings</summary>
-          {renderTypographyControls('content', 'Content Typography')}
-        </details>
-      </div>
-
-      {/* Header Position */}
-      <div>
-        <label className="block text-sm font-medium mb-1">Header Position</label>
-        <select
-          value={content.header_position || 'left'}
-          onChange={(e) => updateContent('header_position', e.target.value)}
-          className="w-full px-3 py-2 border border-slate-300 rounded-md"
-        >
-          <option value="left">Left</option>
-          <option value="right">Right</option>
-        </select>
-      </div>
-
-      {/* Container Height - show for color backgrounds or non-original image fit */}
-      {(content.background_type === 'color' || content.image_fit !== 'original') && (
-        <div className="space-y-3">
-          <div>
-            <label className="block text-sm font-medium mb-1">Container Height</label>
-            <select
-              value={content.height_type || 'auto'}
-              onChange={(e) => updateContent('height_type', e.target.value)}
-              className="w-full px-3 py-2 border border-slate-300 rounded-md"
-            >
-              <option value="auto">Auto (Min 400px)</option>
-              <option value="full">Full Viewport</option>
-              <option value="custom">Custom</option>
-            </select>
-          </div>
-
-          {content.height_type === 'custom' && (
-            <div>
-              <label className="block text-sm font-medium mb-1">Custom Height (px)</label>
-              <input
-                type="number"
-                value={content.custom_height || 400}
-                onChange={(e) => updateContent('custom_height', e.target.value)}
-                className="w-full px-3 py-2 border border-slate-300 rounded-md"
-                min="100"
-              />
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Manual Font Settings - Collapsible */}
-      <details className="text-xs">
-        <summary className="cursor-pointer text-slate-500 hover:text-slate-700 font-medium">Manual Font Settings</summary>
-        <div className="mt-3 space-y-4">
-          {/* Typography Settings */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm font-medium mb-1">Font Family</label>
+            {/* Text Alignment */}
+            <div className="pt-4 border-t border-slate-100">
+              <label className="block text-sm font-medium mb-1">Text Alignment</label>
               <select
-                value={content.header_font_family || 'Poppins'}
-                onChange={(e) => updateContent('header_font_family', e.target.value)}
+                value={content.text_alignment || 'left'}
+                onChange={(e) => updateContent('text_alignment', e.target.value)}
                 className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                data-testid="select-text-alignment"
               >
-                <option value="Poppins">Poppins</option>
-                <option value="Degular Medium">Degular Medium</option>
+                <option value="left">Left</option>
+                <option value="center">Center</option>
+                <option value="right">Right</option>
+              </select>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Section 2: Background & Layout */}
+      <div className="border border-slate-200 rounded-lg overflow-hidden">
+        <button
+          type="button"
+          onClick={() => toggleSection('background')}
+          className="w-full flex items-center justify-between p-3 bg-slate-50 hover:bg-slate-100 transition-colors text-left"
+          data-testid="accordion-background"
+        >
+          <span className="font-medium text-sm">Background & Layout</span>
+          <svg 
+            className={`w-4 h-4 transition-transform ${expandedSections.background ? 'rotate-180' : ''}`} 
+            fill="none" stroke="currentColor" viewBox="0 0 24 24"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+        
+        {expandedSections.background && (
+          <div className="p-4 space-y-4 border-t border-slate-200">
+            {/* Background Type Selection */}
+            <div>
+              <label className="block text-sm font-medium mb-1">Background Type</label>
+              <select
+                value={content.background_type || 'color'}
+                onChange={(e) => updateContent('background_type', e.target.value)}
+                className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                data-testid="select-background-type"
+              >
+                <option value="color">Solid Color</option>
+                <option value="gradient">Gradient</option>
+                <option value="image">Image</option>
               </select>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium mb-1">Font Size (px)</label>
-              <input
-                type="number"
-                value={content.header_font_size || 48}
-                onChange={(e) => updateContent('header_font_size', e.target.value)}
+            {/* Color Background Options */}
+            {content.background_type === 'color' && (
+              <div>
+                <label className="block text-sm font-medium mb-1">Background Color</label>
+                <input
+                  type="color"
+                  value={content.background_color || '#1e3a5f'}
+                  onChange={(e) => updateContent('background_color', e.target.value)}
+                  className="w-full h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+                  data-testid="input-background-color"
+                />
+              </div>
+            )}
+
+            {/* Gradient Background Options */}
+            {content.background_type === 'gradient' && (
+              <div className="space-y-3 p-3 bg-slate-50 rounded-md">
+                <div 
+                  className="w-full h-16 rounded-md border border-slate-300"
+                  style={{ 
+                    background: `linear-gradient(${content.gradient_angle || 135}deg, ${content.gradient_start_color || '#1e3a5f'}, ${content.gradient_end_color || '#3b82f6'})` 
+                  }}
+                />
+                
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium mb-1">Start Color</label>
+                    <div className="flex gap-2 items-center">
+                      <input
+                        type="color"
+                        value={content.gradient_start_color || '#1e3a5f'}
+                        onChange={(e) => updateContent('gradient_start_color', e.target.value)}
+                        className="w-12 h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+                      />
+                      <input
+                        type="text"
+                        value={content.gradient_start_color || '#1e3a5f'}
+                        onChange={(e) => updateContent('gradient_start_color', e.target.value)}
+                        className="flex-1 px-2 py-1 border border-slate-300 rounded-md font-mono text-xs"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium mb-1">End Color</label>
+                    <div className="flex gap-2 items-center">
+                      <input
+                        type="color"
+                        value={content.gradient_end_color || '#3b82f6'}
+                        onChange={(e) => updateContent('gradient_end_color', e.target.value)}
+                        className="w-12 h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+                      />
+                      <input
+                        type="text"
+                        value={content.gradient_end_color || '#3b82f6'}
+                        onChange={(e) => updateContent('gradient_end_color', e.target.value)}
+                        className="flex-1 px-2 py-1 border border-slate-300 rounded-md font-mono text-xs"
+                      />
+                    </div>
+                  </div>
+                </div>
+                
+                <div>
+                  <label className="block text-xs font-medium mb-1">Angle: {content.gradient_angle || 135}°</label>
+                  <input
+                    type="range"
+                    min="0"
+                    max="360"
+                    value={content.gradient_angle || 135}
+                    onChange={(e) => updateContent('gradient_angle', parseInt(e.target.value))}
+                    className="w-full"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Image Background Options */}
+            {content.background_type === 'image' && (
+              <>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Hero Image</label>
+                  <div className="space-y-2">
+                    <label className="inline-block">
+                      <div className={`px-4 py-2 rounded-md text-sm font-medium cursor-pointer ${
+                        isUploading 
+                          ? 'bg-slate-300 cursor-not-allowed' 
+                          : 'bg-blue-600 hover:bg-blue-700 text-white'
+                      }`}>
+                        {isUploading ? 'Uploading...' : 'Upload Image'}
+                      </div>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleImageUpload(file);
+                          e.target.value = '';
+                        }}
+                        className="hidden"
+                        disabled={isUploading}
+                        data-testid="input-image-upload"
+                      />
+                    </label>
+                  </div>
+                  {content.image_url && (
+                    <div className="mt-2 relative">
+                      <img
+                        src={content.image_url}
+                        alt="Preview"
+                        className="w-full h-32 object-cover rounded"
+                        onError={(e) => { e.target.style.display = 'none'; }}
+                      />
+                      <button
+                        onClick={() => updateContent('image_url', '')}
+                        className="absolute bottom-2 right-2 px-2 py-1 bg-red-600 hover:bg-red-700 text-white text-xs rounded"
+                        type="button"
+                        data-testid="button-remove-image"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-1">Image Display</label>
+                  <select
+                    value={content.image_fit || 'cover'}
+                    onChange={(e) => updateContent('image_fit', e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                    data-testid="select-image-fit"
+                  >
+                    <option value="cover">Cover (Fill & Crop)</option>
+                    <option value="contain">Contain (Fit Within)</option>
+                    <option value="original">Original (Full Width, Natural Height)</option>
+                  </select>
+                </div>
+
+                {/* Overlay Options */}
+                <div className="space-y-3 p-3 bg-slate-50 rounded-md">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="overlay_enabled"
+                      checked={content.overlay_enabled || false}
+                      onChange={(e) => updateContent('overlay_enabled', e.target.checked)}
+                      className="rounded"
+                      data-testid="checkbox-overlay"
+                    />
+                    <label htmlFor="overlay_enabled" className="text-sm font-medium">Enable Overlay</label>
+                  </div>
+                  
+                  {content.overlay_enabled && (
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-sm font-medium mb-1">Overlay Color</label>
+                        <input
+                          type="color"
+                          value={content.overlay_color || '#000000'}
+                          onChange={(e) => updateContent('overlay_color', e.target.value)}
+                          className="w-full h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium mb-1">Opacity (%)</label>
+                        <input
+                          type="number"
+                          value={content.overlay_opacity || 50}
+                          onChange={(e) => updateContent('overlay_opacity', e.target.value)}
+                          className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                          min="0"
+                          max="100"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+
+            {/* Header Position */}
+            <div className="pt-4 border-t border-slate-100">
+              <label className="block text-sm font-medium mb-1">Header Position</label>
+              <select
+                value={content.header_position || 'left'}
+                onChange={(e) => updateContent('header_position', e.target.value)}
                 className="w-full px-3 py-2 border border-slate-300 rounded-md"
-                min="16"
-                max="96"
-              />
+                data-testid="select-header-position"
+              >
+                <option value="left">Left</option>
+                <option value="right">Right</option>
+              </select>
+            </div>
+
+            {/* Container Height */}
+            {(content.background_type !== 'image' || content.image_fit !== 'original') && (
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Container Height</label>
+                  <select
+                    value={content.height_type || 'auto'}
+                    onChange={(e) => updateContent('height_type', e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                    data-testid="select-height-type"
+                  >
+                    <option value="auto">Auto (Min 400px)</option>
+                    <option value="full">Full Viewport</option>
+                    <option value="custom">Custom</option>
+                  </select>
+                </div>
+
+                {content.height_type === 'custom' && (
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Custom Height (px)</label>
+                    <input
+                      type="number"
+                      value={content.custom_height || 400}
+                      onChange={(e) => updateContent('custom_height', e.target.value)}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                      min="100"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Container Padding */}
+            <div className="space-y-3 pt-4 border-t border-slate-100">
+              <h4 className="text-sm font-semibold">Container Padding</h4>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Vertical (px)</label>
+                  <input
+                    type="number"
+                    value={content.padding_vertical || 80}
+                    onChange={(e) => updateContent('padding_vertical', e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                    min="0"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Horizontal (px)</label>
+                  <input
+                    type="number"
+                    value={content.padding_horizontal || 16}
+                    onChange={(e) => updateContent('padding_horizontal', e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                    min="0"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Text Position */}
+            <div className="space-y-3 pt-4 border-t border-slate-100">
+              <h4 className="text-sm font-semibold">Text Position</h4>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium mb-1">From Left (px)</label>
+                  <input
+                    type="number"
+                    value={content.text_padding_left || 0}
+                    onChange={(e) => updateContent('text_padding_left', e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                    min="0"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">From Right (px)</label>
+                  <input
+                    type="number"
+                    value={content.text_padding_right || 0}
+                    onChange={(e) => updateContent('text_padding_right', e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                    min="0"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">From Top (px)</label>
+                  <input
+                    type="number"
+                    value={content.text_padding_top || 0}
+                    onChange={(e) => updateContent('text_padding_top', e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                    min="0"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">From Bottom (px)</label>
+                  <input
+                    type="number"
+                    value={content.text_padding_bottom || 0}
+                    onChange={(e) => updateContent('text_padding_bottom', e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                    min="0"
+                  />
+                </div>
+              </div>
             </div>
           </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">Font Color</label>
-            <input
-              type="color"
-              value={content.header_color || '#ffffff'}
-              onChange={(e) => updateContent('header_color', e.target.value)}
-              className="w-full h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
-            />
-          </div>
-
-          {/* Line Spacing */}
-          <div>
-            <label className="block text-sm font-medium mb-1">Line Spacing</label>
-            <input
-              type="number"
-              step="0.1"
-              min="0.5"
-              max="3"
-              value={content.line_spacing || 1.2}
-              onChange={(e) => updateContent('line_spacing', e.target.value)}
-              className="w-full px-3 py-2 border border-slate-300 rounded-md"
-            />
-          </div>
-        </div>
-      </details>
-
-      {/* Text Alignment - Outside collapsible section */}
-      <div>
-        <label className="block text-sm font-medium mb-1">Text Alignment</label>
-        <select
-          value={content.text_alignment || 'left'}
-          onChange={(e) => updateContent('text_alignment', e.target.value)}
-          className="w-full px-3 py-2 border border-slate-300 rounded-md"
-        >
-          <option value="left">Left</option>
-          <option value="center">Center</option>
-          <option value="right">Right</option>
-        </select>
+        )}
       </div>
 
-      {/* Container Padding */}
-      <div className="space-y-3">
-        <h4 className="text-sm font-semibold">Container Padding</h4>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="block text-sm font-medium mb-1">Vertical (px)</label>
-            <input
-              type="number"
-              value={content.padding_vertical || 80}
-              onChange={(e) => updateContent('padding_vertical', e.target.value)}
-              className="w-full px-3 py-2 border border-slate-300 rounded-md"
-              min="0"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">Horizontal (px)</label>
-            <input
-              type="number"
-              value={content.padding_horizontal || 16}
-              onChange={(e) => updateContent('padding_horizontal', e.target.value)}
-              className="w-full px-3 py-2 border border-slate-300 rounded-md"
-              min="0"
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* Text Position */}
-      <div className="space-y-3">
-        <h4 className="text-sm font-semibold">Text Position</h4>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="block text-sm font-medium mb-1">From Left (px)</label>
-            <input
-              type="number"
-              value={content.text_padding_left || 0}
-              onChange={(e) => updateContent('text_padding_left', e.target.value)}
-              className="w-full px-3 py-2 border border-slate-300 rounded-md"
-              min="0"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">From Right (px)</label>
-            <input
-              type="number"
-              value={content.text_padding_right || 0}
-              onChange={(e) => updateContent('text_padding_right', e.target.value)}
-              className="w-full px-3 py-2 border border-slate-300 rounded-md"
-              min="0"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">From Top (px)</label>
-            <input
-              type="number"
-              value={content.text_padding_top || 0}
-              onChange={(e) => updateContent('text_padding_top', e.target.value)}
-              className="w-full px-3 py-2 border border-slate-300 rounded-md"
-              min="0"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">From Bottom (px)</label>
-            <input
-              type="number"
-              value={content.text_padding_bottom || 0}
-              onChange={(e) => updateContent('text_padding_bottom', e.target.value)}
-              className="w-full px-3 py-2 border border-slate-300 rounded-md"
-              min="0"
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* Mobile Settings Section */}
-      <div className="border-t pt-4 mt-4">
+      {/* Section 3: Mobile Settings */}
+      <div className="border border-slate-200 rounded-lg overflow-hidden">
         <button
           type="button"
-          onClick={() => setShowMobileSettings(!showMobileSettings)}
-          className="flex items-center gap-2 text-sm font-semibold text-blue-600 hover:text-blue-700"
+          onClick={() => toggleSection('mobile')}
+          className="w-full flex items-center justify-between p-3 bg-slate-50 hover:bg-slate-100 transition-colors text-left"
+          data-testid="accordion-mobile"
         >
+          <span className="font-medium text-sm">Mobile Settings</span>
           <svg 
-            className={`w-4 h-4 transition-transform ${showMobileSettings ? 'rotate-90' : ''}`} 
-            fill="none" 
-            stroke="currentColor" 
-            viewBox="0 0 24 24"
+            className={`w-4 h-4 transition-transform ${expandedSections.mobile ? 'rotate-180' : ''}`} 
+            fill="none" stroke="currentColor" viewBox="0 0 24 24"
           >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
           </svg>
-          Mobile Settings
-          <span className="text-xs font-normal text-slate-500">(screens below 768px)</span>
         </button>
         
-        {showMobileSettings && (
-          <div className="mt-4 space-y-4 p-4 bg-blue-50 rounded-lg">
-            <p className="text-xs text-slate-600 mb-3">
+        {expandedSections.mobile && (
+          <div className="p-4 space-y-4 border-t border-slate-200">
+            <p className="text-xs text-slate-600">
               Leave fields empty to use automatic scaling based on desktop values.
             </p>
 
             {/* Mobile Font Size */}
             <div>
               <label className="block text-sm font-medium mb-1">
-                Mobile Font Size (px)
+                Mobile Header Font Size (px)
                 <span className="text-xs text-slate-500 ml-2">Default: {defaultMobileFontSize}px</span>
               </label>
               <input
                 type="number"
                 value={content.mobile_font_size || ''}
                 onChange={(e) => updateContent('mobile_font_size', e.target.value)}
-                placeholder={defaultMobileFontSize}
+                placeholder={String(defaultMobileFontSize)}
                 className="w-full px-3 py-2 border border-slate-300 rounded-md"
                 min="16"
                 max="72"
@@ -1031,7 +991,7 @@ export function IEditPageHeaderHeroElementEditor({ element, onChange }) {
             </div>
 
             {/* Mobile Height */}
-            {(content.background_type === 'color' || content.image_fit !== 'original') && (
+            {(content.background_type !== 'image' || content.image_fit !== 'original') && (
               <div className="space-y-3">
                 <div>
                   <label className="block text-sm font-medium mb-1">Mobile Container Height</label>
@@ -1072,12 +1032,11 @@ export function IEditPageHeaderHeroElementEditor({ element, onChange }) {
                   type="number"
                   value={content.mobile_padding_vertical || ''}
                   onChange={(e) => updateContent('mobile_padding_vertical', e.target.value)}
-                  placeholder={defaultMobilePaddingVertical}
+                  placeholder={String(defaultMobilePaddingVertical)}
                   className="w-full px-3 py-2 border border-slate-300 rounded-md"
                   min="0"
                 />
               </div>
-
               <div>
                 <label className="block text-sm font-medium mb-1">
                   Mobile Horizontal Padding
@@ -1087,7 +1046,7 @@ export function IEditPageHeaderHeroElementEditor({ element, onChange }) {
                   type="number"
                   value={content.mobile_padding_horizontal || ''}
                   onChange={(e) => updateContent('mobile_padding_horizontal', e.target.value)}
-                  placeholder={defaultMobilePaddingHorizontal}
+                  placeholder={String(defaultMobilePaddingHorizontal)}
                   className="w-full px-3 py-2 border border-slate-300 rounded-md"
                   min="0"
                 />
