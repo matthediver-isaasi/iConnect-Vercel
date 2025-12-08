@@ -286,9 +286,7 @@ export default function PublicLayout({ children, currentPageName }) {
                 <h2 
                   className="text-3xl text-white mb-8 mt-12"
                   style={{ fontFamily: "'Degular Medium', sans-serif" }}
-                >
-                  Signup to our newsletter
-                </h2>
+                >Sign up to our newsletter</h2>
                 <div>
                   <Button 
                     onClick={() => setShowNewsletterDialog(true)}
@@ -541,7 +539,6 @@ export default function PublicLayout({ children, currentPageName }) {
         {/* Floater Display for Public Pages */}
         <FloaterDisplay location="public" />
       </div>
-
       {/* Newsletter Dialog */}
       <Dialog open={showNewsletterDialog} onOpenChange={handleNewsletterDialogChange}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
