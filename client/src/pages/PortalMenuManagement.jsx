@@ -72,6 +72,7 @@ const builtInPages = [
   { value: "MemberGroupManagement", label: "Member Group Management" },
   { value: "MemberHandleManagement", label: "Member Handle Management" },
   { value: "MemberRoleAssignment", label: "Member Role Assignment" },
+  { value: "MemberRoleReport", label: "Member Role Report" },
   { value: "MyArticles", label: "My Articles" },
   { value: "MyJobPostings", label: "My Job Postings" },
   { value: "MyNews", label: "My News" },
