@@ -1,11 +1,26 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 import DOMPurify from 'dompurify';
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { ChevronDown, ChevronUp, Upload, X, Plus, Trash2, GripVertical, Image } from "lucide-react";
+import { 
+  ChevronDown, 
+  ChevronUp, 
+  Upload, 
+  X, 
+  Plus, 
+  Trash2, 
+  GripVertical, 
+  Image,
+  Folder,
+  FolderOpen,
+  Home,
+  ChevronRight,
+  ChevronLeft,
+  Search
+} from "lucide-react";
 import TypographyStyleSelector, { applyTypographyStyle } from "../TypographyStyleSelector";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { base44 } from "@/api/base44Client";
@@ -176,9 +191,11 @@ export function IEditLogoGridElementRenderer({ content, variant, settings }) {
         {(heading || subheading || body_content) && (
           <div className={`mb-8 ${alignmentClass}`}>
             {heading && (
-              <h2 style={getTextStyle('heading')} className="m-0 mb-4">
-                {heading}
-              </h2>
+              <div 
+                style={getTextStyle('heading')} 
+                className="m-0 mb-4 prose max-w-none"
+                dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(heading) }}
+              />
             )}
             {subheading && (
               <div 
@@ -256,28 +273,173 @@ export function IEditLogoGridElementEditor({ element, onChange }) {
   const [isUploading, setIsUploading] = useState({});
   const [showFileSelector, setShowFileSelector] = useState(false);
   const [addingLogoIndex, setAddingLogoIndex] = useState(null);
-  const [selectedFolder, setSelectedFolder] = useState(null);
+  
+  const [fileSelectorFolder, setFileSelectorFolder] = useState(null);
+  const [fileSelectorExpandedFolders, setFileSelectorExpandedFolders] = useState({});
+  const [fileSelectorSearch, setFileSelectorSearch] = useState("");
+  const [fileSelectorPage, setFileSelectorPage] = useState(1);
+  const fileSelectorItemsPerPage = 12;
 
-  const { data: folders = [] } = useQuery({
+  const { data: fileRepositoryFolders = [] } = useQuery({
     queryKey: ['file-repository-folders'],
-    queryFn: () => base44.entities.FileRepositoryFolder.list('name')
+    queryFn: () => base44.entities.FileRepositoryFolder.list('display_order'),
+    staleTime: 0,
+    enabled: showFileSelector,
   });
 
-  const { data: files = [] } = useQuery({
-    queryKey: ['file-repository-files', selectedFolder],
+  const { data: repositoryFiles = [] } = useQuery({
+    queryKey: ['file-repository'],
     queryFn: () => base44.entities.FileRepository.list(),
-    enabled: showFileSelector
+    staleTime: 0,
+    enabled: showFileSelector,
   });
 
-  const filteredFiles = selectedFolder
-    ? files.filter(f => String(f.folder_id) === String(selectedFolder))
-    : files;
+  const fileSelectorFolderHierarchy = useMemo(() => {
+    const buildTree = (parentId) => {
+      return fileRepositoryFolders
+        .filter(f => f.parent_folder_id === parentId)
+        .sort((a, b) => (a.display_order || 0) - (b.display_order || 0))
+        .map(folder => ({
+          ...folder,
+          children: buildTree(folder.id)
+        }));
+    };
+    return buildTree(null);
+  }, [fileRepositoryFolders]);
 
-  const imageFiles = filteredFiles.filter(f => {
-    const ext = (f.file_url || '').toLowerCase();
-    return ext.endsWith('.jpg') || ext.endsWith('.jpeg') || ext.endsWith('.png') || 
-           ext.endsWith('.gif') || ext.endsWith('.webp') || ext.endsWith('.svg');
-  });
+  const getFileSelectorBreadcrumb = (folderId) => {
+    if (!folderId) return [];
+    const trail = [];
+    let currentId = folderId;
+    while (currentId) {
+      const folder = fileRepositoryFolders.find(f => f.id === currentId);
+      if (folder) {
+        trail.unshift(folder);
+        currentId = folder.parent_folder_id;
+      } else {
+        break;
+      }
+    }
+    return trail;
+  };
+
+  const fileSelectorBreadcrumb = useMemo(() => getFileSelectorBreadcrumb(fileSelectorFolder), [fileSelectorFolder, fileRepositoryFolders]);
+
+  const filteredRepositoryFiles = useMemo(() => {
+    return repositoryFiles.filter(file => {
+      const matchesFolder = fileSelectorFolder === null
+        ? !file.folder_id
+        : file.folder_id === fileSelectorFolder;
+      
+      const matchesSearch = !fileSelectorSearch || 
+        file.file_name?.toLowerCase().includes(fileSelectorSearch.toLowerCase()) ||
+        file.description?.toLowerCase().includes(fileSelectorSearch.toLowerCase()) ||
+        file.display_name?.toLowerCase().includes(fileSelectorSearch.toLowerCase());
+      
+      return matchesFolder && matchesSearch && file.file_type === 'image';
+    });
+  }, [repositoryFiles, fileSelectorFolder, fileSelectorSearch]);
+
+  useEffect(() => {
+    setFileSelectorPage(1);
+  }, [fileSelectorFolder, fileSelectorSearch]);
+
+  const fileSelectorTotalPages = Math.ceil(filteredRepositoryFiles.length / fileSelectorItemsPerPage);
+  const fileSelectorStartIndex = (fileSelectorPage - 1) * fileSelectorItemsPerPage;
+  const fileSelectorEndIndex = fileSelectorStartIndex + fileSelectorItemsPerPage;
+  const paginatedRepositoryFiles = filteredRepositoryFiles.slice(fileSelectorStartIndex, fileSelectorEndIndex);
+
+  const getFileSelectorPageNumbers = () => {
+    const pages = [];
+    const maxVisible = 5;
+    
+    if (fileSelectorTotalPages <= maxVisible) {
+      for (let i = 1; i <= fileSelectorTotalPages; i++) {
+        pages.push(i);
+      }
+    } else {
+      if (fileSelectorPage <= 3) {
+        for (let i = 1; i <= 4; i++) pages.push(i);
+        if (fileSelectorTotalPages > 5) pages.push('...');
+        pages.push(fileSelectorTotalPages);
+      } else if (fileSelectorPage >= fileSelectorTotalPages - 2) {
+        pages.push(1);
+        if (fileSelectorTotalPages > 5) pages.push('...');
+        for (let i = fileSelectorTotalPages - 3; i <= fileSelectorTotalPages; i++) pages.push(i);
+      } else {
+        pages.push(1);
+        pages.push('...');
+        for (let i = fileSelectorPage - 1; i <= fileSelectorPage + 1; i++) pages.push(i);
+        pages.push('...');
+        pages.push(fileSelectorTotalPages);
+      }
+    }
+    
+    return pages;
+  };
+
+  const getFileSelectorFolderFileCount = (folderId) => {
+    return repositoryFiles.filter(f => f.folder_id === folderId && f.file_type === 'image').length;
+  };
+
+  const handleToggleFileSelectorFolder = (folderId) => {
+    setFileSelectorExpandedFolders(prev => ({
+      ...prev,
+      [folderId]: !prev[folderId]
+    }));
+  };
+
+  const renderFileSelectorFolderTree = (folders, level = 0) => {
+    return folders.map(folder => {
+      const isExpanded = fileSelectorExpandedFolders[folder.id];
+      const isSelected = fileSelectorFolder === folder.id;
+      const hasChildren = folder.children && folder.children.length > 0;
+      const fileCount = getFileSelectorFolderFileCount(folder.id);
+
+      return (
+        <div key={folder.id}>
+          <div
+            className={`flex items-center gap-1 py-1.5 px-2 rounded cursor-pointer text-sm ${
+              isSelected ? 'bg-blue-100 text-blue-700' : 'hover:bg-slate-100'
+            }`}
+            style={{ paddingLeft: `${level * 16 + 8}px` }}
+          >
+            {hasChildren ? (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleToggleFileSelectorFolder(folder.id);
+                }}
+                className="p-0.5 hover:bg-slate-200 rounded"
+              >
+                {isExpanded ? (
+                  <ChevronDown className="w-3 h-3" />
+                ) : (
+                  <ChevronRight className="w-3 h-3" />
+                )}
+              </button>
+            ) : (
+              <span className="w-4" />
+            )}
+            <div
+              className="flex items-center gap-1.5 flex-1"
+              onClick={() => setFileSelectorFolder(folder.id)}
+            >
+              {isExpanded ? (
+                <FolderOpen className="w-4 h-4 text-yellow-600" />
+              ) : (
+                <Folder className="w-4 h-4 text-yellow-600" />
+              )}
+              <span className="truncate flex-1">{folder.name}</span>
+              <span className="text-xs text-slate-400">({fileCount})</span>
+            </div>
+          </div>
+          {hasChildren && isExpanded && renderFileSelectorFolderTree(folder.children, level + 1)}
+        </div>
+      );
+    });
+  };
 
   const updateContent = (key, value) => {
     onChange({ ...element, content: { ...content, [key]: value } });
@@ -350,6 +512,10 @@ export function IEditLogoGridElementEditor({ element, onChange }) {
     }
     setShowFileSelector(false);
     setAddingLogoIndex(null);
+    setFileSelectorFolder(null);
+    setFileSelectorExpandedFolders({});
+    setFileSelectorSearch("");
+    setFileSelectorPage(1);
   };
 
   const backgroundType = content.background_type || 'none';
@@ -720,11 +886,16 @@ export function IEditLogoGridElementEditor({ element, onChange }) {
               <div className="space-y-3">
                 <div>
                   <Label className="text-xs">Heading Text</Label>
-                  <Input
-                    value={content.heading || ''}
-                    onChange={(e) => updateContent('heading', e.target.value)}
-                    placeholder="Enter heading..."
-                  />
+                  <div className="logo-grid-quill-editor border border-slate-300 rounded-md overflow-hidden bg-white">
+                    <ReactQuill
+                      theme="snow"
+                      value={content.heading || ''}
+                      onChange={(value) => updateContent('heading', value)}
+                      modules={logoGridQuillModules}
+                      placeholder="Enter heading..."
+                      style={{ minHeight: '80px' }}
+                    />
+                  </div>
                 </div>
                 <TypographyStyleSelector
                   value={content.heading_typography_style_id || null}
@@ -742,8 +913,7 @@ export function IEditLogoGridElementEditor({ element, onChange }) {
                     }
                     updateMultipleContent(updates);
                   }}
-                  filterTypes={['h1', 'h2']}
-                  label="Heading Typography Style"
+                  label="Typography Style"
                 />
                 <details className="text-xs">
                   <summary className="cursor-pointer text-slate-500 hover:text-slate-700 font-medium">Manual Font Settings</summary>
@@ -785,8 +955,7 @@ export function IEditLogoGridElementEditor({ element, onChange }) {
                     }
                     updateMultipleContent(updates);
                   }}
-                  filterTypes={['h3', 'h4']}
-                  label="Subheading Typography Style"
+                  label="Typography Style"
                 />
                 <details className="text-xs">
                   <summary className="cursor-pointer text-slate-500 hover:text-slate-700 font-medium">Manual Font Settings</summary>
@@ -827,8 +996,7 @@ export function IEditLogoGridElementEditor({ element, onChange }) {
                     }
                     updateMultipleContent(updates);
                   }}
-                  filterTypes={['paragraph']}
-                  label="Content Typography Style"
+                  label="Typography Style"
                 />
                 <details className="text-xs">
                   <summary className="cursor-pointer text-slate-500 hover:text-slate-700 font-medium">Manual Font Settings</summary>
@@ -968,50 +1136,164 @@ export function IEditLogoGridElementEditor({ element, onChange }) {
       </div>
 
       {/* File Selector Dialog */}
-      <Dialog open={showFileSelector} onOpenChange={setShowFileSelector}>
-        <DialogContent className="max-w-4xl max-h-[80vh]">
+      <Dialog open={showFileSelector} onOpenChange={(open) => {
+        setShowFileSelector(open);
+        if (!open) {
+          setFileSelectorFolder(null);
+          setFileSelectorExpandedFolders({});
+          setFileSelectorSearch("");
+          setFileSelectorPage(1);
+        }
+      }}>
+        <DialogContent className="max-w-5xl max-h-[85vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>Select Logo from File Repository</DialogTitle>
           </DialogHeader>
           
-          <div className="space-y-4">
-            <div>
-              <Label className="text-xs">Filter by Folder</Label>
-              <select
-                value={selectedFolder || ''}
-                onChange={(e) => setSelectedFolder(e.target.value || null)}
-                className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
-              >
-                <option value="">All Folders</option>
-                {folders.map(folder => (
-                  <option key={folder.id} value={folder.id}>{folder.name}</option>
-                ))}
-              </select>
+          <div className="flex flex-1 gap-4 min-h-0">
+            {/* Folder Tree Sidebar */}
+            <div className="w-56 flex-shrink-0 border-r pr-3 overflow-y-auto">
+              <div className="mb-2">
+                <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Folders</h4>
+                <div
+                  className={`flex items-center gap-1.5 py-1.5 px-2 rounded cursor-pointer text-sm ${
+                    fileSelectorFolder === null ? 'bg-blue-100 text-blue-700' : 'hover:bg-slate-100'
+                  }`}
+                  onClick={() => setFileSelectorFolder(null)}
+                >
+                  <Home className="w-4 h-4" />
+                  <span>Root</span>
+                  <span className="text-xs text-slate-400 ml-auto">
+                    ({repositoryFiles.filter(f => !f.folder_id && f.file_type === 'image').length})
+                  </span>
+                </div>
+              </div>
+              {renderFileSelectorFolderTree(fileSelectorFolderHierarchy)}
             </div>
 
-            <div className="grid grid-cols-4 gap-4 max-h-96 overflow-y-auto">
-              {imageFiles.map(file => (
-                <div
-                  key={file.id}
-                  onClick={() => handleFileSelect(file)}
-                  className="cursor-pointer p-2 border rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors"
-                >
-                  <div className="aspect-square bg-slate-100 rounded overflow-hidden mb-2">
-                    <img
-                      src={file.file_url}
-                      alt={file.display_name || file.file_name}
-                      className="w-full h-full object-contain p-2"
-                    />
-                  </div>
-                  <p className="text-xs text-center truncate text-slate-600">
-                    {file.display_name || file.file_name}
-                  </p>
+            {/* Main Content Area */}
+            <div className="flex-1 flex flex-col min-h-0">
+              {/* Breadcrumb and Search */}
+              <div className="flex items-center gap-3 mb-3 flex-wrap">
+                <div className="flex items-center gap-1 text-sm text-slate-600 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => setFileSelectorFolder(null)}
+                    className="hover:text-blue-600 flex items-center gap-1"
+                  >
+                    <Home className="w-3 h-3" />
+                    Root
+                  </button>
+                  {fileSelectorBreadcrumb.map((folder, idx) => (
+                    <span key={folder.id} className="flex items-center gap-1">
+                      <ChevronRight className="w-3 h-3 text-slate-400" />
+                      <button
+                        type="button"
+                        onClick={() => setFileSelectorFolder(folder.id)}
+                        className="hover:text-blue-600"
+                      >
+                        {folder.name}
+                      </button>
+                    </span>
+                  ))}
                 </div>
-              ))}
+                
+                <div className="ml-auto relative">
+                  <Search className="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Search images..."
+                    value={fileSelectorSearch}
+                    onChange={(e) => setFileSelectorSearch(e.target.value)}
+                    className="pl-8 pr-3 py-1.5 border border-slate-300 rounded-md text-sm w-48"
+                  />
+                  {fileSelectorSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setFileSelectorSearch("")}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+              </div>
 
-              {imageFiles.length === 0 && (
-                <div className="col-span-4 text-center py-8 text-slate-500">
-                  No image files found in the file repository
+              {/* File Grid */}
+              <div className="flex-1 overflow-y-auto min-h-0">
+                <div className="grid grid-cols-4 gap-3">
+                  {paginatedRepositoryFiles.map(file => (
+                    <div
+                      key={file.id}
+                      onClick={() => handleFileSelect(file)}
+                      className="cursor-pointer p-2 border rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors"
+                    >
+                      <div className="aspect-square bg-slate-100 rounded overflow-hidden mb-2">
+                        <img
+                          src={file.file_url}
+                          alt={file.display_name || file.file_name}
+                          className="w-full h-full object-contain p-2"
+                        />
+                      </div>
+                      <p className="text-xs text-center truncate text-slate-600">
+                        {file.display_name || file.file_name}
+                      </p>
+                    </div>
+                  ))}
+
+                  {paginatedRepositoryFiles.length === 0 && (
+                    <div className="col-span-4 text-center py-12 text-slate-500">
+                      {fileSelectorSearch 
+                        ? 'No images match your search'
+                        : 'No images in this folder'}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Pagination */}
+              {fileSelectorTotalPages > 1 && (
+                <div className="flex items-center justify-center gap-1 mt-3 pt-3 border-t">
+                  <button
+                    type="button"
+                    onClick={() => setFileSelectorPage(p => Math.max(1, p - 1))}
+                    disabled={fileSelectorPage === 1}
+                    className="p-1.5 rounded hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  
+                  {getFileSelectorPageNumbers().map((page, idx) => (
+                    page === '...' ? (
+                      <span key={`ellipsis-${idx}`} className="px-2 text-slate-400">...</span>
+                    ) : (
+                      <button
+                        key={page}
+                        type="button"
+                        onClick={() => setFileSelectorPage(page)}
+                        className={`px-2.5 py-1 rounded text-sm ${
+                          fileSelectorPage === page 
+                            ? 'bg-blue-600 text-white' 
+                            : 'hover:bg-slate-100'
+                        }`}
+                      >
+                        {page}
+                      </button>
+                    )
+                  ))}
+                  
+                  <button
+                    type="button"
+                    onClick={() => setFileSelectorPage(p => Math.min(fileSelectorTotalPages, p + 1))}
+                    disabled={fileSelectorPage === fileSelectorTotalPages}
+                    className="p-1.5 rounded hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                  
+                  <span className="ml-3 text-xs text-slate-500">
+                    {filteredRepositoryFiles.length} image{filteredRepositoryFiles.length !== 1 ? 's' : ''}
+                  </span>
                 </div>
               )}
             </div>
