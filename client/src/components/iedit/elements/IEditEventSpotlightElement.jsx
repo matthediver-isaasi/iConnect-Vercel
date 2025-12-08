@@ -89,11 +89,9 @@ export default function IEditEventSpotlightElement({ content, variant, settings 
     enabled: !!event_id
   });
 
-  const eventViewUrl = event?.cta_override_url 
-    ? event.cta_override_url
-    : (event?.slug 
-        ? `${createPageUrl('EventDetails')}?slug=${event.slug}` 
-        : (event?.id ? `${createPageUrl('EventDetails')}?id=${event.id}` : null));
+  const eventViewUrl = event?.slug 
+    ? `${createPageUrl('EventDetails')}?slug=${event.slug}` 
+    : (event?.id ? `${createPageUrl('EventDetails')}?id=${event.id}` : null);
   const eventSpeakerIds = event?.speaker_ids || [];
   const needsRoles = !!event_id && !!event && show_ticket_prices;
   const needsSpeakers = !!event_id && !!event && show_speakers && eventSpeakerIds.length > 0;

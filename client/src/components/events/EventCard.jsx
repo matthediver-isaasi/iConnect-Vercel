@@ -509,7 +509,13 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
               <Button 
                 className="w-full bg-blue-600 hover:bg-blue-700"
                 disabled={!hasUnlimitedCapacity && event.available_seats === 0}
-                onClick={() => window.location.href = createPageUrl('EventDetails') + '?id=' + event.id}
+                onClick={() => {
+                  if (event.cta_override_url) {
+                    window.location.href = event.cta_override_url;
+                  } else {
+                    window.location.href = createPageUrl('EventDetails') + '?id=' + event.id;
+                  }
+                }}
                 data-testid={`button-register-event-${event.id}`}
               >
                 {!hasUnlimitedCapacity && event.available_seats === 0 ? "Sold Out" : "Register"}
