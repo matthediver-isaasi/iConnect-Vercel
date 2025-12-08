@@ -634,6 +634,25 @@ export function IEditTwoColumnElementEditor({ element, onChange }) {
               }}
               label="Header Typography Style"
             />
+            <div>
+              <Label className="text-xs mb-1 block">Heading Text Color</Label>
+              <div className="flex gap-2 items-center">
+                <input
+                  type="color"
+                  value={content[`${side}_header_color`] || '#1e293b'}
+                  onChange={(e) => updateContent(`${side}_header_color`, e.target.value)}
+                  className="w-10 h-8 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+                  data-testid={`input-${side}-header-color`}
+                />
+                <Input
+                  type="text"
+                  value={content[`${side}_header_color`] || '#1e293b'}
+                  onChange={(e) => updateContent(`${side}_header_color`, e.target.value)}
+                  className="flex-1 font-mono text-xs h-8"
+                  placeholder="#1e293b"
+                />
+              </div>
+            </div>
             <details className="text-xs">
               <summary className="cursor-pointer text-slate-500 hover:text-slate-700 font-medium">Manual Font Settings</summary>
               {renderTypographyControls(`${side}_header`, 'Header Typography')}
@@ -681,6 +700,25 @@ export function IEditTwoColumnElementEditor({ element, onChange }) {
               }}
               label="Content Typography Style"
             />
+            <div>
+              <Label className="text-xs mb-1 block">Content Text Color</Label>
+              <div className="flex gap-2 items-center">
+                <input
+                  type="color"
+                  value={content[`${side}_content_color`] || '#475569'}
+                  onChange={(e) => updateContent(`${side}_content_color`, e.target.value)}
+                  className="w-10 h-8 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+                  data-testid={`input-${side}-content-color`}
+                />
+                <Input
+                  type="text"
+                  value={content[`${side}_content_color`] || '#475569'}
+                  onChange={(e) => updateContent(`${side}_content_color`, e.target.value)}
+                  className="flex-1 font-mono text-xs h-8"
+                  placeholder="#475569"
+                />
+              </div>
+            </div>
             <details className="text-xs">
               <summary className="cursor-pointer text-slate-500 hover:text-slate-700 font-medium">Manual Font Settings</summary>
               {renderTypographyControls(`${side}_content`, 'Content Typography')}
