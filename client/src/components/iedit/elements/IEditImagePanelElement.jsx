@@ -869,9 +869,7 @@ export function IEditImagePanelElementEditor({ element, onChange }) {
                           newPanels[index] = { ...newPanels[index], ...updates, header_typography_style_id: style.id };
                           updateContent('panels', newPanels);
                         }}
-                        filterTypes={['h1', 'h2', 'h3', 'h4']}
-                        label="Apply Typography Style"
-                        placeholder="Select a heading style..."
+                        label="Typography Style"
                       />
                       
                       <details className="text-xs">
@@ -988,9 +986,7 @@ export function IEditImagePanelElementEditor({ element, onChange }) {
                           newPanels[index] = { ...newPanels[index], ...updates, bottom_typography_style_id: style.id };
                           updateContent('panels', newPanels);
                         }}
-                        filterTypes={['paragraph', 'h3', 'h4']}
-                        label="Apply Typography Style"
-                        placeholder="Select a text style..."
+                        label="Typography Style"
                       />
                       
                       <details className="text-xs">
