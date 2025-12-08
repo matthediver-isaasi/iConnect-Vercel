@@ -275,15 +275,14 @@ export default function IEditHeroElement({ content, variant, settings }) {
               {content.heading && (
                 <div>
                   <h1 
-                    className="hero-heading font-bold"
+                    className="hero-heading font-bold hero-rich-text-content"
                     style={{ 
                       marginBottom: heading_underline_enabled 
                         ? `${heading_underline_spacing}px` 
                         : (content.subheading || (button && button.text)) ? '24px' : '0'
                     }}
-                  >
-                    {content.heading}
-                  </h1>
+                    dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(content.heading) }}
+                  />
                   {heading_underline_enabled && (
                     <div 
                       className="hero-underline"
@@ -366,15 +365,14 @@ export default function IEditHeroElement({ content, variant, settings }) {
           {content.heading && (
             <div>
               <h1 
-                className="hero-heading font-bold"
+                className="hero-heading font-bold hero-rich-text-content"
                 style={{ 
                   marginBottom: heading_underline_enabled 
                     ? `${heading_underline_spacing}px` 
                     : (content.subheading || content_text || (button && button.text)) ? '24px' : '0'
                 }}
-              >
-                {content.heading}
-              </h1>
+                dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(content.heading) }}
+              />
               {heading_underline_enabled && (
                 <div 
                   className="hero-underline"

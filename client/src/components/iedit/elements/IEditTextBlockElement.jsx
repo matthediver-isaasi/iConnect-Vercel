@@ -1,6 +1,7 @@
 import { useState, useId } from "react";
 import ReactQuill from "react-quill";
 import "react-quill/dist/quill.snow.css";
+import DOMPurify from "dompurify";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import TypographyStyleSelector, { applyTypographyStyle } from "../TypographyStyleSelector";
@@ -143,9 +144,11 @@ export default function IEditTextBlockElement({ content, variant, settings }) {
       <div className="textblock-background">
         <div className="textblock-inner">
           {heading && (
-            <h2 className="textblock-heading" data-testid="textblock-heading">
-              {heading}
-            </h2>
+            <h2 
+              className="textblock-heading" 
+              data-testid="textblock-heading"
+              dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(heading) }}
+            />
           )}
           {text && (
             <div 
