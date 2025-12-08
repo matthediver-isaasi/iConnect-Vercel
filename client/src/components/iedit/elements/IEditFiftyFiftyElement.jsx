@@ -243,22 +243,24 @@ export default function IEditFiftyFiftyElement({ content, variant, settings }) {
             }}
           >
             {left_content_type === 'image' ? (
-              <div className="flex-1 flex flex-col min-h-0">
+              <div 
+                className="relative flex-1 w-full overflow-hidden"
+                style={{ 
+                  borderRadius: `${column_border_radius}px`,
+                  minHeight: '200px'
+                }}
+              >
                 {left_image_url ? (
                   <img 
                     src={left_image_url} 
                     alt="" 
-                    className="w-full flex-1 min-h-0"
+                    className="absolute inset-0 h-full w-full"
                     style={{ 
-                      objectFit: left_image_fit || 'cover',
-                      borderRadius: `${column_border_radius}px`
+                      objectFit: left_image_fit || 'cover'
                     }}
                   />
                 ) : (
-                  <div 
-                    className="w-full flex-1 min-h-64 bg-slate-200 flex items-center justify-center"
-                    style={{ borderRadius: `${column_border_radius}px` }}
-                  >
+                  <div className="absolute inset-0 bg-slate-200 flex items-center justify-center">
                     <span className="text-slate-500">No image</span>
                   </div>
                 )}
@@ -304,22 +306,24 @@ export default function IEditFiftyFiftyElement({ content, variant, settings }) {
             }}
           >
             {right_content_type === 'image' ? (
-              <div className="flex-1 flex flex-col min-h-0">
+              <div 
+                className="relative flex-1 w-full overflow-hidden"
+                style={{ 
+                  borderRadius: `${column_border_radius}px`,
+                  minHeight: '200px'
+                }}
+              >
                 {right_image_url ? (
                   <img 
                     src={right_image_url} 
                     alt="" 
-                    className="w-full flex-1 min-h-0"
+                    className="absolute inset-0 h-full w-full"
                     style={{ 
-                      objectFit: right_image_fit || 'cover',
-                      borderRadius: `${column_border_radius}px`
+                      objectFit: right_image_fit || 'cover'
                     }}
                   />
                 ) : (
-                  <div 
-                    className="w-full flex-1 min-h-64 bg-slate-200 flex items-center justify-center"
-                    style={{ borderRadius: `${column_border_radius}px` }}
-                  >
+                  <div className="absolute inset-0 bg-slate-200 flex items-center justify-center">
                     <span className="text-slate-500">No image</span>
                   </div>
                 )}
