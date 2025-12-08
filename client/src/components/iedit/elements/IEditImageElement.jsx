@@ -6,6 +6,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import TypographyStyleSelector, { applyTypographyStyle } from "../TypographyStyleSelector";
+import ReactQuill from 'react-quill';
+import 'react-quill/dist/quill.snow.css';
+import DOMPurify from 'dompurify';
 import { 
   ChevronUp, 
   ChevronDown, 
@@ -25,6 +29,14 @@ import {
   AlignCenter,
   AlignRight
 } from "lucide-react";
+
+const captionQuillModules = {
+  toolbar: [
+    ['bold', 'italic', 'underline'],
+    ['link'],
+    ['clean']
+  ]
+};
 
 export default function IEditImageElement({ content, variant, settings }) {
   const isCircle = content?.is_circle || false;
@@ -134,9 +146,18 @@ export default function IEditImageElement({ content, variant, settings }) {
           />
         </div>
         {content.caption && (
-          <figcaption className="text-sm text-slate-600 mt-2 text-center italic">
-            {content.caption}
-          </figcaption>
+          <figcaption 
+            className="mt-2 text-center image-caption-rich-text"
+            style={{
+              fontFamily: content.caption_font_family || 'inherit',
+              fontSize: content.caption_font_size || '0.875rem',
+              lineHeight: content.caption_line_height || '1.5',
+              letterSpacing: content.caption_letter_spacing ? `${content.caption_letter_spacing}em` : undefined,
+              fontWeight: content.caption_font_weight || 'normal',
+              color: content.caption_color || '#475569',
+            }}
+            dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(content.caption) }}
+          />
         )}
       </figure>
     </div>
@@ -556,17 +577,38 @@ export function IEditImageElementEditor({ element, onChange }) {
             </div>
 
             <div>
-              <Label htmlFor="caption" className="text-sm font-medium mb-1 block">
+              <Label className="text-sm font-medium mb-1 block">
                 Caption
               </Label>
-              <Input
-                id="caption"
-                value={content.caption || ''}
-                onChange={(e) => updateContent('caption', e.target.value)}
-                placeholder="Optional caption displayed below the image..."
-                data-testid="input-caption"
-              />
+              <div className="image-caption-quill-editor border border-slate-300 rounded-md overflow-hidden bg-white">
+                <ReactQuill
+                  theme="snow"
+                  value={content.caption || ''}
+                  onChange={(value) => updateContent('caption', value)}
+                  modules={captionQuillModules}
+                  placeholder="Optional caption displayed below the image..."
+                  style={{ minHeight: '80px' }}
+                />
+              </div>
             </div>
+
+            <TypographyStyleSelector
+              value={content.caption_typography_style_id}
+              onChange={(styleId, style) => {
+                const updates = { caption_typography_style_id: styleId };
+                if (style) {
+                  const mapped = applyTypographyStyle(style);
+                  if (mapped.font_family) updates.caption_font_family = mapped.font_family;
+                  if (mapped.font_size) updates.caption_font_size = mapped.font_size;
+                  if (mapped.font_size_mobile) updates.mobile_caption_font_size = mapped.font_size_mobile;
+                  if (mapped.line_height) updates.caption_line_height = mapped.line_height;
+                  if (mapped.letter_spacing !== undefined) updates.caption_letter_spacing = mapped.letter_spacing;
+                  if (mapped.font_weight) updates.caption_font_weight = mapped.font_weight;
+                }
+                onChange({ ...element, content: { ...content, ...updates } });
+              }}
+              label="Caption Typography"
+            />
           </div>
         )}
       </div>
