@@ -114,7 +114,8 @@ export default function CreateEvent() {
     available_seats: "",
     delivery_mode: "offline",
     zoom_webinar_id: null,
-    online_url: ""
+    online_url: "",
+    cta_override_url: ""
   });
 
   // Rich text editor modules configuration
@@ -453,7 +454,8 @@ export default function CreateEvent() {
       // Convert composite keys back to plain labels for database storage
       filter_tags: selectedFilterTags.length > 0 
         ? selectedFilterTags.map(key => parseFilterTagKey(key).label) 
-        : []
+        : [],
+      cta_override_url: formData.cta_override_url || null
     };
 
     // Add ticket classes for one-off events as JSON in pricing_config field
@@ -1013,6 +1015,21 @@ export default function CreateEvent() {
                     </p>
                   </div>
                 )}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="cta_override_url">CTA Override URL</Label>
+                <Input
+                  id="cta_override_url"
+                  value={formData.cta_override_url}
+                  onChange={(e) => handleInputChange('cta_override_url', e.target.value)}
+                  placeholder="e.g. /my-custom-page or https://example.com/event-page"
+                  data-testid="input-cta-override-url"
+                />
+                <p className="text-xs text-slate-500">
+                  Optional. If set, the event card's CTA button will link to this URL instead of the default event details page. 
+                  Use this to link to a custom Event Spotlight page.
+                </p>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
