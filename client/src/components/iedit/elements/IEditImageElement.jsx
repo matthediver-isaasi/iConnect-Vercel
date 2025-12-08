@@ -24,22 +24,33 @@ import {
 } from "lucide-react";
 
 export default function IEditImageElement({ content, variant, settings }) {
+  const isCircle = content?.is_circle || false;
+  
   const getImageStyles = () => {
-    const styles = {};
+    const styles = {
+      display: 'block', // Remove inline image spacing
+    };
     
-    // Border radius
-    const borderRadius = content?.border_radius;
-    if (borderRadius !== undefined) {
-      styles.borderRadius = `${borderRadius}px`;
+    // Circle shape takes precedence
+    if (isCircle) {
+      styles.borderRadius = '50%';
+      styles.aspectRatio = '1 / 1';
+      styles.objectFit = 'cover';
     } else {
-      // Default variant-based border radius
-      const variantRadii = {
-        default: '8px',
-        rounded: '16px',
-        circle: '50%',
-        none: '0',
-      };
-      styles.borderRadius = variantRadii[variant] || variantRadii.default;
+      // Border radius
+      const borderRadius = content?.border_radius;
+      if (borderRadius !== undefined) {
+        styles.borderRadius = `${borderRadius}px`;
+      } else {
+        // Default variant-based border radius
+        const variantRadii = {
+          default: '8px',
+          rounded: '16px',
+          circle: '50%',
+          none: '0',
+        };
+        styles.borderRadius = variantRadii[variant] || variantRadii.default;
+      }
     }
     
     // Border styles
@@ -74,15 +85,15 @@ export default function IEditImageElement({ content, variant, settings }) {
   }
 
   return (
-    <div className="w-full">
+    <div className={`${isCircle ? 'inline-block' : 'w-full'}`} style={{ fontSize: 0, lineHeight: 0 }}>
       <img
         src={content.imageUrl}
         alt={content.altText || ""}
-        className="w-full h-auto object-cover"
+        className={`${isCircle ? 'w-auto max-w-full' : 'w-full'} h-auto`}
         style={getImageStyles()}
       />
       {content.caption && (
-        <p className="text-sm text-slate-600 mt-2 text-center italic">
+        <p className="text-sm text-slate-600 mt-2 text-center italic" style={{ fontSize: '0.875rem', lineHeight: '1.25rem' }}>
           {content.caption}
         </p>
       )}
@@ -498,21 +509,40 @@ export function IEditImageElementEditor({ element, onChange }) {
         
         {expandedSections.effects && (
           <div className="p-4 space-y-4">
-            {/* Border Radius */}
-            <div>
-              <Label className="text-sm font-medium mb-1 block">
-                Border Radius: {content.border_radius ?? 8}px
-              </Label>
-              <input
-                type="range"
-                min="0"
-                max="50"
-                value={content.border_radius ?? 8}
-                onChange={(e) => updateContent('border_radius', parseInt(e.target.value))}
-                className="w-full"
-                data-testid="slider-border-radius"
-              />
+            {/* Circle Shape */}
+            <div className="p-3 bg-slate-50 rounded-md">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={content.is_circle || false}
+                  onChange={(e) => updateContent('is_circle', e.target.checked)}
+                  className="rounded border-slate-300"
+                  data-testid="checkbox-circle-shape"
+                />
+                <span className="text-sm font-medium">Circle Shape</span>
+              </label>
+              <p className="text-xs text-slate-500 mt-1 ml-6">
+                Crops the image to a perfect circle
+              </p>
             </div>
+
+            {/* Border Radius - only show when not circle */}
+            {!content.is_circle && (
+              <div>
+                <Label className="text-sm font-medium mb-1 block">
+                  Border Radius: {content.border_radius ?? 8}px
+                </Label>
+                <input
+                  type="range"
+                  min="0"
+                  max="50"
+                  value={content.border_radius ?? 8}
+                  onChange={(e) => updateContent('border_radius', parseInt(e.target.value))}
+                  className="w-full"
+                  data-testid="slider-border-radius"
+                />
+              </div>
+            )}
 
             {/* Border */}
             <div className="p-3 bg-slate-50 rounded-md">
