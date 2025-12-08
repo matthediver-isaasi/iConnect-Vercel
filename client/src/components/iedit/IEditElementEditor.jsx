@@ -31,7 +31,7 @@ import { IEditCardDeckElementEditor } from "./elements/IEditCardDeckElement";
 import { IEditLogoGridElementEditor } from "./elements/IEditLogoGridElement";
 import { IEditEventSpotlightElementEditor } from "./elements/IEditEventSpotlightElement";
 
-export default function IEditElementEditor({ element, onClose, onSave }) {
+export default function IEditElementEditor({ element, onClose, onSave, isInlineMode = false, onChange }) {
   const [editedContent, setEditedContent] = useState(element.content || {});
   const [editedVariant, setEditedVariant] = useState(element.style_variant || 'default');
   const [editedSettings, setEditedSettings] = useState(element.settings || {});
@@ -40,6 +40,16 @@ export default function IEditElementEditor({ element, onClose, onSave }) {
   const [previewMode, setPreviewMode] = useState('desktop');
   
   const supportsLivePreview = element.element_type === 'hero';
+  
+  const notifyChange = (content, variant, settings) => {
+    if (isInlineMode && onChange) {
+      onChange({
+        content: content,
+        style_variant: variant,
+        settings: settings
+      });
+    }
+  };
 
   // Sync state when element prop changes (e.g., when reopening editor)
   useEffect(() => {
@@ -66,11 +76,21 @@ export default function IEditElementEditor({ element, onClose, onSave }) {
   };
 
   const updateContent = (key, value) => {
-    setEditedContent({ ...editedContent, [key]: value });
+    const newContent = { ...editedContent, [key]: value };
+    setEditedContent(newContent);
+    notifyChange(newContent, editedVariant, editedSettings);
   };
 
   const updateSetting = (key, value) => {
-    setEditedSettings({ ...editedSettings, [key]: value });
+    const newSettings = { ...editedSettings, [key]: value };
+    setEditedSettings(newSettings);
+    notifyChange(editedContent, editedVariant, newSettings);
+  };
+  
+  const handleContentChangeFromEditor = (updatedElement) => {
+    const newContent = updatedElement.content || {};
+    setEditedContent(newContent);
+    notifyChange(newContent, editedVariant, editedSettings);
   };
 
   // Handle file upload for image fields
@@ -442,6 +462,127 @@ export default function IEditElementEditor({ element, onClose, onSave }) {
     ? (isExpanded ? 'w-[500px]' : 'w-96') 
     : (isExpanded ? 'w-[calc(100%-4rem)]' : 'w-96');
 
+  if (isInlineMode) {
+    return (
+      <div className="flex flex-col h-full">
+        <div className="flex-1 overflow-y-auto p-4 space-y-6">
+          {template?.available_variants && template.available_variants.length > 1 && (
+            <div>
+              <Label htmlFor="variant">Style Variant</Label>
+              <Select value={editedVariant} onValueChange={(value) => {
+                setEditedVariant(value);
+                notifyChange(editedContent, value, editedSettings);
+              }}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {template.available_variants.map((variant) => (
+                    <SelectItem key={variant} value={variant}>
+                      {variant}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          <div>
+            <h3 className="font-semibold text-slate-900 mb-4">Content</h3>
+            {isWallOfFame ? (
+              <IEditWallOfFameElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
+            ) : isTextOverlayImage ? (
+              <IEditTextOverlayImageElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
+            ) : isTable ? (
+              <IEditTableElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
+            ) : isBannerCarousel ? (
+              <IEditBannerCarouselElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
+            ) : isShowcase ? (
+              <IEditShowcaseElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
+            ) : isResourcesShowcase ? (
+              <IEditResourcesShowcaseElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
+            ) : isButtonBlock ? (
+              <IEditButtonBlockElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
+            ) : isPageHeaderHero ? (
+              <IEditPageHeaderHeroElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
+            ) : isHero ? (
+              <IEditHeroElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
+            ) : isOrganisationDirectory ? (
+              <IEditOrganisationDirectoryElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
+            ) : isFeaturedJob ? (
+              <IEditFeaturedJobElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
+            ) : isImagePanel ? (
+              <IEditImagePanelElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
+            ) : isAccordion ? (
+              <IEditAccordionElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
+            ) : isTwoColumn ? (
+              <IEditTwoColumnElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
+            ) : isQuote ? (
+              <IEditQuoteElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
+            ) : isFiftyFifty ? (
+              <IEditFiftyFiftyElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
+            ) : isFormElement ? (
+              <IEditFormElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
+            ) : isCardDeck ? (
+              <IEditCardDeckElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
+            ) : isLogoGrid ? (
+              <IEditLogoGridElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
+            ) : isEventSpotlight ? (
+              <IEditEventSpotlightElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
+            ) : isTextBlock ? (
+              <IEditTextBlockElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
+            ) : (
+              renderContentFields()
+            )}
+          </div>
+
+          <div>
+            <h3 className="font-semibold text-slate-900 mb-4">Settings</h3>
+            <div className="space-y-4">
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="fullWidth"
+                  checked={editedSettings.fullWidth || false}
+                  onChange={(e) => updateSetting('fullWidth', e.target.checked)}
+                  className="w-4 h-4"
+                />
+                <Label htmlFor="fullWidth" className="cursor-pointer">
+                  Full Width
+                </Label>
+              </div>
+
+              <div className="space-y-3">
+                <div>
+                  <Label htmlFor="paddingTop">Padding Top (px)</Label>
+                  <Input
+                    id="paddingTop"
+                    type="number"
+                    value={editedSettings.paddingTop ?? 32}
+                    onChange={(e) => updateSetting('paddingTop', parseInt(e.target.value) || 0)}
+                    min="0"
+                    max="200"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="paddingBottom">Padding Bottom (px)</Label>
+                  <Input
+                    id="paddingBottom"
+                    type="number"
+                    value={editedSettings.paddingBottom ?? 32}
+                    onChange={(e) => updateSetting('paddingBottom', parseInt(e.target.value) || 0)}
+                    min="0"
+                    max="200"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={`fixed inset-y-0 right-0 bg-white border-l border-slate-200 shadow-xl z-50 flex transition-all ${
       supportsLivePreview ? 'w-[calc(100%-4rem)]' : (isExpanded ? 'w-[calc(100%-4rem)]' : 'w-96')
@@ -498,7 +639,10 @@ export default function IEditElementEditor({ element, onClose, onSave }) {
         {template?.available_variants && template.available_variants.length > 1 && (
           <div>
             <Label htmlFor="variant">Style Variant</Label>
-            <Select value={editedVariant} onValueChange={setEditedVariant}>
+            <Select value={editedVariant} onValueChange={(value) => {
+              setEditedVariant(value);
+              notifyChange(editedContent, value, editedSettings);
+            }}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
@@ -519,107 +663,107 @@ export default function IEditElementEditor({ element, onClose, onSave }) {
           {isWallOfFame ? (
             <IEditWallOfFameElementEditor 
               element={{ ...element, content: editedContent }}
-              onChange={(updatedElement) => setEditedContent(updatedElement.content || {})}
+              onChange={handleContentChangeFromEditor}
             />
           ) : isTextOverlayImage ? (
             <IEditTextOverlayImageElementEditor 
               element={{ ...element, content: editedContent }}
-              onChange={(updatedElement) => setEditedContent(updatedElement.content || {})}
+              onChange={handleContentChangeFromEditor}
             />
           ) : isTable ? (
             <IEditTableElementEditor 
               element={{ ...element, content: editedContent }}
-              onChange={(updatedElement) => setEditedContent(updatedElement.content || {})}
+              onChange={handleContentChangeFromEditor}
             />
           ) : isBannerCarousel ? (
             <IEditBannerCarouselElementEditor 
               element={{ ...element, content: editedContent }}
-              onChange={(updatedElement) => setEditedContent(updatedElement.content || {})}
+              onChange={handleContentChangeFromEditor}
             />
           ) : isShowcase ? (
             <IEditShowcaseElementEditor 
               element={{ ...element, content: editedContent }}
-              onChange={(updatedElement) => setEditedContent(updatedElement.content || {})}
+              onChange={handleContentChangeFromEditor}
             />
           ) : isResourcesShowcase ? (
             <IEditResourcesShowcaseElementEditor 
               element={{ ...element, content: editedContent }}
-              onChange={(updatedElement) => setEditedContent(updatedElement.content || {})}
+              onChange={handleContentChangeFromEditor}
             />
           ) : isButtonBlock ? (
             <IEditButtonBlockElementEditor 
               element={{ ...element, content: editedContent }}
-              onChange={(updatedElement) => setEditedContent(updatedElement.content || {})}
+              onChange={handleContentChangeFromEditor}
             />
           ) : isPageHeaderHero ? (
             <IEditPageHeaderHeroElementEditor 
               element={{ ...element, content: editedContent }}
-              onChange={(updatedElement) => setEditedContent(updatedElement.content || {})}
+              onChange={handleContentChangeFromEditor}
             />
           ) : isHero ? (
             <IEditHeroElementEditor 
               element={{ ...element, content: editedContent }}
-              onChange={(updatedElement) => setEditedContent(updatedElement.content || {})}
+              onChange={handleContentChangeFromEditor}
             />
           ) : isOrganisationDirectory ? (
             <IEditOrganisationDirectoryElementEditor 
               element={{ ...element, content: editedContent }}
-              onChange={(updatedElement) => setEditedContent(updatedElement.content || {})}
+              onChange={handleContentChangeFromEditor}
             />
           ) : isFeaturedJob ? (
             <IEditFeaturedJobElementEditor 
               element={{ ...element, content: editedContent }}
-              onChange={(updatedElement) => setEditedContent(updatedElement.content || {})}
+              onChange={handleContentChangeFromEditor}
             />
           ) : isImagePanel ? (
             <IEditImagePanelElementEditor 
               element={{ ...element, content: editedContent }}
-              onChange={(updatedElement) => setEditedContent(updatedElement.content || {})}
+              onChange={handleContentChangeFromEditor}
             />
           ) : isAccordion ? (
             <IEditAccordionElementEditor 
               element={{ ...element, content: editedContent }}
-              onChange={(updatedElement) => setEditedContent(updatedElement.content || {})}
+              onChange={handleContentChangeFromEditor}
             />
           ) : isTwoColumn ? (
             <IEditTwoColumnElementEditor 
               element={{ ...element, content: editedContent }}
-              onChange={(updatedElement) => setEditedContent(updatedElement.content || {})}
+              onChange={handleContentChangeFromEditor}
             />
           ) : isQuote ? (
             <IEditQuoteElementEditor 
               element={{ ...element, content: editedContent }}
-              onChange={(updatedElement) => setEditedContent(updatedElement.content || {})}
+              onChange={handleContentChangeFromEditor}
             />
           ) : isFiftyFifty ? (
             <IEditFiftyFiftyElementEditor 
               element={{ ...element, content: editedContent }}
-              onChange={(updatedElement) => setEditedContent(updatedElement.content || {})}
+              onChange={handleContentChangeFromEditor}
             />
           ) : isFormElement ? (
             <IEditFormElementEditor 
               element={{ ...element, content: editedContent }}
-              onChange={(updatedElement) => setEditedContent(updatedElement.content || {})}
+              onChange={handleContentChangeFromEditor}
             />
           ) : isCardDeck ? (
             <IEditCardDeckElementEditor 
               element={{ ...element, content: editedContent }}
-              onChange={(updatedElement) => setEditedContent(updatedElement.content || {})}
+              onChange={handleContentChangeFromEditor}
             />
           ) : isLogoGrid ? (
             <IEditLogoGridElementEditor 
               element={{ ...element, content: editedContent }}
-              onChange={(updatedElement) => setEditedContent(updatedElement.content || {})}
+              onChange={handleContentChangeFromEditor}
             />
           ) : isEventSpotlight ? (
             <IEditEventSpotlightElementEditor 
               element={{ ...element, content: editedContent }}
-              onChange={(updatedElement) => setEditedContent(updatedElement.content || {})}
+              onChange={handleContentChangeFromEditor}
             />
           ) : isTextBlock ? (
             <IEditTextBlockElementEditor 
               element={{ ...element, content: editedContent }}
-              onChange={(updatedElement) => setEditedContent(updatedElement.content || {})}
+              onChange={handleContentChangeFromEditor}
             />
           ) : (
             renderContentFields()
@@ -679,23 +823,25 @@ export default function IEditElementEditor({ element, onClose, onSave }) {
         </div>
       </div>
 
-      {/* Footer */}
-      <div className="p-6 border-t border-slate-200">
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={onClose} className="flex-1" data-testid="button-cancel-edit">
-            Cancel
-          </Button>
-          <Button 
-            onClick={handleSave} 
-            className="flex-1 bg-blue-600 hover:bg-blue-700"
-            disabled={Object.values(uploadingFiles).some(v => v)}
-            data-testid="button-save-element"
-          >
-            <Save className="w-4 h-4 mr-2" />
-            Save
-          </Button>
+      {/* Footer - hide in inline mode since parent handles save/cancel */}
+      {!isInlineMode && (
+        <div className="p-6 border-t border-slate-200">
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={onClose} className="flex-1" data-testid="button-cancel-edit">
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleSave} 
+              className="flex-1 bg-blue-600 hover:bg-blue-700"
+              disabled={Object.values(uploadingFiles).some(v => v)}
+              data-testid="button-save-element"
+            >
+              <Save className="w-4 h-4 mr-2" />
+              Save
+            </Button>
+          </div>
         </div>
-      </div>
+      )}
     </div>
     </div>
   );

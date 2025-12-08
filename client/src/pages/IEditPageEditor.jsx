@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,8 @@ import IEditElementCard from "../components/iedit/IEditElementCard";
 import IEditElementEditor from "../components/iedit/IEditElementEditor";
 import IEditPageSettings from "../components/iedit/IEditPageSettings";
 import IEditElementRenderer from "../components/iedit/IEditElementRenderer";
+import ElementPreviewWrapper from "../components/iedit/ElementPreviewWrapper";
+import DraggableEditModal from "../components/iedit/DraggableEditModal";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 
 export default function IEditPageEditorPage() {
@@ -24,6 +26,11 @@ export default function IEditPageEditorPage() {
   const [editingElement, setEditingElement] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
   const [previewMode, setPreviewMode] = useState(false);
+  
+  const [inlineEditingElement, setInlineEditingElement] = useState(null);
+  const [draftContent, setDraftContent] = useState({});
+  const [draftVariant, setDraftVariant] = useState('default');
+  const [draftSettings, setDraftSettings] = useState({});
 
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -228,6 +235,70 @@ export default function IEditPageEditorPage() {
     setShowSettings(false);
   };
 
+  const handleStartInlineEdit = (element) => {
+    setInlineEditingElement(element);
+    setDraftContent(element.content || {});
+    setDraftVariant(element.style_variant || 'default');
+    setDraftSettings(element.settings || {});
+  };
+
+  const handleInlineEditChange = (updates) => {
+    if (updates.content !== undefined) {
+      setDraftContent(updates.content);
+    }
+    if (updates.style_variant !== undefined) {
+      setDraftVariant(updates.style_variant);
+    }
+    if (updates.settings !== undefined) {
+      setDraftSettings(updates.settings);
+    }
+  };
+
+  const handleSaveInlineEdit = async () => {
+    if (!inlineEditingElement) return;
+    
+    try {
+      await updateElementMutation.mutateAsync({ 
+        id: inlineEditingElement.id, 
+        data: {
+          content: draftContent,
+          style_variant: draftVariant,
+          settings: draftSettings
+        }
+      });
+      setInlineEditingElement(null);
+      setDraftContent({});
+      setDraftVariant('default');
+      setDraftSettings({});
+      toast.success('Element updated');
+    } catch (error) {
+      toast.error('Failed to save element');
+    }
+  };
+
+  const handleCancelInlineEdit = () => {
+    setInlineEditingElement(null);
+    setDraftContent({});
+    setDraftVariant('default');
+    setDraftSettings({});
+  };
+
+  const elementsWithDraft = useMemo(() => {
+    if (!inlineEditingElement) return elements;
+    
+    return elements.map(el => {
+      if (el.id === inlineEditingElement.id) {
+        return { 
+          ...el, 
+          content: draftContent,
+          style_variant: draftVariant,
+          settings: draftSettings
+        };
+      }
+      return el;
+    });
+  }, [elements, inlineEditingElement, draftContent, draftVariant, draftSettings]);
+
   if (!accessChecked) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
@@ -310,7 +381,7 @@ export default function IEditPageEditorPage() {
                   }
                 `}
               </style>
-              {elements.length === 0 ? (
+              {elementsWithDraft.length === 0 ? (
                 <div className="flex items-center justify-center py-20">
                   <div className="text-center">
                     <Eye className="w-16 h-16 text-slate-300 mx-auto mb-4" />
@@ -325,13 +396,19 @@ export default function IEditPageEditorPage() {
                   </div>
                 </div>
               ) : (
-                elements.map((element) => (
-                  <IEditElementRenderer
+                elementsWithDraft.map((element) => (
+                  <ElementPreviewWrapper
                     key={element.id}
                     element={element}
-                    memberInfo={null}
-                    organizationInfo={null}
-                  />
+                    onEdit={handleStartInlineEdit}
+                    isEditing={inlineEditingElement?.id === element.id}
+                  >
+                    <IEditElementRenderer
+                      element={element}
+                      memberInfo={null}
+                      organizationInfo={null}
+                    />
+                  </ElementPreviewWrapper>
                 ))
               )}
             </div>
@@ -431,6 +508,20 @@ export default function IEditPageEditorPage() {
           page={page}
           onClose={() => setShowSettings(false)}
           onSave={handleUpdatePageSettings}
+        />
+      )}
+
+      {/* Inline Edit Modal (for preview mode editing) */}
+      {inlineEditingElement && previewMode && (
+        <DraggableEditModal
+          element={inlineEditingElement}
+          draftContent={draftContent}
+          draftVariant={draftVariant}
+          draftSettings={draftSettings}
+          onChange={handleInlineEditChange}
+          onSave={handleSaveInlineEdit}
+          onClose={handleCancelInlineEdit}
+          EditorComponent={IEditElementEditor}
         />
       )}
     </div>
