@@ -133,6 +133,39 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     ...getFormInputStyle()
   };
 
+  const getCardStyle = () => {
+    const borderRadius = content.card_border_radius ?? 8;
+    const borderEnabled = content.card_border_enabled ?? true;
+    const borderWidth = content.card_border_width || 1;
+    const borderColor = content.card_border_color || '#e2e8f0';
+    const shadowEnabled = content.card_shadow_enabled || false;
+    const shadowStyle = content.card_shadow_style || 'medium';
+    const shadowColor = content.card_shadow_color || '#000000';
+    const shadowOpacity = (content.card_shadow_opacity ?? 10) / 100;
+    const backgroundColor = content.card_background_color || '#ffffff';
+
+    const hexToRgba = (hex, alpha) => {
+      const r = parseInt(hex.slice(1, 3), 16);
+      const g = parseInt(hex.slice(3, 5), 16);
+      const b = parseInt(hex.slice(5, 7), 16);
+      return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    };
+
+    const shadowPresets = {
+      subtle: `0 1px 2px 0 ${hexToRgba(shadowColor, shadowOpacity)}`,
+      medium: `0 4px 6px -1px ${hexToRgba(shadowColor, shadowOpacity)}, 0 2px 4px -2px ${hexToRgba(shadowColor, shadowOpacity * 0.5)}`,
+      strong: `0 10px 15px -3px ${hexToRgba(shadowColor, shadowOpacity)}, 0 4px 6px -4px ${hexToRgba(shadowColor, shadowOpacity * 0.5)}`,
+      xl: `0 20px 25px -5px ${hexToRgba(shadowColor, shadowOpacity)}, 0 8px 10px -6px ${hexToRgba(shadowColor, shadowOpacity * 0.5)}`
+    };
+
+    return {
+      borderRadius: `${borderRadius}px`,
+      border: borderEnabled ? `${borderWidth}px solid ${borderColor}` : 'none',
+      boxShadow: shadowEnabled ? shadowPresets[shadowStyle] : 'none',
+      backgroundColor: backgroundColor
+    };
+  };
+
   const getBackgroundStyle = () => {
     if (background_type === 'gradient') {
       return {
@@ -240,7 +273,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
           style={{ maxWidth: `${content_max_width}px` }}
         >
           {renderHeaderSection()}
-          <Card className="border-slate-200 iedit-form-styled" style={formFieldStyles}>
+          <Card className="iedit-form-styled" style={{ ...formFieldStyles, ...getCardStyle() }}>
             {(show_form_title || show_form_description) && (
               <CardHeader>
                 {show_form_title && <CardTitle>{form.name}</CardTitle>}
@@ -329,7 +362,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
         style={{ maxWidth: `${content_max_width}px` }}
       >
         {renderHeaderSection()}
-        <Card className="border-slate-200 iedit-form-styled" style={formFieldStyles}>
+        <Card className="iedit-form-styled" style={{ ...formFieldStyles, ...getCardStyle() }}>
           {(show_form_title || show_form_description) && (
             <CardHeader>
               {show_form_title && <CardTitle>{form.name}</CardTitle>}
@@ -1418,6 +1451,160 @@ export function IEditFormElementEditor({ element, onChange }) {
                 onAlignChange={(val) => updateContent('text_align', val)}
                 testIdPrefix="form-default-align"
               />
+            </div>
+
+            {/* Card Styling */}
+            <div className="border-t pt-4 mt-4">
+              <h4 className="text-sm font-semibold text-slate-700 mb-3">Form Card Styling</h4>
+              
+              <div className="space-y-4">
+                {/* Border Radius */}
+                <div>
+                  <Label className="text-sm">Border Radius: {content.card_border_radius ?? 8}px</Label>
+                  <input
+                    type="range"
+                    min="0"
+                    max="32"
+                    value={content.card_border_radius ?? 8}
+                    onChange={(e) => updateContent('card_border_radius', parseInt(e.target.value))}
+                    className="w-full"
+                  />
+                </div>
+
+                {/* Border */}
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="card-border-enabled"
+                      checked={content.card_border_enabled ?? true}
+                      onChange={(e) => updateContent('card_border_enabled', e.target.checked)}
+                      className="rounded"
+                    />
+                    <Label htmlFor="card-border-enabled" className="text-sm cursor-pointer">Enable Border</Label>
+                  </div>
+                  
+                  {(content.card_border_enabled ?? true) && (
+                    <div className="grid grid-cols-2 gap-3 pl-6">
+                      <div>
+                        <Label className="text-xs mb-1 block">Border Width</Label>
+                        <select
+                          value={content.card_border_width || 1}
+                          onChange={(e) => updateContent('card_border_width', parseInt(e.target.value))}
+                          className="w-full px-2 py-1 text-sm border border-slate-300 rounded"
+                        >
+                          <option value="1">1px</option>
+                          <option value="2">2px</option>
+                          <option value="3">3px</option>
+                          <option value="4">4px</option>
+                        </select>
+                      </div>
+                      <div>
+                        <Label className="text-xs mb-1 block">Border Color</Label>
+                        <div className="flex gap-1 items-center">
+                          <input
+                            type="color"
+                            value={safeHexColor(content.card_border_color, '#e2e8f0')}
+                            onChange={(e) => updateContent('card_border_color', e.target.value)}
+                            className="w-10 h-8 px-1 py-1 border border-slate-300 rounded cursor-pointer"
+                          />
+                          <Input
+                            value={content.card_border_color || '#e2e8f0'}
+                            onChange={(e) => updateContent('card_border_color', e.target.value)}
+                            className="flex-1 font-mono text-xs h-8"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Drop Shadow */}
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="card-shadow-enabled"
+                      checked={content.card_shadow_enabled || false}
+                      onChange={(e) => updateContent('card_shadow_enabled', e.target.checked)}
+                      className="rounded"
+                    />
+                    <Label htmlFor="card-shadow-enabled" className="text-sm cursor-pointer">Enable Drop Shadow</Label>
+                  </div>
+                  
+                  {content.card_shadow_enabled && (
+                    <div className="pl-6 space-y-3">
+                      <div>
+                        <Label className="text-xs mb-1 block">Shadow Style</Label>
+                        <select
+                          value={content.card_shadow_style || 'medium'}
+                          onChange={(e) => updateContent('card_shadow_style', e.target.value)}
+                          className="w-full px-2 py-1 text-sm border border-slate-300 rounded"
+                        >
+                          <option value="subtle">Subtle</option>
+                          <option value="medium">Medium</option>
+                          <option value="strong">Strong</option>
+                          <option value="xl">Extra Large</option>
+                        </select>
+                      </div>
+                      <div>
+                        <Label className="text-xs mb-1 block">Shadow Color</Label>
+                        <div className="flex gap-1 items-center">
+                          <input
+                            type="color"
+                            value={safeHexColor(content.card_shadow_color, '#000000')}
+                            onChange={(e) => updateContent('card_shadow_color', e.target.value)}
+                            className="w-10 h-8 px-1 py-1 border border-slate-300 rounded cursor-pointer"
+                          />
+                          <Input
+                            value={content.card_shadow_color || '#000000'}
+                            onChange={(e) => updateContent('card_shadow_color', e.target.value)}
+                            className="flex-1 font-mono text-xs h-8"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <Label className="text-xs mb-1 block">Shadow Opacity: {content.card_shadow_opacity ?? 10}%</Label>
+                        <input
+                          type="range"
+                          min="5"
+                          max="50"
+                          value={content.card_shadow_opacity ?? 10}
+                          onChange={(e) => updateContent('card_shadow_opacity', parseInt(e.target.value))}
+                          className="w-full"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Card Background Color */}
+                <div>
+                  <Label className="text-xs mb-1 block">Card Background Color</Label>
+                  <div className="flex gap-2 items-center">
+                    <input
+                      type="color"
+                      value={safeHexColor(content.card_background_color, '#ffffff')}
+                      onChange={(e) => updateContent('card_background_color', e.target.value)}
+                      className="w-10 h-8 px-1 py-1 border border-slate-300 rounded cursor-pointer"
+                    />
+                    <Input
+                      value={content.card_background_color || '#ffffff'}
+                      onChange={(e) => updateContent('card_background_color', e.target.value)}
+                      className="flex-1 font-mono text-xs h-8"
+                      placeholder="#ffffff"
+                    />
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => updateContent('card_background_color', '')}
+                      className="h-8 text-xs"
+                    >
+                      Reset
+                    </Button>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         )}
