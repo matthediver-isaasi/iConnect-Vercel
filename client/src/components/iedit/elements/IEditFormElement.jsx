@@ -306,7 +306,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                 </div>
               </div>
             )}
-            <CardContent className="min-h-[300px]">
+            <CardContent className="min-h-[300px] pt-8">
               {currentField && (
                 <FormRenderer
                   field={currentField}
