@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { X, Save, Upload, Loader2, Trash2 } from "lucide-react";
+import { X, Save, Upload, Loader2, Trash2, Eye, Monitor, Smartphone } from "lucide-react";
 import { toast } from "sonner";
 import { IEditWallOfFameElementEditor } from "./elements/IEditWallOfFameElement";
 import { IEditTextOverlayImageElementEditor } from "./elements/IEditTextOverlayImageElement";
@@ -17,6 +17,7 @@ import { IEditResourcesShowcaseElementEditor } from "./elements/IEditResourcesSh
 import { IEditButtonBlockElementEditor } from "./elements/IEditButtonBlockElement";
 import { IEditPageHeaderHeroElementEditor } from "./elements/IEditPageHeaderHeroElement";
 import { IEditHeroElementEditor } from "./elements/IEditHeroElement";
+import IEditHeroElement from "./elements/IEditHeroElement";
 import { IEditOrganisationDirectoryElementEditor } from "./elements/IEditOrganisationDirectoryElement";
 import { IEditTextBlockElementEditor } from "./elements/IEditTextBlockElement";
 import { IEditFeaturedJobElementEditor } from "./elements/IEditFeaturedJobElement";
@@ -36,6 +37,9 @@ export default function IEditElementEditor({ element, onClose, onSave }) {
   const [editedSettings, setEditedSettings] = useState(element.settings || {});
   const [uploadingFiles, setUploadingFiles] = useState({});
   const [isExpanded, setIsExpanded] = useState(false);
+  const [previewMode, setPreviewMode] = useState('desktop');
+  
+  const supportsLivePreview = element.element_type === 'hero';
 
   // Sync state when element prop changes (e.g., when reopening editor)
   useEffect(() => {
@@ -382,32 +386,111 @@ export default function IEditElementEditor({ element, onClose, onSave }) {
     );
   };
 
-  return (
-    <div className={`fixed inset-y-0 right-0 bg-white border-l border-slate-200 shadow-xl z-50 flex flex-col transition-all ${
-      isExpanded ? 'w-[calc(100%-4rem)]' : 'w-96'
-    }`}>
-      {/* Header */}
-      <div className="p-6 border-b border-slate-200">
-        <div className="flex items-center justify-between mb-2">
-          <h2 className="text-lg font-bold text-slate-900">Edit Element</h2>
+  const renderLivePreview = () => {
+    if (!supportsLivePreview) return null;
+    
+    const previewWidth = previewMode === 'mobile' ? '375px' : '100%';
+    
+    return (
+      <div className="flex-1 bg-slate-100 overflow-auto flex flex-col">
+        <div className="sticky top-0 z-10 bg-slate-200 p-3 border-b border-slate-300 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={() => setIsExpanded(!isExpanded)}
-              title={isExpanded ? "Collapse" : "Expand"}
+            <Eye className="w-4 h-4 text-slate-600" />
+            <span className="text-sm font-medium text-slate-700">Live Preview</span>
+          </div>
+          <div className="flex items-center gap-1 bg-white rounded-md p-1">
+            <button
+              onClick={() => setPreviewMode('desktop')}
+              className={`p-1.5 rounded ${previewMode === 'desktop' ? 'bg-blue-100 text-blue-600' : 'text-slate-500 hover:bg-slate-100'}`}
+              title="Desktop view"
+              data-testid="button-preview-desktop"
             >
-              {isExpanded ? '←' : '→'}
-            </Button>
-            <Button variant="ghost" size="sm" onClick={onClose}>
-              <X className="w-4 h-4" />
-            </Button>
+              <Monitor className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => setPreviewMode('mobile')}
+              className={`p-1.5 rounded ${previewMode === 'mobile' ? 'bg-blue-100 text-blue-600' : 'text-slate-500 hover:bg-slate-100'}`}
+              title="Mobile view"
+              data-testid="button-preview-mobile"
+            >
+              <Smartphone className="w-4 h-4" />
+            </button>
           </div>
         </div>
-        <p className="text-sm text-slate-600 capitalize">
-          {element.element_type.replace(/_/g, ' ')}
-        </p>
+        <div className="flex-1 p-4 overflow-auto flex justify-center">
+          <div 
+            className="bg-white shadow-lg rounded-lg overflow-hidden transition-all"
+            style={{ 
+              width: previewWidth,
+              maxWidth: '100%'
+            }}
+          >
+            {element.element_type === 'hero' && (
+              <IEditHeroElement 
+                content={editedContent} 
+                variant={editedVariant}
+                settings={editedSettings}
+              />
+            )}
+          </div>
+        </div>
       </div>
+    );
+  };
+
+  const editorPanelWidth = supportsLivePreview 
+    ? (isExpanded ? 'w-[500px]' : 'w-96') 
+    : (isExpanded ? 'w-[calc(100%-4rem)]' : 'w-96');
+
+  return (
+    <div className={`fixed inset-y-0 right-0 bg-white border-l border-slate-200 shadow-xl z-50 flex transition-all ${
+      supportsLivePreview ? 'w-[calc(100%-4rem)]' : (isExpanded ? 'w-[calc(100%-4rem)]' : 'w-96')
+    }`}>
+      {supportsLivePreview && renderLivePreview()}
+      
+      <div className={`flex flex-col ${supportsLivePreview ? editorPanelWidth : 'flex-1'} border-l border-slate-200 bg-white`}>
+        {/* Header */}
+        <div className="p-6 border-b border-slate-200">
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-lg font-bold text-slate-900">Edit Element</h2>
+            <div className="flex items-center gap-2">
+              {supportsLivePreview && (
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => setIsExpanded(!isExpanded)}
+                  title={isExpanded ? "Narrow editor" : "Widen editor"}
+                >
+                  {isExpanded ? '←' : '→'}
+                </Button>
+              )}
+              {!supportsLivePreview && (
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => setIsExpanded(!isExpanded)}
+                  title={isExpanded ? "Collapse" : "Expand"}
+                >
+                  {isExpanded ? '←' : '→'}
+                </Button>
+              )}
+              <Button variant="ghost" size="sm" onClick={onClose} data-testid="button-close-editor">
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <p className="text-sm text-slate-600 capitalize">
+              {element.element_type.replace(/_/g, ' ')}
+            </p>
+            {supportsLivePreview && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs">
+                <Eye className="w-3 h-3" />
+                Live Preview
+              </span>
+            )}
+          </div>
+        </div>
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-6 space-y-6">
@@ -599,19 +682,21 @@ export default function IEditElementEditor({ element, onClose, onSave }) {
       {/* Footer */}
       <div className="p-6 border-t border-slate-200">
         <div className="flex gap-2">
-          <Button variant="outline" onClick={onClose} className="flex-1">
+          <Button variant="outline" onClick={onClose} className="flex-1" data-testid="button-cancel-edit">
             Cancel
           </Button>
           <Button 
             onClick={handleSave} 
             className="flex-1 bg-blue-600 hover:bg-blue-700"
             disabled={Object.values(uploadingFiles).some(v => v)}
+            data-testid="button-save-element"
           >
             <Save className="w-4 h-4 mr-2" />
             Save
           </Button>
         </div>
       </div>
+    </div>
     </div>
   );
 }
