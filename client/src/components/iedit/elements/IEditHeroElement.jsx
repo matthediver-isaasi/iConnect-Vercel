@@ -542,7 +542,7 @@ export function IEditHeroElementEditor({ element, onChange }) {
         
         {/* Background & Layout Section */}
         <AccordionItem value="background">
-          <AccordionTrigger className="text-sm font-semibold" data-testid="accordion-hero-background">Background & Layout</AccordionTrigger>
+          <AccordionTrigger className="text-sm font-semibold bg-muted/50 px-3 rounded-md" data-testid="accordion-hero-background">Background & Layout</AccordionTrigger>
           <AccordionContent>
             <div className="space-y-4">
               <div>
@@ -871,7 +871,7 @@ export function IEditHeroElementEditor({ element, onChange }) {
 
         {/* Heading Section */}
         <AccordionItem value="heading">
-          <AccordionTrigger className="text-sm font-semibold" data-testid="accordion-hero-heading">Heading</AccordionTrigger>
+          <AccordionTrigger className="text-sm font-semibold bg-muted/50 px-3 rounded-md" data-testid="accordion-hero-heading">Heading</AccordionTrigger>
           <AccordionContent>
             <div className="space-y-4">
               <div>
@@ -1047,7 +1047,7 @@ export function IEditHeroElementEditor({ element, onChange }) {
 
         {/* Subheading Section */}
         <AccordionItem value="subheading">
-          <AccordionTrigger className="text-sm font-semibold" data-testid="accordion-hero-subheading">Subheading</AccordionTrigger>
+          <AccordionTrigger className="text-sm font-semibold bg-muted/50 px-3 rounded-md" data-testid="accordion-hero-subheading">Subheading</AccordionTrigger>
           <AccordionContent>
             <div className="space-y-4">
               <div>
@@ -1148,7 +1148,7 @@ export function IEditHeroElementEditor({ element, onChange }) {
 
         {/* Content Text Section */}
         <AccordionItem value="content">
-          <AccordionTrigger className="text-sm font-semibold" data-testid="accordion-hero-content">Content Text</AccordionTrigger>
+          <AccordionTrigger className="text-sm font-semibold bg-muted/50 px-3 rounded-md" data-testid="accordion-hero-content">Content Text</AccordionTrigger>
           <AccordionContent>
             <div className="space-y-4">
               <div>
@@ -1299,7 +1299,7 @@ export function IEditHeroElementEditor({ element, onChange }) {
 
         {/* Button Section */}
         <AccordionItem value="button">
-          <AccordionTrigger className="text-sm font-semibold" data-testid="accordion-hero-button">Button</AccordionTrigger>
+          <AccordionTrigger className="text-sm font-semibold bg-muted/50 px-3 rounded-md" data-testid="accordion-hero-button">Button</AccordionTrigger>
           <AccordionContent>
             <div className="space-y-4">
               <div>
@@ -1489,7 +1489,7 @@ export function IEditHeroElementEditor({ element, onChange }) {
 
         {/* Mobile Settings Section */}
         <AccordionItem value="mobile">
-          <AccordionTrigger className="text-sm font-semibold" data-testid="accordion-hero-mobile">Mobile Settings</AccordionTrigger>
+          <AccordionTrigger className="text-sm font-semibold bg-muted/50 px-3 rounded-md" data-testid="accordion-hero-mobile">Mobile Settings</AccordionTrigger>
           <AccordionContent>
             <div className="space-y-4 p-4 bg-blue-50 rounded-lg">
               <p className="text-xs text-slate-600 mb-3">
