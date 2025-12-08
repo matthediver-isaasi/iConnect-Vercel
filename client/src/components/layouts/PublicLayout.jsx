@@ -297,7 +297,7 @@ export default function PublicLayout({ children, currentPageName }) {
                     }}
                     data-testid="button-newsletter-signup"
                   >
-                    Signup
+                    Sign up
                     <ArrowUpRight className="ml-0.5 w-5 h-5" strokeWidth={2.5} />
                   </Button>
                 </div>
