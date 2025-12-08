@@ -2,15 +2,17 @@ import React, { useEffect, useState, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { base44 } from "@/api/base44Client";
-import { Mail, MapPin, Phone, ArrowUpRight } from "lucide-react";
+import { Mail, MapPin, Phone, ArrowUpRight, Loader2, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import PublicHeader from "./PublicHeader";
 import PageBannerDisplay from "../banners/PageBannerDisplay";
 import PortalHeroBanner from "../banners/PortalHeroBanner";
 import FloaterDisplay from "../floaters/FloaterDisplay";
 import { useArticleUrl } from "@/contexts/ArticleUrlContext";
 import { BannerProvider } from "@/contexts/BannerContext";
+import FormRenderer from "../forms/FormRenderer";
 
 // Map page names to portal page identifiers for banner matching
 // These identifiers must match the PORTAL_PAGES values in PageBannerManagement.jsx
@@ -45,9 +47,64 @@ const pageToPortalPageMap = {
 
 export default function PublicLayout({ children, currentPageName }) {
   const { getPublicArticlesUrl, articleDisplayName, urlSlug, publicSlug, isCustomSlug, isLoading: articleUrlLoading } = useArticleUrl();
+  const queryClient = useQueryClient();
   const [banners, setBanners] = useState([]);
   const [loadingBanners, setLoadingBanners] = useState(true);
   const [showNewsletterDialog, setShowNewsletterDialog] = useState(false);
+  const [newsletterFormValues, setNewsletterFormValues] = useState({});
+  const [newsletterSubmitted, setNewsletterSubmitted] = useState(false);
+
+  const { data: newsletterForm, isLoading: newsletterFormLoading } = useQuery({
+    queryKey: ['newsletter-signup-form'],
+    queryFn: async () => {
+      const allForms = await base44.entities.Form.list();
+      return allForms.find(f => f.slug === 'newsletter-signup' && f.is_active);
+    },
+    enabled: showNewsletterDialog
+  });
+
+  const submitNewsletterMutation = useMutation({
+    mutationFn: async (submissionData) => {
+      return await base44.entities.FormSubmission.create(submissionData);
+    },
+    onSuccess: async () => {
+      if (newsletterForm) {
+        await base44.entities.Form.update(newsletterForm.id, {
+          submission_count: (newsletterForm.submission_count || 0) + 1
+        });
+      }
+      queryClient.invalidateQueries({ queryKey: ['newsletter-signup-form'] });
+      setNewsletterSubmitted(true);
+    },
+    onError: (error) => {
+      console.error('Failed to submit newsletter form:', error);
+    }
+  });
+
+  const handleNewsletterSubmit = () => {
+    if (!newsletterForm) return;
+    
+    const requiredFields = newsletterForm.fields?.filter(f => f.required) || [];
+    const missingRequired = requiredFields.filter(f => !newsletterFormValues[f.id]);
+    
+    if (missingRequired.length > 0) {
+      return;
+    }
+    
+    submitNewsletterMutation.mutate({
+      form_id: newsletterForm.id,
+      responses: newsletterFormValues,
+      submitted_at: new Date().toISOString()
+    });
+  };
+
+  const handleNewsletterDialogChange = (open) => {
+    setShowNewsletterDialog(open);
+    if (!open) {
+      setNewsletterFormValues({});
+      setNewsletterSubmitted(false);
+    }
+  };
 
   // Resolve page name to portal page ID, accounting for dynamic article URL remapping
   const resolvePortalPageId = (pageName) => {
@@ -229,18 +286,20 @@ export default function PublicLayout({ children, currentPageName }) {
                 >
                   Signup to our newsletter
                 </h2>
-                <Button 
-                  onClick={() => setShowNewsletterDialog(true)}
-                  className="text-white font-bold hover:opacity-90 transition-opacity px-6 py-5 rounded-none" 
-                  style={{ 
-                    fontFamily: 'Poppins, sans-serif',
-                    background: 'linear-gradient(to top right, #5C0085, #BA0087, #EE00C3, #FF4229, #FFB000)'
-                  }}
-                  data-testid="button-newsletter-signup"
-                >
-                  Signup
-                  <ArrowUpRight className="ml-0.5 w-5 h-5" strokeWidth={2.5} />
-                </Button>
+                <div>
+                  <Button 
+                    onClick={() => setShowNewsletterDialog(true)}
+                    className="text-white font-bold hover:opacity-90 transition-opacity px-6 py-5 rounded-none" 
+                    style={{ 
+                      fontFamily: 'Poppins, sans-serif',
+                      background: 'linear-gradient(to top right, #5C0085, #BA0087, #EE00C3, #FF4229, #FFB000)'
+                    }}
+                    data-testid="button-newsletter-signup"
+                  >
+                    Signup
+                    <ArrowUpRight className="ml-0.5 w-5 h-5" strokeWidth={2.5} />
+                  </Button>
+                </div>
               </div>
 
               {/* Middle Column - Address & Contact */}
@@ -481,33 +540,65 @@ export default function PublicLayout({ children, currentPageName }) {
       </div>
 
       {/* Newsletter Dialog */}
-      <Dialog open={showNewsletterDialog} onOpenChange={setShowNewsletterDialog}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-hidden">
+      <Dialog open={showNewsletterDialog} onOpenChange={handleNewsletterDialogChange}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-2xl">Subscribe to Our Newsletter</DialogTitle>
           </DialogHeader>
           
           <div className="space-y-4 py-4">
-            <p className="text-slate-600">
-              Stay up to date with the latest news, events, and resources from Graduate Futures. 
-              Join our community and never miss an important update!
-            </p>
-            
-            {/* Zoho Form Iframe */}
-            <div className="w-full" style={{ minHeight: '500px' }}>
-              <iframe
-                src="https://forms.zohopublic.eu/isaasiagcas1/form/Newsletter/formperma/VRkTs4kbQec4LDCN5z0pRWyTRH7HGIqxhDx-dT35YTI"
-                width="100%"
-                height="600"
-                frameBorder="0"
-                marginHeight="0"
-                marginWidth="0"
-                title="Newsletter Signup Form"
-                className="rounded-lg"
-              >
-                Loading newsletter form...
-              </iframe>
-            </div>
+            {newsletterSubmitted ? (
+              <div className="text-center py-8">
+                <CheckCircle2 className="w-16 h-16 text-green-500 mx-auto mb-4" />
+                <h3 className="text-xl font-semibold text-slate-900 mb-2">Thank you!</h3>
+                <p className="text-slate-600">
+                  {newsletterForm?.confirmation_message || "You've been successfully subscribed to our newsletter."}
+                </p>
+              </div>
+            ) : newsletterFormLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+              </div>
+            ) : !newsletterForm ? (
+              <div className="text-center py-8">
+                <p className="text-slate-600">Newsletter signup form not found or inactive.</p>
+              </div>
+            ) : (
+              <>
+                {newsletterForm.description && (
+                  <p className="text-slate-600">{newsletterForm.description}</p>
+                )}
+                
+                <div className="space-y-4">
+                  {newsletterForm.fields?.map(field => (
+                    <FormRenderer
+                      key={field.id}
+                      field={field}
+                      value={newsletterFormValues[field.id]}
+                      onChange={(value) => setNewsletterFormValues({ ...newsletterFormValues, [field.id]: value })}
+                    />
+                  ))}
+                </div>
+                
+                <Button 
+                  onClick={handleNewsletterSubmit}
+                  disabled={submitNewsletterMutation.isPending}
+                  className="w-full"
+                  style={{ 
+                    background: 'linear-gradient(to top right, #5C0085, #BA0087, #EE00C3, #FF4229, #FFB000)'
+                  }}
+                >
+                  {submitNewsletterMutation.isPending ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Submitting...
+                    </>
+                  ) : (
+                    newsletterForm.submit_button_text || 'Subscribe'
+                  )}
+                </Button>
+              </>
+            )}
           </div>
         </DialogContent>
       </Dialog>
