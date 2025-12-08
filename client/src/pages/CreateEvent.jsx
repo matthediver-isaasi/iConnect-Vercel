@@ -164,15 +164,21 @@ export default function CreateEvent() {
     queryFn: () => base44.entities.ResourceCategory.list('display_order')
   });
 
-  // Get categories that have 'Events' in their applies_to_content_types
-  const availableFilterTags = useMemo(() => {
+  // Get categories that have 'Events' in their applies_to_content_types - with subcategories
+  const eventCategories = useMemo(() => {
     return resourceCategories
       .filter(cat => 
         cat.is_active && 
         Array.isArray(cat.applies_to_content_types) && 
-        cat.applies_to_content_types.includes('Events')
+        cat.applies_to_content_types.includes('Events') &&
+        Array.isArray(cat.subcategories) &&
+        cat.subcategories.length > 0
       )
-      .map(cat => cat.name);
+      .map(cat => ({
+        id: cat.id,
+        name: cat.name,
+        subcategories: cat.subcategories || []
+      }));
   }, [resourceCategories]);
 
   // Selected speakers state
@@ -849,12 +855,12 @@ export default function CreateEvent() {
                 )}
               </div>
 
-              {/* Event Filter Tags */}
-              {availableFilterTags.length > 0 && (
+              {/* Event Filter Tags - Grouped by Category */}
+              {eventCategories.length > 0 && (
                 <div className="space-y-2">
                   <Label className="flex items-center gap-2">
                     <Tag className="h-4 w-4 text-slate-500" />
-                    {filterCategory?.name || 'Filter Tags'}
+                    Filter Tags
                   </Label>
                   <p className="text-xs text-slate-500 mb-2">
                     Select one or more filter values to help categorize this event.
@@ -869,11 +875,11 @@ export default function CreateEvent() {
                         <div className="flex items-center gap-2">
                           <Tag className="w-4 h-4" />
                           {selectedFilterTags.length === 0 ? (
-                            <span className="text-slate-500">Select categories...</span>
+                            <span className="text-slate-500">Select filter tags...</span>
                           ) : selectedFilterTags.length === 1 ? (
                             <span className="truncate max-w-[200px]">{selectedFilterTags[0]}</span>
                           ) : (
-                            <span>{selectedFilterTags.length} categories selected</span>
+                            <span>{selectedFilterTags.length} selected</span>
                           )}
                         </div>
                         <div className="flex items-center gap-1">
@@ -886,10 +892,10 @@ export default function CreateEvent() {
                         </div>
                       </Button>
                     </PopoverTrigger>
-                    <PopoverContent className="w-64 p-0" align="start">
+                    <PopoverContent className="w-72 p-0" align="start">
                       <div className="p-2 border-b border-slate-100">
                         <div className="flex items-center justify-between">
-                          <span className="text-sm font-medium text-slate-700">Select categories</span>
+                          <span className="text-sm font-medium text-slate-700">Select filter tags</span>
                           {selectedFilterTags.length > 0 && (
                             <Button
                               variant="ghost"
@@ -903,35 +909,42 @@ export default function CreateEvent() {
                           )}
                         </div>
                       </div>
-                      <div className="max-h-[280px] overflow-y-auto p-1">
-                        {availableFilterTags.map((tag, idx) => {
-                          const isSelected = selectedFilterTags.includes(tag);
-                          return (
-                            <button
-                              key={idx}
-                              className={`w-full flex items-center gap-2 px-2 py-2 text-sm rounded-md transition-colors ${
-                                isSelected 
-                                  ? "bg-slate-100 text-slate-900 font-medium" 
-                                  : "text-slate-600 hover:bg-slate-50"
-                              }`}
-                              onClick={() => {
-                                if (isSelected) {
-                                  setSelectedFilterTags(prev => prev.filter(t => t !== tag));
-                                } else {
-                                  setSelectedFilterTags(prev => [...prev, tag]);
-                                }
-                              }}
-                              data-testid={`filter-tag-${idx}`}
-                            >
-                              <div className={`w-4 h-4 rounded border flex items-center justify-center ${
-                                isSelected ? "bg-primary border-primary" : "border-slate-300"
-                              }`}>
-                                {isSelected && <Check className="w-3 h-3 text-white" />}
-                              </div>
-                              <span className="truncate">{tag}</span>
-                            </button>
-                          );
-                        })}
+                      <div className="max-h-[320px] overflow-y-auto p-1">
+                        {eventCategories.map((category) => (
+                          <div key={category.id} className="mb-2">
+                            <div className="px-2 py-1.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                              {category.name}
+                            </div>
+                            {category.subcategories.map((subcategory) => {
+                              const isSelected = selectedFilterTags.includes(subcategory);
+                              return (
+                                <button
+                                  key={subcategory}
+                                  className={`w-full flex items-center gap-2 px-3 py-2 text-sm rounded-md transition-colors ${
+                                    isSelected 
+                                      ? "bg-slate-100 text-slate-900 font-medium" 
+                                      : "text-slate-600 hover:bg-slate-50"
+                                  }`}
+                                  onClick={() => {
+                                    if (isSelected) {
+                                      setSelectedFilterTags(prev => prev.filter(t => t !== subcategory));
+                                    } else {
+                                      setSelectedFilterTags(prev => [...prev, subcategory]);
+                                    }
+                                  }}
+                                  data-testid={`filter-tag-${subcategory}`}
+                                >
+                                  <div className={`w-4 h-4 rounded border flex items-center justify-center ${
+                                    isSelected ? "bg-primary border-primary" : "border-slate-300"
+                                  }`}>
+                                    {isSelected && <Check className="w-3 h-3 text-white" />}
+                                  </div>
+                                  <span className="truncate">{subcategory}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        ))}
                       </div>
                     </PopoverContent>
                   </Popover>

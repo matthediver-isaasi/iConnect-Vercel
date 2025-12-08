@@ -120,20 +120,26 @@ export default function EventsPage({
     }
   });
 
-  // Query for categories that apply to Events content type
-  const { data: filterTagOptions = [] } = useQuery({
+  // Query for categories that apply to Events content type - return full categories with subcategories
+  const { data: eventCategories = [] } = useQuery({
     queryKey: ['event-filter-categories'],
     queryFn: async () => {
       try {
         // Get all active categories that have 'Events' in their applies_to_content_types
         const categories = await base44.entities.ResourceCategory.list('display_order');
-        const eventCategories = categories.filter(cat => 
+        const filtered = categories.filter(cat => 
           cat.is_active && 
           Array.isArray(cat.applies_to_content_types) && 
-          cat.applies_to_content_types.includes('Events')
+          cat.applies_to_content_types.includes('Events') &&
+          Array.isArray(cat.subcategories) &&
+          cat.subcategories.length > 0
         );
-        // Return the category names as filter options
-        return eventCategories.map(cat => cat.name);
+        // Return full category objects with id, name, and subcategories
+        return filtered.map(cat => ({
+          id: cat.id,
+          name: cat.name,
+          subcategories: cat.subcategories || []
+        }));
       } catch (error) {
         console.error('[Events] Error loading filter categories:', error);
         return [];
@@ -353,10 +359,10 @@ export default function EventsPage({
             </div>
             
             {/* Filter Dropdowns Row */}
-            {(filterTagOptions.length > 0 || eventTypes.length > 0) && (
+            {(eventCategories.length > 0 || eventTypes.length > 0) && (
               <div className="flex flex-wrap gap-2 mt-4">
-                {/* Filter Tags - Multi-select */}
-                {filterTagOptions.length > 0 && (
+                {/* Filter Tags - Multi-select with grouped subcategories */}
+                {eventCategories.length > 0 && (
                   <Popover>
                     <PopoverTrigger asChild>
                       <Button 
@@ -371,7 +377,7 @@ export default function EventsPage({
                           ) : selectedFilterTags.length === 1 ? (
                             <span className="truncate max-w-[200px]">{selectedFilterTags[0]}</span>
                           ) : (
-                            <span>{selectedFilterTags.length} categories</span>
+                            <span>{selectedFilterTags.length} selected</span>
                           )}
                         </div>
                         <div className="flex items-center gap-1">
@@ -384,7 +390,7 @@ export default function EventsPage({
                         </div>
                       </Button>
                     </PopoverTrigger>
-                    <PopoverContent className="w-64 p-0" align="start">
+                    <PopoverContent className="w-72 p-0" align="start">
                       <div className="p-2 border-b border-slate-100">
                         <div className="flex items-center justify-between">
                           <span className="text-sm font-medium text-slate-700">Filter by category</span>
@@ -401,35 +407,42 @@ export default function EventsPage({
                           )}
                         </div>
                       </div>
-                      <div className="max-h-[280px] overflow-y-auto p-1">
-                        {filterTagOptions.map((tag) => {
-                          const isSelected = selectedFilterTags.includes(tag);
-                          return (
-                            <button
-                              key={tag}
-                              className={`w-full flex items-center gap-2 px-2 py-2 text-sm rounded-md transition-colors ${
-                                isSelected 
-                                  ? "bg-slate-100 text-slate-900 font-medium" 
-                                  : "text-slate-600 hover:bg-slate-50"
-                              }`}
-                              onClick={() => {
-                                if (isSelected) {
-                                  setSelectedFilterTags(prev => prev.filter(t => t !== tag));
-                                } else {
-                                  setSelectedFilterTags(prev => [...prev, tag]);
-                                }
-                              }}
-                              data-testid={`filter-tag-${tag}`}
-                            >
-                              <div className={`w-4 h-4 rounded border flex items-center justify-center ${
-                                isSelected ? "bg-primary border-primary" : "border-slate-300"
-                              }`}>
-                                {isSelected && <Check className="w-3 h-3 text-white" />}
-                              </div>
-                              <span className="truncate">{tag}</span>
-                            </button>
-                          );
-                        })}
+                      <div className="max-h-[320px] overflow-y-auto p-1">
+                        {eventCategories.map((category) => (
+                          <div key={category.id} className="mb-2">
+                            <div className="px-2 py-1.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                              {category.name}
+                            </div>
+                            {category.subcategories.map((subcategory) => {
+                              const isSelected = selectedFilterTags.includes(subcategory);
+                              return (
+                                <button
+                                  key={subcategory}
+                                  className={`w-full flex items-center gap-2 px-3 py-2 text-sm rounded-md transition-colors ${
+                                    isSelected 
+                                      ? "bg-slate-100 text-slate-900 font-medium" 
+                                      : "text-slate-600 hover:bg-slate-50"
+                                  }`}
+                                  onClick={() => {
+                                    if (isSelected) {
+                                      setSelectedFilterTags(prev => prev.filter(t => t !== subcategory));
+                                    } else {
+                                      setSelectedFilterTags(prev => [...prev, subcategory]);
+                                    }
+                                  }}
+                                  data-testid={`filter-tag-${subcategory}`}
+                                >
+                                  <div className={`w-4 h-4 rounded border flex items-center justify-center ${
+                                    isSelected ? "bg-primary border-primary" : "border-slate-300"
+                                  }`}>
+                                    {isSelected && <Check className="w-3 h-3 text-white" />}
+                                  </div>
+                                  <span className="truncate">{subcategory}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        ))}
                       </div>
                     </PopoverContent>
                   </Popover>
