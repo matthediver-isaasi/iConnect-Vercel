@@ -82,9 +82,56 @@ export default function IEditTwoColumnElement({ content, variant, settings }) {
     textAlign: content?.[`${side}_content_align`] || 'left'
   });
 
+  const getImageStyle = (side) => {
+    const styles = {
+      objectFit: content?.[`${side}_image_fit`] || 'cover',
+      maxHeight: '400px'
+    };
+    
+    // Border styles
+    if (content?.[`${side}_image_border_enabled`]) {
+      styles.borderWidth = `${content?.[`${side}_image_border_width`] || 2}px`;
+      styles.borderStyle = 'solid';
+      styles.borderColor = content?.[`${side}_image_border_color`] || '#e2e8f0';
+    }
+    
+    // Border radius
+    const borderRadius = content?.[`${side}_image_border_radius`];
+    if (borderRadius !== undefined) {
+      styles.borderRadius = `${borderRadius}px`;
+    }
+    
+    // Drop shadow
+    if (content?.[`${side}_image_shadow_enabled`]) {
+      const shadowSize = content?.[`${side}_image_shadow_size`] || 'medium';
+      const shadowColor = content?.[`${side}_image_shadow_color`] || 'rgba(0,0,0,0.15)';
+      const shadows = {
+        small: `0 2px 4px ${shadowColor}`,
+        medium: `0 4px 12px ${shadowColor}`,
+        large: `0 8px 24px ${shadowColor}`,
+        xl: `0 12px 40px ${shadowColor}`
+      };
+      styles.boxShadow = shadows[shadowSize] || shadows.medium;
+    }
+    
+    return styles;
+  };
+
+  const getImageContainerStyle = (side) => {
+    const alignment = content?.[`${side}_image_align`] || 'left';
+    const alignments = {
+      left: 'flex-start',
+      center: 'center',
+      right: 'flex-end'
+    };
+    return {
+      display: 'flex',
+      justifyContent: alignments[alignment] || 'flex-start'
+    };
+  };
+
   const renderColumn = (side, heading, columnContent) => {
     const imageUrl = content?.[`${side}_image_url`];
-    const imageFit = content?.[`${side}_image_fit`] || 'cover';
     const imagePosition = content?.[`${side}_image_position`] || 'above';
 
     const headingElement = heading && (
@@ -102,12 +149,12 @@ export default function IEditTwoColumnElement({ content, variant, settings }) {
     );
 
     const imageElement = imageUrl && (
-      <div className="mb-4">
+      <div className="mb-4" style={getImageContainerStyle(side)}>
         <img 
           src={imageUrl} 
           alt="" 
-          className="w-full rounded-lg"
-          style={{ objectFit: imageFit, maxHeight: '400px' }}
+          className="max-w-full"
+          style={getImageStyle(side)}
         />
       </div>
     );
@@ -424,6 +471,123 @@ export function IEditTwoColumnElementEditor({ element, onChange }) {
                     <option value="above">Above text</option>
                     <option value="below">Below text</option>
                   </select>
+                </div>
+
+                <AlignmentButtons 
+                  value={content[`${side}_image_align`] || 'left'} 
+                  onChange={(val) => updateContent(`${side}_image_align`, val)}
+                  label="Image Alignment"
+                  testIdPrefix={`twocol-${side}-image-align`}
+                />
+
+                {/* Image Effects */}
+                <div className="border-t pt-3 mt-3">
+                  <h6 className="font-medium text-xs text-slate-600 mb-3">Image Effects</h6>
+                  
+                  {/* Border Radius */}
+                  <div className="mb-3">
+                    <Label className="text-xs">Border Radius: {content[`${side}_image_border_radius`] ?? 8}px</Label>
+                    <input
+                      type="range"
+                      min="0"
+                      max="50"
+                      value={content[`${side}_image_border_radius`] ?? 8}
+                      onChange={(e) => updateContent(`${side}_image_border_radius`, parseInt(e.target.value))}
+                      className="w-full"
+                    />
+                  </div>
+
+                  {/* Border */}
+                  <div className="mb-3 p-3 bg-slate-50 rounded-md">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={content[`${side}_image_border_enabled`] || false}
+                        onChange={(e) => updateContent(`${side}_image_border_enabled`, e.target.checked)}
+                        className="rounded border-slate-300"
+                      />
+                      <span className="text-xs font-medium">Enable Border</span>
+                    </label>
+                    
+                    {content[`${side}_image_border_enabled`] && (
+                      <div className="mt-3 space-y-2">
+                        <div className="flex gap-2 items-center">
+                          <Label className="text-xs w-16">Color</Label>
+                          <input
+                            type="color"
+                            value={content[`${side}_image_border_color`] || '#e2e8f0'}
+                            onChange={(e) => updateContent(`${side}_image_border_color`, e.target.value)}
+                            className="w-10 h-8 px-1 py-1 border border-slate-300 rounded cursor-pointer"
+                          />
+                          <Input
+                            value={content[`${side}_image_border_color`] || '#e2e8f0'}
+                            onChange={(e) => updateContent(`${side}_image_border_color`, e.target.value)}
+                            className="flex-1 font-mono text-xs h-8"
+                          />
+                        </div>
+                        <div className="flex gap-2 items-center">
+                          <Label className="text-xs w-16">Width</Label>
+                          <select
+                            value={content[`${side}_image_border_width`] || 2}
+                            onChange={(e) => updateContent(`${side}_image_border_width`, parseInt(e.target.value))}
+                            className="flex-1 px-2 py-1 border border-slate-300 rounded-md text-xs"
+                          >
+                            <option value="1">1px - Thin</option>
+                            <option value="2">2px - Normal</option>
+                            <option value="3">3px - Medium</option>
+                            <option value="4">4px - Thick</option>
+                            <option value="6">6px - Extra Thick</option>
+                          </select>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Drop Shadow */}
+                  <div className="p-3 bg-slate-50 rounded-md">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={content[`${side}_image_shadow_enabled`] || false}
+                        onChange={(e) => updateContent(`${side}_image_shadow_enabled`, e.target.checked)}
+                        className="rounded border-slate-300"
+                      />
+                      <span className="text-xs font-medium">Enable Drop Shadow</span>
+                    </label>
+                    
+                    {content[`${side}_image_shadow_enabled`] && (
+                      <div className="mt-3 space-y-2">
+                        <div>
+                          <Label className="text-xs">Shadow Size</Label>
+                          <select
+                            value={content[`${side}_image_shadow_size`] || 'medium'}
+                            onChange={(e) => updateContent(`${side}_image_shadow_size`, e.target.value)}
+                            className="w-full px-2 py-1 border border-slate-300 rounded-md text-xs"
+                          >
+                            <option value="small">Small - Subtle</option>
+                            <option value="medium">Medium - Normal</option>
+                            <option value="large">Large - Prominent</option>
+                            <option value="xl">Extra Large - Dramatic</option>
+                          </select>
+                        </div>
+                        <div className="flex gap-2 items-center">
+                          <Label className="text-xs w-16">Color</Label>
+                          <select
+                            value={content[`${side}_image_shadow_color`] || 'rgba(0,0,0,0.15)'}
+                            onChange={(e) => updateContent(`${side}_image_shadow_color`, e.target.value)}
+                            className="flex-1 px-2 py-1 border border-slate-300 rounded-md text-xs"
+                          >
+                            <option value="rgba(0,0,0,0.1)">Light Gray</option>
+                            <option value="rgba(0,0,0,0.15)">Medium Gray</option>
+                            <option value="rgba(0,0,0,0.25)">Dark Gray</option>
+                            <option value="rgba(0,0,0,0.4)">Very Dark</option>
+                            <option value="rgba(59,130,246,0.3)">Blue Tint</option>
+                            <option value="rgba(139,92,246,0.3)">Purple Tint</option>
+                          </select>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </>
             )}
