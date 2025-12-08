@@ -24,14 +24,46 @@ import {
 } from "lucide-react";
 
 export default function IEditImageElement({ content, variant, settings }) {
-  const variants = {
-    default: "rounded-lg",
-    rounded: "rounded-2xl",
-    circle: "rounded-full",
-    none: "",
+  const getImageStyles = () => {
+    const styles = {};
+    
+    // Border radius
+    const borderRadius = content?.border_radius;
+    if (borderRadius !== undefined) {
+      styles.borderRadius = `${borderRadius}px`;
+    } else {
+      // Default variant-based border radius
+      const variantRadii = {
+        default: '8px',
+        rounded: '16px',
+        circle: '50%',
+        none: '0',
+      };
+      styles.borderRadius = variantRadii[variant] || variantRadii.default;
+    }
+    
+    // Border styles
+    if (content?.border_enabled) {
+      styles.borderWidth = `${content?.border_width || 2}px`;
+      styles.borderStyle = 'solid';
+      styles.borderColor = content?.border_color || '#e2e8f0';
+    }
+    
+    // Drop shadow
+    if (content?.shadow_enabled) {
+      const shadowSize = content?.shadow_size || 'medium';
+      const shadowColor = content?.shadow_color || 'rgba(0,0,0,0.15)';
+      const shadows = {
+        small: `0 2px 4px ${shadowColor}`,
+        medium: `0 4px 12px ${shadowColor}`,
+        large: `0 8px 24px ${shadowColor}`,
+        xl: `0 12px 40px ${shadowColor}`
+      };
+      styles.boxShadow = shadows[shadowSize] || shadows.medium;
+    }
+    
+    return styles;
   };
-
-  const borderClass = variants[variant] || variants.default;
 
   if (!content.imageUrl) {
     return (
@@ -46,7 +78,8 @@ export default function IEditImageElement({ content, variant, settings }) {
       <img
         src={content.imageUrl}
         alt={content.altText || ""}
-        className={`w-full h-auto object-cover ${borderClass}`}
+        className="w-full h-auto object-cover"
+        style={getImageStyles()}
       />
       {content.caption && (
         <p className="text-sm text-slate-600 mt-2 text-center italic">
@@ -62,7 +95,8 @@ export function IEditImageElementEditor({ element, onChange }) {
   
   const [expandedSections, setExpandedSections] = useState({
     image: true,
-    details: false
+    details: false,
+    effects: false
   });
   const [isUploading, setIsUploading] = useState(false);
   const [showFileSelector, setShowFileSelector] = useState(false);
@@ -445,6 +479,138 @@ export function IEditImageElementEditor({ element, onChange }) {
                 placeholder="Optional caption displayed below the image..."
                 data-testid="input-caption"
               />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Image Effects Section */}
+      <div className="border rounded-lg overflow-hidden">
+        <button
+          type="button"
+          onClick={() => toggleSection('effects')}
+          className="w-full flex items-center justify-between p-3 bg-slate-100 hover:bg-slate-200 text-left"
+          data-testid="accordion-image-effects"
+        >
+          <span className="font-semibold text-sm">Image Effects</span>
+          {expandedSections.effects ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+        </button>
+        
+        {expandedSections.effects && (
+          <div className="p-4 space-y-4">
+            {/* Border Radius */}
+            <div>
+              <Label className="text-sm font-medium mb-1 block">
+                Border Radius: {content.border_radius ?? 8}px
+              </Label>
+              <input
+                type="range"
+                min="0"
+                max="50"
+                value={content.border_radius ?? 8}
+                onChange={(e) => updateContent('border_radius', parseInt(e.target.value))}
+                className="w-full"
+                data-testid="slider-border-radius"
+              />
+            </div>
+
+            {/* Border */}
+            <div className="p-3 bg-slate-50 rounded-md">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={content.border_enabled || false}
+                  onChange={(e) => updateContent('border_enabled', e.target.checked)}
+                  className="rounded border-slate-300"
+                  data-testid="checkbox-border-enabled"
+                />
+                <span className="text-sm font-medium">Enable Border</span>
+              </label>
+              
+              {content.border_enabled && (
+                <div className="mt-3 space-y-3">
+                  <div className="flex gap-2 items-center">
+                    <Label className="text-xs w-16">Color</Label>
+                    <input
+                      type="color"
+                      value={content.border_color || '#e2e8f0'}
+                      onChange={(e) => updateContent('border_color', e.target.value)}
+                      className="w-10 h-8 px-1 py-1 border border-slate-300 rounded cursor-pointer"
+                      data-testid="input-border-color"
+                    />
+                    <Input
+                      value={content.border_color || '#e2e8f0'}
+                      onChange={(e) => updateContent('border_color', e.target.value)}
+                      className="flex-1 font-mono text-xs h-8"
+                    />
+                  </div>
+                  <div className="flex gap-2 items-center">
+                    <Label className="text-xs w-16">Width</Label>
+                    <select
+                      value={content.border_width || 2}
+                      onChange={(e) => updateContent('border_width', parseInt(e.target.value))}
+                      className="flex-1 px-2 py-1 border border-slate-300 rounded-md text-sm"
+                      data-testid="select-border-width"
+                    >
+                      <option value={1}>1px - Thin</option>
+                      <option value={2}>2px - Normal</option>
+                      <option value={3}>3px - Medium</option>
+                      <option value={4}>4px - Thick</option>
+                      <option value={5}>5px - Heavy</option>
+                      <option value={6}>6px - Extra Heavy</option>
+                    </select>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Drop Shadow */}
+            <div className="p-3 bg-slate-50 rounded-md">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={content.shadow_enabled || false}
+                  onChange={(e) => updateContent('shadow_enabled', e.target.checked)}
+                  className="rounded border-slate-300"
+                  data-testid="checkbox-shadow-enabled"
+                />
+                <span className="text-sm font-medium">Enable Drop Shadow</span>
+              </label>
+              
+              {content.shadow_enabled && (
+                <div className="mt-3 space-y-3">
+                  <div>
+                    <Label className="text-xs mb-1 block">Shadow Size</Label>
+                    <select
+                      value={content.shadow_size || 'medium'}
+                      onChange={(e) => updateContent('shadow_size', e.target.value)}
+                      className="w-full px-2 py-1 border border-slate-300 rounded-md text-sm"
+                      data-testid="select-shadow-size"
+                    >
+                      <option value="small">Small - Subtle</option>
+                      <option value="medium">Medium - Normal</option>
+                      <option value="large">Large - Prominent</option>
+                      <option value="xl">Extra Large - Dramatic</option>
+                    </select>
+                  </div>
+                  <div className="flex gap-2 items-center">
+                    <Label className="text-xs w-16">Color</Label>
+                    <select
+                      value={content.shadow_color || 'rgba(0,0,0,0.15)'}
+                      onChange={(e) => updateContent('shadow_color', e.target.value)}
+                      className="flex-1 px-2 py-1 border border-slate-300 rounded-md text-sm"
+                      data-testid="select-shadow-color"
+                    >
+                      <option value="rgba(0,0,0,0.1)">Light Gray</option>
+                      <option value="rgba(0,0,0,0.15)">Medium Gray</option>
+                      <option value="rgba(0,0,0,0.25)">Dark Gray</option>
+                      <option value="rgba(0,0,0,0.4)">Very Dark</option>
+                      <option value="rgba(59,130,246,0.3)">Blue Tint</option>
+                      <option value="rgba(139,92,246,0.3)">Purple Tint</option>
+                    </select>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
