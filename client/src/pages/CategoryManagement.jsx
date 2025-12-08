@@ -19,7 +19,8 @@ import { createPageUrl } from "@/utils";
 const CONTENT_TYPE_OPTIONS = [
   { value: 'Articles', label: 'Articles' },
   { value: 'Resources', label: 'Resources' },
-  { value: 'News', label: 'News' }
+  { value: 'News', label: 'News' },
+  { value: 'Events', label: 'Events' }
 ];
 
 export default function CategoryManagementPage() {

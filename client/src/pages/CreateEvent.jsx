@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -158,23 +158,22 @@ export default function CreateEvent() {
     queryFn: () => base44.entities.Speaker.list({ filter: { is_active: true }, sort: { full_name: 'asc' } })
   });
 
-  // Fetch system settings to get event filter category ID
-  const { data: systemSettings = [] } = useQuery({
-    queryKey: ['/api/entities/SystemSettings'],
-    queryFn: () => base44.entities.SystemSettings.list()
-  });
-
   // Fetch resource categories for filter tag selection
   const { data: resourceCategories = [] } = useQuery({
     queryKey: ['/api/entities/ResourceCategory'],
     queryFn: () => base44.entities.ResourceCategory.list('display_order')
   });
 
-  // Get the configured filter category and its subcategories
-  // Note: SystemSetting values are strings, so we need to compare as strings
-  const eventFilterCategoryId = systemSettings.find(s => s.setting_key === 'event_filter_category_id')?.setting_value || '';
-  const filterCategory = resourceCategories.find(c => String(c.id) === eventFilterCategoryId);
-  const availableFilterTags = filterCategory?.subcategories || [];
+  // Get categories that have 'Events' in their applies_to_content_types
+  const availableFilterTags = useMemo(() => {
+    return resourceCategories
+      .filter(cat => 
+        cat.is_active && 
+        Array.isArray(cat.applies_to_content_types) && 
+        cat.applies_to_content_types.includes('Events')
+      )
+      .map(cat => cat.name);
+  }, [resourceCategories]);
 
   // Selected speakers state
   const [selectedSpeakers, setSelectedSpeakers] = useState([]);
@@ -443,8 +442,8 @@ export default function CreateEvent() {
       image_url: formData.image_url || null,
       available_seats: isOnline ? null : (formData.available_seats ? parseInt(formData.available_seats) : null),
       zoom_webinar_id: isOnline && selectedWebinarId ? selectedWebinarId : null,
-      speaker_ids: selectedSpeakers.length > 0 ? selectedSpeakers : []
-      // Note: filter_tags column does not exist in Supabase event table
+      speaker_ids: selectedSpeakers.length > 0 ? selectedSpeakers : [],
+      filter_tags: selectedFilterTags.length > 0 ? selectedFilterTags : []
     };
 
     // Add ticket classes for one-off events as JSON in pricing_config field

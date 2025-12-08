@@ -120,28 +120,22 @@ export default function EventsPage({
     }
   });
 
-  // Query for event filter category setting and its subcategories
+  // Query for categories that apply to Events content type
   const { data: filterTagOptions = [] } = useQuery({
-    queryKey: ['event-filter-tags'],
+    queryKey: ['event-filter-categories'],
     queryFn: async () => {
       try {
-        // Get the system setting for which category to use
-        const allSettings = await base44.entities.SystemSettings.list();
-        const setting = allSettings.find(s => s.setting_key === 'event_filter_category_id');
-        if (!setting || !setting.setting_value) {
-          return [];
-        }
-        const categoryId = setting.setting_value;
-        
-        // Get the resource category to get its subcategories
-        const categories = await base44.entities.ResourceCategory.list();
-        const category = categories.find(c => String(c.id) === categoryId);
-        if (!category || !category.subcategories || !Array.isArray(category.subcategories)) {
-          return [];
-        }
-        return category.subcategories;
+        // Get all active categories that have 'Events' in their applies_to_content_types
+        const categories = await base44.entities.ResourceCategory.list('display_order');
+        const eventCategories = categories.filter(cat => 
+          cat.is_active && 
+          Array.isArray(cat.applies_to_content_types) && 
+          cat.applies_to_content_types.includes('Events')
+        );
+        // Return the category names as filter options
+        return eventCategories.map(cat => cat.name);
       } catch (error) {
-        console.error('[Events] Error loading filter tag options:', error);
+        console.error('[Events] Error loading filter categories:', error);
         return [];
       }
     }

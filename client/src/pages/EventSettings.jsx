@@ -23,7 +23,6 @@ export default function EventSettingsPage() {
   const [accessChecked, setAccessChecked] = useState(false);
   const [cancellationDeadlineHours, setCancellationDeadlineHours] = useState(24);
   const [xeroInvoiceEnabled, setXeroInvoiceEnabled] = useState(false);
-  const [eventFilterCategoryId, setEventFilterCategoryId] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [editingEventImage, setEditingEventImage] = useState(null);
   const [selectedImage, setSelectedImage] = useState(null);
@@ -99,13 +98,6 @@ export default function EventSettingsPage() {
     refetchOnMount: true,
   });
 
-  // Fetch resource categories for event filter selection
-  const { data: resourceCategories = [] } = useQuery({
-    queryKey: ['resource-categories'],
-    queryFn: () => base44.entities.ResourceCategory.list('display_order'),
-    staleTime: 0,
-  });
-
   // Load current setting values
   useEffect(() => {
     const deadlineSetting = settings.find(s => s.setting_key === 'cancellation_deadline_hours');
@@ -116,11 +108,6 @@ export default function EventSettingsPage() {
     const xeroSetting = settings.find(s => s.setting_key === 'xero_invoice_enabled');
     if (xeroSetting) {
       setXeroInvoiceEnabled(xeroSetting.setting_value === 'true');
-    }
-    
-    const filterCategorySetting = settings.find(s => s.setting_key === 'event_filter_category_id');
-    if (filterCategorySetting) {
-      setEventFilterCategoryId(filterCategorySetting.setting_value || "");
     }
     
     // Load event types
@@ -178,22 +165,6 @@ export default function EventSettingsPage() {
           setting_key: 'xero_invoice_enabled',
           setting_value: xeroInvoiceEnabled.toString(),
           description: 'Enable or disable Xero invoice generation for program ticket purchases'
-        });
-      }
-      
-      // Save event filter category setting
-      const filterCategorySetting = settings.find(s => s.setting_key === 'event_filter_category_id');
-      
-      if (filterCategorySetting) {
-        await base44.entities.SystemSettings.update(filterCategorySetting.id, {
-          setting_value: eventFilterCategoryId,
-          description: 'Category used for event filtering (subcategories become filter options)'
-        });
-      } else {
-        await base44.entities.SystemSettings.create({
-          setting_key: 'event_filter_category_id',
-          setting_value: eventFilterCategoryId,
-          description: 'Category used for event filtering (subcategories become filter options)'
         });
       }
       
@@ -811,70 +782,6 @@ export default function EventSettingsPage() {
                   Members will not be able to cancel tickets within this timeframe before the event starts.
                   Set to 0 to allow cancellations up until the event start time.
                 </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Event Filter Category Section */}
-        <Card className="border-slate-200 shadow-sm mb-8">
-          <CardHeader className="border-b border-slate-200">
-            <div className="flex items-center gap-2">
-              <Settings className="w-5 h-5 text-purple-600" />
-              <CardTitle>Event Filter Category</CardTitle>
-            </div>
-          </CardHeader>
-          <CardContent className="pt-6">
-            <div className="max-w-2xl space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="event-filter-category">
-                  Select Category for Event Filtering
-                </Label>
-                <div className="flex items-center gap-4">
-                  <Select 
-                    value={eventFilterCategoryId || "_none"} 
-                    onValueChange={(val) => setEventFilterCategoryId(val === "_none" ? "" : val)}
-                  >
-                    <SelectTrigger className="w-64" data-testid="select-event-filter-category">
-                      <SelectValue placeholder="Select a category..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="_none">None</SelectItem>
-                      {resourceCategories
-                        .filter(cat => cat.is_active)
-                        .map((category) => (
-                          <SelectItem key={category.id} value={String(category.id)}>
-                            {category.name} ({(category.subcategories || []).length} subcategories)
-                          </SelectItem>
-                        ))
-                      }
-                    </SelectContent>
-                  </Select>
-                  <Button
-                    onClick={handleSaveSettings}
-                    disabled={isSaving}
-                  >
-                    <Save className="w-4 h-4 mr-2" />
-                    Save
-                  </Button>
-                </div>
-                <p className="text-xs text-slate-500">
-                  Choose which category's subcategories will be available as filter options when creating or editing events.
-                  This allows you to tag events with specific filter values for easier searching and filtering.
-                </p>
-                {eventFilterCategoryId && resourceCategories.find(c => String(c.id) === eventFilterCategoryId) && (
-                  <div className="mt-4 p-3 bg-slate-50 rounded-lg">
-                    <Label className="text-sm font-medium text-slate-700">Available Filter Values:</Label>
-                    <div className="flex flex-wrap gap-2 mt-2">
-                      {(resourceCategories.find(c => String(c.id) === eventFilterCategoryId)?.subcategories || []).map((sub, idx) => (
-                        <Badge key={idx} variant="secondary">{sub}</Badge>
-                      ))}
-                      {(resourceCategories.find(c => String(c.id) === eventFilterCategoryId)?.subcategories || []).length === 0 && (
-                        <span className="text-sm text-slate-500">No subcategories defined for this category</span>
-                      )}
-                    </div>
-                  </div>
-                )}
               </div>
             </div>
           </CardContent>
