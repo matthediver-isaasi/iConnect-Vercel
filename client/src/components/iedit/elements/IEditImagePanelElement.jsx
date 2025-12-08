@@ -89,7 +89,7 @@ export default function IEditImagePanelElement({ content, variant, settings }) {
               <div 
                 className="panel-rich-text-content"
                 style={{ 
-                  fontFamily: panel.header_font_family || 'Poppins',
+                  fontFamily: panel.header_font_family || 'Poppins, sans-serif',
                   fontSize: `${(isMobile && panel.header_font_size_mobile) ? panel.header_font_size_mobile : (panel.header_font_size || 24)}px`,
                   fontWeight: panel.header_font_weight || 600,
                   color: panel.header_color || '#ffffff',
@@ -113,7 +113,7 @@ export default function IEditImagePanelElement({ content, variant, settings }) {
               <div 
                 className="panel-rich-text-content"
                 style={{ 
-                  fontFamily: panel.bottom_font_family || 'Poppins',
+                  fontFamily: panel.bottom_font_family || 'Poppins, sans-serif',
                   fontSize: `${(isMobile && panel.bottom_font_size_mobile) ? panel.bottom_font_size_mobile : (panel.bottom_font_size || 16)}px`,
                   fontWeight: panel.bottom_font_weight || 400,
                   color: panel.bottom_color || '#ffffff',
@@ -410,6 +410,14 @@ export function IEditImagePanelElementEditor({ element, onChange }) {
       setIsUploading(false);
     }
   };
+
+  const AVAILABLE_FONTS = [
+    { value: 'Poppins, sans-serif', label: 'Poppins' },
+    { value: "'Degular Medium', 'Poppins', sans-serif", label: 'Degular Medium' },
+    { value: 'Georgia, serif', label: 'Georgia' },
+    { value: 'Arial, sans-serif', label: 'Arial' },
+    { value: "'Times New Roman', serif", label: 'Times New Roman' }
+  ];
 
   const fontWeights = [
     { value: 300, label: 'Light' },
@@ -874,12 +882,13 @@ export function IEditImagePanelElementEditor({ element, onChange }) {
                         <div>
                           <label className="block text-xs font-medium mb-1">Font</label>
                           <select
-                            value={panel.header_font_family || 'Poppins'}
+                            value={panel.header_font_family || 'Poppins, sans-serif'}
                             onChange={(e) => updatePanel(index, 'header_font_family', e.target.value)}
                             className="w-full px-2 py-1.5 border border-slate-300 rounded-md text-sm"
                           >
-                            <option value="Poppins">Poppins</option>
-                            <option value="Degular Medium">Degular Medium</option>
+                            {AVAILABLE_FONTS.map(font => (
+                              <option key={font.value} value={font.value}>{font.label}</option>
+                            ))}
                           </select>
                         </div>
                         <div>
@@ -992,12 +1001,13 @@ export function IEditImagePanelElementEditor({ element, onChange }) {
                         <div>
                           <label className="block text-xs font-medium mb-1">Font</label>
                           <select
-                            value={panel.bottom_font_family || 'Poppins'}
+                            value={panel.bottom_font_family || 'Poppins, sans-serif'}
                             onChange={(e) => updatePanel(index, 'bottom_font_family', e.target.value)}
                             className="w-full px-2 py-1.5 border border-slate-300 rounded-md text-sm"
                           >
-                            <option value="Poppins">Poppins</option>
-                            <option value="Degular Medium">Degular Medium</option>
+                            {AVAILABLE_FONTS.map(font => (
+                              <option key={font.value} value={font.value}>{font.label}</option>
+                            ))}
                           </select>
                         </div>
                         <div>
