@@ -100,6 +100,39 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     };
   };
 
+  const getFormLabelStyle = () => {
+    const fontSize = content.form_label_font_size || 14;
+    const mobileFontSize = content.form_label_font_size_mobile;
+    
+    return {
+      '--form-label-font-family': content.form_label_font_family || 'Poppins',
+      '--form-label-font-weight': content.form_label_font_weight || 500,
+      '--form-label-font-size': `${(isMobile && mobileFontSize) ? mobileFontSize : fontSize}px`,
+      '--form-label-color': content.form_label_color || '#334155',
+      '--form-label-letter-spacing': `${content.form_label_letter_spacing || 0}px`,
+      '--form-label-line-height': content.form_label_line_height || 1.4
+    };
+  };
+
+  const getFormInputStyle = () => {
+    const fontSize = content.form_input_font_size || 14;
+    const mobileFontSize = content.form_input_font_size_mobile;
+    
+    return {
+      '--form-input-font-family': content.form_input_font_family || 'Poppins',
+      '--form-input-font-weight': content.form_input_font_weight || 400,
+      '--form-input-font-size': `${(isMobile && mobileFontSize) ? mobileFontSize : fontSize}px`,
+      '--form-input-color': content.form_input_color || '#1e293b',
+      '--form-input-letter-spacing': `${content.form_input_letter_spacing || 0}px`,
+      '--form-input-line-height': content.form_input_line_height || 1.5
+    };
+  };
+
+  const formFieldStyles = {
+    ...getFormLabelStyle(),
+    ...getFormInputStyle()
+  };
+
   const getBackgroundStyle = () => {
     if (background_type === 'gradient') {
       return {
@@ -207,7 +240,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
           style={{ maxWidth: `${content_max_width}px` }}
         >
           {renderHeaderSection()}
-          <Card className="border-slate-200">
+          <Card className="border-slate-200 iedit-form-styled" style={formFieldStyles}>
             {(show_form_title || show_form_description) && (
               <CardHeader>
                 {show_form_title && <CardTitle>{form.name}</CardTitle>}
@@ -296,7 +329,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
         style={{ maxWidth: `${content_max_width}px` }}
       >
         {renderHeaderSection()}
-        <Card className="border-slate-200">
+        <Card className="border-slate-200 iedit-form-styled" style={formFieldStyles}>
           {(show_form_title || show_form_description) && (
             <CardHeader>
               {show_form_title && <CardTitle>{form.name}</CardTitle>}
@@ -412,6 +445,7 @@ export function IEditFormElementEditor({ element, onChange }) {
     formSelection: true,
     background: false,
     headerContent: false,
+    formFieldsTypography: false,
     appearance: false
   });
   const [isUploading, setIsUploading] = useState(false);
@@ -1082,6 +1116,257 @@ export function IEditFormElementEditor({ element, onChange }) {
                 />
               </div>
               {renderTypographyControls('text_content', 'Content')}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Form Fields Typography Section */}
+      <div className="border rounded-lg overflow-hidden">
+        <button
+          type="button"
+          onClick={() => toggleSection('formFieldsTypography')}
+          className="w-full flex items-center justify-between p-3 bg-slate-100 hover:bg-slate-200 text-left"
+          data-testid="accordion-form-fields-typography"
+        >
+          <span className="font-semibold text-sm">Form Fields Typography</span>
+          {expandedSections.formFieldsTypography ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+        </button>
+        
+        {expandedSections.formFieldsTypography && (
+          <div className="p-4 space-y-6">
+            {/* Form Labels Typography */}
+            <div className="space-y-3">
+              <h4 className="text-sm font-semibold text-slate-700 border-b pb-2">Question Labels</h4>
+              
+              <TypographyStyleSelector
+                value={content.form_label_typography_style_id || null}
+                onChange={(styleId, style) => {
+                  const updates = { form_label_typography_style_id: styleId };
+                  if (style) {
+                    const mapped = applyTypographyStyle(style);
+                    if (mapped.font_family) updates.form_label_font_family = mapped.font_family;
+                    if (mapped.font_size) updates.form_label_font_size = mapped.font_size;
+                    if (mapped.font_size_mobile) updates.form_label_font_size_mobile = mapped.font_size_mobile;
+                    if (mapped.font_weight) updates.form_label_font_weight = mapped.font_weight;
+                    if (mapped.line_height) updates.form_label_line_height = mapped.line_height;
+                    if (mapped.letter_spacing) updates.form_label_letter_spacing = mapped.letter_spacing;
+                    if (mapped.color) updates.form_label_color = mapped.color;
+                  }
+                  updateMultipleContent(updates);
+                }}
+              />
+
+              <div>
+                <Label className="text-xs mb-1 block">Label Color</Label>
+                <div className="flex gap-2 items-center">
+                  <input
+                    type="color"
+                    value={safeHexColor(content.form_label_color, '#334155')}
+                    onChange={(e) => updateContent('form_label_color', e.target.value)}
+                    className="w-10 h-8 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+                  />
+                  <Input
+                    type="text"
+                    value={content.form_label_color || '#334155'}
+                    onChange={(e) => updateContent('form_label_color', e.target.value)}
+                    className="flex-1 font-mono text-xs h-8"
+                    placeholder="#334155"
+                  />
+                </div>
+              </div>
+              
+              <details className="text-xs">
+                <summary className="cursor-pointer text-slate-500 hover:text-slate-700">Manual Font Settings</summary>
+                <div className="mt-2 space-y-2 pl-2 border-l-2 border-slate-200">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <Label className="text-xs">Font Family</Label>
+                      <select
+                        value={content.form_label_font_family || 'Poppins'}
+                        onChange={(e) => updateContent('form_label_font_family', e.target.value)}
+                        className="w-full px-2 py-1 text-sm border border-slate-300 rounded"
+                      >
+                        {fontFamilies.map(font => (
+                          <option key={font} value={font}>{font}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <Label className="text-xs">Weight</Label>
+                      <select
+                        value={content.form_label_font_weight || 500}
+                        onChange={(e) => updateContent('form_label_font_weight', parseInt(e.target.value))}
+                        className="w-full px-2 py-1 text-sm border border-slate-300 rounded"
+                      >
+                        {fontWeights.map(w => (
+                          <option key={w.value} value={w.value}>{w.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <Label className="text-xs">Size (px)</Label>
+                      <Input
+                        type="number"
+                        value={content.form_label_font_size || 14}
+                        onChange={(e) => updateContent('form_label_font_size', parseInt(e.target.value))}
+                        className="h-8"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Mobile Size (px)</Label>
+                      <Input
+                        type="number"
+                        value={content.form_label_font_size_mobile || ''}
+                        onChange={(e) => updateContent('form_label_font_size_mobile', e.target.value ? parseInt(e.target.value) : null)}
+                        placeholder="Same"
+                        className="h-8"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <Label className="text-xs">Line Height</Label>
+                      <Input
+                        type="number"
+                        step="0.1"
+                        value={content.form_label_line_height || 1.4}
+                        onChange={(e) => updateContent('form_label_line_height', parseFloat(e.target.value))}
+                        className="h-8"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Letter Spacing</Label>
+                      <Input
+                        type="number"
+                        step="0.5"
+                        value={content.form_label_letter_spacing || 0}
+                        onChange={(e) => updateContent('form_label_letter_spacing', parseFloat(e.target.value))}
+                        className="h-8"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </details>
+            </div>
+
+            {/* Form Inputs Typography */}
+            <div className="space-y-3">
+              <h4 className="text-sm font-semibold text-slate-700 border-b pb-2">Input Fields</h4>
+              
+              <TypographyStyleSelector
+                value={content.form_input_typography_style_id || null}
+                onChange={(styleId, style) => {
+                  const updates = { form_input_typography_style_id: styleId };
+                  if (style) {
+                    const mapped = applyTypographyStyle(style);
+                    if (mapped.font_family) updates.form_input_font_family = mapped.font_family;
+                    if (mapped.font_size) updates.form_input_font_size = mapped.font_size;
+                    if (mapped.font_size_mobile) updates.form_input_font_size_mobile = mapped.font_size_mobile;
+                    if (mapped.font_weight) updates.form_input_font_weight = mapped.font_weight;
+                    if (mapped.line_height) updates.form_input_line_height = mapped.line_height;
+                    if (mapped.letter_spacing) updates.form_input_letter_spacing = mapped.letter_spacing;
+                    if (mapped.color) updates.form_input_color = mapped.color;
+                  }
+                  updateMultipleContent(updates);
+                }}
+              />
+
+              <div>
+                <Label className="text-xs mb-1 block">Input Text Color</Label>
+                <div className="flex gap-2 items-center">
+                  <input
+                    type="color"
+                    value={safeHexColor(content.form_input_color, '#1e293b')}
+                    onChange={(e) => updateContent('form_input_color', e.target.value)}
+                    className="w-10 h-8 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+                  />
+                  <Input
+                    type="text"
+                    value={content.form_input_color || '#1e293b'}
+                    onChange={(e) => updateContent('form_input_color', e.target.value)}
+                    className="flex-1 font-mono text-xs h-8"
+                    placeholder="#1e293b"
+                  />
+                </div>
+              </div>
+              
+              <details className="text-xs">
+                <summary className="cursor-pointer text-slate-500 hover:text-slate-700">Manual Font Settings</summary>
+                <div className="mt-2 space-y-2 pl-2 border-l-2 border-slate-200">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <Label className="text-xs">Font Family</Label>
+                      <select
+                        value={content.form_input_font_family || 'Poppins'}
+                        onChange={(e) => updateContent('form_input_font_family', e.target.value)}
+                        className="w-full px-2 py-1 text-sm border border-slate-300 rounded"
+                      >
+                        {fontFamilies.map(font => (
+                          <option key={font} value={font}>{font}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <Label className="text-xs">Weight</Label>
+                      <select
+                        value={content.form_input_font_weight || 400}
+                        onChange={(e) => updateContent('form_input_font_weight', parseInt(e.target.value))}
+                        className="w-full px-2 py-1 text-sm border border-slate-300 rounded"
+                      >
+                        {fontWeights.map(w => (
+                          <option key={w.value} value={w.value}>{w.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <Label className="text-xs">Size (px)</Label>
+                      <Input
+                        type="number"
+                        value={content.form_input_font_size || 14}
+                        onChange={(e) => updateContent('form_input_font_size', parseInt(e.target.value))}
+                        className="h-8"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Mobile Size (px)</Label>
+                      <Input
+                        type="number"
+                        value={content.form_input_font_size_mobile || ''}
+                        onChange={(e) => updateContent('form_input_font_size_mobile', e.target.value ? parseInt(e.target.value) : null)}
+                        placeholder="Same"
+                        className="h-8"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <Label className="text-xs">Line Height</Label>
+                      <Input
+                        type="number"
+                        step="0.1"
+                        value={content.form_input_line_height || 1.5}
+                        onChange={(e) => updateContent('form_input_line_height', parseFloat(e.target.value))}
+                        className="h-8"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Letter Spacing</Label>
+                      <Input
+                        type="number"
+                        step="0.5"
+                        value={content.form_input_letter_spacing || 0}
+                        onChange={(e) => updateContent('form_input_letter_spacing', parseFloat(e.target.value))}
+                        className="h-8"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </details>
             </div>
           </div>
         )}

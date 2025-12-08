@@ -333,6 +333,58 @@
   background: #f8fafc;
 }
 
+/* Form Quill Editor Styles */
+.form-quill-editor .ql-container {
+  min-height: 80px;
+  font-family: inherit;
+}
+
+.form-quill-editor .ql-editor {
+  min-height: 80px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.form-quill-editor .ql-editor.ql-blank::before {
+  font-style: italic;
+  color: #94a3b8;
+}
+
+.form-quill-editor .ql-toolbar {
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+/* IEdit Form Element Custom Typography */
+.iedit-form-styled label {
+  font-family: var(--form-label-font-family, 'Poppins');
+  font-weight: var(--form-label-font-weight, 500);
+  font-size: var(--form-label-font-size, 14px);
+  color: var(--form-label-color, #334155);
+  letter-spacing: var(--form-label-letter-spacing, 0px);
+  line-height: var(--form-label-line-height, 1.4);
+}
+
+.iedit-form-styled input,
+.iedit-form-styled textarea,
+.iedit-form-styled select,
+.iedit-form-styled [data-radix-select-trigger] {
+  font-family: var(--form-input-font-family, 'Poppins');
+  font-weight: var(--form-input-font-weight, 400);
+  font-size: var(--form-input-font-size, 14px);
+  color: var(--form-input-color, #1e293b);
+  letter-spacing: var(--form-input-letter-spacing, 0px);
+  line-height: var(--form-input-line-height, 1.5);
+}
+
+.iedit-form-styled [role="radiogroup"] label,
+.iedit-form-styled .checkbox-label {
+  font-family: var(--form-input-font-family, 'Poppins');
+  font-weight: var(--form-input-font-weight, 400);
+  font-size: var(--form-input-font-size, 14px);
+  color: var(--form-input-color, #1e293b);
+}
+
 /* Accordion Content HTML Rendering */
 .accordion-content-html {
   word-wrap: break-word;
