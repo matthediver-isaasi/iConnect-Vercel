@@ -60,6 +60,8 @@ export default function IEditQuoteElement({ content, variant, settings }) {
     quote_mark_color = '#cbd5e1',
     quote_mark_size = 48,
     quote_mark_opacity = 50,
+    quote_mark_top_image_url,
+    quote_mark_bottom_image_url,
     profile_size = 80,
     profile_border_radius = 50,
     profile_border_color = '#e2e8f0',
@@ -201,28 +203,61 @@ export default function IEditQuoteElement({ content, variant, settings }) {
         </>
       )}
 
-      <div 
-        className="absolute select-none pointer-events-none"
-        style={{ 
-          ...quoteMarkStyle,
-          top: `${box_padding / 2}px`,
-          right: `${box_padding / 2}px`
-        }}
-      >
-        "
-      </div>
+      {quote_mark_top_image_url ? (
+        <img 
+          src={quote_mark_top_image_url}
+          alt="Quote mark"
+          className="absolute select-none pointer-events-none"
+          style={{ 
+            top: `${box_padding / 2}px`,
+            right: `${box_padding / 2}px`,
+            width: `${quote_mark_size}px`,
+            height: `${quote_mark_size}px`,
+            objectFit: 'contain',
+            opacity: quote_mark_opacity / 100
+          }}
+        />
+      ) : (
+        <div 
+          className="absolute select-none pointer-events-none"
+          style={{ 
+            ...quoteMarkStyle,
+            top: `${box_padding / 2}px`,
+            right: `${box_padding / 2}px`
+          }}
+        >
+          "
+        </div>
+      )}
 
-      <div 
-        className="absolute select-none pointer-events-none"
-        style={{ 
-          ...quoteMarkStyle,
-          bottom: `${box_padding / 2}px`,
-          left: `${box_padding / 2}px`,
-          transform: 'rotate(180deg)'
-        }}
-      >
-        "
-      </div>
+      {quote_mark_bottom_image_url ? (
+        <img 
+          src={quote_mark_bottom_image_url}
+          alt="Quote mark"
+          className="absolute select-none pointer-events-none"
+          style={{ 
+            bottom: `${box_padding / 2}px`,
+            left: `${box_padding / 2}px`,
+            width: `${quote_mark_size}px`,
+            height: `${quote_mark_size}px`,
+            objectFit: 'contain',
+            opacity: quote_mark_opacity / 100,
+            transform: 'rotate(180deg)'
+          }}
+        />
+      ) : (
+        <div 
+          className="absolute select-none pointer-events-none"
+          style={{ 
+            ...quoteMarkStyle,
+            bottom: `${box_padding / 2}px`,
+            left: `${box_padding / 2}px`,
+            transform: 'rotate(180deg)'
+          }}
+        >
+          "
+        </div>
+      )}
 
       <div className="relative z-10">
         {layout === 'stacked' ? (
@@ -1095,21 +1130,122 @@ export function IEditQuoteElementEditor({ element, onChange }) {
       <SectionHeader title="Quote Marks" section="quoteMarks" />
       {expandedSections.quoteMarks && (
         <div className="space-y-3 pl-2">
-          <div>
-            <label className="block text-sm font-medium mb-1">Color</label>
-            <div className="flex gap-2 items-center">
-              <input
-                type="color"
-                value={content.quote_mark_color || '#cbd5e1'}
-                onChange={(e) => updateContent('quote_mark_color', e.target.value)}
-                className="w-16 h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
-              />
-              <input
-                type="text"
-                value={content.quote_mark_color || '#cbd5e1'}
-                onChange={(e) => updateContent('quote_mark_color', e.target.value)}
-                className="flex-1 px-3 py-2 border border-slate-300 rounded-md font-mono text-sm"
-              />
+          {/* Custom Quote Mark Images */}
+          <div className="space-y-3 p-3 bg-slate-50 rounded-md">
+            <p className="text-sm font-medium text-slate-700">Custom Quote Mark Images</p>
+            <p className="text-xs text-slate-500">Upload PNG or SVG images to replace the default quote marks</p>
+            
+            {/* Top Right Quote Mark */}
+            <div>
+              <label className="block text-sm font-medium mb-1">Top Right Quote Mark</label>
+              <div className="space-y-2">
+                <label className="inline-block">
+                  <div className={`px-3 py-1.5 rounded-md text-xs font-medium cursor-pointer ${
+                    isUploading['quote_mark_top_image_url']
+                      ? 'bg-slate-300 cursor-not-allowed' 
+                      : 'bg-blue-600 hover:bg-blue-700 text-white'
+                  }`}>
+                    {isUploading['quote_mark_top_image_url'] ? 'Uploading...' : 'Upload Image'}
+                  </div>
+                  <input
+                    type="file"
+                    accept="image/png,image/svg+xml"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) handleImageUpload(file, 'quote_mark_top_image_url');
+                      e.target.value = '';
+                    }}
+                    className="hidden"
+                    disabled={isUploading['quote_mark_top_image_url']}
+                  />
+                </label>
+              </div>
+              {content.quote_mark_top_image_url && (
+                <div className="mt-2 relative inline-block">
+                  <img
+                    src={content.quote_mark_top_image_url}
+                    alt="Top quote mark"
+                    className="w-12 h-12 object-contain bg-slate-100 rounded p-1"
+                  />
+                  <button
+                    onClick={() => updateContent('quote_mark_top_image_url', '')}
+                    className="absolute -top-1 -right-1 p-0.5 bg-red-600 hover:bg-red-700 text-white rounded-full"
+                    type="button"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Bottom Left Quote Mark */}
+            <div>
+              <label className="block text-sm font-medium mb-1">Bottom Left Quote Mark</label>
+              <div className="space-y-2">
+                <label className="inline-block">
+                  <div className={`px-3 py-1.5 rounded-md text-xs font-medium cursor-pointer ${
+                    isUploading['quote_mark_bottom_image_url']
+                      ? 'bg-slate-300 cursor-not-allowed' 
+                      : 'bg-blue-600 hover:bg-blue-700 text-white'
+                  }`}>
+                    {isUploading['quote_mark_bottom_image_url'] ? 'Uploading...' : 'Upload Image'}
+                  </div>
+                  <input
+                    type="file"
+                    accept="image/png,image/svg+xml"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) handleImageUpload(file, 'quote_mark_bottom_image_url');
+                      e.target.value = '';
+                    }}
+                    className="hidden"
+                    disabled={isUploading['quote_mark_bottom_image_url']}
+                  />
+                </label>
+              </div>
+              {content.quote_mark_bottom_image_url && (
+                <div className="mt-2 relative inline-block">
+                  <img
+                    src={content.quote_mark_bottom_image_url}
+                    alt="Bottom quote mark"
+                    className="w-12 h-12 object-contain bg-slate-100 rounded p-1"
+                    style={{ transform: 'rotate(180deg)' }}
+                  />
+                  <button
+                    onClick={() => updateContent('quote_mark_bottom_image_url', '')}
+                    className="absolute -top-1 -right-1 p-0.5 bg-red-600 hover:bg-red-700 text-white rounded-full"
+                    type="button"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Default Quote Mark Styling (shown when no custom images) */}
+          <div className={content.quote_mark_top_image_url && content.quote_mark_bottom_image_url ? 'opacity-50' : ''}>
+            <p className="text-xs text-slate-500 mb-2">
+              {content.quote_mark_top_image_url || content.quote_mark_bottom_image_url 
+                ? 'Color applies to quote marks without custom images' 
+                : 'Default quote mark styling'}
+            </p>
+            <div>
+              <label className="block text-sm font-medium mb-1">Color</label>
+              <div className="flex gap-2 items-center">
+                <input
+                  type="color"
+                  value={content.quote_mark_color || '#cbd5e1'}
+                  onChange={(e) => updateContent('quote_mark_color', e.target.value)}
+                  className="w-16 h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+                />
+                <input
+                  type="text"
+                  value={content.quote_mark_color || '#cbd5e1'}
+                  onChange={(e) => updateContent('quote_mark_color', e.target.value)}
+                  className="flex-1 px-3 py-2 border border-slate-300 rounded-md font-mono text-sm"
+                />
+              </div>
             </div>
           </div>
 
