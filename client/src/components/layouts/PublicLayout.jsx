@@ -201,7 +201,7 @@ export default function PublicLayout({ children, currentPageName }) {
           <div className="max-w-7xl mx-auto px-4 py-16">
             <div className="grid md:grid-cols-3 gap-12">
               
-              {/* Left Column - Become a Member */}
+              {/* Left Column - Become a Member & Newsletter */}
               <div className="flex flex-col justify-start">
                 <h2 
                   className="text-3xl text-white mb-8"
@@ -221,6 +221,26 @@ export default function PublicLayout({ children, currentPageName }) {
                     <ArrowUpRight className="ml-0.5 w-5 h-5" strokeWidth={2.5} />
                   </Button>
                 </Link>
+
+                {/* Newsletter Signup */}
+                <h2 
+                  className="text-3xl text-white mb-8 mt-12"
+                  style={{ fontFamily: "'Degular Medium', sans-serif" }}
+                >
+                  Signup to our newsletter
+                </h2>
+                <Button 
+                  onClick={() => setShowNewsletterDialog(true)}
+                  className="text-white font-bold hover:opacity-90 transition-opacity px-6 py-5 rounded-none" 
+                  style={{ 
+                    fontFamily: 'Poppins, sans-serif',
+                    background: 'linear-gradient(to top right, #5C0085, #BA0087, #EE00C3, #FF4229, #FFB000)'
+                  }}
+                  data-testid="button-newsletter-signup"
+                >
+                  Signup
+                  <ArrowUpRight className="ml-0.5 w-5 h-5" strokeWidth={2.5} />
+                </Button>
               </div>
 
               {/* Middle Column - Address & Contact */}
