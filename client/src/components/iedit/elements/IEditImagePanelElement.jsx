@@ -2,6 +2,19 @@ import { useState, useEffect } from "react";
 import AGCASButton from "../../ui/AGCASButton";
 import TypographyStyleSelector, { applyTypographyStyle } from "../TypographyStyleSelector";
 import { useIsMobile } from "@/hooks/use-mobile";
+import ReactQuill from 'react-quill';
+import 'react-quill/dist/quill.snow.css';
+import DOMPurify from 'dompurify';
+import { AlignLeft, AlignCenter, AlignRight, ChevronDown, ChevronUp } from "lucide-react";
+
+const panelQuillModules = {
+  toolbar: [
+    ['bold', 'italic', 'underline'],
+    [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+    ['link'],
+    ['clean']
+  ]
+};
 
 export default function IEditImagePanelElement({ content, variant, settings }) {
   const {
@@ -73,7 +86,8 @@ export default function IEditImagePanelElement({ content, variant, settings }) {
             }}
           >
             {panel.header_text && (
-              <h3 
+              <div 
+                className="panel-rich-text-content"
                 style={{ 
                   fontFamily: panel.header_font_family || 'Poppins',
                   fontSize: `${(isMobile && panel.header_font_size_mobile) ? panel.header_font_size_mobile : (panel.header_font_size || 24)}px`,
@@ -82,12 +96,10 @@ export default function IEditImagePanelElement({ content, variant, settings }) {
                   letterSpacing: `${panel.header_letter_spacing || 0}px`,
                   lineHeight: panel.header_line_height || 1.3,
                   textTransform: panel.header_text_transform || 'none',
-                  margin: 0,
-                  whiteSpace: 'pre-line'
+                  margin: 0
                 }}
-              >
-                {panel.header_text}
-              </h3>
+                dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(panel.header_text) }}
+              />
             )}
           </div>
           
@@ -98,7 +110,8 @@ export default function IEditImagePanelElement({ content, variant, settings }) {
             }}
           >
             {panel.bottom_text && (
-              <p 
+              <div 
+                className="panel-rich-text-content"
                 style={{ 
                   fontFamily: panel.bottom_font_family || 'Poppins',
                   fontSize: `${(isMobile && panel.bottom_font_size_mobile) ? panel.bottom_font_size_mobile : (panel.bottom_font_size || 16)}px`,
@@ -108,12 +121,10 @@ export default function IEditImagePanelElement({ content, variant, settings }) {
                   lineHeight: panel.bottom_line_height || 1.5,
                   textTransform: panel.bottom_text_transform || 'none',
                   margin: 0,
-                  marginBottom: panel.button?.text ? '16px' : 0,
-                  whiteSpace: 'pre-line'
+                  marginBottom: panel.button?.text ? '16px' : 0
                 }}
-              >
-                {panel.bottom_text}
-              </p>
+                dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(panel.bottom_text) }}
+              />
             )}
             
             {panel.button?.text && (
@@ -241,6 +252,42 @@ export function IEditImagePanelElementEditor({ element, onChange }) {
   const [isUploading, setIsUploading] = useState(false);
   const [buttonStyles, setButtonStyles] = useState([]);
   const [expandedPanels, setExpandedPanels] = useState({ 0: true });
+  const [expandedSections, setExpandedSections] = useState({
+    background: false,
+    layout: false,
+    dividers: false,
+    panels: true
+  });
+
+  const toggleSection = (section) => {
+    setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
+  };
+
+  const AlignmentButtons = ({ value, onChange: onAlignChange, label }) => (
+    <div>
+      <label className="block text-xs font-medium mb-1">{label}</label>
+      <div className="flex gap-1">
+        {[
+          { val: 'left', Icon: AlignLeft },
+          { val: 'center', Icon: AlignCenter },
+          { val: 'right', Icon: AlignRight }
+        ].map(({ val, Icon }) => (
+          <button
+            key={val}
+            type="button"
+            onClick={() => onAlignChange(val)}
+            className={`p-2 rounded border ${
+              value === val 
+                ? 'bg-blue-600 text-white border-blue-600' 
+                : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
+            }`}
+          >
+            <Icon className="w-4 h-4" />
+          </button>
+        ))}
+      </div>
+    </div>
+  );
 
   const defaultPanel = {
     header_text: '',
@@ -388,315 +435,352 @@ export function IEditImagePanelElementEditor({ element, onChange }) {
 
   return (
     <div className="space-y-4">
-      <div>
-        <label className="block text-sm font-medium mb-1">Background Type</label>
-        <select
-          value={backgroundType}
-          onChange={(e) => updateContent('background_type', e.target.value)}
-          className="w-full px-3 py-2 border border-slate-300 rounded-md"
+      {/* Background & Layout Section */}
+      <div className="border rounded-lg overflow-hidden">
+        <button
+          type="button"
+          onClick={() => toggleSection('background')}
+          className="w-full flex items-center justify-between p-3 bg-slate-100 hover:bg-slate-200 text-left"
         >
-          <option value="color">Solid Color</option>
-          <option value="gradient">Gradient</option>
-          <option value="image">Image</option>
-        </select>
+          <span className="font-semibold text-sm">Background & Layout</span>
+          {expandedSections.background ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+        </button>
+        
+        {expandedSections.background && (
+          <div className="p-4 space-y-4">
+            <div>
+              <label className="block text-sm font-medium mb-1">Background Type</label>
+              <select
+                value={backgroundType}
+                onChange={(e) => updateContent('background_type', e.target.value)}
+                className="w-full px-3 py-2 border border-slate-300 rounded-md"
+              >
+                <option value="color">Solid Color</option>
+                <option value="gradient">Gradient</option>
+                <option value="image">Image</option>
+              </select>
+            </div>
+
+            {backgroundType === 'color' && (
+              <div>
+                <label className="block text-sm font-medium mb-1">Background Color</label>
+                <div className="flex gap-2 items-center">
+                  <input
+                    type="color"
+                    value={content.background_color || '#1a1a2e'}
+                    onChange={(e) => updateContent('background_color', e.target.value)}
+                    className="w-16 h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+                  />
+                  <input
+                    type="text"
+                    value={content.background_color || '#1a1a2e'}
+                    onChange={(e) => updateContent('background_color', e.target.value)}
+                    className="flex-1 px-3 py-2 border border-slate-300 rounded-md font-mono text-sm"
+                  />
+                </div>
+              </div>
+            )}
+
+            {backgroundType === 'gradient' && (
+              <div className="space-y-3 p-3 bg-slate-50 rounded-md">
+                <div 
+                  className="w-full h-16 rounded-md border border-slate-300"
+                  style={{ background: gradientPreview }}
+                />
+                
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Start Color</label>
+                    <div className="flex gap-2 items-center">
+                      <input
+                        type="color"
+                        value={content.gradient_start_color || '#3b82f6'}
+                        onChange={(e) => updateContent('gradient_start_color', e.target.value)}
+                        className="w-12 h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+                      />
+                      <input
+                        type="text"
+                        value={content.gradient_start_color || '#3b82f6'}
+                        onChange={(e) => updateContent('gradient_start_color', e.target.value)}
+                        className="flex-1 px-2 py-2 border border-slate-300 rounded-md font-mono text-xs"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">End Color</label>
+                    <div className="flex gap-2 items-center">
+                      <input
+                        type="color"
+                        value={content.gradient_end_color || '#8b5cf6'}
+                        onChange={(e) => updateContent('gradient_end_color', e.target.value)}
+                        className="w-12 h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+                      />
+                      <input
+                        type="text"
+                        value={content.gradient_end_color || '#8b5cf6'}
+                        onChange={(e) => updateContent('gradient_end_color', e.target.value)}
+                        className="flex-1 px-2 py-2 border border-slate-300 rounded-md font-mono text-xs"
+                      />
+                    </div>
+                  </div>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium mb-1">Angle: {content.gradient_angle || 135}°</label>
+                  <input
+                    type="range"
+                    min="0"
+                    max="360"
+                    value={content.gradient_angle || 135}
+                    onChange={(e) => updateContent('gradient_angle', parseInt(e.target.value))}
+                    className="w-full"
+                  />
+                </div>
+              </div>
+            )}
+
+            {backgroundType === 'image' && (
+              <>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Background Image</label>
+                  <div className="space-y-2">
+                    <label className="inline-block">
+                      <div className={`px-4 py-2 rounded-md text-sm font-medium cursor-pointer ${
+                        isUploading 
+                          ? 'bg-slate-300 cursor-not-allowed' 
+                          : 'bg-blue-600 hover:bg-blue-700 text-white'
+                      }`}>
+                        {isUploading ? 'Uploading...' : 'Upload Image'}
+                      </div>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleImageUpload(file);
+                          e.target.value = '';
+                        }}
+                        className="hidden"
+                        disabled={isUploading}
+                      />
+                    </label>
+                  </div>
+                  {content.image_url && (
+                    <div className="mt-2 relative">
+                      <img
+                        src={content.image_url}
+                        alt="Preview"
+                        className="w-full h-32 object-cover rounded"
+                        onError={(e) => { e.target.style.display = 'none'; }}
+                      />
+                      <button
+                        onClick={() => updateContent('image_url', '')}
+                        className="absolute bottom-2 right-2 px-2 py-1 bg-red-600 hover:bg-red-700 text-white text-xs rounded"
+                        type="button"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-1">Image Fit</label>
+                  <select
+                    value={content.image_fit || 'cover'}
+                    onChange={(e) => updateContent('image_fit', e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                  >
+                    <option value="cover">Cover (fill, may crop)</option>
+                    <option value="contain">Contain (show all)</option>
+                  </select>
+                </div>
+
+                <div className="space-y-3 p-3 bg-slate-50 rounded-md">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="overlay_enabled"
+                      checked={content.overlay_enabled || false}
+                      onChange={(e) => updateContent('overlay_enabled', e.target.checked)}
+                      className="rounded"
+                    />
+                    <label htmlFor="overlay_enabled" className="text-sm font-medium">Enable Overlay</label>
+                  </div>
+                  
+                  {content.overlay_enabled && (
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-sm font-medium mb-1">Overlay Color</label>
+                        <input
+                          type="color"
+                          value={content.overlay_color || '#000000'}
+                          onChange={(e) => updateContent('overlay_color', e.target.value)}
+                          className="w-full h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium mb-1">Opacity (%)</label>
+                        <input
+                          type="number"
+                          value={content.overlay_opacity || 50}
+                          onChange={(e) => updateContent('overlay_opacity', e.target.value)}
+                          className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                          min="0"
+                          max="100"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+
+            <div>
+              <label className="block text-sm font-medium mb-1">Height Setting</label>
+              <select
+                value={content.height_type || 'custom'}
+                onChange={(e) => updateContent('height_type', e.target.value)}
+                className="w-full px-3 py-2 border border-slate-300 rounded-md"
+              >
+                <option value="custom">Custom Height</option>
+                <option value="image">Match Image Height</option>
+              </select>
+              <p className="text-xs text-slate-500 mt-1">
+                {content.height_type === 'image' 
+                  ? 'Container will size to match the background image height'
+                  : 'Set a minimum height in pixels'}
+              </p>
+            </div>
+
+            {(content.height_type || 'custom') === 'custom' && (
+              <div>
+                <label className="block text-sm font-medium mb-1">Minimum Height (px)</label>
+                <input
+                  type="number"
+                  value={content.min_height || 500}
+                  onChange={(e) => updateContent('min_height', parseInt(e.target.value) || 500)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                  min="200"
+                />
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
-      {backgroundType === 'color' && (
-        <div>
-          <label className="block text-sm font-medium mb-1">Background Color</label>
-          <div className="flex gap-2 items-center">
-            <input
-              type="color"
-              value={content.background_color || '#1a1a2e'}
-              onChange={(e) => updateContent('background_color', e.target.value)}
-              className="w-16 h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
-            />
-            <input
-              type="text"
-              value={content.background_color || '#1a1a2e'}
-              onChange={(e) => updateContent('background_color', e.target.value)}
-              className="flex-1 px-3 py-2 border border-slate-300 rounded-md font-mono text-sm"
-            />
-          </div>
-        </div>
-      )}
-
-      {backgroundType === 'gradient' && (
-        <div className="space-y-3 p-3 bg-slate-50 rounded-md">
-          <div 
-            className="w-full h-16 rounded-md border border-slate-300"
-            style={{ background: gradientPreview }}
-          />
-          
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm font-medium mb-1">Start Color</label>
-              <div className="flex gap-2 items-center">
+      {/* Dividers Section */}
+      <div className="border rounded-lg overflow-hidden">
+        <button
+          type="button"
+          onClick={() => toggleSection('dividers')}
+          className="w-full flex items-center justify-between p-3 bg-slate-100 hover:bg-slate-200 text-left"
+        >
+          <span className="font-semibold text-sm">Vertical Divider Lines</span>
+          {expandedSections.dividers ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+        </button>
+        
+        {expandedSections.dividers && (
+          <div className="p-4">
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label className="block text-sm font-medium mb-1">Color</label>
                 <input
                   type="color"
-                  value={content.gradient_start_color || '#3b82f6'}
-                  onChange={(e) => updateContent('gradient_start_color', e.target.value)}
-                  className="w-12 h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
-                />
-                <input
-                  type="text"
-                  value={content.gradient_start_color || '#3b82f6'}
-                  onChange={(e) => updateContent('gradient_start_color', e.target.value)}
-                  className="flex-1 px-2 py-2 border border-slate-300 rounded-md font-mono text-xs"
+                  value={content.divider_color || '#ffffff'}
+                  onChange={(e) => updateContent('divider_color', e.target.value)}
+                  className="w-full h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
                 />
               </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">End Color</label>
-              <div className="flex gap-2 items-center">
+              <div>
+                <label className="block text-sm font-medium mb-1">Weight (px)</label>
                 <input
-                  type="color"
-                  value={content.gradient_end_color || '#8b5cf6'}
-                  onChange={(e) => updateContent('gradient_end_color', e.target.value)}
-                  className="w-12 h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+                  type="number"
+                  value={content.divider_weight || 1}
+                  onChange={(e) => updateContent('divider_weight', parseInt(e.target.value) || 1)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                  min="1"
+                  max="10"
                 />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Opacity (%)</label>
                 <input
-                  type="text"
-                  value={content.gradient_end_color || '#8b5cf6'}
-                  onChange={(e) => updateContent('gradient_end_color', e.target.value)}
-                  className="flex-1 px-2 py-2 border border-slate-300 rounded-md font-mono text-xs"
+                  type="number"
+                  value={content.divider_opacity || 30}
+                  onChange={(e) => updateContent('divider_opacity', parseInt(e.target.value) || 30)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                  min="0"
+                  max="100"
                 />
               </div>
             </div>
           </div>
-          
-          <div>
-            <label className="block text-sm font-medium mb-1">Angle: {content.gradient_angle || 135}°</label>
-            <input
-              type="range"
-              min="0"
-              max="360"
-              value={content.gradient_angle || 135}
-              onChange={(e) => updateContent('gradient_angle', parseInt(e.target.value))}
-              className="w-full"
-            />
-          </div>
-        </div>
-      )}
+        )}
+      </div>
 
-      {backgroundType === 'image' && (
-        <>
-          <div>
-            <label className="block text-sm font-medium mb-1">Background Image</label>
-            <div className="space-y-2">
-              <label className="inline-block">
-                <div className={`px-4 py-2 rounded-md text-sm font-medium cursor-pointer ${
-                  isUploading 
-                    ? 'bg-slate-300 cursor-not-allowed' 
-                    : 'bg-blue-600 hover:bg-blue-700 text-white'
-                }`}>
-                  {isUploading ? 'Uploading...' : 'Upload Image'}
-                </div>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) handleImageUpload(file);
-                    e.target.value = '';
-                  }}
-                  className="hidden"
-                  disabled={isUploading}
-                />
-              </label>
-            </div>
-            {content.image_url && (
-              <div className="mt-2 relative">
-                <img
-                  src={content.image_url}
-                  alt="Preview"
-                  className="w-full h-32 object-cover rounded"
-                  onError={(e) => { e.target.style.display = 'none'; }}
-                />
+      {/* Panels Section */}
+      <div className="border rounded-lg overflow-hidden">
+        <button
+          type="button"
+          onClick={() => toggleSection('panels')}
+          className="w-full flex items-center justify-between p-3 bg-slate-100 hover:bg-slate-200 text-left"
+        >
+          <span className="font-semibold text-sm">Panels ({panels.length}/5)</span>
+          {expandedSections.panels ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+        </button>
+        
+        {expandedSections.panels && (
+          <div className="p-4 space-y-4">
+            {panels.length < 5 && (
+              <button
+                type="button"
+                onClick={addPanel}
+                className="px-3 py-1 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-md"
+              >
+                + Add Panel
+              </button>
+            )}
+
+            {panels.length === 0 && (
+              <div className="text-center py-6 bg-slate-50 rounded-md">
+                <p className="text-slate-500 mb-3">No panels configured yet</p>
                 <button
-                  onClick={() => updateContent('image_url', '')}
-                  className="absolute bottom-2 right-2 px-2 py-1 bg-red-600 hover:bg-red-700 text-white text-xs rounded"
                   type="button"
+                  onClick={addPanel}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm"
                 >
-                  Remove
+                  Add First Panel
                 </button>
               </div>
             )}
-          </div>
 
-          <div>
-            <label className="block text-sm font-medium mb-1">Image Fit</label>
-            <select
-              value={content.image_fit || 'cover'}
-              onChange={(e) => updateContent('image_fit', e.target.value)}
-              className="w-full px-3 py-2 border border-slate-300 rounded-md"
-            >
-              <option value="cover">Cover (fill, may crop)</option>
-              <option value="contain">Contain (show all)</option>
-            </select>
-          </div>
-
-          <div className="space-y-3 p-3 bg-slate-50 rounded-md">
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                id="overlay_enabled"
-                checked={content.overlay_enabled || false}
-                onChange={(e) => updateContent('overlay_enabled', e.target.checked)}
-                className="rounded"
-              />
-              <label htmlFor="overlay_enabled" className="text-sm font-medium">Enable Overlay</label>
-            </div>
-            
-            {content.overlay_enabled && (
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Overlay Color</label>
-                  <input
-                    type="color"
-                    value={content.overlay_color || '#000000'}
-                    onChange={(e) => updateContent('overlay_color', e.target.value)}
-                    className="w-full h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Opacity (%)</label>
-                  <input
-                    type="number"
-                    value={content.overlay_opacity || 50}
-                    onChange={(e) => updateContent('overlay_opacity', e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-md"
-                    min="0"
-                    max="100"
-                  />
-                </div>
-              </div>
-            )}
-          </div>
-        </>
-      )}
-
-      <div>
-        <label className="block text-sm font-medium mb-1">Height Setting</label>
-        <select
-          value={content.height_type || 'custom'}
-          onChange={(e) => updateContent('height_type', e.target.value)}
-          className="w-full px-3 py-2 border border-slate-300 rounded-md"
-        >
-          <option value="custom">Custom Height</option>
-          <option value="image">Match Image Height</option>
-        </select>
-        <p className="text-xs text-slate-500 mt-1">
-          {content.height_type === 'image' 
-            ? 'Container will size to match the background image height'
-            : 'Set a minimum height in pixels'}
-        </p>
-      </div>
-
-      {(content.height_type || 'custom') === 'custom' && (
-        <div>
-          <label className="block text-sm font-medium mb-1">Minimum Height (px)</label>
-          <input
-            type="number"
-            value={content.min_height || 500}
-            onChange={(e) => updateContent('min_height', parseInt(e.target.value) || 500)}
-            className="w-full px-3 py-2 border border-slate-300 rounded-md"
-            min="200"
-          />
-        </div>
-      )}
-
-
-      <div className="border-t pt-4 mt-4">
-        <h4 className="font-semibold text-slate-900 mb-3">Vertical Divider Lines</h4>
-        <div className="grid grid-cols-3 gap-3">
-          <div>
-            <label className="block text-sm font-medium mb-1">Color</label>
-            <input
-              type="color"
-              value={content.divider_color || '#ffffff'}
-              onChange={(e) => updateContent('divider_color', e.target.value)}
-              className="w-full h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Weight (px)</label>
-            <input
-              type="number"
-              value={content.divider_weight || 1}
-              onChange={(e) => updateContent('divider_weight', parseInt(e.target.value) || 1)}
-              className="w-full px-3 py-2 border border-slate-300 rounded-md"
-              min="1"
-              max="10"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Opacity (%)</label>
-            <input
-              type="number"
-              value={content.divider_opacity || 30}
-              onChange={(e) => updateContent('divider_opacity', parseInt(e.target.value) || 30)}
-              className="w-full px-3 py-2 border border-slate-300 rounded-md"
-              min="0"
-              max="100"
-            />
-          </div>
-        </div>
-      </div>
-
-      <div className="border-t pt-4 mt-4">
-        <div className="flex items-center justify-between mb-3">
-          <h4 className="font-semibold text-slate-900">Panels ({panels.length}/5)</h4>
-          {panels.length < 5 && (
-            <button
-              type="button"
-              onClick={addPanel}
-              className="px-3 py-1 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-md"
-            >
-              + Add Panel
-            </button>
-          )}
-        </div>
-
-        {panels.length === 0 && (
-          <div className="text-center py-6 bg-slate-50 rounded-md">
-            <p className="text-slate-500 mb-3">No panels configured yet</p>
-            <button
-              type="button"
-              onClick={addPanel}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm"
-            >
-              Add First Panel
-            </button>
-          </div>
-        )}
-
-        <div className="space-y-3">
-          {panels.map((panel, index) => (
-            <div key={index} className="border border-slate-200 rounded-md">
-              <div 
-                className="flex items-center justify-between p-3 bg-slate-50 cursor-pointer"
-                onClick={() => togglePanelExpanded(index)}
-              >
-                <span className="font-medium text-sm">
-                  Panel {index + 1}
-                  {panel.header_text && (
-                    <span className="text-slate-500 ml-2">
-                      - {panel.header_text.substring(0, 20)}{panel.header_text.length > 20 ? '...' : ''}
-                    </span>
-                  )}
-                </span>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); removePanel(index); }}
-                    className="px-2 py-1 text-xs bg-red-100 hover:bg-red-200 text-red-700 rounded"
+            <div className="space-y-3">
+              {panels.map((panel, index) => (
+                <div key={index} className="border border-slate-200 rounded-md">
+                  <div 
+                    className="flex items-center justify-between p-3 bg-slate-50 cursor-pointer"
+                    onClick={() => togglePanelExpanded(index)}
                   >
-                    Remove
-                  </button>
-                  <span className="text-slate-400">{expandedPanels[index] ? '▼' : '▶'}</span>
-                </div>
-              </div>
+                    <span className="font-medium text-sm">
+                      Panel {index + 1}
+                      {panel.header_text && (
+                        <span className="text-slate-500 ml-2">
+                          - {String(panel.header_text).replace(/<[^>]*>/g, '').substring(0, 20)}{String(panel.header_text).replace(/<[^>]*>/g, '').length > 20 ? '...' : ''}
+                        </span>
+                      )}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); removePanel(index); }}
+                        className="px-2 py-1 text-xs bg-red-100 hover:bg-red-200 text-red-700 rounded"
+                      >
+                        Remove
+                      </button>
+                      <span className="text-slate-400">{expandedPanels[index] ? '▼' : '▶'}</span>
+                    </div>
+                  </div>
               
               {expandedPanels[index] && (
                 <div className="p-3 space-y-4">
@@ -751,14 +835,22 @@ export function IEditImagePanelElementEditor({ element, onChange }) {
                     <div className="space-y-3">
                       <div>
                         <label className="block text-xs font-medium mb-1">Text</label>
-                        <textarea
-                          value={panel.header_text || ''}
-                          onChange={(e) => updatePanel(index, 'header_text', e.target.value)}
-                          className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
-                          rows={2}
-                          placeholder="Enter header text..."
-                        />
+                        <div className="panel-editor-quill">
+                          <ReactQuill
+                            theme="snow"
+                            value={panel.header_text || ''}
+                            onChange={(value) => updatePanel(index, 'header_text', value)}
+                            modules={panelQuillModules}
+                            placeholder="Enter header text..."
+                          />
+                        </div>
                       </div>
+                      
+                      <AlignmentButtons 
+                        value={panel.header_align || 'left'}
+                        onChange={(val) => updatePanel(index, 'header_align', val)}
+                        label="Alignment"
+                      />
                       
                       <TypographyStyleSelector
                         value={panel.header_typography_style_id}
@@ -852,19 +944,6 @@ export function IEditImagePanelElementEditor({ element, onChange }) {
                         </div>
                         </div>
                       </details>
-                      
-                      <div>
-                        <label className="block text-xs font-medium mb-1">Alignment</label>
-                        <select
-                          value={panel.header_align || 'left'}
-                          onChange={(e) => updatePanel(index, 'header_align', e.target.value)}
-                          className="w-full px-2 py-1.5 border border-slate-300 rounded-md text-sm"
-                        >
-                          <option value="left">Left</option>
-                          <option value="center">Center</option>
-                          <option value="right">Right</option>
-                        </select>
-                      </div>
                     </div>
                   </div>
 
@@ -873,14 +952,22 @@ export function IEditImagePanelElementEditor({ element, onChange }) {
                     <div className="space-y-3">
                       <div>
                         <label className="block text-xs font-medium mb-1">Text</label>
-                        <textarea
-                          value={panel.bottom_text || ''}
-                          onChange={(e) => updatePanel(index, 'bottom_text', e.target.value)}
-                          className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
-                          rows={2}
-                          placeholder="Enter bottom text..."
-                        />
+                        <div className="panel-editor-quill">
+                          <ReactQuill
+                            theme="snow"
+                            value={panel.bottom_text || ''}
+                            onChange={(value) => updatePanel(index, 'bottom_text', value)}
+                            modules={panelQuillModules}
+                            placeholder="Enter bottom text..."
+                          />
+                        </div>
                       </div>
+                      
+                      <AlignmentButtons 
+                        value={panel.bottom_align || 'left'}
+                        onChange={(val) => updatePanel(index, 'bottom_align', val)}
+                        label="Alignment"
+                      />
                       
                       <TypographyStyleSelector
                         value={panel.bottom_typography_style_id}
@@ -974,19 +1061,6 @@ export function IEditImagePanelElementEditor({ element, onChange }) {
                         </div>
                         </div>
                       </details>
-                      
-                      <div>
-                        <label className="block text-xs font-medium mb-1">Alignment</label>
-                        <select
-                          value={panel.bottom_align || 'left'}
-                          onChange={(e) => updatePanel(index, 'bottom_align', e.target.value)}
-                          className="w-full px-2 py-1.5 border border-slate-300 rounded-md text-sm"
-                        >
-                          <option value="left">Left</option>
-                          <option value="center">Center</option>
-                          <option value="right">Right</option>
-                        </select>
-                      </div>
                     </div>
                   </div>
 
@@ -1116,9 +1190,11 @@ export function IEditImagePanelElementEditor({ element, onChange }) {
                   </div>
                 </div>
               )}
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          </div>
+        )}
       </div>
     </div>
   );
