@@ -16,7 +16,7 @@ export default function DraggableEditModal({
   const [position, setPosition] = useState({ x: 100, y: 100 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
-  const [isExpanded, setIsExpanded] = useState(true);
+  const [isExpanded, setIsExpanded] = useState(false);
   const [previewMode, setPreviewMode] = useState('desktop');
   const [isSaving, setIsSaving] = useState(false);
   
