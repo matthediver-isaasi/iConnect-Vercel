@@ -103,12 +103,6 @@ const accordionQuillModules = {
 export function IEditAccordionElementEditor({ element, onChange }) {
   const [isUploading, setIsUploading] = useState(false);
   const [expandedItem, setExpandedItem] = useState(null);
-  const [expandedSections, setExpandedSections] = useState({
-    sectionHeader: true,
-    background: false,
-    accordionStyles: false,
-    accordionItems: true
-  });
   
   // File selector dialog states
   const [showFilePicker, setShowFilePicker] = useState(null); // { itemIndex, linkIndex }
@@ -117,10 +111,6 @@ export function IEditAccordionElementEditor({ element, onChange }) {
   const [fileSelectorSearch, setFileSelectorSearch] = useState('');
   const [fileSelectorPage, setFileSelectorPage] = useState(1);
   const fileSelectorItemsPerPage = 12;
-
-  const toggleSection = (section) => {
-    setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
-  };
 
   const content = element.content || {};
   const backgroundType = content.background_type || 'none';
@@ -248,7 +238,7 @@ export function IEditAccordionElementEditor({ element, onChange }) {
     onChange({
       ...element,
       content: {
-        ...(element.content || {}),
+        ...content,
         [key]: value
       }
     });
@@ -258,7 +248,7 @@ export function IEditAccordionElementEditor({ element, onChange }) {
     onChange({
       ...element,
       content: {
-        ...(element.content || {}),
+        ...content,
         ...updates
       }
     });
@@ -490,166 +480,131 @@ export function IEditAccordionElementEditor({ element, onChange }) {
   const gradientPreview = `linear-gradient(${content.gradient_angle || 135}deg, ${content.gradient_start_color || '#3b82f6'}, ${content.gradient_end_color || '#8b5cf6'})`;
 
   return (
-    <div className="space-y-2">
-      {/* Section 1: Section Header Settings */}
-      <div className="border border-slate-200 rounded-lg overflow-hidden">
-        <button
-          type="button"
-          onClick={() => toggleSection('sectionHeader')}
-          className="w-full flex items-center justify-between p-3 bg-slate-50 hover:bg-slate-100 transition-colors text-left"
-          data-testid="accordion-section-header"
-        >
-          <span className="font-medium text-sm">Section Header</span>
-          <svg 
-            className={`w-4 h-4 transition-transform ${expandedSections.sectionHeader ? 'rotate-180' : ''}`} 
-            fill="none" stroke="currentColor" viewBox="0 0 24 24"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-          </svg>
-        </button>
+    <div className="space-y-4">
+      {/* Section Header Settings */}
+      <div className="border-b pb-4">
+        <h4 className="font-semibold text-sm mb-3">Section Header</h4>
         
-        {expandedSections.sectionHeader && (
-          <div className="p-4 space-y-4 border-t border-slate-200">
-            <div>
-              <Label>Header Title</Label>
-              <Input
-                value={content.header_title || ''}
-                onChange={(e) => updateContent('header_title', e.target.value)}
-                placeholder="e.g., Frequently Asked Questions"
-                data-testid="input-header-title"
-              />
-            </div>
-
-            <div>
-              <Label>Header Subtitle</Label>
-              <Input
-                value={content.header_subtitle || ''}
-                onChange={(e) => updateContent('header_subtitle', e.target.value)}
-                placeholder="Optional subtitle text"
-                data-testid="input-header-subtitle"
-              />
-            </div>
-
-            <TypographyStyleSelector
-              value={content.header_typography_style_id}
-              onChange={(styleId, style) => {
-                const updates = { header_typography_style_id: styleId };
-                if (style) {
-                  const mapped = applyTypographyStyle(style);
-                  if (mapped.font_family) updates.header_font_family = mapped.font_family;
-                  if (mapped.font_size) updates.header_font_size = mapped.font_size;
-                  if (mapped.font_size_mobile) updates.header_font_size_mobile = mapped.font_size_mobile;
-                  if (mapped.font_weight) updates.header_font_weight = mapped.font_weight;
-                  if (mapped.line_height) updates.header_line_height = mapped.line_height;
-                  if (mapped.letter_spacing !== undefined) updates.header_letter_spacing = mapped.letter_spacing;
-                  if (mapped.color) updates.header_color = mapped.color;
-                }
-                updateMultipleContent(updates);
-              }}
-              label="Section Title Typography Style"
+        <div className="space-y-3">
+          <div>
+            <Label>Header Title</Label>
+            <Input
+              value={content.header_title || ''}
+              onChange={(e) => updateContent('header_title', e.target.value)}
+              placeholder="e.g., Frequently Asked Questions"
             />
+          </div>
 
-            <details className="text-xs">
-              <summary className="cursor-pointer text-slate-500 hover:text-slate-700 font-medium">Manual Font Settings</summary>
-              <div className="mt-3 space-y-3">
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <Label>Title Font Family</Label>
-                    <select
-                      value={content.header_font_family || 'Poppins'}
-                      onChange={(e) => updateContent('header_font_family', e.target.value)}
-                      className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
-                      data-testid="select-header-font-family"
-                    >
-                      {fontFamilies.map(font => (
-                        <option key={font} value={font}>{font}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <Label>Title Font Weight</Label>
-                    <select
-                      value={content.header_font_weight || 700}
-                      onChange={(e) => updateContent('header_font_weight', parseInt(e.target.value))}
-                      className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
-                      data-testid="select-header-font-weight"
-                    >
-                      {fontWeights.map(weight => (
-                        <option key={weight.value} value={weight.value}>{weight.label}</option>
-                      ))}
-                    </select>
-                  </div>
+          <div>
+            <Label>Header Subtitle</Label>
+            <Input
+              value={content.header_subtitle || ''}
+              onChange={(e) => updateContent('header_subtitle', e.target.value)}
+              placeholder="Optional subtitle text"
+            />
+          </div>
+
+          <TypographyStyleSelector
+            value={content.header_typography_style_id}
+            onChange={(styleId, style) => {
+              const updates = { header_typography_style_id: styleId };
+              if (style) {
+                const mapped = applyTypographyStyle(style);
+                if (mapped.font_family) updates.header_font_family = mapped.font_family;
+                if (mapped.font_size) updates.header_font_size = mapped.font_size;
+                if (mapped.font_size_mobile) updates.header_font_size_mobile = mapped.font_size_mobile;
+                if (mapped.font_weight) updates.header_font_weight = mapped.font_weight;
+                if (mapped.line_height) updates.header_line_height = mapped.line_height;
+                if (mapped.letter_spacing !== undefined) updates.header_letter_spacing = mapped.letter_spacing;
+                if (mapped.color) updates.header_color = mapped.color;
+              }
+              updateMultipleContent(updates);
+            }}
+            filterTypes={['h1', 'h2', 'h3']}
+            label="Section Title Typography Style"
+          />
+
+          <details className="text-xs">
+            <summary className="cursor-pointer text-slate-500 hover:text-slate-700 font-medium">Manual Font Settings</summary>
+            <div className="mt-3 space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Title Font Family</Label>
+                  <select
+                    value={content.header_font_family || 'Poppins'}
+                    onChange={(e) => updateContent('header_font_family', e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+                  >
+                    {fontFamilies.map(font => (
+                      <option key={font} value={font}>{font}</option>
+                    ))}
+                  </select>
                 </div>
+                <div>
+                  <Label>Title Font Weight</Label>
+                  <select
+                    value={content.header_font_weight || 700}
+                    onChange={(e) => updateContent('header_font_weight', parseInt(e.target.value))}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+                  >
+                    {fontWeights.map(weight => (
+                      <option key={weight.value} value={weight.value}>{weight.label}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
 
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <Label>Title Font Size (px)</Label>
-                    <Input
-                      type="number"
-                      value={content.header_font_size || 32}
-                      onChange={(e) => updateContent('header_font_size', parseInt(e.target.value) || 32)}
-                      min="12"
-                      max="96"
-                      data-testid="input-header-font-size"
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Title Font Size (px)</Label>
+                  <Input
+                    type="number"
+                    value={content.header_font_size || 32}
+                    onChange={(e) => updateContent('header_font_size', parseInt(e.target.value) || 32)}
+                    min="12"
+                    max="96"
+                  />
+                </div>
+                <div>
+                  <Label>Title Color</Label>
+                  <div className="flex gap-2 items-center">
+                    <input
+                      type="color"
+                      value={content.header_color || '#1e293b'}
+                      onChange={(e) => updateContent('header_color', e.target.value)}
+                      className="w-12 h-9 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
                     />
-                  </div>
-                  <div>
-                    <Label>Title Color</Label>
-                    <div className="flex gap-2 items-center">
-                      <input
-                        type="color"
-                        value={content.header_color || '#1e293b'}
-                        onChange={(e) => updateContent('header_color', e.target.value)}
-                        className="w-12 h-9 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
-                        data-testid="color-header-color"
-                      />
-                      <Input
-                        value={content.header_color || '#1e293b'}
-                        onChange={(e) => updateContent('header_color', e.target.value)}
-                        className="flex-1 font-mono text-xs"
-                      />
-                    </div>
+                    <Input
+                      value={content.header_color || '#1e293b'}
+                      onChange={(e) => updateContent('header_color', e.target.value)}
+                      className="flex-1 font-mono text-xs"
+                    />
                   </div>
                 </div>
               </div>
-            </details>
-
-            <div>
-              <Label>Header Alignment</Label>
-              <select
-                value={content.header_align || 'center'}
-                onChange={(e) => updateContent('header_align', e.target.value)}
-                className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
-                data-testid="select-header-align"
-              >
-                <option value="left">Left</option>
-                <option value="center">Center</option>
-                <option value="right">Right</option>
-              </select>
             </div>
+          </details>
+
+          <div>
+            <Label>Header Alignment</Label>
+            <select
+              value={content.header_align || 'center'}
+              onChange={(e) => updateContent('header_align', e.target.value)}
+              className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+            >
+              <option value="left">Left</option>
+              <option value="center">Center</option>
+              <option value="right">Right</option>
+            </select>
           </div>
-        )}
+        </div>
       </div>
 
-      {/* Section 2: Background Settings */}
-      <div className="border border-slate-200 rounded-lg overflow-hidden">
-        <button
-          type="button"
-          onClick={() => toggleSection('background')}
-          className="w-full flex items-center justify-between p-3 bg-slate-50 hover:bg-slate-100 transition-colors text-left"
-          data-testid="accordion-background"
-        >
-          <span className="font-medium text-sm">Background</span>
-          <svg 
-            className={`w-4 h-4 transition-transform ${expandedSections.background ? 'rotate-180' : ''}`} 
-            fill="none" stroke="currentColor" viewBox="0 0 24 24"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-          </svg>
-        </button>
+      {/* Background Settings */}
+      <div className="border-b pb-4">
+        <h4 className="font-semibold text-sm mb-3">Background</h4>
         
-        {expandedSections.background && (
-          <div className="p-4 space-y-4 border-t border-slate-200">
+        <div className="space-y-3">
           <div>
             <Label>Background Type</Label>
             <select
@@ -834,50 +789,33 @@ export function IEditAccordionElementEditor({ element, onChange }) {
               </div>
             </>
           )}
-          </div>
-        )}
+        </div>
       </div>
 
-      {/* Section 3: Accordion Styles (Header & Content) */}
-      <div className="border border-slate-200 rounded-lg overflow-hidden">
-        <button
-          type="button"
-          onClick={() => toggleSection('accordionStyles')}
-          className="w-full flex items-center justify-between p-3 bg-slate-50 hover:bg-slate-100 transition-colors text-left"
-          data-testid="accordion-styles"
-        >
-          <span className="font-medium text-sm">Accordion Styles</span>
-          <svg 
-            className={`w-4 h-4 transition-transform ${expandedSections.accordionStyles ? 'rotate-180' : ''}`} 
-            fill="none" stroke="currentColor" viewBox="0 0 24 24"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-          </svg>
-        </button>
+      {/* Accordion Item Header Styles */}
+      <div className="border-b pb-4">
+        <h4 className="font-semibold text-sm mb-3">Accordion Header Style</h4>
         
-        {expandedSections.accordionStyles && (
-          <div className="p-4 space-y-4 border-t border-slate-200">
-            {/* Accordion Header Style */}
-            <div className="space-y-3">
-              <h5 className="font-medium text-sm text-slate-700">Accordion Header Style</h5>
-              <TypographyStyleSelector
-                value={content.item_header_typography_style_id}
-                onChange={(styleId, style) => {
-                  const updates = { item_header_typography_style_id: styleId };
-                  if (style) {
-                    const mapped = applyTypographyStyle(style);
-                    if (mapped.font_family) updates.item_header_font_family = mapped.font_family;
-                    if (mapped.font_size) updates.item_header_font_size = mapped.font_size;
-                    if (mapped.font_size_mobile) updates.item_header_font_size_mobile = mapped.font_size_mobile;
-                    if (mapped.font_weight) updates.item_header_font_weight = mapped.font_weight;
-                    if (mapped.line_height) updates.item_header_line_height = mapped.line_height;
-                    if (mapped.letter_spacing !== undefined) updates.item_header_letter_spacing = mapped.letter_spacing;
-                    if (mapped.color) updates.item_header_color = mapped.color;
-                  }
-                  updateMultipleContent(updates);
-                }}
-                label="Accordion Header Typography Style"
-              />
+        <div className="space-y-3">
+          <TypographyStyleSelector
+            value={content.item_header_typography_style_id}
+            onChange={(styleId, style) => {
+              const updates = { item_header_typography_style_id: styleId };
+              if (style) {
+                const mapped = applyTypographyStyle(style);
+                if (mapped.font_family) updates.item_header_font_family = mapped.font_family;
+                if (mapped.font_size) updates.item_header_font_size = mapped.font_size;
+                if (mapped.font_size_mobile) updates.item_header_font_size_mobile = mapped.font_size_mobile;
+                if (mapped.font_weight) updates.item_header_font_weight = mapped.font_weight;
+                if (mapped.line_height) updates.item_header_line_height = mapped.line_height;
+                if (mapped.letter_spacing !== undefined) updates.item_header_letter_spacing = mapped.letter_spacing;
+                if (mapped.color) updates.item_header_color = mapped.color;
+              }
+              updateMultipleContent(updates);
+            }}
+            filterTypes={['h3', 'h4']}
+            label="Accordion Header Typography Style"
+          />
 
           <details className="text-xs">
             <summary className="cursor-pointer text-slate-500 hover:text-slate-700 font-medium">Manual Font Settings</summary>
@@ -985,187 +923,165 @@ export function IEditAccordionElementEditor({ element, onChange }) {
                 placeholder="#ffffff"
               />
             </div>
-
-            {/* Accordion Content Style */}
-            <div className="pt-4 border-t border-slate-100 space-y-3">
-              <h5 className="font-medium text-sm text-slate-700">Accordion Content Style</h5>
-              <TypographyStyleSelector
-                value={content.item_content_typography_style_id}
-                onChange={(styleId, style) => {
-                  const updates = { item_content_typography_style_id: styleId };
-                  if (style) {
-                    const mapped = applyTypographyStyle(style);
-                    if (mapped.font_family) updates.item_content_font_family = mapped.font_family;
-                    if (mapped.font_size) updates.item_content_font_size = mapped.font_size;
-                    if (mapped.font_size_mobile) updates.item_content_font_size_mobile = mapped.font_size_mobile;
-                    if (mapped.font_weight) updates.item_content_font_weight = mapped.font_weight;
-                    if (mapped.line_height) updates.item_content_line_height = mapped.line_height;
-                    if (mapped.letter_spacing !== undefined) updates.item_content_letter_spacing = mapped.letter_spacing;
-                    if (mapped.color) updates.item_content_color = mapped.color;
-                  }
-                  updateMultipleContent(updates);
-                }}
-                label="Accordion Content Typography Style"
-              />
-
-              <details className="text-xs">
-                <summary className="cursor-pointer text-slate-500 hover:text-slate-700 font-medium">Manual Font Settings</summary>
-                <div className="mt-3 space-y-3">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <Label>Font Family</Label>
-                      <select
-                        value={content.item_content_font_family || 'Poppins'}
-                        onChange={(e) => updateContent('item_content_font_family', e.target.value)}
-                        className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
-                        data-testid="select-item-content-font-family"
-                      >
-                        {fontFamilies.map(font => (
-                          <option key={font} value={font}>{font}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <Label>Font Weight</Label>
-                      <select
-                        value={content.item_content_font_weight || 400}
-                        onChange={(e) => updateContent('item_content_font_weight', parseInt(e.target.value))}
-                        className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
-                        data-testid="select-item-content-font-weight"
-                      >
-                        {fontWeights.map(weight => (
-                          <option key={weight.value} value={weight.value}>{weight.label}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-3">
-                    <div>
-                      <Label>Font Size (px)</Label>
-                      <Input
-                        type="number"
-                        value={content.item_content_font_size || 16}
-                        onChange={(e) => updateContent('item_content_font_size', parseInt(e.target.value) || 16)}
-                        min="12"
-                        max="32"
-                        data-testid="input-item-content-font-size"
-                      />
-                    </div>
-                    <div>
-                      <Label>Mobile Size (px)</Label>
-                      <Input
-                        type="number"
-                        value={content.item_content_font_size_mobile || ''}
-                        onChange={(e) => updateContent('item_content_font_size_mobile', e.target.value ? parseInt(e.target.value) : '')}
-                        min="12"
-                        max="32"
-                        placeholder="Same"
-                        data-testid="input-item-content-font-size-mobile"
-                      />
-                    </div>
-                    <div>
-                      <Label>Text Color</Label>
-                      <input
-                        type="color"
-                        value={content.item_content_color || '#475569'}
-                        onChange={(e) => updateContent('item_content_color', e.target.value)}
-                        className="w-full h-9 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
-                        data-testid="color-item-content-color"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <Label>Letter Spacing (px)</Label>
-                      <Input
-                        type="number"
-                        step="0.5"
-                        value={content.item_content_letter_spacing || 0}
-                        onChange={(e) => updateContent('item_content_letter_spacing', parseFloat(e.target.value) || 0)}
-                        min="-2"
-                        max="10"
-                        data-testid="input-item-content-letter-spacing"
-                      />
-                    </div>
-                    <div>
-                      <Label>Line Height</Label>
-                      <Input
-                        type="number"
-                        step="0.1"
-                        value={content.item_content_line_height || 1.6}
-                        onChange={(e) => updateContent('item_content_line_height', parseFloat(e.target.value) || 1.6)}
-                        min="1"
-                        max="3"
-                        data-testid="input-item-content-line-height"
-                      />
-                    </div>
-                  </div>
-                </div>
-              </details>
-
-              <div>
-                <Label>Content Background</Label>
-                <div className="flex gap-2 items-center">
-                  <input
-                    type="color"
-                    value={content.item_content_bg || '#f8fafc'}
-                    onChange={(e) => updateContent('item_content_bg', e.target.value)}
-                    className="w-12 h-9 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
-                    data-testid="color-item-content-bg"
-                  />
-                  <Input
-                    value={content.item_content_bg || '#f8fafc'}
-                    onChange={(e) => updateContent('item_content_bg', e.target.value)}
-                    className="flex-1 font-mono text-xs"
-                    placeholder="#f8fafc"
-                  />
-                </div>
-              </div>
-            </div>
           </div>
-        )}
+        </div>
       </div>
 
-      {/* Section 4: Accordion Items */}
-      <div className="border border-slate-200 rounded-lg overflow-hidden">
-        <button
-          type="button"
-          onClick={() => toggleSection('accordionItems')}
-          className="w-full flex items-center justify-between p-3 bg-slate-50 hover:bg-slate-100 transition-colors text-left"
-          data-testid="accordion-items-section"
-        >
-          <span className="font-medium text-sm">Accordion Items ({items.length})</span>
-          <svg 
-            className={`w-4 h-4 transition-transform ${expandedSections.accordionItems ? 'rotate-180' : ''}`} 
-            fill="none" stroke="currentColor" viewBox="0 0 24 24"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-          </svg>
-        </button>
+      {/* Accordion Content Styles */}
+      <div className="border-b pb-4">
+        <h4 className="font-semibold text-sm mb-3">Accordion Content Style</h4>
         
-        {expandedSections.accordionItems && (
-          <div className="p-4 border-t border-slate-200">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-sm text-slate-600">Manage accordion items</span>
-              <Button
-                type="button"
-                size="sm"
-                onClick={addItem}
-                className="bg-blue-600 hover:bg-blue-700"
-                data-testid="button-add-item"
-              >
-                <Plus className="w-4 h-4 mr-1" />
-                Add Item
-              </Button>
-            </div>
-        
-            {items.length === 0 ? (
-              <div className="text-center py-8 bg-slate-50 rounded-lg border-2 border-dashed border-slate-200">
-                <p className="text-slate-500 text-sm">No accordion items yet. Click "Add Item" to create one.</p>
+        <div className="space-y-3">
+          <TypographyStyleSelector
+            value={content.item_content_typography_style_id}
+            onChange={(styleId, style) => {
+              const updates = { item_content_typography_style_id: styleId };
+              if (style) {
+                const mapped = applyTypographyStyle(style);
+                if (mapped.font_family) updates.item_content_font_family = mapped.font_family;
+                if (mapped.font_size) updates.item_content_font_size = mapped.font_size;
+                if (mapped.font_size_mobile) updates.item_content_font_size_mobile = mapped.font_size_mobile;
+                if (mapped.font_weight) updates.item_content_font_weight = mapped.font_weight;
+                if (mapped.line_height) updates.item_content_line_height = mapped.line_height;
+                if (mapped.letter_spacing !== undefined) updates.item_content_letter_spacing = mapped.letter_spacing;
+                if (mapped.color) updates.item_content_color = mapped.color;
+              }
+              updateMultipleContent(updates);
+            }}
+            filterTypes={['paragraph']}
+            label="Accordion Content Typography Style"
+          />
+
+          <details className="text-xs">
+            <summary className="cursor-pointer text-slate-500 hover:text-slate-700 font-medium">Manual Font Settings</summary>
+            <div className="mt-3 space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Font Family</Label>
+                  <select
+                    value={content.item_content_font_family || 'Poppins'}
+                    onChange={(e) => updateContent('item_content_font_family', e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+                  >
+                    {fontFamilies.map(font => (
+                      <option key={font} value={font}>{font}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <Label>Font Weight</Label>
+                  <select
+                    value={content.item_content_font_weight || 400}
+                    onChange={(e) => updateContent('item_content_font_weight', parseInt(e.target.value))}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+                  >
+                    {fontWeights.map(weight => (
+                      <option key={weight.value} value={weight.value}>{weight.label}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
-            ) : (
+
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <Label>Font Size (px)</Label>
+                  <Input
+                    type="number"
+                    value={content.item_content_font_size || 16}
+                    onChange={(e) => updateContent('item_content_font_size', parseInt(e.target.value) || 16)}
+                    min="12"
+                    max="32"
+                  />
+                </div>
+                <div>
+                  <Label>Mobile Size (px)</Label>
+                  <Input
+                    type="number"
+                    value={content.item_content_font_size_mobile || ''}
+                    onChange={(e) => updateContent('item_content_font_size_mobile', e.target.value ? parseInt(e.target.value) : '')}
+                    min="12"
+                    max="32"
+                    placeholder="Same"
+                  />
+                </div>
+                <div>
+                  <Label>Text Color</Label>
+                  <input
+                    type="color"
+                    value={content.item_content_color || '#475569'}
+                    onChange={(e) => updateContent('item_content_color', e.target.value)}
+                    className="w-full h-9 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Letter Spacing (px)</Label>
+                  <Input
+                    type="number"
+                    step="0.5"
+                    value={content.item_content_letter_spacing || 0}
+                    onChange={(e) => updateContent('item_content_letter_spacing', parseFloat(e.target.value) || 0)}
+                    min="-2"
+                    max="10"
+                  />
+                </div>
+                <div>
+                  <Label>Line Height</Label>
+                  <Input
+                    type="number"
+                    step="0.1"
+                    value={content.item_content_line_height || 1.6}
+                    onChange={(e) => updateContent('item_content_line_height', parseFloat(e.target.value) || 1.6)}
+                    min="1"
+                    max="3"
+                  />
+                </div>
+              </div>
+            </div>
+          </details>
+
+          <div>
+            <Label>Content Background</Label>
+            <div className="flex gap-2 items-center">
+              <input
+                type="color"
+                value={content.item_content_bg || '#f8fafc'}
+                onChange={(e) => updateContent('item_content_bg', e.target.value)}
+                className="w-12 h-9 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+              />
+              <Input
+                value={content.item_content_bg || '#f8fafc'}
+                onChange={(e) => updateContent('item_content_bg', e.target.value)}
+                className="flex-1 font-mono text-xs"
+                placeholder="#f8fafc"
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Accordion Items */}
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <h4 className="font-semibold text-sm">Accordion Items</h4>
+          <Button
+            type="button"
+            size="sm"
+            onClick={addItem}
+            className="bg-blue-600 hover:bg-blue-700"
+          >
+            <Plus className="w-4 h-4 mr-1" />
+            Add Item
+          </Button>
+        </div>
+        
+        {items.length === 0 ? (
+          <div className="text-center py-8 bg-slate-50 rounded-lg border-2 border-dashed border-slate-200">
+            <p className="text-slate-500 text-sm">No accordion items yet. Click "Add Item" to create one.</p>
+          </div>
+        ) : (
           <div className="space-y-2">
             {items.map((item, index) => (
               <div key={item.id || index} className="border border-slate-200 rounded-lg overflow-hidden">
@@ -1401,8 +1317,6 @@ export function IEditAccordionElementEditor({ element, onChange }) {
                 )}
               </div>
             ))}
-            </div>
-            )}
           </div>
         )}
       </div>
