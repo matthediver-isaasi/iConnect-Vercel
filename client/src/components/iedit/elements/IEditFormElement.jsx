@@ -162,7 +162,8 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
       borderRadius: `${borderRadius}px`,
       border: borderEnabled ? `${borderWidth}px solid ${borderColor}` : 'none',
       boxShadow: shadowEnabled ? shadowPresets[shadowStyle] : 'none',
-      backgroundColor: backgroundColor
+      backgroundColor: backgroundColor,
+      overflow: 'hidden'
     };
   };
 
@@ -273,7 +274,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
           style={{ maxWidth: `${content_max_width}px` }}
         >
           {renderHeaderSection()}
-          <Card className="iedit-form-styled" style={{ ...formFieldStyles, ...getCardStyle() }}>
+          <Card className="iedit-form-styled !rounded-none" style={{ ...formFieldStyles, ...getCardStyle() }}>
             {(show_form_title || show_form_description) && (
               <CardHeader>
                 {show_form_title && <CardTitle>{form.name}</CardTitle>}
@@ -362,7 +363,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
         style={{ maxWidth: `${content_max_width}px` }}
       >
         {renderHeaderSection()}
-        <Card className="iedit-form-styled" style={{ ...formFieldStyles, ...getCardStyle() }}>
+        <Card className="iedit-form-styled !rounded-none" style={{ ...formFieldStyles, ...getCardStyle() }}>
           {(show_form_title || show_form_description) && (
             <CardHeader>
               {show_form_title && <CardTitle>{form.name}</CardTitle>}
