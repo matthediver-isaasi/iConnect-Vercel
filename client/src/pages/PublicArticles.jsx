@@ -308,7 +308,7 @@ export default function PublicArticlesPage() {
                                   variant={currentPage === page ? "default" : "outline"}
                                   size="sm"
                                   onClick={() => handlePageChange(page)}
-                                  className={currentPage === page ? "bg-blue-600 hover:bg-blue-700" : ""}
+                                  className="min-w-[40px]"
                                 >
                                   {page}
                                 </Button>
