@@ -225,7 +225,7 @@ export function IEditLogoGridElementRenderer({ content, variant, settings }) {
               return (
                 <div 
                   key={index}
-                  className="relative aspect-square rounded-lg overflow-hidden bg-slate-100 flex items-center justify-center group"
+                  className="relative aspect-square rounded-lg overflow-hidden bg-slate-100 flex items-center justify-center group/logo"
                   style={{ 
                     width: itemWidth,
                     maxWidth: '300px',
@@ -236,11 +236,11 @@ export function IEditLogoGridElementRenderer({ content, variant, settings }) {
                     src={logo.image_url}
                     alt={logo.name || ''}
                     className={`w-full h-full object-contain p-4 transition-all duration-300 ${
-                      show_name_rollover && logo.name ? 'group-hover:opacity-20' : ''
+                      show_name_rollover && logo.name ? 'group-hover/logo:opacity-20' : ''
                     }`}
                   />
                   {show_name_rollover && logo.name && (
-                    <div className="absolute inset-0 flex items-center justify-center p-3 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                    <div className="absolute inset-0 flex items-center justify-center p-3 opacity-0 group-hover/logo:opacity-100 transition-opacity duration-300">
                       <span className="text-lg font-bold text-slate-800 text-center leading-tight line-clamp-4">
                         {logo.name}
                       </span>
