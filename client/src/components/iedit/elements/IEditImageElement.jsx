@@ -20,15 +20,20 @@ import {
   ChevronLeft,
   Search,
   X,
-  FileText
+  FileText,
+  AlignLeft,
+  AlignCenter,
+  AlignRight
 } from "lucide-react";
 
 export default function IEditImageElement({ content, variant, settings }) {
   const isCircle = content?.is_circle || false;
+  const alignment = content?.alignment || 'center';
   
   const getImageStyles = () => {
     const styles = {
-      display: 'block', // Remove inline image spacing
+      display: 'block',
+      verticalAlign: 'top', // Remove default baseline gap
     };
     
     // Circle shape takes precedence
@@ -76,6 +81,18 @@ export default function IEditImageElement({ content, variant, settings }) {
     return styles;
   };
 
+  const getContainerStyles = () => {
+    const alignments = {
+      left: 'flex-start',
+      center: 'center',
+      right: 'flex-end'
+    };
+    return {
+      display: 'flex',
+      justifyContent: alignments[alignment] || 'center'
+    };
+  };
+
   if (!content.imageUrl) {
     return (
       <div className="bg-slate-100 aspect-video rounded-lg flex items-center justify-center">
@@ -85,18 +102,20 @@ export default function IEditImageElement({ content, variant, settings }) {
   }
 
   return (
-    <div className={`${isCircle ? 'inline-block' : 'w-full'}`} style={{ fontSize: 0, lineHeight: 0 }}>
-      <img
-        src={content.imageUrl}
-        alt={content.altText || ""}
-        className={`${isCircle ? 'w-auto max-w-full' : 'w-full'} h-auto`}
-        style={getImageStyles()}
-      />
-      {content.caption && (
-        <p className="text-sm text-slate-600 mt-2 text-center italic" style={{ fontSize: '0.875rem', lineHeight: '1.25rem' }}>
-          {content.caption}
-        </p>
-      )}
+    <div style={getContainerStyles()}>
+      <div className={`${isCircle ? 'inline-block' : 'w-full'}`}>
+        <img
+          src={content.imageUrl}
+          alt={content.altText || ""}
+          className={`${isCircle ? 'w-auto max-w-full' : 'w-full'} h-auto`}
+          style={getImageStyles()}
+        />
+        {content.caption && (
+          <p className="text-sm text-slate-600 mt-2 text-center italic">
+            {content.caption}
+          </p>
+        )}
+      </div>
     </div>
   );
 }
@@ -326,8 +345,42 @@ export function IEditImageElementEditor({ element, onChange }) {
     });
   };
 
+  const AlignmentButtons = ({ value, onAlignChange, testIdPrefix }) => (
+    <div className="flex gap-1">
+      {[
+        { val: 'left', Icon: AlignLeft },
+        { val: 'center', Icon: AlignCenter },
+        { val: 'right', Icon: AlignRight }
+      ].map(({ val, Icon }) => (
+        <button
+          key={val}
+          type="button"
+          onClick={() => onAlignChange(val)}
+          data-testid={`button-${testIdPrefix}-${val}`}
+          className={`p-2 rounded border ${
+            value === val 
+              ? 'bg-blue-600 text-white border-blue-600' 
+              : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
+          }`}
+        >
+          <Icon className="w-4 h-4" />
+        </button>
+      ))}
+    </div>
+  );
+
   return (
     <div className="space-y-4">
+      {/* Alignment */}
+      <div className="flex items-center justify-between">
+        <Label className="text-sm font-medium">Alignment</Label>
+        <AlignmentButtons
+          value={content.alignment || 'center'}
+          onAlignChange={(val) => updateContent('alignment', val)}
+          testIdPrefix="image-align"
+        />
+      </div>
+
       {/* Image Selection Section */}
       <div className="border rounded-lg overflow-hidden">
         <button
