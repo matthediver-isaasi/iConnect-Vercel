@@ -93,8 +93,11 @@ export default function PublicLayout({ children, currentPageName }) {
     
     submitNewsletterMutation.mutate({
       form_id: newsletterForm.id,
-      responses: newsletterFormValues,
-      submitted_at: new Date().toISOString()
+      form_name: newsletterForm.name,
+      submission_data: newsletterFormValues,
+      submitted_by_email: null,
+      submitted_by_name: null,
+      created_date: new Date().toISOString()
     });
   };
 
