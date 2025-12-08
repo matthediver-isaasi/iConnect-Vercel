@@ -29,25 +29,24 @@ import {
 export default function IEditImageElement({ content, variant, settings }) {
   const isCircle = content?.is_circle || false;
   const alignment = content?.alignment || 'center';
+  const widthPercent = content?.width_percent ?? 100;
   
-  const getImageStyles = () => {
+  const getWrapperStyles = () => {
     const styles = {
-      display: 'block',
-      verticalAlign: 'top', // Remove default baseline gap
+      display: 'inline-flex',
+      alignItems: 'flex-start',
+      overflow: 'hidden',
+      maxWidth: `${widthPercent}%`,
     };
     
-    // Circle shape takes precedence
+    // Circle shape takes precedence for border radius
     if (isCircle) {
       styles.borderRadius = '50%';
-      styles.aspectRatio = '1 / 1';
-      styles.objectFit = 'cover';
     } else {
-      // Border radius
       const borderRadius = content?.border_radius;
       if (borderRadius !== undefined) {
         styles.borderRadius = `${borderRadius}px`;
       } else {
-        // Default variant-based border radius
         const variantRadii = {
           default: '8px',
           rounded: '16px',
@@ -58,14 +57,14 @@ export default function IEditImageElement({ content, variant, settings }) {
       }
     }
     
-    // Border styles
+    // Border styles on wrapper
     if (content?.border_enabled) {
       styles.borderWidth = `${content?.border_width || 2}px`;
       styles.borderStyle = 'solid';
       styles.borderColor = content?.border_color || '#e2e8f0';
     }
     
-    // Drop shadow
+    // Drop shadow on wrapper
     if (content?.shadow_enabled) {
       const shadowSize = content?.shadow_size || 'medium';
       const shadowColor = content?.shadow_color || 'rgba(0,0,0,0.15)';
@@ -81,6 +80,22 @@ export default function IEditImageElement({ content, variant, settings }) {
     return styles;
   };
 
+  const getImageStyles = () => {
+    const styles = {
+      display: 'block',
+      width: '100%',
+      height: 'auto',
+    };
+    
+    // Circle needs aspect ratio on image
+    if (isCircle) {
+      styles.aspectRatio = '1 / 1';
+      styles.objectFit = 'cover';
+    }
+    
+    return styles;
+  };
+
   const getContainerStyles = () => {
     const alignments = {
       left: 'flex-start',
@@ -89,7 +104,8 @@ export default function IEditImageElement({ content, variant, settings }) {
     };
     return {
       display: 'flex',
-      justifyContent: alignments[alignment] || 'center'
+      justifyContent: alignments[alignment] || 'center',
+      width: '100%',
     };
   };
 
@@ -103,13 +119,14 @@ export default function IEditImageElement({ content, variant, settings }) {
 
   return (
     <div style={getContainerStyles()}>
-      <div className={`${isCircle ? 'inline-block' : 'w-full'}`}>
-        <img
-          src={content.imageUrl}
-          alt={content.altText || ""}
-          className={`${isCircle ? 'w-auto max-w-full' : 'w-full'} h-auto`}
-          style={getImageStyles()}
-        />
+      <div style={{ maxWidth: `${widthPercent}%`, width: '100%' }}>
+        <div style={getWrapperStyles()}>
+          <img
+            src={content.imageUrl}
+            alt={content.altText || ""}
+            style={getImageStyles()}
+          />
+        </div>
         {content.caption && (
           <p className="text-sm text-slate-600 mt-2 text-center italic">
             {content.caption}
@@ -562,6 +579,29 @@ export function IEditImageElementEditor({ element, onChange }) {
         
         {expandedSections.effects && (
           <div className="p-4 space-y-4">
+            {/* Image Width */}
+            <div>
+              <Label className="text-sm font-medium mb-1 block">
+                Image Width: {content.width_percent ?? 100}%
+              </Label>
+              <input
+                type="range"
+                min="25"
+                max="100"
+                step="5"
+                value={content.width_percent ?? 100}
+                onChange={(e) => updateContent('width_percent', parseInt(e.target.value))}
+                className="w-full"
+                data-testid="slider-width-percent"
+              />
+              <div className="flex justify-between text-xs text-slate-500 mt-1">
+                <span>25%</span>
+                <span>50%</span>
+                <span>75%</span>
+                <span>100%</span>
+              </div>
+            </div>
+
             {/* Circle Shape */}
             <div className="p-3 bg-slate-50 rounded-md">
               <label className="flex items-center gap-2 cursor-pointer">
