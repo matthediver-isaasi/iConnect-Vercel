@@ -106,9 +106,8 @@ export default function IEditTextOverlayImageElement({ content, variant, setting
       position: 'relative',
       width: '100%',
       minHeight: `${min_height}px`,
+      height: `${min_height}px`,
       display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
       overflow: 'hidden'
     };
 
@@ -187,7 +186,7 @@ export default function IEditTextOverlayImageElement({ content, variant, setting
       )}
 
       <div 
-        className="relative w-full h-full flex px-4 py-12"
+        className="absolute inset-0 flex px-4 py-6"
         style={{
           justifyContent: textPosition === 'right' ? 'flex-end' : textPosition === 'center' ? 'center' : 'flex-start',
           alignItems: overlay_vertical_align === 'bottom' ? 'flex-end' : overlay_vertical_align === 'top' ? 'flex-start' : 'center'
