@@ -80,10 +80,11 @@ export default function IEditElementRenderer({ element, memberInfo, organization
   
   const fullWidth = element.settings?.fullWidth;
 
-  // For full-width elements, render without any container or padding constraints
+  // For full-width elements, apply padding but no max-width container
+  // The element itself handles the full-width breakout
   if (fullWidth) {
     return (
-      <div className="w-full">
+      <div style={paddingStyle} className="w-full overflow-hidden">
         <Component 
           element={element}
           content={element.content} 
