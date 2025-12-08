@@ -14,6 +14,7 @@ export default function AGCASButton({
   size = 'medium',
   showArrow = false,
   useGradientStyle = false,
+  useGradientHover = false,
   children, 
   onClick, 
   className,
@@ -130,6 +131,17 @@ export default function AGCASButton({
     xlarge: 'w-14 h-14'
   };
 
+  // Determine which CSS class to use for hover behavior
+  const getButtonClass = () => {
+    if (useGradientHover) {
+      return "agcas-gradient-hover-button";
+    }
+    if (buttonStyle || hasCustomColors) {
+      return "agcas-styled-button";
+    }
+    return "agcas-button";
+  };
+
   const combinedClassName = cn(
     "inline-flex items-center justify-center gap-2 whitespace-nowrap",
     (buttonStyle || hasCustomColors) ? "" : "rounded-none bg-transparent",
@@ -139,9 +151,9 @@ export default function AGCASButton({
     "font-bold",
     (buttonStyle || hasCustomColors) ? "" : "text-black",
     "transition-all duration-300",
-    (buttonStyle || hasCustomColors) ? "" : "hover:text-white",
+    (buttonStyle || hasCustomColors) && !useGradientHover ? "" : "hover:text-white",
     "disabled:opacity-50 disabled:cursor-not-allowed",
-    (buttonStyle || hasCustomColors) ? "agcas-styled-button" : "agcas-button",
+    getButtonClass(),
     className
   );
 
@@ -172,6 +184,11 @@ export default function AGCASButton({
         .agcas-styled-button:hover:not(:disabled) {
           background-color: var(--hover-bg);
           color: var(--hover-text);
+        }
+        .agcas-gradient-hover-button:hover:not(:disabled) {
+          background: linear-gradient(to right top, rgb(92, 0, 133), rgb(186, 0, 135), rgb(238, 0, 195), rgb(255, 66, 41), rgb(255, 176, 0)) !important;
+          color: white !important;
+          border-color: transparent !important;
         }
       `}</style>
       {text || children}
