@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Search, Calendar, Plus, History, Tag, Check, ChevronDown, Layers } from "lucide-react";
+import { Search, Calendar, Plus, History, Tag, Check, ChevronDown, Layers, X } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -17,6 +17,13 @@ import { useLayoutContext } from "@/contexts/LayoutContext";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 import { useEventTypes } from "@/hooks/useEventTypes";
+import { 
+  createFilterTagKey, 
+  parseFilterTagKey, 
+  buildFilterTagKeyMap, 
+  normalizeFilterTags,
+  getFilterTagLabels 
+} from "@/lib/utils";
 
 const DEFAULT_TIMEZONE = "Europe/London";
 
@@ -151,6 +158,9 @@ export default function EventsPage({
     console.error("[Events] eventsError:", eventsError);
   }
 
+  // Build filter tag key map for display and filtering
+  const filterTagKeyMap = useMemo(() => buildFilterTagKeyMap(eventCategories), [eventCategories]);
+
   // Helper to check if an event has at least one public ticket class
   const hasPublicTickets = (event) => {
     // Program events (with program_tag) require login - not shown to non-logged-in users
@@ -191,16 +201,21 @@ export default function EventsPage({
   console.log('[Events] Debug - memberInfo exists:', !!memberInfo);
   console.log('[Events] Debug - memberInfo source:', contextMemberInfo ? 'context' : (propsMemberInfo ? 'props' : 'none'));
   
+  // Check if categories are loaded - needed for composite key filtering
+  const categoriesLoaded = eventCategories.length > 0;
+
   let filteredEvents = accessibleEvents.filter((event) => {
     const matchesSearch =
       event.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       event.description?.toLowerCase().includes(searchQuery.toLowerCase());
     
     // Handle filter tag filtering - match if event has ANY of the selected tags
+    // Skip filter tag check if categories not loaded (prevents false filtering on initial load)
     let matchesFilterTag = true;
-    if (selectedFilterTags.length > 0) {
-      const eventFilterTags = event.filter_tags || [];
-      matchesFilterTag = selectedFilterTags.some(tag => eventFilterTags.includes(tag));
+    if (selectedFilterTags.length > 0 && categoriesLoaded) {
+      const rawEventTags = event.filter_tags || [];
+      const normalizedEventTags = normalizeFilterTags(rawEventTags, eventCategories);
+      matchesFilterTag = selectedFilterTags.some(tag => normalizedEventTags.includes(tag));
     }
     
     // Handle event type filtering
@@ -235,11 +250,12 @@ export default function EventsPage({
       event.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       event.description?.toLowerCase().includes(searchQuery.toLowerCase());
     
-    // Use same filter tag matching logic
+    // Use same filter tag matching logic with normalization (skip if categories not loaded)
     let matchesFilterTag = true;
-    if (selectedFilterTags.length > 0) {
-      const eventFilterTags = event.filter_tags || [];
-      matchesFilterTag = selectedFilterTags.some(tag => eventFilterTags.includes(tag));
+    if (selectedFilterTags.length > 0 && categoriesLoaded) {
+      const rawEventTags = event.filter_tags || [];
+      const normalizedEventTags = normalizeFilterTags(rawEventTags, eventCategories);
+      matchesFilterTag = selectedFilterTags.some(tag => normalizedEventTags.includes(tag));
     }
     
     // Use same event type matching logic
@@ -375,7 +391,7 @@ export default function EventsPage({
                           {selectedFilterTags.length === 0 ? (
                             <span>Filter by category</span>
                           ) : selectedFilterTags.length === 1 ? (
-                            <span className="truncate max-w-[200px]">{selectedFilterTags[0]}</span>
+                            <span className="truncate max-w-[200px]">{parseFilterTagKey(selectedFilterTags[0]).label}</span>
                           ) : (
                             <span>{selectedFilterTags.length} selected</span>
                           )}
@@ -414,10 +430,11 @@ export default function EventsPage({
                               {category.name}
                             </div>
                             {category.subcategories.map((subcategory) => {
-                              const isSelected = selectedFilterTags.includes(subcategory);
+                              const tagKey = createFilterTagKey(category.id, subcategory);
+                              const isSelected = selectedFilterTags.includes(tagKey);
                               return (
                                 <button
-                                  key={subcategory}
+                                  key={tagKey}
                                   className={`w-full flex items-center gap-2 px-3 py-2 text-sm rounded-md transition-colors ${
                                     isSelected 
                                       ? "bg-slate-100 text-slate-900 font-medium" 
@@ -425,9 +442,9 @@ export default function EventsPage({
                                   }`}
                                   onClick={() => {
                                     if (isSelected) {
-                                      setSelectedFilterTags(prev => prev.filter(t => t !== subcategory));
+                                      setSelectedFilterTags(prev => prev.filter(t => t !== tagKey));
                                     } else {
-                                      setSelectedFilterTags(prev => [...prev, subcategory]);
+                                      setSelectedFilterTags(prev => [...prev, tagKey]);
                                     }
                                   }}
                                   data-testid={`filter-tag-${subcategory}`}

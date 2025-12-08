@@ -32,6 +32,7 @@ import {
   Tag,
   Eye
 } from "lucide-react";
+import { createFilterTagKey, parseFilterTagKey, normalizeFilterTags } from "@/lib/utils";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Checkbox } from "@/components/ui/checkbox";
 import { base44 } from "@/api/base44Client";
@@ -396,14 +397,20 @@ export default function EditEvent() {
         setSelectedSpeakers([]);
       }
       
-      // Load filter_tags from event
-      if (event.filter_tags && Array.isArray(event.filter_tags)) {
-        setSelectedFilterTags(event.filter_tags);
-      } else {
+      // Load filter_tags from event - normalize legacy tags to composite key format
+      // Only normalize when eventCategories is loaded to ensure proper key generation
+      if (event.filter_tags && Array.isArray(event.filter_tags) && event.filter_tags.length > 0) {
+        // Wait for categories to be loaded before normalizing
+        if (eventCategories.length > 0) {
+          const normalizedTags = normalizeFilterTags(event.filter_tags, eventCategories);
+          setSelectedFilterTags(normalizedTags);
+        }
+        // If categories aren't loaded yet, keep current selection (will re-run when categories load)
+      } else if (!event.filter_tags || event.filter_tags.length === 0) {
         setSelectedFilterTags([]);
       }
     }
-  }, [event]);
+  }, [event, eventCategories]);
 
   const isOnlineEvent = formData.location?.toLowerCase().includes('online') || 
                         formData.location?.includes('zoom.us') ||
@@ -509,7 +516,10 @@ export default function EditEvent() {
       available_seats: isNaN(parsedSeats) ? null : parsedSeats,
       zoom_webinar_id: formData.zoom_webinar_id || null,
       speaker_ids: selectedSpeakers.length > 0 ? selectedSpeakers : [],
-      filter_tags: selectedFilterTags.length > 0 ? selectedFilterTags : []
+      // Convert composite keys back to plain labels for database storage
+      filter_tags: selectedFilterTags.length > 0 
+        ? selectedFilterTags.map(key => parseFilterTagKey(key).label) 
+        : []
     };
 
     // Add ticket classes for one-off events
@@ -864,7 +874,7 @@ export default function EditEvent() {
                           {selectedFilterTags.length === 0 ? (
                             <span className="text-slate-500">Select filter tags...</span>
                           ) : selectedFilterTags.length === 1 ? (
-                            <span className="truncate max-w-[200px]">{selectedFilterTags[0]}</span>
+                            <span className="truncate max-w-[200px]">{parseFilterTagKey(selectedFilterTags[0]).label}</span>
                           ) : (
                             <span>{selectedFilterTags.length} selected</span>
                           )}
@@ -903,10 +913,11 @@ export default function EditEvent() {
                               {category.name}
                             </div>
                             {category.subcategories.map((subcategory) => {
-                              const isSelected = selectedFilterTags.includes(subcategory);
+                              const tagKey = createFilterTagKey(category.id, subcategory);
+                              const isSelected = selectedFilterTags.includes(tagKey);
                               return (
                                 <button
-                                  key={subcategory}
+                                  key={tagKey}
                                   className={`w-full flex items-center gap-2 px-3 py-2 text-sm rounded-md transition-colors ${
                                     isSelected 
                                       ? "bg-slate-100 text-slate-900 font-medium" 
@@ -914,9 +925,9 @@ export default function EditEvent() {
                                   }`}
                                   onClick={() => {
                                     if (isSelected) {
-                                      setSelectedFilterTags(prev => prev.filter(t => t !== subcategory));
+                                      setSelectedFilterTags(prev => prev.filter(t => t !== tagKey));
                                     } else {
-                                      setSelectedFilterTags(prev => [...prev, subcategory]);
+                                      setSelectedFilterTags(prev => [...prev, tagKey]);
                                     }
                                   }}
                                   data-testid={`filter-tag-${subcategory}`}
@@ -937,17 +948,17 @@ export default function EditEvent() {
                   </Popover>
                   {selectedFilterTags.length > 0 && (
                     <div className="flex flex-wrap gap-1 mt-2">
-                      {selectedFilterTags.map((tag, idx) => (
+                      {selectedFilterTags.map((tagKey, idx) => (
                         <Badge 
                           key={idx} 
                           variant="secondary" 
                           className="text-xs"
                         >
-                          {tag}
+                          {parseFilterTagKey(tagKey).label}
                           <button
                             type="button"
                             className="ml-1 hover:text-slate-900"
-                            onClick={() => setSelectedFilterTags(prev => prev.filter(t => t !== tag))}
+                            onClick={() => setSelectedFilterTags(prev => prev.filter(t => t !== tagKey))}
                           >
                             <X className="h-3 w-3" />
                           </button>
