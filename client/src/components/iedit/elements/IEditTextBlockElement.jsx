@@ -455,13 +455,17 @@ export function IEditTextBlockElementEditor({ element, onChange }) {
           <div className="p-4 space-y-4">
             <div>
               <Label className="text-sm">Heading Text</Label>
-              <Input
-                value={content.heading || ''}
-                onChange={(e) => updateContent('heading', e.target.value)}
-                placeholder="Enter heading text (optional)"
-                className="mt-1"
-                data-testid="input-textblock-heading"
-              />
+              <div className="border border-slate-200 rounded-md overflow-hidden mt-1">
+                <ReactQuill
+                  theme="snow"
+                  value={content.heading || ''}
+                  onChange={(value) => updateContent('heading', value)}
+                  modules={quillModules}
+                  placeholder="Enter heading text (optional)"
+                  style={{ minHeight: '80px' }}
+                  data-testid="input-textblock-heading"
+                />
+              </div>
             </div>
 
             <AlignmentButtons 

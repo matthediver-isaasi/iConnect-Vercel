@@ -907,13 +907,16 @@ export function IEditHeroElementEditor({ element, onChange }) {
             <div className="p-4 space-y-4">
               <div>
                 <label className="block text-sm font-medium mb-1">Heading</label>
-                <input
-                  type="text"
-                  value={content.heading || ''}
-                  onChange={(e) => updateContent('heading', e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-md"
-                  placeholder="Enter heading..."
-                />
+                <div className="hero-quill-editor border border-slate-300 rounded-md overflow-hidden bg-white">
+                  <ReactQuill
+                    theme="snow"
+                    value={content.heading || ''}
+                    onChange={(value) => updateContent('heading', value)}
+                    modules={heroQuillModules}
+                    placeholder="Enter heading..."
+                    style={{ minHeight: '80px' }}
+                  />
+                </div>
               </div>
 
               <AlignmentButtons 
