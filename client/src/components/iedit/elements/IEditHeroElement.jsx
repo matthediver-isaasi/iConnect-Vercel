@@ -439,6 +439,10 @@ export function IEditHeroElementEditor({ element, onChange }) {
     onChange({ ...element, content: { ...content, [key]: value } });
   };
 
+  const updateMultipleContent = (updates) => {
+    onChange({ ...element, content: { ...content, ...updates } });
+  };
+
   const updateButton = (keyOrUpdates, value) => {
     const currentButton = content.button || defaultButton;
     // Support both single key-value and object of updates
@@ -792,19 +796,20 @@ export function IEditHeroElementEditor({ element, onChange }) {
 
       <TypographyStyleSelector
         value={content.heading_typography_style_id}
-        onChange={(styleId) => updateContent('heading_typography_style_id', styleId)}
-        onApplyStyle={(style) => {
-          const mapped = applyTypographyStyle(style);
-          const updates = {};
-          if (mapped.font_family) updates.heading_font_family = mapped.font_family;
-          if (mapped.font_size) updates.heading_font_size = mapped.font_size;
-          if (mapped.font_size_mobile) updates.heading_font_size_mobile = mapped.font_size_mobile;
-          if (mapped.letter_spacing !== undefined) updates.heading_letter_spacing = mapped.letter_spacing;
-          if (mapped.line_height) updates.heading_line_height = mapped.line_height;
-          if (mapped.text_transform) updates.heading_text_transform = mapped.text_transform;
-          Object.keys(updates).forEach(key => updateContent(key, updates[key]));
+        onChange={(styleId, style) => {
+          const updates = { heading_typography_style_id: styleId };
+          if (style) {
+            const mapped = applyTypographyStyle(style);
+            if (mapped.font_family) updates.heading_font_family = mapped.font_family;
+            if (mapped.font_size) updates.heading_font_size = mapped.font_size;
+            if (mapped.font_size_mobile) updates.mobile_heading_font_size = mapped.font_size_mobile;
+            if (mapped.letter_spacing !== undefined) updates.heading_letter_spacing = mapped.letter_spacing;
+            if (mapped.line_height) updates.heading_line_height = mapped.line_height;
+            if (mapped.text_transform) updates.heading_text_transform = mapped.text_transform;
+            if (mapped.font_weight) updates.heading_font_weight = mapped.font_weight;
+          }
+          updateMultipleContent(updates);
         }}
-        filterTypes={['h1', 'h2']}
         label="Heading Typography Style"
       />
 
@@ -946,18 +951,19 @@ export function IEditHeroElementEditor({ element, onChange }) {
 
       <TypographyStyleSelector
         value={content.subheading_typography_style_id}
-        onChange={(styleId) => updateContent('subheading_typography_style_id', styleId)}
-        onApplyStyle={(style) => {
-          const mapped = applyTypographyStyle(style);
-          const updates = {};
-          if (mapped.font_family) updates.subheading_font_family = mapped.font_family;
-          if (mapped.font_size) updates.subheading_font_size = mapped.font_size;
-          if (mapped.font_size_mobile) updates.subheading_font_size_mobile = mapped.font_size_mobile;
-          if (mapped.line_height) updates.subheading_line_height = mapped.line_height;
-          if (mapped.letter_spacing !== undefined) updates.subheading_letter_spacing = mapped.letter_spacing;
-          Object.keys(updates).forEach(key => updateContent(key, updates[key]));
+        onChange={(styleId, style) => {
+          const updates = { subheading_typography_style_id: styleId };
+          if (style) {
+            const mapped = applyTypographyStyle(style);
+            if (mapped.font_family) updates.subheading_font_family = mapped.font_family;
+            if (mapped.font_size) updates.subheading_font_size = mapped.font_size;
+            if (mapped.font_size_mobile) updates.mobile_subheading_font_size = mapped.font_size_mobile;
+            if (mapped.line_height) updates.subheading_line_height = mapped.line_height;
+            if (mapped.letter_spacing !== undefined) updates.subheading_letter_spacing = mapped.letter_spacing;
+            if (mapped.font_weight) updates.subheading_font_weight = mapped.font_weight;
+          }
+          updateMultipleContent(updates);
         }}
-        filterTypes={['h3', 'h4', 'paragraph']}
         label="Subheading Typography Style"
       />
 
@@ -1036,19 +1042,20 @@ export function IEditHeroElementEditor({ element, onChange }) {
         <div className="mt-3">
           <TypographyStyleSelector
             value={content.content_typography_style_id}
-            onChange={(styleId) => updateContent('content_typography_style_id', styleId)}
-            onApplyStyle={(style) => {
-              const mapped = applyTypographyStyle(style);
-              const updates = {};
-              if (mapped.font_family) updates.content_font_family = mapped.font_family;
-              if (mapped.font_size) updates.content_font_size = mapped.font_size;
-              if (mapped.font_size_mobile) updates.content_font_size_mobile = mapped.font_size_mobile;
-              if (mapped.line_height) updates.content_line_height = mapped.line_height;
-              if (mapped.letter_spacing !== undefined) updates.content_letter_spacing = mapped.letter_spacing;
-              if (mapped.color) updates.content_color = mapped.color;
-              Object.keys(updates).forEach(key => updateContent(key, updates[key]));
+            onChange={(styleId, style) => {
+              const updates = { content_typography_style_id: styleId };
+              if (style) {
+                const mapped = applyTypographyStyle(style);
+                if (mapped.font_family) updates.content_font_family = mapped.font_family;
+                if (mapped.font_size) updates.content_font_size = mapped.font_size;
+                if (mapped.font_size_mobile) updates.mobile_content_font_size = mapped.font_size_mobile;
+                if (mapped.line_height) updates.content_line_height = mapped.line_height;
+                if (mapped.letter_spacing !== undefined) updates.content_letter_spacing = mapped.letter_spacing;
+                if (mapped.font_weight) updates.content_font_weight = mapped.font_weight;
+                if (mapped.color) updates.content_color = mapped.color;
+              }
+              updateMultipleContent(updates);
             }}
-            filterTypes={['paragraph']}
             label="Content Typography Style"
           />
         </div>
