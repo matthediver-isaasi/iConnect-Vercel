@@ -651,11 +651,32 @@ export function IEditImageElementEditor({ element, onChange }) {
                   if (mapped.line_height) updates.caption_line_height = mapped.line_height;
                   if (mapped.letter_spacing !== undefined) updates.caption_letter_spacing = mapped.letter_spacing;
                   if (mapped.font_weight) updates.caption_font_weight = mapped.font_weight;
+                  if (mapped.color) updates.caption_color = mapped.color;
                 }
                 onChange({ ...element, content: { ...content, ...updates } });
               }}
               label="Caption Typography"
             />
+
+            <div>
+              <Label className="text-sm font-medium mb-1 block">Caption Text Color</Label>
+              <div className="flex gap-2 items-center">
+                <input
+                  type="color"
+                  value={content.caption_color || '#475569'}
+                  onChange={(e) => updateContent('caption_color', e.target.value)}
+                  className="w-12 h-9 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+                  data-testid="input-caption-color"
+                />
+                <Input
+                  type="text"
+                  value={content.caption_color || '#475569'}
+                  onChange={(e) => updateContent('caption_color', e.target.value)}
+                  className="flex-1 font-mono text-sm"
+                  placeholder="#475569"
+                />
+              </div>
+            </div>
           </div>
         )}
       </div>
