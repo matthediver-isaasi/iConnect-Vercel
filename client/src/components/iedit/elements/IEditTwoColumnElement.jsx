@@ -4,7 +4,7 @@ import 'react-quill/dist/quill.snow.css';
 import DOMPurify from 'dompurify';
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ChevronDown, ChevronUp, Upload, X } from "lucide-react";
+import { ChevronDown, ChevronUp, Upload, X, AlignLeft, AlignCenter, AlignRight } from "lucide-react";
 import TypographyStyleSelector, { applyTypographyStyle } from "../TypographyStyleSelector";
 
 const twoColumnQuillModules = {
@@ -69,7 +69,8 @@ export default function IEditTwoColumnElement({ content, variant, settings }) {
     fontSize: `${content?.[`${side}_header_font_size`] || 24}px`,
     color: content?.[`${side}_header_color`] || '#1e293b',
     letterSpacing: `${content?.[`${side}_header_letter_spacing`] || 0}px`,
-    lineHeight: content?.[`${side}_header_line_height`] || 1.3
+    lineHeight: content?.[`${side}_header_line_height`] || 1.3,
+    textAlign: content?.[`${side}_header_align`] || 'left'
   });
 
   const getContentStyle = (side) => ({
@@ -77,7 +78,8 @@ export default function IEditTwoColumnElement({ content, variant, settings }) {
     fontWeight: content?.[`${side}_content_font_weight`] || 400,
     fontSize: `${content?.[`${side}_content_font_size`] || 16}px`,
     color: content?.[`${side}_content_color`] || '#475569',
-    lineHeight: content?.[`${side}_content_line_height`] || 1.6
+    lineHeight: content?.[`${side}_content_line_height`] || 1.6,
+    textAlign: content?.[`${side}_content_align`] || 'left'
   });
 
   const renderColumn = (side, heading, columnContent) => {
@@ -182,6 +184,33 @@ export function IEditTwoColumnElementEditor({ element, onChange }) {
   const toggleSection = (section) => {
     setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
   };
+
+  const AlignmentButtons = ({ value, onChange: onAlignChange, label, testIdPrefix = 'align' }) => (
+    <div>
+      <label className="block text-sm font-medium mb-1">{label}</label>
+      <div className="flex gap-1">
+        {[
+          { val: 'left', Icon: AlignLeft },
+          { val: 'center', Icon: AlignCenter },
+          { val: 'right', Icon: AlignRight }
+        ].map(({ val, Icon }) => (
+          <button
+            key={val}
+            type="button"
+            onClick={() => onAlignChange(val)}
+            data-testid={`button-${testIdPrefix}-${val}`}
+            className={`p-2 rounded border ${
+              value === val 
+                ? 'bg-blue-600 text-white border-blue-600' 
+                : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
+            }`}
+          >
+            <Icon className="w-4 h-4" />
+          </button>
+        ))}
+      </div>
+    </div>
+  );
 
   const handleImageUpload = async (file, field) => {
     if (!file) return;
@@ -413,6 +442,12 @@ export function IEditTwoColumnElementEditor({ element, onChange }) {
                 placeholder="Enter heading..."
               />
             </div>
+            <AlignmentButtons 
+              value={content[`${side}_header_align`] || 'left'} 
+              onChange={(val) => updateContent(`${side}_header_align`, val)}
+              label="Heading Alignment"
+              testIdPrefix={`twocol-${side}-heading-align`}
+            />
             <TypographyStyleSelector
               value={content[`${side}_header_typography_style_id`] || null}
               onChange={(styleId) => updateContent(`${side}_header_typography_style_id`, styleId)}
@@ -426,7 +461,6 @@ export function IEditTwoColumnElementEditor({ element, onChange }) {
                 if (mapped.letter_spacing !== undefined) updateContent(`${side}_header_letter_spacing`, mapped.letter_spacing);
                 if (mapped.color) updateContent(`${side}_header_color`, mapped.color);
               }}
-              filterTypes={['h2', 'h3', 'h4']}
               label="Header Typography Style"
             />
             <details className="text-xs">
@@ -453,6 +487,12 @@ export function IEditTwoColumnElementEditor({ element, onChange }) {
                 />
               </div>
             </div>
+            <AlignmentButtons 
+              value={content[`${side}_content_align`] || 'left'} 
+              onChange={(val) => updateContent(`${side}_content_align`, val)}
+              label="Content Alignment"
+              testIdPrefix={`twocol-${side}-content-align`}
+            />
             <TypographyStyleSelector
               value={content[`${side}_content_typography_style_id`] || null}
               onChange={(styleId) => updateContent(`${side}_content_typography_style_id`, styleId)}
@@ -465,7 +505,6 @@ export function IEditTwoColumnElementEditor({ element, onChange }) {
                 if (mapped.line_height) updateContent(`${side}_content_line_height`, mapped.line_height);
                 if (mapped.color) updateContent(`${side}_content_color`, mapped.color);
               }}
-              filterTypes={['paragraph']}
               label="Content Typography Style"
             />
             <details className="text-xs">
