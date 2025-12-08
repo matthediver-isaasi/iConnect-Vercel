@@ -3,6 +3,38 @@ import TypographyStyleSelector, { applyTypographyStyle } from "../TypographyStyl
 import ReactQuill from "react-quill";
 import "react-quill/dist/quill.snow.css";
 import DOMPurify from "dompurify";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+
+const fontFamilies = [
+  'Poppins',
+  'Degular Medium', 
+  'Degular Bold',
+  'Degular Semibold',
+  'Inter',
+  'Arial',
+  'Georgia',
+  'Times New Roman'
+];
+
+const fontWeights = [
+  { value: 300, label: 'Light' },
+  { value: 400, label: 'Regular' },
+  { value: 500, label: 'Medium' },
+  { value: 600, label: 'Semibold' },
+  { value: 700, label: 'Bold' },
+  { value: 800, label: 'Extra Bold' }
+];
+
+const safeHexColor = (color, fallback = '#ffffff') => {
+  if (!color || typeof color !== 'string') return fallback;
+  const trimmed = color.trim();
+  if (/^#[0-9A-Fa-f]{6}$/.test(trimmed)) return trimmed;
+  if (/^#[0-9A-Fa-f]{3}$/.test(trimmed)) {
+    return '#' + trimmed[1] + trimmed[1] + trimmed[2] + trimmed[2] + trimmed[3] + trimmed[3];
+  }
+  return fallback;
+};
 
 // Quill editor modules configuration for hero text content
 const heroQuillModules = {
@@ -142,14 +174,22 @@ export default function IEditPageHeaderHeroElement({ content, variant, settings,
           }
           
           .${instanceId} .hero-subheading {
+            font-family: ${content?.subheading_font_family || 'Poppins'};
+            font-weight: ${content?.subheading_font_weight || 400};
             font-size: ${subheading_font_size}px;
             color: ${subheading_color};
+            letter-spacing: ${content?.subheading_letter_spacing || 0}px;
+            line-height: ${content?.subheading_line_height || 1.5};
             margin-top: 16px;
           }
           
           .${instanceId} .hero-body-text {
+            font-family: ${content?.content_font_family || 'Poppins'};
+            font-weight: ${content?.content_font_weight || 400};
             font-size: ${content_font_size}px;
             color: ${content_color};
+            letter-spacing: ${content?.content_letter_spacing || 0}px;
+            line-height: ${content?.content_line_height || 1.6};
             margin-top: 16px;
           }
           
@@ -193,12 +233,12 @@ export default function IEditPageHeaderHeroElement({ content, variant, settings,
             }
             
             .${instanceId} .hero-subheading {
-              font-size: ${mobileSubheadingFontSize}px;
+              font-size: ${content?.mobile_subheading_font_size || mobileSubheadingFontSize}px;
               margin-top: 12px;
             }
             
             .${instanceId} .hero-body-text {
-              font-size: ${mobileContentFontSize}px;
+              font-size: ${content?.mobile_content_font_size || mobileContentFontSize}px;
               margin-top: 12px;
             }
           }
@@ -312,6 +352,115 @@ export function IEditPageHeaderHeroElementEditor({ element, onChange }) {
 
   const updateContent = (key, value) => {
     onChange({ ...element, content: { ...content, [key]: value } });
+  };
+
+  const updateMultipleContent = (updates) => {
+    onChange({ ...element, content: { ...content, ...updates } });
+  };
+
+  const renderTypographyControls = (prefix, label, defaultValues = {}) => {
+    const defaults = {
+      font_family: 'Poppins',
+      font_weight: 400,
+      font_size: prefix === 'subheading' ? 24 : 16,
+      color: '#ffffff',
+      letter_spacing: 0,
+      line_height: prefix === 'subheading' ? 1.4 : 1.6,
+      ...defaultValues
+    };
+
+    return (
+      <div className="space-y-3 p-3 bg-white rounded-md border border-slate-200 mt-2">
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label className="text-xs">Font Family</Label>
+            <select
+              value={content[`${prefix}_font_family`] || defaults.font_family}
+              onChange={(e) => updateContent(`${prefix}_font_family`, e.target.value)}
+              className="w-full px-2 py-1.5 border border-slate-300 rounded-md text-sm"
+            >
+              {fontFamilies.map(font => (
+                <option key={font} value={font}>{font}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <Label className="text-xs">Font Weight</Label>
+            <select
+              value={content[`${prefix}_font_weight`] || defaults.font_weight}
+              onChange={(e) => updateContent(`${prefix}_font_weight`, parseInt(e.target.value))}
+              className="w-full px-2 py-1.5 border border-slate-300 rounded-md text-sm"
+            >
+              {fontWeights.map(weight => (
+                <option key={weight.value} value={weight.value}>{weight.label}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-3 gap-3">
+          <div>
+            <Label className="text-xs">Font Size (px)</Label>
+            <Input
+              type="number"
+              value={content[`${prefix}_font_size`] || defaults.font_size}
+              onChange={(e) => updateContent(`${prefix}_font_size`, parseInt(e.target.value) || defaults.font_size)}
+              min="10"
+              max="120"
+              className="h-8"
+            />
+          </div>
+          <div>
+            <Label className="text-xs">Mobile Size (px)</Label>
+            <Input
+              type="number"
+              value={content[`mobile_${prefix}_font_size`] || ''}
+              onChange={(e) => updateContent(`mobile_${prefix}_font_size`, e.target.value ? parseInt(e.target.value) : '')}
+              min="10"
+              max="120"
+              placeholder="Auto"
+              className="h-8"
+            />
+          </div>
+          <div>
+            <Label className="text-xs">Text Color</Label>
+            <input
+              type="color"
+              value={safeHexColor(content[`${prefix}_color`], defaults.color)}
+              onChange={(e) => updateContent(`${prefix}_color`, e.target.value)}
+              className="w-full h-8 px-0.5 py-0.5 border border-slate-300 rounded cursor-pointer"
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label className="text-xs">Letter Spacing (px)</Label>
+            <Input
+              type="number"
+              step="0.5"
+              value={content[`${prefix}_letter_spacing`] || defaults.letter_spacing}
+              onChange={(e) => updateContent(`${prefix}_letter_spacing`, parseFloat(e.target.value) || 0)}
+              min="-2"
+              max="10"
+              className="h-8"
+            />
+          </div>
+          <div>
+            <Label className="text-xs">Line Height</Label>
+            <Input
+              type="number"
+              step="0.1"
+              value={content[`${prefix}_line_height`] || defaults.line_height}
+              onChange={(e) => updateContent(`${prefix}_line_height`, parseFloat(e.target.value) || defaults.line_height)}
+              min="0.8"
+              max="3"
+              className="h-8"
+            />
+          </div>
+        </div>
+      </div>
+    );
   };
 
   const handleImageUpload = async (file) => {
@@ -565,77 +714,85 @@ export function IEditPageHeaderHeroElementEditor({ element, onChange }) {
       />
 
       {/* Subheading Text - Rich Text Editor */}
-      <div>
-        <label className="block text-sm font-medium mb-1">Subheading (Optional)</label>
-        <div className="hero-quill-editor border border-slate-300 rounded-md overflow-hidden bg-white">
-          <ReactQuill
-            theme="snow"
-            value={content.subheading_text || ''}
-            onChange={(value) => updateContent('subheading_text', value)}
-            modules={heroQuillModules}
-            placeholder="Enter subheading text..."
-            style={{ minHeight: '100px' }}
-          />
-        </div>
-        <div className="mt-2 grid grid-cols-2 gap-3">
-          <div>
-            <label className="block text-xs font-medium mb-1">Subheading Color</label>
-            <input
-              type="color"
-              value={content.subheading_color || '#ffffff'}
-              onChange={(e) => updateContent('subheading_color', e.target.value)}
-              className="w-full h-8 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium mb-1">Font Size (px)</label>
-            <input
-              type="number"
-              value={content.subheading_font_size || 24}
-              onChange={(e) => updateContent('subheading_font_size', e.target.value)}
-              className="w-full px-3 py-1 border border-slate-300 rounded-md"
-              min="12"
-              max="72"
+      <div className="space-y-3 border-b pb-4">
+        <h5 className="font-medium text-sm">Subheading</h5>
+        <div>
+          <label className="block text-xs font-medium mb-1">Subheading Text</label>
+          <div className="hero-quill-editor border border-slate-300 rounded-md overflow-hidden bg-white">
+            <ReactQuill
+              theme="snow"
+              value={content.subheading_text || ''}
+              onChange={(value) => updateContent('subheading_text', value)}
+              modules={heroQuillModules}
+              placeholder="Enter subheading text..."
+              style={{ minHeight: '100px' }}
             />
           </div>
         </div>
+        <TypographyStyleSelector
+          value={content.subheading_typography_style_id || null}
+          onChange={(styleId, style) => {
+            const updates = { subheading_typography_style_id: styleId };
+            if (style) {
+              const mapped = applyTypographyStyle(style);
+              if (mapped.font_family) updates.subheading_font_family = mapped.font_family;
+              if (mapped.font_size) updates.subheading_font_size = mapped.font_size;
+              if (mapped.font_size_mobile) updates.mobile_subheading_font_size = mapped.font_size_mobile;
+              if (mapped.font_weight) updates.subheading_font_weight = mapped.font_weight;
+              if (mapped.line_height) updates.subheading_line_height = mapped.line_height;
+              if (mapped.letter_spacing !== undefined) updates.subheading_letter_spacing = mapped.letter_spacing;
+              if (mapped.color) updates.subheading_color = mapped.color;
+            }
+            updateMultipleContent(updates);
+          }}
+          filterTypes={['h2', 'h3', 'body']}
+          label="Subheading Typography Style"
+        />
+        <details className="text-xs">
+          <summary className="cursor-pointer text-slate-500 hover:text-slate-700 font-medium">Manual Font Settings</summary>
+          {renderTypographyControls('subheading', 'Subheading Typography')}
+        </details>
       </div>
 
       {/* Content Text - Rich Text Editor */}
-      <div>
-        <label className="block text-sm font-medium mb-1">Content Text (Optional)</label>
-        <div className="hero-quill-editor border border-slate-300 rounded-md overflow-hidden bg-white">
-          <ReactQuill
-            theme="snow"
-            value={content.content_text || ''}
-            onChange={(value) => updateContent('content_text', value)}
-            modules={heroQuillModules}
-            placeholder="Enter content text..."
-            style={{ minHeight: '120px' }}
-          />
-        </div>
-        <div className="mt-2 grid grid-cols-2 gap-3">
-          <div>
-            <label className="block text-xs font-medium mb-1">Content Color</label>
-            <input
-              type="color"
-              value={content.content_color || '#ffffff'}
-              onChange={(e) => updateContent('content_color', e.target.value)}
-              className="w-full h-8 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium mb-1">Font Size (px)</label>
-            <input
-              type="number"
-              value={content.content_font_size || 16}
-              onChange={(e) => updateContent('content_font_size', e.target.value)}
-              className="w-full px-3 py-1 border border-slate-300 rounded-md"
-              min="10"
-              max="48"
+      <div className="space-y-3 border-b pb-4">
+        <h5 className="font-medium text-sm">Content Text</h5>
+        <div>
+          <label className="block text-xs font-medium mb-1">Content Text</label>
+          <div className="hero-quill-editor border border-slate-300 rounded-md overflow-hidden bg-white">
+            <ReactQuill
+              theme="snow"
+              value={content.content_text || ''}
+              onChange={(value) => updateContent('content_text', value)}
+              modules={heroQuillModules}
+              placeholder="Enter content text..."
+              style={{ minHeight: '120px' }}
             />
           </div>
         </div>
+        <TypographyStyleSelector
+          value={content.content_typography_style_id || null}
+          onChange={(styleId, style) => {
+            const updates = { content_typography_style_id: styleId };
+            if (style) {
+              const mapped = applyTypographyStyle(style);
+              if (mapped.font_family) updates.content_font_family = mapped.font_family;
+              if (mapped.font_size) updates.content_font_size = mapped.font_size;
+              if (mapped.font_size_mobile) updates.mobile_content_font_size = mapped.font_size_mobile;
+              if (mapped.font_weight) updates.content_font_weight = mapped.font_weight;
+              if (mapped.line_height) updates.content_line_height = mapped.line_height;
+              if (mapped.letter_spacing !== undefined) updates.content_letter_spacing = mapped.letter_spacing;
+              if (mapped.color) updates.content_color = mapped.color;
+            }
+            updateMultipleContent(updates);
+          }}
+          filterTypes={['body', 'h3']}
+          label="Content Typography Style"
+        />
+        <details className="text-xs">
+          <summary className="cursor-pointer text-slate-500 hover:text-slate-700 font-medium">Manual Font Settings</summary>
+          {renderTypographyControls('content', 'Content Typography')}
+        </details>
       </div>
 
       {/* Header Position */}
