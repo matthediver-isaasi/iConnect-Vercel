@@ -235,7 +235,8 @@ export default function IEditPageManagementPage() {
   };
 
   const getPublicUrl = (slug) => {
-    return createPageUrl('content') + `?page=${slug}`;
+    // Dynamic pages are accessed via their slug directly as a route
+    return `/${slug}`;
   };
 
   if (!accessChecked) {
