@@ -286,7 +286,7 @@ export default function IEditEventSpotlightElement({ content, variant, settings 
           <div className="grid md:grid-cols-3 gap-8">
             <div className="md:col-span-2 space-y-6">
               <div>
-                <h3 className="text-2xl font-bold text-slate-900 mb-2">{event.name}</h3>
+                <h3 className="text-2xl font-bold text-slate-900 mb-2">{event.title}</h3>
                 {event.summary && (
                   <p className="text-slate-600 text-lg">{event.summary}</p>
                 )}
@@ -514,7 +514,7 @@ export function IEditEventSpotlightElementEditor({ element, onChange }) {
                   <option value="">Choose an event...</option>
                   {upcomingEvents.map(evt => (
                     <option key={evt.id} value={evt.id}>
-                      {evt.name}
+                      {evt.title}
                     </option>
                   ))}
                 </select>
