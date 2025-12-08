@@ -509,22 +509,11 @@ export function IEditEventSpotlightElementEditor({ element, onChange }) {
                 <select
                   value={content.event_id || ''}
                   onChange={(e) => updateContent('event_id', e.target.value)}
-                  className="w-full h-9 px-3 py-2 text-sm rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  style={{ 
-                    backgroundColor: '#ffffff', 
-                    color: '#1e293b', 
-                    border: '1px solid #cbd5e1' 
-                  }}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-md"
                 >
-                  <option value="" style={{ color: '#1e293b', backgroundColor: '#ffffff' }}>
-                    Choose an event...
-                  </option>
+                  <option value="">Choose an event...</option>
                   {upcomingEvents.map(evt => (
-                    <option 
-                      key={evt.id} 
-                      value={evt.id}
-                      style={{ color: '#1e293b', backgroundColor: '#ffffff' }}
-                    >
+                    <option key={evt.id} value={evt.id}>
                       {evt.name}
                     </option>
                   ))}
