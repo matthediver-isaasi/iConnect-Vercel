@@ -1,11 +1,10 @@
-import { useId } from "react";
+import { useState, useId } from "react";
 import ReactQuill from "react-quill";
 import "react-quill/dist/quill.snow.css";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import TypographyStyleSelector, { applyTypographyStyle } from "../TypographyStyleSelector";
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { AlignLeft, AlignCenter, AlignRight } from "lucide-react";
+import { AlignLeft, AlignCenter, AlignRight, ChevronDown, ChevronUp } from "lucide-react";
 
 export default function IEditTextBlockElement({ content, variant, settings }) {
   const {
@@ -184,6 +183,17 @@ const fontWeights = [
 export function IEditTextBlockElementEditor({ element, onChange }) {
   const content = element.content || { heading: '', text: '' };
   const backgroundType = content.background_type || 'none';
+  
+  const [expandedSections, setExpandedSections] = useState({
+    background: false,
+    heading: true,
+    content: false,
+    mobile: false
+  });
+
+  const toggleSection = (section) => {
+    setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
+  };
 
   const updateContent = (key, value) => {
     onChange({ 
@@ -250,13 +260,22 @@ export function IEditTextBlockElementEditor({ element, onChange }) {
   );
 
   return (
-    <Accordion type="multiple" defaultValue={["heading"]} className="w-full">
+    <div className="space-y-4">
       
       {/* Background & Layout Section */}
-      <AccordionItem value="background">
-        <AccordionTrigger className="text-sm font-semibold bg-muted/50 px-3 rounded-md" data-testid="accordion-textblock-background">Background & Layout</AccordionTrigger>
-        <AccordionContent>
-          <div className="space-y-4 pt-2">
+      <div className="border rounded-lg overflow-hidden">
+        <button
+          type="button"
+          onClick={() => toggleSection('background')}
+          className="w-full flex items-center justify-between p-3 bg-slate-100 hover:bg-slate-200 text-left"
+          data-testid="accordion-textblock-background"
+        >
+          <span className="font-semibold text-sm">Background & Layout</span>
+          {expandedSections.background ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+        </button>
+        
+        {expandedSections.background && (
+          <div className="p-4 space-y-4">
             <div>
               <label className="block text-sm font-medium mb-1">Background Type</label>
               <select
@@ -417,14 +436,23 @@ export function IEditTextBlockElementEditor({ element, onChange }) {
               </>
             )}
           </div>
-        </AccordionContent>
-      </AccordionItem>
+        )}
+      </div>
 
       {/* Heading Section */}
-      <AccordionItem value="heading">
-        <AccordionTrigger className="text-sm font-semibold bg-muted/50 px-3 rounded-md" data-testid="accordion-textblock-heading">Heading</AccordionTrigger>
-        <AccordionContent>
-          <div className="space-y-4 pt-2">
+      <div className="border rounded-lg overflow-hidden">
+        <button
+          type="button"
+          onClick={() => toggleSection('heading')}
+          className="w-full flex items-center justify-between p-3 bg-slate-100 hover:bg-slate-200 text-left"
+          data-testid="accordion-textblock-heading"
+        >
+          <span className="font-semibold text-sm">Heading</span>
+          {expandedSections.heading ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+        </button>
+        
+        {expandedSections.heading && (
+          <div className="p-4 space-y-4">
             <div>
               <Label className="text-sm">Heading Text</Label>
               <Input
@@ -554,14 +582,23 @@ export function IEditTextBlockElementEditor({ element, onChange }) {
               />
             </div>
           </div>
-        </AccordionContent>
-      </AccordionItem>
+        )}
+      </div>
 
       {/* Content Section */}
-      <AccordionItem value="content">
-        <AccordionTrigger className="text-sm font-semibold bg-muted/50 px-3 rounded-md" data-testid="accordion-textblock-content">Content</AccordionTrigger>
-        <AccordionContent>
-          <div className="space-y-4 pt-2">
+      <div className="border rounded-lg overflow-hidden">
+        <button
+          type="button"
+          onClick={() => toggleSection('content')}
+          className="w-full flex items-center justify-between p-3 bg-slate-100 hover:bg-slate-200 text-left"
+          data-testid="accordion-textblock-content"
+        >
+          <span className="font-semibold text-sm">Content</span>
+          {expandedSections.content ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+        </button>
+        
+        {expandedSections.content && (
+          <div className="p-4 space-y-4">
             <div>
               <Label className="text-sm">Text Content</Label>
               <div className="border border-slate-200 rounded-md overflow-hidden mt-1">
@@ -687,14 +724,23 @@ export function IEditTextBlockElementEditor({ element, onChange }) {
               </div>
             </details>
           </div>
-        </AccordionContent>
-      </AccordionItem>
+        )}
+      </div>
 
       {/* Mobile Settings Section */}
-      <AccordionItem value="mobile">
-        <AccordionTrigger className="text-sm font-semibold bg-muted/50 px-3 rounded-md" data-testid="accordion-textblock-mobile">Mobile Settings</AccordionTrigger>
-        <AccordionContent>
-          <div className="space-y-4 p-4 bg-blue-50 rounded-lg">
+      <div className="border rounded-lg overflow-hidden">
+        <button
+          type="button"
+          onClick={() => toggleSection('mobile')}
+          className="w-full flex items-center justify-between p-3 bg-slate-100 hover:bg-slate-200 text-left"
+          data-testid="accordion-textblock-mobile"
+        >
+          <span className="font-semibold text-sm">Mobile Settings</span>
+          {expandedSections.mobile ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+        </button>
+        
+        {expandedSections.mobile && (
+          <div className="p-4 space-y-4 bg-blue-50 rounded-lg">
             <p className="text-xs text-slate-600 mb-3">
               Leave fields empty to use automatic scaling based on desktop values.
             </p>
@@ -810,8 +856,8 @@ export function IEditTextBlockElementEditor({ element, onChange }) {
               </div>
             )}
           </div>
-        </AccordionContent>
-      </AccordionItem>
-    </Accordion>
+        )}
+      </div>
+    </div>
   );
 }

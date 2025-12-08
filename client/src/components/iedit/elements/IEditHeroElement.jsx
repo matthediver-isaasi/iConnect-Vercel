@@ -4,8 +4,7 @@ import TypographyStyleSelector, { applyTypographyStyle } from "../TypographyStyl
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 import DOMPurify from 'dompurify';
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { AlignLeft, AlignCenter, AlignRight } from "lucide-react";
+import { AlignLeft, AlignCenter, AlignRight, ChevronDown, ChevronUp } from "lucide-react";
 
 const heroQuillModules = {
   toolbar: [
@@ -445,6 +444,18 @@ export function IEditHeroElementEditor({ element, onChange }) {
 
   const [isUploading, setIsUploading] = useState(false);
   const [buttonStyles, setButtonStyles] = useState([]);
+  const [expandedSections, setExpandedSections] = useState({
+    background: false,
+    heading: true,
+    subheading: false,
+    content: false,
+    button: false,
+    mobile: false
+  });
+
+  const toggleSection = (section) => {
+    setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
+  };
 
   const updateContent = (key, value) => {
     onChange({ ...element, content: { ...content, [key]: value } });
@@ -540,14 +551,22 @@ export function IEditHeroElementEditor({ element, onChange }) {
   );
 
   return (
-    <div className="space-y-2">
-      <Accordion type="multiple" defaultValue={["heading"]} className="w-full">
+    <div className="space-y-4">
         
         {/* Background & Layout Section */}
-        <AccordionItem value="background">
-          <AccordionTrigger className="text-sm font-semibold bg-muted/50 px-3 rounded-md" data-testid="accordion-hero-background">Background & Layout</AccordionTrigger>
-          <AccordionContent>
-            <div className="space-y-4">
+        <div className="border rounded-lg overflow-hidden">
+          <button
+            type="button"
+            onClick={() => toggleSection('background')}
+            className="w-full flex items-center justify-between p-3 bg-slate-100 hover:bg-slate-200 text-left"
+            data-testid="accordion-hero-background"
+          >
+            <span className="font-semibold text-sm">Background & Layout</span>
+            {expandedSections.background ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          </button>
+          
+          {expandedSections.background && (
+            <div className="p-4 space-y-4">
               <div>
                 <label className="block text-sm font-medium mb-1">Background Type</label>
                 <select
@@ -869,14 +888,23 @@ export function IEditHeroElementEditor({ element, onChange }) {
                 testIdPrefix="hero-default-align"
               />
             </div>
-          </AccordionContent>
-        </AccordionItem>
+          )}
+        </div>
 
         {/* Heading Section */}
-        <AccordionItem value="heading">
-          <AccordionTrigger className="text-sm font-semibold bg-muted/50 px-3 rounded-md" data-testid="accordion-hero-heading">Heading</AccordionTrigger>
-          <AccordionContent>
-            <div className="space-y-4">
+        <div className="border rounded-lg overflow-hidden">
+          <button
+            type="button"
+            onClick={() => toggleSection('heading')}
+            className="w-full flex items-center justify-between p-3 bg-slate-100 hover:bg-slate-200 text-left"
+            data-testid="accordion-hero-heading"
+          >
+            <span className="font-semibold text-sm">Heading</span>
+            {expandedSections.heading ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          </button>
+          
+          {expandedSections.heading && (
+            <div className="p-4 space-y-4">
               <div>
                 <label className="block text-sm font-medium mb-1">Heading</label>
                 <input
@@ -1045,14 +1073,23 @@ export function IEditHeroElementEditor({ element, onChange }) {
                 )}
               </div>
             </div>
-          </AccordionContent>
-        </AccordionItem>
+          )}
+        </div>
 
         {/* Subheading Section */}
-        <AccordionItem value="subheading">
-          <AccordionTrigger className="text-sm font-semibold bg-muted/50 px-3 rounded-md" data-testid="accordion-hero-subheading">Subheading</AccordionTrigger>
-          <AccordionContent>
-            <div className="space-y-4">
+        <div className="border rounded-lg overflow-hidden">
+          <button
+            type="button"
+            onClick={() => toggleSection('subheading')}
+            className="w-full flex items-center justify-between p-3 bg-slate-100 hover:bg-slate-200 text-left"
+            data-testid="accordion-hero-subheading"
+          >
+            <span className="font-semibold text-sm">Subheading</span>
+            {expandedSections.subheading ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          </button>
+          
+          {expandedSections.subheading && (
+            <div className="p-4 space-y-4">
               <div>
                 <label className="block text-sm font-medium mb-1">Subheading</label>
                 <div className="hero-quill-editor border border-slate-300 rounded-md overflow-hidden bg-white">
@@ -1146,14 +1183,23 @@ export function IEditHeroElementEditor({ element, onChange }) {
                 </div>
               </details>
             </div>
-          </AccordionContent>
-        </AccordionItem>
+          )}
+        </div>
 
         {/* Content Text Section */}
-        <AccordionItem value="content">
-          <AccordionTrigger className="text-sm font-semibold bg-muted/50 px-3 rounded-md" data-testid="accordion-hero-content">Content Text</AccordionTrigger>
-          <AccordionContent>
-            <div className="space-y-4">
+        <div className="border rounded-lg overflow-hidden">
+          <button
+            type="button"
+            onClick={() => toggleSection('content')}
+            className="w-full flex items-center justify-between p-3 bg-slate-100 hover:bg-slate-200 text-left"
+            data-testid="accordion-hero-content"
+          >
+            <span className="font-semibold text-sm">Content Text</span>
+            {expandedSections.content ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          </button>
+          
+          {expandedSections.content && (
+            <div className="p-4 space-y-4">
               <div>
                 <label className="block text-sm font-medium mb-1">Content</label>
                 <div className="hero-quill-editor border border-slate-300 rounded-md overflow-hidden bg-white">
@@ -1297,14 +1343,23 @@ export function IEditHeroElementEditor({ element, onChange }) {
                 </div>
               </details>
             </div>
-          </AccordionContent>
-        </AccordionItem>
+          )}
+        </div>
 
         {/* Button Section */}
-        <AccordionItem value="button">
-          <AccordionTrigger className="text-sm font-semibold bg-muted/50 px-3 rounded-md" data-testid="accordion-hero-button">Button</AccordionTrigger>
-          <AccordionContent>
-            <div className="space-y-4">
+        <div className="border rounded-lg overflow-hidden">
+          <button
+            type="button"
+            onClick={() => toggleSection('button')}
+            className="w-full flex items-center justify-between p-3 bg-slate-100 hover:bg-slate-200 text-left"
+            data-testid="accordion-hero-button"
+          >
+            <span className="font-semibold text-sm">Button</span>
+            {expandedSections.button ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          </button>
+          
+          {expandedSections.button && (
+            <div className="p-4 space-y-4">
               <div>
                 <label className="block text-sm font-medium mb-1">Button Text</label>
                 <input
@@ -1487,14 +1542,23 @@ export function IEditHeroElementEditor({ element, onChange }) {
                 </label>
               </div>
             </div>
-          </AccordionContent>
-        </AccordionItem>
+          )}
+        </div>
 
         {/* Mobile Settings Section */}
-        <AccordionItem value="mobile">
-          <AccordionTrigger className="text-sm font-semibold bg-muted/50 px-3 rounded-md" data-testid="accordion-hero-mobile">Mobile Settings</AccordionTrigger>
-          <AccordionContent>
-            <div className="space-y-4 p-4 bg-blue-50 rounded-lg">
+        <div className="border rounded-lg overflow-hidden">
+          <button
+            type="button"
+            onClick={() => toggleSection('mobile')}
+            className="w-full flex items-center justify-between p-3 bg-slate-100 hover:bg-slate-200 text-left"
+            data-testid="accordion-hero-mobile"
+          >
+            <span className="font-semibold text-sm">Mobile Settings</span>
+            {expandedSections.mobile ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          </button>
+          
+          {expandedSections.mobile && (
+            <div className="p-4 space-y-4 bg-blue-50 rounded-lg">
               <p className="text-xs text-slate-600 mb-3">
                 Leave fields empty to use automatic scaling based on desktop values.
               </p>
@@ -1671,10 +1735,9 @@ export function IEditHeroElementEditor({ element, onChange }) {
                 />
               </div>
             </div>
-          </AccordionContent>
-        </AccordionItem>
+          )}
+        </div>
 
-      </Accordion>
     </div>
   );
 }
