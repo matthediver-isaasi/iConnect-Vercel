@@ -95,7 +95,10 @@ export default function IEditTextOverlayImageElement({ content, variant, setting
     min_height = 400,
     overlay_enabled = false,
     overlay_color = '#000000',
-    overlay_opacity = 30
+    overlay_opacity = 30,
+    overlay_width = 50,
+    overlay_vertical_align = 'center',
+    text_vertical_align = 'top'
   } = content || {};
 
   const getImageContainerStyles = () => {
@@ -183,22 +186,34 @@ export default function IEditTextOverlayImageElement({ content, variant, setting
         />
       )}
 
-      <div className="relative w-full max-w-7xl mx-auto px-4 py-12">
-        <div className={`max-w-xl ${textPosition === 'right' ? 'ml-auto' : textPosition === 'center' ? 'mx-auto' : 'mr-auto'}`}>
-          <div className="p-8" style={contentBoxStyle}>
-            {header && (
-              <h2 style={getHeaderStyles()}>
-                {header}
-              </h2>
-            )}
-            {text && (
-              <div 
-                className="prose max-w-none text-overlay-content"
-                style={getContentStyles()}
-                dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(text) }}
-              />
-            )}
-          </div>
+      <div 
+        className="relative w-full h-full flex px-4 py-12"
+        style={{
+          justifyContent: textPosition === 'right' ? 'flex-end' : textPosition === 'center' ? 'center' : 'flex-start',
+          alignItems: overlay_vertical_align === 'bottom' ? 'flex-end' : overlay_vertical_align === 'top' ? 'flex-start' : 'center'
+        }}
+      >
+        <div 
+          className="flex flex-col p-8"
+          style={{
+            ...contentBoxStyle,
+            width: `${overlay_width}%`,
+            maxWidth: '100%',
+            justifyContent: text_vertical_align === 'bottom' ? 'flex-end' : text_vertical_align === 'center' ? 'center' : 'flex-start'
+          }}
+        >
+          {header && (
+            <h2 style={getHeaderStyles()}>
+              {header}
+            </h2>
+          )}
+          {text && (
+            <div 
+              className="prose max-w-none text-overlay-content"
+              style={getContentStyles()}
+              dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(text) }}
+            />
+          )}
         </div>
       </div>
     </div>
@@ -827,16 +842,63 @@ export function IEditTextOverlayImageElementEditor({ element, onChange }) {
         
         {expandedSections.layout && (
           <div className="p-4 space-y-4">
+            {/* Content Box Width */}
             <div>
-              <Label className="text-xs mb-1 block">Text Position</Label>
+              <Label className="text-xs">Content Box Width: {content.overlay_width || 50}%</Label>
+              <input
+                type="range"
+                min="20"
+                max="100"
+                step="5"
+                value={content.overlay_width || 50}
+                onChange={(e) => updateContent('overlay_width', parseInt(e.target.value))}
+                className="w-full"
+                data-testid="slider-overlay-width"
+              />
+            </div>
+
+            {/* Content Box Horizontal Position */}
+            <div>
+              <Label className="text-xs mb-1 block">Content Box Horizontal Position</Label>
               <select 
                 value={content.textPosition || 'left'} 
                 onChange={(e) => updateContent('textPosition', e.target.value)}
                 className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                data-testid="select-horizontal-position"
               >
                 <option value="left">Left</option>
                 <option value="center">Center</option>
                 <option value="right">Right</option>
+              </select>
+            </div>
+
+            {/* Content Box Vertical Position */}
+            <div>
+              <Label className="text-xs mb-1 block">Content Box Vertical Position</Label>
+              <select 
+                value={content.overlay_vertical_align || 'center'} 
+                onChange={(e) => updateContent('overlay_vertical_align', e.target.value)}
+                className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                data-testid="select-vertical-position"
+              >
+                <option value="top">Top</option>
+                <option value="center">Center</option>
+                <option value="bottom">Bottom</option>
+              </select>
+            </div>
+
+            {/* Text Vertical Alignment within Content Box */}
+            <div>
+              <Label className="text-xs mb-1 block">Text Vertical Alignment (within box)</Label>
+              <select 
+                value={content.text_vertical_align || 'top'} 
+                onChange={(e) => updateContent('text_vertical_align', e.target.value)}
+                className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                data-testid="select-text-vertical-align"
+              >
+                <option value="top">Top</option>
+                <option value="center">Center</option>
+                <option value="bottom">Bottom</option>
               </select>
             </div>
 
