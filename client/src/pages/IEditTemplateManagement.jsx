@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,7 +9,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Layers, Plus, Pencil, Trash2, GripVertical } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Layers, Plus, Pencil, Trash2, GripVertical, FileText, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
@@ -39,6 +40,51 @@ export default function IEditTemplateManagementPage() {
     queryFn: () => base44.entities.IEditElementTemplate.list({ sort: { display_order: 'asc' } }),
     staleTime: 0
   });
+
+  // Fetch all pages and elements to calculate usage
+  const { data: allPages = [] } = useQuery({
+    queryKey: ['iedit-pages-all'],
+    queryFn: () => base44.entities.IEditPage.list(),
+    staleTime: 0
+  });
+
+  const { data: allElements = [] } = useQuery({
+    queryKey: ['iedit-elements-all'],
+    queryFn: () => base44.entities.IEditPageElement.list(),
+    staleTime: 0
+  });
+
+  // Calculate page usage for each element type
+  const elementTypeUsage = useMemo(() => {
+    const usage = {};
+    
+    // Group elements by element_type and collect unique page_ids
+    allElements.forEach(element => {
+      const elementType = element.element_type;
+      if (!usage[elementType]) {
+        usage[elementType] = new Set();
+      }
+      if (element.page_id) {
+        usage[elementType].add(element.page_id);
+      }
+    });
+    
+    // Convert Sets to arrays and add page details
+    const result = {};
+    Object.keys(usage).forEach(elementType => {
+      const pageIds = Array.from(usage[elementType]);
+      const pages = pageIds
+        .map(pageId => allPages.find(p => p.id === pageId))
+        .filter(Boolean);
+      result[elementType] = pages;
+    });
+    
+    return result;
+  }, [allElements, allPages]);
+
+  const getPageUsageForTemplate = (template) => {
+    return elementTypeUsage[template.element_type] || [];
+  };
 
   const createTemplateMutation = useMutation({
     mutationFn: (templateData) => base44.entities.IEditElementTemplate.create(templateData),
@@ -181,62 +227,115 @@ export default function IEditTemplateManagementPage() {
           </Card>
         ) : (
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {templates.map((template) => (
-              <Card key={template.id} className="border-slate-200 hover:shadow-lg transition-shadow">
-                <CardHeader>
-                  <div className="flex items-start justify-between mb-2">
-                    <CardTitle className="text-lg">{template.name}</CardTitle>
-                    <div className="flex gap-2">
-                      <Badge className={getCategoryBadge(template.category)}>
-                        {template.category}
-                      </Badge>
-                      {!template.is_active && (
-                        <Badge className="bg-slate-100 text-slate-700">Inactive</Badge>
+            {templates.map((template) => {
+              const usedOnPages = getPageUsageForTemplate(template);
+              const pageCount = usedOnPages.length;
+              
+              return (
+                <Card key={template.id} className="border-slate-200 hover:shadow-lg transition-shadow">
+                  <CardHeader>
+                    <div className="flex items-start justify-between mb-2">
+                      <CardTitle className="text-lg">{template.name}</CardTitle>
+                      <div className="flex gap-2 flex-wrap justify-end">
+                        <Badge className={getCategoryBadge(template.category)}>
+                          {template.category}
+                        </Badge>
+                        {!template.is_active && (
+                          <Badge className="bg-slate-100 text-slate-700">Inactive</Badge>
+                        )}
+                      </div>
+                    </div>
+                    {template.description && (
+                      <p className="text-sm text-slate-600 line-clamp-2">{template.description}</p>
+                    )}
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="text-sm">
+                      <span className="text-slate-500">Type:</span>
+                      <span className="ml-2 font-mono text-slate-700">{template.element_type}</span>
+                    </div>
+
+                    <div className="text-sm">
+                      <span className="text-slate-500">Variants:</span>
+                      <span className="ml-2 text-slate-700">
+                        {template.available_variants?.join(', ') || 'default'}
+                      </span>
+                    </div>
+
+                    {/* Page Usage */}
+                    <div className="text-sm">
+                      <span className="text-slate-500">Used on:</span>
+                      {pageCount === 0 ? (
+                        <span className="ml-2 text-slate-400 italic">No pages</span>
+                      ) : (
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <button 
+                              className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full text-xs font-medium hover:bg-blue-200 transition-colors cursor-pointer"
+                              data-testid={`button-page-usage-${template.id}`}
+                            >
+                              <FileText className="w-3 h-3" />
+                              {pageCount} page{pageCount !== 1 ? 's' : ''}
+                            </button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-72 p-0" align="start">
+                            <div className="p-3 border-b border-slate-200">
+                              <h4 className="font-semibold text-sm">Pages using this element</h4>
+                            </div>
+                            <div className="max-h-64 overflow-y-auto">
+                              {usedOnPages.map(page => (
+                                <button
+                                  key={page.id}
+                                  onClick={() => {
+                                    window.location.href = createPageUrl('IEditPageEditor') + `?id=${page.id}`;
+                                  }}
+                                  className="w-full flex items-center gap-2 px-3 py-2 hover:bg-slate-100 text-left transition-colors"
+                                  data-testid={`link-page-${page.id}`}
+                                >
+                                  <FileText className="w-4 h-4 text-slate-400 flex-shrink-0" />
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-medium text-slate-900 truncate">
+                                      {page.title || 'Untitled Page'}
+                                    </p>
+                                    <p className="text-xs text-slate-500 truncate">
+                                      /{page.slug}
+                                    </p>
+                                  </div>
+                                  <ExternalLink className="w-3 h-3 text-slate-400 flex-shrink-0" />
+                                </button>
+                              ))}
+                            </div>
+                          </PopoverContent>
+                        </Popover>
                       )}
                     </div>
-                  </div>
-                  {template.description && (
-                    <p className="text-sm text-slate-600 line-clamp-2">{template.description}</p>
-                  )}
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="text-sm">
-                    <span className="text-slate-500">Type:</span>
-                    <span className="ml-2 font-mono text-slate-700">{template.element_type}</span>
-                  </div>
 
-                  <div className="text-sm">
-                    <span className="text-slate-500">Variants:</span>
-                    <span className="ml-2 text-slate-700">
-                      {template.available_variants?.join(', ') || 'default'}
-                    </span>
-                  </div>
-
-                  <div className="flex gap-2 pt-2 border-t border-slate-200">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleEdit(template)}
-                      className="flex-1"
-                    >
-                      <Pencil className="w-3 h-3 mr-1" />
-                      Edit
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setTemplateToDelete(template);
-                        setShowDeleteDialog(true);
-                      }}
-                      className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+                    <div className="flex gap-2 pt-2 border-t border-slate-200">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleEdit(template)}
+                        className="flex-1"
+                      >
+                        <Pencil className="w-3 h-3 mr-1" />
+                        Edit
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setTemplateToDelete(template);
+                          setShowDeleteDialog(true);
+                        }}
+                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
           </div>
         )}
 
