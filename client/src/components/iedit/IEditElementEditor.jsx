@@ -31,6 +31,7 @@ import { IEditCardDeckElementEditor } from "./elements/IEditCardDeckElement";
 import { IEditLogoGridElementEditor } from "./elements/IEditLogoGridElement";
 import { IEditEventSpotlightElementEditor } from "./elements/IEditEventSpotlightElement";
 import { IEditCtaButtonElementEditor } from "./elements/IEditCtaButtonElement";
+import { IEditImageElementEditor } from "./elements/IEditImageElement";
 
 export default function IEditElementEditor({ element, onClose, onSave, isInlineMode = false, onChange }) {
   const [editedContent, setEditedContent] = useState(element.content || {});
@@ -197,6 +198,9 @@ export default function IEditElementEditor({ element, onClose, onSave, isInlineM
 
   // Check if this is a CTA Button element (custom editor)
   const isCtaButton = element.element_type === 'cta_button';
+
+  // Check if this is an Image element (custom editor)
+  const isImage = element.element_type === 'image';
 
   // Fetch available forms for form element
   const { data: forms = [] } = useQuery({
@@ -535,6 +539,8 @@ export default function IEditElementEditor({ element, onClose, onSave, isInlineM
               <IEditEventSpotlightElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
             ) : isCtaButton ? (
               <IEditCtaButtonElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
+            ) : isImage ? (
+              <IEditImageElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
             ) : isTextBlock ? (
               <IEditTextBlockElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
             ) : (
@@ -768,6 +774,11 @@ export default function IEditElementEditor({ element, onClose, onSave, isInlineM
             />
           ) : isCtaButton ? (
             <IEditCtaButtonElementEditor 
+              element={{ ...element, content: editedContent }}
+              onChange={handleContentChangeFromEditor}
+            />
+          ) : isImage ? (
+            <IEditImageElementEditor 
               element={{ ...element, content: editedContent }}
               onChange={handleContentChangeFromEditor}
             />
