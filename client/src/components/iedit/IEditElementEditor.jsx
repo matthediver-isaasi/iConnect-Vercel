@@ -28,6 +28,7 @@ import { IEditFiftyFiftyElementEditor } from "./elements/IEditFiftyFiftyElement"
 import { IEditFormElementEditor } from "./elements/IEditFormElement";
 import { IEditCardDeckElementEditor } from "./elements/IEditCardDeckElement";
 import { IEditLogoGridElementEditor } from "./elements/IEditLogoGridElement";
+import { IEditEventSpotlightElementEditor } from "./elements/IEditEventSpotlightElement";
 
 export default function IEditElementEditor({ element, onClose, onSave }) {
   const [editedContent, setEditedContent] = useState(element.content || {});
@@ -165,6 +166,9 @@ export default function IEditElementEditor({ element, onClose, onSave }) {
 
   // Check if this is a Logo Grid element (custom editor)
   const isLogoGrid = element.element_type === 'logo_grid';
+
+  // Check if this is an Event Spotlight element (custom editor)
+  const isEventSpotlight = element.element_type === 'event_spotlight';
 
   // Fetch available forms for form element
   const { data: forms = [] } = useQuery({
@@ -521,6 +525,11 @@ export default function IEditElementEditor({ element, onClose, onSave }) {
             />
           ) : isLogoGrid ? (
             <IEditLogoGridElementEditor 
+              element={{ ...element, content: editedContent }}
+              onChange={(updatedElement) => setEditedContent(updatedElement.content || {})}
+            />
+          ) : isEventSpotlight ? (
+            <IEditEventSpotlightElementEditor 
               element={{ ...element, content: editedContent }}
               onChange={(updatedElement) => setEditedContent(updatedElement.content || {})}
             />

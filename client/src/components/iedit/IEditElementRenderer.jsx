@@ -22,6 +22,7 @@ import IEditQuoteElement from "./elements/IEditQuoteElement";
 import IEditFiftyFiftyElement from "./elements/IEditFiftyFiftyElement";
 import { IEditCardDeckElementRenderer } from "./elements/IEditCardDeckElement";
 import { IEditLogoGridElementRenderer } from "./elements/IEditLogoGridElement";
+import IEditEventSpotlightElement from "./elements/IEditEventSpotlightElement";
 
 export default function IEditElementRenderer({ element, memberInfo, organizationInfo, isFirst }) {
   // Map element types to their corresponding components
@@ -49,6 +50,7 @@ export default function IEditElementRenderer({ element, memberInfo, organization
     'fifty_fifty': IEditFiftyFiftyElement,
     'card_deck': IEditCardDeckElementRenderer,
     'logo_grid': IEditLogoGridElementRenderer,
+    'event_spotlight': IEditEventSpotlightElement,
   };
 
   const Component = elementComponents[element.element_type];
