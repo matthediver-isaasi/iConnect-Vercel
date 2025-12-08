@@ -89,7 +89,9 @@ export default function IEditEventSpotlightElement({ content, variant, settings 
     enabled: !!event_id
   });
 
-  const eventViewUrl = event?.slug ? `${createPageUrl('EventView')}?slug=${event.slug}` : null;
+  const eventViewUrl = event?.slug 
+    ? `${createPageUrl('EventView')}?slug=${event.slug}` 
+    : (event?.id ? `${createPageUrl('EventView')}?id=${event.id}` : null);
   const eventSpeakerIds = event?.speaker_ids || [];
   const needsRoles = !!event_id && !!event && show_ticket_prices;
   const needsSpeakers = !!event_id && !!event && show_speakers && eventSpeakerIds.length > 0;
