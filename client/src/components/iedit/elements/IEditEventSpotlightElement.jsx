@@ -679,14 +679,14 @@ export function IEditEventSpotlightElementEditor({ element, onChange }) {
             <div>
               <Label className="text-sm">Button Style</Label>
               <Select
-                value={content.button?.button_style_id || ''}
-                onValueChange={(value) => updateButton('button_style_id', value || undefined)}
+                value={content.button?.button_style_id || 'default'}
+                onValueChange={(value) => updateButton('button_style_id', value === 'default' ? undefined : value)}
               >
                 <SelectTrigger className="w-full">
                   <SelectValue placeholder="Select a style..." />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Default</SelectItem>
+                  <SelectItem value="default">Default</SelectItem>
                   {buttonStyles.map(style => (
                     <SelectItem key={style.id} value={style.id}>
                       {style.name}
