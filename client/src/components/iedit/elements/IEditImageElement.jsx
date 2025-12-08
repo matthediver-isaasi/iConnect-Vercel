@@ -147,7 +147,7 @@ export default function IEditImageElement({ content, variant, settings }) {
         </div>
         {content.caption && (
           <figcaption 
-            className="mt-2 text-center image-caption-rich-text"
+            className="mt-2 image-caption-rich-text"
             style={{
               fontFamily: content.caption_font_family || 'inherit',
               fontSize: content.caption_font_size || '0.875rem',
@@ -155,6 +155,7 @@ export default function IEditImageElement({ content, variant, settings }) {
               letterSpacing: content.caption_letter_spacing ? `${content.caption_letter_spacing}em` : undefined,
               fontWeight: content.caption_font_weight || 'normal',
               color: content.caption_color || '#475569',
+              textAlign: content.caption_alignment || 'center',
             }}
             dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(content.caption) }}
           />
@@ -590,6 +591,15 @@ export function IEditImageElementEditor({ element, onChange }) {
                   style={{ minHeight: '80px' }}
                 />
               </div>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <Label className="text-sm font-medium">Caption Alignment</Label>
+              <AlignmentButtons
+                value={content.caption_alignment || 'center'}
+                onAlignChange={(val) => updateContent('caption_alignment', val)}
+                testIdPrefix="caption-align"
+              />
             </div>
 
             <TypographyStyleSelector
