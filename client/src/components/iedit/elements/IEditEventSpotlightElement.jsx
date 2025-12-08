@@ -14,6 +14,7 @@ import AGCASButton from "../../ui/AGCASButton";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { format, parseISO } from "date-fns";
 import { createPageUrl } from "@/utils";
+import { useSpeakerModuleName } from "@/hooks/useSpeakerModuleName";
 
 const quillModules = {
   toolbar: [
@@ -47,6 +48,7 @@ const fontWeights = [
 
 export default function IEditEventSpotlightElement({ content, variant, settings }) {
   const isMobile = useIsMobile();
+  const { singular: speakerSingular, plural: speakerPlural } = useSpeakerModuleName();
   
   const {
     event_id,
@@ -324,7 +326,7 @@ export default function IEditEventSpotlightElement({ content, variant, settings 
               {show_speakers && eventSpeakers.length > 0 && (
                 <div>
                   <h4 className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-3">
-                    {eventSpeakers.length === 1 ? 'Speaker' : 'Speakers'}
+                    {eventSpeakers.length === 1 ? speakerSingular : speakerPlural}
                   </h4>
                   <div className="flex flex-wrap gap-4">
                     {eventSpeakers.map(speaker => (
@@ -342,6 +344,9 @@ export default function IEditEventSpotlightElement({ content, variant, settings 
                         )}
                         <div>
                           <p className="font-medium text-slate-900">{speaker.name}</p>
+                          {speaker.organization && (
+                            <p className="text-sm text-slate-600">{speaker.organization}</p>
+                          )}
                           {speaker.title && (
                             <p className="text-sm text-slate-500">{speaker.title}</p>
                           )}
