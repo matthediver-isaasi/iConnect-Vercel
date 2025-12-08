@@ -137,7 +137,7 @@ export default function IEditFiftyFiftyElement({ content, variant, settings }) {
     }[alignment] || 'text-left';
 
     return (
-      <div className={`space-y-4 ${alignmentClass}`}>
+      <div className={`space-y-4 ${alignmentClass} flex-1`}>
         {heading && (
           <h2 style={getTextStyle(`${side}_heading`)} className="m-0">
             {heading}
@@ -168,7 +168,7 @@ export default function IEditFiftyFiftyElement({ content, variant, settings }) {
     if (!imageUrl) {
       return (
         <div 
-          className="w-full h-full min-h-64 bg-slate-200 flex items-center justify-center"
+          className="w-full h-full min-h-64 bg-slate-200 flex items-center justify-center flex-1"
           style={{ borderRadius: `${column_border_radius}px` }}
         >
           <span className="text-slate-500">No image</span>
@@ -177,14 +177,15 @@ export default function IEditFiftyFiftyElement({ content, variant, settings }) {
     }
 
     return (
-      <div className="w-full h-full">
+      <div className="w-full h-full flex-1">
         <img 
           src={imageUrl} 
           alt="" 
           className="w-full h-full object-cover"
           style={{ 
             objectFit: imageFit,
-            borderRadius: `${column_border_radius}px`
+            borderRadius: `${column_border_radius}px`,
+            minHeight: '100%'
           }}
         />
       </div>
@@ -230,11 +231,11 @@ export default function IEditFiftyFiftyElement({ content, variant, settings }) {
         style={{ paddingTop: `${vertical_padding}px`, paddingBottom: `${vertical_padding}px` }}
       >
         <div 
-          className="grid grid-cols-1 md:grid-cols-2 items-stretch"
+          className="grid grid-cols-1 md:grid-cols-2"
           style={{ gap: `${column_gap}px` }}
         >
           <div 
-            className={`${reverse_on_mobile ? 'order-2 md:order-1' : ''} ${left_content_type === 'text' ? 'flex flex-col' : ''}`}
+            className={`${reverse_on_mobile ? 'order-2 md:order-1' : ''} flex flex-col h-full`}
             style={{
               ...(left_content_type === 'text' && left_column_bg_color ? { 
                 backgroundColor: left_column_bg_color,
@@ -243,7 +244,7 @@ export default function IEditFiftyFiftyElement({ content, variant, settings }) {
               } : {})
             }}
           >
-            <div className={`flex-1 flex flex-col ${leftAlignmentClass}`}>
+            <div className={`flex-1 flex flex-col ${leftAlignmentClass} h-full`}>
               {renderColumn('left')}
             </div>
             {(button?.text || button?.show_arrow) && button_column === 'left' && left_content_type === 'text' && (
@@ -269,7 +270,7 @@ export default function IEditFiftyFiftyElement({ content, variant, settings }) {
             )}
           </div>
           <div 
-            className={`${reverse_on_mobile ? 'order-1 md:order-2' : ''} ${right_content_type === 'text' ? 'flex flex-col' : ''}`}
+            className={`${reverse_on_mobile ? 'order-1 md:order-2' : ''} flex flex-col h-full`}
             style={{
               ...(right_content_type === 'text' && right_column_bg_color ? { 
                 backgroundColor: right_column_bg_color,
@@ -278,7 +279,7 @@ export default function IEditFiftyFiftyElement({ content, variant, settings }) {
               } : {})
             }}
           >
-            <div className={`flex-1 flex flex-col ${rightAlignmentClass}`}>
+            <div className={`flex-1 flex flex-col ${rightAlignmentClass} h-full`}>
               {renderColumn('right')}
             </div>
             {(button?.text || button?.show_arrow) && button_column === 'right' && right_content_type === 'text' && (
@@ -1196,10 +1197,13 @@ export function IEditFiftyFiftyElementEditor({ element, onChange }) {
               <Label className="text-sm">Column Gap (px)</Label>
               <Input
                 type="number"
-                value={content.column_gap || 32}
-                onChange={(e) => updateContent('column_gap', parseInt(e.target.value) || 32)}
+                value={content.column_gap !== undefined ? content.column_gap : 32}
+                onChange={(e) => {
+                  const val = parseInt(e.target.value);
+                  updateContent('column_gap', isNaN(val) ? 0 : Math.min(50, Math.max(0, val)));
+                }}
                 min="0"
-                max="100"
+                max="50"
               />
             </div>
 
