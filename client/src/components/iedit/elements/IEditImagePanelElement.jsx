@@ -411,17 +411,6 @@ export function IEditImagePanelElementEditor({ element, onChange }) {
     }
   };
 
-  const fontFamilies = [
-    'Poppins',
-    'Degular Medium', 
-    'Degular Bold',
-    'Degular Semibold',
-    'Inter',
-    'Arial',
-    'Georgia',
-    'Times New Roman'
-  ];
-
   const fontWeights = [
     { value: 300, label: 'Light' },
     { value: 400, label: 'Regular' },
@@ -889,7 +878,8 @@ export function IEditImagePanelElementEditor({ element, onChange }) {
                             onChange={(e) => updatePanel(index, 'header_font_family', e.target.value)}
                             className="w-full px-2 py-1.5 border border-slate-300 rounded-md text-sm"
                           >
-                            {fontFamilies.map(f => <option key={f} value={f}>{f}</option>)}
+                            <option value="Poppins">Poppins</option>
+                            <option value="Degular Medium">Degular Medium</option>
                           </select>
                         </div>
                         <div>
@@ -1006,7 +996,8 @@ export function IEditImagePanelElementEditor({ element, onChange }) {
                             onChange={(e) => updatePanel(index, 'bottom_font_family', e.target.value)}
                             className="w-full px-2 py-1.5 border border-slate-300 rounded-md text-sm"
                           >
-                            {fontFamilies.map(f => <option key={f} value={f}>{f}</option>)}
+                            <option value="Poppins">Poppins</option>
+                            <option value="Degular Medium">Degular Medium</option>
                           </select>
                         </div>
                         <div>
