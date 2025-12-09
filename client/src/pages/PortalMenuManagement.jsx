@@ -157,19 +157,39 @@ export default function PortalMenuManagementPage() {
     refetchOnMount: true,
   });
 
-  // Combine built-in pages with dynamic CMS pages
+  // Fetch active dynamic directories
+  const { data: dynamicDirectories = [] } = useQuery({
+    queryKey: ['dynamic-directories-for-nav'],
+    queryFn: async () => {
+      try {
+        const directories = await base44.entities.DynamicDirectory.list({
+          filter: { is_active: true }
+        });
+        return (directories || []).map(dir => ({
+          value: `directory/${dir.slug}`,
+          label: `Directory: ${dir.name}`
+        }));
+      } catch {
+        return [];
+      }
+    },
+    staleTime: 60 * 1000,
+  });
+
+  // Combine built-in pages with dynamic CMS pages and dynamic directories
   const availablePages = useMemo(() => {
     return [
       { value: "_none", label: "No Page (Parent Menu)" },
       ...builtInPages,
-      ...ieditPages
+      ...ieditPages,
+      ...dynamicDirectories
     ].sort((a, b) => {
       // Keep "_none" at top
       if (a.value === "_none") return -1;
       if (b.value === "_none") return 1;
       return a.label.localeCompare(b.label);
     });
-  }, [ieditPages]);
+  }, [ieditPages, dynamicDirectories]);
 
   const createMutation = useMutation({
     mutationFn: (data) => base44.entities.PortalMenu.create(data),

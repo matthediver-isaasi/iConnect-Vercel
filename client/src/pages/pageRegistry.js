@@ -101,4 +101,6 @@ export const PAGE_NAMES = [
   "CustomFieldsAdmin",
   "SpeakerManagement",
   "CardDeckManagement",
+  "DynamicDirectoryManagement",
+  "DynamicDirectoryView",
 ];

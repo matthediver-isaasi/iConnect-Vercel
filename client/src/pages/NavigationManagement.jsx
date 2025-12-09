@@ -165,10 +165,29 @@ export default function NavigationManagementPage() {
     refetchOnMount: true,
   });
 
-  // Combine hardcoded and dynamic pages
+  // Fetch active dynamic directories
+  const { data: dynamicDirectories = [] } = useQuery({
+    queryKey: ['dynamic-directories-for-nav'],
+    queryFn: async () => {
+      try {
+        const directories = await base44.entities.DynamicDirectory.list({
+          filter: { is_active: true }
+        });
+        return (directories || []).map(dir => ({
+          name: `directory/${dir.slug}`,
+          label: `Directory: ${dir.name}`
+        }));
+      } catch {
+        return [];
+      }
+    },
+    staleTime: 60 * 1000,
+  });
+
+  // Combine hardcoded, dynamic CMS pages, and dynamic directories
   const availablePages = useMemo(() => {
-    return [...hardcodedPublicPages, ...ieditPages].sort((a, b) => a.label.localeCompare(b.label));
-  }, [ieditPages]);
+    return [...hardcodedPublicPages, ...ieditPages, ...dynamicDirectories].sort((a, b) => a.label.localeCompare(b.label));
+  }, [ieditPages, dynamicDirectories]);
 
   const createMutation = useMutation({
     mutationFn: (data) => base44.entities.NavigationItem.create(data),

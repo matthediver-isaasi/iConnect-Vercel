@@ -121,6 +121,7 @@ export const MemberGroupGuest = base44.entities.MemberGroupGuest;
 
 export const Speaker = base44.entities.Speaker;
 
+export const DynamicDirectory = base44.entities.DynamicDirectory;
 
 // auth sdk:
 export const User = base44.auth;

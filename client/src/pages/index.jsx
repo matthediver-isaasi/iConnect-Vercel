@@ -215,6 +215,10 @@ import MyOrganisation from "./MyOrganisation";
 
 import MemberRoleReport from "./MemberRoleReport";
 
+import DynamicDirectoryManagement from "./DynamicDirectoryManagement";
+
+import DynamicDirectoryView from "./DynamicDirectoryView";
+
 import { BrowserRouter as Router, Route, Routes, useLocation } from 'react-router-dom';
 import { LayoutProvider } from '@/contexts/LayoutContext';
 import { ArticleUrlProvider } from '@/contexts/ArticleUrlContext';
@@ -434,6 +438,10 @@ const PAGES = {
     MyOrganisation: MyOrganisation,
     
     MemberRoleReport: MemberRoleReport,
+    
+    DynamicDirectoryManagement: DynamicDirectoryManagement,
+    
+    DynamicDirectoryView: DynamicDirectoryView,
     
 }
 
@@ -690,6 +698,10 @@ function PagesContent() {
                 <Route path="/MyOrganisation" element={<MyOrganisation />} />
                 
                 <Route path="/MemberRoleReport" element={<MemberRoleReport />} />
+                
+                <Route path="/DynamicDirectoryManagement" element={<DynamicDirectoryManagement />} />
+                
+                <Route path="/directory/:slug" element={<DynamicDirectoryView />} />
                 
                 {/* /auth/verify route removed - using password auth */}
                 
