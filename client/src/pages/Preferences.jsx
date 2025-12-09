@@ -37,6 +37,8 @@ import {
   AlertCircle,
   Mail,
   ClipboardList,
+  Download,
+  Award,
 } from "lucide-react";
 import { format } from "date-fns";
 import ResourceFilter from "../components/resources/ResourceFilter";
@@ -445,6 +447,26 @@ export default function PreferencesPage() {
     }
     return [memberRecord.role_id];
   }, [memberRecord?.role_id]);
+
+  // --- Fetch roles with badge info for the member ---
+  const { data: memberRoles = [], isLoading: rolesLoading } = useQuery({
+    queryKey: ["memberRolesWithBadges", memberRoleIds],
+    enabled: memberRoleIds.length > 0,
+    queryFn: async () => {
+      if (memberRoleIds.length === 0) return [];
+      const { data, error } = await supabase
+        .from("role")
+        .select("id, name, description, badge_image_url")
+        .in("id", memberRoleIds);
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  // Filter roles that have badges
+  const rolesWithBadges = useMemo(() => {
+    return memberRoles.filter(role => role.badge_image_url);
+  }, [memberRoles]);
 
   // --- Filter categories available to this member based on their role(s) ---
   const availableCategories = useMemo(() => {
@@ -1563,6 +1585,64 @@ export default function PreferencesPage() {
                         </div>
                       );
                     })}
+                  </div>
+                </div>
+              )}
+
+              {/* Role Badges */}
+              {rolesWithBadges.length > 0 && (
+                <div className="pt-4 border-t border-slate-200">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Award className="w-5 h-5 text-indigo-600" />
+                    <h3 className="text-sm font-semibold text-slate-900">
+                      Membership Badges
+                    </h3>
+                    <Badge variant="secondary">
+                      {rolesWithBadges.length}
+                    </Badge>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                    {rolesWithBadges.map((role) => (
+                      <div
+                        key={`badge-${role.id}`}
+                        className="flex flex-col items-center p-4 bg-gradient-to-br from-indigo-50 to-indigo-100 rounded-lg border border-indigo-200 hover:shadow-md transition-shadow"
+                        data-testid={`role-badge-${role.id}`}
+                      >
+                        <img
+                          src={role.badge_image_url}
+                          alt={`${role.name} badge`}
+                          className="w-24 h-24 object-contain mb-3"
+                        />
+                        <p className="text-sm font-semibold text-center text-slate-900 mb-1">
+                          {role.name}
+                        </p>
+                        {role.description && (
+                          <p className="text-xs text-slate-600 text-center mb-3 line-clamp-2">
+                            {role.description}
+                          </p>
+                        )}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            // Download the badge image
+                            const link = document.createElement('a');
+                            link.href = role.badge_image_url;
+                            link.download = `${role.name.replace(/\s+/g, '-').toLowerCase()}-badge.png`;
+                            link.target = '_blank';
+                            document.body.appendChild(link);
+                            link.click();
+                            document.body.removeChild(link);
+                            toast.success("Badge download started");
+                          }}
+                          className="text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50"
+                          data-testid={`download-badge-${role.id}`}
+                        >
+                          <Download className="w-4 h-4 mr-1" />
+                          Download Badge
+                        </Button>
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}

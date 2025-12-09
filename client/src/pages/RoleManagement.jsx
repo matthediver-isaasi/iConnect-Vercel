@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
+import { supabase } from "@/api/supabaseClient";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -10,12 +11,33 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Shield, Plus, Pencil, Trash2, AlertCircle, Mail } from "lucide-react";
+import { Shield, Plus, Pencil, Trash2, AlertCircle, Mail, Upload, X, Loader2, Award } from "lucide-react";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { PAGE_NAMES } from "./pageRegistry.js";
 import { useNavigate } from "react-router-dom";
+
+// Helper: upload to Supabase Storage and return public URL
+async function uploadImageToSupabase(file, bucket, folderPrefix = "") {
+  const fileExt = file.name.split(".").pop();
+  const fileName = `${folderPrefix ? `${folderPrefix}/` : ""}${Date.now()}-${Math
+    .random()
+    .toString(36)
+    .slice(2)}.${fileExt}`;
+
+  const { data, error } = await supabase.storage
+    .from(bucket)
+    .upload(fileName, file);
+
+  if (error) throw error;
+
+  const { data: publicData } = supabase.storage
+    .from(bucket)
+    .getPublicUrl(fileName);
+
+  return publicData.publicUrl;
+}
 
 // List of all available feature IDs in the system
 // Note: Feature IDs now include section prefixes (page_user_* or page_admin_*) to match PortalMenu structure
@@ -130,6 +152,7 @@ export default function RoleManagementPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [roleToDelete, setRoleToDelete] = useState(null);
   const [accessChecked, setAccessChecked] = useState(false);
+  const [isUploadingBadge, setIsUploadingBadge] = useState(false);
 
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -630,6 +653,94 @@ export default function RoleManagementPage() {
                   <p className="text-xs text-slate-500">
                     Visual theme/layout to apply for users with this role
                   </p>
+                </div>
+
+                {/* Role Badge Upload */}
+                <div className="space-y-2">
+                  <Label>Role Badge</Label>
+                  <p className="text-xs text-slate-500 mb-2">
+                    Upload a badge image that members with this role can display and download
+                  </p>
+                  
+                  {editingRole.badge_image_url ? (
+                    <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-lg border">
+                      <div className="relative">
+                        <img 
+                          src={editingRole.badge_image_url} 
+                          alt="Role badge" 
+                          className="w-20 h-20 object-contain rounded-lg border bg-white"
+                        />
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-sm font-medium text-slate-700">Badge uploaded</p>
+                        <p className="text-xs text-slate-500 mt-1 truncate max-w-[200px]">
+                          {editingRole.badge_image_url.split('/').pop()}
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setEditingRole({ ...editingRole, badge_image_url: '' })}
+                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                      >
+                        <X className="w-4 h-4 mr-1" />
+                        Remove
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="relative">
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          
+                          // Validate file size (max 5MB)
+                          if (file.size > 5 * 1024 * 1024) {
+                            toast.error("Badge image must be less than 5MB");
+                            return;
+                          }
+                          
+                          setIsUploadingBadge(true);
+                          try {
+                            const url = await uploadImageToSupabase(file, "images", "role-badges");
+                            setEditingRole({ ...editingRole, badge_image_url: url });
+                            toast.success("Badge uploaded successfully");
+                          } catch (error) {
+                            console.error("Badge upload error:", error);
+                            toast.error("Failed to upload badge");
+                          } finally {
+                            setIsUploadingBadge(false);
+                          }
+                        }}
+                        className="hidden"
+                        id="badge-upload"
+                        disabled={isUploadingBadge}
+                      />
+                      <label
+                        htmlFor="badge-upload"
+                        className={`flex items-center justify-center gap-2 p-6 border-2 border-dashed rounded-lg cursor-pointer transition-colors ${
+                          isUploadingBadge 
+                            ? 'bg-slate-100 border-slate-300 cursor-not-allowed' 
+                            : 'hover:bg-slate-50 border-slate-300 hover:border-blue-400'
+                        }`}
+                      >
+                        {isUploadingBadge ? (
+                          <>
+                            <Loader2 className="w-5 h-5 text-slate-400 animate-spin" />
+                            <span className="text-sm text-slate-500">Uploading...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Award className="w-5 h-5 text-slate-400" />
+                            <span className="text-sm text-slate-500">Click to upload badge image</span>
+                          </>
+                        )}
+                      </label>
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-3">
