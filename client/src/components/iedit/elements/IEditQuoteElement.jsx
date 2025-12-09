@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useId, useRef, useLayoutEffect } from "react";
+import { useState, useEffect, useCallback, useId } from "react";
 import { ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Upload, X, Plus, Trash2, GripVertical, AlignLeft, AlignCenter, AlignRight } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -132,7 +132,9 @@ export default function IEditQuoteElement({ content, variant, settings }) {
     content_font_weight = 400,
     content_color = '#475569',
     content_line_height = 1.6,
-    content_letter_spacing = 0
+    content_letter_spacing = 0,
+    // Manual container height for carousel (0 = auto)
+    container_height = 0
   } = content || {};
 
   const reactId = useId();
@@ -145,8 +147,6 @@ export default function IEditQuoteElement({ content, variant, settings }) {
 
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
-  const [maxQuoteHeight, setMaxQuoteHeight] = useState(0);
-  const measureContainerRef = useRef(null);
 
   const goToNext = useCallback(() => {
     if (allQuotes.length > 1) {
@@ -169,24 +169,6 @@ export default function IEditQuoteElement({ content, variant, settings }) {
 
     return () => clearInterval(interval);
   }, [allQuotes.length, carousel_delay, isPaused, goToNext]);
-
-  // Measure all quotes to find the tallest one
-  useLayoutEffect(() => {
-    if (!measureContainerRef.current || allQuotes.length <= 1) {
-      setMaxQuoteHeight(0);
-      return;
-    }
-
-    const measureItems = measureContainerRef.current.querySelectorAll('.quote-measure-item');
-    let maxHeight = 0;
-    measureItems.forEach((item) => {
-      const height = item.getBoundingClientRect().height;
-      if (height > maxHeight) {
-        maxHeight = height;
-      }
-    });
-    setMaxQuoteHeight(maxHeight);
-  }, [allQuotes, quote_font_size, quote_line_height, name_font_size, profile_size, box_padding, layout]);
 
   // Quote panel background
   const getBackgroundStyle = () => {
@@ -434,7 +416,7 @@ export default function IEditQuoteElement({ content, variant, settings }) {
 
       <div 
         className="relative z-10"
-        style={maxQuoteHeight > 0 ? { minHeight: `${maxQuoteHeight}px` } : undefined}
+        style={container_height > 0 ? { minHeight: `${container_height}px` } : undefined}
       >
         {renderQuoteContent(currentQuote)}
 
@@ -621,40 +603,6 @@ export default function IEditQuoteElement({ content, variant, settings }) {
 
         {renderQuotePanel()}
       </div>
-
-      {/* Hidden container to measure all quotes for consistent height */}
-      {allQuotes.length > 1 && (
-        <div 
-          ref={measureContainerRef}
-          aria-hidden="true"
-          className="absolute overflow-hidden"
-          style={{ 
-            visibility: 'hidden', 
-            position: 'absolute', 
-            top: 0, 
-            left: 0, 
-            right: 0,
-            pointerEvents: 'none',
-            zIndex: -1
-          }}
-        >
-          <div className={fullWidth ? "max-w-7xl mx-auto px-4" : ""}>
-            <div 
-              style={{
-                padding: `${box_padding}px`,
-                borderRadius: `${box_border_radius}px`,
-                border: `${box_border_width}px solid transparent`
-              }}
-            >
-              {allQuotes.map((quote, index) => (
-                <div key={index} className="quote-measure-item">
-                  {renderQuoteContent(quote, true)}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -1451,6 +1399,23 @@ export function IEditQuoteElementEditor({ element, onChange }) {
               <option value="stacked">Stacked (centered)</option>
               <option value="side">Side by Side</option>
             </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1">
+              Container Height (px)
+            </label>
+            <Input
+              type="number"
+              min="0"
+              step="10"
+              value={content.container_height || 0}
+              onChange={(e) => updateContent('container_height', parseInt(e.target.value) || 0)}
+              placeholder="0 = auto"
+            />
+            <p className="text-xs text-slate-500 mt-1">
+              Set a fixed height to prevent layout shift when rotating. 0 = auto height.
+            </p>
           </div>
 
           <div>
