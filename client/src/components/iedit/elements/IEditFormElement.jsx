@@ -64,6 +64,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   const [currentStep, setCurrentStep] = useState(0);
 
   const {
+    anchor,
     heading,
     subheading,
     text_content,
@@ -259,7 +260,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     const canProceed = !currentField?.required || formValues[currentField?.id];
 
     return (
-      <div style={containerStyle}>
+      <div id={anchor || undefined} style={containerStyle}>
         {background_type === 'image' && overlay_enabled && (
           <div 
             className="absolute inset-0" 
@@ -348,7 +349,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   }
 
   return (
-    <div style={containerStyle}>
+    <div id={anchor || undefined} style={containerStyle}>
       {background_type === 'image' && overlay_enabled && (
         <div 
           className="absolute inset-0" 
@@ -784,6 +785,28 @@ export function IEditFormElementEditor({ element, onChange }) {
 
   return (
     <div className="space-y-4">
+      {/* Anchor ID Field */}
+      <div className="border rounded-lg p-3 bg-slate-50">
+        <label className="block text-sm font-medium mb-1">Anchor ID</label>
+        <input
+          type="text"
+          value={content.anchor || ''}
+          onChange={(e) => {
+            const sanitized = e.target.value
+              .toLowerCase()
+              .replace(/\s+/g, '-')
+              .replace(/[^a-z0-9-_]/g, '');
+            updateContent('anchor', sanitized);
+          }}
+          placeholder="e.g., contact-form"
+          className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+          data-testid="input-form-anchor"
+        />
+        <p className="text-xs text-slate-500 mt-1">
+          Used for linking directly to this section (e.g., /page#anchor-id)
+        </p>
+      </div>
+
       {/* Form Selection Section */}
       <div className="border rounded-lg overflow-hidden">
         <button

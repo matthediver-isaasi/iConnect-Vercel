@@ -53,6 +53,7 @@ const heroQuillModules = {
 
 export default function IEditPageHeaderHeroElement({ content, variant, settings, isFirst }) {
   const { 
+    anchor,
     background_type = 'color',
     background_color = '#1e3a5f',
     gradient_start_color = '#1e3a5f',
@@ -246,6 +247,7 @@ export default function IEditPageHeaderHeroElement({ content, variant, settings,
       </style>
       
       <div 
+        id={anchor || undefined}
         className={`${instanceId} relative w-full overflow-hidden`}
         style={{ ...getBackgroundStyle() }}
       >
@@ -466,6 +468,28 @@ export function IEditPageHeaderHeroElementEditor({ element, onChange }) {
 
   return (
     <div className="space-y-2">
+      {/* Anchor ID Field */}
+      <div className="border rounded-lg p-3 bg-slate-50">
+        <label className="block text-sm font-medium mb-1">Anchor ID</label>
+        <input
+          type="text"
+          value={content.anchor || ''}
+          onChange={(e) => {
+            const sanitized = e.target.value
+              .toLowerCase()
+              .replace(/\s+/g, '-')
+              .replace(/[^a-z0-9-_]/g, '');
+            updateContent('anchor', sanitized);
+          }}
+          placeholder="e.g., page-header"
+          className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+          data-testid="input-pageheaderhero-anchor"
+        />
+        <p className="text-xs text-slate-500 mt-1">
+          Used for linking directly to this section (e.g., /page#anchor-id)
+        </p>
+      </div>
+
       {/* Section 1: Header / Subheader / Content */}
       <div className="border border-slate-200 rounded-lg overflow-hidden">
         <button

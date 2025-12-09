@@ -87,6 +87,28 @@ export function IEditBannerCarouselElementEditor({ element, onChange }) {
 
   return (
     <div className="space-y-4">
+      {/* Anchor ID Field */}
+      <div className="border rounded-lg p-3 bg-slate-50">
+        <label className="block text-sm font-medium mb-1">Anchor ID</label>
+        <input
+          type="text"
+          value={content.anchor || ''}
+          onChange={(e) => {
+            const sanitized = e.target.value
+              .toLowerCase()
+              .replace(/\s+/g, '-')
+              .replace(/[^a-z0-9-_]/g, '');
+            updateContent('anchor', sanitized);
+          }}
+          placeholder="e.g., carousel-section"
+          className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+          data-testid="input-bannercarousel-anchor"
+        />
+        <p className="text-xs text-slate-500 mt-1">
+          Used for linking directly to this section (e.g., /page#anchor-id)
+        </p>
+      </div>
+
       <div className="flex items-center justify-between">
         <Label>Banners ({(content.banners || []).length})</Label>
         <Button onClick={addBanner} size="sm" type="button">
@@ -260,6 +282,7 @@ export function IEditBannerCarouselElementEditor({ element, onChange }) {
 
 export function IEditBannerCarouselElementRenderer({ element }) {
   const content = element.content || { banners: [], autoplayInterval: 5 };
+  const { anchor } = content;
   const [currentIndex, setCurrentIndex] = useState(0);
 
   const banners = content.banners || [];
@@ -298,7 +321,7 @@ export function IEditBannerCarouselElementRenderer({ element }) {
   const currentBanner = banners[currentIndex];
 
   return (
-    <div className="relative w-full overflow-hidden">
+    <div id={anchor || undefined} className="relative w-full overflow-hidden">
       {/* Banner Container */}
       <div className="relative h-[500px] md:h-[600px]">
         {/* Background Image */}

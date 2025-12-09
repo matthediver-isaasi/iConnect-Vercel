@@ -113,6 +113,28 @@ export function IEditResourcesShowcaseElementEditor({ element, onChange }) {
 
   return (
     <div className="space-y-4">
+      {/* Anchor ID Field */}
+      <div className="border rounded-lg p-3 bg-slate-50">
+        <label className="block text-sm font-medium mb-1">Anchor ID</label>
+        <input
+          type="text"
+          value={content.anchor || ''}
+          onChange={(e) => {
+            const sanitized = e.target.value
+              .toLowerCase()
+              .replace(/\s+/g, '-')
+              .replace(/[^a-z0-9-_]/g, '');
+            updateContent('anchor', sanitized);
+          }}
+          placeholder="e.g., resources-section"
+          className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+          data-testid="input-resourcesshowcase-anchor"
+        />
+        <p className="text-xs text-slate-500 mt-1">
+          Used for linking directly to this section (e.g., /page#anchor-id)
+        </p>
+      </div>
+
       <div>
         <Label htmlFor="headerText">Header Text</Label>
         <Input
@@ -929,8 +951,10 @@ export function IEditResourcesShowcaseElementRenderer({ element, settings }) {
 
   const backgroundWrapperClass = fullWidth ? 'w-screen relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw]' : 'w-full';
 
+  const { anchor } = content;
+
   return (
-    <div className={`${backgroundWrapperClass} py-16 relative`} style={sectionStyle}>
+    <div id={anchor || undefined} className={`${backgroundWrapperClass} py-16 relative`} style={sectionStyle}>
       <div className="max-w-7xl mx-auto px-4 relative z-10">
         <div className="grid lg:grid-cols-3 gap-8">
           {/* Left Column - Content */}

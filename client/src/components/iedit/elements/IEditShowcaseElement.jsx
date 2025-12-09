@@ -403,6 +403,28 @@ export function IEditShowcaseElementEditor({ element, onChange }) {
 
   return (
     <div className="space-y-4">
+      {/* Anchor ID Field */}
+      <div className="border rounded-lg p-3 bg-slate-50">
+        <label className="block text-sm font-medium mb-1">Anchor ID</label>
+        <input
+          type="text"
+          value={content.anchor || ''}
+          onChange={(e) => {
+            const sanitized = e.target.value
+              .toLowerCase()
+              .replace(/\s+/g, '-')
+              .replace(/[^a-z0-9-_]/g, '');
+            updateContent('anchor', sanitized);
+          }}
+          placeholder="e.g., showcase-section"
+          className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+          data-testid="input-showcase-anchor"
+        />
+        <p className="text-xs text-slate-500 mt-1">
+          Used for linking directly to this section (e.g., /page#anchor-id)
+        </p>
+      </div>
+
       {/* Section Header */}
       <div className="border rounded-lg overflow-hidden">
         <button
@@ -1222,7 +1244,7 @@ export function IEditShowcaseElementRenderer({ element, settings }) {
     : (content.content_font_size || 16);
 
   return (
-    <div className={`${backgroundWrapperClass} relative`} style={wrapperStyle}>
+    <div id={content.anchor || undefined} className={`${backgroundWrapperClass} relative`} style={wrapperStyle}>
       <div className="max-w-7xl mx-auto px-4 relative z-10" style={containerStyle}>
         {(content.headerText || content.descriptionText || content.body_content) && (
           <div style={{ marginBottom: '48px' }}>

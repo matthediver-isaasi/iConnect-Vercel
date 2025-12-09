@@ -136,7 +136,9 @@ export default function IEditQuoteElement({ content, variant, settings }) {
     // Manual container height for carousel (0 = auto)
     container_height = 0,
     // Vertical alignment for content within container
-    content_vertical_align = 'middle'
+    content_vertical_align = 'middle',
+    // Anchor ID for linking
+    anchor
   } = content || {};
 
   const reactId = useId();
@@ -473,6 +475,7 @@ export default function IEditQuoteElement({ content, variant, settings }) {
   if (allQuotes.length === 0) {
     return (
       <div 
+        id={anchor || undefined}
         className={`${instanceId} ${fullWidthClass} relative`}
         style={{
           ...getElementBackgroundStyle(),
@@ -545,6 +548,7 @@ export default function IEditQuoteElement({ content, variant, settings }) {
 
   return (
     <div 
+      id={anchor || undefined}
       className={`${instanceId} ${fullWidthClass} relative`}
       style={{
         ...getElementBackgroundStyle(),
@@ -757,6 +761,28 @@ export function IEditQuoteElementEditor({ element, onChange }) {
 
   return (
     <div className="space-y-4">
+      {/* Anchor ID Field */}
+      <div className="border rounded-lg p-3 bg-slate-50">
+        <label className="block text-sm font-medium mb-1">Anchor ID</label>
+        <input
+          type="text"
+          value={content.anchor || ''}
+          onChange={(e) => {
+            const sanitized = e.target.value
+              .toLowerCase()
+              .replace(/\s+/g, '-')
+              .replace(/[^a-z0-9-_]/g, '');
+            updateContent('anchor', sanitized);
+          }}
+          placeholder="e.g., quote-section"
+          className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+          data-testid="input-quote-anchor"
+        />
+        <p className="text-xs text-slate-500 mt-1">
+          Used for linking directly to this section (e.g., /page#anchor-id)
+        </p>
+      </div>
+
       {/* Section Header Settings */}
       <SectionHeader title="Section Header" section="sectionHeader" />
       {expandedSections.sectionHeader && (

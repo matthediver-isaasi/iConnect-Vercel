@@ -37,6 +37,28 @@ export function IEditOrganisationDirectoryElementEditor({ element, onChange }) {
 
   return (
     <div className="space-y-4">
+      {/* Anchor ID Field */}
+      <div className="border rounded-lg p-3 bg-slate-50">
+        <label className="block text-sm font-medium mb-1">Anchor ID</label>
+        <input
+          type="text"
+          value={content.anchor || ''}
+          onChange={(e) => {
+            const sanitized = e.target.value
+              .toLowerCase()
+              .replace(/\s+/g, '-')
+              .replace(/[^a-z0-9-_]/g, '');
+            updateContent('anchor', sanitized);
+          }}
+          placeholder="e.g., directory-section"
+          className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+          data-testid="input-orgdirectory-anchor"
+        />
+        <p className="text-xs text-slate-500 mt-1">
+          Used for linking directly to this section (e.g., /page#anchor-id)
+        </p>
+      </div>
+
       <div>
         <Label htmlFor="headerText">Section Header (optional)</Label>
         <Input
@@ -254,6 +276,7 @@ export function IEditOrganisationDirectoryElementRenderer({ content, settings })
   const [currentPage, setCurrentPage] = useState(1);
 
   const {
+    anchor,
     backgroundColor = '#f8fafc',
     showSearch = true,
     showSortFilter = true,
@@ -387,7 +410,7 @@ export function IEditOrganisationDirectoryElementRenderer({ content, settings })
   }
 
   return (
-    <div style={{ backgroundColor }} className="p-4 md:p-8">
+    <div id={anchor || undefined} style={{ backgroundColor }} className="p-4 md:p-8">
       <div className={settings?.fullWidth ? 'px-4' : 'max-w-7xl mx-auto'}>
         {headerText && (
           <h2 

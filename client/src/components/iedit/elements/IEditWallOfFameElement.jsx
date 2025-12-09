@@ -218,6 +218,28 @@ export function IEditWallOfFameElementEditor({ element, onChange }) {
 
   return (
     <div className="space-y-3">
+      {/* Anchor ID Field */}
+      <div className="border rounded-lg p-3 bg-slate-50">
+        <label className="block text-sm font-medium mb-1">Anchor ID</label>
+        <input
+          type="text"
+          value={content.anchor || ''}
+          onChange={(e) => {
+            const sanitized = e.target.value
+              .toLowerCase()
+              .replace(/\s+/g, '-')
+              .replace(/[^a-z0-9-_]/g, '');
+            updateContent('anchor', sanitized);
+          }}
+          placeholder="e.g., awards-section"
+          className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+          data-testid="input-walloffame-anchor"
+        />
+        <p className="text-xs text-slate-500 mt-1">
+          Used for linking directly to this section (e.g., /page#anchor-id)
+        </p>
+      </div>
+
       {/* Section Selection Accordion */}
       <div className="border rounded-lg overflow-hidden">
         <button
@@ -759,17 +781,19 @@ export function IEditWallOfFameElementEditor({ element, onChange }) {
 export function IEditWallOfFameElementRenderer({ element, content }) {
   const sectionId = element.content?.section_id || content?.section_id;
   const displaySettings = element.content || content || {};
+  const anchor = displaySettings.anchor;
   
   if (!sectionId) {
     return (
-      <div className="bg-slate-100 border-2 border-dashed border-slate-300 rounded-lg p-12 text-center">
+      <div id={anchor || undefined} className="bg-slate-100 border-2 border-dashed border-slate-300 rounded-lg p-12 text-center">
         <p className="text-slate-600">Please select a Wall of Fame section to display</p>
       </div>
     );
   }
 
   return (
-    <WallOfFameDisplay 
+    <div id={anchor || undefined}>
+      <WallOfFameDisplay 
       sectionId={sectionId} 
       showCategoryName={displaySettings.show_category_name !== false}
       customTitle={displaySettings.custom_title}
@@ -816,5 +840,6 @@ export function IEditWallOfFameElementRenderer({ element, content }) {
       contentColor={displaySettings.content_color}
       textAlign={displaySettings.text_align}
     />
+    </div>
   );
 }

@@ -28,6 +28,7 @@ const isHtmlEmpty = (html) => {
 
 export default function IEditHeroElement({ content, variant, settings }) {
   const {
+    anchor,
     background_type = 'color',
     background_color = '#3b82f6',
     gradient_start_color = '#3b82f6',
@@ -249,7 +250,7 @@ export default function IEditHeroElement({ content, variant, settings }) {
 
   if (isImageSized) {
     return (
-      <div className={`${instanceId} ${fullWidthClass}`}>
+      <div id={anchor || undefined} className={`${instanceId} ${fullWidthClass}`}>
         <style>{responsiveStyles}</style>
         <div 
           style={{ 
@@ -353,7 +354,7 @@ export default function IEditHeroElement({ content, variant, settings }) {
   }
 
   return (
-    <div className={`${instanceId} ${fullWidthClass}`}>
+    <div id={anchor || undefined} className={`${instanceId} ${fullWidthClass}`}>
       <style>{responsiveStyles}</style>
       <div 
         className="hero-container relative w-full overflow-hidden"
@@ -568,6 +569,28 @@ export function IEditHeroElementEditor({ element, onChange }) {
 
   return (
     <div className="space-y-4">
+        {/* Anchor ID Field */}
+        <div className="border rounded-lg p-3 bg-slate-50">
+          <label className="block text-sm font-medium mb-1">Anchor ID</label>
+          <input
+            type="text"
+            value={content.anchor || ''}
+            onChange={(e) => {
+              // Convert to URL-safe format: lowercase, replace spaces with hyphens, remove special chars
+              const sanitized = e.target.value
+                .toLowerCase()
+                .replace(/\s+/g, '-')
+                .replace(/[^a-z0-9-_]/g, '');
+              updateContent('anchor', sanitized);
+            }}
+            placeholder="e.g., hero-section, about-us"
+            className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+            data-testid="input-hero-anchor"
+          />
+          <p className="text-xs text-slate-500 mt-1">
+            Used for linking directly to this section (e.g., /page#anchor-id)
+          </p>
+        </div>
         
         {/* Background & Layout Section */}
         <div className="border rounded-lg overflow-hidden">

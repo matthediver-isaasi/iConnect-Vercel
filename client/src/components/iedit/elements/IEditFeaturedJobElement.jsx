@@ -87,7 +87,10 @@ export default function IEditFeaturedJobElement({ content, variant, settings }) 
     // Layout
     layout_style = 'side-gradient',
     min_height = 550,
-    vertical_padding = 48
+    vertical_padding = 48,
+    
+    // Anchor
+    anchor
   } = content || {};
 
   const fullWidth = settings?.fullWidth;
@@ -137,7 +140,7 @@ export default function IEditFeaturedJobElement({ content, variant, settings }) 
   // Full-width gradient banner layout
   if (layout_style === 'full-width') {
     return (
-      <div className="w-full" style={{ ...gradientStyle, padding: `${vertical_padding}px 0` }}>
+      <div id={anchor || undefined} className="w-full" style={{ ...gradientStyle, padding: `${vertical_padding}px 0` }}>
         <div className="max-w-6xl mx-auto px-8">
           <div className="flex flex-col lg:flex-row items-center gap-8">
             {/* Left - Static content */}
@@ -170,6 +173,7 @@ export default function IEditFeaturedJobElement({ content, variant, settings }) 
   // Default: Split background layout
   return (
     <div 
+      id={anchor || undefined}
       className="relative w-full overflow-hidden"
       style={{ minHeight: `${min_height}px` }}
     >
@@ -542,6 +546,28 @@ export function IEditFeaturedJobElementEditor({ element, onChange }) {
 
   return (
     <div className="space-y-6">
+      {/* Anchor ID Field */}
+      <div className="border rounded-lg p-3 bg-slate-50">
+        <label className="block text-sm font-medium mb-1">Anchor ID</label>
+        <input
+          type="text"
+          value={content.anchor || ''}
+          onChange={(e) => {
+            const sanitized = e.target.value
+              .toLowerCase()
+              .replace(/\s+/g, '-')
+              .replace(/[^a-z0-9-_]/g, '');
+            updateContent('anchor', sanitized);
+          }}
+          placeholder="e.g., jobs-section"
+          className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+          data-testid="input-featuredjob-anchor"
+        />
+        <p className="text-xs text-slate-500 mt-1">
+          Used for linking directly to this section (e.g., /page#anchor-id)
+        </p>
+      </div>
+
       {/* Layout Settings */}
       <div className="space-y-4">
         <h4 className="font-semibold text-sm uppercase tracking-wide text-slate-500">Layout</h4>

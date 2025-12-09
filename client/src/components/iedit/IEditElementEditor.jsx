@@ -32,6 +32,7 @@ import { IEditLogoGridElementEditor } from "./elements/IEditLogoGridElement";
 import { IEditEventSpotlightElementEditor } from "./elements/IEditEventSpotlightElement";
 import { IEditCtaButtonElementEditor } from "./elements/IEditCtaButtonElement";
 import { IEditImageElementEditor } from "./elements/IEditImageElement";
+import { IEditImageHeroElementEditor } from "./elements/IEditImageHeroElement";
 
 export default function IEditElementEditor({ element, onClose, onSave, isInlineMode = false, onChange }) {
   const [editedContent, setEditedContent] = useState(element.content || {});
@@ -541,6 +542,8 @@ export default function IEditElementEditor({ element, onClose, onSave, isInlineM
               <IEditCtaButtonElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
             ) : isImage ? (
               <IEditImageElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
+            ) : isImageHero ? (
+              <IEditImageHeroElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
             ) : isTextBlock ? (
               <IEditTextBlockElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
             ) : (
@@ -779,6 +782,11 @@ export default function IEditElementEditor({ element, onClose, onSave, isInlineM
             />
           ) : isImage ? (
             <IEditImageElementEditor 
+              element={{ ...element, content: editedContent }}
+              onChange={handleContentChangeFromEditor}
+            />
+          ) : isImageHero ? (
+            <IEditImageHeroElementEditor 
               element={{ ...element, content: editedContent }}
               onChange={handleContentChangeFromEditor}
             />

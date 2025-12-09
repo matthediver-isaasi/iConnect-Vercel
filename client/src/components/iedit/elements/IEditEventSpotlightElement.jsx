@@ -51,6 +51,7 @@ export default function IEditEventSpotlightElement({ content, variant, settings 
   const { singular: speakerSingular, plural: speakerPlural } = useSpeakerModuleName();
   
   const {
+    anchor,
     event_id,
     heading,
     subheading,
@@ -234,6 +235,7 @@ export default function IEditEventSpotlightElement({ content, variant, settings 
 
   return (
     <div 
+      id={anchor || undefined}
       className="relative w-full"
       style={hasBackground && background_type !== 'image' ? getBackgroundStyle() : {}}
     >
@@ -483,6 +485,28 @@ export function IEditEventSpotlightElementEditor({ element, onChange }) {
 
   return (
     <div className="space-y-0 border border-slate-200 rounded-lg overflow-hidden">
+      {/* Anchor ID Field */}
+      <div className="border rounded-lg p-3 bg-slate-50">
+        <label className="block text-sm font-medium mb-1">Anchor ID</label>
+        <input
+          type="text"
+          value={content.anchor || ''}
+          onChange={(e) => {
+            const sanitized = e.target.value
+              .toLowerCase()
+              .replace(/\s+/g, '-')
+              .replace(/[^a-z0-9-_]/g, '');
+            updateContent('anchor', sanitized);
+          }}
+          placeholder="e.g., events-section"
+          className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+          data-testid="input-eventspotlight-anchor"
+        />
+        <p className="text-xs text-slate-500 mt-1">
+          Used for linking directly to this section (e.g., /page#anchor-id)
+        </p>
+      </div>
+
       <div className="border-b border-slate-200">
         <button
           onClick={() => toggleSection('event')}

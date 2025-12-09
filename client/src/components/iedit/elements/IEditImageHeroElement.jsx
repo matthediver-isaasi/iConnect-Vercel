@@ -6,7 +6,8 @@ export default function IEditImageHeroElement({ content = {}, settings = {} }) {
     foregroundImageUrl = '',
     height = 'medium',
     contentAlignment = 'center',
-    overlayOpacity = 0
+    overlayOpacity = 0,
+    anchor
   } = content;
 
   const { fullWidth = false } = settings;
@@ -26,7 +27,7 @@ export default function IEditImageHeroElement({ content = {}, settings = {} }) {
     : `relative w-full ${heightClasses[height] || heightClasses.medium}`;
 
   return (
-    <div className="w-full relative overflow-hidden">
+    <div id={anchor || undefined} className="w-full relative overflow-hidden">
       <div className={containerClass}>
         {/* Background Image Layer */}
         {backgroundImageUrl && (
@@ -77,6 +78,44 @@ export default function IEditImageHeroElement({ content = {}, settings = {} }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+export function IEditImageHeroElementEditor({ element, onChange }) {
+  const content = element.content || {};
+
+  const updateContent = (key, value) => {
+    onChange({ ...element, content: { ...content, [key]: value } });
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Anchor ID Field */}
+      <div className="border rounded-lg p-3 bg-slate-50">
+        <label className="block text-sm font-medium mb-1">Anchor ID</label>
+        <input
+          type="text"
+          value={content.anchor || ''}
+          onChange={(e) => {
+            const sanitized = e.target.value
+              .toLowerCase()
+              .replace(/\s+/g, '-')
+              .replace(/[^a-z0-9-_]/g, '');
+            updateContent('anchor', sanitized);
+          }}
+          placeholder="e.g., hero-banner"
+          className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+          data-testid="input-imagehero-anchor"
+        />
+        <p className="text-xs text-slate-500 mt-1">
+          Used for linking directly to this section (e.g., /page#anchor-id)
+        </p>
+      </div>
+
+      <p className="text-sm text-slate-500">
+        Configure background and foreground images in the Content section above.
+      </p>
     </div>
   );
 }
