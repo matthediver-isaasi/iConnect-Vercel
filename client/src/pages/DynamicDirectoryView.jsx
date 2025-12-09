@@ -269,12 +269,20 @@ export default function DynamicDirectoryView() {
   });
 
   const filterableOrgFields = useMemo(() => {
-    return orgCustomFields.filter(f => f.is_filterable && f.id !== directory?.filter_field_id);
-  }, [orgCustomFields, directory?.filter_field_id]);
+    const baseFilterable = orgCustomFields.filter(f => f.is_filterable && f.id !== directory?.filter_field_id);
+    if (directory?.selected_filter_fields && directory.selected_filter_fields.length > 0) {
+      return baseFilterable.filter(f => directory.selected_filter_fields.includes(f.id));
+    }
+    return [];
+  }, [orgCustomFields, directory?.filter_field_id, directory?.selected_filter_fields]);
 
   const filterableMemberFields = useMemo(() => {
-    return memberCustomFields.filter(f => f.id !== directory?.filter_field_id);
-  }, [memberCustomFields, directory?.filter_field_id]);
+    const baseFilterable = memberCustomFields.filter(f => f.id !== directory?.filter_field_id);
+    if (directory?.selected_filter_fields && directory.selected_filter_fields.length > 0) {
+      return baseFilterable.filter(f => directory.selected_filter_fields.includes(f.id));
+    }
+    return [];
+  }, [memberCustomFields, directory?.filter_field_id, directory?.selected_filter_fields]);
 
   const { data: allOrgPreferenceValues = [] } = useQuery({
     queryKey: ['all-org-preference-values', directory?.filter_field_id],

@@ -10,7 +10,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { FolderTree, Loader2, Plus, Pencil, Trash2, User, Building2 } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { FolderTree, Loader2, Plus, Pencil, Trash2, User, Building2, Filter } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
@@ -42,6 +43,7 @@ export default function DynamicDirectoryManagementPage() {
   const [filterFieldId, setFilterFieldId] = useState('');
   const [filterValue, setFilterValue] = useState('');
   const [isActive, setIsActive] = useState(true);
+  const [selectedFilterFields, setSelectedFilterFields] = useState([]);
 
   useEffect(() => {
     if (isAccessReady) {
@@ -85,6 +87,27 @@ export default function DynamicDirectoryManagementPage() {
     },
     enabled: isDialogOpen
   });
+
+  const { data: allFilterableFields = [] } = useQuery({
+    queryKey: ['/api/entities/PreferenceField/filterable', entityType],
+    queryFn: async () => {
+      try {
+        const fields = await base44.entities.PreferenceField.list({
+          filter: { entity_scope: entityType, is_active: true, is_filterable: true },
+          sort: { display_order: 'asc' }
+        });
+        return (fields || []).filter(f => 
+          (f.field_type === 'picklist' || f.field_type === 'dropdown') && f.is_filterable
+        );
+      } catch (error) {
+        console.error('Failed to fetch filterable fields:', error);
+        return [];
+      }
+    },
+    enabled: isDialogOpen
+  });
+
+  const availableFilterFields = allFilterableFields.filter(f => f.id !== filterFieldId);
 
   const selectedField = preferenceFields.find(f => f.id === filterFieldId);
 
@@ -138,6 +161,7 @@ export default function DynamicDirectoryManagementPage() {
     setFilterFieldId('');
     setFilterValue('');
     setIsActive(true);
+    setSelectedFilterFields([]);
   };
 
   const handleOpenCreateDialog = () => {
@@ -153,6 +177,7 @@ export default function DynamicDirectoryManagementPage() {
     setFilterFieldId(directory.filter_field_id || '');
     setFilterValue(directory.filter_value || '');
     setIsActive(directory.is_active !== false);
+    setSelectedFilterFields(directory.selected_filter_fields || []);
     setIsDialogOpen(true);
   };
 
@@ -167,6 +192,17 @@ export default function DynamicDirectoryManagementPage() {
     setEntityType(value);
     setFilterFieldId('');
     setFilterValue('');
+    setSelectedFilterFields([]);
+  };
+
+  const handleToggleFilterField = (fieldId) => {
+    setSelectedFilterFields(prev => {
+      if (prev.includes(fieldId)) {
+        return prev.filter(id => id !== fieldId);
+      } else {
+        return [...prev, fieldId];
+      }
+    });
   };
 
   const handleFilterFieldChange = (value) => {
@@ -201,7 +237,8 @@ export default function DynamicDirectoryManagementPage() {
       entity_type: entityType,
       filter_field_id: filterFieldId,
       filter_value: filterValue,
-      is_active: isActive
+      is_active: isActive,
+      selected_filter_fields: selectedFilterFields
     };
 
     if (editingDirectory) {
@@ -459,6 +496,45 @@ export default function DynamicDirectoryManagementPage() {
                 </SelectContent>
               </Select>
             </div>
+
+            {availableFilterFields.length > 0 && (
+              <div className="space-y-3 p-3 bg-slate-50 rounded-lg border">
+                <div className="flex items-center gap-2">
+                  <Filter className="w-4 h-4 text-blue-600" />
+                  <Label className="font-medium">Search Filter Fields</Label>
+                </div>
+                <p className="text-xs text-slate-500">
+                  Select which custom fields should appear as search filters on this directory. 
+                  If none are selected, no additional filters will be shown.
+                </p>
+                <div className="space-y-2 max-h-48 overflow-y-auto">
+                  {availableFilterFields.map((field) => (
+                    <div key={field.id} className="flex items-center gap-2">
+                      <Checkbox
+                        id={`filter-field-${field.id}`}
+                        checked={selectedFilterFields.includes(field.id)}
+                        onCheckedChange={() => handleToggleFilterField(field.id)}
+                        data-testid={`checkbox-filter-field-${field.id}`}
+                      />
+                      <label
+                        htmlFor={`filter-field-${field.id}`}
+                        className="text-sm text-slate-700 cursor-pointer flex-1"
+                      >
+                        {field.label}
+                      </label>
+                      <Badge variant="secondary" className="text-xs">
+                        {field.field_type}
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+                {selectedFilterFields.length > 0 && (
+                  <p className="text-xs text-blue-600 mt-2">
+                    {selectedFilterFields.length} filter{selectedFilterFields.length !== 1 ? 's' : ''} selected
+                  </p>
+                )}
+              </div>
+            )}
 
             <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border">
               <div>
