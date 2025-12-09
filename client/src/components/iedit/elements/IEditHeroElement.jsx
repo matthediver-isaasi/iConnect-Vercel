@@ -189,6 +189,16 @@ export default function IEditHeroElement({ content, variant, settings }) {
       text-align: ${effectiveContentAlign};
     }
     
+    .${instanceId} .hero-content-text p,
+    .${instanceId} .hero-content-text span,
+    .${instanceId} .hero-content-text li,
+    .${instanceId} .hero-content-text a,
+    .${instanceId} .hero-content-text strong,
+    .${instanceId} .hero-content-text em,
+    .${instanceId} .hero-content-text u {
+      color: inherit !important;
+    }
+    
     .${instanceId} .hero-button-wrapper {
       margin-top: ${button_top_margin}px;
       text-align: ${content.button_align || text_align};
