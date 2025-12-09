@@ -139,9 +139,11 @@ export default function IEditFiftyFiftyElement({ content, variant, settings }) {
     return (
       <div className={`space-y-4 ${alignmentClass} flex-1`}>
         {heading && (
-          <h2 style={getTextStyle(`${side}_heading`)} className="m-0">
-            {heading}
-          </h2>
+          <div 
+            style={getTextStyle(`${side}_heading`)} 
+            className="m-0 fifty-fifty-heading"
+            dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(heading) }}
+          />
         )}
         {subheading && (
           <div 
@@ -560,11 +562,16 @@ export function IEditFiftyFiftyElementEditor({ element, onChange }) {
           <div className="space-y-3">
             <div>
               <Label className="text-xs">Heading Text</Label>
-              <Input
-                value={content[`${side}_heading`] || ''}
-                onChange={(e) => updateContent(`${side}_heading`, e.target.value)}
-                placeholder="Enter heading..."
-              />
+              <div className="fifty-fifty-quill-editor border border-slate-300 rounded-md overflow-hidden bg-white">
+                <ReactQuill
+                  theme="snow"
+                  value={content[`${side}_heading`] || ''}
+                  onChange={(value) => updateContent(`${side}_heading`, value)}
+                  modules={fiftyFiftyQuillModules}
+                  placeholder="Enter heading..."
+                  style={{ minHeight: '80px' }}
+                />
+              </div>
             </div>
             <TypographyStyleSelector
               value={content[`${side}_heading_typography_style_id`] || null}
@@ -582,7 +589,6 @@ export function IEditFiftyFiftyElementEditor({ element, onChange }) {
                 }
                 updateMultipleContent(updates);
               }}
-              filterTypes={['h1', 'h2']}
               label="Heading Typography Style"
             />
             <details className="text-xs">
@@ -624,7 +630,6 @@ export function IEditFiftyFiftyElementEditor({ element, onChange }) {
                 }
                 updateMultipleContent(updates);
               }}
-              filterTypes={['h3', 'h4']}
               label="Subheading Typography Style"
             />
             <details className="text-xs">
@@ -665,7 +670,6 @@ export function IEditFiftyFiftyElementEditor({ element, onChange }) {
                 }
                 updateMultipleContent(updates);
               }}
-              filterTypes={['paragraph']}
               label="Content Typography Style"
             />
             <details className="text-xs">
