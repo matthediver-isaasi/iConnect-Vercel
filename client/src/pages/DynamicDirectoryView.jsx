@@ -296,12 +296,16 @@ export default function DynamicDirectoryView() {
   console.log('[DynamicDirectory] directory:', directory);
   console.log('[DynamicDirectory] filter_field_id:', directory?.filter_field_id);
   console.log('[DynamicDirectory] filter_value:', directory?.filter_value);
-  console.log('[DynamicDirectory] entity_type:', directory?.entity_type);
-  console.log('[DynamicDirectory] organizations count:', organizations.length);
-  console.log('[DynamicDirectory] allOrgPreferenceValues count:', allOrgPreferenceValues.length);
-  console.log('[DynamicDirectory] orgPreferenceMap:', orgPreferenceMap);
-  console.log('[DynamicDirectory] filteredOrganizations count:', filteredOrganizations.length);
-  console.log('[DynamicDirectory] items count:', items.length);
+  console.log('[DynamicDirectory] allOrgPreferenceValues RAW:', allOrgPreferenceValues);
+  
+  // Check if any org has the matching filter field
+  if (directory?.filter_field_id && allOrgPreferenceValues.length > 0) {
+    const matchingValues = allOrgPreferenceValues.filter(pv => pv.preference_field_id === directory.filter_field_id);
+    console.log('[DynamicDirectory] Preference values matching filter_field_id:', matchingValues);
+    matchingValues.forEach(mv => {
+      console.log('[DynamicDirectory] Org', mv.organization_id, 'has value:', mv.value, 'looking for:', directory.filter_value);
+    });
+  }
   const paginatedItems = useMemo(() => {
     const startIndex = (currentPage - 1) * itemsPerPage;
     return items.slice(startIndex, startIndex + itemsPerPage);

@@ -1,0 +1,163 @@
+index-DkH0kw58.js:901 GoTrueClient@sb-zkvgzcruhniduuswbfyh-auth-token:1 (2.84.0) 2025-12-09T18:24:00.865Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+Up @ index-DkH0kw58.js:901
+Hse @ index-DkH0kw58.js:902
+_initSupabaseAuthClient @ index-DkH0kw58.js:902
+Wse @ index-DkH0kw58.js:902
+hS @ index-DkH0kw58.js:902
+(anonymous) @ index-DkH0kw58.js:1409
+(anonymous) @ index-DkH0kw58.js:1
+(anonymous) @ index-DkH0kw58.js:1672
+index-DkH0kw58.js:901 GoTrueClient@sb-zkvgzcruhniduuswbfyh-auth-token:2 (2.84.0) 2025-12-09T18:24:00.867Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+Up @ index-DkH0kw58.js:901
+Hse @ index-DkH0kw58.js:902
+_initSupabaseAuthClient @ index-DkH0kw58.js:902
+Wse @ index-DkH0kw58.js:902
+hS @ index-DkH0kw58.js:902
+(anonymous) @ index-DkH0kw58.js:1621
+(anonymous) @ index-DkH0kw58.js:1
+(anonymous) @ index-DkH0kw58.js:1672
+index-DkH0kw58.js:1094 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-DkH0kw58.js:1094 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-DkH0kw58.js:1094 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-DkH0kw58.js:1094 [usePendingPurchaseOrders] Query running, memberInfo.id: 48b25075-51da-437f-af20-17836a892bfe
+index-DkH0kw58.js:1094 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-DkH0kw58.js:1094 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-DkH0kw58.js:1094 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-DkH0kw58.js:1094 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-DkH0kw58.js:1094 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-DkH0kw58.js:1094 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-DkH0kw58.js:1094 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-DkH0kw58.js:1094 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-DkH0kw58.js:1094 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-DkH0kw58.js:1094 [usePendingPurchaseOrders] Fetched bookings count: 3
+index-DkH0kw58.js:1094 [usePendingPurchaseOrders] Pending PO bookings: 2
+index-DkH0kw58.js:1094 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-DkH0kw58.js:1094 [usePendingPurchaseOrders] hasPendingPOs: true count: 2 isLoading: false
+index-DkH0kw58.js:1094 [Layout] hasPendingPOs: true count: 2 isLoading: false
+index-DkH0kw58.js:1094 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-DkH0kw58.js:1094 [usePendingPurchaseOrders] hasPendingPOs: true count: 2 isLoading: false
+index-DkH0kw58.js:1094 [Layout] hasPendingPOs: true count: 2 isLoading: false
+index-DkH0kw58.js:1672 [DynamicDirectory] directory: undefined
+index-DkH0kw58.js:1672 [DynamicDirectory] filter_field_id: undefined
+index-DkH0kw58.js:1672 [DynamicDirectory] filter_value: undefined
+index-DkH0kw58.js:1672 [DynamicDirectory] entity_type: undefined
+index-DkH0kw58.js:1672 [DynamicDirectory] organizations count: 0
+index-DkH0kw58.js:1672 [DynamicDirectory] allOrgPreferenceValues count: 0
+index-DkH0kw58.js:1672 [DynamicDirectory] orgPreferenceMap: {}
+index-DkH0kw58.js:1672 [DynamicDirectory] filteredOrganizations count: 0
+index-DkH0kw58.js:1672 [DynamicDirectory] items count: 0
+index-DkH0kw58.js:1094 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-DkH0kw58.js:1094 [usePendingPurchaseOrders] hasPendingPOs: true count: 2 isLoading: false
+index-DkH0kw58.js:1094 [Layout] hasPendingPOs: true count: 2 isLoading: false
+index-DkH0kw58.js:1672 [DynamicDirectory] directory: undefined
+index-DkH0kw58.js:1672 [DynamicDirectory] filter_field_id: undefined
+index-DkH0kw58.js:1672 [DynamicDirectory] filter_value: undefined
+index-DkH0kw58.js:1672 [DynamicDirectory] entity_type: undefined
+index-DkH0kw58.js:1672 [DynamicDirectory] organizations count: 0
+index-DkH0kw58.js:1672 [DynamicDirectory] allOrgPreferenceValues count: 0
+index-DkH0kw58.js:1672 [DynamicDirectory] orgPreferenceMap: {}
+index-DkH0kw58.js:1672 [DynamicDirectory] filteredOrganizations count: 0
+index-DkH0kw58.js:1672 [DynamicDirectory] items count: 0
+index-DkH0kw58.js:1094 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-DkH0kw58.js:1094 [usePendingPurchaseOrders] hasPendingPOs: true count: 2 isLoading: false
+index-DkH0kw58.js:1094 [Layout] hasPendingPOs: true count: 2 isLoading: false
+index-DkH0kw58.js:1672 [DynamicDirectory] directory: undefined
+index-DkH0kw58.js:1672 [DynamicDirectory] filter_field_id: undefined
+index-DkH0kw58.js:1672 [DynamicDirectory] filter_value: undefined
+index-DkH0kw58.js:1672 [DynamicDirectory] entity_type: undefined
+index-DkH0kw58.js:1672 [DynamicDirectory] organizations count: 0
+index-DkH0kw58.js:1672 [DynamicDirectory] allOrgPreferenceValues count: 0
+index-DkH0kw58.js:1672 [DynamicDirectory] orgPreferenceMap: {}
+index-DkH0kw58.js:1672 [DynamicDirectory] filteredOrganizations count: 0
+index-DkH0kw58.js:1672 [DynamicDirectory] items count: 0
+index-DkH0kw58.js:1094 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-DkH0kw58.js:1094 [usePendingPurchaseOrders] hasPendingPOs: true count: 2 isLoading: false
+index-DkH0kw58.js:1094 [Layout] hasPendingPOs: true count: 2 isLoading: false
+index-DkH0kw58.js:1672 [DynamicDirectory] directory: undefined
+index-DkH0kw58.js:1672 [DynamicDirectory] filter_field_id: undefined
+index-DkH0kw58.js:1672 [DynamicDirectory] filter_value: undefined
+index-DkH0kw58.js:1672 [DynamicDirectory] entity_type: undefined
+index-DkH0kw58.js:1672 [DynamicDirectory] organizations count: 0
+index-DkH0kw58.js:1672 [DynamicDirectory] allOrgPreferenceValues count: 0
+index-DkH0kw58.js:1672 [DynamicDirectory] orgPreferenceMap: {}
+index-DkH0kw58.js:1672 [DynamicDirectory] filteredOrganizations count: 0
+index-DkH0kw58.js:1672 [DynamicDirectory] items count: 0
+index-DkH0kw58.js:1672 [DynamicDirectory] directory: {id: '6907388d-bb2d-4774-9360-5aefd3e85749', name: 'Partner Directory', slug: 'partner-directory', entity_type: 'organization', filter_field_id: 'e5ac547d-edb1-4ff1-83ab-fc82c1813065', …}
+index-DkH0kw58.js:1672 [DynamicDirectory] filter_field_id: e5ac547d-edb1-4ff1-83ab-fc82c1813065
+index-DkH0kw58.js:1672 [DynamicDirectory] filter_value: Partner
+index-DkH0kw58.js:1672 [DynamicDirectory] entity_type: organization
+index-DkH0kw58.js:1672 [DynamicDirectory] organizations count: 0
+index-DkH0kw58.js:1672 [DynamicDirectory] allOrgPreferenceValues count: 0
+index-DkH0kw58.js:1672 [DynamicDirectory] orgPreferenceMap: {}
+index-DkH0kw58.js:1672 [DynamicDirectory] filteredOrganizations count: 0
+index-DkH0kw58.js:1672 [DynamicDirectory] items count: 0
+index-DkH0kw58.js:1672 [DynamicDirectory] directory: {id: '6907388d-bb2d-4774-9360-5aefd3e85749', name: 'Partner Directory', slug: 'partner-directory', entity_type: 'organization', filter_field_id: 'e5ac547d-edb1-4ff1-83ab-fc82c1813065', …}
+index-DkH0kw58.js:1672 [DynamicDirectory] filter_field_id: e5ac547d-edb1-4ff1-83ab-fc82c1813065
+index-DkH0kw58.js:1672 [DynamicDirectory] filter_value: Partner
+index-DkH0kw58.js:1672 [DynamicDirectory] entity_type: organization
+index-DkH0kw58.js:1672 [DynamicDirectory] organizations count: 0
+index-DkH0kw58.js:1672 [DynamicDirectory] allOrgPreferenceValues count: 0
+index-DkH0kw58.js:1672 [DynamicDirectory] orgPreferenceMap: {}
+index-DkH0kw58.js:1672 [DynamicDirectory] filteredOrganizations count: 0
+index-DkH0kw58.js:1672 [DynamicDirectory] items count: 0
+index-DkH0kw58.js:1672 [DynamicDirectory] directory: {id: '6907388d-bb2d-4774-9360-5aefd3e85749', name: 'Partner Directory', slug: 'partner-directory', entity_type: 'organization', filter_field_id: 'e5ac547d-edb1-4ff1-83ab-fc82c1813065', …}
+index-DkH0kw58.js:1672 [DynamicDirectory] filter_field_id: e5ac547d-edb1-4ff1-83ab-fc82c1813065
+index-DkH0kw58.js:1672 [DynamicDirectory] filter_value: Partner
+index-DkH0kw58.js:1672 [DynamicDirectory] entity_type: organization
+index-DkH0kw58.js:1672 [DynamicDirectory] organizations count: 0
+index-DkH0kw58.js:1672 [DynamicDirectory] allOrgPreferenceValues count: 0
+index-DkH0kw58.js:1672 [DynamicDirectory] orgPreferenceMap: {}
+index-DkH0kw58.js:1672 [DynamicDirectory] filteredOrganizations count: 0
+index-DkH0kw58.js:1672 [DynamicDirectory] items count: 0
+index-DkH0kw58.js:1672 [DynamicDirectory] directory: {id: '6907388d-bb2d-4774-9360-5aefd3e85749', name: 'Partner Directory', slug: 'partner-directory', entity_type: 'organization', filter_field_id: 'e5ac547d-edb1-4ff1-83ab-fc82c1813065', …}
+index-DkH0kw58.js:1672 [DynamicDirectory] filter_field_id: e5ac547d-edb1-4ff1-83ab-fc82c1813065
+index-DkH0kw58.js:1672 [DynamicDirectory] filter_value: Partner
+index-DkH0kw58.js:1672 [DynamicDirectory] entity_type: organization
+index-DkH0kw58.js:1672 [DynamicDirectory] organizations count: 0
+index-DkH0kw58.js:1672 [DynamicDirectory] allOrgPreferenceValues count: 4
+index-DkH0kw58.js:1672 [DynamicDirectory] orgPreferenceMap: {55a86410-7f60-4451-a45c-5760d93ccf1a: {…}}
+index-DkH0kw58.js:1672 [DynamicDirectory] filteredOrganizations count: 0
+index-DkH0kw58.js:1672 [DynamicDirectory] items count: 0
+index-DkH0kw58.js:1672 [DynamicDirectory] directory: {id: '6907388d-bb2d-4774-9360-5aefd3e85749', name: 'Partner Directory', slug: 'partner-directory', entity_type: 'organization', filter_field_id: 'e5ac547d-edb1-4ff1-83ab-fc82c1813065', …}
+index-DkH0kw58.js:1672 [DynamicDirectory] filter_field_id: e5ac547d-edb1-4ff1-83ab-fc82c1813065
+index-DkH0kw58.js:1672 [DynamicDirectory] filter_value: Partner
+index-DkH0kw58.js:1672 [DynamicDirectory] entity_type: organization
+index-DkH0kw58.js:1672 [DynamicDirectory] organizations count: 148
+index-DkH0kw58.js:1672 [DynamicDirectory] allOrgPreferenceValues count: 4
+index-DkH0kw58.js:1672 [DynamicDirectory] orgPreferenceMap: {55a86410-7f60-4451-a45c-5760d93ccf1a: {…}}
+index-DkH0kw58.js:1672 [DynamicDirectory] filteredOrganizations count: 0
+index-DkH0kw58.js:1672 [DynamicDirectory] items count: 0
+index-DkH0kw58.js:1094 [Layout] Server session found: mat@isaasi.co.uk
+index-DkH0kw58.js:1094 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-DkH0kw58.js:1094 [usePendingPurchaseOrders] hasPendingPOs: true count: 2 isLoading: false
+index-DkH0kw58.js:1094 [Layout] hasPendingPOs: true count: 2 isLoading: false
+index-DkH0kw58.js:1672 [DynamicDirectory] directory: {id: '6907388d-bb2d-4774-9360-5aefd3e85749', name: 'Partner Directory', slug: 'partner-directory', entity_type: 'organization', filter_field_id: 'e5ac547d-edb1-4ff1-83ab-fc82c1813065', …}
+index-DkH0kw58.js:1672 [DynamicDirectory] filter_field_id: e5ac547d-edb1-4ff1-83ab-fc82c1813065
+index-DkH0kw58.js:1672 [DynamicDirectory] filter_value: Partner
+index-DkH0kw58.js:1672 [DynamicDirectory] entity_type: organization
+index-DkH0kw58.js:1672 [DynamicDirectory] organizations count: 148
+index-DkH0kw58.js:1672 [DynamicDirectory] allOrgPreferenceValues count: 4
+index-DkH0kw58.js:1672 [DynamicDirectory] orgPreferenceMap: {55a86410-7f60-4451-a45c-5760d93ccf1a: {…}}
+index-DkH0kw58.js:1672 [DynamicDirectory] filteredOrganizations count: 0
+index-DkH0kw58.js:1672 [DynamicDirectory] items count: 0
+index-DkH0kw58.js:1094 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-DkH0kw58.js:1094 [usePendingPurchaseOrders] hasPendingPOs: true count: 2 isLoading: false
+index-DkH0kw58.js:1094 [Layout] hasPendingPOs: true count: 2 isLoading: false
+index-DkH0kw58.js:1672 [DynamicDirectory] directory: {id: '6907388d-bb2d-4774-9360-5aefd3e85749', name: 'Partner Directory', slug: 'partner-directory', entity_type: 'organization', filter_field_id: 'e5ac547d-edb1-4ff1-83ab-fc82c1813065', …}
+index-DkH0kw58.js:1672 [DynamicDirectory] filter_field_id: e5ac547d-edb1-4ff1-83ab-fc82c1813065
+index-DkH0kw58.js:1672 [DynamicDirectory] filter_value: Partner
+index-DkH0kw58.js:1672 [DynamicDirectory] entity_type: organization
+index-DkH0kw58.js:1672 [DynamicDirectory] organizations count: 148
+index-DkH0kw58.js:1672 [DynamicDirectory] allOrgPreferenceValues count: 4
+index-DkH0kw58.js:1672 [DynamicDirectory] orgPreferenceMap: {55a86410-7f60-4451-a45c-5760d93ccf1a: {…}}
+index-DkH0kw58.js:1672 [DynamicDirectory] filteredOrganizations count: 0
+index-DkH0kw58.js:1672 [DynamicDirectory] items count: 0
+index-DkH0kw58.js:1672 [DynamicDirectory] directory: {id: '6907388d-bb2d-4774-9360-5aefd3e85749', name: 'Partner Directory', slug: 'partner-directory', entity_type: 'organization', filter_field_id: 'e5ac547d-edb1-4ff1-83ab-fc82c1813065', …}
+index-DkH0kw58.js:1672 [DynamicDirectory] filter_field_id: e5ac547d-edb1-4ff1-83ab-fc82c1813065
+index-DkH0kw58.js:1672 [DynamicDirectory] filter_value: Partner
+index-DkH0kw58.js:1672 [DynamicDirectory] entity_type: organization
+index-DkH0kw58.js:1672 [DynamicDirectory] organizations count: 148
+index-DkH0kw58.js:1672 [DynamicDirectory] allOrgPreferenceValues count: 4
+index-DkH0kw58.js:1672 [DynamicDirectory] orgPreferenceMap: {55a86410-7f60-4451-a45c-5760d93ccf1a: {…}}
+index-DkH0kw58.js:1672 [DynamicDirectory] filteredOrganizations count: 0
+index-DkH0kw58.js:1672 [DynamicDirectory] items count: 0
