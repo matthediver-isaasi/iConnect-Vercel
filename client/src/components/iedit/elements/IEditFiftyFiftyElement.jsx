@@ -922,26 +922,24 @@ export function IEditFiftyFiftyElementEditor({ element, onChange }) {
             {/* Top and Bottom Padding */}
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label className="text-xs">Top Padding: {content[paddingTopKey] || 0}px</Label>
-                <input
-                  type="range"
+                <Label className="text-xs">Top Padding (px)</Label>
+                <Input
+                  type="number"
                   min="0"
-                  max="96"
                   value={content[paddingTopKey] || 0}
-                  onChange={(e) => updateContent(paddingTopKey, parseInt(e.target.value))}
-                  className="w-full"
+                  onChange={(e) => updateContent(paddingTopKey, parseInt(e.target.value) || 0)}
+                  className="h-8"
                   data-testid={`input-${side}-column-padding-top`}
                 />
               </div>
               <div>
-                <Label className="text-xs">Bottom Padding: {content[paddingBottomKey] || 0}px</Label>
-                <input
-                  type="range"
+                <Label className="text-xs">Bottom Padding (px)</Label>
+                <Input
+                  type="number"
                   min="0"
-                  max="96"
                   value={content[paddingBottomKey] || 0}
-                  onChange={(e) => updateContent(paddingBottomKey, parseInt(e.target.value))}
-                  className="w-full"
+                  onChange={(e) => updateContent(paddingBottomKey, parseInt(e.target.value) || 0)}
+                  className="h-8"
                   data-testid={`input-${side}-column-padding-bottom`}
                 />
               </div>
