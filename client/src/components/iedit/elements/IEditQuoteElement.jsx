@@ -134,7 +134,9 @@ export default function IEditQuoteElement({ content, variant, settings }) {
     content_line_height = 1.6,
     content_letter_spacing = 0,
     // Manual container height for carousel (0 = auto)
-    container_height = 0
+    container_height = 0,
+    // Vertical alignment for content within container
+    content_vertical_align = 'middle'
   } = content || {};
 
   const reactId = useId();
@@ -415,8 +417,12 @@ export default function IEditQuoteElement({ content, variant, settings }) {
       )}
 
       <div 
-        className="relative z-10"
-        style={container_height > 0 ? { minHeight: `${container_height}px` } : undefined}
+        className="relative z-10 flex flex-col"
+        style={{
+          ...(container_height > 0 ? { minHeight: `${container_height}px` } : {}),
+          justifyContent: content_vertical_align === 'top' ? 'flex-start' : 
+                          content_vertical_align === 'bottom' ? 'flex-end' : 'center'
+        }}
       >
         {renderQuoteContent(currentQuote)}
 
@@ -1416,6 +1422,45 @@ export function IEditQuoteElementEditor({ element, onChange }) {
             <p className="text-xs text-slate-500 mt-1">
               Set a fixed height to prevent layout shift when rotating. 0 = auto height.
             </p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1">Vertical Alignment</label>
+            <div className="flex gap-1">
+              <button
+                type="button"
+                onClick={() => updateContent('content_vertical_align', 'top')}
+                className={`flex-1 px-3 py-2 text-sm rounded-md border ${
+                  content.content_vertical_align === 'top' 
+                    ? 'bg-blue-500 text-white border-blue-500' 
+                    : 'bg-white border-slate-300 hover:bg-slate-50'
+                }`}
+              >
+                Top
+              </button>
+              <button
+                type="button"
+                onClick={() => updateContent('content_vertical_align', 'middle')}
+                className={`flex-1 px-3 py-2 text-sm rounded-md border ${
+                  (!content.content_vertical_align || content.content_vertical_align === 'middle')
+                    ? 'bg-blue-500 text-white border-blue-500' 
+                    : 'bg-white border-slate-300 hover:bg-slate-50'
+                }`}
+              >
+                Middle
+              </button>
+              <button
+                type="button"
+                onClick={() => updateContent('content_vertical_align', 'bottom')}
+                className={`flex-1 px-3 py-2 text-sm rounded-md border ${
+                  content.content_vertical_align === 'bottom' 
+                    ? 'bg-blue-500 text-white border-blue-500' 
+                    : 'bg-white border-slate-300 hover:bg-slate-50'
+                }`}
+              >
+                Bottom
+              </button>
+            </div>
           </div>
 
           <div>
