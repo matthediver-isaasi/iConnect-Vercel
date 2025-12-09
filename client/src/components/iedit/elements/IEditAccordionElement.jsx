@@ -100,6 +100,21 @@ const accordionQuillModules = {
   }
 };
 
+// Quill editor modules configuration for section header text (matching Hero pattern)
+const heroQuillModules = {
+  toolbar: {
+    container: [
+      [{ 'header': [1, 2, 3, false] }],
+      ['bold', 'italic', 'underline', 'strike'],
+      [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+      [{ 'indent': '-1'}, { 'indent': '+1' }],
+      ['blockquote'],
+      ['link'],
+      ['clean']
+    ]
+  }
+};
+
 export function IEditAccordionElementEditor({ element, onChange }) {
   const [isUploading, setIsUploading] = useState(false);
   const [expandedItem, setExpandedItem] = useState(null);
@@ -238,7 +253,7 @@ export function IEditAccordionElementEditor({ element, onChange }) {
     onChange({
       ...element,
       content: {
-        ...content,
+        ...(element.content || {}),
         [key]: value
       }
     });
@@ -248,7 +263,7 @@ export function IEditAccordionElementEditor({ element, onChange }) {
     onChange({
       ...element,
       content: {
-        ...content,
+        ...(element.content || {}),
         ...updates
       }
     });
