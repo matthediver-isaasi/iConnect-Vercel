@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
-import { ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Upload, X, Plus, Trash2, GripVertical } from "lucide-react";
+import { useState, useEffect, useCallback, useId } from "react";
+import { ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Upload, X, Plus, Trash2, GripVertical, AlignLeft, AlignCenter, AlignRight } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import TypographyStyleSelector, { applyTypographyStyle } from "../TypographyStyleSelector";
@@ -48,6 +48,7 @@ export default function IEditQuoteElement({ content, variant, settings }) {
     show_navigation = true,
     show_indicators = true,
     pause_on_hover = true,
+    // Quote panel background (existing)
     background_type = 'color',
     background_color = '#f8fafc',
     gradient_start_color = '#3b82f6',
@@ -58,6 +59,20 @@ export default function IEditQuoteElement({ content, variant, settings }) {
     overlay_enabled = false,
     overlay_color = '#000000',
     overlay_opacity = 50,
+    // Element-level background (new - like Hero)
+    element_background_type = 'none',
+    element_background_color = '#ffffff',
+    element_gradient_start_color = '#1e3a5f',
+    element_gradient_end_color = '#3b82f6',
+    element_gradient_angle = 135,
+    element_background_image_url,
+    element_background_image_fit = 'cover',
+    element_overlay_enabled = false,
+    element_overlay_color = '#000000',
+    element_overlay_opacity = 50,
+    element_padding_top = 40,
+    element_padding_bottom = 40,
+    // Quote panel styling
     box_padding = 40,
     box_border_radius = 12,
     box_border_color = '#e2e8f0',
@@ -94,6 +109,9 @@ export default function IEditQuoteElement({ content, variant, settings }) {
     header_subtitle = '',
     header_content = '',
     header_align = 'center',
+    header_title_align = 'center',
+    header_subtitle_align = 'center',
+    header_content_align = 'center',
     header_font_family = 'Poppins',
     header_font_size = 32,
     header_font_size_mobile = 24,
@@ -116,6 +134,10 @@ export default function IEditQuoteElement({ content, variant, settings }) {
     content_line_height = 1.6,
     content_letter_spacing = 0
   } = content || {};
+
+  const reactId = useId();
+  const instanceId = `quote-${reactId.replace(/:/g, '')}`;
+  const fullWidth = settings?.fullWidth;
 
   const allQuotes = quotes.length > 0 
     ? quotes 
@@ -146,6 +168,7 @@ export default function IEditQuoteElement({ content, variant, settings }) {
     return () => clearInterval(interval);
   }, [allQuotes.length, carousel_delay, isPaused, goToNext]);
 
+  // Quote panel background
   const getBackgroundStyle = () => {
     if (background_type === 'color') {
       return { backgroundColor: background_color };
@@ -157,6 +180,21 @@ export default function IEditQuoteElement({ content, variant, settings }) {
     }
     return {};
   };
+
+  // Element-level background (like Hero)
+  const getElementBackgroundStyle = () => {
+    if (element_background_type === 'color') {
+      return { backgroundColor: element_background_color };
+    }
+    if (element_background_type === 'gradient') {
+      return { 
+        background: `linear-gradient(${element_gradient_angle}deg, ${element_gradient_start_color}, ${element_gradient_end_color})` 
+      };
+    }
+    return {};
+  };
+
+  const fullWidthClass = fullWidth ? 'w-screen relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw]' : '';
 
   const quoteStyle = {
     fontFamily: quote_font_family,
@@ -202,7 +240,7 @@ export default function IEditQuoteElement({ content, variant, settings }) {
     color: header_color,
     lineHeight: header_line_height,
     letterSpacing: `${header_letter_spacing}px`,
-    textAlign: header_align
+    textAlign: header_title_align || header_align
   };
 
   const sectionSubtitleStyle = {
@@ -212,7 +250,7 @@ export default function IEditQuoteElement({ content, variant, settings }) {
     color: subtitle_color,
     lineHeight: subtitle_line_height,
     letterSpacing: `${subtitle_letter_spacing}px`,
-    textAlign: header_align
+    textAlign: header_subtitle_align || header_align
   };
 
   const sectionContentStyle = {
@@ -222,30 +260,15 @@ export default function IEditQuoteElement({ content, variant, settings }) {
     color: content_color,
     lineHeight: content_line_height,
     letterSpacing: `${content_letter_spacing}px`,
-    textAlign: header_align
+    textAlign: header_content_align || header_align
   };
 
   const hasSectionHeader = header_title || header_subtitle || header_content;
 
   const currentQuote = allQuotes[currentIndex] || {};
 
-  if (allQuotes.length === 0) {
-    return (
-      <div 
-        className="relative w-full text-center py-8"
-        style={{
-          ...getBackgroundStyle(),
-          padding: `${box_padding}px`,
-          borderRadius: `${box_border_radius}px`,
-          border: `${box_border_width}px solid ${box_border_color}`
-        }}
-      >
-        <p className="text-slate-400 italic">Add quotes to display them here</p>
-      </div>
-    );
-  }
-
-  return (
+  // Quote panel component
+  const renderQuotePanel = () => (
     <div 
       className="relative w-full"
       style={{
@@ -338,39 +361,6 @@ export default function IEditQuoteElement({ content, variant, settings }) {
       )}
 
       <div className="relative z-10">
-        {/* Section Header */}
-        {hasSectionHeader && (
-          <div className="mb-8" style={{ textAlign: header_align }}>
-            {header_title && (
-              <div 
-                className="quote-header-title"
-                style={sectionTitleStyle}
-                dangerouslySetInnerHTML={{ 
-                  __html: DOMPurify.sanitize(header_title) 
-                }}
-              />
-            )}
-            {header_subtitle && (
-              <div 
-                className="quote-header-subtitle mt-2"
-                style={sectionSubtitleStyle}
-                dangerouslySetInnerHTML={{ 
-                  __html: DOMPurify.sanitize(header_subtitle) 
-                }}
-              />
-            )}
-            {header_content && (
-              <div 
-                className="quote-header-content mt-4"
-                style={sectionContentStyle}
-                dangerouslySetInnerHTML={{ 
-                  __html: DOMPurify.sanitize(header_content) 
-                }}
-              />
-            )}
-          </div>
-        )}
-
         {layout === 'stacked' ? (
           <div className="flex flex-col items-center gap-4">
             {currentQuote.profile_image_url && (
@@ -458,6 +448,149 @@ export default function IEditQuoteElement({ content, variant, settings }) {
       </div>
     </div>
   );
+
+  // Empty state
+  if (allQuotes.length === 0) {
+    return (
+      <div 
+        className={`${instanceId} ${fullWidthClass} relative`}
+        style={{
+          ...getElementBackgroundStyle(),
+          paddingTop: `${element_padding_top}px`,
+          paddingBottom: `${element_padding_bottom}px`
+        }}
+      >
+        {/* Element-level background image */}
+        {element_background_type === 'image' && element_background_image_url && (
+          <>
+            <img 
+              src={element_background_image_url} 
+              alt="Background" 
+              className="absolute inset-0 w-full h-full"
+              style={{ objectFit: element_background_image_fit }}
+            />
+            {element_overlay_enabled && (
+              <div 
+                className="absolute inset-0" 
+                style={{ 
+                  backgroundColor: element_overlay_color, 
+                  opacity: element_overlay_opacity / 100 
+                }} 
+              />
+            )}
+          </>
+        )}
+        <div className={fullWidth ? "max-w-7xl mx-auto px-4 relative z-10" : "relative z-10"}>
+          {/* Section Header */}
+          {hasSectionHeader && (
+            <div className="mb-8">
+              {header_title && (
+                <div 
+                  className="quote-header-title"
+                  style={sectionTitleStyle}
+                  dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(header_title) }}
+                />
+              )}
+              {header_subtitle && (
+                <div 
+                  className="quote-header-subtitle mt-2"
+                  style={sectionSubtitleStyle}
+                  dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(header_subtitle) }}
+                />
+              )}
+              {header_content && (
+                <div 
+                  className="quote-header-content mt-4"
+                  style={sectionContentStyle}
+                  dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(header_content) }}
+                />
+              )}
+            </div>
+          )}
+          <div 
+            className="relative w-full text-center py-8"
+            style={{
+              ...getBackgroundStyle(),
+              padding: `${box_padding}px`,
+              borderRadius: `${box_border_radius}px`,
+              border: `${box_border_width}px solid ${box_border_color}`
+            }}
+          >
+            <p className="text-slate-400 italic">Add quotes to display them here</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div 
+      className={`${instanceId} ${fullWidthClass} relative`}
+      style={{
+        ...getElementBackgroundStyle(),
+        paddingTop: `${element_padding_top}px`,
+        paddingBottom: `${element_padding_bottom}px`
+      }}
+    >
+      {/* Element-level background image */}
+      {element_background_type === 'image' && element_background_image_url && (
+        <>
+          <img 
+            src={element_background_image_url} 
+            alt="Background" 
+            className="absolute inset-0 w-full h-full"
+            style={{ objectFit: element_background_image_fit }}
+          />
+          {element_overlay_enabled && (
+            <div 
+              className="absolute inset-0" 
+              style={{ 
+                backgroundColor: element_overlay_color, 
+                opacity: element_overlay_opacity / 100 
+              }} 
+            />
+          )}
+        </>
+      )}
+
+      <div className={fullWidth ? "max-w-7xl mx-auto px-4 relative z-10" : "relative z-10"}>
+        {/* Section Header */}
+        {hasSectionHeader && (
+          <div className="mb-8">
+            {header_title && (
+              <div 
+                className="quote-header-title"
+                style={sectionTitleStyle}
+                dangerouslySetInnerHTML={{ 
+                  __html: DOMPurify.sanitize(header_title) 
+                }}
+              />
+            )}
+            {header_subtitle && (
+              <div 
+                className="quote-header-subtitle mt-2"
+                style={sectionSubtitleStyle}
+                dangerouslySetInnerHTML={{ 
+                  __html: DOMPurify.sanitize(header_subtitle) 
+                }}
+              />
+            )}
+            {header_content && (
+              <div 
+                className="quote-header-content mt-4"
+                style={sectionContentStyle}
+                dangerouslySetInnerHTML={{ 
+                  __html: DOMPurify.sanitize(header_content) 
+                }}
+              />
+            )}
+          </div>
+        )}
+
+        {renderQuotePanel()}
+      </div>
+    </div>
+  );
 }
 
 export function IEditQuoteElementEditor({ element, onChange }) {
@@ -465,6 +598,7 @@ export function IEditQuoteElementEditor({ element, onChange }) {
   const [isUploading, setIsUploading] = useState({});
   const [expandedSections, setExpandedSections] = useState({
     sectionHeader: true,
+    elementBackground: false,
     quotes: true,
     carousel: false,
     background: false,
@@ -571,6 +705,36 @@ export function IEditQuoteElementEditor({ element, onChange }) {
     </button>
   );
 
+  const AlignmentButtons = ({ value, onChange: onAlignChange, label, testIdPrefix = 'align' }) => (
+    <div>
+      <label className="block text-sm font-medium mb-1">{label}</label>
+      <div className="flex gap-1">
+        {[
+          { val: 'left', Icon: AlignLeft },
+          { val: 'center', Icon: AlignCenter },
+          { val: 'right', Icon: AlignRight }
+        ].map(({ val, Icon }) => (
+          <button
+            key={val}
+            type="button"
+            onClick={() => onAlignChange(val)}
+            data-testid={`button-${testIdPrefix}-${val}`}
+            className={`p-2 rounded border ${
+              value === val 
+                ? 'bg-primary text-primary-foreground border-primary' 
+                : 'bg-background border-input hover:bg-muted'
+            }`}
+          >
+            <Icon className="h-4 w-4" />
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
+  const elementBackgroundType = content.element_background_type || 'none';
+  const elementGradientPreview = `linear-gradient(${content.element_gradient_angle || 135}deg, ${content.element_gradient_start_color || '#1e3a5f'}, ${content.element_gradient_end_color || '#3b82f6'})`;
+
   return (
     <div className="space-y-4">
       {/* Section Header Settings */}
@@ -591,6 +755,12 @@ export function IEditQuoteElementEditor({ element, onChange }) {
               />
             </div>
           </div>
+          <AlignmentButtons 
+            value={content.header_title_align || 'center'} 
+            onChange={(val) => updateContent('header_title_align', val)}
+            label="Title Alignment"
+            testIdPrefix="quote-header-title-align"
+          />
           <TypographyStyleSelector
             value={content.header_typography_style_id || null}
             onChange={(styleId, style) => {
@@ -683,6 +853,12 @@ export function IEditQuoteElementEditor({ element, onChange }) {
               />
             </div>
           </div>
+          <AlignmentButtons 
+            value={content.header_subtitle_align || 'center'} 
+            onChange={(val) => updateContent('header_subtitle_align', val)}
+            label="Subtitle Alignment"
+            testIdPrefix="quote-header-subtitle-align"
+          />
           <TypographyStyleSelector
             value={content.subtitle_typography_style_id || null}
             onChange={(styleId, style) => {
@@ -775,6 +951,12 @@ export function IEditQuoteElementEditor({ element, onChange }) {
               />
             </div>
           </div>
+          <AlignmentButtons 
+            value={content.header_content_align || 'center'} 
+            onChange={(val) => updateContent('header_content_align', val)}
+            label="Content Alignment"
+            testIdPrefix="quote-header-content-align"
+          />
           <TypographyStyleSelector
             value={content.content_typography_style_id || null}
             onChange={(styleId, style) => {
@@ -852,19 +1034,211 @@ export function IEditQuoteElementEditor({ element, onChange }) {
               </div>
             </div>
           </details>
+        </div>
+      )}
 
-          {/* Text Alignment */}
-          <div className="pt-4 border-t border-slate-100">
-            <Label>Header Alignment</Label>
+      {/* Element Background Section */}
+      <SectionHeader title="Element Background" section="elementBackground" />
+      {expandedSections.elementBackground && (
+        <div className="space-y-4 pl-2">
+          <div>
+            <Label className="block text-sm font-medium mb-1">Background Type</Label>
             <select
-              value={content.header_align || 'center'}
-              onChange={(e) => updateContent('header_align', e.target.value)}
+              value={elementBackgroundType}
+              onChange={(e) => updateContent('element_background_type', e.target.value)}
               className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+              data-testid="select-quote-element-bg-type"
             >
-              <option value="left">Left</option>
-              <option value="center">Center</option>
-              <option value="right">Right</option>
+              <option value="none">None (Transparent)</option>
+              <option value="color">Solid Color</option>
+              <option value="gradient">Gradient</option>
+              <option value="image">Image</option>
             </select>
+          </div>
+
+          {elementBackgroundType === 'color' && (
+            <div>
+              <Label className="block text-sm font-medium mb-1">Background Color</Label>
+              <div className="flex gap-2 items-center">
+                <input
+                  type="color"
+                  value={content.element_background_color || '#ffffff'}
+                  onChange={(e) => updateContent('element_background_color', e.target.value)}
+                  className="w-12 h-9 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+                  data-testid="input-quote-element-bg-color"
+                />
+                <Input
+                  value={content.element_background_color || '#ffffff'}
+                  onChange={(e) => updateContent('element_background_color', e.target.value)}
+                  className="flex-1 font-mono text-xs"
+                />
+              </div>
+            </div>
+          )}
+
+          {elementBackgroundType === 'gradient' && (
+            <div className="space-y-3 p-3 bg-slate-50 rounded-md">
+              <div 
+                className="w-full h-12 rounded-md border border-slate-300"
+                style={{ background: elementGradientPreview }}
+                data-testid="preview-quote-element-gradient"
+              />
+              
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs">Start Color</Label>
+                  <div className="flex gap-1 items-center">
+                    <input
+                      type="color"
+                      value={content.element_gradient_start_color || '#1e3a5f'}
+                      onChange={(e) => updateContent('element_gradient_start_color', e.target.value)}
+                      className="w-10 h-8 border border-slate-300 rounded cursor-pointer"
+                    />
+                    <Input
+                      value={content.element_gradient_start_color || '#1e3a5f'}
+                      onChange={(e) => updateContent('element_gradient_start_color', e.target.value)}
+                      className="flex-1 font-mono text-xs"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <Label className="text-xs">End Color</Label>
+                  <div className="flex gap-1 items-center">
+                    <input
+                      type="color"
+                      value={content.element_gradient_end_color || '#3b82f6'}
+                      onChange={(e) => updateContent('element_gradient_end_color', e.target.value)}
+                      className="w-10 h-8 border border-slate-300 rounded cursor-pointer"
+                    />
+                    <Input
+                      value={content.element_gradient_end_color || '#3b82f6'}
+                      onChange={(e) => updateContent('element_gradient_end_color', e.target.value)}
+                      className="flex-1 font-mono text-xs"
+                    />
+                  </div>
+                </div>
+              </div>
+              
+              <div>
+                <Label className="text-xs">Angle: {content.element_gradient_angle || 135}°</Label>
+                <input
+                  type="range"
+                  min="0"
+                  max="360"
+                  value={content.element_gradient_angle || 135}
+                  onChange={(e) => updateContent('element_gradient_angle', parseInt(e.target.value))}
+                  className="w-full"
+                />
+              </div>
+            </div>
+          )}
+
+          {elementBackgroundType === 'image' && (
+            <div className="space-y-3">
+              <div>
+                <Label className="block text-sm font-medium mb-1">Background Image</Label>
+                {content.element_background_image_url ? (
+                  <div className="relative">
+                    <img 
+                      src={content.element_background_image_url} 
+                      alt="Element background" 
+                      className="w-full h-32 object-cover rounded-md border border-slate-300"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => updateContent('element_background_image_url', '')}
+                      className="absolute top-2 right-2 p-1 bg-red-500 text-white rounded-full hover:bg-red-600"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-slate-300 rounded-md cursor-pointer hover:border-slate-400 bg-slate-50">
+                    <Upload className="w-8 h-8 text-slate-400 mb-2" />
+                    <span className="text-sm text-slate-500">Upload image</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => handleImageUpload(e.target.files?.[0], 'element_background_image_url')}
+                      className="hidden"
+                    />
+                  </label>
+                )}
+              </div>
+
+              <div>
+                <Label className="block text-sm font-medium mb-1">Image Fit</Label>
+                <select
+                  value={content.element_background_image_fit || 'cover'}
+                  onChange={(e) => updateContent('element_background_image_fit', e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+                >
+                  <option value="cover">Cover</option>
+                  <option value="contain">Contain</option>
+                  <option value="fill">Fill</option>
+                </select>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="element_overlay_enabled"
+                  checked={content.element_overlay_enabled || false}
+                  onChange={(e) => updateContent('element_overlay_enabled', e.target.checked)}
+                  className="rounded border-slate-300"
+                />
+                <Label htmlFor="element_overlay_enabled">Enable Overlay</Label>
+              </div>
+
+              {content.element_overlay_enabled && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label className="text-xs">Overlay Color</Label>
+                    <input
+                      type="color"
+                      value={content.element_overlay_color || '#000000'}
+                      onChange={(e) => updateContent('element_overlay_color', e.target.value)}
+                      className="w-full h-9 border border-slate-300 rounded cursor-pointer"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Overlay Opacity: {content.element_overlay_opacity || 50}%</Label>
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      value={content.element_overlay_opacity || 50}
+                      onChange={(e) => updateContent('element_overlay_opacity', parseInt(e.target.value))}
+                      className="w-full"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Element Padding */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className="text-xs">Top Padding (px)</Label>
+              <Input
+                type="number"
+                min="0"
+                value={content.element_padding_top || 40}
+                onChange={(e) => updateContent('element_padding_top', parseInt(e.target.value) || 0)}
+                className="h-8"
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Bottom Padding (px)</Label>
+              <Input
+                type="number"
+                min="0"
+                value={content.element_padding_bottom || 40}
+                onChange={(e) => updateContent('element_padding_bottom', parseInt(e.target.value) || 0)}
+                className="h-8"
+              />
+            </div>
           </div>
         </div>
       )}
