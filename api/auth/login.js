@@ -97,8 +97,45 @@ export default async function handler(req, res) {
 
     if (!member.role_id) {
       const { data: allRoles } = await supabase.from('role').select('*');
-      const memberRole = allRoles?.find((r) => r.name === 'Member');
-      const defaultRole = memberRole || allRoles?.find((r) => r.is_default === true);
+      
+      // Check for role segmentation
+      const { data: segmentationSettings } = await supabase
+        .from('system_settings')
+        .select('*')
+        .eq('key', 'role_segmentation_field_id')
+        .single();
+      
+      let defaultRole = null;
+      const segmentationFieldId = segmentationSettings?.value;
+      
+      if (segmentationFieldId && member.organization_id) {
+        // Get the organization's segment value
+        const { data: orgPrefValue } = await supabase
+          .from('organization_preference_value')
+          .select('value')
+          .eq('organization_id', member.organization_id)
+          .eq('field_id', segmentationFieldId)
+          .single();
+        
+        const orgSegmentValue = orgPrefValue?.value;
+        
+        if (orgSegmentValue) {
+          // Find a default role that matches this segment value
+          defaultRole = allRoles?.find((r) => 
+            r.is_default === true && 
+            r.segment_values && 
+            Array.isArray(r.segment_values) && 
+            r.segment_values.includes(orgSegmentValue)
+          );
+        }
+      }
+      
+      // Fallback to any default role or a role named 'Member' if no segmented match
+      if (!defaultRole) {
+        const memberRole = allRoles?.find((r) => r.name === 'Member');
+        const anyDefaultRole = allRoles?.find((r) => r.is_default === true);
+        defaultRole = memberRole || anyDefaultRole;
+      }
       
       if (defaultRole) {
         await supabase

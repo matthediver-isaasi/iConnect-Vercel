@@ -446,7 +446,42 @@ const functionHandlers = {
           const { data: allRoles } = await supabase
             .from('role')
             .select('*');
-          const defaultRole = allRoles?.find(r => r.is_default === true);
+          
+          // Check for role segmentation
+          const { data: segmentationSettings } = await supabase
+            .from('system_settings')
+            .select('*')
+            .eq('key', 'role_segmentation_field_id')
+            .single();
+          
+          let defaultRole = null;
+          const segmentationFieldId = segmentationSettings?.value;
+          
+          // If segmentation is enabled and organization exists, try to find matching role
+          if (segmentationFieldId && organizationId) {
+            const { data: orgPrefValue } = await supabase
+              .from('organization_preference_value')
+              .select('value')
+              .eq('organization_id', organizationId)
+              .eq('field_id', segmentationFieldId)
+              .single();
+            
+            const orgSegmentValue = orgPrefValue?.value;
+            
+            if (orgSegmentValue) {
+              defaultRole = allRoles?.find(r => 
+                r.is_default === true && 
+                r.segment_values && 
+                Array.isArray(r.segment_values) && 
+                r.segment_values.includes(orgSegmentValue)
+              );
+            }
+          }
+          
+          // Fallback to any default role if no segmented match
+          if (!defaultRole) {
+            defaultRole = allRoles?.find(r => r.is_default === true);
+          }
 
           const memberData = {
             email: email,

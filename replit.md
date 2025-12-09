@@ -26,6 +26,7 @@ Preferred communication style: Simple, everyday language.
 ## Data Model
 
 **Core Entities:** Member, Organization, Role, TeamMember, supporting various relationships.
+**Role Segmentation:** Roles can be segmented by an organisation custom field (e.g., "Organisation Type"). When enabled via the role_segmentation_field_id system setting, default roles filter by organisation's preference value matching the role's segment_values array. This allows different organisation types to receive different default roles on member creation/login.
 **Events & Bookings:** Manages Event (synced from Zoho Backstage or one-off), Booking, Program, and ProgramTicketTransaction. One-off events support direct pricing and role-based ticket classes with options for public visibility, BOGO, and bulk discounts. Events include `summary` and rich-text `description` fields. Guest checkout is supported for public tickets, capturing guest information and processing Stripe payments.
 **Content Management:** Includes BlogPost, Resource, NewsPost, and a dynamic page builder (IEditPage/IEditPageElement).
 **Typography System:** Pre-defined typography styles can be applied to elements in the page builder, with responsive mobile sizing and manual font settings.
