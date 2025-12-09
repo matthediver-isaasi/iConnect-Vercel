@@ -1,0 +1,149 @@
+index-trG0ru3a.js:901 GoTrueClient@sb-zkvgzcruhniduuswbfyh-auth-token:1 (2.84.0) 2025-12-09T18:28:07.972Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+Up @ index-trG0ru3a.js:901
+Hse @ index-trG0ru3a.js:902
+_initSupabaseAuthClient @ index-trG0ru3a.js:902
+Wse @ index-trG0ru3a.js:902
+hS @ index-trG0ru3a.js:902
+(anonymous) @ index-trG0ru3a.js:1409
+(anonymous) @ index-trG0ru3a.js:1
+(anonymous) @ index-trG0ru3a.js:1672
+index-trG0ru3a.js:901 GoTrueClient@sb-zkvgzcruhniduuswbfyh-auth-token:2 (2.84.0) 2025-12-09T18:28:07.974Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+Up @ index-trG0ru3a.js:901
+Hse @ index-trG0ru3a.js:902
+_initSupabaseAuthClient @ index-trG0ru3a.js:902
+Wse @ index-trG0ru3a.js:902
+hS @ index-trG0ru3a.js:902
+(anonymous) @ index-trG0ru3a.js:1621
+(anonymous) @ index-trG0ru3a.js:1
+(anonymous) @ index-trG0ru3a.js:1672
+index-trG0ru3a.js:1094 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-trG0ru3a.js:1094 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-trG0ru3a.js:1094 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-trG0ru3a.js:1094 [usePendingPurchaseOrders] Query running, memberInfo.id: 48b25075-51da-437f-af20-17836a892bfe
+index-trG0ru3a.js:1094 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-trG0ru3a.js:1094 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-trG0ru3a.js:1094 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-trG0ru3a.js:1094 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-trG0ru3a.js:1094 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-trG0ru3a.js:1094 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-trG0ru3a.js:1094 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-trG0ru3a.js:1094 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-trG0ru3a.js:1094 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-trG0ru3a.js:1094 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-trG0ru3a.js:1094 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-trG0ru3a.js:1094 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-trG0ru3a.js:1094 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-trG0ru3a.js:1094 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-trG0ru3a.js:1094 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-trG0ru3a.js:1672 [DynamicDirectory] directory: undefined
+index-trG0ru3a.js:1672 [DynamicDirectory] filter_field_id: undefined
+index-trG0ru3a.js:1672 [DynamicDirectory] filter_value: undefined
+index-trG0ru3a.js:1672 [DynamicDirectory] allOrgPreferenceValues RAW: []
+index-trG0ru3a.js:1094 [usePendingPurchaseOrders] Fetched bookings count: 3
+index-trG0ru3a.js:1094 [usePendingPurchaseOrders] Pending PO bookings: 2
+index-trG0ru3a.js:1094 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-trG0ru3a.js:1094 [usePendingPurchaseOrders] hasPendingPOs: true count: 2 isLoading: false
+index-trG0ru3a.js:1094 [Layout] hasPendingPOs: true count: 2 isLoading: false
+index-trG0ru3a.js:1672 [DynamicDirectory] directory: undefined
+index-trG0ru3a.js:1672 [DynamicDirectory] filter_field_id: undefined
+index-trG0ru3a.js:1672 [DynamicDirectory] filter_value: undefined
+index-trG0ru3a.js:1672 [DynamicDirectory] allOrgPreferenceValues RAW: []
+index-trG0ru3a.js:1672 [DynamicDirectory] directory: undefined
+index-trG0ru3a.js:1672 [DynamicDirectory] filter_field_id: undefined
+index-trG0ru3a.js:1672 [DynamicDirectory] filter_value: undefined
+index-trG0ru3a.js:1672 [DynamicDirectory] allOrgPreferenceValues RAW: []
+index-trG0ru3a.js:1094 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-trG0ru3a.js:1094 [usePendingPurchaseOrders] hasPendingPOs: true count: 2 isLoading: false
+index-trG0ru3a.js:1094 [Layout] hasPendingPOs: true count: 2 isLoading: false
+index-trG0ru3a.js:1672 [DynamicDirectory] directory: undefined
+index-trG0ru3a.js:1672 [DynamicDirectory] filter_field_id: undefined
+index-trG0ru3a.js:1672 [DynamicDirectory] filter_value: undefined
+index-trG0ru3a.js:1672 [DynamicDirectory] allOrgPreferenceValues RAW: []
+index-trG0ru3a.js:1094 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-trG0ru3a.js:1094 [usePendingPurchaseOrders] hasPendingPOs: true count: 2 isLoading: false
+index-trG0ru3a.js:1094 [Layout] hasPendingPOs: true count: 2 isLoading: false
+index-trG0ru3a.js:1672 [DynamicDirectory] directory: undefined
+index-trG0ru3a.js:1672 [DynamicDirectory] filter_field_id: undefined
+index-trG0ru3a.js:1672 [DynamicDirectory] filter_value: undefined
+index-trG0ru3a.js:1672 [DynamicDirectory] allOrgPreferenceValues RAW: []
+index-trG0ru3a.js:1094 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-trG0ru3a.js:1094 [usePendingPurchaseOrders] hasPendingPOs: true count: 2 isLoading: false
+index-trG0ru3a.js:1094 [Layout] hasPendingPOs: true count: 2 isLoading: false
+index-trG0ru3a.js:1672 [DynamicDirectory] directory: undefined
+index-trG0ru3a.js:1672 [DynamicDirectory] filter_field_id: undefined
+index-trG0ru3a.js:1672 [DynamicDirectory] filter_value: undefined
+index-trG0ru3a.js:1672 [DynamicDirectory] allOrgPreferenceValues RAW: []
+index-trG0ru3a.js:1672 [DynamicDirectory] directory: {id: '6907388d-bb2d-4774-9360-5aefd3e85749', name: 'Partner Directory', slug: 'partner-directory', entity_type: 'organization', filter_field_id: 'e5ac547d-edb1-4ff1-83ab-fc82c1813065', …}
+index-trG0ru3a.js:1672 [DynamicDirectory] filter_field_id: e5ac547d-edb1-4ff1-83ab-fc82c1813065
+index-trG0ru3a.js:1672 [DynamicDirectory] filter_value: Partner
+index-trG0ru3a.js:1672 [DynamicDirectory] allOrgPreferenceValues RAW: []
+index-trG0ru3a.js:1672 [DynamicDirectory] directory: {id: '6907388d-bb2d-4774-9360-5aefd3e85749', name: 'Partner Directory', slug: 'partner-directory', entity_type: 'organization', filter_field_id: 'e5ac547d-edb1-4ff1-83ab-fc82c1813065', …}
+index-trG0ru3a.js:1672 [DynamicDirectory] filter_field_id: e5ac547d-edb1-4ff1-83ab-fc82c1813065
+index-trG0ru3a.js:1672 [DynamicDirectory] filter_value: Partner
+index-trG0ru3a.js:1672 [DynamicDirectory] allOrgPreferenceValues RAW: []
+index-trG0ru3a.js:1672 [DynamicDirectory] directory: {id: '6907388d-bb2d-4774-9360-5aefd3e85749', name: 'Partner Directory', slug: 'partner-directory', entity_type: 'organization', filter_field_id: 'e5ac547d-edb1-4ff1-83ab-fc82c1813065', …}
+index-trG0ru3a.js:1672 [DynamicDirectory] filter_field_id: e5ac547d-edb1-4ff1-83ab-fc82c1813065
+index-trG0ru3a.js:1672 [DynamicDirectory] filter_value: Partner
+index-trG0ru3a.js:1672 [DynamicDirectory] allOrgPreferenceValues RAW: []
+index-trG0ru3a.js:1672 [DynamicDirectory] directory: {id: '6907388d-bb2d-4774-9360-5aefd3e85749', name: 'Partner Directory', slug: 'partner-directory', entity_type: 'organization', filter_field_id: 'e5ac547d-edb1-4ff1-83ab-fc82c1813065', …}
+index-trG0ru3a.js:1672 [DynamicDirectory] filter_field_id: e5ac547d-edb1-4ff1-83ab-fc82c1813065
+index-trG0ru3a.js:1672 [DynamicDirectory] filter_value: Partner
+index-trG0ru3a.js:1672 [DynamicDirectory] allOrgPreferenceValues RAW: (4) [{…}, {…}, {…}, {…}]
+index-trG0ru3a.js:1672 [DynamicDirectory] Unique preference_field_ids in data: [undefined]
+index-trG0ru3a.js:1672 [DynamicDirectory] Looking for field_id: e5ac547d-edb1-4ff1-83ab-fc82c1813065
+index-trG0ru3a.js:1672 [DynamicDirectory] Match found: false
+index-trG0ru3a.js:1672 [DynamicDirectory] PrefValue[0]: {org_id: '55a86410-7f60-4451-a45c-5760d93ccf1a', field_id: undefined, value: '["Russel Group","Mission+"]'}
+index-trG0ru3a.js:1672 [DynamicDirectory] PrefValue[1]: {org_id: '55a86410-7f60-4451-a45c-5760d93ccf1a', field_id: undefined, value: 'South West'}
+index-trG0ru3a.js:1672 [DynamicDirectory] PrefValue[2]: {org_id: '55a86410-7f60-4451-a45c-5760d93ccf1a', field_id: undefined, value: '["Apprenticeship courses","Short courses"]'}
+index-trG0ru3a.js:1672 [DynamicDirectory] PrefValue[3]: {org_id: '55a86410-7f60-4451-a45c-5760d93ccf1a', field_id: undefined, value: 'Partner'}
+index-trG0ru3a.js:1672 [DynamicDirectory] directory: {id: '6907388d-bb2d-4774-9360-5aefd3e85749', name: 'Partner Directory', slug: 'partner-directory', entity_type: 'organization', filter_field_id: 'e5ac547d-edb1-4ff1-83ab-fc82c1813065', …}
+index-trG0ru3a.js:1672 [DynamicDirectory] filter_field_id: e5ac547d-edb1-4ff1-83ab-fc82c1813065
+index-trG0ru3a.js:1672 [DynamicDirectory] filter_value: Partner
+index-trG0ru3a.js:1672 [DynamicDirectory] allOrgPreferenceValues RAW: (4) [{…}, {…}, {…}, {…}]
+index-trG0ru3a.js:1672 [DynamicDirectory] Unique preference_field_ids in data: [undefined]
+index-trG0ru3a.js:1672 [DynamicDirectory] Looking for field_id: e5ac547d-edb1-4ff1-83ab-fc82c1813065
+index-trG0ru3a.js:1672 [DynamicDirectory] Match found: false
+index-trG0ru3a.js:1672 [DynamicDirectory] PrefValue[0]: {org_id: '55a86410-7f60-4451-a45c-5760d93ccf1a', field_id: undefined, value: '["Russel Group","Mission+"]'}
+index-trG0ru3a.js:1672 [DynamicDirectory] PrefValue[1]: {org_id: '55a86410-7f60-4451-a45c-5760d93ccf1a', field_id: undefined, value: 'South West'}
+index-trG0ru3a.js:1672 [DynamicDirectory] PrefValue[2]: {org_id: '55a86410-7f60-4451-a45c-5760d93ccf1a', field_id: undefined, value: '["Apprenticeship courses","Short courses"]'}
+index-trG0ru3a.js:1672 [DynamicDirectory] PrefValue[3]: {org_id: '55a86410-7f60-4451-a45c-5760d93ccf1a', field_id: undefined, value: 'Partner'}
+index-trG0ru3a.js:1094 [Layout] Server session found: mat@isaasi.co.uk
+index-trG0ru3a.js:1094 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-trG0ru3a.js:1094 [usePendingPurchaseOrders] hasPendingPOs: true count: 2 isLoading: false
+index-trG0ru3a.js:1094 [Layout] hasPendingPOs: true count: 2 isLoading: false
+index-trG0ru3a.js:1672 [DynamicDirectory] directory: {id: '6907388d-bb2d-4774-9360-5aefd3e85749', name: 'Partner Directory', slug: 'partner-directory', entity_type: 'organization', filter_field_id: 'e5ac547d-edb1-4ff1-83ab-fc82c1813065', …}
+index-trG0ru3a.js:1672 [DynamicDirectory] filter_field_id: e5ac547d-edb1-4ff1-83ab-fc82c1813065
+index-trG0ru3a.js:1672 [DynamicDirectory] filter_value: Partner
+index-trG0ru3a.js:1672 [DynamicDirectory] allOrgPreferenceValues RAW: (4) [{…}, {…}, {…}, {…}]
+index-trG0ru3a.js:1672 [DynamicDirectory] Unique preference_field_ids in data: [undefined]
+index-trG0ru3a.js:1672 [DynamicDirectory] Looking for field_id: e5ac547d-edb1-4ff1-83ab-fc82c1813065
+index-trG0ru3a.js:1672 [DynamicDirectory] Match found: false
+index-trG0ru3a.js:1672 [DynamicDirectory] PrefValue[0]: {org_id: '55a86410-7f60-4451-a45c-5760d93ccf1a', field_id: undefined, value: '["Russel Group","Mission+"]'}
+index-trG0ru3a.js:1672 [DynamicDirectory] PrefValue[1]: {org_id: '55a86410-7f60-4451-a45c-5760d93ccf1a', field_id: undefined, value: 'South West'}
+index-trG0ru3a.js:1672 [DynamicDirectory] PrefValue[2]: {org_id: '55a86410-7f60-4451-a45c-5760d93ccf1a', field_id: undefined, value: '["Apprenticeship courses","Short courses"]'}
+index-trG0ru3a.js:1672 [DynamicDirectory] PrefValue[3]: {org_id: '55a86410-7f60-4451-a45c-5760d93ccf1a', field_id: undefined, value: 'Partner'}
+index-trG0ru3a.js:1094 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-trG0ru3a.js:1094 [usePendingPurchaseOrders] hasPendingPOs: true count: 2 isLoading: false
+index-trG0ru3a.js:1094 [Layout] hasPendingPOs: true count: 2 isLoading: false
+index-trG0ru3a.js:1672 [DynamicDirectory] directory: {id: '6907388d-bb2d-4774-9360-5aefd3e85749', name: 'Partner Directory', slug: 'partner-directory', entity_type: 'organization', filter_field_id: 'e5ac547d-edb1-4ff1-83ab-fc82c1813065', …}
+index-trG0ru3a.js:1672 [DynamicDirectory] filter_field_id: e5ac547d-edb1-4ff1-83ab-fc82c1813065
+index-trG0ru3a.js:1672 [DynamicDirectory] filter_value: Partner
+index-trG0ru3a.js:1672 [DynamicDirectory] allOrgPreferenceValues RAW: (4) [{…}, {…}, {…}, {…}]
+index-trG0ru3a.js:1672 [DynamicDirectory] Unique preference_field_ids in data: [undefined]
+index-trG0ru3a.js:1672 [DynamicDirectory] Looking for field_id: e5ac547d-edb1-4ff1-83ab-fc82c1813065
+index-trG0ru3a.js:1672 [DynamicDirectory] Match found: false
+index-trG0ru3a.js:1672 [DynamicDirectory] PrefValue[0]: {org_id: '55a86410-7f60-4451-a45c-5760d93ccf1a', field_id: undefined, value: '["Russel Group","Mission+"]'}
+index-trG0ru3a.js:1672 [DynamicDirectory] PrefValue[1]: {org_id: '55a86410-7f60-4451-a45c-5760d93ccf1a', field_id: undefined, value: 'South West'}
+index-trG0ru3a.js:1672 [DynamicDirectory] PrefValue[2]: {org_id: '55a86410-7f60-4451-a45c-5760d93ccf1a', field_id: undefined, value: '["Apprenticeship courses","Short courses"]'}
+index-trG0ru3a.js:1672 [DynamicDirectory] PrefValue[3]: {org_id: '55a86410-7f60-4451-a45c-5760d93ccf1a', field_id: undefined, value: 'Partner'}
+index-trG0ru3a.js:1672 [DynamicDirectory] directory: {id: '6907388d-bb2d-4774-9360-5aefd3e85749', name: 'Partner Directory', slug: 'partner-directory', entity_type: 'organization', filter_field_id: 'e5ac547d-edb1-4ff1-83ab-fc82c1813065', …}
+index-trG0ru3a.js:1672 [DynamicDirectory] filter_field_id: e5ac547d-edb1-4ff1-83ab-fc82c1813065
+index-trG0ru3a.js:1672 [DynamicDirectory] filter_value: Partner
+index-trG0ru3a.js:1672 [DynamicDirectory] allOrgPreferenceValues RAW: (4) [{…}, {…}, {…}, {…}]
+index-trG0ru3a.js:1672 [DynamicDirectory] Unique preference_field_ids in data: [undefined]
+index-trG0ru3a.js:1672 [DynamicDirectory] Looking for field_id: e5ac547d-edb1-4ff1-83ab-fc82c1813065
+index-trG0ru3a.js:1672 [DynamicDirectory] Match found: false
+index-trG0ru3a.js:1672 [DynamicDirectory] PrefValue[0]: {org_id: '55a86410-7f60-4451-a45c-5760d93ccf1a', field_id: undefined, value: '["Russel Group","Mission+"]'}
+index-trG0ru3a.js:1672 [DynamicDirectory] PrefValue[1]: {org_id: '55a86410-7f60-4451-a45c-5760d93ccf1a', field_id: undefined, value: 'South West'}
+index-trG0ru3a.js:1672 [DynamicDirectory] PrefValue[2]: {org_id: '55a86410-7f60-4451-a45c-5760d93ccf1a', field_id: undefined, value: '["Apprenticeship courses","Short courses"]'}
+index-trG0ru3a.js:1672 [DynamicDirectory] PrefValue[3]: {org_id: '55a86410-7f60-4451-a45c-5760d93ccf1a', field_id: undefined, value: 'Partner'}

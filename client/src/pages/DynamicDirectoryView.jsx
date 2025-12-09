@@ -305,13 +305,10 @@ export default function DynamicDirectoryView() {
     console.log('[DynamicDirectory] Looking for field_id:', directory?.filter_field_id);
     console.log('[DynamicDirectory] Match found:', uniqueFieldIds.includes(directory?.filter_field_id));
     
-    // Show first few preference values for debugging
+    // Show first few preference values for debugging - log FULL object to see actual keys
     allOrgPreferenceValues.slice(0, 5).forEach((pv, idx) => {
-      console.log(`[DynamicDirectory] PrefValue[${idx}]:`, { 
-        org_id: pv.organization_id, 
-        field_id: pv.preference_field_id, 
-        value: pv.value 
-      });
+      console.log(`[DynamicDirectory] PrefValue[${idx}] FULL:`, pv);
+      console.log(`[DynamicDirectory] PrefValue[${idx}] KEYS:`, Object.keys(pv));
     });
   }
   const paginatedItems = useMemo(() => {
