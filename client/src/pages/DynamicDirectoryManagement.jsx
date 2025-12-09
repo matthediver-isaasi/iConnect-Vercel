@@ -162,7 +162,7 @@ export default function DynamicDirectoryManagementPage() {
     setFilterFieldId('');
     setFilterValue('');
     setIsActive(true);
-    setSelectedFilterFields(null);
+    setSelectedFilterFields([]);  // Default to empty array for new directories (no filters)
   };
 
   const handleOpenCreateDialog = () => {
@@ -194,19 +194,16 @@ export default function DynamicDirectoryManagementPage() {
     setEntityType(value);
     setFilterFieldId('');
     setFilterValue('');
-    setSelectedFilterFields(null);
+    setSelectedFilterFields([]);  // Reset to empty array when changing entity type
   };
 
   const handleToggleFilterField = (fieldId) => {
     setSelectedFilterFields(prev => {
-      // If null (not configured), initialize with just this field
-      if (prev === null) {
-        return [fieldId];
-      }
-      if (prev.includes(fieldId)) {
-        return prev.filter(id => id !== fieldId);
+      const currentList = prev || [];
+      if (currentList.includes(fieldId)) {
+        return currentList.filter(id => id !== fieldId);
       } else {
-        return [...prev, fieldId];
+        return [...currentList, fieldId];
       }
     });
   };
@@ -243,13 +240,9 @@ export default function DynamicDirectoryManagementPage() {
       entity_type: entityType,
       filter_field_id: filterFieldId,
       filter_value: filterValue,
-      is_active: isActive
+      is_active: isActive,
+      selected_filter_fields: selectedFilterFields || []  // Always include, defaults to empty array
     };
-    
-    // Only include selected_filter_fields if it's been explicitly configured (not null)
-    if (selectedFilterFields !== null) {
-      data.selected_filter_fields = selectedFilterFields;
-    }
 
     if (editingDirectory) {
       updateMutation.mutate({ id: editingDirectory.id, data });
@@ -521,18 +514,16 @@ export default function DynamicDirectoryManagementPage() {
               ) : (
                 <>
                   <p className="text-xs text-slate-500">
-                    {selectedFilterFields === null 
-                      ? "Not configured - all filterable fields will be shown by default. Select fields below to limit which filters appear."
-                      : selectedFilterFields.length === 0
-                        ? "No filters selected - no additional filter dropdowns will be shown on this directory."
-                        : "Only the selected fields will appear as filter dropdowns on this directory."}
+                    {(selectedFilterFields?.length || 0) === 0
+                      ? "No filters selected - no additional filter dropdowns will be shown on this directory."
+                      : "Only the selected fields will appear as filter dropdowns on this directory."}
                   </p>
                   <div className="space-y-2 max-h-48 overflow-y-auto">
                     {availableFilterFields.map((field) => (
                       <div key={field.id} className="flex items-center gap-2">
                         <Checkbox
                           id={`filter-field-${field.id}`}
-                          checked={selectedFilterFields !== null && selectedFilterFields.includes(field.id)}
+                          checked={(selectedFilterFields || []).includes(field.id)}
                           onCheckedChange={() => handleToggleFilterField(field.id)}
                           data-testid={`checkbox-filter-field-${field.id}`}
                         />
@@ -548,12 +539,10 @@ export default function DynamicDirectoryManagementPage() {
                       </div>
                     ))}
                   </div>
-                  {selectedFilterFields !== null && (
-                    <p className="text-xs text-blue-600 mt-2">
-                      {selectedFilterFields.length} filter{selectedFilterFields.length !== 1 ? 's' : ''} selected
-                      {selectedFilterFields.length === 0 && " (no filter dropdowns will show)"}
-                    </p>
-                  )}
+                  <p className="text-xs text-blue-600 mt-2">
+                    {(selectedFilterFields?.length || 0)} filter{(selectedFilterFields?.length || 0) !== 1 ? 's' : ''} selected
+                    {(selectedFilterFields?.length || 0) === 0 && " (no filter dropdowns will show)"}
+                  </p>
                 </>
               )}
             </div>
