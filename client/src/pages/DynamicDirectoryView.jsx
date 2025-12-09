@@ -156,7 +156,9 @@ export default function DynamicDirectoryView() {
           }
         }
       }
-      map[pv.organization_id][pv.preference_field_id] = normalizedValue;
+      // Use field_id (database column name) instead of preference_field_id
+      const fieldId = pv.field_id || pv.preference_field_id;
+      map[pv.organization_id][fieldId] = normalizedValue;
     });
     return map;
   }, [allOrgPreferenceValues]);
@@ -177,7 +179,9 @@ export default function DynamicDirectoryView() {
           }
         }
       }
-      map[pv.member_id][pv.preference_field_id] = normalizedValue;
+      // Use field_id (database column name) instead of preference_field_id
+      const fieldId = pv.field_id || pv.preference_field_id;
+      map[pv.member_id][fieldId] = normalizedValue;
     });
     return map;
   }, [allMemberPreferenceValues]);
@@ -296,21 +300,8 @@ export default function DynamicDirectoryView() {
   console.log('[DynamicDirectory] directory:', directory);
   console.log('[DynamicDirectory] filter_field_id:', directory?.filter_field_id);
   console.log('[DynamicDirectory] filter_value:', directory?.filter_value);
-  console.log('[DynamicDirectory] allOrgPreferenceValues RAW:', allOrgPreferenceValues);
-  
-  // Log all unique preference_field_ids in the data
-  if (allOrgPreferenceValues.length > 0) {
-    const uniqueFieldIds = [...new Set(allOrgPreferenceValues.map(pv => pv.preference_field_id))];
-    console.log('[DynamicDirectory] Unique preference_field_ids in data:', uniqueFieldIds);
-    console.log('[DynamicDirectory] Looking for field_id:', directory?.filter_field_id);
-    console.log('[DynamicDirectory] Match found:', uniqueFieldIds.includes(directory?.filter_field_id));
-    
-    // Show first few preference values for debugging - log FULL object to see actual keys
-    allOrgPreferenceValues.slice(0, 5).forEach((pv, idx) => {
-      console.log(`[DynamicDirectory] PrefValue[${idx}] FULL:`, pv);
-      console.log(`[DynamicDirectory] PrefValue[${idx}] KEYS:`, Object.keys(pv));
-    });
-  }
+  console.log('[DynamicDirectory] orgPreferenceMap:', orgPreferenceMap);
+  console.log('[DynamicDirectory] filteredOrganizations:', filteredOrganizations.length);
   const paginatedItems = useMemo(() => {
     const startIndex = (currentPage - 1) * itemsPerPage;
     return items.slice(startIndex, startIndex + itemsPerPage);
