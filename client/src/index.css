@@ -377,6 +377,28 @@
   background: #f8fafc;
 }
 
+/* Showcase Quill Editor Styles */
+.showcase-quill-editor .ql-container {
+  min-height: 80px;
+  font-family: inherit;
+}
+
+.showcase-quill-editor .ql-editor {
+  min-height: 80px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.showcase-quill-editor .ql-editor.ql-blank::before {
+  font-style: italic;
+  color: #94a3b8;
+}
+
+.showcase-quill-editor .ql-toolbar {
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
 /* IEdit Form Element Custom Typography */
 .iedit-form-styled label {
   font-family: var(--form-label-font-family, 'Poppins');

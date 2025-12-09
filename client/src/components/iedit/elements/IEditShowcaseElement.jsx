@@ -1,17 +1,59 @@
-import React from "react";
+import React, { useState } from "react";
 import { base44 } from "@/api/base44Client";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Upload, Loader2, Trash2, Calendar, FileText, Sparkles, Briefcase, ArrowUpRight } from "lucide-react";
+import { Upload, Loader2, Trash2, Calendar, FileText, Sparkles, Briefcase, ArrowUpRight, ChevronDown, ChevronUp } from "lucide-react";
 import { toast } from "sonner";
 import { useQuery } from "@tanstack/react-query";
 import { createPageUrl } from "@/utils";
 import { Link } from "react-router-dom";
 import TypographyStyleSelector, { applyTypographyStyle } from "../TypographyStyleSelector";
+import ReactQuill from "react-quill";
+import DOMPurify from "dompurify";
+import "react-quill/dist/quill.snow.css";
+import { useIsMobile } from "@/hooks/use-mobile";
+
+const showcaseQuillModules = {
+  toolbar: [
+    ['bold', 'italic', 'underline'],
+    [{ 'color': [] }],
+    ['link'],
+    ['clean']
+  ]
+};
+
+const fontFamilies = [
+  'Poppins',
+  'Degular Medium', 
+  'Degular Bold',
+  'Degular Semibold',
+  'Inter',
+  'Arial',
+  'Georgia',
+  'Times New Roman'
+];
+
+const fontWeights = [
+  { value: 300, label: 'Light' },
+  { value: 400, label: 'Regular' },
+  { value: 500, label: 'Medium' },
+  { value: 600, label: 'Semibold' },
+  { value: 700, label: 'Bold' },
+  { value: 800, label: 'Extra Bold' }
+];
+
+const safeHexColor = (color, fallback = '#000000') => {
+  if (!color || typeof color !== 'string') return fallback;
+  const trimmed = color.trim();
+  if (/^#[0-9A-Fa-f]{6}$/.test(trimmed)) return trimmed;
+  if (/^#[0-9A-Fa-f]{3}$/.test(trimmed)) {
+    return '#' + trimmed[1] + trimmed[1] + trimmed[2] + trimmed[2] + trimmed[3] + trimmed[3];
+  }
+  return fallback;
+};
 
 function CardSlotEditor({ index, card, onUpdate }) {
   // Fetch article display name setting
@@ -153,76 +195,51 @@ function CardSlotEditor({ index, card, onUpdate }) {
 }
 
 export function IEditShowcaseElementEditor({ element, onChange }) {
-  const [isUploadingBg, setIsUploadingBg] = React.useState(false);
+  const [isUploadingBg, setIsUploadingBg] = useState(false);
+  const [expandedSections, setExpandedSections] = useState({
+    sectionHeader: true,
+    background: false,
+    layout: false,
+    cards: true,
+    cardStyling: false
+  });
   
-  const content = element.content || {
-    headerText: '',
-    descriptionText: '',
-    heading_font_family: 'Poppins',
-    heading_font_size: 48,
-    heading_letter_spacing: 0,
-    heading_underline_enabled: false,
-    heading_underline_color: '#000000',
-    heading_underline_width: 100,
-    heading_underline_weight: 2,
-    heading_underline_spacing: 16,
-    heading_underline_to_content_spacing: 24,
-    heading_underline_alignment: 'center',
-    subheading_font_family: 'Poppins',
-    subheading_font_size: 20,
-    subheading_line_height: 1.5,
-    text_align: 'center',
-    padding_left: 16,
-    padding_right: 16,
-    backgroundImage: '',
-    backgroundColor: '#ffffff',
-    cardCount: 4,
-    cardHeight: 400,
-    imageHeightPercent: 50,
-    cardBorderRadius: 8,
-    descriptionLineClamp: 3,
-    showPublishedDate: false,
-    showImageBorder: false,
-    imageBorderWeight: 3,
-    imageBorderColor: '#2563eb',
-    showCTAButton: true,
-    ctaButtonSize: 48,
-    ctaButtonBgColor: '#2563eb',
-    ctaButtonArrowColor: '#ffffff',
-    ctaButtonMargin: 16,
-    card_text_align: 'left',
-    cards: [
-      { contentType: 'news', itemId: '', showLabel: true, labelText: '', labelBgColor: '#2563eb', labelTextColor: '#ffffff' },
-      { contentType: 'resources', itemId: '', showLabel: true, labelText: '', labelBgColor: '#2563eb', labelTextColor: '#ffffff' },
-      { contentType: 'articles', itemId: '', showLabel: true, labelText: '', labelBgColor: '#2563eb', labelTextColor: '#ffffff' },
-      { contentType: 'jobs', itemId: '', showLabel: true, labelText: '', labelBgColor: '#2563eb', labelTextColor: '#ffffff' }
-    ]
-  };
+  const content = element.content || {};
 
   // Ensure cards array matches cardCount
   const cardCount = content.cardCount || 4;
-  if (!content.cards || content.cards.length !== cardCount) {
+  const cards = content.cards || [];
+  if (cards.length !== cardCount) {
     const newCards = [];
     const types = ['news', 'resources', 'articles', 'jobs'];
     for (let i = 0; i < cardCount; i++) {
-      newCards.push(content.cards?.[i] || { contentType: types[i] || 'news', itemId: '' });
+      newCards.push(cards[i] || { contentType: types[i] || 'news', itemId: '' });
     }
-    content.cards = newCards;
+    // Auto-update cards if needed
+    if (cards.length !== cardCount) {
+      onChange({ ...element, content: { ...content, cards: newCards } });
+    }
   }
 
   const updateContent = (key, value) => {
-    const newContent = { ...content, [key]: value };
-    onChange({ ...element, content: newContent });
+    onChange({ ...element, content: { ...element.content, [key]: value } });
+  };
+
+  const updateMultipleContent = (updates) => {
+    onChange({ ...element, content: { ...element.content, ...updates } });
+  };
+
+  const toggleSection = (section) => {
+    setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
   };
 
   const updateCard = (index, field, value) => {
-    const cards = [...content.cards];
-    cards[index] = { ...cards[index], [field]: value };
-    // Reset itemId when content type changes
+    const currentCards = [...(element.content?.cards || [])];
+    currentCards[index] = { ...currentCards[index], [field]: value };
     if (field === 'contentType') {
-      cards[index].itemId = '';
+      currentCards[index].itemId = '';
     }
-    updateContent('cards', cards);
+    updateContent('cards', currentCards);
   };
 
   const handleBgImageUpload = async (file) => {
@@ -252,678 +269,772 @@ export function IEditShowcaseElementEditor({ element, onChange }) {
     }
   };
 
-  return (
-    <div className="space-y-4">
-      <div>
-        <Label htmlFor="headerText">Header Title</Label>
-        <Input
-          id="headerText"
-          value={content.headerText || ''}
-          onChange={(e) => updateContent('headerText', e.target.value)}
-          placeholder="Section title"
-        />
-      </div>
+  const renderTypographyControls = (prefix, label, defaultValues = {}) => {
+    const defaults = {
+      font_family: 'Poppins',
+      font_weight: prefix.includes('heading') ? 700 : 400,
+      font_size: prefix.includes('heading') ? 48 : (prefix.includes('subheading') ? 20 : 16),
+      color: '#1e293b',
+      letter_spacing: 0,
+      line_height: prefix.includes('heading') ? 1.2 : 1.6,
+      ...defaultValues
+    };
 
-      <div>
-        <Label htmlFor="descriptionText">Description</Label>
-        <Textarea
-          id="descriptionText"
-          value={content.descriptionText || ''}
-          onChange={(e) => updateContent('descriptionText', e.target.value)}
-          placeholder="Section description"
-          rows={3}
-        />
-      </div>
-
-      <TypographyStyleSelector
-        value={content.heading_typography_style_id}
-        onChange={(styleId) => updateContent('heading_typography_style_id', styleId)}
-        onApplyStyle={(style) => {
-          const styleProps = applyTypographyStyle(style);
-          const updates = {};
-          if (styleProps.font_family) updates.heading_font_family = styleProps.font_family;
-          if (styleProps.font_size) updates.heading_font_size = styleProps.font_size;
-          if (styleProps.font_size_mobile) updates.heading_font_size_mobile = styleProps.font_size_mobile;
-          if (styleProps.letter_spacing !== undefined) updates.heading_letter_spacing = styleProps.letter_spacing;
-          Object.keys(updates).forEach(key => updateContent(key, updates[key]));
-        }}
-        filterTypes={['h1', 'h2']}
-        label="Heading Typography Style"
-      />
-
-      <details className="text-xs">
-        <summary className="cursor-pointer text-slate-500 hover:text-slate-700 font-medium">Manual Font Settings</summary>
-        <div className="space-y-4 mt-3">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label htmlFor="heading_font_family">Heading Font</Label>
-              <Select
-                value={content.heading_font_family || 'Poppins'}
-                onValueChange={(value) => updateContent('heading_font_family', value)}
-              >
-                <SelectTrigger className="h-9">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Poppins">Poppins</SelectItem>
-                  <SelectItem value="Degular Medium">Degular Medium</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label htmlFor="heading_font_size">Heading Size (px)</Label>
-              <Input
-                id="heading_font_size"
-                type="number"
-                value={content.heading_font_size || 48}
-                onChange={(e) => updateContent('heading_font_size', parseInt(e.target.value) || 48)}
-                min="12"
-                max="200"
-              />
-            </div>
-          </div>
-
+    return (
+      <div className="space-y-3 p-3 bg-white rounded-md border border-slate-200 mt-2">
+        <div className="grid grid-cols-2 gap-3">
           <div>
-            <Label htmlFor="heading_letter_spacing">Heading Letter Spacing (px)</Label>
+            <Label className="text-xs">Font Family</Label>
+            <select
+              value={content[`${prefix}_font_family`] || defaults.font_family}
+              onChange={(e) => updateContent(`${prefix}_font_family`, e.target.value)}
+              className="w-full px-2 py-1.5 border border-slate-300 rounded-md text-sm"
+            >
+              {fontFamilies.map(font => (
+                <option key={font} value={font}>{font}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <Label className="text-xs">Font Weight</Label>
+            <select
+              value={content[`${prefix}_font_weight`] || defaults.font_weight}
+              onChange={(e) => updateContent(`${prefix}_font_weight`, parseInt(e.target.value))}
+              className="w-full px-2 py-1.5 border border-slate-300 rounded-md text-sm"
+            >
+              {fontWeights.map(weight => (
+                <option key={weight.value} value={weight.value}>{weight.label}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-3 gap-3">
+          <div>
+            <Label className="text-xs">Font Size (px)</Label>
             <Input
-              id="heading_letter_spacing"
               type="number"
-              step="0.5"
-              value={content.heading_letter_spacing || 0}
-              onChange={(e) => updateContent('heading_letter_spacing', parseFloat(e.target.value) || 0)}
-              min="-5"
-              max="20"
+              value={content[`${prefix}_font_size`] || defaults.font_size}
+              onChange={(e) => updateContent(`${prefix}_font_size`, parseInt(e.target.value) || defaults.font_size)}
+              min="10"
+              max="120"
+              className="h-8"
             />
           </div>
-
           <div>
-            <Label htmlFor="heading_color">Heading Color</Label>
-            <div className="flex gap-2">
-              <input
-                id="heading_color"
-                type="color"
-                value={content.heading_color || '#0f172a'}
-                onChange={(e) => updateContent('heading_color', e.target.value)}
-                className="w-16 h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
-              />
-              <Input
-                value={content.heading_color || '#0f172a'}
-                onChange={(e) => updateContent('heading_color', e.target.value)}
-                placeholder="#0f172a"
-                className="flex-1"
-              />
+            <Label className="text-xs">Mobile Size (px)</Label>
+            <Input
+              type="number"
+              value={content[`${prefix}_font_size_mobile`] || ''}
+              onChange={(e) => updateContent(`${prefix}_font_size_mobile`, e.target.value ? parseInt(e.target.value) : '')}
+              min="10"
+              max="120"
+              placeholder="Same"
+              className="h-8"
+            />
+          </div>
+          <div>
+            <Label className="text-xs">Text Color</Label>
+            <input
+              type="color"
+              value={safeHexColor(content[`${prefix}_color`], defaults.color)}
+              onChange={(e) => updateContent(`${prefix}_color`, e.target.value)}
+              className="w-full h-8 px-0.5 py-0.5 border border-slate-300 rounded cursor-pointer"
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label className="text-xs">Letter Spacing (px)</Label>
+            <Input
+              type="number"
+              step="0.5"
+              value={content[`${prefix}_letter_spacing`] || defaults.letter_spacing}
+              onChange={(e) => updateContent(`${prefix}_letter_spacing`, parseFloat(e.target.value) || 0)}
+              min="-2"
+              max="10"
+              className="h-8"
+            />
+          </div>
+          <div>
+            <Label className="text-xs">Line Height</Label>
+            <Input
+              type="number"
+              step="0.1"
+              value={content[`${prefix}_line_height`] || defaults.line_height}
+              onChange={(e) => updateContent(`${prefix}_line_height`, parseFloat(e.target.value) || defaults.line_height)}
+              min="0.8"
+              max="3"
+              className="h-8"
+            />
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Section Header */}
+      <div className="border rounded-lg overflow-hidden">
+        <button
+          type="button"
+          onClick={() => toggleSection('sectionHeader')}
+          className="w-full flex items-center justify-between p-3 bg-slate-100 hover:bg-slate-200 text-left"
+        >
+          <span className="font-semibold text-sm">Section Header</span>
+          {expandedSections.sectionHeader ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+        </button>
+        
+        {expandedSections.sectionHeader && (
+          <div className="p-4 space-y-4">
+            <div>
+              <Label className="text-xs">Header Alignment</Label>
+              <select
+                value={content.text_align || 'center'}
+                onChange={(e) => updateContent('text_align', e.target.value)}
+                className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+              >
+                <option value="left">Left</option>
+                <option value="center">Center</option>
+                <option value="right">Right</option>
+              </select>
+            </div>
+
+            {/* Heading */}
+            <div className="border-b pb-4">
+              <h5 className="font-medium text-sm mb-3">Heading</h5>
+              <div className="space-y-3">
+                <div>
+                  <Label className="text-xs">Heading Text</Label>
+                  <div className="showcase-quill-editor border border-slate-300 rounded-md overflow-hidden bg-white">
+                    <ReactQuill
+                      theme="snow"
+                      value={content.headerText || ''}
+                      onChange={(value) => updateContent('headerText', value)}
+                      modules={showcaseQuillModules}
+                      placeholder="Enter heading..."
+                      style={{ minHeight: '80px' }}
+                    />
+                  </div>
+                </div>
+                <TypographyStyleSelector
+                  value={content.heading_typography_style_id || null}
+                  onChange={(styleId, style) => {
+                    const updates = { heading_typography_style_id: styleId };
+                    if (style) {
+                      const mapped = applyTypographyStyle(style);
+                      if (mapped.font_family) updates.heading_font_family = mapped.font_family;
+                      if (mapped.font_size) updates.heading_font_size = mapped.font_size;
+                      if (mapped.font_size_mobile) updates.heading_font_size_mobile = mapped.font_size_mobile;
+                      if (mapped.font_weight) updates.heading_font_weight = mapped.font_weight;
+                      if (mapped.line_height) updates.heading_line_height = mapped.line_height;
+                      if (mapped.letter_spacing !== undefined) updates.heading_letter_spacing = mapped.letter_spacing;
+                      if (mapped.color) updates.heading_color = mapped.color;
+                    }
+                    updateMultipleContent(updates);
+                  }}
+                  label="Heading Typography Style"
+                />
+                <details className="text-xs">
+                  <summary className="cursor-pointer text-slate-500 hover:text-slate-700 font-medium">Manual Font Settings</summary>
+                  {renderTypographyControls('heading', 'Heading Typography')}
+                  
+                  {/* Underline options */}
+                  <div className="space-y-3 p-3 bg-slate-50 rounded-lg mt-3">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        id="heading_underline_enabled"
+                        checked={content.heading_underline_enabled || false}
+                        onChange={(e) => updateContent('heading_underline_enabled', e.target.checked)}
+                        className="w-4 h-4"
+                      />
+                      <Label htmlFor="heading_underline_enabled" className="cursor-pointer text-xs">
+                        Show line below heading
+                      </Label>
+                    </div>
+
+                    {content.heading_underline_enabled && (
+                      <>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <Label className="text-xs">Line Color</Label>
+                            <input
+                              type="color"
+                              value={content.heading_underline_color || '#000000'}
+                              onChange={(e) => updateContent('heading_underline_color', e.target.value)}
+                              className="w-full h-8 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+                            />
+                          </div>
+                          <div>
+                            <Label className="text-xs">Line Width (px)</Label>
+                            <Input
+                              type="number"
+                              value={content.heading_underline_width || 100}
+                              onChange={(e) => updateContent('heading_underline_width', parseInt(e.target.value) || 0)}
+                              min="10"
+                              max="1000"
+                              className="h-8"
+                            />
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <Label className="text-xs">Line Weight (px)</Label>
+                            <Input
+                              type="number"
+                              value={content.heading_underline_weight || 2}
+                              onChange={(e) => updateContent('heading_underline_weight', parseInt(e.target.value) || 1)}
+                              min="1"
+                              max="20"
+                              className="h-8"
+                            />
+                          </div>
+                          <div>
+                            <Label className="text-xs">Spacing from Header (px)</Label>
+                            <Input
+                              type="number"
+                              value={content.heading_underline_spacing || 16}
+                              onChange={(e) => updateContent('heading_underline_spacing', parseInt(e.target.value) || 0)}
+                              min="0"
+                              max="100"
+                              className="h-8"
+                            />
+                          </div>
+                        </div>
+                        <div>
+                          <Label className="text-xs">Line Alignment</Label>
+                          <select
+                            value={content.heading_underline_alignment || 'center'}
+                            onChange={(e) => updateContent('heading_underline_alignment', e.target.value)}
+                            className="w-full px-2 py-1.5 border border-slate-300 rounded-md text-sm"
+                          >
+                            <option value="left">Left</option>
+                            <option value="center">Center</option>
+                            <option value="right">Right</option>
+                          </select>
+                        </div>
+                        <div>
+                          <Label className="text-xs">Spacing to Content (px)</Label>
+                          <Input
+                            type="number"
+                            value={content.heading_underline_to_content_spacing || 24}
+                            onChange={(e) => updateContent('heading_underline_to_content_spacing', parseInt(e.target.value) || 0)}
+                            min="0"
+                            max="100"
+                            className="h-8"
+                          />
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </details>
+              </div>
+            </div>
+
+            {/* Subheading */}
+            <div className="border-b pb-4">
+              <h5 className="font-medium text-sm mb-3">Subheading</h5>
+              <div className="space-y-3">
+                <div>
+                  <Label className="text-xs">Subheading Text</Label>
+                  <div className="showcase-quill-editor border border-slate-300 rounded-md overflow-hidden bg-white">
+                    <ReactQuill
+                      theme="snow"
+                      value={content.descriptionText || ''}
+                      onChange={(value) => updateContent('descriptionText', value)}
+                      modules={showcaseQuillModules}
+                      placeholder="Enter subheading..."
+                      style={{ minHeight: '80px' }}
+                    />
+                  </div>
+                </div>
+                <TypographyStyleSelector
+                  value={content.subheading_typography_style_id || null}
+                  onChange={(styleId, style) => {
+                    const updates = { subheading_typography_style_id: styleId };
+                    if (style) {
+                      const mapped = applyTypographyStyle(style);
+                      if (mapped.font_family) updates.subheading_font_family = mapped.font_family;
+                      if (mapped.font_size) updates.subheading_font_size = mapped.font_size;
+                      if (mapped.font_size_mobile) updates.subheading_font_size_mobile = mapped.font_size_mobile;
+                      if (mapped.font_weight) updates.subheading_font_weight = mapped.font_weight;
+                      if (mapped.line_height) updates.subheading_line_height = mapped.line_height;
+                      if (mapped.letter_spacing !== undefined) updates.subheading_letter_spacing = mapped.letter_spacing;
+                      if (mapped.color) updates.subheading_color = mapped.color;
+                    }
+                    updateMultipleContent(updates);
+                  }}
+                  label="Subheading Typography Style"
+                />
+                <details className="text-xs">
+                  <summary className="cursor-pointer text-slate-500 hover:text-slate-700 font-medium">Manual Font Settings</summary>
+                  {renderTypographyControls('subheading', 'Subheading Typography')}
+                </details>
+              </div>
+            </div>
+
+            {/* Content */}
+            <div>
+              <h5 className="font-medium text-sm mb-3">Content</h5>
+              <div className="space-y-3">
+                <div>
+                  <Label className="text-xs">Content Text</Label>
+                  <div className="showcase-quill-editor border border-slate-300 rounded-md overflow-hidden bg-white">
+                    <ReactQuill
+                      theme="snow"
+                      value={content.body_content || ''}
+                      onChange={(value) => updateContent('body_content', value)}
+                      modules={showcaseQuillModules}
+                      placeholder="Enter content..."
+                      style={{ minHeight: '120px' }}
+                    />
+                  </div>
+                </div>
+                <TypographyStyleSelector
+                  value={content.content_typography_style_id || null}
+                  onChange={(styleId, style) => {
+                    const updates = { content_typography_style_id: styleId };
+                    if (style) {
+                      const mapped = applyTypographyStyle(style);
+                      if (mapped.font_family) updates.content_font_family = mapped.font_family;
+                      if (mapped.font_size) updates.content_font_size = mapped.font_size;
+                      if (mapped.font_size_mobile) updates.content_font_size_mobile = mapped.font_size_mobile;
+                      if (mapped.font_weight) updates.content_font_weight = mapped.font_weight;
+                      if (mapped.line_height) updates.content_line_height = mapped.line_height;
+                      if (mapped.color) updates.content_color = mapped.color;
+                    }
+                    updateMultipleContent(updates);
+                  }}
+                  label="Content Typography Style"
+                />
+                <details className="text-xs">
+                  <summary className="cursor-pointer text-slate-500 hover:text-slate-700 font-medium">Manual Font Settings</summary>
+                  {renderTypographyControls('content', 'Content Typography')}
+                </details>
+              </div>
             </div>
           </div>
+        )}
+      </div>
 
-          <div className="space-y-3 p-3 bg-slate-50 rounded-lg">
+      {/* Layout & Spacing */}
+      <div className="border rounded-lg overflow-hidden">
+        <button
+          type="button"
+          onClick={() => toggleSection('layout')}
+          className="w-full flex items-center justify-between p-3 bg-slate-100 hover:bg-slate-200 text-left"
+        >
+          <span className="font-semibold text-sm">Layout & Spacing</span>
+          {expandedSections.layout ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+        </button>
+        
+        {expandedSections.layout && (
+          <div className="p-4 space-y-4">
+            <div>
+              <Label className="text-xs">Card Text Alignment</Label>
+              <select
+                value={content.card_text_align || 'left'}
+                onChange={(e) => updateContent('card_text_align', e.target.value)}
+                className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+              >
+                <option value="left">Left</option>
+                <option value="center">Center</option>
+                <option value="right">Right</option>
+              </select>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs">Top Padding (px)</Label>
+                <Input
+                  type="number"
+                  value={content.padding_top ?? 64}
+                  onChange={(e) => updateContent('padding_top', parseInt(e.target.value) || 0)}
+                  min="0"
+                  className="h-8"
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Bottom Padding (px)</Label>
+                <Input
+                  type="number"
+                  value={content.padding_bottom ?? 64}
+                  onChange={(e) => updateContent('padding_bottom', parseInt(e.target.value) || 0)}
+                  min="0"
+                  className="h-8"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs">Left Padding (px)</Label>
+                <Input
+                  type="number"
+                  value={content.padding_left || 16}
+                  onChange={(e) => updateContent('padding_left', parseInt(e.target.value) || 0)}
+                  min="0"
+                  className="h-8"
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Right Padding (px)</Label>
+                <Input
+                  type="number"
+                  value={content.padding_right || 16}
+                  onChange={(e) => updateContent('padding_right', parseInt(e.target.value) || 0)}
+                  min="0"
+                  className="h-8"
+                />
+              </div>
+            </div>
+
+            <div>
+              <Label className="text-xs">Number of Cards</Label>
+              <select
+                value={String(content.cardCount || 4)}
+                onChange={(e) => updateContent('cardCount', parseInt(e.target.value))}
+                className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+              >
+                <option value="1">1 Card</option>
+                <option value="2">2 Cards</option>
+                <option value="3">3 Cards</option>
+                <option value="4">4 Cards</option>
+              </select>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Background Section */}
+      <div className="border rounded-lg overflow-hidden">
+        <button
+          type="button"
+          onClick={() => toggleSection('background')}
+          className="w-full flex items-center justify-between p-3 bg-slate-100 hover:bg-slate-200 text-left"
+        >
+          <span className="font-semibold text-sm">Background</span>
+          {expandedSections.background ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+        </button>
+        
+        {expandedSections.background && (
+          <div className="p-4 space-y-4">
+            <div>
+              <Label className="text-xs">Background Color</Label>
+              <div className="flex gap-2">
+                <input
+                  type="color"
+                  value={content.backgroundColor || '#ffffff'}
+                  onChange={(e) => updateContent('backgroundColor', e.target.value)}
+                  className="w-16 h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+                />
+                <Input
+                  value={content.backgroundColor || '#ffffff'}
+                  onChange={(e) => updateContent('backgroundColor', e.target.value)}
+                  placeholder="#ffffff"
+                  className="flex-1 h-8"
+                />
+              </div>
+            </div>
+
+            <div>
+              <Label className="text-xs">Background Image</Label>
+              <div className="flex gap-2 mt-1">
+                <Input
+                  value={content.backgroundImage || ''}
+                  onChange={(e) => updateContent('backgroundImage', e.target.value)}
+                  placeholder="Background image URL"
+                  className="flex-1 h-8"
+                />
+                <label className="cursor-pointer">
+                  <div className={`flex items-center gap-2 px-3 py-1.5 rounded-md transition-colors ${
+                    isUploadingBg
+                      ? 'bg-slate-300 cursor-not-allowed'
+                      : 'bg-blue-600 hover:bg-blue-700 text-white'
+                  }`}>
+                    {isUploadingBg ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Upload className="w-4 h-4" />
+                    )}
+                  </div>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) handleBgImageUpload(file);
+                      e.target.value = '';
+                    }}
+                    className="hidden"
+                    disabled={isUploadingBg}
+                  />
+                </label>
+                {content.backgroundImage && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => updateContent('backgroundImage', '')}
+                    className="text-red-600 h-8"
+                    type="button"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                )}
+              </div>
+              {content.backgroundImage && (
+                <img
+                  src={content.backgroundImage}
+                  alt="Background preview"
+                  className="mt-2 w-full h-24 object-cover rounded"
+                />
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Card Styling */}
+      <div className="border rounded-lg overflow-hidden">
+        <button
+          type="button"
+          onClick={() => toggleSection('cardStyling')}
+          className="w-full flex items-center justify-between p-3 bg-slate-100 hover:bg-slate-200 text-left"
+        >
+          <span className="font-semibold text-sm">Card Styling</span>
+          {expandedSections.cardStyling ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+        </button>
+        
+        {expandedSections.cardStyling && (
+          <div className="p-4 space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs">Card Height (px)</Label>
+                <Input
+                  type="number"
+                  value={content.cardHeight || 400}
+                  onChange={(e) => updateContent('cardHeight', parseInt(e.target.value) || 400)}
+                  min="200"
+                  max="800"
+                  className="h-8"
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Image Height (%)</Label>
+                <Input
+                  type="number"
+                  value={content.imageHeightPercent || 50}
+                  onChange={(e) => updateContent('imageHeightPercent', parseInt(e.target.value) || 50)}
+                  min="20"
+                  max="80"
+                  className="h-8"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs">Border Radius (px)</Label>
+                <Input
+                  type="number"
+                  value={content.cardBorderRadius ?? 8}
+                  onChange={(e) => {
+                    const val = e.target.value === '' ? 0 : parseInt(e.target.value);
+                    updateContent('cardBorderRadius', isNaN(val) ? 0 : val);
+                  }}
+                  min="0"
+                  max="50"
+                  className="h-8"
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Description Lines</Label>
+                <select
+                  value={String(content.descriptionLineClamp ?? 3)}
+                  onChange={(e) => updateContent('descriptionLineClamp', e.target.value === 'none' ? 'none' : parseInt(e.target.value))}
+                  className="w-full px-2 py-1.5 border border-slate-300 rounded-md text-sm"
+                >
+                  <option value="0">Title Only</option>
+                  <option value="1">1 Line</option>
+                  <option value="2">2 Lines</option>
+                  <option value="3">3 Lines</option>
+                  <option value="4">4 Lines</option>
+                  <option value="5">5 Lines</option>
+                  <option value="none">No Limit</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs">Title Font Size (px)</Label>
+                <Input
+                  type="number"
+                  value={content.titleFontSize || 16}
+                  onChange={(e) => updateContent('titleFontSize', parseInt(e.target.value) || 16)}
+                  min="12"
+                  max="32"
+                  className="h-8"
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Date Font Size (px)</Label>
+                <Input
+                  type="number"
+                  value={content.dateFontSize || 12}
+                  onChange={(e) => updateContent('dateFontSize', parseInt(e.target.value) || 12)}
+                  min="10"
+                  max="18"
+                  className="h-8"
+                />
+              </div>
+            </div>
+
             <div className="flex items-center gap-2">
               <input
                 type="checkbox"
-                id="heading_underline_enabled"
-                checked={content.heading_underline_enabled || false}
-                onChange={(e) => updateContent('heading_underline_enabled', e.target.checked)}
+                id="showPublishedDate"
+                checked={content.showPublishedDate || false}
+                onChange={(e) => updateContent('showPublishedDate', e.target.checked)}
                 className="w-4 h-4"
               />
-              <Label htmlFor="heading_underline_enabled" className="cursor-pointer">
-                Show line below heading
+              <Label htmlFor="showPublishedDate" className="cursor-pointer text-xs">
+                Show Published Date
               </Label>
             </div>
 
-            {content.heading_underline_enabled && (
-              <>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <Label htmlFor="heading_underline_color">Line Color</Label>
-                    <input
-                      id="heading_underline_color"
-                      type="color"
-                      value={content.heading_underline_color || '#000000'}
-                      onChange={(e) => updateContent('heading_underline_color', e.target.value)}
-                      className="w-full h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="heading_underline_width">Line Width (px)</Label>
-                    <Input
-                      id="heading_underline_width"
-                      type="number"
-                      value={content.heading_underline_width || 100}
-                      onChange={(e) => updateContent('heading_underline_width', parseInt(e.target.value) || 0)}
-                      min="10"
-                      max="1000"
-                    />
-                  </div>
-                </div>
+            <div className="space-y-3 p-3 bg-slate-50 rounded-lg">
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="showImageBorder"
+                  checked={content.showImageBorder || false}
+                  onChange={(e) => updateContent('showImageBorder', e.target.checked)}
+                  className="w-4 h-4"
+                />
+                <Label htmlFor="showImageBorder" className="cursor-pointer text-xs">
+                  Show Line Below Image
+                </Label>
+              </div>
 
+              {content.showImageBorder && (
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <Label htmlFor="heading_underline_weight">Line Weight (px)</Label>
+                    <Label className="text-xs">Line Weight (px)</Label>
                     <Input
-                      id="heading_underline_weight"
                       type="number"
-                      value={content.heading_underline_weight || 2}
-                      onChange={(e) => updateContent('heading_underline_weight', parseInt(e.target.value) || 1)}
+                      value={content.imageBorderWeight || 3}
+                      onChange={(e) => updateContent('imageBorderWeight', parseInt(e.target.value) || 3)}
                       min="1"
                       max="20"
+                      className="h-8"
                     />
                   </div>
                   <div>
-                    <Label htmlFor="heading_underline_spacing">Spacing from Header (px)</Label>
-                    <Input
-                      id="heading_underline_spacing"
-                      type="number"
-                      value={content.heading_underline_spacing || 16}
-                      onChange={(e) => updateContent('heading_underline_spacing', parseInt(e.target.value) || 0)}
-                      min="0"
-                      max="100"
+                    <Label className="text-xs">Line Color</Label>
+                    <input
+                      type="color"
+                      value={content.imageBorderColor || '#2563eb'}
+                      onChange={(e) => updateContent('imageBorderColor', e.target.value)}
+                      className="w-full h-8 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
                     />
                   </div>
                 </div>
-
-                <div>
-                  <Label htmlFor="heading_underline_alignment">Line Alignment</Label>
-                  <Select
-                    value={content.heading_underline_alignment || 'center'}
-                    onValueChange={(value) => updateContent('heading_underline_alignment', value)}
-                  >
-                    <SelectTrigger className="h-9">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="left">Left</SelectItem>
-                      <SelectItem value="center">Center</SelectItem>
-                      <SelectItem value="right">Right</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div>
-                  <Label htmlFor="heading_underline_to_content_spacing">Spacing to Content (px)</Label>
-                  <Input
-                    id="heading_underline_to_content_spacing"
-                    type="number"
-                    value={content.heading_underline_to_content_spacing || 24}
-                    onChange={(e) => updateContent('heading_underline_to_content_spacing', parseInt(e.target.value) || 0)}
-                    min="0"
-                    max="100"
-                  />
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      </details>
-
-      <TypographyStyleSelector
-        value={content.subheading_typography_style_id}
-        onChange={(styleId) => updateContent('subheading_typography_style_id', styleId)}
-        onApplyStyle={(style) => {
-          const styleProps = applyTypographyStyle(style);
-          const updates = {};
-          if (styleProps.font_family) updates.subheading_font_family = styleProps.font_family;
-          if (styleProps.font_size) updates.subheading_font_size = styleProps.font_size;
-          if (styleProps.font_size_mobile) updates.subheading_font_size_mobile = styleProps.font_size_mobile;
-          if (styleProps.line_height !== undefined) updates.subheading_line_height = styleProps.line_height;
-          Object.keys(updates).forEach(key => updateContent(key, updates[key]));
-        }}
-        filterTypes={['h3', 'h4', 'paragraph']}
-        label="Subheading Typography Style"
-      />
-
-      <details className="text-xs">
-        <summary className="cursor-pointer text-slate-500 hover:text-slate-700 font-medium">Manual Font Settings</summary>
-        <div className="space-y-4 mt-3">
-          <div className="grid grid-cols-3 gap-3">
-            <div>
-              <Label htmlFor="subheading_font_family">Description Font</Label>
-              <Select
-                value={content.subheading_font_family || 'Poppins'}
-                onValueChange={(value) => updateContent('subheading_font_family', value)}
-              >
-                <SelectTrigger className="h-9">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Poppins">Poppins</SelectItem>
-                  <SelectItem value="Degular Medium">Degular Medium</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label htmlFor="subheading_font_size">Size (px)</Label>
-              <Input
-                id="subheading_font_size"
-                type="number"
-                value={content.subheading_font_size || 20}
-                onChange={(e) => updateContent('subheading_font_size', parseInt(e.target.value) || 20)}
-                min="12"
-                max="100"
-              />
-            </div>
-            <div>
-              <Label htmlFor="subheading_line_height">Line Height</Label>
-              <Input
-                id="subheading_line_height"
-                type="number"
-                step="0.1"
-                value={content.subheading_line_height || 1.5}
-                onChange={(e) => updateContent('subheading_line_height', parseFloat(e.target.value) || 1.5)}
-                min="1"
-                max="3"
-              />
-            </div>
-          </div>
-
-          <div>
-            <Label htmlFor="description_color">Description Color</Label>
-            <div className="flex gap-2">
-              <input
-                id="description_color"
-                type="color"
-                value={content.description_color || '#475569'}
-                onChange={(e) => updateContent('description_color', e.target.value)}
-                className="w-16 h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
-              />
-              <Input
-                value={content.description_color || '#475569'}
-                onChange={(e) => updateContent('description_color', e.target.value)}
-                placeholder="#475569"
-                className="flex-1"
-              />
-            </div>
-          </div>
-        </div>
-      </details>
-
-      <div>
-        <Label htmlFor="text_align">Header Text Alignment</Label>
-        <Select
-          value={content.text_align || 'center'}
-          onValueChange={(value) => updateContent('text_align', value)}
-        >
-          <SelectTrigger className="h-9">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="left">Left</SelectItem>
-            <SelectItem value="center">Center</SelectItem>
-            <SelectItem value="right">Right</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div>
-        <Label htmlFor="card_text_align">Card Text Alignment</Label>
-        <Select
-          value={content.card_text_align || 'left'}
-          onValueChange={(value) => updateContent('card_text_align', value)}
-        >
-          <SelectTrigger className="h-9">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="left">Left</SelectItem>
-            <SelectItem value="center">Center</SelectItem>
-            <SelectItem value="right">Right</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <Label htmlFor="padding_top">Top Padding (px)</Label>
-          <Input
-            id="padding_top"
-            type="number"
-            value={content.padding_top ?? 64}
-            onChange={(e) => updateContent('padding_top', parseInt(e.target.value) || 0)}
-            min="0"
-          />
-        </div>
-        <div>
-          <Label htmlFor="padding_bottom">Bottom Padding (px)</Label>
-          <Input
-            id="padding_bottom"
-            type="number"
-            value={content.padding_bottom ?? 64}
-            onChange={(e) => updateContent('padding_bottom', parseInt(e.target.value) || 0)}
-            min="0"
-          />
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <Label htmlFor="padding_left">Left Padding (px)</Label>
-          <Input
-            id="padding_left"
-            type="number"
-            value={content.padding_left || 16}
-            onChange={(e) => updateContent('padding_left', parseInt(e.target.value) || 0)}
-            min="0"
-          />
-        </div>
-        <div>
-          <Label htmlFor="padding_right">Right Padding (px)</Label>
-          <Input
-            id="padding_right"
-            type="number"
-            value={content.padding_right || 16}
-            onChange={(e) => updateContent('padding_right', parseInt(e.target.value) || 0)}
-            min="0"
-          />
-        </div>
-      </div>
-
-      <div>
-        <Label htmlFor="cardCount">Number of Cards</Label>
-        <Select
-          value={String(content.cardCount || 4)}
-          onValueChange={(value) => updateContent('cardCount', parseInt(value))}
-        >
-          <SelectTrigger className="h-9">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="1">1 Card</SelectItem>
-            <SelectItem value="2">2 Cards</SelectItem>
-            <SelectItem value="3">3 Cards</SelectItem>
-            <SelectItem value="4">4 Cards</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div>
-        <Label htmlFor="backgroundColor">Background Color</Label>
-        <div className="flex gap-2">
-          <input
-            id="backgroundColor"
-            type="color"
-            value={content.backgroundColor || '#ffffff'}
-            onChange={(e) => updateContent('backgroundColor', e.target.value)}
-            className="w-16 h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
-          />
-          <Input
-            value={content.backgroundColor || '#ffffff'}
-            onChange={(e) => updateContent('backgroundColor', e.target.value)}
-            placeholder="#ffffff"
-            className="flex-1"
-          />
-        </div>
-      </div>
-
-      <div>
-        <Label htmlFor="cardHeight">Card Height (px)</Label>
-        <Input
-          id="cardHeight"
-          type="number"
-          value={content.cardHeight || 400}
-          onChange={(e) => updateContent('cardHeight', parseInt(e.target.value) || 400)}
-          min="200"
-          max="800"
-        />
-      </div>
-
-      <div>
-        <Label htmlFor="imageHeightPercent">Image Height (% of card)</Label>
-        <Input
-          id="imageHeightPercent"
-          type="number"
-          value={content.imageHeightPercent || 50}
-          onChange={(e) => updateContent('imageHeightPercent', parseInt(e.target.value) || 50)}
-          min="20"
-          max="80"
-        />
-      </div>
-
-      <div>
-        <Label htmlFor="cardBorderRadius">Card Border Radius (px)</Label>
-        <Input
-          id="cardBorderRadius"
-          type="number"
-          value={content.cardBorderRadius ?? 8}
-          onChange={(e) => {
-            const val = e.target.value === '' ? 0 : parseInt(e.target.value);
-            updateContent('cardBorderRadius', isNaN(val) ? 0 : val);
-          }}
-          min="0"
-          max="50"
-        />
-      </div>
-
-      <div>
-        <Label htmlFor="descriptionLineClamp">Description Lines</Label>
-        <Select
-          value={String(content.descriptionLineClamp ?? 3)}
-          onValueChange={(value) => updateContent('descriptionLineClamp', value === 'none' ? 'none' : parseInt(value))}
-        >
-          <SelectTrigger className="h-9">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="0">Title Only (No Description)</SelectItem>
-            <SelectItem value="1">1 Line</SelectItem>
-            <SelectItem value="2">2 Lines</SelectItem>
-            <SelectItem value="3">3 Lines</SelectItem>
-            <SelectItem value="4">4 Lines</SelectItem>
-            <SelectItem value="5">5 Lines</SelectItem>
-            <SelectItem value="none">No Limit</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <Label htmlFor="titleFontSize">Title Font Size (px)</Label>
-          <Input
-            id="titleFontSize"
-            type="number"
-            value={content.titleFontSize || 16}
-            onChange={(e) => updateContent('titleFontSize', parseInt(e.target.value) || 16)}
-            min="12"
-            max="32"
-          />
-        </div>
-        <div>
-          <Label htmlFor="dateFontSize">Date Font Size (px)</Label>
-          <Input
-            id="dateFontSize"
-            type="number"
-            value={content.dateFontSize || 12}
-            onChange={(e) => updateContent('dateFontSize', parseInt(e.target.value) || 12)}
-            min="10"
-            max="18"
-          />
-        </div>
-      </div>
-
-      <div className="flex items-center gap-2">
-        <input
-          type="checkbox"
-          id="showPublishedDate"
-          checked={content.showPublishedDate || false}
-          onChange={(e) => updateContent('showPublishedDate', e.target.checked)}
-          className="w-4 h-4"
-        />
-        <Label htmlFor="showPublishedDate" className="cursor-pointer">
-          Show Published Date
-        </Label>
-      </div>
-
-      <div className="space-y-3 p-3 bg-slate-50 rounded-lg">
-        <div className="flex items-center gap-2">
-          <input
-            type="checkbox"
-            id="showImageBorder"
-            checked={content.showImageBorder || false}
-            onChange={(e) => updateContent('showImageBorder', e.target.checked)}
-            className="w-4 h-4"
-          />
-          <Label htmlFor="showImageBorder" className="cursor-pointer">
-            Show Line Below Image
-          </Label>
-        </div>
-
-        {content.showImageBorder && (
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label htmlFor="imageBorderWeight">Line Weight (px)</Label>
-              <Input
-                id="imageBorderWeight"
-                type="number"
-                value={content.imageBorderWeight || 3}
-                onChange={(e) => updateContent('imageBorderWeight', parseInt(e.target.value) || 3)}
-                min="1"
-                max="20"
-              />
-            </div>
-            <div>
-              <Label htmlFor="imageBorderColor">Line Color</Label>
-              <input
-                id="imageBorderColor"
-                type="color"
-                value={content.imageBorderColor || '#2563eb'}
-                onChange={(e) => updateContent('imageBorderColor', e.target.value)}
-                className="w-full h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
-              />
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div className="space-y-3 p-3 bg-slate-50 rounded-lg">
-        <div className="flex items-center gap-2">
-          <input
-            type="checkbox"
-            id="showCTAButton"
-            checked={content.showCTAButton ?? true}
-            onChange={(e) => updateContent('showCTAButton', e.target.checked)}
-            className="w-4 h-4"
-          />
-          <Label htmlFor="showCTAButton" className="cursor-pointer">
-            Show CTA Button
-          </Label>
-        </div>
-
-        {content.showCTAButton !== false && (
-          <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label htmlFor="ctaButtonSize">Button Size (px)</Label>
-                <Input
-                  id="ctaButtonSize"
-                  type="number"
-                  value={content.ctaButtonSize || 48}
-                  onChange={(e) => updateContent('ctaButtonSize', parseInt(e.target.value) || 48)}
-                  min="24"
-                  max="80"
-                />
-              </div>
-              <div>
-                <Label htmlFor="ctaButtonMargin">Margin (px)</Label>
-                <Input
-                  id="ctaButtonMargin"
-                  type="number"
-                  value={content.ctaButtonMargin ?? 16}
-                  onChange={(e) => updateContent('ctaButtonMargin', parseInt(e.target.value) ?? 0)}
-                  min="0"
-                  max="50"
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label htmlFor="ctaButtonBgColor">Background</Label>
-                <input
-                  id="ctaButtonBgColor"
-                  type="color"
-                  value={content.ctaButtonBgColor || '#2563eb'}
-                  onChange={(e) => updateContent('ctaButtonBgColor', e.target.value)}
-                  className="w-full h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
-                />
-              </div>
-              <div>
-                <Label htmlFor="ctaButtonArrowColor">Arrow Color</Label>
-                <input
-                  id="ctaButtonArrowColor"
-                  type="color"
-                  value={content.ctaButtonArrowColor || '#ffffff'}
-                  onChange={(e) => updateContent('ctaButtonArrowColor', e.target.value)}
-                  className="w-full h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
-                />
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div>
-        <Label>Card Slots</Label>
-        <div className="space-y-4 mt-2">
-          {content.cards.map((card, index) => (
-            <CardSlotEditor
-              key={index}
-              index={index}
-              card={card}
-              onUpdate={updateCard}
-            />
-          ))}
-        </div>
-      </div>
-
-      <div>
-        <Label htmlFor="backgroundImage">Background Image</Label>
-        <div className="flex gap-2">
-          <Input
-            id="backgroundImage"
-            value={content.backgroundImage || ''}
-            onChange={(e) => updateContent('backgroundImage', e.target.value)}
-            placeholder="Background image URL"
-            className="flex-1"
-          />
-          <Label htmlFor="bg-upload" className="cursor-pointer">
-            <div className={`flex items-center gap-2 px-4 py-2 rounded-md transition-colors ${
-              isUploadingBg
-                ? 'bg-slate-300 cursor-not-allowed'
-                : 'bg-blue-600 hover:bg-blue-700 text-white'
-            }`}>
-              {isUploadingBg ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Upload className="w-4 h-4" />
               )}
             </div>
-            <input
-              id="bg-upload"
-              type="file"
-              accept="image/*"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) handleBgImageUpload(file);
-                e.target.value = '';
-              }}
-              className="hidden"
-              disabled={isUploadingBg}
-            />
-          </Label>
-          {content.backgroundImage && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => updateContent('backgroundImage', '')}
-              className="text-red-600"
-              type="button"
-            >
-              <Trash2 className="w-4 h-4" />
-            </Button>
-          )}
-        </div>
-        {content.backgroundImage && (
-          <img
-            src={content.backgroundImage}
-            alt="Background preview"
-            className="mt-2 w-full h-32 object-cover rounded"
-          />
+
+            <div className="space-y-3 p-3 bg-slate-50 rounded-lg">
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="showCTAButton"
+                  checked={content.showCTAButton ?? true}
+                  onChange={(e) => updateContent('showCTAButton', e.target.checked)}
+                  className="w-4 h-4"
+                />
+                <Label htmlFor="showCTAButton" className="cursor-pointer text-xs">
+                  Show CTA Button
+                </Label>
+              </div>
+
+              {content.showCTAButton !== false && (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label className="text-xs">Button Size (px)</Label>
+                      <Input
+                        type="number"
+                        value={content.ctaButtonSize || 48}
+                        onChange={(e) => updateContent('ctaButtonSize', parseInt(e.target.value) || 48)}
+                        min="24"
+                        max="80"
+                        className="h-8"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Margin (px)</Label>
+                      <Input
+                        type="number"
+                        value={content.ctaButtonMargin ?? 16}
+                        onChange={(e) => updateContent('ctaButtonMargin', parseInt(e.target.value) ?? 0)}
+                        min="0"
+                        max="50"
+                        className="h-8"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label className="text-xs">Background</Label>
+                      <input
+                        type="color"
+                        value={content.ctaButtonBgColor || '#2563eb'}
+                        onChange={(e) => updateContent('ctaButtonBgColor', e.target.value)}
+                        className="w-full h-8 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Arrow Color</Label>
+                      <input
+                        type="color"
+                        value={content.ctaButtonArrowColor || '#ffffff'}
+                        onChange={(e) => updateContent('ctaButtonArrowColor', e.target.value)}
+                        className="w-full h-8 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Card Slots */}
+      <div className="border rounded-lg overflow-hidden">
+        <button
+          type="button"
+          onClick={() => toggleSection('cards')}
+          className="w-full flex items-center justify-between p-3 bg-slate-100 hover:bg-slate-200 text-left"
+        >
+          <span className="font-semibold text-sm">Card Slots</span>
+          {expandedSections.cards ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+        </button>
+        
+        {expandedSections.cards && (
+          <div className="p-4 space-y-4">
+            {(content.cards || []).map((card, index) => (
+              <CardSlotEditor
+                key={index}
+                index={index}
+                card={card}
+                onUpdate={updateCard}
+              />
+            ))}
+          </div>
         )}
       </div>
     </div>
@@ -931,46 +1042,8 @@ export function IEditShowcaseElementEditor({ element, onChange }) {
 }
 
 export function IEditShowcaseElementRenderer({ element, settings }) {
-  const content = element.content || {
-    headerText: '',
-    descriptionText: '',
-    heading_font_family: 'Poppins',
-    heading_font_size: 48,
-    heading_letter_spacing: 0,
-    heading_color: '#0f172a',
-    heading_underline_enabled: false,
-    heading_underline_color: '#000000',
-    heading_underline_width: 100,
-    heading_underline_weight: 2,
-    heading_underline_spacing: 16,
-    heading_underline_to_content_spacing: 24,
-    heading_underline_alignment: 'center',
-    subheading_font_family: 'Poppins',
-    subheading_font_size: 20,
-    subheading_line_height: 1.5,
-    description_color: '#475569',
-    text_align: 'center',
-    padding_left: 16,
-    padding_right: 16,
-    backgroundImage: '',
-    backgroundColor: '#ffffff',
-    cardCount: 4,
-    cardHeight: 400,
-    imageHeightPercent: 50,
-    cardBorderRadius: 8,
-    descriptionLineClamp: 3,
-    showPublishedDate: false,
-    showImageBorder: false,
-    imageBorderWeight: 3,
-    imageBorderColor: '#2563eb',
-    showCTAButton: true,
-    ctaButtonSize: 48,
-    ctaButtonBgColor: '#2563eb',
-    ctaButtonArrowColor: '#ffffff',
-    ctaButtonMargin: 16,
-    card_text_align: 'left',
-    cards: []
-  };
+  const isMobile = useIsMobile();
+  const content = element.content || {};
 
   const fullWidth = settings?.fullWidth;
 
@@ -1103,25 +1176,39 @@ export function IEditShowcaseElementRenderer({ element, settings }) {
     paddingBottom: `${content.padding_bottom ?? 64}px`
   };
 
+  // Typography styles with mobile support
+  const headingFontSize = isMobile 
+    ? (content.heading_font_size_mobile || content.heading_font_size || 36)
+    : (content.heading_font_size || 48);
+  
+  const subheadingFontSize = isMobile 
+    ? (content.subheading_font_size_mobile || content.subheading_font_size || 16)
+    : (content.subheading_font_size || 20);
+  
+  const contentFontSize = isMobile 
+    ? (content.content_font_size_mobile || content.content_font_size || 14)
+    : (content.content_font_size || 16);
+
   return (
     <div className={`${backgroundWrapperClass} relative`} style={wrapperStyle}>
       <div className="max-w-7xl mx-auto px-4 relative z-10" style={containerStyle}>
-        {(content.headerText || content.descriptionText) && (
+        {(content.headerText || content.descriptionText || content.body_content) && (
           <div style={{ marginBottom: '48px' }}>
             {content.headerText && (
               <div>
-                <h2 
+                <div 
+                  className="prose prose-headings:m-0 max-w-none"
                   style={{ 
-                    fontWeight: 'bold', 
+                    fontWeight: content.heading_font_weight || 700, 
                     fontFamily: content.heading_font_family || 'Poppins',
-                    fontSize: `${content.heading_font_size || 48}px`,
+                    fontSize: `${headingFontSize}px`,
                     letterSpacing: `${content.heading_letter_spacing || 0}px`,
+                    lineHeight: content.heading_line_height || 1.2,
                     marginBottom: content.heading_underline_enabled ? `${content.heading_underline_spacing || 16}px` : '24px',
                     color: content.heading_color || '#0f172a'
                   }}
-                >
-                  {content.headerText}
-                </h2>
+                  dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(content.headerText) }}
+                />
                 {content.heading_underline_enabled && (
                   <div 
                     style={{
@@ -1138,18 +1225,32 @@ export function IEditShowcaseElementRenderer({ element, settings }) {
               </div>
             )}
             {content.descriptionText && (
-              <p 
+              <div 
+                className="prose prose-p:m-0 max-w-none mx-auto"
                 style={{ 
                   fontFamily: content.subheading_font_family || 'Poppins',
-                  fontSize: `${content.subheading_font_size || 20}px`,
+                  fontWeight: content.subheading_font_weight || 400,
+                  fontSize: `${subheadingFontSize}px`,
                   lineHeight: content.subheading_line_height || 1.5,
                   maxWidth: '48rem',
-                  margin: '0 auto',
-                  color: content.description_color || '#475569'
+                  color: content.subheading_color || content.description_color || '#475569'
                 }}
-              >
-                {content.descriptionText}
-              </p>
+                dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(content.descriptionText) }}
+              />
+            )}
+            {content.body_content && (
+              <div 
+                className="prose max-w-none mx-auto mt-6"
+                style={{ 
+                  fontFamily: content.content_font_family || 'Poppins',
+                  fontWeight: content.content_font_weight || 400,
+                  fontSize: `${contentFontSize}px`,
+                  lineHeight: content.content_line_height || 1.6,
+                  maxWidth: '48rem',
+                  color: content.content_color || '#64748b'
+                }}
+                dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(content.body_content) }}
+              />
             )}
           </div>
         )}
