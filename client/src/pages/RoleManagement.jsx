@@ -2,16 +2,17 @@ import React, { useState, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
 import { supabase } from "@/api/supabaseClient";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Shield, Plus, Pencil, Trash2, AlertCircle, Mail, Upload, X, Loader2, Award } from "lucide-react";
+import { Shield, Plus, Pencil, Trash2, AlertCircle, Mail, Upload, X, Loader2, Award, Settings, Building2 } from "lucide-react";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -153,6 +154,7 @@ export default function RoleManagementPage() {
   const [roleToDelete, setRoleToDelete] = useState(null);
   const [accessChecked, setAccessChecked] = useState(false);
   const [isUploadingBadge, setIsUploadingBadge] = useState(false);
+  const [showSegmentationSettings, setShowSegmentationSettings] = useState(false);
 
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -173,6 +175,68 @@ export default function RoleManagementPage() {
     queryFn: () => base44.entities.Role.list(),
     staleTime: 0,
     refetchOnMount: true,
+  });
+
+  // Fetch role segmentation field setting
+  const { data: segmentationFieldSetting } = useQuery({
+    queryKey: ['role-segmentation-field-setting'],
+    queryFn: async () => {
+      const allSettings = await base44.entities.SystemSettings.list();
+      return allSettings.find(s => s.setting_key === 'role_segmentation_field_id');
+    }
+  });
+
+  const segmentationFieldId = segmentationFieldSetting?.setting_value || null;
+
+  // Fetch organization-scoped preference fields for segmentation options
+  const { data: orgPreferenceFields = [] } = useQuery({
+    queryKey: ['org-preference-fields-for-segmentation'],
+    queryFn: async () => {
+      const fields = await base44.entities.PreferenceField.list({
+        filter: { entity_scope: 'organization', is_active: true }
+      });
+      return (fields || []).filter(f => f.field_type === 'picklist' || f.field_type === 'dropdown');
+    }
+  });
+
+  // Get the currently selected segmentation field details
+  const segmentationField = orgPreferenceFields.find(f => f.id === segmentationFieldId);
+  
+  // Get the available segment values from the segmentation field
+  const segmentOptions = React.useMemo(() => {
+    if (!segmentationField?.options) return [];
+    try {
+      const opts = typeof segmentationField.options === 'string' 
+        ? JSON.parse(segmentationField.options) 
+        : segmentationField.options;
+      return Array.isArray(opts) ? opts : [];
+    } catch {
+      return [];
+    }
+  }, [segmentationField]);
+
+  // Mutation to update segmentation field setting
+  const updateSegmentationFieldMutation = useMutation({
+    mutationFn: async (fieldId) => {
+      if (segmentationFieldSetting) {
+        return await base44.entities.SystemSettings.update(segmentationFieldSetting.id, {
+          setting_value: fieldId || ''
+        });
+      } else {
+        return await base44.entities.SystemSettings.create({
+          setting_key: 'role_segmentation_field_id',
+          setting_value: fieldId || ''
+        });
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['role-segmentation-field-setting'] });
+      toast.success('Segmentation field updated');
+      setShowSegmentationSettings(false);
+    },
+    onError: (error) => {
+      toast.error('Failed to update segmentation field: ' + error.message);
+    }
   });
 
   // Fetch IEdit pages (custom pages) for dynamic landing page options
@@ -382,14 +446,26 @@ export default function RoleManagementPage() {
       is_admin: false,
       show_tours: true,
       default_landing_page: "Events",
-      layout_theme: "default"
+      layout_theme: "default",
+      segment_values: []  // Initialize empty for new roles
     });
     setShowDialog(true);
   };
 
   const handleEdit = (role) => {
-    setEditingRole({ ...role });
+    setEditingRole({ 
+      ...role,
+      segment_values: role.segment_values || []  // Ensure array for editing
+    });
     setShowDialog(true);
+  };
+
+  const toggleSegmentValue = (value) => {
+    const current = editingRole.segment_values || [];
+    const newValues = current.includes(value)
+      ? current.filter(v => v !== value)
+      : [...current, value];
+    setEditingRole({ ...editingRole, segment_values: newValues });
   };
 
   const handleDelete = (role) => {
@@ -403,35 +479,30 @@ export default function RoleManagementPage() {
       return;
     }
 
+    // If segmentation is enabled and role is marked as default, require segment values
+    if (segmentationFieldId && editingRole.is_default && (!editingRole.segment_values || editingRole.segment_values.length === 0)) {
+      toast.error('Default roles must have at least one organisation type selected when segmentation is enabled');
+      return;
+    }
+
+    const roleData = {
+      name: editingRole.name,
+      description: editingRole.description,
+      excluded_features: editingRole.excluded_features,
+      is_default: editingRole.is_default,
+      is_admin: editingRole.is_admin,
+      show_tours: editingRole.show_tours,
+      default_landing_page: editingRole.default_landing_page || "Events",
+      layout_theme: editingRole.layout_theme || "default",
+      requires_effective_from_date: editingRole.requires_effective_from_date || false,
+      badge_image_url: editingRole.badge_image_url || null,
+      segment_values: segmentationFieldId ? (editingRole.segment_values || []) : null
+    };
+
     if (editingRole.id) {
-      updateRoleMutation.mutate({
-        id: editingRole.id,
-        roleData: {
-          name: editingRole.name,
-          description: editingRole.description,
-          excluded_features: editingRole.excluded_features,
-          is_default: editingRole.is_default,
-          is_admin: editingRole.is_admin,
-          show_tours: editingRole.show_tours,
-          default_landing_page: editingRole.default_landing_page || "Events",
-          layout_theme: editingRole.layout_theme || "default",
-          requires_effective_from_date: editingRole.requires_effective_from_date || false,
-          badge_image_url: editingRole.badge_image_url || null
-        }
-      });
+      updateRoleMutation.mutate({ id: editingRole.id, roleData });
     } else {
-      createRoleMutation.mutate({
-        name: editingRole.name,
-        description: editingRole.description,
-        excluded_features: editingRole.excluded_features,
-        is_default: editingRole.is_default,
-        is_admin: editingRole.is_admin,
-        show_tours: editingRole.show_tours,
-        default_landing_page: editingRole.default_landing_page || "Events",
-        layout_theme: editingRole.layout_theme || "default",
-        requires_effective_from_date: editingRole.requires_effective_from_date || false,
-        badge_image_url: editingRole.badge_image_url || null
-      });
+      createRoleMutation.mutate(roleData);
     }
   };
 
@@ -477,6 +548,14 @@ export default function RoleManagementPage() {
           <div className="flex items-center gap-3">
             <Button 
               variant="outline" 
+              onClick={() => setShowSegmentationSettings(true)}
+              data-testid="button-segmentation-settings"
+            >
+              <Settings className="w-4 h-4 mr-2" />
+              Segmentation
+            </Button>
+            <Button 
+              variant="outline" 
               onClick={() => navigate(createPageUrl('CommunicationsManagement'))}
               data-testid="button-manage-communications"
             >
@@ -489,6 +568,25 @@ export default function RoleManagementPage() {
             </Button>
           </div>
         </div>
+
+        {/* Segmentation Info Banner */}
+        {segmentationField && (
+          <Card className="mb-6 border-blue-200 bg-blue-50">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <Building2 className="w-5 h-5 text-blue-600" />
+                <div>
+                  <p className="text-sm font-medium text-blue-900">
+                    Role Segmentation Enabled
+                  </p>
+                  <p className="text-xs text-blue-700">
+                    Roles are segmented by organisation field: <span className="font-medium">{segmentationField.label}</span>
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {isLoading ? (
           <div className="text-center py-12">Loading roles...</div>
@@ -533,6 +631,16 @@ export default function RoleManagementPage() {
                           <Badge className="bg-blue-100 text-blue-700">Effective From Required</Badge>
                         )}
                       </div>
+                      {/* Show segment values if segmentation is enabled */}
+                      {segmentationField && role.segment_values && role.segment_values.length > 0 && (
+                        <div className="flex gap-1 mt-2 flex-wrap">
+                          {role.segment_values.map(value => (
+                            <Badge key={value} variant="outline" className="text-xs bg-slate-50">
+                              {value}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </CardHeader>
@@ -760,6 +868,47 @@ export default function RoleManagementPage() {
                     </div>
                   </div>
 
+                  {/* Organisation Type Segmentation - shown when segmentation is enabled */}
+                  {segmentationField && segmentOptions.length > 0 && (
+                    <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
+                      <div className="flex items-center gap-2 mb-3">
+                        <Building2 className="w-4 h-4 text-blue-600" />
+                        <Label className="font-medium">Organisation Types</Label>
+                      </div>
+                      <p className="text-xs text-slate-500 mb-3">
+                        Select which organisation types this role applies to. 
+                        {editingRole.is_default && " Default roles must have at least one type selected."}
+                      </p>
+                      <div className="space-y-2 max-h-48 overflow-y-auto">
+                        {segmentOptions.map((opt) => {
+                          const optValue = opt.value || opt;
+                          const optLabel = opt.label || opt;
+                          return (
+                            <div key={optValue} className="flex items-center gap-2">
+                              <Checkbox
+                                id={`segment-${optValue}`}
+                                checked={(editingRole.segment_values || []).includes(optValue)}
+                                onCheckedChange={() => toggleSegmentValue(optValue)}
+                                data-testid={`checkbox-segment-${optValue}`}
+                              />
+                              <label
+                                htmlFor={`segment-${optValue}`}
+                                className="text-sm text-slate-700 cursor-pointer"
+                              >
+                                {optLabel}
+                              </label>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {(editingRole.segment_values || []).length > 0 && (
+                        <p className="text-xs text-blue-600 mt-2">
+                          {editingRole.segment_values.length} type{editingRole.segment_values.length !== 1 ? 's' : ''} selected
+                        </p>
+                      )}
+                    </div>
+                  )}
+
                   <div className="flex items-center gap-3 p-4 bg-amber-50 rounded-lg border border-amber-200">
                     <Switch
                       id="is-admin"
@@ -853,6 +1002,81 @@ export default function RoleManagementPage() {
                 className="bg-blue-600 hover:bg-blue-700"
               >
                 {editingRole?.id ? 'Update Role' : 'Create Role'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Segmentation Settings Dialog */}
+        <Dialog open={showSegmentationSettings} onOpenChange={setShowSegmentationSettings}>
+          <DialogContent className="sm:max-w-[500px]">
+            <DialogHeader>
+              <DialogTitle>Role Segmentation Settings</DialogTitle>
+              <DialogDescription>
+                Configure how roles are segmented by organisation type
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label>Organisation Segmentation Field</Label>
+                <p className="text-xs text-slate-500 mb-2">
+                  Select an organisation custom field to segment roles by. When enabled, 
+                  roles can be configured to apply only to specific organisation types.
+                </p>
+                <Select 
+                  value={segmentationFieldId || '_none'} 
+                  onValueChange={(value) => updateSegmentationFieldMutation.mutate(value === '_none' ? '' : value)}
+                >
+                  <SelectTrigger data-testid="select-segmentation-field">
+                    <SelectValue placeholder="Select a field (optional)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="_none">
+                      <span className="text-slate-500">No segmentation (all roles apply globally)</span>
+                    </SelectItem>
+                    {orgPreferenceFields.map(field => (
+                      <SelectItem key={field.id} value={field.id}>
+                        {field.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {segmentationField && (
+                <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
+                  <p className="text-sm text-blue-900 font-medium">
+                    Available segment values:
+                  </p>
+                  <div className="flex flex-wrap gap-1 mt-2">
+                    {segmentOptions.map(opt => (
+                      <Badge key={opt.value || opt} variant="secondary" className="text-xs">
+                        {opt.label || opt}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {segmentationFieldId && (
+                <div className="p-3 bg-amber-50 rounded-lg border border-amber-200">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 text-amber-600 mt-0.5" />
+                    <div>
+                      <p className="text-sm text-amber-900 font-medium">Important</p>
+                      <p className="text-xs text-amber-700 mt-1">
+                        When segmentation is enabled, default roles must have at least one 
+                        organisation type selected. Existing roles will need to be updated 
+                        with their applicable organisation types.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowSegmentationSettings(false)}>
+                Close
               </Button>
             </DialogFooter>
           </DialogContent>
