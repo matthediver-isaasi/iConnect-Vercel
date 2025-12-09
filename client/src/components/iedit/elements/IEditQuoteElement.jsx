@@ -1,6 +1,25 @@
 import { useState, useEffect, useCallback } from "react";
 import { ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Upload, X, Plus, Trash2, GripVertical } from "lucide-react";
+import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import TypographyStyleSelector, { applyTypographyStyle } from "../TypographyStyleSelector";
+import ReactQuill from "react-quill";
+import "react-quill/dist/quill.snow.css";
+import DOMPurify from "dompurify";
+
+const heroQuillModules = {
+  toolbar: {
+    container: [
+      [{ 'header': [1, 2, 3, false] }],
+      ['bold', 'italic', 'underline', 'strike'],
+      [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+      [{ 'indent': '-1'}, { 'indent': '+1' }],
+      ['blockquote'],
+      ['link'],
+      ['clean']
+    ]
+  }
+};
 
 const fontFamilies = [
   'Poppins',
@@ -69,7 +88,33 @@ export default function IEditQuoteElement({ content, variant, settings }) {
     layout = 'stacked',
     quote_text = '',
     author_name = '',
-    profile_image_url
+    profile_image_url,
+    // Section Header fields
+    header_title = '',
+    header_subtitle = '',
+    header_content = '',
+    header_align = 'center',
+    header_font_family = 'Poppins',
+    header_font_size = 32,
+    header_font_size_mobile = 24,
+    header_font_weight = 700,
+    header_color = '#1e293b',
+    header_line_height = 1.2,
+    header_letter_spacing = 0,
+    subtitle_font_family = 'Poppins',
+    subtitle_font_size = 18,
+    subtitle_font_size_mobile = 16,
+    subtitle_font_weight = 400,
+    subtitle_color = '#64748b',
+    subtitle_line_height = 1.4,
+    subtitle_letter_spacing = 0,
+    content_font_family = 'Poppins',
+    content_font_size = 16,
+    content_font_size_mobile = 14,
+    content_font_weight = 400,
+    content_color = '#475569',
+    content_line_height = 1.6,
+    content_letter_spacing = 0
   } = content || {};
 
   const allQuotes = quotes.length > 0 
@@ -148,6 +193,39 @@ export default function IEditQuoteElement({ content, variant, settings }) {
     border: `${profile_border_width}px solid ${profile_border_color}`,
     objectFit: 'cover'
   };
+
+  // Section Header styles (matching Hero/Accordion pattern)
+  const sectionTitleStyle = {
+    fontFamily: header_font_family,
+    fontWeight: header_font_weight,
+    fontSize: `${header_font_size}px`,
+    color: header_color,
+    lineHeight: header_line_height,
+    letterSpacing: `${header_letter_spacing}px`,
+    textAlign: header_align
+  };
+
+  const sectionSubtitleStyle = {
+    fontFamily: subtitle_font_family,
+    fontWeight: subtitle_font_weight,
+    fontSize: `${subtitle_font_size}px`,
+    color: subtitle_color,
+    lineHeight: subtitle_line_height,
+    letterSpacing: `${subtitle_letter_spacing}px`,
+    textAlign: header_align
+  };
+
+  const sectionContentStyle = {
+    fontFamily: content_font_family,
+    fontWeight: content_font_weight,
+    fontSize: `${content_font_size}px`,
+    color: content_color,
+    lineHeight: content_line_height,
+    letterSpacing: `${content_letter_spacing}px`,
+    textAlign: header_align
+  };
+
+  const hasSectionHeader = header_title || header_subtitle || header_content;
 
   const currentQuote = allQuotes[currentIndex] || {};
 
@@ -260,6 +338,39 @@ export default function IEditQuoteElement({ content, variant, settings }) {
       )}
 
       <div className="relative z-10">
+        {/* Section Header */}
+        {hasSectionHeader && (
+          <div className="mb-8" style={{ textAlign: header_align }}>
+            {header_title && (
+              <div 
+                className="quote-header-title"
+                style={sectionTitleStyle}
+                dangerouslySetInnerHTML={{ 
+                  __html: DOMPurify.sanitize(header_title) 
+                }}
+              />
+            )}
+            {header_subtitle && (
+              <div 
+                className="quote-header-subtitle mt-2"
+                style={sectionSubtitleStyle}
+                dangerouslySetInnerHTML={{ 
+                  __html: DOMPurify.sanitize(header_subtitle) 
+                }}
+              />
+            )}
+            {header_content && (
+              <div 
+                className="quote-header-content mt-4"
+                style={sectionContentStyle}
+                dangerouslySetInnerHTML={{ 
+                  __html: DOMPurify.sanitize(header_content) 
+                }}
+              />
+            )}
+          </div>
+        )}
+
         {layout === 'stacked' ? (
           <div className="flex flex-col items-center gap-4">
             {currentQuote.profile_image_url && (
@@ -353,8 +464,9 @@ export function IEditQuoteElementEditor({ element, onChange }) {
   const content = element.content || {};
   const [isUploading, setIsUploading] = useState({});
   const [expandedSections, setExpandedSections] = useState({
+    sectionHeader: true,
     quotes: true,
-    carousel: true,
+    carousel: false,
     background: false,
     box: false,
     quoteTypography: false,
@@ -371,7 +483,11 @@ export function IEditQuoteElementEditor({ element, onChange }) {
   };
 
   const updateContent = (key, value) => {
-    onChange({ ...element, content: { ...content, [key]: value } });
+    onChange({ ...element, content: { ...element.content, [key]: value } });
+  };
+
+  const updateMultipleContent = (updates) => {
+    onChange({ ...element, content: { ...element.content, ...updates } });
   };
 
   const addQuote = () => {
@@ -457,6 +573,302 @@ export function IEditQuoteElementEditor({ element, onChange }) {
 
   return (
     <div className="space-y-4">
+      {/* Section Header Settings */}
+      <SectionHeader title="Section Header" section="sectionHeader" />
+      {expandedSections.sectionHeader && (
+        <div className="space-y-4 pl-2">
+          {/* Header Title - Rich Text */}
+          <div>
+            <Label className="block text-sm font-medium mb-1">Header Title</Label>
+            <div className="border border-slate-300 rounded-md overflow-hidden bg-white">
+              <ReactQuill
+                theme="snow"
+                value={content.header_title || ''}
+                onChange={(value) => updateContent('header_title', value)}
+                modules={heroQuillModules}
+                placeholder="e.g., What People Say"
+                style={{ minHeight: '80px' }}
+              />
+            </div>
+          </div>
+          <TypographyStyleSelector
+            value={content.header_typography_style_id || null}
+            onChange={(styleId, style) => {
+              const updates = { header_typography_style_id: styleId };
+              if (style) {
+                const mapped = applyTypographyStyle(style);
+                if (mapped.font_family) updates.header_font_family = mapped.font_family;
+                if (mapped.font_size) updates.header_font_size = mapped.font_size;
+                if (mapped.font_size_mobile) updates.header_font_size_mobile = mapped.font_size_mobile;
+                if (mapped.font_weight) updates.header_font_weight = mapped.font_weight;
+                if (mapped.line_height) updates.header_line_height = mapped.line_height;
+                if (mapped.letter_spacing !== undefined) updates.header_letter_spacing = mapped.letter_spacing;
+                if (mapped.color) updates.header_color = mapped.color;
+              }
+              updateMultipleContent(updates);
+            }}
+            label="Header Typography Style"
+          />
+          <details className="text-xs">
+            <summary className="cursor-pointer text-slate-500 hover:text-slate-700 font-medium">Manual Header Font Settings</summary>
+            <div className="mt-3 space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Title Font Family</Label>
+                  <select
+                    value={content.header_font_family || 'Poppins'}
+                    onChange={(e) => updateContent('header_font_family', e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+                  >
+                    {fontFamilies.map(font => (
+                      <option key={font} value={font}>{font}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <Label>Title Font Weight</Label>
+                  <select
+                    value={content.header_font_weight || 700}
+                    onChange={(e) => updateContent('header_font_weight', parseInt(e.target.value))}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+                  >
+                    {fontWeights.map(weight => (
+                      <option key={weight.value} value={weight.value}>{weight.label}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Title Font Size (px)</Label>
+                  <Input
+                    type="number"
+                    value={content.header_font_size || 32}
+                    onChange={(e) => updateContent('header_font_size', parseInt(e.target.value) || 32)}
+                    min="12"
+                    max="96"
+                  />
+                </div>
+                <div>
+                  <Label>Title Color</Label>
+                  <div className="flex gap-2 items-center">
+                    <input
+                      type="color"
+                      value={content.header_color || '#1e293b'}
+                      onChange={(e) => updateContent('header_color', e.target.value)}
+                      className="w-12 h-9 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+                    />
+                    <Input
+                      value={content.header_color || '#1e293b'}
+                      onChange={(e) => updateContent('header_color', e.target.value)}
+                      className="flex-1 font-mono text-xs"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </details>
+
+          {/* Header Subtitle - Rich Text */}
+          <div className="pt-4 border-t border-slate-100">
+            <Label className="block text-sm font-medium mb-1">Header Subtitle</Label>
+            <div className="border border-slate-300 rounded-md overflow-hidden bg-white">
+              <ReactQuill
+                theme="snow"
+                value={content.header_subtitle || ''}
+                onChange={(value) => updateContent('header_subtitle', value)}
+                modules={heroQuillModules}
+                placeholder="Optional subtitle text"
+                style={{ minHeight: '80px' }}
+              />
+            </div>
+          </div>
+          <TypographyStyleSelector
+            value={content.subtitle_typography_style_id || null}
+            onChange={(styleId, style) => {
+              const updates = { subtitle_typography_style_id: styleId };
+              if (style) {
+                const mapped = applyTypographyStyle(style);
+                if (mapped.font_family) updates.subtitle_font_family = mapped.font_family;
+                if (mapped.font_size) updates.subtitle_font_size = mapped.font_size;
+                if (mapped.font_size_mobile) updates.subtitle_font_size_mobile = mapped.font_size_mobile;
+                if (mapped.font_weight) updates.subtitle_font_weight = mapped.font_weight;
+                if (mapped.line_height) updates.subtitle_line_height = mapped.line_height;
+                if (mapped.letter_spacing !== undefined) updates.subtitle_letter_spacing = mapped.letter_spacing;
+                if (mapped.color) updates.subtitle_color = mapped.color;
+              }
+              updateMultipleContent(updates);
+            }}
+            label="Subtitle Typography Style"
+          />
+          <details className="text-xs">
+            <summary className="cursor-pointer text-slate-500 hover:text-slate-700 font-medium">Manual Subtitle Font Settings</summary>
+            <div className="mt-3 space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Subtitle Font Family</Label>
+                  <select
+                    value={content.subtitle_font_family || 'Poppins'}
+                    onChange={(e) => updateContent('subtitle_font_family', e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+                  >
+                    {fontFamilies.map(font => (
+                      <option key={font} value={font}>{font}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <Label>Subtitle Font Weight</Label>
+                  <select
+                    value={content.subtitle_font_weight || 400}
+                    onChange={(e) => updateContent('subtitle_font_weight', parseInt(e.target.value))}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+                  >
+                    {fontWeights.map(weight => (
+                      <option key={weight.value} value={weight.value}>{weight.label}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Subtitle Font Size (px)</Label>
+                  <Input
+                    type="number"
+                    value={content.subtitle_font_size || 18}
+                    onChange={(e) => updateContent('subtitle_font_size', parseInt(e.target.value) || 18)}
+                    min="12"
+                    max="48"
+                  />
+                </div>
+                <div>
+                  <Label>Subtitle Color</Label>
+                  <div className="flex gap-2 items-center">
+                    <input
+                      type="color"
+                      value={content.subtitle_color || '#64748b'}
+                      onChange={(e) => updateContent('subtitle_color', e.target.value)}
+                      className="w-12 h-9 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+                    />
+                    <Input
+                      value={content.subtitle_color || '#64748b'}
+                      onChange={(e) => updateContent('subtitle_color', e.target.value)}
+                      className="flex-1 font-mono text-xs"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </details>
+
+          {/* Header Content - Rich Text */}
+          <div className="pt-4 border-t border-slate-100">
+            <Label className="block text-sm font-medium mb-1">Header Content</Label>
+            <div className="border border-slate-300 rounded-md overflow-hidden bg-white">
+              <ReactQuill
+                theme="snow"
+                value={content.header_content || ''}
+                onChange={(value) => updateContent('header_content', value)}
+                modules={heroQuillModules}
+                placeholder="Optional content/body text for the header section"
+                style={{ minHeight: '100px' }}
+              />
+            </div>
+          </div>
+          <TypographyStyleSelector
+            value={content.content_typography_style_id || null}
+            onChange={(styleId, style) => {
+              const updates = { content_typography_style_id: styleId };
+              if (style) {
+                const mapped = applyTypographyStyle(style);
+                if (mapped.font_family) updates.content_font_family = mapped.font_family;
+                if (mapped.font_size) updates.content_font_size = mapped.font_size;
+                if (mapped.font_size_mobile) updates.content_font_size_mobile = mapped.font_size_mobile;
+                if (mapped.font_weight) updates.content_font_weight = mapped.font_weight;
+                if (mapped.line_height) updates.content_line_height = mapped.line_height;
+                if (mapped.letter_spacing !== undefined) updates.content_letter_spacing = mapped.letter_spacing;
+                if (mapped.color) updates.content_color = mapped.color;
+              }
+              updateMultipleContent(updates);
+            }}
+            label="Content Typography Style"
+          />
+          <details className="text-xs">
+            <summary className="cursor-pointer text-slate-500 hover:text-slate-700 font-medium">Manual Content Font Settings</summary>
+            <div className="mt-3 space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Content Font Family</Label>
+                  <select
+                    value={content.content_font_family || 'Poppins'}
+                    onChange={(e) => updateContent('content_font_family', e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+                  >
+                    {fontFamilies.map(font => (
+                      <option key={font} value={font}>{font}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <Label>Content Font Weight</Label>
+                  <select
+                    value={content.content_font_weight || 400}
+                    onChange={(e) => updateContent('content_font_weight', parseInt(e.target.value))}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+                  >
+                    {fontWeights.map(weight => (
+                      <option key={weight.value} value={weight.value}>{weight.label}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Content Font Size (px)</Label>
+                  <Input
+                    type="number"
+                    value={content.content_font_size || 16}
+                    onChange={(e) => updateContent('content_font_size', parseInt(e.target.value) || 16)}
+                    min="12"
+                    max="32"
+                  />
+                </div>
+                <div>
+                  <Label>Content Color</Label>
+                  <div className="flex gap-2 items-center">
+                    <input
+                      type="color"
+                      value={content.content_color || '#475569'}
+                      onChange={(e) => updateContent('content_color', e.target.value)}
+                      className="w-12 h-9 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+                    />
+                    <Input
+                      value={content.content_color || '#475569'}
+                      onChange={(e) => updateContent('content_color', e.target.value)}
+                      className="flex-1 font-mono text-xs"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </details>
+
+          {/* Text Alignment */}
+          <div className="pt-4 border-t border-slate-100">
+            <Label>Header Alignment</Label>
+            <select
+              value={content.header_align || 'center'}
+              onChange={(e) => updateContent('header_align', e.target.value)}
+              className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+            >
+              <option value="left">Left</option>
+              <option value="center">Center</option>
+              <option value="right">Right</option>
+            </select>
+          </div>
+        </div>
+      )}
+
       {/* Quotes Section */}
       <SectionHeader title={`Quotes (${quotes.length}/10)`} section="quotes" />
       {expandedSections.quotes && (
