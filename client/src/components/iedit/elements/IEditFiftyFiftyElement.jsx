@@ -4,7 +4,7 @@ import 'react-quill/dist/quill.snow.css';
 import DOMPurify from 'dompurify';
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ChevronDown, ChevronUp, Upload, X } from "lucide-react";
+import { ChevronDown, ChevronUp, Upload, X, AlignLeft, AlignCenter, AlignRight } from "lucide-react";
 import AGCASButton from "../../ui/AGCASButton";
 import TypographyStyleSelector, { applyTypographyStyle } from "../TypographyStyleSelector";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -293,24 +293,33 @@ export default function IEditFiftyFiftyElement({ content, variant, settings }) {
       >
         {/* Section Header */}
         {hasHeaderContent && (
-          <div className={`mb-8 ${headerAlignmentClass}`}>
+          <div className="mb-8">
             {header_title && (
               <div 
-                style={getHeaderTitleStyle()} 
+                style={{
+                  ...getHeaderTitleStyle(),
+                  textAlign: content?.header_title_text_align || 'center'
+                }} 
                 className="mb-2 section-header-title"
                 dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(header_title) }}
               />
             )}
             {header_subtitle && (
               <div 
-                style={getSubtitleStyle()} 
+                style={{
+                  ...getSubtitleStyle(),
+                  textAlign: content?.header_subtitle_text_align || 'center'
+                }} 
                 className="mb-4 section-header-subtitle"
                 dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(header_subtitle) }}
               />
             )}
             {header_content && (
               <div 
-                style={getContentStyle()} 
+                style={{
+                  ...getContentStyle(),
+                  textAlign: content?.header_content_text_align || 'center'
+                }} 
                 className="max-w-3xl mx-auto section-header-content"
                 dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(header_content) }}
               />
@@ -525,6 +534,38 @@ export function IEditFiftyFiftyElementEditor({ element, onChange }) {
 
   const backgroundType = content.background_type || 'none';
   const gradientPreview = `linear-gradient(${content.gradient_angle || 135}deg, ${content.gradient_start_color || '#3b82f6'}, ${content.gradient_end_color || '#8b5cf6'})`;
+
+  const AlignmentButtons = ({ value, onChange, label, testIdPrefix }) => (
+    <div className="flex items-center gap-2">
+      <Label className="text-xs">{label}</Label>
+      <div className="flex border border-slate-300 rounded-md overflow-hidden">
+        <button
+          type="button"
+          onClick={() => onChange('left')}
+          className={`p-1.5 ${value === 'left' ? 'bg-slate-200' : 'bg-white hover:bg-slate-50'}`}
+          data-testid={`${testIdPrefix}-left`}
+        >
+          <AlignLeft className="w-4 h-4" />
+        </button>
+        <button
+          type="button"
+          onClick={() => onChange('center')}
+          className={`p-1.5 border-x border-slate-300 ${value === 'center' ? 'bg-slate-200' : 'bg-white hover:bg-slate-50'}`}
+          data-testid={`${testIdPrefix}-center`}
+        >
+          <AlignCenter className="w-4 h-4" />
+        </button>
+        <button
+          type="button"
+          onClick={() => onChange('right')}
+          className={`p-1.5 ${value === 'right' ? 'bg-slate-200' : 'bg-white hover:bg-slate-50'}`}
+          data-testid={`${testIdPrefix}-right`}
+        >
+          <AlignRight className="w-4 h-4" />
+        </button>
+      </div>
+    </div>
+  );
 
   const renderTypographyControls = (prefix, label, defaultValues = {}) => {
     const defaults = {
@@ -922,19 +963,6 @@ export function IEditFiftyFiftyElementEditor({ element, onChange }) {
         
         {expandedSections.sectionHeader && (
           <div className="p-4 space-y-4">
-            <div>
-              <Label className="text-xs">Header Alignment</Label>
-              <select
-                value={content.header_align || 'center'}
-                onChange={(e) => updateContent('header_align', e.target.value)}
-                className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
-              >
-                <option value="left">Left</option>
-                <option value="center">Center</option>
-                <option value="right">Right</option>
-              </select>
-            </div>
-
             {/* Header Title */}
             <div className="border-b pb-4">
               <h5 className="font-medium text-sm mb-3">Header Title</h5>
@@ -969,6 +997,12 @@ export function IEditFiftyFiftyElementEditor({ element, onChange }) {
                     updateMultipleContent(updates);
                   }}
                   label="Header Title Typography Style"
+                />
+                <AlignmentButtons 
+                  value={content.header_title_text_align || 'center'} 
+                  onChange={(val) => updateContent('header_title_text_align', val)}
+                  label="Alignment"
+                  testIdPrefix="fiftyfifty-header-title-align"
                 />
                 <details className="text-xs">
                   <summary className="cursor-pointer text-slate-500 hover:text-slate-700 font-medium">Manual Font Settings</summary>
@@ -1012,6 +1046,12 @@ export function IEditFiftyFiftyElementEditor({ element, onChange }) {
                   }}
                   label="Header Subtitle Typography Style"
                 />
+                <AlignmentButtons 
+                  value={content.header_subtitle_text_align || 'center'} 
+                  onChange={(val) => updateContent('header_subtitle_text_align', val)}
+                  label="Alignment"
+                  testIdPrefix="fiftyfifty-header-subtitle-align"
+                />
                 <details className="text-xs">
                   <summary className="cursor-pointer text-slate-500 hover:text-slate-700 font-medium">Manual Font Settings</summary>
                   {renderTypographyControls('subtitle', 'Header Subtitle Typography')}
@@ -1052,6 +1092,12 @@ export function IEditFiftyFiftyElementEditor({ element, onChange }) {
                     updateMultipleContent(updates);
                   }}
                   label="Header Content Typography Style"
+                />
+                <AlignmentButtons 
+                  value={content.header_content_text_align || 'center'} 
+                  onChange={(val) => updateContent('header_content_text_align', val)}
+                  label="Alignment"
+                  testIdPrefix="fiftyfifty-header-content-align"
                 />
                 <details className="text-xs">
                   <summary className="cursor-pointer text-slate-500 hover:text-slate-700 font-medium">Manual Font Settings</summary>
