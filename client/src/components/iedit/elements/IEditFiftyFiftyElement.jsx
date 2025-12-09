@@ -75,6 +75,10 @@ export default function IEditFiftyFiftyElement({ content, variant, settings }) {
     right_column_bg_color,
     left_column_padding = 24,
     right_column_padding = 24,
+    left_column_padding_top = 0,
+    left_column_padding_bottom = 0,
+    right_column_padding_top = 0,
+    right_column_padding_bottom = 0,
     column_border_radius = 0,
     button,
     button_column = 'left',
@@ -336,8 +340,14 @@ export default function IEditFiftyFiftyElement({ content, variant, settings }) {
             style={{
               ...(left_content_type === 'text' && left_column_bg_color ? { 
                 backgroundColor: left_column_bg_color,
-                padding: `${left_column_padding}px`,
+                paddingTop: `${left_column_padding_top + left_column_padding}px`,
+                paddingBottom: `${left_column_padding_bottom + left_column_padding}px`,
+                paddingLeft: `${left_column_padding}px`,
+                paddingRight: `${left_column_padding}px`,
                 borderRadius: `${column_border_radius}px`
+              } : left_content_type === 'text' ? {
+                paddingTop: `${left_column_padding_top}px`,
+                paddingBottom: `${left_column_padding_bottom}px`
               } : {}),
               ...(left_content_type === 'image' ? { minHeight: 0 } : {})
             }}
@@ -399,8 +409,14 @@ export default function IEditFiftyFiftyElement({ content, variant, settings }) {
             style={{
               ...(right_content_type === 'text' && right_column_bg_color ? { 
                 backgroundColor: right_column_bg_color,
-                padding: `${right_column_padding}px`,
+                paddingTop: `${right_column_padding_top + right_column_padding}px`,
+                paddingBottom: `${right_column_padding_bottom + right_column_padding}px`,
+                paddingLeft: `${right_column_padding}px`,
+                paddingRight: `${right_column_padding}px`,
                 borderRadius: `${column_border_radius}px`
+              } : right_content_type === 'text' ? {
+                paddingTop: `${right_column_padding_top}px`,
+                paddingBottom: `${right_column_padding_bottom}px`
               } : {}),
               ...(right_content_type === 'image' ? { minHeight: 0 } : {})
             }}
@@ -882,6 +898,8 @@ export function IEditFiftyFiftyElementEditor({ element, onChange }) {
     const contentType = content[contentTypeKey] || 'text';
     const bgColorKey = `${side}_column_bg_color`;
     const paddingKey = `${side}_column_padding`;
+    const paddingTopKey = `${side}_column_padding_top`;
+    const paddingBottomKey = `${side}_column_padding_bottom`;
 
     return (
       <div className="space-y-4">
@@ -899,7 +917,37 @@ export function IEditFiftyFiftyElementEditor({ element, onChange }) {
 
         {contentType === 'text' && (
           <div className="p-3 bg-slate-50 rounded-md space-y-3">
-            <h5 className="font-medium text-sm text-slate-700">Column Background</h5>
+            <h5 className="font-medium text-sm text-slate-700">Column Styling</h5>
+            
+            {/* Top and Bottom Padding */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs">Top Padding: {content[paddingTopKey] || 0}px</Label>
+                <input
+                  type="range"
+                  min="0"
+                  max="96"
+                  value={content[paddingTopKey] || 0}
+                  onChange={(e) => updateContent(paddingTopKey, parseInt(e.target.value))}
+                  className="w-full"
+                  data-testid={`input-${side}-column-padding-top`}
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Bottom Padding: {content[paddingBottomKey] || 0}px</Label>
+                <input
+                  type="range"
+                  min="0"
+                  max="96"
+                  value={content[paddingBottomKey] || 0}
+                  onChange={(e) => updateContent(paddingBottomKey, parseInt(e.target.value))}
+                  className="w-full"
+                  data-testid={`input-${side}-column-padding-bottom`}
+                />
+              </div>
+            </div>
+
+            {/* Background Color */}
             <div>
               <Label className="text-xs">Background Color (optional)</Label>
               <div className="flex gap-2 items-center">
@@ -929,7 +977,7 @@ export function IEditFiftyFiftyElementEditor({ element, onChange }) {
             </div>
             {content[bgColorKey] && (
               <div>
-                <Label className="text-xs">Column Padding: {content[paddingKey] || 24}px</Label>
+                <Label className="text-xs">Inner Padding (with background): {content[paddingKey] || 24}px</Label>
                 <input
                   type="range"
                   min="0"
