@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Upload, Loader2, Trash2, Calendar, FileText, Sparkles, Briefcase, ArrowUpRight, ChevronDown, ChevronUp } from "lucide-react";
+import { Upload, Loader2, Trash2, Calendar, FileText, Sparkles, Briefcase, ArrowUpRight, ChevronDown, ChevronUp, AlignLeft, AlignCenter, AlignRight } from "lucide-react";
 import { toast } from "sonner";
 import { useQuery } from "@tanstack/react-query";
 import { createPageUrl } from "@/utils";
@@ -233,6 +233,33 @@ export function IEditShowcaseElementEditor({ element, onChange }) {
     setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
   };
 
+  const AlignmentButtons = ({ value, onChange: onAlignChange, label, testIdPrefix = 'align' }) => (
+    <div>
+      <Label className="text-xs">{label}</Label>
+      <div className="flex gap-1 mt-1">
+        {[
+          { val: 'left', Icon: AlignLeft },
+          { val: 'center', Icon: AlignCenter },
+          { val: 'right', Icon: AlignRight }
+        ].map(({ val, Icon }) => (
+          <button
+            key={val}
+            type="button"
+            onClick={() => onAlignChange(val)}
+            data-testid={`button-${testIdPrefix}-${val}`}
+            className={`p-2 rounded border ${
+              value === val 
+                ? 'bg-blue-600 text-white border-blue-600' 
+                : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
+            }`}
+          >
+            <Icon className="w-4 h-4" />
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
   const updateCard = (index, field, value) => {
     const currentCards = [...(element.content?.cards || [])];
     currentCards[index] = { ...currentCards[index], [field]: value };
@@ -389,19 +416,6 @@ export function IEditShowcaseElementEditor({ element, onChange }) {
         
         {expandedSections.sectionHeader && (
           <div className="p-4 space-y-4">
-            <div>
-              <Label className="text-xs">Header Alignment</Label>
-              <select
-                value={content.text_align || 'center'}
-                onChange={(e) => updateContent('text_align', e.target.value)}
-                className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
-              >
-                <option value="left">Left</option>
-                <option value="center">Center</option>
-                <option value="right">Right</option>
-              </select>
-            </div>
-
             {/* Heading */}
             <div className="border-b pb-4">
               <h5 className="font-medium text-sm mb-3">Heading</h5>
@@ -436,6 +450,12 @@ export function IEditShowcaseElementEditor({ element, onChange }) {
                     updateMultipleContent(updates);
                   }}
                   label="Heading Typography Style"
+                />
+                <AlignmentButtons 
+                  value={content.heading_text_align || 'center'} 
+                  onChange={(val) => updateContent('heading_text_align', val)}
+                  label="Alignment"
+                  testIdPrefix="showcase-heading-align"
                 />
                 <details className="text-xs">
                   <summary className="cursor-pointer text-slate-500 hover:text-slate-700 font-medium">Manual Font Settings</summary>
@@ -569,6 +589,12 @@ export function IEditShowcaseElementEditor({ element, onChange }) {
                   }}
                   label="Subheading Typography Style"
                 />
+                <AlignmentButtons 
+                  value={content.subheading_text_align || 'center'} 
+                  onChange={(val) => updateContent('subheading_text_align', val)}
+                  label="Alignment"
+                  testIdPrefix="showcase-subheading-align"
+                />
                 <details className="text-xs">
                   <summary className="cursor-pointer text-slate-500 hover:text-slate-700 font-medium">Manual Font Settings</summary>
                   {renderTypographyControls('subheading', 'Subheading Typography')}
@@ -609,6 +635,12 @@ export function IEditShowcaseElementEditor({ element, onChange }) {
                     updateMultipleContent(updates);
                   }}
                   label="Content Typography Style"
+                />
+                <AlignmentButtons 
+                  value={content.content_text_align || 'center'} 
+                  onChange={(val) => updateContent('content_text_align', val)}
+                  label="Alignment"
+                  testIdPrefix="showcase-content-align"
                 />
                 <details className="text-xs">
                   <summary className="cursor-pointer text-slate-500 hover:text-slate-700 font-medium">Manual Font Settings</summary>
@@ -1205,7 +1237,8 @@ export function IEditShowcaseElementRenderer({ element, settings }) {
                     letterSpacing: `${content.heading_letter_spacing || 0}px`,
                     lineHeight: content.heading_line_height || 1.2,
                     marginBottom: content.heading_underline_enabled ? `${content.heading_underline_spacing || 16}px` : '24px',
-                    color: content.heading_color || '#0f172a'
+                    color: content.heading_color || '#0f172a',
+                    textAlign: content.heading_text_align || 'center'
                   }}
                   dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(content.headerText) }}
                 />
@@ -1233,7 +1266,8 @@ export function IEditShowcaseElementRenderer({ element, settings }) {
                   fontSize: `${subheadingFontSize}px`,
                   lineHeight: content.subheading_line_height || 1.5,
                   maxWidth: '48rem',
-                  color: content.subheading_color || content.description_color || '#475569'
+                  color: content.subheading_color || content.description_color || '#475569',
+                  textAlign: content.subheading_text_align || 'center'
                 }}
                 dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(content.descriptionText) }}
               />
@@ -1247,7 +1281,8 @@ export function IEditShowcaseElementRenderer({ element, settings }) {
                   fontSize: `${contentFontSize}px`,
                   lineHeight: content.content_line_height || 1.6,
                   maxWidth: '48rem',
-                  color: content.content_color || '#64748b'
+                  color: content.content_color || '#64748b',
+                  textAlign: content.content_text_align || 'center'
                 }}
                 dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(content.body_content) }}
               />
