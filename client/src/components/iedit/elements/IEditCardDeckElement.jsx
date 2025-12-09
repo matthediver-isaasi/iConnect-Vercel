@@ -1,14 +1,24 @@
 import { useState } from "react";
-import ReactMarkdown from "react-markdown";
 import { base44 } from "@/api/base44Client";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Upload, ArrowRight, ChevronDown, ChevronUp, X } from "lucide-react";
 import { toast } from "sonner";
 import { useQuery } from "@tanstack/react-query";
 import TypographyStyleSelector, { applyTypographyStyle } from "../TypographyStyleSelector";
 import { useIsMobile } from "@/hooks/use-mobile";
+import ReactQuill from "react-quill";
+import DOMPurify from "dompurify";
+import "react-quill/dist/quill.snow.css";
+
+const cardDeckQuillModules = {
+  toolbar: [
+    ['bold', 'italic', 'underline'],
+    [{ 'color': [] }],
+    ['link'],
+    ['clean']
+  ]
+};
 
 const fontFamilies = [
   'Poppins',
@@ -171,19 +181,25 @@ export function IEditCardDeckElementRenderer({ content, variant, settings }) {
         {(heading || subheading || body_content) && (
           <div className={`mb-8 ${alignmentClass}`}>
             {heading && (
-              <h2 style={getTextStyle('heading')} className="m-0 mb-4">
-                {heading}
-              </h2>
+              <div 
+                style={getTextStyle('heading')} 
+                className="m-0 mb-4 prose max-w-none"
+                dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(heading) }}
+              />
             )}
             {subheading && (
-              <h3 style={getTextStyle('subheading')} className="m-0 mb-4">
-                {subheading}
-              </h3>
+              <div 
+                style={getTextStyle('subheading')} 
+                className="m-0 mb-4 prose max-w-none"
+                dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(subheading) }}
+              />
             )}
             {body_content && (
-              <div className="prose max-w-none mx-auto" style={getTextStyle('content')}>
-                <ReactMarkdown>{body_content}</ReactMarkdown>
-              </div>
+              <div 
+                className="prose max-w-none mx-auto" 
+                style={getTextStyle('content')}
+                dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(body_content) }}
+              />
             )}
           </div>
         )}
@@ -474,11 +490,16 @@ export function IEditCardDeckElementEditor({ element, onChange }) {
               <div className="space-y-3">
                 <div>
                   <Label className="text-xs">Heading Text</Label>
-                  <Input
-                    value={content.heading || ''}
-                    onChange={(e) => updateContent('heading', e.target.value)}
-                    placeholder="Enter heading..."
-                  />
+                  <div className="card-deck-quill-editor border border-slate-300 rounded-md overflow-hidden bg-white">
+                    <ReactQuill
+                      theme="snow"
+                      value={content.heading || ''}
+                      onChange={(value) => updateContent('heading', value)}
+                      modules={cardDeckQuillModules}
+                      placeholder="Enter heading..."
+                      style={{ minHeight: '80px' }}
+                    />
+                  </div>
                 </div>
                 <TypographyStyleSelector
                   value={content.heading_typography_style_id || null}
@@ -496,7 +517,6 @@ export function IEditCardDeckElementEditor({ element, onChange }) {
                     }
                     updateMultipleContent(updates);
                   }}
-                  filterTypes={['h1', 'h2']}
                   label="Heading Typography Style"
                 />
                 <details className="text-xs">
@@ -511,11 +531,16 @@ export function IEditCardDeckElementEditor({ element, onChange }) {
               <div className="space-y-3">
                 <div>
                   <Label className="text-xs">Subheading Text</Label>
-                  <Input
-                    value={content.subheading || ''}
-                    onChange={(e) => updateContent('subheading', e.target.value)}
-                    placeholder="Enter subheading..."
-                  />
+                  <div className="card-deck-quill-editor border border-slate-300 rounded-md overflow-hidden bg-white">
+                    <ReactQuill
+                      theme="snow"
+                      value={content.subheading || ''}
+                      onChange={(value) => updateContent('subheading', value)}
+                      modules={cardDeckQuillModules}
+                      placeholder="Enter subheading..."
+                      style={{ minHeight: '80px' }}
+                    />
+                  </div>
                 </div>
                 <TypographyStyleSelector
                   value={content.subheading_typography_style_id || null}
@@ -533,7 +558,6 @@ export function IEditCardDeckElementEditor({ element, onChange }) {
                     }
                     updateMultipleContent(updates);
                   }}
-                  filterTypes={['h3', 'h4']}
                   label="Subheading Typography Style"
                 />
                 <details className="text-xs">
@@ -547,13 +571,17 @@ export function IEditCardDeckElementEditor({ element, onChange }) {
               <h5 className="font-medium text-sm mb-3">Content</h5>
               <div className="space-y-3">
                 <div>
-                  <Label className="text-xs">Content (Markdown supported)</Label>
-                  <Textarea
-                    value={content.body_content || ''}
-                    onChange={(e) => updateContent('body_content', e.target.value)}
-                    placeholder="Enter content..."
-                    rows={4}
-                  />
+                  <Label className="text-xs">Content Text</Label>
+                  <div className="card-deck-quill-editor border border-slate-300 rounded-md overflow-hidden bg-white">
+                    <ReactQuill
+                      theme="snow"
+                      value={content.body_content || ''}
+                      onChange={(value) => updateContent('body_content', value)}
+                      modules={cardDeckQuillModules}
+                      placeholder="Enter content..."
+                      style={{ minHeight: '120px' }}
+                    />
+                  </div>
                 </div>
                 <TypographyStyleSelector
                   value={content.content_typography_style_id || null}
@@ -570,7 +598,6 @@ export function IEditCardDeckElementEditor({ element, onChange }) {
                     }
                     updateMultipleContent(updates);
                   }}
-                  filterTypes={['paragraph']}
                   label="Content Typography Style"
                 />
                 <details className="text-xs">
