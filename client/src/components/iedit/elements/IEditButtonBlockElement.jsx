@@ -181,7 +181,7 @@ export function IEditButtonBlockElementEditor({ element, onChange }) {
 
   const addButton = () => {
     const currentContent = element.content || {};
-    if ((currentContent.buttons || []).length < 4) {
+    if ((currentContent.buttons || []).length < 8) {
       onChange({ 
         ...element, 
         content: { 
@@ -544,14 +544,14 @@ export function IEditButtonBlockElementEditor({ element, onChange }) {
           className="w-full flex items-center justify-between p-3 bg-slate-50 hover:bg-slate-100 transition-colors"
           data-testid="accordion-button-block-buttons"
         >
-          <span className="font-medium text-sm">Buttons ({(content.buttons || []).length}/4)</span>
+          <span className="font-medium text-sm">Buttons ({(content.buttons || []).length}/8)</span>
           {expandedSections.buttons ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
         </button>
         
         {expandedSections.buttons && (
           <div className="p-4 space-y-4 border-t">
             <div className="flex items-center justify-end">
-              {(content.buttons || []).length < 4 && (
+              {(content.buttons || []).length < 8 && (
                 <button
                   onClick={addButton}
                   className="px-3 py-1 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700"
