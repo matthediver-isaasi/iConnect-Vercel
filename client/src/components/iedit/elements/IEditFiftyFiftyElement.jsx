@@ -84,7 +84,33 @@ export default function IEditFiftyFiftyElement({ content, variant, settings }) {
     right_vertical_alignment = 'center',
     reverse_on_mobile = false,
     column_gap = 32,
-    vertical_padding = 48
+    vertical_padding = 48,
+    // Section Header fields
+    header_title = '',
+    header_subtitle = '',
+    header_content = '',
+    header_align = 'center',
+    header_font_family = 'Poppins',
+    header_font_size = 32,
+    header_font_size_mobile = 24,
+    header_font_weight = 700,
+    header_color = '#1e293b',
+    header_line_height = 1.2,
+    header_letter_spacing = 0,
+    subtitle_font_family = 'Poppins',
+    subtitle_font_size = 18,
+    subtitle_font_size_mobile = 16,
+    subtitle_font_weight = 400,
+    subtitle_color = '#64748b',
+    subtitle_line_height = 1.4,
+    subtitle_letter_spacing = 0,
+    content_font_family = 'Poppins',
+    content_font_size = 16,
+    content_font_size_mobile = 14,
+    content_font_weight = 400,
+    content_color = '#475569',
+    content_line_height = 1.6,
+    content_letter_spacing = 0
   } = content || {};
 
   const getBackgroundStyle = () => {
@@ -123,6 +149,42 @@ export default function IEditFiftyFiftyElement({ content, variant, settings }) {
 
   const leftAlignmentClass = getVerticalAlignmentClass(left_vertical_alignment);
   const rightAlignmentClass = getVerticalAlignmentClass(right_vertical_alignment);
+
+  // Section header styles
+  const getHeaderTitleStyle = () => ({
+    fontFamily: header_font_family,
+    fontSize: `${isMobile && header_font_size_mobile ? header_font_size_mobile : header_font_size}px`,
+    fontWeight: header_font_weight,
+    color: header_color,
+    lineHeight: header_line_height,
+    letterSpacing: `${header_letter_spacing}px`
+  });
+
+  const getSubtitleStyle = () => ({
+    fontFamily: subtitle_font_family,
+    fontSize: `${isMobile && subtitle_font_size_mobile ? subtitle_font_size_mobile : subtitle_font_size}px`,
+    fontWeight: subtitle_font_weight,
+    color: subtitle_color,
+    lineHeight: subtitle_line_height,
+    letterSpacing: `${subtitle_letter_spacing}px`
+  });
+
+  const getContentStyle = () => ({
+    fontFamily: content_font_family,
+    fontSize: `${isMobile && content_font_size_mobile ? content_font_size_mobile : content_font_size}px`,
+    fontWeight: content_font_weight,
+    color: content_color,
+    lineHeight: content_line_height,
+    letterSpacing: `${content_letter_spacing}px`
+  });
+
+  const hasHeaderContent = header_title || header_subtitle || header_content;
+
+  const headerAlignmentClass = {
+    left: 'text-left',
+    center: 'text-center',
+    right: 'text-right'
+  }[header_align] || 'text-center';
 
   const renderTextContent = (side) => {
     const heading = content?.[`${side}_heading`];
@@ -229,6 +291,33 @@ export default function IEditFiftyFiftyElement({ content, variant, settings }) {
         className="relative max-w-7xl mx-auto px-4"
         style={{ paddingTop: `${vertical_padding}px`, paddingBottom: `${vertical_padding}px` }}
       >
+        {/* Section Header */}
+        {hasHeaderContent && (
+          <div className={`mb-8 ${headerAlignmentClass}`}>
+            {header_title && (
+              <div 
+                style={getHeaderTitleStyle()} 
+                className="mb-2 section-header-title"
+                dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(header_title) }}
+              />
+            )}
+            {header_subtitle && (
+              <div 
+                style={getSubtitleStyle()} 
+                className="mb-4 section-header-subtitle"
+                dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(header_subtitle) }}
+              />
+            )}
+            {header_content && (
+              <div 
+                style={getContentStyle()} 
+                className="max-w-3xl mx-auto section-header-content"
+                dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(header_content) }}
+              />
+            )}
+          </div>
+        )}
+
         <div 
           className="grid grid-cols-1 md:grid-cols-2 items-stretch"
           style={{ gap: `${column_gap}px` }}
@@ -369,8 +458,9 @@ export function IEditFiftyFiftyElementEditor({ element, onChange }) {
   const content = element.content || {};
   const [isUploading, setIsUploading] = useState({});
   const [expandedSections, setExpandedSections] = useState({
-    background: true,
-    leftColumn: true,
+    sectionHeader: true,
+    background: false,
+    leftColumn: false,
     rightColumn: false,
     button: false,
     layout: false
@@ -819,6 +909,160 @@ export function IEditFiftyFiftyElementEditor({ element, onChange }) {
 
   return (
     <div className="space-y-4">
+      {/* Section Header */}
+      <div className="border rounded-lg overflow-hidden">
+        <button
+          type="button"
+          onClick={() => toggleSection('sectionHeader')}
+          className="w-full flex items-center justify-between p-3 bg-slate-100 hover:bg-slate-200 text-left"
+        >
+          <span className="font-semibold text-sm">Section Header</span>
+          {expandedSections.sectionHeader ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+        </button>
+        
+        {expandedSections.sectionHeader && (
+          <div className="p-4 space-y-4">
+            <div>
+              <Label className="text-xs">Header Alignment</Label>
+              <select
+                value={content.header_align || 'center'}
+                onChange={(e) => updateContent('header_align', e.target.value)}
+                className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+              >
+                <option value="left">Left</option>
+                <option value="center">Center</option>
+                <option value="right">Right</option>
+              </select>
+            </div>
+
+            {/* Header Title */}
+            <div className="border-b pb-4">
+              <h5 className="font-medium text-sm mb-3">Header Title</h5>
+              <div className="space-y-3">
+                <div>
+                  <Label className="text-xs">Title Text</Label>
+                  <div className="fifty-fifty-quill-editor border border-slate-300 rounded-md overflow-hidden bg-white">
+                    <ReactQuill
+                      theme="snow"
+                      value={content.header_title || ''}
+                      onChange={(value) => updateContent('header_title', value)}
+                      modules={fiftyFiftyQuillModules}
+                      placeholder="Enter header title..."
+                      style={{ minHeight: '80px' }}
+                    />
+                  </div>
+                </div>
+                <TypographyStyleSelector
+                  value={content.header_typography_style_id || null}
+                  onChange={(styleId, style) => {
+                    const updates = { header_typography_style_id: styleId };
+                    if (style) {
+                      const mapped = applyTypographyStyle(style);
+                      if (mapped.font_family) updates.header_font_family = mapped.font_family;
+                      if (mapped.font_size) updates.header_font_size = mapped.font_size;
+                      if (mapped.font_size_mobile) updates.header_font_size_mobile = mapped.font_size_mobile;
+                      if (mapped.font_weight) updates.header_font_weight = mapped.font_weight;
+                      if (mapped.line_height) updates.header_line_height = mapped.line_height;
+                      if (mapped.letter_spacing !== undefined) updates.header_letter_spacing = mapped.letter_spacing;
+                      if (mapped.color) updates.header_color = mapped.color;
+                    }
+                    updateMultipleContent(updates);
+                  }}
+                  label="Header Title Typography Style"
+                />
+                <details className="text-xs">
+                  <summary className="cursor-pointer text-slate-500 hover:text-slate-700 font-medium">Manual Font Settings</summary>
+                  {renderTypographyControls('header', 'Header Title Typography')}
+                </details>
+              </div>
+            </div>
+
+            {/* Header Subtitle */}
+            <div className="border-b pb-4">
+              <h5 className="font-medium text-sm mb-3">Header Subtitle</h5>
+              <div className="space-y-3">
+                <div>
+                  <Label className="text-xs">Subtitle Text</Label>
+                  <div className="fifty-fifty-quill-editor border border-slate-300 rounded-md overflow-hidden bg-white">
+                    <ReactQuill
+                      theme="snow"
+                      value={content.header_subtitle || ''}
+                      onChange={(value) => updateContent('header_subtitle', value)}
+                      modules={fiftyFiftyQuillModules}
+                      placeholder="Enter header subtitle..."
+                      style={{ minHeight: '80px' }}
+                    />
+                  </div>
+                </div>
+                <TypographyStyleSelector
+                  value={content.subtitle_typography_style_id || null}
+                  onChange={(styleId, style) => {
+                    const updates = { subtitle_typography_style_id: styleId };
+                    if (style) {
+                      const mapped = applyTypographyStyle(style);
+                      if (mapped.font_family) updates.subtitle_font_family = mapped.font_family;
+                      if (mapped.font_size) updates.subtitle_font_size = mapped.font_size;
+                      if (mapped.font_size_mobile) updates.subtitle_font_size_mobile = mapped.font_size_mobile;
+                      if (mapped.font_weight) updates.subtitle_font_weight = mapped.font_weight;
+                      if (mapped.line_height) updates.subtitle_line_height = mapped.line_height;
+                      if (mapped.letter_spacing !== undefined) updates.subtitle_letter_spacing = mapped.letter_spacing;
+                      if (mapped.color) updates.subtitle_color = mapped.color;
+                    }
+                    updateMultipleContent(updates);
+                  }}
+                  label="Header Subtitle Typography Style"
+                />
+                <details className="text-xs">
+                  <summary className="cursor-pointer text-slate-500 hover:text-slate-700 font-medium">Manual Font Settings</summary>
+                  {renderTypographyControls('subtitle', 'Header Subtitle Typography')}
+                </details>
+              </div>
+            </div>
+
+            {/* Header Content */}
+            <div>
+              <h5 className="font-medium text-sm mb-3">Header Content</h5>
+              <div className="space-y-3">
+                <div>
+                  <Label className="text-xs">Content Text</Label>
+                  <div className="fifty-fifty-quill-editor border border-slate-300 rounded-md overflow-hidden bg-white">
+                    <ReactQuill
+                      theme="snow"
+                      value={content.header_content || ''}
+                      onChange={(value) => updateContent('header_content', value)}
+                      modules={fiftyFiftyQuillModules}
+                      placeholder="Enter header content..."
+                      style={{ minHeight: '120px' }}
+                    />
+                  </div>
+                </div>
+                <TypographyStyleSelector
+                  value={content.content_typography_style_id || null}
+                  onChange={(styleId, style) => {
+                    const updates = { content_typography_style_id: styleId };
+                    if (style) {
+                      const mapped = applyTypographyStyle(style);
+                      if (mapped.font_family) updates.content_font_family = mapped.font_family;
+                      if (mapped.font_size) updates.content_font_size = mapped.font_size;
+                      if (mapped.font_size_mobile) updates.content_font_size_mobile = mapped.font_size_mobile;
+                      if (mapped.font_weight) updates.content_font_weight = mapped.font_weight;
+                      if (mapped.line_height) updates.content_line_height = mapped.line_height;
+                      if (mapped.color) updates.content_color = mapped.color;
+                    }
+                    updateMultipleContent(updates);
+                  }}
+                  label="Header Content Typography Style"
+                />
+                <details className="text-xs">
+                  <summary className="cursor-pointer text-slate-500 hover:text-slate-700 font-medium">Manual Font Settings</summary>
+                  {renderTypographyControls('content', 'Header Content Typography')}
+                </details>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Background Section */}
       <div className="border rounded-lg overflow-hidden">
         <button
