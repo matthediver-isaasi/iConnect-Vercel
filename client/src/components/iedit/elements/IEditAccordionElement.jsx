@@ -1929,17 +1929,26 @@ export function IEditAccordionElementRenderer({ element, content: contentProp, v
                   type="button"
                   onClick={() => toggleItem(index)}
                   className="w-full flex items-center justify-between p-4 text-left hover:opacity-90 transition-opacity"
-                  style={itemHeaderStyle}
+                  style={{ backgroundColor: itemHeaderStyle.backgroundColor }}
                   data-testid={`accordion-header-${index}`}
                 >
                   <div 
-                    className="accordion-item-title prose prose-sm max-w-none flex-1"
+                    className="accordion-item-title flex-1"
+                    style={{
+                      fontFamily: itemHeaderStyle.fontFamily,
+                      fontWeight: itemHeaderStyle.fontWeight,
+                      fontSize: itemHeaderStyle.fontSize,
+                      color: itemHeaderStyle.color,
+                      lineHeight: itemHeaderStyle.lineHeight,
+                      letterSpacing: itemHeaderStyle.letterSpacing
+                    }}
                     dangerouslySetInnerHTML={{ 
                       __html: DOMPurify.sanitize(item.title || '') 
                     }}
                   />
                   <ChevronDown 
                     className={`accordion-icon w-5 h-5 flex-shrink-0 ml-4 ${openItems.includes(index) ? 'open' : ''}`}
+                    style={{ color: itemHeaderStyle.color }}
                   />
                 </button>
                 
@@ -1949,11 +1958,19 @@ export function IEditAccordionElementRenderer({ element, content: contentProp, v
                 >
                   <div 
                     className="p-4 border-t"
-                    style={itemContentStyle}
+                    style={{ backgroundColor: itemContentStyle.backgroundColor }}
                   >
                     {/* Render rich text content with proper HTML sanitization */}
                     <div 
-                      className="accordion-content-html prose prose-sm max-w-none"
+                      className="accordion-content-html"
+                      style={{
+                        fontFamily: itemContentStyle.fontFamily,
+                        fontWeight: itemContentStyle.fontWeight,
+                        fontSize: itemContentStyle.fontSize,
+                        color: itemContentStyle.color,
+                        lineHeight: itemContentStyle.lineHeight,
+                        letterSpacing: itemContentStyle.letterSpacing
+                      }}
                       dangerouslySetInnerHTML={{ 
                         __html: DOMPurify.sanitize(item.content || '') 
                       }}
