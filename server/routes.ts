@@ -84,6 +84,8 @@ const entityToTable: Record<string, string> = {
   'OrganizationPreferenceValue': 'organization_preference_value',
   'Speaker': 'speaker',
   'TypographyStyle': 'typography_style',
+  'CardDeck': 'card_deck',
+  'DynamicDirectory': 'dynamic_directory',
 };
 
 // Extend session type
