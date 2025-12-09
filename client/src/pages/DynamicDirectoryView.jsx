@@ -298,12 +298,20 @@ export default function DynamicDirectoryView() {
   console.log('[DynamicDirectory] filter_value:', directory?.filter_value);
   console.log('[DynamicDirectory] allOrgPreferenceValues RAW:', allOrgPreferenceValues);
   
-  // Check if any org has the matching filter field
-  if (directory?.filter_field_id && allOrgPreferenceValues.length > 0) {
-    const matchingValues = allOrgPreferenceValues.filter(pv => pv.preference_field_id === directory.filter_field_id);
-    console.log('[DynamicDirectory] Preference values matching filter_field_id:', matchingValues);
-    matchingValues.forEach(mv => {
-      console.log('[DynamicDirectory] Org', mv.organization_id, 'has value:', mv.value, 'looking for:', directory.filter_value);
+  // Log all unique preference_field_ids in the data
+  if (allOrgPreferenceValues.length > 0) {
+    const uniqueFieldIds = [...new Set(allOrgPreferenceValues.map(pv => pv.preference_field_id))];
+    console.log('[DynamicDirectory] Unique preference_field_ids in data:', uniqueFieldIds);
+    console.log('[DynamicDirectory] Looking for field_id:', directory?.filter_field_id);
+    console.log('[DynamicDirectory] Match found:', uniqueFieldIds.includes(directory?.filter_field_id));
+    
+    // Show first few preference values for debugging
+    allOrgPreferenceValues.slice(0, 5).forEach((pv, idx) => {
+      console.log(`[DynamicDirectory] PrefValue[${idx}]:`, { 
+        org_id: pv.organization_id, 
+        field_id: pv.preference_field_id, 
+        value: pv.value 
+      });
     });
   }
   const paginatedItems = useMemo(() => {
