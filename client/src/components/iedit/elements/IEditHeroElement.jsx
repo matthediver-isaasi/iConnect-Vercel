@@ -18,6 +18,14 @@ const heroQuillModules = {
   ]
 };
 
+// Helper to check if HTML content is effectively empty (only whitespace, <br>, empty <p> tags)
+const isHtmlEmpty = (html) => {
+  if (!html) return true;
+  // Strip HTML tags and check if remaining text is empty/whitespace
+  const textContent = html.replace(/<[^>]*>/g, '').trim();
+  return textContent.length === 0;
+};
+
 export default function IEditHeroElement({ content, variant, settings }) {
   const {
     background_type = 'color',
@@ -279,7 +287,7 @@ export default function IEditHeroElement({ content, variant, settings }) {
                     style={{ 
                       marginBottom: heading_underline_enabled 
                         ? `${heading_underline_spacing}px` 
-                        : (content.subheading || (button && button.text)) ? '24px' : '0'
+                        : (content.subheading || !isHtmlEmpty(content_text) || (button && button.text)) ? '24px' : '0'
                     }}
                     dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(content.heading) }}
                   />
@@ -289,7 +297,7 @@ export default function IEditHeroElement({ content, variant, settings }) {
                       style={{
                         height: `${heading_underline_weight}px`,
                         backgroundColor: heading_underline_color,
-                        marginBottom: (content.subheading || (button && button.text)) ? `${heading_underline_to_content_spacing}px` : '0'
+                        marginBottom: (content.subheading || !isHtmlEmpty(content_text) || (button && button.text)) ? `${heading_underline_to_content_spacing}px` : '0'
                       }}
                     />
                   )}
@@ -299,12 +307,12 @@ export default function IEditHeroElement({ content, variant, settings }) {
                 <div 
                   className="hero-subheading opacity-90 hero-rich-text-content"
                   style={{ 
-                    marginBottom: content_text ? '0' : (button && button.text) ? '24px' : '0'
+                    marginBottom: !isHtmlEmpty(content_text) ? '0' : (button && button.text) ? '24px' : '0'
                   }}
                   dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(content.subheading) }}
                 />
               )}
-              {content_text && (
+              {!isHtmlEmpty(content_text) && (
                 <div 
                   className="hero-content-text opacity-90 hero-rich-text-content"
                   dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(content_text) }}
@@ -369,7 +377,7 @@ export default function IEditHeroElement({ content, variant, settings }) {
                 style={{ 
                   marginBottom: heading_underline_enabled 
                     ? `${heading_underline_spacing}px` 
-                    : (content.subheading || content_text || (button && button.text)) ? '24px' : '0'
+                    : (content.subheading || !isHtmlEmpty(content_text) || (button && button.text)) ? '24px' : '0'
                 }}
                 dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(content.heading) }}
               />
@@ -379,7 +387,7 @@ export default function IEditHeroElement({ content, variant, settings }) {
                   style={{
                     height: `${heading_underline_weight}px`,
                     backgroundColor: heading_underline_color,
-                    marginBottom: (content.subheading || content_text || (button && button.text)) ? `${heading_underline_to_content_spacing}px` : '0'
+                    marginBottom: (content.subheading || !isHtmlEmpty(content_text) || (button && button.text)) ? `${heading_underline_to_content_spacing}px` : '0'
                   }}
                 />
               )}
@@ -389,12 +397,12 @@ export default function IEditHeroElement({ content, variant, settings }) {
             <div 
               className="hero-subheading opacity-90 hero-rich-text-content"
               style={{ 
-                marginBottom: content_text ? '0' : (button && button.text) ? '24px' : '0'
+                marginBottom: !isHtmlEmpty(content_text) ? '0' : (button && button.text) ? '24px' : '0'
               }}
               dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(content.subheading) }}
             />
           )}
-          {content_text && (
+          {!isHtmlEmpty(content_text) && (
             <div 
               className="hero-content-text opacity-90 hero-rich-text-content"
               dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(content_text) }}
