@@ -2,7 +2,7 @@ import { useState } from "react";
 import { base44 } from "@/api/base44Client";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import { Upload, ArrowRight, ChevronDown, ChevronUp, X } from "lucide-react";
+import { Upload, ArrowRight, ChevronDown, ChevronUp, X, AlignLeft, AlignCenter, AlignRight } from "lucide-react";
 import { toast } from "sonner";
 import { useQuery } from "@tanstack/react-query";
 import TypographyStyleSelector, { applyTypographyStyle } from "../TypographyStyleSelector";
@@ -179,17 +179,23 @@ export function IEditCardDeckElementRenderer({ content, variant, settings }) {
         }}
       >
         {(heading || subheading || body_content) && (
-          <div className={`mb-8 ${alignmentClass}`}>
+          <div className="mb-8">
             {heading && (
               <div 
-                style={getTextStyle('heading')} 
+                style={{
+                  ...getTextStyle('heading'),
+                  textAlign: content?.heading_text_align || 'center'
+                }} 
                 className="m-0 mb-4 prose max-w-none"
                 dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(heading) }}
               />
             )}
             {subheading && (
               <div 
-                style={getTextStyle('subheading')} 
+                style={{
+                  ...getTextStyle('subheading'),
+                  textAlign: content?.subheading_text_align || 'center'
+                }} 
                 className="m-0 mb-4 prose max-w-none"
                 dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(subheading) }}
               />
@@ -197,7 +203,10 @@ export function IEditCardDeckElementRenderer({ content, variant, settings }) {
             {body_content && (
               <div 
                 className="prose max-w-none mx-auto" 
-                style={getTextStyle('content')}
+                style={{
+                  ...getTextStyle('content'),
+                  textAlign: content?.content_text_align || 'center'
+                }}
                 dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(body_content) }}
               />
             )}
@@ -352,6 +361,38 @@ export function IEditCardDeckElementEditor({ element, onChange }) {
   const cardCount = content.cardCount || 3;
   const cardSlots = Array(cardCount).fill(null);
 
+  const AlignmentButtons = ({ value, onChange, label, testIdPrefix }) => (
+    <div className="flex items-center gap-2">
+      <Label className="text-xs">{label}</Label>
+      <div className="flex border border-slate-300 rounded-md overflow-hidden">
+        <button
+          type="button"
+          onClick={() => onChange('left')}
+          className={`p-1.5 ${value === 'left' ? 'bg-slate-200' : 'bg-white hover:bg-slate-50'}`}
+          data-testid={`${testIdPrefix}-left`}
+        >
+          <AlignLeft className="w-4 h-4" />
+        </button>
+        <button
+          type="button"
+          onClick={() => onChange('center')}
+          className={`p-1.5 border-x border-slate-300 ${value === 'center' ? 'bg-slate-200' : 'bg-white hover:bg-slate-50'}`}
+          data-testid={`${testIdPrefix}-center`}
+        >
+          <AlignCenter className="w-4 h-4" />
+        </button>
+        <button
+          type="button"
+          onClick={() => onChange('right')}
+          className={`p-1.5 ${value === 'right' ? 'bg-slate-200' : 'bg-white hover:bg-slate-50'}`}
+          data-testid={`${testIdPrefix}-right`}
+        >
+          <AlignRight className="w-4 h-4" />
+        </button>
+      </div>
+    </div>
+  );
+
   const renderTypographyControls = (prefix, label, defaultValues = {}) => {
     const defaults = {
       font_family: 'Poppins',
@@ -472,19 +513,6 @@ export function IEditCardDeckElementEditor({ element, onChange }) {
         
         {expandedSections.text && (
           <div className="p-4 space-y-4">
-            <div>
-              <Label className="text-xs">Text Alignment</Label>
-              <select
-                value={content.text_alignment || 'center'}
-                onChange={(e) => updateContent('text_alignment', e.target.value)}
-                className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
-              >
-                <option value="left">Left</option>
-                <option value="center">Center</option>
-                <option value="right">Right</option>
-              </select>
-            </div>
-
             <div className="border-b pb-4">
               <h5 className="font-medium text-sm mb-3">Heading</h5>
               <div className="space-y-3">
@@ -518,6 +546,12 @@ export function IEditCardDeckElementEditor({ element, onChange }) {
                     updateMultipleContent(updates);
                   }}
                   label="Heading Typography Style"
+                />
+                <AlignmentButtons 
+                  value={content.heading_text_align || 'center'} 
+                  onChange={(val) => updateContent('heading_text_align', val)}
+                  label="Alignment"
+                  testIdPrefix="carddeck-heading-align"
                 />
                 <details className="text-xs">
                   <summary className="cursor-pointer text-slate-500 hover:text-slate-700 font-medium">Manual Font Settings</summary>
@@ -560,6 +594,12 @@ export function IEditCardDeckElementEditor({ element, onChange }) {
                   }}
                   label="Subheading Typography Style"
                 />
+                <AlignmentButtons 
+                  value={content.subheading_text_align || 'center'} 
+                  onChange={(val) => updateContent('subheading_text_align', val)}
+                  label="Alignment"
+                  testIdPrefix="carddeck-subheading-align"
+                />
                 <details className="text-xs">
                   <summary className="cursor-pointer text-slate-500 hover:text-slate-700 font-medium">Manual Font Settings</summary>
                   {renderTypographyControls('subheading', 'Subheading Typography')}
@@ -599,6 +639,12 @@ export function IEditCardDeckElementEditor({ element, onChange }) {
                     updateMultipleContent(updates);
                   }}
                   label="Content Typography Style"
+                />
+                <AlignmentButtons 
+                  value={content.content_text_align || 'center'} 
+                  onChange={(val) => updateContent('content_text_align', val)}
+                  label="Alignment"
+                  testIdPrefix="carddeck-content-align"
                 />
                 <details className="text-xs">
                   <summary className="cursor-pointer text-slate-500 hover:text-slate-700 font-medium">Manual Font Settings</summary>
