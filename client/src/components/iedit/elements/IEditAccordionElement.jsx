@@ -269,6 +269,14 @@ export function IEditAccordionElementEditor({ element, onChange }) {
     });
   };
 
+  // Helper to strip HTML tags and decode entities for preview display
+  const stripHtmlTags = (html) => {
+    if (!html) return '';
+    // Use DOMParser to properly strip HTML and decode entities
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    return doc.body.textContent || '';
+  };
+
   const handleImageUpload = async (file) => {
     if (!file) return;
 
@@ -1006,7 +1014,6 @@ export function IEditAccordionElementEditor({ element, onChange }) {
               }
               updateMultipleContent(updates);
             }}
-            filterTypes={['h3', 'h4']}
             label="Accordion Header Typography Style"
           />
 
@@ -1141,7 +1148,6 @@ export function IEditAccordionElementEditor({ element, onChange }) {
               }
               updateMultipleContent(updates);
             }}
-            filterTypes={['paragraph']}
             label="Accordion Content Typography Style"
           />
 
@@ -1301,7 +1307,7 @@ export function IEditAccordionElementEditor({ element, onChange }) {
                     </button>
                   </div>
                   <span className="flex-1 font-medium text-sm truncate">
-                    {item.title || 'Untitled'}
+                    {stripHtmlTags(item.title) || 'Untitled'}
                   </span>
                   <button
                     type="button"
@@ -1317,11 +1323,16 @@ export function IEditAccordionElementEditor({ element, onChange }) {
                   <div className="p-3 space-y-4 border-t">
                     <div>
                       <Label>Title / Question</Label>
-                      <Input
-                        value={item.title || ''}
-                        onChange={(e) => updateItem(index, 'title', e.target.value)}
-                        placeholder="Enter the accordion header text"
-                      />
+                      <div className="accordion-quill-editor border rounded-md overflow-hidden">
+                        <ReactQuill
+                          theme="snow"
+                          value={item.title || ''}
+                          onChange={(value) => updateItem(index, 'title', value)}
+                          modules={heroQuillModules}
+                          placeholder="Enter the accordion header text..."
+                          style={{ minHeight: '60px' }}
+                        />
+                      </div>
                     </div>
                     <div>
                       <Label>Content / Answer</Label>
@@ -1330,7 +1341,7 @@ export function IEditAccordionElementEditor({ element, onChange }) {
                           theme="snow"
                           value={item.content || ''}
                           onChange={(value) => updateItem(index, 'content', value)}
-                          modules={accordionQuillModules}
+                          modules={heroQuillModules}
                           placeholder="Enter the accordion content..."
                           style={{ minHeight: '150px' }}
                         />
@@ -1921,7 +1932,12 @@ export function IEditAccordionElementRenderer({ element, content: contentProp, v
                   style={itemHeaderStyle}
                   data-testid={`accordion-header-${index}`}
                 >
-                  <span>{item.title}</span>
+                  <div 
+                    className="accordion-item-title prose prose-sm max-w-none flex-1"
+                    dangerouslySetInnerHTML={{ 
+                      __html: DOMPurify.sanitize(item.title || '') 
+                    }}
+                  />
                   <ChevronDown 
                     className={`accordion-icon w-5 h-5 flex-shrink-0 ml-4 ${openItems.includes(index) ? 'open' : ''}`}
                   />
