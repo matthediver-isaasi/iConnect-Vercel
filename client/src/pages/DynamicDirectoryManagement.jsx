@@ -507,48 +507,56 @@ export default function DynamicDirectoryManagementPage() {
               </Select>
             </div>
 
-            {availableFilterFields.length > 0 && (
-              <div className="space-y-3 p-3 bg-slate-50 rounded-lg border">
-                <div className="flex items-center gap-2">
-                  <Filter className="w-4 h-4 text-blue-600" />
-                  <Label className="font-medium">Search Filter Fields (Optional)</Label>
-                </div>
-                <p className="text-xs text-slate-500">
-                  {selectedFilterFields === null 
-                    ? "Not configured - all filterable fields will be shown by default. Select fields below to limit which filters appear."
-                    : selectedFilterFields.length === 0
-                      ? "No filters selected - no additional filter dropdowns will be shown on this directory."
-                      : "Only the selected fields will appear as filter dropdowns on this directory."}
-                </p>
-                <div className="space-y-2 max-h-48 overflow-y-auto">
-                  {availableFilterFields.map((field) => (
-                    <div key={field.id} className="flex items-center gap-2">
-                      <Checkbox
-                        id={`filter-field-${field.id}`}
-                        checked={selectedFilterFields !== null && selectedFilterFields.includes(field.id)}
-                        onCheckedChange={() => handleToggleFilterField(field.id)}
-                        data-testid={`checkbox-filter-field-${field.id}`}
-                      />
-                      <label
-                        htmlFor={`filter-field-${field.id}`}
-                        className="text-sm text-slate-700 cursor-pointer flex-1"
-                      >
-                        {field.label}
-                      </label>
-                      <Badge variant="secondary" className="text-xs">
-                        {field.field_type}
-                      </Badge>
-                    </div>
-                  ))}
-                </div>
-                {selectedFilterFields !== null && (
-                  <p className="text-xs text-blue-600 mt-2">
-                    {selectedFilterFields.length} filter{selectedFilterFields.length !== 1 ? 's' : ''} selected
-                    {selectedFilterFields.length === 0 && " (no filter dropdowns will show)"}
-                  </p>
-                )}
+            <div className="space-y-3 p-3 bg-slate-50 rounded-lg border">
+              <div className="flex items-center gap-2">
+                <Filter className="w-4 h-4 text-blue-600" />
+                <Label className="font-medium">Search Filter Fields (Optional)</Label>
               </div>
-            )}
+              {availableFilterFields.length === 0 ? (
+                <p className="text-xs text-slate-500">
+                  No additional filterable fields available. To add filter options, create custom fields 
+                  (picklist or dropdown type) with "Is Filterable" enabled in Preference Fields settings.
+                  The primary filter field selected above is excluded from this list.
+                </p>
+              ) : (
+                <>
+                  <p className="text-xs text-slate-500">
+                    {selectedFilterFields === null 
+                      ? "Not configured - all filterable fields will be shown by default. Select fields below to limit which filters appear."
+                      : selectedFilterFields.length === 0
+                        ? "No filters selected - no additional filter dropdowns will be shown on this directory."
+                        : "Only the selected fields will appear as filter dropdowns on this directory."}
+                  </p>
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                    {availableFilterFields.map((field) => (
+                      <div key={field.id} className="flex items-center gap-2">
+                        <Checkbox
+                          id={`filter-field-${field.id}`}
+                          checked={selectedFilterFields !== null && selectedFilterFields.includes(field.id)}
+                          onCheckedChange={() => handleToggleFilterField(field.id)}
+                          data-testid={`checkbox-filter-field-${field.id}`}
+                        />
+                        <label
+                          htmlFor={`filter-field-${field.id}`}
+                          className="text-sm text-slate-700 cursor-pointer flex-1"
+                        >
+                          {field.label}
+                        </label>
+                        <Badge variant="secondary" className="text-xs">
+                          {field.field_type}
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                  {selectedFilterFields !== null && (
+                    <p className="text-xs text-blue-600 mt-2">
+                      {selectedFilterFields.length} filter{selectedFilterFields.length !== 1 ? 's' : ''} selected
+                      {selectedFilterFields.length === 0 && " (no filter dropdowns will show)"}
+                    </p>
+                  )}
+                </>
+              )}
+            </div>
 
             <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border">
               <div>
