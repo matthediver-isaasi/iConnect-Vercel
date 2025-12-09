@@ -291,6 +291,17 @@ export default function DynamicDirectoryView() {
 
   const items = directory?.entity_type === 'organization' ? filteredOrganizations : filteredMembers;
   const totalPages = Math.ceil(items.length / itemsPerPage);
+
+  // Debug logging
+  console.log('[DynamicDirectory] directory:', directory);
+  console.log('[DynamicDirectory] filter_field_id:', directory?.filter_field_id);
+  console.log('[DynamicDirectory] filter_value:', directory?.filter_value);
+  console.log('[DynamicDirectory] entity_type:', directory?.entity_type);
+  console.log('[DynamicDirectory] organizations count:', organizations.length);
+  console.log('[DynamicDirectory] allOrgPreferenceValues count:', allOrgPreferenceValues.length);
+  console.log('[DynamicDirectory] orgPreferenceMap:', orgPreferenceMap);
+  console.log('[DynamicDirectory] filteredOrganizations count:', filteredOrganizations.length);
+  console.log('[DynamicDirectory] items count:', items.length);
   const paginatedItems = useMemo(() => {
     const startIndex = (currentPage - 1) * itemsPerPage;
     return items.slice(startIndex, startIndex + itemsPerPage);
