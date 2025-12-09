@@ -142,22 +142,43 @@ export default function IEditTextBlockElement({ content, variant, settings }) {
     <div className={`${instanceId} ${fullWidthClass}`} data-testid="textblock-container">
       <style>{scopedStyles}</style>
       <div className="textblock-background">
-        <div className="textblock-inner">
-          {heading && (
-            <h2 
-              className="textblock-heading" 
-              data-testid="textblock-heading"
-              dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(heading) }}
-            />
-          )}
-          {text && (
-            <div 
-              className="prose max-w-none textblock-content"
-              data-testid="textblock-content"
-              dangerouslySetInnerHTML={{ __html: text }}
-            />
-          )}
-        </div>
+        {fullWidth ? (
+          <div className="max-w-7xl mx-auto px-4">
+            <div className="textblock-inner">
+              {heading && (
+                <h2 
+                  className="textblock-heading" 
+                  data-testid="textblock-heading"
+                  dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(heading) }}
+                />
+              )}
+              {text && (
+                <div 
+                  className="prose max-w-none textblock-content"
+                  data-testid="textblock-content"
+                  dangerouslySetInnerHTML={{ __html: text }}
+                />
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="textblock-inner">
+            {heading && (
+              <h2 
+                className="textblock-heading" 
+                data-testid="textblock-heading"
+                dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(heading) }}
+              />
+            )}
+            {text && (
+              <div 
+                className="prose max-w-none textblock-content"
+                data-testid="textblock-content"
+                dangerouslySetInnerHTML={{ __html: text }}
+              />
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
