@@ -405,8 +405,8 @@ export default function DynamicDirectoryManagementPage() {
       </div>
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="sm:max-w-[500px] max-h-[90vh] flex flex-col">
-          <DialogHeader className="flex-shrink-0">
+        <DialogContent className="sm:max-w-[500px] max-h-[85vh] overflow-hidden !grid grid-rows-[auto_1fr_auto]">
+          <DialogHeader>
             <DialogTitle data-testid="dialog-title">
               {editingDirectory ? 'Edit Dynamic Directory' : 'Create Dynamic Directory'}
             </DialogTitle>
@@ -417,7 +417,7 @@ export default function DynamicDirectoryManagementPage() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4 py-4 overflow-y-auto flex-1">
+          <div className="space-y-4 py-4 overflow-y-auto min-h-0">
             <div className="space-y-2">
               <Label htmlFor="name">Name *</Label>
               <Input
@@ -574,7 +574,7 @@ export default function DynamicDirectoryManagementPage() {
             </div>
           </div>
 
-          <DialogFooter className="flex-shrink-0 pt-4 border-t">
+          <DialogFooter className="pt-4 border-t">
             <Button 
               variant="outline" 
               onClick={resetForm}
