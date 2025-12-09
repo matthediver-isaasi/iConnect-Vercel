@@ -415,7 +415,8 @@ export default function RoleManagementPage() {
           show_tours: editingRole.show_tours,
           default_landing_page: editingRole.default_landing_page || "Events",
           layout_theme: editingRole.layout_theme || "default",
-          requires_effective_from_date: editingRole.requires_effective_from_date || false
+          requires_effective_from_date: editingRole.requires_effective_from_date || false,
+          badge_image_url: editingRole.badge_image_url || null
         }
       });
     } else {
@@ -428,7 +429,8 @@ export default function RoleManagementPage() {
         show_tours: editingRole.show_tours,
         default_landing_page: editingRole.default_landing_page || "Events",
         layout_theme: editingRole.layout_theme || "default",
-        requires_effective_from_date: editingRole.requires_effective_from_date || false
+        requires_effective_from_date: editingRole.requires_effective_from_date || false,
+        badge_image_url: editingRole.badge_image_url || null
       });
     }
   };
