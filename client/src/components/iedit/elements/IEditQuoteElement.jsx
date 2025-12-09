@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useId } from "react";
+import { useState, useEffect, useCallback, useId, useRef, useLayoutEffect } from "react";
 import { ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Upload, X, Plus, Trash2, GripVertical, AlignLeft, AlignCenter, AlignRight } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -145,6 +145,8 @@ export default function IEditQuoteElement({ content, variant, settings }) {
 
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
+  const [maxQuoteHeight, setMaxQuoteHeight] = useState(0);
+  const measureContainerRef = useRef(null);
 
   const goToNext = useCallback(() => {
     if (allQuotes.length > 1) {
@@ -167,6 +169,24 @@ export default function IEditQuoteElement({ content, variant, settings }) {
 
     return () => clearInterval(interval);
   }, [allQuotes.length, carousel_delay, isPaused, goToNext]);
+
+  // Measure all quotes to find the tallest one
+  useLayoutEffect(() => {
+    if (!measureContainerRef.current || allQuotes.length <= 1) {
+      setMaxQuoteHeight(0);
+      return;
+    }
+
+    const measureItems = measureContainerRef.current.querySelectorAll('.quote-measure-item');
+    let maxHeight = 0;
+    measureItems.forEach((item) => {
+      const height = item.getBoundingClientRect().height;
+      if (height > maxHeight) {
+        maxHeight = height;
+      }
+    });
+    setMaxQuoteHeight(maxHeight);
+  }, [allQuotes, quote_font_size, quote_line_height, name_font_size, profile_size, box_padding, layout]);
 
   // Quote panel background
   const getBackgroundStyle = () => {
@@ -267,6 +287,58 @@ export default function IEditQuoteElement({ content, variant, settings }) {
 
   const currentQuote = allQuotes[currentIndex] || {};
 
+  // Render a single quote's content (reusable for both measurement and display)
+  const renderQuoteContent = (quoteData, isMeasuring = false) => {
+    if (layout === 'stacked') {
+      return (
+        <div className="flex flex-col items-center gap-4">
+          {quoteData.profile_image_url && (
+            <img 
+              src={quoteData.profile_image_url} 
+              alt={quoteData.author_name || 'Profile'} 
+              style={profileStyle}
+            />
+          )}
+          {quoteData.quote_text && (
+            <p style={quoteStyle} className={`max-w-3xl ${!isMeasuring ? 'transition-opacity duration-300' : ''}`}>
+              {quoteData.quote_text}
+            </p>
+          )}
+          {quoteData.author_name && (
+            <p style={nameStyle}>
+              — {quoteData.author_name}
+            </p>
+          )}
+        </div>
+      );
+    } else {
+      return (
+        <div className="flex items-start gap-6">
+          {quoteData.profile_image_url && (
+            <img 
+              src={quoteData.profile_image_url} 
+              alt={quoteData.author_name || 'Profile'} 
+              style={profileStyle}
+              className="flex-shrink-0"
+            />
+          )}
+          <div className="flex-1">
+            {quoteData.quote_text && (
+              <p style={{ ...quoteStyle, textAlign: 'left' }} className={`mb-4 ${!isMeasuring ? 'transition-opacity duration-300' : ''}`}>
+                {quoteData.quote_text}
+              </p>
+            )}
+            {quoteData.author_name && (
+              <p style={{ ...nameStyle, textAlign: 'left' }}>
+                — {quoteData.author_name}
+              </p>
+            )}
+          </div>
+        </div>
+      );
+    }
+  };
+
   // Quote panel component
   const renderQuotePanel = () => (
     <div 
@@ -360,51 +432,11 @@ export default function IEditQuoteElement({ content, variant, settings }) {
         </div>
       )}
 
-      <div className="relative z-10">
-        {layout === 'stacked' ? (
-          <div className="flex flex-col items-center gap-4">
-            {currentQuote.profile_image_url && (
-              <img 
-                src={currentQuote.profile_image_url} 
-                alt={currentQuote.author_name || 'Profile'} 
-                style={profileStyle}
-              />
-            )}
-            {currentQuote.quote_text && (
-              <p style={quoteStyle} className="max-w-3xl transition-opacity duration-300">
-                {currentQuote.quote_text}
-              </p>
-            )}
-            {currentQuote.author_name && (
-              <p style={nameStyle}>
-                — {currentQuote.author_name}
-              </p>
-            )}
-          </div>
-        ) : (
-          <div className="flex items-start gap-6">
-            {currentQuote.profile_image_url && (
-              <img 
-                src={currentQuote.profile_image_url} 
-                alt={currentQuote.author_name || 'Profile'} 
-                style={profileStyle}
-                className="flex-shrink-0"
-              />
-            )}
-            <div className="flex-1">
-              {currentQuote.quote_text && (
-                <p style={{ ...quoteStyle, textAlign: 'left' }} className="mb-4 transition-opacity duration-300">
-                  {currentQuote.quote_text}
-                </p>
-              )}
-              {currentQuote.author_name && (
-                <p style={{ ...nameStyle, textAlign: 'left' }}>
-                  — {currentQuote.author_name}
-                </p>
-              )}
-            </div>
-          </div>
-        )}
+      <div 
+        className="relative z-10"
+        style={maxQuoteHeight > 0 ? { minHeight: `${maxQuoteHeight}px` } : undefined}
+      >
+        {renderQuoteContent(currentQuote)}
 
         {allQuotes.length > 1 && (
           <>
@@ -589,6 +621,40 @@ export default function IEditQuoteElement({ content, variant, settings }) {
 
         {renderQuotePanel()}
       </div>
+
+      {/* Hidden container to measure all quotes for consistent height */}
+      {allQuotes.length > 1 && (
+        <div 
+          ref={measureContainerRef}
+          aria-hidden="true"
+          className="absolute overflow-hidden"
+          style={{ 
+            visibility: 'hidden', 
+            position: 'absolute', 
+            top: 0, 
+            left: 0, 
+            right: 0,
+            pointerEvents: 'none',
+            zIndex: -1
+          }}
+        >
+          <div className={fullWidth ? "max-w-7xl mx-auto px-4" : ""}>
+            <div 
+              style={{
+                padding: `${box_padding}px`,
+                borderRadius: `${box_border_radius}px`,
+                border: `${box_border_width}px solid transparent`
+              }}
+            >
+              {allQuotes.map((quote, index) => (
+                <div key={index} className="quote-measure-item">
+                  {renderQuoteContent(quote, true)}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
