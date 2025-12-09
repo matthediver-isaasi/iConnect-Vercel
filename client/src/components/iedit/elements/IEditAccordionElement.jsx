@@ -500,27 +500,23 @@ export function IEditAccordionElementEditor({ element, onChange }) {
       <div className="border-b pb-4">
         <h4 className="font-semibold text-sm mb-3">Section Header</h4>
         
-        <div className="space-y-3">
+        <div className="space-y-4">
+          {/* Header Title - Rich Text */}
           <div>
-            <Label>Header Title</Label>
-            <Input
-              value={content.header_title || ''}
-              onChange={(e) => updateContent('header_title', e.target.value)}
-              placeholder="e.g., Frequently Asked Questions"
-            />
+            <Label className="block text-sm font-medium mb-1">Header Title</Label>
+            <div className="border border-slate-300 rounded-md overflow-hidden bg-white">
+              <ReactQuill
+                theme="snow"
+                value={content.header_title || ''}
+                onChange={(value) => updateContent('header_title', value)}
+                modules={heroQuillModules}
+                placeholder="e.g., Frequently Asked Questions"
+                style={{ minHeight: '80px' }}
+              />
+            </div>
           </div>
-
-          <div>
-            <Label>Header Subtitle</Label>
-            <Input
-              value={content.header_subtitle || ''}
-              onChange={(e) => updateContent('header_subtitle', e.target.value)}
-              placeholder="Optional subtitle text"
-            />
-          </div>
-
           <TypographyStyleSelector
-            value={content.header_typography_style_id}
+            value={content.header_typography_style_id || null}
             onChange={(styleId, style) => {
               const updates = { header_typography_style_id: styleId };
               if (style) {
@@ -535,12 +531,10 @@ export function IEditAccordionElementEditor({ element, onChange }) {
               }
               updateMultipleContent(updates);
             }}
-            filterTypes={['h1', 'h2', 'h3']}
-            label="Section Title Typography Style"
+            label="Header Typography Style"
           />
-
           <details className="text-xs">
-            <summary className="cursor-pointer text-slate-500 hover:text-slate-700 font-medium">Manual Font Settings</summary>
+            <summary className="cursor-pointer text-slate-500 hover:text-slate-700 font-medium">Manual Header Font Settings</summary>
             <div className="mt-3 space-y-3">
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -568,7 +562,6 @@ export function IEditAccordionElementEditor({ element, onChange }) {
                   </select>
                 </div>
               </div>
-
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <Label>Title Font Size (px)</Label>
@@ -600,7 +593,192 @@ export function IEditAccordionElementEditor({ element, onChange }) {
             </div>
           </details>
 
-          <div>
+          {/* Header Subtitle - Rich Text */}
+          <div className="pt-4 border-t border-slate-100">
+            <Label className="block text-sm font-medium mb-1">Header Subtitle</Label>
+            <div className="border border-slate-300 rounded-md overflow-hidden bg-white">
+              <ReactQuill
+                theme="snow"
+                value={content.header_subtitle || ''}
+                onChange={(value) => updateContent('header_subtitle', value)}
+                modules={heroQuillModules}
+                placeholder="Optional subtitle text"
+                style={{ minHeight: '80px' }}
+              />
+            </div>
+          </div>
+          <TypographyStyleSelector
+            value={content.subtitle_typography_style_id || null}
+            onChange={(styleId, style) => {
+              const updates = { subtitle_typography_style_id: styleId };
+              if (style) {
+                const mapped = applyTypographyStyle(style);
+                if (mapped.font_family) updates.subtitle_font_family = mapped.font_family;
+                if (mapped.font_size) updates.subtitle_font_size = mapped.font_size;
+                if (mapped.font_size_mobile) updates.subtitle_font_size_mobile = mapped.font_size_mobile;
+                if (mapped.font_weight) updates.subtitle_font_weight = mapped.font_weight;
+                if (mapped.line_height) updates.subtitle_line_height = mapped.line_height;
+                if (mapped.letter_spacing !== undefined) updates.subtitle_letter_spacing = mapped.letter_spacing;
+                if (mapped.color) updates.subtitle_color = mapped.color;
+              }
+              updateMultipleContent(updates);
+            }}
+            label="Subtitle Typography Style"
+          />
+          <details className="text-xs">
+            <summary className="cursor-pointer text-slate-500 hover:text-slate-700 font-medium">Manual Subtitle Font Settings</summary>
+            <div className="mt-3 space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Subtitle Font Family</Label>
+                  <select
+                    value={content.subtitle_font_family || 'Poppins'}
+                    onChange={(e) => updateContent('subtitle_font_family', e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+                  >
+                    {fontFamilies.map(font => (
+                      <option key={font} value={font}>{font}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <Label>Subtitle Font Weight</Label>
+                  <select
+                    value={content.subtitle_font_weight || 400}
+                    onChange={(e) => updateContent('subtitle_font_weight', parseInt(e.target.value))}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+                  >
+                    {fontWeights.map(weight => (
+                      <option key={weight.value} value={weight.value}>{weight.label}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Subtitle Font Size (px)</Label>
+                  <Input
+                    type="number"
+                    value={content.subtitle_font_size || 18}
+                    onChange={(e) => updateContent('subtitle_font_size', parseInt(e.target.value) || 18)}
+                    min="12"
+                    max="48"
+                  />
+                </div>
+                <div>
+                  <Label>Subtitle Color</Label>
+                  <div className="flex gap-2 items-center">
+                    <input
+                      type="color"
+                      value={content.subtitle_color || '#64748b'}
+                      onChange={(e) => updateContent('subtitle_color', e.target.value)}
+                      className="w-12 h-9 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+                    />
+                    <Input
+                      value={content.subtitle_color || '#64748b'}
+                      onChange={(e) => updateContent('subtitle_color', e.target.value)}
+                      className="flex-1 font-mono text-xs"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </details>
+
+          {/* Header Content - Rich Text */}
+          <div className="pt-4 border-t border-slate-100">
+            <Label className="block text-sm font-medium mb-1">Header Content</Label>
+            <div className="border border-slate-300 rounded-md overflow-hidden bg-white">
+              <ReactQuill
+                theme="snow"
+                value={content.header_content || ''}
+                onChange={(value) => updateContent('header_content', value)}
+                modules={heroQuillModules}
+                placeholder="Optional content/body text for the header section"
+                style={{ minHeight: '100px' }}
+              />
+            </div>
+          </div>
+          <TypographyStyleSelector
+            value={content.content_typography_style_id || null}
+            onChange={(styleId, style) => {
+              const updates = { content_typography_style_id: styleId };
+              if (style) {
+                const mapped = applyTypographyStyle(style);
+                if (mapped.font_family) updates.content_font_family = mapped.font_family;
+                if (mapped.font_size) updates.content_font_size = mapped.font_size;
+                if (mapped.font_size_mobile) updates.content_font_size_mobile = mapped.font_size_mobile;
+                if (mapped.font_weight) updates.content_font_weight = mapped.font_weight;
+                if (mapped.line_height) updates.content_line_height = mapped.line_height;
+                if (mapped.letter_spacing !== undefined) updates.content_letter_spacing = mapped.letter_spacing;
+                if (mapped.color) updates.content_color = mapped.color;
+              }
+              updateMultipleContent(updates);
+            }}
+            label="Content Typography Style"
+          />
+          <details className="text-xs">
+            <summary className="cursor-pointer text-slate-500 hover:text-slate-700 font-medium">Manual Content Font Settings</summary>
+            <div className="mt-3 space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Content Font Family</Label>
+                  <select
+                    value={content.content_font_family || 'Poppins'}
+                    onChange={(e) => updateContent('content_font_family', e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+                  >
+                    {fontFamilies.map(font => (
+                      <option key={font} value={font}>{font}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <Label>Content Font Weight</Label>
+                  <select
+                    value={content.content_font_weight || 400}
+                    onChange={(e) => updateContent('content_font_weight', parseInt(e.target.value))}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+                  >
+                    {fontWeights.map(weight => (
+                      <option key={weight.value} value={weight.value}>{weight.label}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Content Font Size (px)</Label>
+                  <Input
+                    type="number"
+                    value={content.content_font_size || 16}
+                    onChange={(e) => updateContent('content_font_size', parseInt(e.target.value) || 16)}
+                    min="12"
+                    max="32"
+                  />
+                </div>
+                <div>
+                  <Label>Content Color</Label>
+                  <div className="flex gap-2 items-center">
+                    <input
+                      type="color"
+                      value={content.content_color || '#475569'}
+                      onChange={(e) => updateContent('content_color', e.target.value)}
+                      className="w-12 h-9 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+                    />
+                    <Input
+                      value={content.content_color || '#475569'}
+                      onChange={(e) => updateContent('content_color', e.target.value)}
+                      className="flex-1 font-mono text-xs"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </details>
+
+          {/* Text Alignment */}
+          <div className="pt-4 border-t border-slate-100">
             <Label>Header Alignment</Label>
             <select
               value={content.header_align || 'center'}
@@ -1582,6 +1760,28 @@ export function IEditAccordionElementRenderer({ element, content: contentProp, v
     letterSpacing: content.header_letter_spacing ? `${content.header_letter_spacing}px` : undefined
   };
 
+  // Section subtitle styles
+  const subtitleStyle = {
+    fontFamily: content.subtitle_font_family || 'Poppins',
+    fontWeight: content.subtitle_font_weight || 400,
+    fontSize: `${getFontSize(content.subtitle_font_size, content.subtitle_font_size_mobile, 18)}px`,
+    color: content.subtitle_color || '#64748b',
+    textAlign: content.header_align || 'center',
+    lineHeight: content.subtitle_line_height || 1.5,
+    letterSpacing: content.subtitle_letter_spacing ? `${content.subtitle_letter_spacing}px` : undefined
+  };
+
+  // Section content styles
+  const sectionContentStyle = {
+    fontFamily: content.content_font_family || 'Poppins',
+    fontWeight: content.content_font_weight || 400,
+    fontSize: `${getFontSize(content.content_font_size, content.content_font_size_mobile, 16)}px`,
+    color: content.content_color || '#475569',
+    textAlign: content.header_align || 'center',
+    lineHeight: content.content_line_height || 1.6,
+    letterSpacing: content.content_letter_spacing ? `${content.content_letter_spacing}px` : undefined
+  };
+
   // Accordion item header styles
   const itemHeaderStyle = {
     fontFamily: content.item_header_font_family || 'Poppins',
@@ -1675,20 +1875,34 @@ export function IEditAccordionElementRenderer({ element, content: contentProp, v
         {/* Content */}
         <div className="relative max-w-4xl mx-auto px-4">
           {/* Section Header */}
-          {(content.header_title || content.header_subtitle) && (
+          {(content.header_title || content.header_subtitle || content.header_content) && (
             <div className="mb-8">
               {content.header_title && (
-                <h2 style={headerStyle} className="mb-2">
-                  {content.header_title}
-                </h2>
+                <div 
+                  style={headerStyle} 
+                  className="accordion-header-title mb-2"
+                  dangerouslySetInnerHTML={{ 
+                    __html: DOMPurify.sanitize(content.header_title) 
+                  }}
+                />
               )}
               {content.header_subtitle && (
-                <p 
-                  className="text-slate-600"
-                  style={{ textAlign: content.header_align || 'center' }}
-                >
-                  {content.header_subtitle}
-                </p>
+                <div 
+                  className="accordion-header-subtitle mb-3"
+                  style={subtitleStyle}
+                  dangerouslySetInnerHTML={{ 
+                    __html: DOMPurify.sanitize(content.header_subtitle) 
+                  }}
+                />
+              )}
+              {content.header_content && (
+                <div 
+                  className="accordion-header-content prose prose-sm max-w-none"
+                  style={sectionContentStyle}
+                  dangerouslySetInnerHTML={{ 
+                    __html: DOMPurify.sanitize(content.header_content) 
+                  }}
+                />
               )}
             </div>
           )}
