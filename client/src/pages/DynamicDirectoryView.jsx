@@ -270,18 +270,30 @@ export default function DynamicDirectoryView() {
 
   const filterableOrgFields = useMemo(() => {
     const baseFilterable = orgCustomFields.filter(f => f.is_filterable && f.id !== directory?.filter_field_id);
-    if (directory?.selected_filter_fields && directory.selected_filter_fields.length > 0) {
-      return baseFilterable.filter(f => directory.selected_filter_fields.includes(f.id));
+    // If selected_filter_fields is undefined/null, show all filterable fields (backward compatibility)
+    // If selected_filter_fields is an explicit empty array [], show no filters
+    // If selected_filter_fields has values, only show those selected fields
+    if (directory?.selected_filter_fields === undefined || directory?.selected_filter_fields === null) {
+      return baseFilterable;
     }
-    return [];
+    if (directory.selected_filter_fields.length === 0) {
+      return [];
+    }
+    return baseFilterable.filter(f => directory.selected_filter_fields.includes(f.id));
   }, [orgCustomFields, directory?.filter_field_id, directory?.selected_filter_fields]);
 
   const filterableMemberFields = useMemo(() => {
     const baseFilterable = memberCustomFields.filter(f => f.id !== directory?.filter_field_id);
-    if (directory?.selected_filter_fields && directory.selected_filter_fields.length > 0) {
-      return baseFilterable.filter(f => directory.selected_filter_fields.includes(f.id));
+    // If selected_filter_fields is undefined/null, show all filterable fields (backward compatibility)
+    // If selected_filter_fields is an explicit empty array [], show no filters
+    // If selected_filter_fields has values, only show those selected fields
+    if (directory?.selected_filter_fields === undefined || directory?.selected_filter_fields === null) {
+      return baseFilterable;
     }
-    return [];
+    if (directory.selected_filter_fields.length === 0) {
+      return [];
+    }
+    return baseFilterable.filter(f => directory.selected_filter_fields.includes(f.id));
   }, [memberCustomFields, directory?.filter_field_id, directory?.selected_filter_fields]);
 
   const { data: allOrgPreferenceValues = [] } = useQuery({
