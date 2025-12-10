@@ -83,11 +83,6 @@ export default function IEditImagePanelElement({ content, variant, settings }) {
             paddingRight: `${panelPaddingRight}px`
           }}
         >
-          {/* DEBUG: Remove after testing */}
-          <div style={{ position: 'absolute', top: 5, left: 5, background: 'rgba(255,0,0,0.8)', color: 'white', padding: '2px 6px', fontSize: '10px', borderRadius: '3px', zIndex: 999 }}>
-            P{index + 1}: gap={textGap}, align={bottomVerticalAlign}
-          </div>
-          
           <div 
             style={{
               textAlign: panel.header_align || 'left'
@@ -197,6 +192,7 @@ export default function IEditImagePanelElement({ content, variant, settings }) {
             gridColumn: '1 / -1',
             gridRow: '1 / -1',
             display: 'flex',
+            alignItems: 'flex-start',
             width: '100%',
             height: '100%'
           }}
@@ -238,7 +234,7 @@ export default function IEditImagePanelElement({ content, variant, settings }) {
       )}
       
       <div 
-        className="relative h-full flex"
+        className="relative h-full flex items-start"
         style={{
           minHeight: `${min_height}px`
         }}
