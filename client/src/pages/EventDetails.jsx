@@ -465,6 +465,19 @@ export default function EventDetailsPage() {
     }
   }, [isOneOffEvent, canSelfRegister, registrationMode, memberAttending]);
   
+  // Check if guest form should be disabled (non-logged-in user without a purchasable ticket selected)
+  // This allows showing member-only events to non-members but prevents them from registering
+  const isGuestFormDisabled = useMemo(() => {
+    // Only applies to guest checkout (non-logged-in users)
+    if (!isGuestCheckout) return false;
+    // If no ticket selected, form is disabled
+    if (!selectedTicketClass) return true;
+    // Check if the selected ticket is purchasable by guests
+    const visibilityMode = selectedTicketClass.visibility_mode;
+    const isPublicTicket = visibilityMode === 'members_and_public' || visibilityMode === 'public_only';
+    return !isPublicTicket;
+  }, [isGuestCheckout, selectedTicketClass]);
+  
   // ========== END PRICING/TICKET CLASS HOOKS ==========
 
   const removeAttendee = (index) => {
@@ -1030,84 +1043,117 @@ export default function EventDetailsPage() {
                 {/* Guest Registration Form - shown for non-logged-in users */}
                 {isGuestCheckout ? (
                   <div className="space-y-4">
-                    <div className="flex items-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                      <User className="w-5 h-5 text-blue-600" />
-                      <p className="text-sm text-blue-800">
-                        Please enter your details to register for this event.
-                      </p>
-                    </div>
+                    {isGuestFormDisabled ? (
+                      <div className="flex items-center gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                        <Lock className="w-5 h-5 text-amber-600" />
+                        <p className="text-sm text-amber-800">
+                          This ticket is for members only. Please <a href="/Login" className="font-medium underline text-amber-900 hover:text-amber-700">log in</a> to register, or select a public ticket if available.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                        <User className="w-5 h-5 text-blue-600" />
+                        <p className="text-sm text-blue-800">
+                          Please enter your details to register for this event.
+                        </p>
+                      </div>
+                    )}
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="space-y-2">
-                        <Label htmlFor="guest-first-name">First Name <span className="text-red-500">*</span></Label>
+                        <Label htmlFor="guest-first-name" className={isGuestFormDisabled ? "text-slate-400" : ""}>
+                          First Name <span className="text-red-500">*</span>
+                        </Label>
                         <Input
                           id="guest-first-name"
                           placeholder="Enter your first name"
                           value={guestInfo.first_name}
                           onChange={(e) => setGuestInfo({...guestInfo, first_name: e.target.value})}
+                          disabled={isGuestFormDisabled}
+                          className={isGuestFormDisabled ? "bg-slate-100 cursor-not-allowed" : ""}
                           data-testid="input-guest-first-name"
                         />
                       </div>
                       <div className="space-y-2">
-                        <Label htmlFor="guest-last-name">Last Name <span className="text-red-500">*</span></Label>
+                        <Label htmlFor="guest-last-name" className={isGuestFormDisabled ? "text-slate-400" : ""}>
+                          Last Name <span className="text-red-500">*</span>
+                        </Label>
                         <Input
                           id="guest-last-name"
                           placeholder="Enter your last name"
                           value={guestInfo.last_name}
                           onChange={(e) => setGuestInfo({...guestInfo, last_name: e.target.value})}
+                          disabled={isGuestFormDisabled}
+                          className={isGuestFormDisabled ? "bg-slate-100 cursor-not-allowed" : ""}
                           data-testid="input-guest-last-name"
                         />
                       </div>
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="guest-email">Email Address <span className="text-red-500">*</span></Label>
+                      <Label htmlFor="guest-email" className={isGuestFormDisabled ? "text-slate-400" : ""}>
+                        Email Address <span className="text-red-500">*</span>
+                      </Label>
                       <Input
                         id="guest-email"
                         type="email"
                         placeholder="your.email@example.com"
                         value={guestInfo.email}
                         onChange={(e) => setGuestInfo({...guestInfo, email: e.target.value})}
+                        disabled={isGuestFormDisabled}
+                        className={isGuestFormDisabled ? "bg-slate-100 cursor-not-allowed" : ""}
                         data-testid="input-guest-email"
                       />
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="guest-organization">Organisation <span className="text-red-500">*</span></Label>
+                      <Label htmlFor="guest-organization" className={isGuestFormDisabled ? "text-slate-400" : ""}>
+                        Organisation <span className="text-red-500">*</span>
+                      </Label>
                       <Input
                         id="guest-organization"
                         placeholder="Your company or organisation"
                         value={guestInfo.organization}
                         onChange={(e) => setGuestInfo({...guestInfo, organization: e.target.value})}
+                        disabled={isGuestFormDisabled}
+                        className={isGuestFormDisabled ? "bg-slate-100 cursor-not-allowed" : ""}
                         data-testid="input-guest-organization"
                       />
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="space-y-2">
-                        <Label htmlFor="guest-job-title">Job Title</Label>
+                        <Label htmlFor="guest-job-title" className={isGuestFormDisabled ? "text-slate-400" : ""}>
+                          Job Title
+                        </Label>
                         <Input
                           id="guest-job-title"
                           placeholder="Your job title"
                           value={guestInfo.job_title}
                           onChange={(e) => setGuestInfo({...guestInfo, job_title: e.target.value})}
+                          disabled={isGuestFormDisabled}
+                          className={isGuestFormDisabled ? "bg-slate-100 cursor-not-allowed" : ""}
                           data-testid="input-guest-job-title"
                         />
                       </div>
                       <div className="space-y-2">
-                        <Label htmlFor="guest-phone">Phone Number</Label>
+                        <Label htmlFor="guest-phone" className={isGuestFormDisabled ? "text-slate-400" : ""}>
+                          Phone Number
+                        </Label>
                         <Input
                           id="guest-phone"
                           type="tel"
                           placeholder="Optional"
                           value={guestInfo.phone}
                           onChange={(e) => setGuestInfo({...guestInfo, phone: e.target.value})}
+                          disabled={isGuestFormDisabled}
+                          className={isGuestFormDisabled ? "bg-slate-100 cursor-not-allowed" : ""}
                           data-testid="input-guest-phone"
                         />
                       </div>
                     </div>
 
-                    {!isGuestFormValid && (
+                    {!isGuestFormValid && !isGuestFormDisabled && (
                       <p className="text-xs text-slate-500">
                         <span className="text-red-500">*</span> Required fields
                       </p>
