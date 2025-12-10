@@ -255,6 +255,7 @@ export default function PostJobPage() {
       setFormData((prev) => ({
         ...prev,
         company_name: organizationInfo?.name || '',
+        company_logo_url: organizationInfo?.logo_url || '',
         contact_name: `${memberInfo.first_name} ${memberInfo.last_name}`,
         job_type: jobTypeSettings[0] || '',
         hours: hoursSettings[0] || ''
@@ -278,6 +279,7 @@ export default function PostJobPage() {
                 setFormData((prev) => ({
                   ...prev,
                   company_name: org.name,
+                  company_logo_url: org.logo_url || '',
                   contact_name: `${memberData.first_name} ${memberData.last_name}`,
                   job_type: jobTypeSettings[0] || '',
                   hours: hoursSettings[0] || ''
@@ -622,79 +624,113 @@ export default function PostJobPage() {
                 }
               </div>
 
-              {/* ... keep all remaining form fields unchanged ... */}
+              {/* Company Logo Section */}
               <div className="space-y-4 p-4 bg-slate-50 rounded-lg">
                 <div>
                   <h3 className="font-semibold text-slate-900 mb-1">Company Logo</h3>
-                  <p className="text-sm text-slate-600">Upload your company logo (max 5MB, images only)</p>
+                  <p className="text-sm text-slate-600">
+                    {isLoggedIn && organizationInfo 
+                      ? "Your organisation's logo will be used for this job posting"
+                      : "Upload your company logo (max 5MB, images only)"}
+                  </p>
                 </div>
 
-                {formData.company_logo_url ?
-                <div className="space-y-3">
+                {/* Logged-in member view - show org logo (read-only) */}
+                {isLoggedIn && organizationInfo ? (
+                  formData.company_logo_url ? (
                     <div className="flex items-center gap-4 p-4 bg-white rounded-lg border border-slate-200">
                       <div className="w-24 h-24 flex-shrink-0 bg-slate-50 rounded-lg p-2 border border-slate-200">
                         <img
-                        src={formData.company_logo_url}
-                        alt="Company logo"
-                        className="w-full h-full object-contain" />
-
+                          src={formData.company_logo_url}
+                          alt="Organisation logo"
+                          className="w-full h-full object-contain"
+                        />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-slate-900">Logo uploaded successfully</p>
+                        <p className="text-sm font-medium text-slate-900">Organisation Logo</p>
+                        <p className="text-xs text-slate-500">From your organisation profile</p>
                       </div>
-                      <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={handleRemoveLogo}
-                      className="text-red-600 hover:text-red-700 hover:bg-red-50 flex-shrink-0">
-
-                        <X className="w-4 h-4" />
-                      </Button>
                     </div>
-                    <Label htmlFor="logo-change" className="cursor-pointer">
-                      <div className="flex items-center justify-center gap-2 px-4 py-2 border-2 border-dashed border-slate-300 rounded-md hover:border-blue-400 hover:bg-blue-50 transition-colors">
-                        <Upload className="w-4 h-4 text-slate-600" />
-                        <span className="text-sm font-medium text-slate-600">Change Logo</span>
+                  ) : (
+                    <div className="flex items-center gap-4 p-4 bg-white rounded-lg border border-slate-200">
+                      <div className="w-24 h-24 flex-shrink-0 bg-slate-100 rounded-lg flex items-center justify-center border border-slate-200">
+                        <ImageIcon className="w-8 h-8 text-slate-400" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-slate-900">No logo set</p>
+                        <p className="text-xs text-slate-500">Your organisation doesn't have a logo uploaded</p>
+                      </div>
+                    </div>
+                  )
+                ) : (
+                  /* Non-member view - show upload functionality */
+                  formData.company_logo_url ? (
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-4 p-4 bg-white rounded-lg border border-slate-200">
+                        <div className="w-24 h-24 flex-shrink-0 bg-slate-50 rounded-lg p-2 border border-slate-200">
+                          <img
+                            src={formData.company_logo_url}
+                            alt="Company logo"
+                            className="w-full h-full object-contain"
+                          />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-slate-900">Logo uploaded successfully</p>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={handleRemoveLogo}
+                          className="text-red-600 hover:text-red-700 hover:bg-red-50 flex-shrink-0"
+                        >
+                          <X className="w-4 h-4" />
+                        </Button>
+                      </div>
+                      <Label htmlFor="logo-change" className="cursor-pointer">
+                        <div className="flex items-center justify-center gap-2 px-4 py-2 border-2 border-dashed border-slate-300 rounded-md hover:border-blue-400 hover:bg-blue-50 transition-colors">
+                          <Upload className="w-4 h-4 text-slate-600" />
+                          <span className="text-sm font-medium text-slate-600">Change Logo</span>
+                        </div>
+                        <input
+                          id="logo-change"
+                          type="file"
+                          accept="image/*"
+                          onChange={handleLogoUpload}
+                          className="hidden"
+                          disabled={uploadingLogo}
+                        />
+                      </Label>
+                    </div>
+                  ) : (
+                    <Label htmlFor="logo-upload" className="cursor-pointer">
+                      <div className="flex flex-col items-center justify-center gap-3 p-8 border-2 border-dashed border-slate-300 rounded-lg hover:border-blue-400 hover:bg-blue-50 transition-colors">
+                        {uploadingLogo ? (
+                          <>
+                            <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
+                            <span className="text-sm font-medium text-slate-600">Uploading...</span>
+                          </>
+                        ) : (
+                          <>
+                            <ImageIcon className="w-8 h-8 text-slate-400" />
+                            <div className="text-center">
+                              <span className="text-sm font-medium text-slate-900 block">Upload Company Logo</span>
+                              <span className="text-xs text-slate-500">Click to browse or drag and drop</span>
+                            </div>
+                          </>
+                        )}
                       </div>
                       <input
-                      id="logo-change"
-                      type="file"
-                      accept="image/*"
-                      onChange={handleLogoUpload}
-                      className="hidden"
-                      disabled={uploadingLogo} />
-
+                        id="logo-upload"
+                        type="file"
+                        accept="image/*"
+                        onChange={handleLogoUpload}
+                        className="hidden"
+                        disabled={uploadingLogo}
+                      />
                     </Label>
-                  </div> :
-
-                <Label htmlFor="logo-upload" className="cursor-pointer">
-                    <div className="flex flex-col items-center justify-center gap-3 p-8 border-2 border-dashed border-slate-300 rounded-lg hover:border-blue-400 hover:bg-blue-50 transition-colors">
-                      {uploadingLogo ?
-                    <>
-                          <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
-                          <span className="text-sm font-medium text-slate-600">Uploading...</span>
-                        </> :
-
-                    <>
-                          <ImageIcon className="w-8 h-8 text-slate-400" />
-                          <div className="text-center">
-                            <span className="text-sm font-medium text-slate-900 block">Upload Company Logo</span>
-                            <span className="text-xs text-slate-500">Click to browse or drag and drop</span>
-                          </div>
-                        </>
-                    }
-                    </div>
-                    <input
-                    id="logo-upload"
-                    type="file"
-                    accept="image/*"
-                    onChange={handleLogoUpload}
-                    className="hidden"
-                    disabled={uploadingLogo} />
-
-                  </Label>
-                }
+                  )
+                )}
               </div>
 
               <div className="grid md:grid-cols-2 gap-4">
