@@ -66,6 +66,7 @@ export default function IEditImagePanelElement({ content, variant, settings }) {
       const panelPaddingBottom = panel.padding_bottom ?? 40;
       const panelPaddingLeft = panel.padding_left ?? 20;
       const panelPaddingRight = panel.padding_right ?? 20;
+      const textGap = panel.text_gap ?? 0;
       
       return (
         <div 
@@ -78,7 +79,8 @@ export default function IEditImagePanelElement({ content, variant, settings }) {
             paddingTop: `${panelPaddingTop}px`,
             paddingBottom: `${panelPaddingBottom}px`,
             paddingLeft: `${panelPaddingLeft}px`,
-            paddingRight: `${panelPaddingRight}px`
+            paddingRight: `${panelPaddingRight}px`,
+            gap: textGap > 0 ? `${textGap}px` : undefined
           }}
         >
           <div 
@@ -309,6 +311,7 @@ export function IEditImagePanelElementEditor({ element, onChange }) {
     bottom_letter_spacing: 0,
     bottom_line_height: 1.5,
     bottom_align: 'left',
+    text_gap: 0,
     padding_top: 40,
     padding_bottom: 40,
     padding_left: 20,
@@ -968,6 +971,35 @@ export function IEditImagePanelElementEditor({ element, onChange }) {
                         </div>
                         </div>
                       </details>
+                    </div>
+                  </div>
+
+                  <div className="border-b pb-3">
+                    <h5 className="text-sm font-semibold text-slate-700 mb-2">Text Gap</h5>
+                    <div className="space-y-2">
+                      <p className="text-xs text-slate-500">
+                        Set the minimum gap between Header Text and Bottom Text (in pixels).
+                      </p>
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="range"
+                          min="0"
+                          max="200"
+                          step="5"
+                          value={panel.text_gap ?? 0}
+                          onChange={(e) => updatePanel(index, 'text_gap', parseInt(e.target.value) || 0)}
+                          className="flex-1"
+                        />
+                        <input
+                          type="number"
+                          value={panel.text_gap ?? 0}
+                          onChange={(e) => updatePanel(index, 'text_gap', parseInt(e.target.value) || 0)}
+                          className="w-16 px-2 py-1.5 border border-slate-300 rounded-md text-sm text-center"
+                          min="0"
+                          max="500"
+                        />
+                        <span className="text-xs text-slate-500">px</span>
+                      </div>
                     </div>
                   </div>
 
