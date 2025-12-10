@@ -94,7 +94,7 @@ export default function CreateEvent() {
   const { singular: speakerSingular, plural: speakerPlural } = useSpeakerModuleName();
   const { eventTypes } = useEventTypes();
   const [isOnline, setIsOnline] = useState(false);
-  const [isProgramEvent, setIsProgramEvent] = useState(true);
+  const [isProgramEvent, setIsProgramEvent] = useState(false);
   const [selectedWebinarId, setSelectedWebinarId] = useState("");
   
   // Ticket classes state for one-off events
