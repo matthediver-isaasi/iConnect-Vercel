@@ -34,6 +34,7 @@ const pageToPortalPageMap = {
   'Balances': 'portal_balances',
   'History': 'portal_history',
   'Profile': 'portal_profile',
+  'MyOrganisation': 'portal_my_organisation',
   'JobBoard': 'portal_job_board',
   'PublicJobBoard': 'portal_job_board',
   'News': 'portal_news',
