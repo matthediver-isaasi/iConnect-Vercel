@@ -7311,17 +7311,27 @@ AGCAS Events Team
       }
 
       console.log('[createJobPostingMember] Creating job posting for member:', memberEmail);
+      console.log('[createJobPostingMember] Request body keys:', Object.keys(req.body));
+      console.log('[createJobPostingMember] postingData keys:', Object.keys(postingData));
 
       // Get member information - query directly by email (case-insensitive using ilike)
+      console.log('[createJobPostingMember] Querying member table with ilike for email:', memberEmail);
       const { data: members, error: memberError } = await supabase
         .from('member')
         .select('*')
         .ilike('email', memberEmail);
       
+      console.log('[createJobPostingMember] Query result - members count:', members?.length, 'error:', memberError);
+      if (members && members.length > 0) {
+        console.log('[createJobPostingMember] First member found:', members[0].id, members[0].email);
+      }
+      
       const member = members?.[0];
 
       if (memberError || !member) {
-        console.error('[createJobPostingMember] Member not found for email:', memberEmail, memberError);
+        console.error('[createJobPostingMember] Member not found for email:', memberEmail);
+        console.error('[createJobPostingMember] Query error:', memberError);
+        console.error('[createJobPostingMember] Members array:', members);
         return res.status(404).json({
           success: false,
           error: 'Member not found'
