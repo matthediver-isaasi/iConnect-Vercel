@@ -2384,12 +2384,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const accessToken = await getValidZohoAccessToken();
 
-      // Get member by email directly
-      const { data: member, error: memberError } = await supabase
+      // Get member by email directly (case-insensitive)
+      const { data: members, error: memberError } = await supabase
         .from('member')
         .select('*')
-        .eq('email', email)
-        .single();
+        .ilike('email', email);
+      
+      const member = members?.[0];
 
       if (memberError || !member) {
         return res.status(404).json({
@@ -7311,12 +7312,13 @@ AGCAS Events Team
 
       console.log('[createJobPostingMember] Creating job posting for member:', memberEmail);
 
-      // Get member information - query directly by email
-      const { data: member, error: memberError } = await supabase
+      // Get member information - query directly by email (case-insensitive using ilike)
+      const { data: members, error: memberError } = await supabase
         .from('member')
         .select('*')
-        .eq('email', memberEmail)
-        .single();
+        .ilike('email', memberEmail);
+      
+      const member = members?.[0];
 
       if (memberError || !member) {
         console.error('[createJobPostingMember] Member not found for email:', memberEmail, memberError);
