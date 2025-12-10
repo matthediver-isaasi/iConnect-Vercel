@@ -516,7 +516,7 @@ export default function EditEvent() {
       program_tag: isOneOffEvent ? "" : formData.program_tag,
       start_date: formData.start_date,
       end_date: formData.end_date || formData.start_date,
-      location: formData.location || null,
+      location: isOnlineEvent ? null : (formData.location || null),
       image_url: formData.image_url || null,
       available_seats: isNaN(parsedSeats) ? null : parsedSeats,
       zoom_webinar_id: formData.zoom_webinar_id || null,

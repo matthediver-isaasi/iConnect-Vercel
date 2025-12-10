@@ -431,16 +431,8 @@ export default function CreateEvent() {
     }
 
     // Build event data - only include fields that exist in the event table
-    // For online events: store URL in location only if show join link setting is enabled
-    let locationValue = formData.location;
-    if (isOnline) {
-      const showJoinLink = getShowJoinLink(selectedWebinarId);
-      if (showJoinLink && formData.online_url) {
-        locationValue = `Online - ${formData.online_url}`;
-      } else {
-        locationValue = 'Online Event';
-      }
-    }
+    // For online events: location should be null (is_online field indicates it's online)
+    let locationValue = isOnline ? null : (formData.location || null);
 
     const eventData = {
       title: formData.title,
