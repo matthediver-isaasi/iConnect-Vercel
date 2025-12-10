@@ -218,8 +218,8 @@ export default function JobDetailsPage() {
           </div>
 
           {/* Right Column - Apply & Details */}
-          <div className="space-y-6">
-            <Card className="border-slate-200 sticky top-8">
+          <div className="sticky top-8">
+            <Card className="border-slate-200">
               <CardContent className="p-6 space-y-4">
                 <Button 
                   onClick={handleApply}
