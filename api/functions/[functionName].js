@@ -648,19 +648,6 @@ const functionHandlers = {
     return { clientSecret: paymentIntent.client_secret };
   },
 
-  async checkMemberStatusByEmail(params) {
-    if (!supabase) throw new Error('Supabase not configured');
-    
-    const { email } = params;
-    const { data: member } = await supabase
-      .from('member')
-      .select('*')
-      .eq('email', email?.toLowerCase())
-      .single();
-
-    return { exists: !!member, member };
-  },
-
   async refreshMemberBalance(params) {
     if (!supabase) throw new Error('Supabase not configured');
     
