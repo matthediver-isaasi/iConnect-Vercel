@@ -192,7 +192,6 @@ export default function IEditImagePanelElement({ content, variant, settings }) {
             gridColumn: '1 / -1',
             gridRow: '1 / -1',
             display: 'flex',
-            alignItems: 'flex-start',
             width: '100%',
             height: '100%'
           }}
@@ -234,7 +233,7 @@ export default function IEditImagePanelElement({ content, variant, settings }) {
       )}
       
       <div 
-        className="relative h-full flex items-start"
+        className="relative h-full flex"
         style={{
           minHeight: `${min_height}px`
         }}
