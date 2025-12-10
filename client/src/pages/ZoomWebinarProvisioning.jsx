@@ -1095,7 +1095,7 @@ export default function ZoomWebinarProvisioning() {
       </Dialog>
 
       <Dialog open={showDetailsDialog} onOpenChange={setShowDetailsDialog}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Video className="w-5 h-5" />
@@ -1107,7 +1107,7 @@ export default function ZoomWebinarProvisioning() {
           </DialogHeader>
 
           {selectedWebinar && (
-            <Tabs defaultValue="info" className="flex-1 overflow-hidden flex flex-col">
+            <Tabs defaultValue="info" className="flex-1">
               <TabsList className="grid w-full grid-cols-3">
                 <TabsTrigger value="info" data-testid="tab-webinar-info">
                   Info
@@ -1120,7 +1120,7 @@ export default function ZoomWebinarProvisioning() {
                 </TabsTrigger>
               </TabsList>
 
-              <TabsContent value="info" className="flex-1 overflow-y-auto mt-4">
+              <TabsContent value="info" className="mt-4">
                 <div className="space-y-6">
                   <div>
                     <h3 className="font-semibold text-lg text-slate-900" data-testid="text-webinar-topic">
@@ -1262,7 +1262,7 @@ export default function ZoomWebinarProvisioning() {
                 </div>
               </TabsContent>
 
-              <TabsContent value="panelists" className="flex-1 overflow-hidden mt-4">
+              <TabsContent value="panelists" className="mt-4">
                 <div className="space-y-4">
                   {/* Add Panelist Form */}
                   {selectedWebinar?.status === 'scheduled' && new Date(selectedWebinar.start_time) > new Date() && (
@@ -1370,7 +1370,7 @@ export default function ZoomWebinarProvisioning() {
                 </div>
               </TabsContent>
 
-              <TabsContent value="registrants" className="flex-1 overflow-hidden mt-4">
+              <TabsContent value="registrants" className="mt-4">
                 <div className="space-y-4">
                   {/* Add Registrant Form */}
                   {selectedWebinar?.registration_required && selectedWebinar?.status === 'scheduled' && new Date(selectedWebinar.start_time) > new Date() && (
