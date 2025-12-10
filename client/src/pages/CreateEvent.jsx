@@ -1435,46 +1435,68 @@ export default function CreateEvent() {
                         {/* Offer Configuration */}
                         <div className="space-y-4">
                           <Label className="text-sm font-medium text-slate-700">Special Offer</Label>
-                          <RadioGroup 
-                            value={ticket.offer_type} 
-                            onValueChange={(value) => updateTicketClass(ticket.id, 'offer_type', value)}
-                          >
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                              <div 
-                                className={`flex items-center gap-2 p-3 rounded-lg border-2 cursor-pointer transition-colors ${
-                                  ticket.offer_type === 'none' 
-                                    ? 'border-blue-500 bg-blue-50' 
-                                    : 'border-slate-200 hover:bg-slate-50'
-                                }`}
-                                onClick={() => updateTicketClass(ticket.id, 'offer_type', 'none')}
-                              >
-                                <RadioGroupItem value="none" id={`offer-none-${ticket.id}`} />
-                                <Label htmlFor={`offer-none-${ticket.id}`} className="text-sm cursor-pointer">No Offer</Label>
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                            <div 
+                              className={`flex items-center gap-2 p-3 rounded-lg border-2 cursor-pointer transition-colors ${
+                                ticket.offer_type === 'none' 
+                                  ? 'border-blue-500 bg-blue-50' 
+                                  : 'border-slate-200 hover:bg-slate-50'
+                              }`}
+                              onClick={() => updateTicketClass(ticket.id, 'offer_type', 'none')}
+                              data-testid={`offer-none-${ticket.id}`}
+                            >
+                              <div className={`h-4 w-4 rounded-full border-2 flex items-center justify-center ${
+                                ticket.offer_type === 'none' 
+                                  ? 'border-blue-500' 
+                                  : 'border-slate-300'
+                              }`}>
+                                {ticket.offer_type === 'none' && (
+                                  <div className="h-2 w-2 rounded-full bg-blue-500" />
+                                )}
                               </div>
-                              <div 
-                                className={`flex items-center gap-2 p-3 rounded-lg border-2 cursor-pointer transition-colors ${
-                                  ticket.offer_type === 'bogo' 
-                                    ? 'border-blue-500 bg-blue-50' 
-                                    : 'border-slate-200 hover:bg-slate-50'
-                                }`}
-                                onClick={() => updateTicketClass(ticket.id, 'offer_type', 'bogo')}
-                              >
-                                <RadioGroupItem value="bogo" id={`offer-bogo-${ticket.id}`} />
-                                <Label htmlFor={`offer-bogo-${ticket.id}`} className="text-sm cursor-pointer">BOGO</Label>
-                              </div>
-                              <div 
-                                className={`flex items-center gap-2 p-3 rounded-lg border-2 cursor-pointer transition-colors ${
-                                  ticket.offer_type === 'bulk_discount' 
-                                    ? 'border-blue-500 bg-blue-50' 
-                                    : 'border-slate-200 hover:bg-slate-50'
-                                }`}
-                                onClick={() => updateTicketClass(ticket.id, 'offer_type', 'bulk_discount')}
-                              >
-                                <RadioGroupItem value="bulk_discount" id={`offer-bulk-${ticket.id}`} />
-                                <Label htmlFor={`offer-bulk-${ticket.id}`} className="text-sm cursor-pointer">Bulk Discount</Label>
-                              </div>
+                              <span className="text-sm">No Offer</span>
                             </div>
-                          </RadioGroup>
+                            <div 
+                              className={`flex items-center gap-2 p-3 rounded-lg border-2 cursor-pointer transition-colors ${
+                                ticket.offer_type === 'bogo' 
+                                  ? 'border-blue-500 bg-blue-50' 
+                                  : 'border-slate-200 hover:bg-slate-50'
+                              }`}
+                              onClick={() => updateTicketClass(ticket.id, 'offer_type', 'bogo')}
+                              data-testid={`offer-bogo-${ticket.id}`}
+                            >
+                              <div className={`h-4 w-4 rounded-full border-2 flex items-center justify-center ${
+                                ticket.offer_type === 'bogo' 
+                                  ? 'border-blue-500' 
+                                  : 'border-slate-300'
+                              }`}>
+                                {ticket.offer_type === 'bogo' && (
+                                  <div className="h-2 w-2 rounded-full bg-blue-500" />
+                                )}
+                              </div>
+                              <span className="text-sm">BOGO</span>
+                            </div>
+                            <div 
+                              className={`flex items-center gap-2 p-3 rounded-lg border-2 cursor-pointer transition-colors ${
+                                ticket.offer_type === 'bulk_discount' 
+                                  ? 'border-blue-500 bg-blue-50' 
+                                  : 'border-slate-200 hover:bg-slate-50'
+                              }`}
+                              onClick={() => updateTicketClass(ticket.id, 'offer_type', 'bulk_discount')}
+                              data-testid={`offer-bulk-${ticket.id}`}
+                            >
+                              <div className={`h-4 w-4 rounded-full border-2 flex items-center justify-center ${
+                                ticket.offer_type === 'bulk_discount' 
+                                  ? 'border-blue-500' 
+                                  : 'border-slate-300'
+                              }`}>
+                                {ticket.offer_type === 'bulk_discount' && (
+                                  <div className="h-2 w-2 rounded-full bg-blue-500" />
+                                )}
+                              </div>
+                              <span className="text-sm">Bulk Discount</span>
+                            </div>
+                          </div>
 
                           {/* BOGO Configuration */}
                           {ticket.offer_type === 'bogo' && (
