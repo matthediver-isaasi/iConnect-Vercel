@@ -102,6 +102,7 @@ export default function DynamicPage() {
     // Only proceed if we have elements loaded and there's a hash in the URL
     if (elements.length > 0 && !elementsLoading && location.hash) {
       const anchorId = location.hash.substring(1); // Remove the # prefix
+      let cancelled = false;
       
       const scrollToAnchor = () => {
         const targetElement = document.getElementById(anchorId);
@@ -120,7 +121,8 @@ export default function DynamicPage() {
             elementPosition,
             pageYOffset: window.pageYOffset,
             headerHeight,
-            offsetPosition
+            offsetPosition,
+            documentHeight: document.body.scrollHeight
           });
           
           window.scrollTo({
@@ -130,28 +132,45 @@ export default function DynamicPage() {
         }
       };
       
-      // Wait for all images to load before scrolling
-      const images = document.querySelectorAll('img');
-      const imagePromises = Array.from(images).map(img => {
-        if (img.complete) return Promise.resolve();
-        return new Promise(resolve => {
-          img.addEventListener('load', resolve);
-          img.addEventListener('error', resolve); // Don't block on failed images
-        });
-      });
+      // Wait for document height to stabilize (indicates images/content have loaded)
+      let lastHeight = 0;
+      let stableCount = 0;
+      const checkInterval = setInterval(() => {
+        if (cancelled) {
+          clearInterval(checkInterval);
+          return;
+        }
+        
+        const currentHeight = document.body.scrollHeight;
+        console.log('[Anchor Debug] Checking height stability:', { currentHeight, lastHeight, stableCount });
+        
+        if (currentHeight === lastHeight) {
+          stableCount++;
+          // Consider stable after 3 consecutive checks (600ms of no change)
+          if (stableCount >= 3) {
+            clearInterval(checkInterval);
+            scrollToAnchor();
+          }
+        } else {
+          stableCount = 0;
+          lastHeight = currentHeight;
+        }
+      }, 200);
       
-      // Also add a fallback timeout in case images take too long
-      const timeoutPromise = new Promise(resolve => setTimeout(resolve, 2000));
-      
-      Promise.race([
-        Promise.all(imagePromises),
-        timeoutPromise
-      ]).then(() => {
-        // Add a small delay after images load to let layout settle
-        setTimeout(scrollToAnchor, 100);
-      });
+      // Fallback: scroll after 3 seconds max regardless of stability
+      const fallbackTimeout = setTimeout(() => {
+        if (!cancelled) {
+          clearInterval(checkInterval);
+          console.log('[Anchor Debug] Fallback timeout reached, scrolling now');
+          scrollToAnchor();
+        }
+      }, 3000);
 
-      return () => {};
+      return () => {
+        cancelled = true;
+        clearInterval(checkInterval);
+        clearTimeout(fallbackTimeout);
+      };
     }
   }, [elements, elementsLoading, location.hash]);
 
