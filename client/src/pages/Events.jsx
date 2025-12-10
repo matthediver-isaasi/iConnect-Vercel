@@ -252,7 +252,20 @@ export default function EventsPage({
   
   console.log('[Events] Debug - filteredEvents count:', filteredEvents.length);
 
+  // Sort events: dated events first (by date), then TBC events at the end
   filteredEvents.sort((a, b) => {
+    const aIsTbc = a.status === 'tbc' || !a.start_date;
+    const bIsTbc = b.status === 'tbc' || !b.start_date;
+    
+    // TBC events go to the end
+    if (aIsTbc && !bIsTbc) return 1;
+    if (!aIsTbc && bIsTbc) return -1;
+    
+    // Both TBC or both dated - sort by title for TBC, by date for dated
+    if (aIsTbc && bIsTbc) {
+      return (a.title || '').localeCompare(b.title || '');
+    }
+    
     const dateA = new Date(a.start_date);
     const dateB = new Date(b.start_date);
     return dateA.getTime() - dateB.getTime();
