@@ -128,6 +128,8 @@ export default function PostJobPage() {
   const [stripeClientSecret, setStripeClientSecret] = useState(null);
   const [stripePaymentIntentId, setStripePaymentIntentId] = useState(null);
   const [paymentAmount, setPaymentAmount] = useState(50.00);
+  const [showErrorDialog, setShowErrorDialog] = useState(false);
+  const [submissionError, setSubmissionError] = useState({ title: '', message: '', details: [] });
 
   const [formData, setFormData] = useState({
     title: '',
@@ -524,7 +526,41 @@ export default function PostJobPage() {
         }
       }
     } catch (error) {
-      toast.error(error.message || 'Failed to submit job posting');
+      // Parse error message to show helpful dialog
+      const errorMessage = error.message || 'Failed to submit job posting';
+      let errorDetails = [];
+      let errorTitle = 'Unable to Submit Job Posting';
+      
+      if (errorMessage.includes('Member not found')) {
+        errorTitle = 'Member Account Not Found';
+        errorDetails = [
+          'Your email address could not be matched to a member account in our system.',
+          'This may happen if you registered with a different email address.',
+          'Please try logging in again or contact support for assistance.'
+        ];
+      } else if (errorMessage.includes('Stripe') || errorMessage.includes('payment')) {
+        errorTitle = 'Payment Configuration Issue';
+        errorDetails = [
+          'Job posting payments are not currently configured.',
+          'Please contact the administrator to set up payment processing.',
+          'If you are a member, try logging in to post for free.'
+        ];
+      } else if (errorMessage.includes('price') || errorMessage.includes('ticket')) {
+        errorTitle = 'Pricing Not Configured';
+        errorDetails = [
+          'Job posting pricing has not been configured by the administrator.',
+          'Please contact support to enable job posting functionality.'
+        ];
+      } else {
+        errorDetails = [errorMessage];
+      }
+      
+      setSubmissionError({
+        title: errorTitle,
+        message: 'We encountered an issue while processing your job posting:',
+        details: errorDetails
+      });
+      setShowErrorDialog(true);
       setStep('form');
     }
   };
@@ -1086,6 +1122,46 @@ export default function PostJobPage() {
               variant="outline"
               onClick={() => setShowTermsDialog(false)}>
               Close
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Submission Error Dialog */}
+      <Dialog open={showErrorDialog} onOpenChange={setShowErrorDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <AlertCircle className="w-5 h-5" />
+              {submissionError.title}
+            </DialogTitle>
+            <DialogDescription>
+              {submissionError.message}
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="py-4 space-y-3">
+            {submissionError.details.map((detail, index) => (
+              <div key={index} className="flex items-start gap-2 text-sm text-slate-700">
+                <span className="text-slate-400 mt-0.5">•</span>
+                <span>{detail}</span>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex gap-2 mt-2">
+            <Button
+              onClick={() => setShowErrorDialog(false)}
+              className="flex-1">
+              Understood
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowErrorDialog(false);
+                window.location.href = '/support';
+              }}>
+              Contact Support
             </Button>
           </div>
         </DialogContent>
