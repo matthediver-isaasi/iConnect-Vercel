@@ -67,14 +67,14 @@ export default function SupportManagementPage() {
 
   const { data: tickets = [], isLoading } = useQuery({
     queryKey: ['all-support-tickets'],
-    queryFn: () => base44.entities.SupportTicket.list("-created_at"),
+    queryFn: () => base44.entities.SupportTicket.list("-created_date"),
     enabled: hasAccess && isAccessReady
   });
 
   const { data: responses = [] } = useQuery({
     queryKey: ['support-responses', selectedTicket?.id],
     queryFn: async () => {
-      const allResponses = await base44.entities.SupportTicketResponse.list("created_at");
+      const allResponses = await base44.entities.SupportTicketResponse.list("created_date");
       return allResponses.filter(r => r.ticket_id === selectedTicket?.id);
     },
     enabled: !!selectedTicket
