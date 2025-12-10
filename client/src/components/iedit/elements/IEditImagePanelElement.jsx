@@ -341,7 +341,15 @@ export function IEditImagePanelElementEditor({ element, onChange }) {
   };
 
   const updatePanel = (index, key, value) => {
-    const newPanels = [...panels];
+    // Deep clone all panels to ensure no shared references
+    const newPanels = panels.map((p, i) => {
+      const clonedPanel = { ...p };
+      // Also clone nested button object if present
+      if (clonedPanel.button) {
+        clonedPanel.button = { ...clonedPanel.button };
+      }
+      return clonedPanel;
+    });
     if (!newPanels[index]) {
       newPanels[index] = { ...defaultPanel };
     }
@@ -350,7 +358,14 @@ export function IEditImagePanelElementEditor({ element, onChange }) {
   };
 
   const updatePanelButton = (index, keyOrUpdates, value) => {
-    const newPanels = [...panels];
+    // Deep clone all panels to ensure no shared references
+    const newPanels = panels.map((p) => {
+      const clonedPanel = { ...p };
+      if (clonedPanel.button) {
+        clonedPanel.button = { ...clonedPanel.button };
+      }
+      return clonedPanel;
+    });
     if (!newPanels[index]) {
       newPanels[index] = { ...defaultPanel };
     }
