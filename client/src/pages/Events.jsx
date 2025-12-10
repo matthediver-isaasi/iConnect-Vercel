@@ -227,9 +227,11 @@ export default function EventsPage({
     }
     
     // Handle delivery mode filtering (online/offline)
+    // Events without delivery_mode are treated as "offline" (in-person) by default
     let matchesDeliveryMode = true;
     if (selectedDeliveryMode !== "all") {
-      matchesDeliveryMode = event.delivery_mode === selectedDeliveryMode;
+      const eventDeliveryMode = event.delivery_mode || "offline";
+      matchesDeliveryMode = eventDeliveryMode === selectedDeliveryMode;
     }
     
     // Filter out past events unless showPastEvents is enabled
@@ -238,7 +240,7 @@ export default function EventsPage({
     
     // Debug log for each event
     if (!matchesTimeFilter || !matchesSearch || !matchesFilterTag || !matchesEventType || !matchesDeliveryMode) {
-      console.log(`[Events] Filtered out: "${event.title}" - search:${matchesSearch}, filterTag:${matchesFilterTag}, eventType:${matchesEventType}, deliveryMode:${matchesDeliveryMode}, time:${matchesTimeFilter}, isPast:${isPast}, start_date:${event.start_date}`);
+      console.log(`[Events] Filtered out: "${event.title}" - search:${matchesSearch}, filterTag:${matchesFilterTag}, eventType:${matchesEventType}, deliveryMode:${matchesDeliveryMode} (actual: ${event.delivery_mode}), time:${matchesTimeFilter}, isPast:${isPast}, start_date:${event.start_date}`);
     }
     
     return matchesSearch && matchesFilterTag && matchesEventType && matchesDeliveryMode && matchesTimeFilter;
@@ -274,9 +276,11 @@ export default function EventsPage({
     }
     
     // Use same delivery mode matching logic
+    // Events without delivery_mode are treated as "offline" (in-person) by default
     let matchesDeliveryMode = true;
     if (selectedDeliveryMode !== "all") {
-      matchesDeliveryMode = event.delivery_mode === selectedDeliveryMode;
+      const eventDeliveryMode = event.delivery_mode || "offline";
+      matchesDeliveryMode = eventDeliveryMode === selectedDeliveryMode;
     }
     
     return matchesSearch && matchesFilterTag && matchesEventType && matchesDeliveryMode && isEventPast(event);
