@@ -67,11 +67,12 @@ export default function IEditImagePanelElement({ content, variant, settings }) {
       const panelPaddingLeft = panel.padding_left ?? 20;
       const panelPaddingRight = panel.padding_right ?? 20;
       const textGap = panel.text_gap ?? 0;
+      const bottomVerticalAlign = panel.bottom_vertical_align || 'bottom';
       
       return (
         <div 
           key={index}
-          className="flex-1 flex flex-col justify-between relative"
+          className={`flex-1 flex flex-col relative ${bottomVerticalAlign === 'bottom' ? 'justify-between' : 'justify-start'}`}
           style={{
             borderRight: index < displayPanels.length - 1 
               ? `${divider_weight}px solid rgba(${hexToRgb(divider_color)}, ${divider_opacity / 100})` 
@@ -106,7 +107,7 @@ export default function IEditImagePanelElement({ content, variant, settings }) {
           </div>
           
           <div 
-            className="mt-auto"
+            className={bottomVerticalAlign === 'bottom' ? 'mt-auto' : ''}
             style={{
               textAlign: panel.bottom_align || 'left',
               marginTop: textGap > 0 ? `${textGap}px` : undefined
@@ -311,6 +312,7 @@ export function IEditImagePanelElementEditor({ element, onChange }) {
     bottom_letter_spacing: 0,
     bottom_line_height: 1.5,
     bottom_align: 'left',
+    bottom_vertical_align: 'bottom',
     text_gap: 0,
     padding_top: 40,
     padding_bottom: 40,
@@ -975,30 +977,64 @@ export function IEditImagePanelElementEditor({ element, onChange }) {
                   </div>
 
                   <div className="border-b pb-3">
-                    <h5 className="text-sm font-semibold text-slate-700 mb-2">Text Gap</h5>
-                    <div className="space-y-2">
-                      <p className="text-xs text-slate-500">
-                        Set the minimum gap between Header Text and Bottom Text (in pixels).
-                      </p>
-                      <div className="flex items-center gap-3">
-                        <input
-                          type="range"
-                          min="0"
-                          max="200"
-                          step="5"
-                          value={panel.text_gap ?? 0}
-                          onChange={(e) => updatePanel(index, 'text_gap', parseInt(e.target.value) || 0)}
-                          className="flex-1"
-                        />
-                        <input
-                          type="number"
-                          value={panel.text_gap ?? 0}
-                          onChange={(e) => updatePanel(index, 'text_gap', parseInt(e.target.value) || 0)}
-                          className="w-16 px-2 py-1.5 border border-slate-300 rounded-md text-sm text-center"
-                          min="0"
-                          max="500"
-                        />
-                        <span className="text-xs text-slate-500">px</span>
+                    <h5 className="text-sm font-semibold text-slate-700 mb-2">Text Layout</h5>
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-xs font-medium mb-1">Bottom Text Vertical Alignment</label>
+                        <p className="text-xs text-slate-500 mb-2">
+                          Controls where the bottom text sits within the panel.
+                        </p>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => updatePanel(index, 'bottom_vertical_align', 'top')}
+                            className={`flex-1 px-3 py-2 rounded border text-sm font-medium transition-colors ${
+                              (panel.bottom_vertical_align || 'bottom') === 'top'
+                                ? 'bg-blue-600 text-white border-blue-600'
+                                : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
+                            }`}
+                          >
+                            Top (below header)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updatePanel(index, 'bottom_vertical_align', 'bottom')}
+                            className={`flex-1 px-3 py-2 rounded border text-sm font-medium transition-colors ${
+                              (panel.bottom_vertical_align || 'bottom') === 'bottom'
+                                ? 'bg-blue-600 text-white border-blue-600'
+                                : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
+                            }`}
+                          >
+                            Bottom (push down)
+                          </button>
+                        </div>
+                      </div>
+                      
+                      <div>
+                        <label className="block text-xs font-medium mb-1">Gap Between Header & Bottom Text</label>
+                        <p className="text-xs text-slate-500 mb-2">
+                          Set the minimum gap in pixels.
+                        </p>
+                        <div className="flex items-center gap-3">
+                          <input
+                            type="range"
+                            min="0"
+                            max="200"
+                            step="5"
+                            value={panel.text_gap ?? 0}
+                            onChange={(e) => updatePanel(index, 'text_gap', parseInt(e.target.value) || 0)}
+                            className="flex-1"
+                          />
+                          <input
+                            type="number"
+                            value={panel.text_gap ?? 0}
+                            onChange={(e) => updatePanel(index, 'text_gap', parseInt(e.target.value) || 0)}
+                            className="w-16 px-2 py-1.5 border border-slate-300 rounded-md text-sm text-center"
+                            min="0"
+                            max="500"
+                          />
+                          <span className="text-xs text-slate-500">px</span>
+                        </div>
                       </div>
                     </div>
                   </div>
