@@ -25,15 +25,42 @@ export default function MyJobPostingsPage() {
   const queryClient = useQueryClient();
 
   const { data: jobs = [], isLoading } = useQuery({
-    queryKey: ['my-job-postings', memberInfo?.id],
+    queryKey: ['my-job-postings', memberInfo?.id, memberInfo?.email],
     queryFn: async () => {
-      if (!memberInfo?.id) return [];
-      const allJobs = await base44.entities.JobPosting.filter({ 
-        posted_by_member_id: memberInfo.id 
+      if (!memberInfo?.id && !memberInfo?.email) return [];
+      
+      // Build filter queries - use posted_by_member_id (preferred) and contact_email (fallback for historical data)
+      const queries = [];
+      
+      if (memberInfo?.id) {
+        queries.push(base44.entities.JobPosting.filter({ posted_by_member_id: memberInfo.id }));
+      }
+      
+      if (memberInfo?.email) {
+        // Use ilike for case-insensitive email matching to handle legacy data with different casing
+        queries.push(base44.entities.JobPosting.list({ 
+          filter: { contact_email: { ilike: memberInfo.email.toLowerCase() } } 
+        }));
+      }
+      
+      if (queries.length === 0) return [];
+      
+      const results = await Promise.all(queries);
+      
+      // Merge and deduplicate jobs using a Map
+      const jobMap = new Map();
+      results.forEach(jobList => {
+        jobList.forEach(job => {
+          if (!jobMap.has(job.id)) {
+            jobMap.set(job.id, job);
+          }
+        });
       });
+      
+      const allJobs = Array.from(jobMap.values());
       return allJobs.sort((a, b) => new Date(b.created_date) - new Date(a.created_date));
     },
-    enabled: !!memberInfo?.id,
+    enabled: !!(memberInfo?.id || memberInfo?.email),
     staleTime: 0,
     refetchOnMount: true,
   });
