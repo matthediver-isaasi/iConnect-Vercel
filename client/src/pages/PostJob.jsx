@@ -1,11 +1,12 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
+import ReactQuill from 'react-quill';
+import 'react-quill/dist/quill.snow.css';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -144,6 +145,28 @@ export default function PostJobPage() {
     attachment_urls: [],
     attachment_names: []
   });
+
+  // Rich text editor configuration
+  const quillModules = useMemo(() => ({
+    toolbar: [
+      [{ 'header': [1, 2, 3, false] }],
+      ['bold', 'italic', 'underline'],
+      [{ 'color': [] }],
+      [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+      [{ 'align': [] }],
+      ['link'],
+      ['clean']
+    ],
+  }), []);
+
+  const quillFormats = [
+    'header',
+    'bold', 'italic', 'underline',
+    'color',
+    'list',
+    'align',
+    'link'
+  ];
 
   // Initialize Stripe
   useEffect(() => {
@@ -807,14 +830,17 @@ export default function PostJobPage() {
 
               <div className="space-y-2">
                 <Label htmlFor="description">Job Description *</Label>
-                <Textarea
-                  id="description"
-                  placeholder="Describe the role, responsibilities, requirements, etc."
-                  rows={10}
-                  value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  required />
-
+                <div className="bg-white rounded-md border border-slate-200">
+                  <ReactQuill
+                    theme="snow"
+                    value={formData.description}
+                    onChange={(value) => setFormData({ ...formData, description: value })}
+                    modules={quillModules}
+                    formats={quillFormats}
+                    placeholder="Describe the role, responsibilities, requirements, etc."
+                    className="[&_.ql-container]:min-h-[200px] [&_.ql-editor]:min-h-[200px]"
+                  />
+                </div>
               </div>
 
               <div className="space-y-4 p-4 bg-slate-50 rounded-lg">
