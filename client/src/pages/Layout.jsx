@@ -571,6 +571,7 @@ const pageToPortalPageMap = {
   'Balances': 'portal_balances',
   'History': 'portal_history',
   'Profile': 'portal_profile',
+  'MyOrganisation': 'portal_my_organisation',
   'JobBoard': 'portal_job_board',
   'News': 'portal_news',
   'NewsView': 'portal_news_view',
@@ -606,6 +607,9 @@ const getPortalPageId = () => {
 
 const currentPortalPageId = getPortalPageId();
 
+// Debug logging for banner matching
+console.log('[Layout] currentPageName:', currentPageName, 'currentPortalPageId:', currentPortalPageId);
+
 // Fetch portal banner for the current page
 const { data: portalBanner } = useQuery({
   queryKey: ['portal-banner', currentPortalPageId],
@@ -618,6 +622,16 @@ const { data: portalBanner } = useQuery({
         filter: { is_active: true },
         sort: { display_order: 'asc' }
       });
+      
+      // Debug: log all banners for MyOrganisation troubleshooting
+      if (currentPageName === 'MyOrganisation') {
+        console.log('[Layout] MyOrganisation DEBUG - looking for:', currentPortalPageId);
+        console.log('[Layout] All banners:', banners?.length);
+        banners?.forEach(b => {
+          console.log('[Layout] Banner:', b.name, 'associated_pages:', b.associated_pages);
+        });
+      }
+      
       // Find first banner that includes this portal page in its associated_pages array
       // Lower display_order takes priority
       const matchingBanner = banners?.find(banner => 
@@ -625,6 +639,8 @@ const { data: portalBanner } = useQuery({
         Array.isArray(banner.associated_pages) && 
         banner.associated_pages.includes(currentPortalPageId)
       );
+      
+      console.log('[Layout] Matched banner for', currentPageName, ':', matchingBanner?.name || 'none');
       return matchingBanner || null;
     } catch (error) {
       console.error('Error loading portal banner:', error);
