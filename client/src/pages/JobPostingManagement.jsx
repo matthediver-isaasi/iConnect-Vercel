@@ -5,7 +5,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -16,6 +15,9 @@ import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import ReactQuill from 'react-quill';
+import 'react-quill/dist/quill.snow.css';
+import DOMPurify from 'dompurify';
 
 export default function JobPostingManagementPage() {
   const { isAdmin, isFeatureExcluded, isAccessReady } = useMemberAccess();
@@ -33,6 +35,30 @@ export default function JobPostingManagementPage() {
   const [confirmAction, setConfirmAction] = useState(null);
   
   const queryClient = useQueryClient();
+
+  const quillModules = useMemo(() => ({
+    toolbar: {
+      container: [
+        [{ 'header': [1, 2, 3, false] }],
+        ['bold', 'italic', 'underline', 'strike'],
+        [{ 'color': [] }, { 'background': [] }],
+        [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+        [{ 'indent': '-1'}, { 'indent': '+1' }],
+        [{ 'align': [] }],
+        ['link'],
+        ['clean']
+      ]
+    },
+  }), []);
+
+  const quillFormats = [
+    'header',
+    'bold', 'italic', 'underline', 'strike',
+    'color', 'background',
+    'list', 'bullet', 'indent',
+    'align',
+    'link'
+  ];
 
   useEffect(() => {
     if (isAccessReady) {
@@ -552,7 +578,7 @@ export default function JobPostingManagementPage() {
                           </div>
 
                           <p className="text-sm text-slate-600 line-clamp-2 leading-relaxed mb-4">
-                            {job.description?.substring(0, 150)}...
+                            {job.description?.replace(/<[^>]*>/g, '').substring(0, 150)}...
                           </p>
 
                           <div className="flex gap-2 pt-4 border-t border-slate-200">
@@ -733,9 +759,10 @@ export default function JobPostingManagementPage() {
 
                 <div>
                   <h4 className="font-semibold text-slate-900 mb-2">Job Description</h4>
-                  <div className="prose prose-slate max-w-none bg-slate-50 p-4 rounded-lg">
-                    <div className="whitespace-pre-wrap">{selectedJob.description}</div>
-                  </div>
+                  <div 
+                    className="prose prose-slate max-w-none bg-slate-50 p-4 rounded-lg"
+                    dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(selectedJob.description || '') }}
+                  />
                 </div>
 
                 {selectedJob.attachment_urls && selectedJob.attachment_urls.length > 0 && (
@@ -924,12 +951,17 @@ export default function JobPostingManagementPage() {
 
                 <div className="space-y-2">
                   <Label htmlFor="description">Job Description *</Label>
-                  <Textarea
-                    id="description"
-                    value={editingJob.description}
-                    onChange={(e) => setEditingJob({ ...editingJob, description: e.target.value })}
-                    rows={10}
-                  />
+                  <div className="bg-white rounded-md border">
+                    <ReactQuill
+                      theme="snow"
+                      value={editingJob.description || ''}
+                      onChange={(value) => setEditingJob({ ...editingJob, description: value })}
+                      modules={quillModules}
+                      formats={quillFormats}
+                      placeholder="Describe the job role, responsibilities, and requirements..."
+                      style={{ minHeight: '200px' }}
+                    />
+                  </div>
                 </div>
 
                 <div className="space-y-4 p-4 bg-slate-50 rounded-lg">

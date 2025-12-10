@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { MapPin, Building2, Clock, Mail, ExternalLink, Briefcase, PoundSterling, ArrowLeft, AlertCircle, FileText, Download, Linkedin, Share2 } from "lucide-react";
 import { format, differenceInDays } from "date-fns";
 import { createPageUrl } from "@/utils";
+import DOMPurify from 'dompurify';
 
 export default function JobDetailsPage() {
   const urlParams = new URLSearchParams(window.location.search);
@@ -173,7 +174,7 @@ export default function JobDetailsPage() {
                 <CardTitle>Job Description</CardTitle>
               </CardHeader>
               <CardContent className="prose prose-slate max-w-none">
-                <div className="whitespace-pre-wrap">{job.description}</div>
+                <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(job.description || '') }} />
               </CardContent>
             </Card>
 

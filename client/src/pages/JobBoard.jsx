@@ -80,7 +80,7 @@ export default function JobBoardPage() {
       const matchesSearch = !searchQuery || 
         job.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         job.company_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        job.description?.toLowerCase().includes(searchQuery.toLowerCase());
+        job.description?.replace(/<[^>]*>/g, '').toLowerCase().includes(searchQuery.toLowerCase());
       
       const matchesLocation = !locationFilter ||
         job.location?.toLowerCase().includes(locationFilter.toLowerCase());
@@ -336,7 +336,7 @@ export default function JobBoardPage() {
 
                       {/* Description Preview */}
                       <p className="text-sm text-slate-600 line-clamp-3 leading-relaxed">
-                        {job.description?.substring(0, 180)}...
+                        {job.description?.replace(/<[^>]*>/g, '').substring(0, 180)}...
                       </p>
 
                       {/* View Details Link */}
