@@ -2950,20 +2950,11 @@ const functionHandlers = {
   },
 
   async checkMemberStatusByEmail(params) {
-    // Debug: Check if Supabase is configured
-    const supabaseConfigured = !!supabase;
-    const hasUrl = !!process.env.SUPABASE_URL;
-    const hasKey = !!process.env.SUPABASE_SERVICE_KEY;
-    
     if (!supabase) {
       return { 
         is_member: false, 
         has_job_posting_access: false,
-        debug: { 
-          error: 'Supabase not configured',
-          hasUrl,
-          hasKey
-        }
+        debug: { error: 'Supabase not configured' }
       };
     }
     
@@ -2973,12 +2964,17 @@ const functionHandlers = {
       return { is_member: false, has_job_posting_access: false, debug: { error: 'Email is required' } };
     }
 
-    console.log('[checkMemberStatusByEmail] Checking email:', email);
+    const searchEmail = email.toLowerCase().trim();
+    console.log('[checkMemberStatusByEmail] Checking email:', searchEmail);
     
     try {
-      const { data: allMembers, error: memberError } = await supabase.from('member').select('*');
+      // Query directly by email using case-insensitive match
+      const { data: members, error: memberError } = await supabase
+        .from('member')
+        .select('*')
+        .ilike('email', searchEmail);
       
-      console.log('[checkMemberStatusByEmail] Query result - members count:', allMembers?.length, 'error:', memberError);
+      console.log('[checkMemberStatusByEmail] Query result - found:', members?.length || 0);
       
       if (memberError) {
         console.error('[checkMemberStatusByEmail] Database error:', memberError);
@@ -2988,34 +2984,27 @@ const functionHandlers = {
           debug: { 
             error: memberError.message,
             code: memberError.code,
-            details: memberError.details
+            searchedEmail: searchEmail
           }
         };
       }
-      
-      // Debug info
-      const debugInfo = {
-        memberCount: allMembers?.length || 0,
-        searchedEmail: email.toLowerCase().trim(),
-        sampleEmails: allMembers?.slice(0, 5).map(m => m.email) || []
-      };
-      
-      const member = allMembers?.find(m => m.email?.toLowerCase().trim() === email.toLowerCase().trim());
-      
-      console.log('[checkMemberStatusByEmail] Found member:', !!member, member?.email);
 
-      if (member) {
+      if (members && members.length > 0) {
+        const member = members[0];
+        
         // Check if member has job posting access based on their role
         let has_job_posting_access = true; // Default to true if no role restrictions
         
         if (member.role_id) {
-          const { data: allRoles } = await supabase.from('role').select('*');
-          const memberRole = allRoles?.find(r => r.id === member.role_id);
+          const { data: role } = await supabase
+            .from('role')
+            .select('*')
+            .eq('id', member.role_id)
+            .single();
           
-          if (memberRole && memberRole.excluded_features) {
-            // Check if page_PostJob is in excluded features
-            const excludedFeatures = Array.isArray(memberRole.excluded_features) 
-              ? memberRole.excluded_features 
+          if (role && role.excluded_features) {
+            const excludedFeatures = Array.isArray(role.excluded_features) 
+              ? role.excluded_features 
               : [];
             has_job_posting_access = !excludedFeatures.includes('page_PostJob');
           }
@@ -3028,19 +3017,20 @@ const functionHandlers = {
           organization_id: member.organization_id,
           first_name: member.first_name,
           last_name: member.last_name,
-          debug: debugInfo
+          debug: { searchedEmail: searchEmail, foundEmail: member.email }
         };
       }
 
-      return { is_member: false, has_job_posting_access: false, debug: debugInfo };
+      return { 
+        is_member: false, 
+        has_job_posting_access: false, 
+        debug: { searchedEmail: searchEmail, message: 'No member found with this email' }
+      };
     } catch (err) {
       return { 
         is_member: false, 
         has_job_posting_access: false, 
-        debug: { 
-          error: err.message,
-          stack: err.stack?.split('\n').slice(0, 3)
-        }
+        debug: { error: err.message, searchedEmail: searchEmail }
       };
     }
   },

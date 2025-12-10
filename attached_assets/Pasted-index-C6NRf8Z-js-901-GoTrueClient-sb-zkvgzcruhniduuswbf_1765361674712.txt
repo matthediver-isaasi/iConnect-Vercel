@@ -1,0 +1,56 @@
+index-C6NRf8Z-.js:901 GoTrueClient@sb-zkvgzcruhniduuswbfyh-auth-token:1 (2.84.0) 2025-12-10T10:13:40.012Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+Vp @ index-C6NRf8Z-.js:901
+Hse @ index-C6NRf8Z-.js:902
+_initSupabaseAuthClient @ index-C6NRf8Z-.js:902
+Wse @ index-C6NRf8Z-.js:902
+hS @ index-C6NRf8Z-.js:902
+(anonymous) @ index-C6NRf8Z-.js:1409
+(anonymous) @ index-C6NRf8Z-.js:1
+(anonymous) @ index-C6NRf8Z-.js:1723
+index-C6NRf8Z-.js:901 GoTrueClient@sb-zkvgzcruhniduuswbfyh-auth-token:2 (2.84.0) 2025-12-10T10:13:40.014Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+Vp @ index-C6NRf8Z-.js:901
+Hse @ index-C6NRf8Z-.js:902
+_initSupabaseAuthClient @ index-C6NRf8Z-.js:902
+Wse @ index-C6NRf8Z-.js:902
+hS @ index-C6NRf8Z-.js:902
+(anonymous) @ index-C6NRf8Z-.js:1672
+(anonymous) @ index-C6NRf8Z-.js:1
+(anonymous) @ index-C6NRf8Z-.js:1723
+index-C6NRf8Z-.js:1094 [usePendingPurchaseOrders] memberInfo: null
+index-C6NRf8Z-.js:1094 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-C6NRf8Z-.js:1094 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-C6NRf8Z-.js:1094 [usePendingPurchaseOrders] memberInfo: null
+index-C6NRf8Z-.js:1094 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-C6NRf8Z-.js:1094 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-C6NRf8Z-.js:1094 [usePendingPurchaseOrders] memberInfo: null
+index-C6NRf8Z-.js:1094 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-C6NRf8Z-.js:1094 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-C6NRf8Z-.js:1094 [usePendingPurchaseOrders] memberInfo: null
+index-C6NRf8Z-.js:1094 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-C6NRf8Z-.js:1094 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-C6NRf8Z-.js:902 [useNavigationRealtime] Setting up realtime subscription for navigation_item table
+index-C6NRf8Z-.js:902 [useNavigationRealtime] Subscription status: SUBSCRIBED
+index-C6NRf8Z-.js:1094 [usePendingPurchaseOrders] memberInfo: null
+index-C6NRf8Z-.js:1094 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-C6NRf8Z-.js:1094 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-C6NRf8Z-.js:1094 [usePendingPurchaseOrders] memberInfo: null
+index-C6NRf8Z-.js:1094 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-C6NRf8Z-.js:1094 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-C6NRf8Z-.js:1060 [PublicLayout] Fetching banners for page: PostJob portalPageId: null isCustomSlug: true urlSlug: blogs
+index-C6NRf8Z-.js:1060 [PublicLayout] All banners found: 9
+index-C6NRf8Z-.js:1060 [PublicLayout] Matched banners: 0
+index-C6NRf8Z-.js:1544 [PostJob] checkMemberStatusByEmail response: {
+  "is_member": false,
+  "has_job_posting_access": false,
+  "debug": {
+    "memberCount": 1000,
+    "searchedEmail": "mat@isaasi.co.uk",
+    "sampleEmails": [
+      "test_s.morrison@abertay.ac.uk",
+      "gsftesting1@outlook.com",
+      "test_eleonora.ricci@regents.ac.uk",
+      "test_a.waterman@ucc.ie",
+      "test_brenda.nestor@ucc.ie"
+    ]
+  }
+}
