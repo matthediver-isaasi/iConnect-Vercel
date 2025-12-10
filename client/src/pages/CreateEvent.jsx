@@ -96,13 +96,16 @@ export default function CreateEvent() {
   const [eventStatus, setEventStatus] = useState("published"); // draft, published, tbc
   const [isOnline, setIsOnline] = useState(false);
   const [isProgramEvent, setIsProgramEvent] = useState(false);
+  const [zoomType, setZoomType] = useState("webinar"); // "webinar" or "meeting"
   const [selectedWebinarId, setSelectedWebinarId] = useState("");
+  const [selectedMeetingId, setSelectedMeetingId] = useState("");
   
   // Handler for status changes - clears TBC-incompatible fields synchronously
   const handleStatusChange = (newStatus) => {
     if (newStatus === 'tbc') {
-      // Clear dates and webinar when switching to TBC (but keep online mode available)
+      // Clear dates and webinar/meeting when switching to TBC (but keep online mode available)
       setSelectedWebinarId(null);
+      setSelectedMeetingId(null);
       setFormData(prev => ({
         ...prev,
         start_date: '',
@@ -135,6 +138,7 @@ export default function CreateEvent() {
     available_seats: "",
     delivery_mode: "offline",
     zoom_webinar_id: null,
+    zoom_meeting_id: null,
     online_url: "",
     cta_override_url: ""
   });
@@ -286,7 +290,16 @@ export default function CreateEvent() {
       const data = await apiRequest('/api/zoom/webinars');
       return data.filter(w => w.status === 'scheduled' && new Date(w.start_time) > new Date());
     },
-    enabled: isOnline
+    enabled: isOnline && zoomType === 'webinar'
+  });
+
+  const { data: meetings = [], isLoading: loadingMeetings } = useQuery({
+    queryKey: ['/api/zoom/meetings'],
+    queryFn: async () => {
+      const data = await apiRequest('/api/zoom/meetings');
+      return data.filter(m => m.status === 'scheduled' && new Date(m.start_time) > new Date());
+    },
+    enabled: isOnline && zoomType === 'meeting'
   });
 
   // Query for webinar show join link settings
@@ -314,6 +327,7 @@ export default function CreateEvent() {
   };
 
   const selectedWebinar = webinars.find(w => w.id === selectedWebinarId);
+  const selectedMeeting = meetings.find(m => m.id === selectedMeetingId);
 
   useEffect(() => {
     if (selectedWebinar) {
@@ -327,6 +341,7 @@ export default function CreateEvent() {
         start_date: startTime.toISOString(),
         end_date: endTime.toISOString(),
         zoom_webinar_id: selectedWebinar.id,
+        zoom_meeting_id: null,
         online_url: selectedWebinar.join_url || "",
         delivery_mode: "online",
         location: "Online Event",
@@ -334,6 +349,26 @@ export default function CreateEvent() {
       }));
     }
   }, [selectedWebinar]);
+
+  useEffect(() => {
+    if (selectedMeeting) {
+      const startTime = new Date(selectedMeeting.start_time);
+      const endTime = new Date(startTime.getTime() + (selectedMeeting.duration_minutes || 60) * 60000);
+      
+      setFormData(prev => ({
+        ...prev,
+        title: selectedMeeting.topic || prev.title,
+        description: selectedMeeting.agenda || prev.description,
+        start_date: startTime.toISOString(),
+        end_date: endTime.toISOString(),
+        zoom_webinar_id: null,
+        zoom_meeting_id: selectedMeeting.id,
+        online_url: selectedMeeting.join_url || "",
+        delivery_mode: "online",
+        location: "Online Event"
+      }));
+    }
+  }, [selectedMeeting]);
 
   const createEventMutation = useMutation({
     mutationFn: async (eventData) => {
@@ -373,9 +408,12 @@ export default function CreateEvent() {
       errors.push('Please set a start date and time');
     }
     
-    // Only require Zoom webinar for non-TBC online events
-    if (eventStatus !== 'tbc' && isOnline && !selectedWebinarId) {
-      errors.push('Please select a Zoom webinar for online events');
+    // Only require Zoom webinar/meeting for non-TBC online events
+    if (eventStatus !== 'tbc' && isOnline) {
+      const hasZoomSelection = (zoomType === 'webinar' && selectedWebinarId) || (zoomType === 'meeting' && selectedMeetingId);
+      if (!hasZoomSelection) {
+        errors.push(`Please select a Zoom ${zoomType} for online events`);
+      }
     }
 
     if (eventStatus !== 'tbc' && isOnline && loadingJoinLinkSettings) {
@@ -468,8 +506,9 @@ export default function CreateEvent() {
       location: locationValue,
       image_url: formData.image_url || null,
       available_seats: isOnline ? null : (formData.available_seats ? parseInt(formData.available_seats) : null),
-      // TBC events can optionally have a Zoom webinar
-      zoom_webinar_id: isOnline && selectedWebinarId ? selectedWebinarId : null,
+      // TBC events can optionally have a Zoom webinar or meeting
+      zoom_webinar_id: isOnline && zoomType === 'webinar' && selectedWebinarId ? selectedWebinarId : null,
+      zoom_meeting_id: isOnline && zoomType === 'meeting' && selectedMeetingId ? selectedMeetingId : null,
       speaker_ids: selectedSpeakers.length > 0 ? selectedSpeakers : [],
       // Convert composite keys back to plain labels for database storage
       filter_tags: selectedFilterTags.length > 0 
@@ -530,10 +569,13 @@ export default function CreateEvent() {
     setIsOnline(online);
     if (!online) {
       setSelectedWebinarId("");
+      setSelectedMeetingId("");
+      setZoomType("webinar");
       setFormData(prev => ({
         ...prev,
         delivery_mode: "offline",
         zoom_webinar_id: null,
+        zoom_meeting_id: null,
         online_url: "",
         available_seats: prev.available_seats || ""
       }));
@@ -611,7 +653,7 @@ export default function CreateEvent() {
               </RadioGroup>
               {eventStatus === 'tbc' && (
                 <p className="mt-3 text-sm text-blue-600 bg-blue-50 p-2 rounded">
-                  Dates will be shown as "To be confirmed" and Zoom webinar selection is optional.
+                  Dates will be shown as "To be confirmed" and Zoom webinar/meeting selection is optional.
                 </p>
               )}
             </CardContent>
@@ -639,7 +681,7 @@ export default function CreateEvent() {
                     </p>
                     <p className="text-sm text-slate-600">
                       {isOnline 
-                        ? 'Event will be hosted via Zoom webinar'
+                        ? 'Event will be hosted via Zoom'
                         : 'Event will be held at a physical location'
                       }
                     </p>
@@ -653,71 +695,177 @@ export default function CreateEvent() {
               </div>
 
               {isOnline && (
-                <div className="space-y-3">
-                  <Label>Select Zoom Webinar</Label>
-                  <Select
-                    value={selectedWebinarId}
-                    onValueChange={setSelectedWebinarId}
-                    disabled={loadingWebinars}
-                    data-testid="select-webinar"
-                  >
-                    <SelectTrigger data-testid="select-webinar-trigger">
-                      <SelectValue placeholder={loadingWebinars ? "Loading webinars..." : "Choose a scheduled webinar"} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {webinars.length === 0 && !loadingWebinars && (
-                        <div className="p-4 text-center text-sm text-slate-500">
-                          No upcoming webinars available.
-                          <Button 
-                            variant="link" 
-                            className="p-0 h-auto ml-1"
-                            onClick={() => window.location.href = createPageUrl('ZoomWebinarProvisioning')}
-                          >
-                            Create one first
-                          </Button>
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>Zoom Event Type</Label>
+                    <div className="flex gap-2">
+                      <Button
+                        type="button"
+                        variant={zoomType === 'webinar' ? 'default' : 'outline'}
+                        size="sm"
+                        onClick={() => {
+                          setZoomType('webinar');
+                          setSelectedMeetingId('');
+                        }}
+                        data-testid="button-zoom-type-webinar"
+                      >
+                        <Users className="h-4 w-4 mr-2" />
+                        Webinar
+                      </Button>
+                      <Button
+                        type="button"
+                        variant={zoomType === 'meeting' ? 'default' : 'outline'}
+                        size="sm"
+                        onClick={() => {
+                          setZoomType('meeting');
+                          setSelectedWebinarId('');
+                        }}
+                        data-testid="button-zoom-type-meeting"
+                      >
+                        <Video className="h-4 w-4 mr-2" />
+                        Meeting
+                      </Button>
+                    </div>
+                    <p className="text-xs text-slate-500">
+                      {zoomType === 'webinar' 
+                        ? 'Webinars are for large audiences with panel and registration features'
+                        : 'Meetings are for interactive sessions with all participants able to share video/audio'
+                      }
+                    </p>
+                  </div>
+
+                  {zoomType === 'webinar' && (
+                    <>
+                      <div className="space-y-2">
+                        <Label>Select Zoom Webinar</Label>
+                        <Select
+                          value={selectedWebinarId}
+                          onValueChange={setSelectedWebinarId}
+                          disabled={loadingWebinars}
+                          data-testid="select-webinar"
+                        >
+                          <SelectTrigger data-testid="select-webinar-trigger">
+                            <SelectValue placeholder={loadingWebinars ? "Loading webinars..." : "Choose a scheduled webinar"} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {webinars.length === 0 && !loadingWebinars && (
+                              <div className="p-4 text-center text-sm text-slate-500">
+                                No upcoming webinars available.
+                                <Button 
+                                  variant="link" 
+                                  className="p-0 h-auto ml-1"
+                                  onClick={() => window.location.href = createPageUrl('ZoomWebinarProvisioning')}
+                                >
+                                  Create one first
+                                </Button>
+                              </div>
+                            )}
+                            {webinars.map((webinar) => (
+                              <SelectItem key={webinar.id} value={webinar.id} data-testid={`select-webinar-${webinar.id}`}>
+                                <div className="flex flex-col">
+                                  <span className="font-medium">{webinar.topic}</span>
+                                  <span className="text-xs text-slate-500">{formatWebinarDateTime(webinar)}</span>
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      {selectedWebinar && (
+                        <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+                          <div className="flex items-center gap-2 mb-2">
+                            <Users className="h-4 w-4 text-green-600" />
+                            <span className="font-medium text-green-900">Webinar Selected</span>
+                          </div>
+                          <div className="space-y-1 text-sm text-green-800">
+                            <p><strong>Topic:</strong> {selectedWebinar.topic}</p>
+                            <p><strong>Date:</strong> {formatWebinarDateTime(selectedWebinar)}</p>
+                            <p><strong>Duration:</strong> {selectedWebinar.duration_minutes || selectedWebinar.duration} minutes</p>
+                            {selectedWebinar.timezone && (
+                              <p><strong>Timezone:</strong> {selectedWebinar.timezone}</p>
+                            )}
+                            <div className="mt-2 pt-2 border-t border-green-300">
+                              <p className="flex items-center gap-2">
+                                <strong>Join Link:</strong>
+                                {loadingJoinLinkSettings ? (
+                                  <span className="text-slate-500">Loading settings...</span>
+                                ) : getShowJoinLink(selectedWebinarId) ? (
+                                  <span className="text-green-700">Will be visible on event page</span>
+                                ) : (
+                                  <span className="text-amber-700">Hidden - members must register via ticket purchase</span>
+                                )}
+                              </p>
+                              <p className="text-xs text-green-600 mt-1">
+                                Change this setting in Zoom Webinar Provisioning
+                              </p>
+                            </div>
+                          </div>
                         </div>
                       )}
-                      {webinars.map((webinar) => (
-                        <SelectItem key={webinar.id} value={webinar.id} data-testid={`select-webinar-${webinar.id}`}>
-                          <div className="flex flex-col">
-                            <span className="font-medium">{webinar.topic}</span>
-                            <span className="text-xs text-slate-500">{formatWebinarDateTime(webinar)}</span>
-                          </div>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                    </>
+                  )}
 
-                  {selectedWebinar && (
-                    <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Video className="h-4 w-4 text-green-600" />
-                        <span className="font-medium text-green-900">Webinar Selected</span>
-                      </div>
-                      <div className="space-y-1 text-sm text-green-800">
-                        <p><strong>Topic:</strong> {selectedWebinar.topic}</p>
-                        <p><strong>Date:</strong> {formatWebinarDateTime(selectedWebinar)}</p>
-                        <p><strong>Duration:</strong> {selectedWebinar.duration} minutes</p>
-                        {selectedWebinar.timezone && (
-                          <p><strong>Timezone:</strong> {selectedWebinar.timezone}</p>
-                        )}
-                        <div className="mt-2 pt-2 border-t border-green-300">
-                          <p className="flex items-center gap-2">
-                            <strong>Join Link:</strong>
-                            {loadingJoinLinkSettings ? (
-                              <span className="text-slate-500">Loading settings...</span>
-                            ) : getShowJoinLink(selectedWebinarId) ? (
-                              <span className="text-green-700">Will be visible on event page</span>
-                            ) : (
-                              <span className="text-amber-700">Hidden - members must register via ticket purchase</span>
+                  {zoomType === 'meeting' && (
+                    <>
+                      <div className="space-y-2">
+                        <Label>Select Zoom Meeting</Label>
+                        <Select
+                          value={selectedMeetingId}
+                          onValueChange={setSelectedMeetingId}
+                          disabled={loadingMeetings}
+                          data-testid="select-meeting"
+                        >
+                          <SelectTrigger data-testid="select-meeting-trigger">
+                            <SelectValue placeholder={loadingMeetings ? "Loading meetings..." : "Choose a scheduled meeting"} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {meetings.length === 0 && !loadingMeetings && (
+                              <div className="p-4 text-center text-sm text-slate-500">
+                                No upcoming meetings available.
+                                <Button 
+                                  variant="link" 
+                                  className="p-0 h-auto ml-1"
+                                  onClick={() => window.location.href = createPageUrl('ZoomWebinarProvisioning')}
+                                >
+                                  Create one first
+                                </Button>
+                              </div>
                             )}
-                          </p>
-                          <p className="text-xs text-green-600 mt-1">
-                            Change this setting in Zoom Webinar Provisioning
-                          </p>
-                        </div>
+                            {meetings.map((meeting) => (
+                              <SelectItem key={meeting.id} value={meeting.id} data-testid={`select-meeting-${meeting.id}`}>
+                                <div className="flex flex-col">
+                                  <span className="font-medium">{meeting.topic}</span>
+                                  <span className="text-xs text-slate-500">{formatWebinarDateTime(meeting)}</span>
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
-                    </div>
+
+                      {selectedMeeting && (
+                        <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                          <div className="flex items-center gap-2 mb-2">
+                            <Video className="h-4 w-4 text-blue-600" />
+                            <span className="font-medium text-blue-900">Meeting Selected</span>
+                          </div>
+                          <div className="space-y-1 text-sm text-blue-800">
+                            <p><strong>Topic:</strong> {selectedMeeting.topic}</p>
+                            <p><strong>Date:</strong> {formatWebinarDateTime(selectedMeeting)}</p>
+                            <p><strong>Duration:</strong> {selectedMeeting.duration_minutes} minutes</p>
+                            {selectedMeeting.timezone && (
+                              <p><strong>Timezone:</strong> {selectedMeeting.timezone}</p>
+                            )}
+                            <div className="mt-2 pt-2 border-t border-blue-300">
+                              <p className="text-blue-700">
+                                Join link will be visible on event page
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               )}

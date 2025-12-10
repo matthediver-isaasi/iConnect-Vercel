@@ -80,18 +80,24 @@ export default function EditEvent() {
   // Online event toggle (controlled state for TBC compatibility)
   const [isOnlineEvent, setIsOnlineEvent] = useState(false);
   
+  // Zoom type selection: webinar or meeting
+  const [zoomType, setZoomType] = useState("webinar");
+  const [selectedMeetingId, setSelectedMeetingId] = useState("");
+  
   // Event status: draft, published, tbc
   const [eventStatus, setEventStatus] = useState("published");
   
   // Handler for status changes - clears TBC-incompatible fields synchronously
   const handleStatusChange = (newStatus) => {
     if (newStatus === 'tbc') {
-      // Clear dates and webinar when switching to TBC (but keep online mode available)
+      // Clear dates and webinar/meeting when switching to TBC (but keep online mode available)
+      setSelectedMeetingId("");
       setFormData(prev => ({
         ...prev,
         start_date: '',
         end_date: '',
-        zoom_webinar_id: null
+        zoom_webinar_id: null,
+        zoom_meeting_id: null
       }));
     }
     setEventStatus(newStatus);
@@ -114,7 +120,8 @@ export default function EditEvent() {
     location: "",
     image_url: "",
     available_seats: "",
-    zoom_webinar_id: null
+    zoom_webinar_id: null,
+    zoom_meeting_id: null
   });
 
   const { data: event, isLoading: loadingEvent, error: eventError } = useQuery({
@@ -333,8 +340,18 @@ export default function EditEvent() {
           ? String(event.available_seats) 
           : "",
         zoom_webinar_id: event.zoom_webinar_id || null,
+        zoom_meeting_id: event.zoom_meeting_id || null,
         cta_override_url: event.cta_override_url || ""
       });
+      
+      // Set zoom type based on which field is populated
+      if (event.zoom_meeting_id) {
+        setZoomType("meeting");
+        setSelectedMeetingId(event.zoom_meeting_id);
+      } else if (event.zoom_webinar_id) {
+        setZoomType("webinar");
+      }
+      
       setInitialDataLoaded(true);
 
       // Set isProgramEvent based on whether event has a program_tag
@@ -570,8 +587,9 @@ export default function EditEvent() {
       location: isOnlineEvent ? null : (formData.location || null),
       image_url: formData.image_url || null,
       available_seats: isNaN(parsedSeats) ? null : parsedSeats,
-      // TBC events can optionally have a Zoom webinar
-      zoom_webinar_id: formData.zoom_webinar_id || null,
+      // TBC events can optionally have a Zoom webinar or meeting
+      zoom_webinar_id: zoomType === 'webinar' ? (formData.zoom_webinar_id || null) : null,
+      zoom_meeting_id: zoomType === 'meeting' ? (selectedMeetingId || null) : null,
       speaker_ids: selectedSpeakers.length > 0 ? selectedSpeakers : [],
       // Convert composite keys back to plain labels for database storage
       filter_tags: selectedFilterTags.length > 0 
@@ -706,7 +724,7 @@ export default function EditEvent() {
               <span className="font-medium text-blue-900">Online Event</span>
             </div>
             <p className="text-sm text-blue-800">
-              This is an online event linked to a Zoom webinar. The date, time, and location fields are managed by Zoom and cannot be edited here.
+              This is an online event linked to a Zoom {formData.zoom_meeting_id ? 'meeting' : 'webinar'}. The date, time, and location fields are managed by Zoom and cannot be edited here.
             </p>
           </div>
         )}
@@ -752,7 +770,7 @@ export default function EditEvent() {
               </RadioGroup>
               {eventStatus === 'tbc' && (
                 <p className="mt-3 text-sm text-blue-600 bg-blue-50 p-2 rounded">
-                  Dates will be shown as "To be confirmed" and Zoom webinar selection is optional.
+                  Dates will be shown as "To be confirmed" and Zoom webinar/meeting selection is optional.
                 </p>
               )}
             </CardContent>

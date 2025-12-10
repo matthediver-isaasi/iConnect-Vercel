@@ -41,6 +41,9 @@ export default function ZoomWebinarProvisioning() {
   const [accessChecked, setAccessChecked] = useState(false);
   const queryClient = useQueryClient();
   
+  // Tab state for switching between webinars and meetings
+  const [activeTab, setActiveTab] = useState("webinars");
+  
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showDetailsDialog, setShowDetailsDialog] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
@@ -49,6 +52,15 @@ export default function ZoomWebinarProvisioning() {
   const [editingWebinar, setEditingWebinar] = useState(null);
   const [webinarToDelete, setWebinarToDelete] = useState(null);
   const [copiedField, setCopiedField] = useState(null);
+  
+  // Meeting-specific states
+  const [showMeetingCreateDialog, setShowMeetingCreateDialog] = useState(false);
+  const [showMeetingDetailsDialog, setShowMeetingDetailsDialog] = useState(false);
+  const [showMeetingEditDialog, setShowMeetingEditDialog] = useState(false);
+  const [showMeetingDeleteConfirm, setShowMeetingDeleteConfirm] = useState(false);
+  const [selectedMeeting, setSelectedMeeting] = useState(null);
+  const [editingMeeting, setEditingMeeting] = useState(null);
+  const [meetingToDelete, setMeetingToDelete] = useState(null);
   
   const [formData, setFormData] = useState({
     topic: "",
@@ -60,6 +72,18 @@ export default function ZoomWebinarProvisioning() {
     registration_required: true,
     host_id: "",
     panelists: []
+  });
+
+  // Meeting form data (meetings don't have panelists)
+  const [meetingFormData, setMeetingFormData] = useState({
+    topic: "",
+    agenda: "",
+    start_date: "",
+    start_time: "",
+    duration_minutes: 60,
+    timezone: "Europe/London",
+    registration_required: false,
+    host_id: ""
   });
   
   const timezoneOptions = [
@@ -185,6 +209,15 @@ export default function ZoomWebinarProvisioning() {
   const { data: webinars = [], isLoading: loadingWebinars, refetch: refetchWebinars } = useQuery({
     queryKey: ['/api/zoom/webinars'],
     queryFn: () => apiRequest('/api/zoom/webinars'),
+    enabled: accessChecked,
+    staleTime: 0,
+    refetchOnMount: true
+  });
+
+  // Query for Zoom meetings
+  const { data: meetings = [], isLoading: loadingMeetings, refetch: refetchMeetings } = useQuery({
+    queryKey: ['/api/zoom/meetings'],
+    queryFn: () => apiRequest('/api/zoom/meetings'),
     enabled: accessChecked,
     staleTime: 0,
     refetchOnMount: true
@@ -404,6 +437,162 @@ export default function ZoomWebinarProvisioning() {
     });
     setNewPanelist({ name: "", email: "" });
     setConflicts([]);
+  };
+
+  const resetMeetingForm = () => {
+    setMeetingFormData({
+      topic: "",
+      agenda: "",
+      start_date: "",
+      start_time: "",
+      duration_minutes: 60,
+      timezone: "Europe/London",
+      registration_required: false,
+      host_id: ""
+    });
+  };
+
+  // Meeting mutations
+  const createMeetingMutation = useMutation({
+    mutationFn: async (data) => {
+      return apiRequest('/api/zoom/meetings', {
+        method: 'POST',
+        body: JSON.stringify(data),
+        headers: { 'Content-Type': 'application/json' }
+      });
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/zoom/meetings'] });
+      toast.success('Meeting created successfully');
+      setShowMeetingCreateDialog(false);
+      resetMeetingForm();
+      if (data.meeting) {
+        setSelectedMeeting(data.meeting);
+        setShowMeetingDetailsDialog(true);
+      }
+    },
+    onError: (error) => {
+      toast.error('Failed to create meeting: ' + (error.message || 'Unknown error'));
+    }
+  });
+
+  const deleteMeetingMutation = useMutation({
+    mutationFn: async (id) => {
+      return apiRequest(`/api/zoom/meetings/${id}?deleteFromZoom=true`, {
+        method: 'DELETE'
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/zoom/meetings'] });
+      toast.success('Meeting cancelled successfully');
+      setShowMeetingDetailsDialog(false);
+      setSelectedMeeting(null);
+    },
+    onError: (error) => {
+      toast.error('Failed to cancel meeting: ' + (error.message || 'Unknown error'));
+    }
+  });
+
+  const updateMeetingMutation = useMutation({
+    mutationFn: async ({ id, data }) => {
+      return apiRequest(`/api/zoom/meetings/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+        headers: { 'Content-Type': 'application/json' }
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/zoom/meetings'] });
+      toast.success('Meeting updated successfully');
+      setShowMeetingEditDialog(false);
+      setEditingMeeting(null);
+      resetMeetingForm();
+    },
+    onError: (error) => {
+      toast.error('Failed to update meeting: ' + (error.message || 'Unknown error'));
+    }
+  });
+
+  const openMeetingDetailsDialog = async (meeting) => {
+    setSelectedMeeting(meeting);
+    setShowMeetingDetailsDialog(true);
+  };
+
+  const openMeetingEditDialog = (meeting) => {
+    setEditingMeeting(meeting);
+    const meetingTimezone = meeting.timezone || "Europe/London";
+    setMeetingFormData({
+      topic: meeting.topic || "",
+      agenda: meeting.agenda || "",
+      start_date: formatInTimeZone(parseISO(meeting.start_time), meetingTimezone, "yyyy-MM-dd"),
+      start_time: formatInTimeZone(parseISO(meeting.start_time), meetingTimezone, "HH:mm"),
+      duration_minutes: meeting.duration_minutes || 60,
+      timezone: meetingTimezone,
+      registration_required: meeting.registration_required || false,
+      host_id: meeting.zoom_host_id || ""
+    });
+    setShowMeetingDetailsDialog(false);
+    setShowMeetingEditDialog(true);
+  };
+
+  const handleMeetingEditSubmit = () => {
+    if (!meetingFormData.topic) {
+      toast.error('Please enter a meeting topic');
+      return;
+    }
+    if (!meetingFormData.start_date || !meetingFormData.start_time) {
+      toast.error('Please select date and time');
+      return;
+    }
+    
+    const startTime = new Date(`${meetingFormData.start_date}T${meetingFormData.start_time}`);
+    
+    if (startTime < new Date()) {
+      toast.error('Start time must be in the future');
+      return;
+    }
+    
+    const startTimeLocal = `${meetingFormData.start_date}T${meetingFormData.start_time}:00`;
+    
+    updateMeetingMutation.mutate({
+      id: editingMeeting.id,
+      data: {
+        topic: meetingFormData.topic,
+        agenda: meetingFormData.agenda,
+        start_time: startTimeLocal,
+        duration_minutes: meetingFormData.duration_minutes,
+        timezone: meetingFormData.timezone
+      }
+    });
+  };
+
+  const handleMeetingCreate = () => {
+    if (!meetingFormData.topic) {
+      toast.error('Please enter a meeting topic');
+      return;
+    }
+    if (!meetingFormData.start_date || !meetingFormData.start_time) {
+      toast.error('Please select date and time');
+      return;
+    }
+    
+    const startTime = new Date(`${meetingFormData.start_date}T${meetingFormData.start_time}`);
+    
+    if (startTime < new Date()) {
+      toast.error('Start time must be in the future');
+      return;
+    }
+    
+    const startTimeLocal = `${meetingFormData.start_date}T${meetingFormData.start_time}:00`;
+    
+    createMeetingMutation.mutate({
+      topic: meetingFormData.topic,
+      agenda: meetingFormData.agenda,
+      start_time: startTimeLocal,
+      duration_minutes: meetingFormData.duration_minutes,
+      timezone: meetingFormData.timezone,
+      host_id: meetingFormData.host_id || undefined
+    });
   };
 
   const openEditDialog = (webinar) => {
@@ -660,6 +849,14 @@ export default function ZoomWebinarProvisioning() {
   );
   const cancelledWebinars = webinars.filter(w => w.status === 'cancelled');
 
+  // Meeting lists
+  const upcomingMeetings = meetings.filter(m => 
+    m.status !== 'cancelled' && new Date(m.start_time) > new Date()
+  );
+  const pastMeetings = meetings.filter(m => 
+    m.status !== 'cancelled' && new Date(m.start_time) <= new Date()
+  );
+
   // Check if a webinar has conflicts with other upcoming webinars
   const getWebinarConflicts = (webinar) => {
     const webinarStart = new Date(webinar.start_time);
@@ -689,31 +886,75 @@ export default function ZoomWebinarProvisioning() {
       <div className="max-w-7xl mx-auto" data-testid="zoom-webinar-page">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900" data-testid="text-page-title">Zoom Webinar Provisioning</h1>
-          <p className="text-slate-600 mt-1">Create and manage Zoom webinars for events</p>
-        </div>
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            onClick={() => refetchWebinars()}
-            data-testid="button-refresh-webinars"
-          >
-            <RefreshCw className="w-4 h-4 mr-2" />
-            Refresh
-          </Button>
-          <Button
-            onClick={() => {
-              resetForm();
-              setShowCreateDialog(true);
-            }}
-            className="bg-amber-600 hover:bg-amber-700"
-            data-testid="button-create-webinar"
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            Create Webinar
-          </Button>
+          <h1 className="text-2xl font-bold text-slate-900" data-testid="text-page-title">Zoom Provisioning</h1>
+          <p className="text-slate-600 mt-1">Create and manage Zoom webinars and meetings for events</p>
         </div>
       </div>
+
+      {/* Tab navigation for Webinars vs Meetings */}
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-6">
+        <div className="flex items-center justify-between">
+          <TabsList>
+            <TabsTrigger value="webinars" data-testid="tab-webinars">
+              <Video className="w-4 h-4 mr-2" />
+              Webinars ({webinars.length})
+            </TabsTrigger>
+            <TabsTrigger value="meetings" data-testid="tab-meetings">
+              <Users className="w-4 h-4 mr-2" />
+              Meetings ({meetings.length})
+            </TabsTrigger>
+          </TabsList>
+          <div className="flex gap-2">
+            {activeTab === "webinars" ? (
+              <>
+                <Button
+                  variant="outline"
+                  onClick={() => refetchWebinars()}
+                  data-testid="button-refresh-webinars"
+                >
+                  <RefreshCw className="w-4 h-4 mr-2" />
+                  Refresh
+                </Button>
+                <Button
+                  onClick={() => {
+                    resetForm();
+                    setShowCreateDialog(true);
+                  }}
+                  className="bg-amber-600 hover:bg-amber-700"
+                  data-testid="button-create-webinar"
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  Create Webinar
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  variant="outline"
+                  onClick={() => refetchMeetings()}
+                  data-testid="button-refresh-meetings"
+                >
+                  <RefreshCw className="w-4 h-4 mr-2" />
+                  Refresh
+                </Button>
+                <Button
+                  onClick={() => {
+                    resetMeetingForm();
+                    setShowMeetingCreateDialog(true);
+                  }}
+                  className="bg-amber-600 hover:bg-amber-700"
+                  data-testid="button-create-meeting"
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  Create Meeting
+                </Button>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Webinars Tab Content */}
+        <TabsContent value="webinars" className="mt-4">
 
       {upcomingWebinars.length > 0 && (
         <Card className="mb-6" data-testid="card-upcoming-webinars">
@@ -841,6 +1082,113 @@ export default function ZoomWebinarProvisioning() {
           </CardContent>
         </Card>
       )}
+
+        </TabsContent>
+
+        {/* Meetings Tab Content */}
+        <TabsContent value="meetings" className="mt-4">
+          {upcomingMeetings.length > 0 && (
+            <Card className="mb-6" data-testid="card-upcoming-meetings">
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Calendar className="w-5 h-5 text-blue-600" />
+                  Upcoming Meetings ({upcomingMeetings.length})
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  {upcomingMeetings.map(meeting => (
+                    <div 
+                      key={meeting.id}
+                      className="flex items-center justify-between p-4 border rounded-lg hover:bg-slate-50 cursor-pointer transition-colors"
+                      onClick={() => openMeetingDetailsDialog(meeting)}
+                      data-testid={`meeting-row-${meeting.id}`}
+                    >
+                      <div className="flex items-center gap-4">
+                        <div className="p-2 rounded-lg bg-green-50">
+                          <Users className="w-5 h-5 text-green-600" />
+                        </div>
+                        <div>
+                          <p className="font-medium text-slate-900">{meeting.topic}</p>
+                          <p className="text-sm text-slate-500">{formatWebinarDate(meeting.start_time, meeting.timezone)}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="text-sm text-slate-500">{meeting.duration_minutes} min</span>
+                        {getStatusBadge(meeting.status)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {pastMeetings.length > 0 && (
+            <Card className="mb-6" data-testid="card-past-meetings">
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center gap-2 text-slate-600">
+                  <Clock className="w-5 h-5" />
+                  Past Meetings ({pastMeetings.length})
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  {pastMeetings.slice(0, 5).map(meeting => (
+                    <div 
+                      key={meeting.id}
+                      className="flex items-center justify-between p-4 border rounded-lg hover:bg-slate-50 cursor-pointer transition-colors opacity-75"
+                      onClick={() => openMeetingDetailsDialog(meeting)}
+                      data-testid={`meeting-past-row-${meeting.id}`}
+                    >
+                      <div className="flex items-center gap-4">
+                        <div className="p-2 bg-slate-100 rounded-lg">
+                          <Users className="w-5 h-5 text-slate-500" />
+                        </div>
+                        <div>
+                          <p className="font-medium text-slate-700">{meeting.topic}</p>
+                          <p className="text-sm text-slate-500">{formatWebinarDate(meeting.start_time, meeting.timezone)}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="text-sm text-slate-500">{meeting.duration_minutes} min</span>
+                        {getStatusBadge(meeting.status)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {loadingMeetings && (
+            <div className="flex items-center justify-center py-12">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-amber-600"></div>
+            </div>
+          )}
+
+          {!loadingMeetings && meetings.length === 0 && (
+            <Card className="text-center py-12">
+              <CardContent>
+                <Users className="w-12 h-12 text-slate-300 mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-slate-900 mb-2">No meetings yet</h3>
+                <p className="text-slate-500 mb-4">Create your first Zoom meeting to get started</p>
+                <Button
+                  onClick={() => {
+                    resetMeetingForm();
+                    setShowMeetingCreateDialog(true);
+                  }}
+                  className="bg-amber-600 hover:bg-amber-700"
+                  data-testid="button-create-first-meeting"
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  Create Meeting
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+      </Tabs>
 
       <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -1794,6 +2142,415 @@ export default function ZoomWebinarProvisioning() {
             >
               <Trash2 className="w-4 h-4 mr-2" />
               Delete Webinar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Meeting Create Dialog */}
+      <Dialog open={showMeetingCreateDialog} onOpenChange={setShowMeetingCreateDialog}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Users className="w-5 h-5" />
+              Create Zoom Meeting
+            </DialogTitle>
+            <DialogDescription>
+              Schedule a new Zoom meeting
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-6 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="meeting-topic">Meeting Topic *</Label>
+              <Input
+                id="meeting-topic"
+                value={meetingFormData.topic}
+                onChange={(e) => setMeetingFormData(prev => ({ ...prev, topic: e.target.value }))}
+                placeholder="Enter meeting topic"
+                data-testid="input-meeting-topic"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="meeting-agenda">Description</Label>
+              <div className="border rounded-md">
+                <ReactQuill
+                  id="meeting-agenda"
+                  theme="snow"
+                  value={meetingFormData.agenda}
+                  onChange={(value) => setMeetingFormData(prev => ({ ...prev, agenda: value }))}
+                  modules={quillModules}
+                  formats={quillFormats}
+                  placeholder="Enter meeting description (optional)"
+                  className="bg-white"
+                  data-testid="input-meeting-agenda"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="meeting-start-date">Date *</Label>
+                <Input
+                  id="meeting-start-date"
+                  type="date"
+                  value={meetingFormData.start_date}
+                  onChange={(e) => setMeetingFormData(prev => ({ ...prev, start_date: e.target.value }))}
+                  min={new Date().toISOString().split('T')[0]}
+                  data-testid="input-meeting-start-date"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="meeting-start-time">Time *</Label>
+                <Input
+                  id="meeting-start-time"
+                  type="time"
+                  value={meetingFormData.start_time}
+                  onChange={(e) => setMeetingFormData(prev => ({ ...prev, start_time: e.target.value }))}
+                  data-testid="input-meeting-start-time"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="meeting-timezone">Timezone</Label>
+              <Select
+                value={meetingFormData.timezone}
+                onValueChange={(value) => setMeetingFormData(prev => ({ ...prev, timezone: value }))}
+              >
+                <SelectTrigger data-testid="select-meeting-timezone">
+                  <SelectValue placeholder="Select timezone" />
+                </SelectTrigger>
+                <SelectContent>
+                  {timezoneOptions.map(tz => (
+                    <SelectItem key={tz.value} value={tz.value}>
+                      {tz.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="meeting-duration">Duration (minutes)</Label>
+              <Input
+                id="meeting-duration"
+                type="number"
+                min={15}
+                max={480}
+                step={15}
+                value={meetingFormData.duration_minutes}
+                onChange={(e) => setMeetingFormData(prev => ({ ...prev, duration_minutes: parseInt(e.target.value) || 60 }))}
+                data-testid="input-meeting-duration"
+              />
+            </div>
+
+            {zoomUsers.length > 0 && (
+              <div className="space-y-2">
+                <Label htmlFor="meeting-host">Host</Label>
+                <Select
+                  value={meetingFormData.host_id || "default"}
+                  onValueChange={(value) => setMeetingFormData(prev => ({ ...prev, host_id: value === "default" ? "" : value }))}
+                >
+                  <SelectTrigger data-testid="select-meeting-host">
+                    <SelectValue placeholder="Select host (optional)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="default">Default account host</SelectItem>
+                    {zoomUsers.map(user => (
+                      <SelectItem key={user.id} value={user.id}>
+                        {user.first_name} {user.last_name} ({user.email})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowMeetingCreateDialog(false);
+                resetMeetingForm();
+              }}
+              data-testid="button-cancel-create-meeting"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleMeetingCreate}
+              disabled={createMeetingMutation.isPending || !meetingFormData.topic || !meetingFormData.start_date || !meetingFormData.start_time}
+              className="bg-amber-600 hover:bg-amber-700"
+              data-testid="button-submit-create-meeting"
+            >
+              {createMeetingMutation.isPending ? (
+                <>
+                  <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                  Creating...
+                </>
+              ) : (
+                <>
+                  <Plus className="w-4 h-4 mr-2" />
+                  Create Meeting
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Meeting Details Dialog */}
+      <Dialog open={showMeetingDetailsDialog} onOpenChange={setShowMeetingDetailsDialog}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Users className="w-5 h-5" />
+              Meeting Details
+            </DialogTitle>
+          </DialogHeader>
+
+          {selectedMeeting && (
+            <div className="space-y-6 py-4">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900">{selectedMeeting.topic}</h3>
+                <p className="text-slate-500 mt-1">{formatWebinarDate(selectedMeeting.start_time, selectedMeeting.timezone)}</p>
+                <p className="text-sm text-slate-500">{selectedMeeting.duration_minutes} minutes</p>
+              </div>
+
+              {selectedMeeting.agenda && (
+                <div>
+                  <Label className="text-slate-600">Description</Label>
+                  <div className="mt-2 p-3 bg-slate-50 rounded-lg prose prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: selectedMeeting.agenda }} />
+                </div>
+              )}
+
+              <div className="space-y-3">
+                <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                  <div className="flex items-center gap-3">
+                    <LinkIcon className="w-4 h-4 text-slate-400" />
+                    <div>
+                      <p className="text-sm font-medium">Join URL</p>
+                      <p className="text-xs text-slate-500 truncate max-w-[300px]">{selectedMeeting.join_url}</p>
+                    </div>
+                  </div>
+                  <Button 
+                    size="icon" 
+                    variant="ghost"
+                    onClick={() => {
+                      navigator.clipboard.writeText(selectedMeeting.join_url);
+                      toast.success('Join URL copied');
+                    }}
+                    data-testid="button-copy-meeting-join-url"
+                  >
+                    <Copy className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
+
+              <div className="flex gap-2 pt-4 border-t">
+                <Button
+                  variant="outline"
+                  onClick={() => openMeetingEditDialog(selectedMeeting)}
+                  data-testid="button-edit-meeting"
+                >
+                  <Edit className="w-4 h-4 mr-2" />
+                  Edit
+                </Button>
+                <Button
+                  variant="outline"
+                  className="text-red-600 hover:text-red-700"
+                  onClick={() => {
+                    setMeetingToDelete(selectedMeeting);
+                    setShowMeetingDeleteConfirm(true);
+                  }}
+                  data-testid="button-delete-meeting"
+                >
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Delete
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Meeting Edit Dialog */}
+      <Dialog open={showMeetingEditDialog} onOpenChange={setShowMeetingEditDialog}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Edit className="w-5 h-5" />
+              Edit Meeting
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-6 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit-meeting-topic">Meeting Topic *</Label>
+              <Input
+                id="edit-meeting-topic"
+                value={meetingFormData.topic}
+                onChange={(e) => setMeetingFormData(prev => ({ ...prev, topic: e.target.value }))}
+                placeholder="Enter meeting topic"
+                data-testid="input-edit-meeting-topic"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="edit-meeting-agenda">Description</Label>
+              <div className="border rounded-md">
+                <ReactQuill
+                  id="edit-meeting-agenda"
+                  theme="snow"
+                  value={meetingFormData.agenda}
+                  onChange={(value) => setMeetingFormData(prev => ({ ...prev, agenda: value }))}
+                  modules={quillModules}
+                  formats={quillFormats}
+                  placeholder="Enter meeting description (optional)"
+                  className="bg-white"
+                  data-testid="input-edit-meeting-agenda"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit-meeting-start-date">Date *</Label>
+                <Input
+                  id="edit-meeting-start-date"
+                  type="date"
+                  value={meetingFormData.start_date}
+                  onChange={(e) => setMeetingFormData(prev => ({ ...prev, start_date: e.target.value }))}
+                  data-testid="input-edit-meeting-start-date"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-meeting-start-time">Time *</Label>
+                <Input
+                  id="edit-meeting-start-time"
+                  type="time"
+                  value={meetingFormData.start_time}
+                  onChange={(e) => setMeetingFormData(prev => ({ ...prev, start_time: e.target.value }))}
+                  data-testid="input-edit-meeting-start-time"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="edit-meeting-timezone">Timezone</Label>
+              <Select
+                value={meetingFormData.timezone}
+                onValueChange={(value) => setMeetingFormData(prev => ({ ...prev, timezone: value }))}
+              >
+                <SelectTrigger data-testid="select-edit-meeting-timezone">
+                  <SelectValue placeholder="Select timezone" />
+                </SelectTrigger>
+                <SelectContent>
+                  {timezoneOptions.map(tz => (
+                    <SelectItem key={tz.value} value={tz.value}>
+                      {tz.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="edit-meeting-duration">Duration (minutes)</Label>
+              <Input
+                id="edit-meeting-duration"
+                type="number"
+                min={15}
+                max={480}
+                step={15}
+                value={meetingFormData.duration_minutes}
+                onChange={(e) => setMeetingFormData(prev => ({ ...prev, duration_minutes: parseInt(e.target.value) || 60 }))}
+                data-testid="input-edit-meeting-duration"
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowMeetingEditDialog(false);
+                setEditingMeeting(null);
+                resetMeetingForm();
+              }}
+              data-testid="button-cancel-edit-meeting"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleMeetingEditSubmit}
+              disabled={updateMeetingMutation.isPending || !meetingFormData.topic || !meetingFormData.start_date || !meetingFormData.start_time}
+              className="bg-amber-600 hover:bg-amber-700"
+              data-testid="button-save-meeting"
+            >
+              {updateMeetingMutation.isPending ? (
+                <>
+                  <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4 mr-2" />
+                  Save Changes
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Meeting Delete Confirmation Dialog */}
+      <AlertDialog open={showMeetingDeleteConfirm} onOpenChange={setShowMeetingDeleteConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-red-500" />
+              Delete Meeting
+            </AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2">
+              <p>Are you sure you want to delete this meeting?</p>
+              {meetingToDelete && (
+                <div className="p-3 bg-slate-50 rounded-md mt-2">
+                  <p className="font-medium text-slate-900">{meetingToDelete.topic}</p>
+                  <p className="text-sm text-slate-500">{formatWebinarDate(meetingToDelete.start_time, meetingToDelete.timezone)}</p>
+                </div>
+              )}
+              <p className="text-sm text-red-600 mt-2">
+                This will permanently remove the meeting from Zoom and cannot be undone.
+              </p>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel 
+              onClick={() => {
+                setShowMeetingDeleteConfirm(false);
+                setMeetingToDelete(null);
+              }}
+              data-testid="button-cancel-delete-meeting"
+            >
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (meetingToDelete) {
+                  deleteMeetingMutation.mutate(meetingToDelete.id);
+                  setShowMeetingDeleteConfirm(false);
+                  setMeetingToDelete(null);
+                }
+              }}
+              className="bg-red-600 hover:bg-red-700 text-white"
+              data-testid="button-confirm-delete-meeting"
+            >
+              <Trash2 className="w-4 h-4 mr-2" />
+              Delete Meeting
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

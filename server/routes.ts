@@ -11154,6 +11154,325 @@ AGCAS Events Team
     }
   });
 
+  // ============ Zoom Meetings API ============
+  
+  // Create a new meeting
+  app.post('/api/zoom/meetings', async (req: Request, res: Response) => {
+    if (!supabase) {
+      return res.status(503).json({ error: 'Supabase not configured' });
+    }
+    
+    try {
+      const { 
+        topic, 
+        agenda, 
+        start_time, 
+        duration_minutes = 60, 
+        timezone = 'Europe/London',
+        host_id,
+        waiting_room = true,
+        join_before_host = false,
+        mute_upon_entry = true,
+        created_by_member_id
+      } = req.body;
+      
+      if (!topic || !start_time) {
+        return res.status(400).json({ error: 'topic and start_time are required' });
+      }
+      
+      const token = await getZoomAccessToken();
+      
+      // Determine which user to create meeting for
+      let userId = host_id || 'me';
+      
+      // Create meeting on Zoom
+      const meetingPayload = {
+        topic,
+        type: 2, // Scheduled meeting
+        start_time: start_time,
+        duration: duration_minutes,
+        timezone,
+        agenda: agenda || '',
+        settings: {
+          host_video: true,
+          participant_video: true,
+          join_before_host: join_before_host,
+          mute_upon_entry: mute_upon_entry,
+          waiting_room: waiting_room,
+          audio: 'both',
+          auto_recording: 'cloud'
+        }
+      };
+      
+      console.log('[Zoom] Creating meeting:', JSON.stringify(meetingPayload, null, 2));
+      
+      const zoomResponse = await fetch(`https://api.zoom.us/v2/users/${userId}/meetings`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(meetingPayload)
+      });
+      
+      if (!zoomResponse.ok) {
+        const errorText = await zoomResponse.text();
+        console.error('[Zoom] Create meeting error:', errorText);
+        return res.status(zoomResponse.status).json({ 
+          error: 'Failed to create Zoom meeting', 
+          details: errorText 
+        });
+      }
+      
+      const zoomData = await zoomResponse.json() as {
+        id: number;
+        host_id: string;
+        join_url: string;
+        password: string;
+        start_url: string;
+      };
+      
+      console.log('[Zoom] Meeting created:', zoomData.id);
+      
+      // Save to our database
+      const { data: meeting, error: dbError } = await supabase
+        .from('zoom_meeting')
+        .insert({
+          topic,
+          agenda,
+          start_time,
+          duration_minutes,
+          timezone,
+          waiting_room,
+          join_before_host,
+          mute_upon_entry,
+          zoom_meeting_id: String(zoomData.id),
+          zoom_host_id: zoomData.host_id,
+          join_url: zoomData.join_url,
+          start_url: zoomData.start_url,
+          password: zoomData.password,
+          status: 'scheduled',
+          created_by_member_id
+        })
+        .select()
+        .single();
+      
+      if (dbError) {
+        console.error('[Zoom] DB save error:', dbError);
+        return res.status(500).json({ error: 'Meeting created on Zoom but failed to save locally' });
+      }
+      
+      res.json({ success: true, meeting });
+    } catch (error: any) {
+      console.error('[Zoom] Create meeting error:', error);
+      res.status(500).json({ error: error.message || 'Failed to create meeting' });
+    }
+  });
+  
+  // List meetings from our database
+  app.get('/api/zoom/meetings', async (req: Request, res: Response) => {
+    if (!supabase) {
+      return res.status(503).json({ error: 'Supabase not configured' });
+    }
+    
+    try {
+      const { status, upcoming } = req.query;
+      
+      let query = supabase
+        .from('zoom_meeting')
+        .select('*')
+        .order('start_time', { ascending: true });
+      
+      if (status) {
+        query = query.eq('status', status);
+      }
+      
+      if (upcoming === 'true') {
+        query = query.gte('start_time', new Date().toISOString());
+      }
+      
+      const { data, error } = await query;
+      
+      if (error) {
+        console.error('[Zoom] List meetings error:', error);
+        return res.status(500).json({ error: 'Failed to list meetings' });
+      }
+      
+      res.json(data || []);
+    } catch (error: any) {
+      console.error('[Zoom] List meetings error:', error);
+      res.status(500).json({ error: error.message || 'Failed to list meetings' });
+    }
+  });
+  
+  // Get single meeting
+  app.get('/api/zoom/meetings/:id', async (req: Request, res: Response) => {
+    if (!supabase) {
+      return res.status(503).json({ error: 'Supabase not configured' });
+    }
+    
+    try {
+      const { id } = req.params;
+      
+      const { data: meeting, error: meetingError } = await supabase
+        .from('zoom_meeting')
+        .select('*')
+        .eq('id', id)
+        .single();
+      
+      if (meetingError) {
+        if (meetingError.code === 'PGRST116') {
+          return res.status(404).json({ error: 'Meeting not found' });
+        }
+        return res.status(500).json({ error: meetingError.message });
+      }
+      
+      res.json(meeting);
+    } catch (error: any) {
+      console.error('[Zoom] Get meeting error:', error);
+      res.status(500).json({ error: error.message || 'Failed to get meeting' });
+    }
+  });
+  
+  // Update meeting
+  app.patch('/api/zoom/meetings/:id', async (req: Request, res: Response) => {
+    if (!supabase) {
+      return res.status(503).json({ error: 'Supabase not configured' });
+    }
+    
+    try {
+      const { id } = req.params;
+      const updates = req.body;
+      
+      // Get current meeting to get Zoom ID
+      const { data: existing, error: fetchError } = await supabase
+        .from('zoom_meeting')
+        .select('zoom_meeting_id')
+        .eq('id', id)
+        .single();
+      
+      if (fetchError) {
+        return res.status(404).json({ error: 'Meeting not found' });
+      }
+      
+      // If updating Zoom-related fields, update on Zoom first
+      if (updates.topic || updates.start_time || updates.duration_minutes || updates.agenda || updates.timezone) {
+        const token = await getZoomAccessToken();
+        
+        const zoomUpdates: any = {};
+        if (updates.topic) zoomUpdates.topic = updates.topic;
+        if (updates.start_time) zoomUpdates.start_time = updates.start_time;
+        if (updates.duration_minutes) zoomUpdates.duration = updates.duration_minutes;
+        if (updates.agenda) zoomUpdates.agenda = updates.agenda;
+        if (updates.timezone) zoomUpdates.timezone = updates.timezone;
+        
+        // Settings updates
+        if (updates.waiting_room !== undefined || updates.join_before_host !== undefined || updates.mute_upon_entry !== undefined) {
+          zoomUpdates.settings = {};
+          if (updates.waiting_room !== undefined) zoomUpdates.settings.waiting_room = updates.waiting_room;
+          if (updates.join_before_host !== undefined) zoomUpdates.settings.join_before_host = updates.join_before_host;
+          if (updates.mute_upon_entry !== undefined) zoomUpdates.settings.mute_upon_entry = updates.mute_upon_entry;
+        }
+        
+        const zoomResponse = await fetch(
+          `https://api.zoom.us/v2/meetings/${existing.zoom_meeting_id}`,
+          {
+            method: 'PATCH',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(zoomUpdates)
+          }
+        );
+        
+        if (!zoomResponse.ok && zoomResponse.status !== 204) {
+          const errorText = await zoomResponse.text();
+          console.error('[Zoom] Update meeting error:', errorText);
+          return res.status(zoomResponse.status).json({ error: 'Failed to update Zoom meeting' });
+        }
+      }
+      
+      // Update in our database
+      const { data: meeting, error: updateError } = await supabase
+        .from('zoom_meeting')
+        .update({ ...updates, updated_at: new Date().toISOString() })
+        .eq('id', id)
+        .select()
+        .single();
+      
+      if (updateError) {
+        console.error('[Zoom] DB update error:', updateError);
+        return res.status(500).json({ error: 'Failed to update meeting' });
+      }
+      
+      res.json(meeting);
+    } catch (error: any) {
+      console.error('[Zoom] Update meeting error:', error);
+      res.status(500).json({ error: error.message || 'Failed to update meeting' });
+    }
+  });
+  
+  // Cancel/delete meeting
+  app.delete('/api/zoom/meetings/:id', async (req: Request, res: Response) => {
+    if (!supabase) {
+      return res.status(503).json({ error: 'Supabase not configured' });
+    }
+    
+    try {
+      const { id } = req.params;
+      const { deleteFromZoom = true } = req.query;
+      
+      // Get meeting
+      const { data: meeting, error: fetchError } = await supabase
+        .from('zoom_meeting')
+        .select('zoom_meeting_id')
+        .eq('id', id)
+        .single();
+      
+      if (fetchError) {
+        return res.status(404).json({ error: 'Meeting not found' });
+      }
+      
+      // Delete from Zoom if requested
+      if (deleteFromZoom === 'true' && meeting.zoom_meeting_id) {
+        const token = await getZoomAccessToken();
+        
+        const zoomResponse = await fetch(
+          `https://api.zoom.us/v2/meetings/${meeting.zoom_meeting_id}`,
+          {
+            method: 'DELETE',
+            headers: {
+              'Authorization': `Bearer ${token}`
+            }
+          }
+        );
+        
+        if (!zoomResponse.ok && zoomResponse.status !== 204 && zoomResponse.status !== 404) {
+          const errorText = await zoomResponse.text();
+          console.error('[Zoom] Delete meeting error:', errorText);
+          return res.status(zoomResponse.status).json({ error: 'Failed to delete from Zoom' });
+        }
+      }
+      
+      // Update status in our database (soft delete)
+      const { error: updateError } = await supabase
+        .from('zoom_meeting')
+        .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+        .eq('id', id);
+      
+      if (updateError) {
+        console.error('[Zoom] DB update error:', updateError);
+        return res.status(500).json({ error: 'Failed to cancel meeting' });
+      }
+      
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error('[Zoom] Delete meeting error:', error);
+      res.status(500).json({ error: error.message || 'Failed to delete meeting' });
+    }
+  });
+
   // ============ Health Check ============
   app.get('/api/health', (req: Request, res: Response) => {
     res.json({ 

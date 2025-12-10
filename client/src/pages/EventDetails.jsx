@@ -216,26 +216,52 @@ export default function EventDetailsPage() {
     }
   });
 
+  // Query for meetings to match URLs to meeting IDs
+  const { data: meetings = [] } = useQuery({
+    queryKey: ['/api/zoom/meetings'],
+    queryFn: async () => {
+      try {
+        const response = await fetch('/api/zoom/meetings');
+        if (!response.ok) return [];
+        return await response.json();
+      } catch {
+        return [];
+      }
+    }
+  });
+
   // Determine if this is an online event and if join link should be shown
   const isOnlineEvent = event?.location?.toLowerCase().startsWith('online');
   const hasUrlInLocation = event?.location?.includes('https://') || event?.location?.includes('http://');
   
-  // Find matching webinar by URL if location contains a URL
-  const getWebinarIdFromLocation = () => {
-    if (!hasUrlInLocation || !webinars?.length || !event?.location) return null;
+  // Find matching webinar or meeting by URL if location contains a URL
+  const getZoomIdFromLocation = () => {
+    if (!hasUrlInLocation || !event?.location) return { type: null, id: null };
     const urlMatch = event.location.match(/https?:\/\/[^\s]+/);
-    if (!urlMatch) return null;
+    if (!urlMatch) return { type: null, id: null };
     const url = urlMatch[0];
-    const matchingWebinar = webinars.find(w => w.join_url === url);
-    return matchingWebinar?.id || null;
+    
+    // Check webinars first
+    if (webinars?.length) {
+      const matchingWebinar = webinars.find(w => w.join_url === url);
+      if (matchingWebinar) return { type: 'webinar', id: matchingWebinar.id };
+    }
+    
+    // Then check meetings
+    if (meetings?.length) {
+      const matchingMeeting = meetings.find(m => m.join_url === url);
+      if (matchingMeeting) return { type: 'meeting', id: matchingMeeting.id };
+    }
+    
+    return { type: null, id: null };
   };
 
   // Check if join link should be shown based on settings
   const shouldShowJoinLink = () => {
     if (!isOnlineEvent || !hasUrlInLocation) return false;
-    const webinarId = getWebinarIdFromLocation();
-    if (!webinarId || !joinLinkSettings) return false;
-    return joinLinkSettings[webinarId] === true;
+    const { id: zoomId } = getZoomIdFromLocation();
+    if (!zoomId || !joinLinkSettings) return false;
+    return joinLinkSettings[zoomId] === true;
   };
 
   // ========== PRICING/TICKET CLASS HOOKS - MUST BE BEFORE EARLY RETURNS ==========
