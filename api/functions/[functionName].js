@@ -2958,8 +2958,25 @@ const functionHandlers = {
       return { is_member: false, error: 'Email is required' };
     }
 
-    const { data: allMembers } = await supabase.from('member').select('*');
+    console.log('[checkMemberStatusByEmail] Checking email:', email);
+    
+    const { data: allMembers, error: memberError } = await supabase.from('member').select('*');
+    
+    console.log('[checkMemberStatusByEmail] Query result - members count:', allMembers?.length, 'error:', memberError);
+    
+    if (memberError) {
+      console.error('[checkMemberStatusByEmail] Database error:', memberError);
+      return { is_member: false, has_job_posting_access: false, error: memberError.message };
+    }
+    
+    // Debug: log a few sample emails to see format
+    if (allMembers && allMembers.length > 0) {
+      console.log('[checkMemberStatusByEmail] Sample emails from DB:', allMembers.slice(0, 3).map(m => m.email));
+    }
+    
     const member = allMembers?.find(m => m.email?.toLowerCase() === email.toLowerCase());
+    
+    console.log('[checkMemberStatusByEmail] Found member:', !!member, member?.email);
 
     if (member) {
       // Check if member has job posting access based on their role

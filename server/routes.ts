@@ -7389,7 +7389,7 @@ AGCAS Events Team
     }
   });
 
-  // Check Member Status By Email - checks if an email belongs to a member
+  // Check Member Status By Email - checks if an email belongs to a member and if they have job posting access
   app.post('/api/functions/checkMemberStatusByEmail', async (req: Request, res: Response) => {
     if (!supabase) {
       return res.status(503).json({ error: 'Supabase not configured' });
@@ -7402,23 +7402,58 @@ AGCAS Events Team
         return res.status(400).json({ error: 'Email is required' });
       }
 
+      console.log('[checkMemberStatusByEmail] Checking email:', email);
+
       // Check if email belongs to a member
-      const { data: members } = await supabase
+      const { data: members, error: memberError } = await supabase
         .from('member')
         .select('*')
         .ilike('email', email.toLowerCase().trim());
 
+      if (memberError) {
+        console.error('[checkMemberStatusByEmail] Database error:', memberError);
+        return res.status(500).json({ error: memberError.message });
+      }
+
+      console.log('[checkMemberStatusByEmail] Found members:', members?.length || 0);
+
       if (members && members.length > 0) {
         const member = members[0];
+        
+        // Check if member has job posting access based on their role
+        let has_job_posting_access = true; // Default to true if no role restrictions
+        
+        if (member.role_id) {
+          const { data: allRoles } = await supabase.from('role').select('*');
+          const memberRole = allRoles?.find((r: any) => r.id === member.role_id);
+          
+          if (memberRole && memberRole.excluded_features) {
+            // Check if page_PostJob is in excluded features
+            const excludedFeatures = Array.isArray(memberRole.excluded_features) 
+              ? memberRole.excluded_features 
+              : [];
+            has_job_posting_access = !excludedFeatures.includes('page_PostJob');
+          }
+        }
+        
+        console.log('[checkMemberStatusByEmail] Member found:', member.email, 'has_job_posting_access:', has_job_posting_access);
+        
         return res.json({
           is_member: true,
+          has_job_posting_access,
           member_id: member.id,
+          organization_id: member.organization_id,
+          first_name: member.first_name,
+          last_name: member.last_name,
           full_name: `${member.first_name || ''} ${member.last_name || ''}`.trim()
         });
       }
 
+      console.log('[checkMemberStatusByEmail] No member found for email:', email);
+      
       res.json({
-        is_member: false
+        is_member: false,
+        has_job_posting_access: false
       });
 
     } catch (error: any) {
