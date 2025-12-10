@@ -4,14 +4,19 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Users, Shield, Download, BarChart3, ChevronDown, ChevronRight } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Users, Shield, Download, BarChart3, ChevronDown, ChevronRight, ChevronLeft, Building2, Filter } from "lucide-react";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
+
+const MEMBERS_PER_PAGE = 25;
 
 export default function MemberRoleReportPage() {
   const { isAdmin, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const [expandedRoles, setExpandedRoles] = useState({});
+  const [rolePages, setRolePages] = useState({});
+  const [selectedSegment, setSelectedSegment] = useState("all");
 
   useEffect(() => {
     if (isAccessReady) {
@@ -23,6 +28,10 @@ export default function MemberRoleReportPage() {
     }
   }, [isAdmin, isAccessReady]);
 
+  useEffect(() => {
+    setRolePages({});
+  }, [selectedSegment]);
+
   const { data: roles = [], isLoading: loadingRoles } = useQuery({
     queryKey: ['roles-list'],
     queryFn: () => base44.entities.Role.list('name'),
@@ -33,9 +42,84 @@ export default function MemberRoleReportPage() {
     queryFn: () => base44.entities.Member.listAll(),
   });
 
+  const { data: organizations = [], isLoading: loadingOrgs } = useQuery({
+    queryKey: ['organizations-list-all'],
+    queryFn: () => base44.entities.Organization.listAll(),
+  });
+
+  const { data: segmentationFieldSetting } = useQuery({
+    queryKey: ['role-segmentation-field-setting'],
+    queryFn: async () => {
+      const allSettings = await base44.entities.SystemSettings.list();
+      return allSettings.find(s => s.setting_key === 'role_segmentation_field_id');
+    }
+  });
+
+  const segmentationFieldId = segmentationFieldSetting?.setting_value || null;
+
+  const { data: orgPreferenceFields = [] } = useQuery({
+    queryKey: ['org-preference-fields-for-segmentation'],
+    queryFn: async () => {
+      const fields = await base44.entities.PreferenceField.list({
+        filter: { entity_scope: 'organization', is_active: true }
+      });
+      return (fields || []).filter(f => f.field_type === 'picklist' || f.field_type === 'dropdown');
+    }
+  });
+
+  const { data: orgPreferenceValues = [] } = useQuery({
+    queryKey: ['org-preference-values-all'],
+    queryFn: () => base44.entities.OrganizationPreferenceValue.listAll(),
+    enabled: !!segmentationFieldId
+  });
+
+  const segmentationField = orgPreferenceFields.find(f => f.id === segmentationFieldId);
+
+  const segmentOptions = useMemo(() => {
+    if (!segmentationField?.options) return [];
+    try {
+      const opts = typeof segmentationField.options === 'string' 
+        ? JSON.parse(segmentationField.options) 
+        : segmentationField.options;
+      return Array.isArray(opts) ? opts : [];
+    } catch {
+      return [];
+    }
+  }, [segmentationField]);
+
+  const orgMap = useMemo(() => {
+    const map = {};
+    organizations.forEach(org => {
+      map[org.id] = org;
+    });
+    return map;
+  }, [organizations]);
+
+  const orgSegmentMap = useMemo(() => {
+    if (!segmentationFieldId) return {};
+    const map = {};
+    orgPreferenceValues.forEach(pv => {
+      if (pv.field_id === segmentationFieldId && pv.organization_id) {
+        map[pv.organization_id] = pv.value;
+      }
+    });
+    return map;
+  }, [orgPreferenceValues, segmentationFieldId]);
+
+  const filteredMembers = useMemo(() => {
+    if (selectedSegment === "all" || !segmentationFieldId) {
+      return members;
+    }
+    return members.filter(member => {
+      if (!member.organization_id) return false;
+      const orgSegment = orgSegmentMap[member.organization_id];
+      return orgSegment === selectedSegment;
+    });
+  }, [members, selectedSegment, segmentationFieldId, orgSegmentMap]);
+
   const roleStats = useMemo(() => {
     const stats = roles.map(role => {
-      const roleMembers = members.filter(m => m.role_id === role.id);
+      const roleMembers = filteredMembers.filter(m => m.role_id === role.id);
       return {
         role,
         memberCount: roleMembers.length,
@@ -47,7 +131,7 @@ export default function MemberRoleReportPage() {
       };
     });
 
-    const noRoleMembers = members.filter(m => !m.role_id);
+    const noRoleMembers = filteredMembers.filter(m => !m.role_id);
     if (noRoleMembers.length > 0) {
       stats.push({
         role: { id: 'no-role', name: 'No Role Assigned', is_admin: false },
@@ -61,9 +145,9 @@ export default function MemberRoleReportPage() {
     }
 
     return stats.sort((a, b) => b.memberCount - a.memberCount);
-  }, [roles, members]);
+  }, [roles, filteredMembers]);
 
-  const totalMembers = members.length;
+  const totalMembers = filteredMembers.length;
   const totalRoles = roles.length;
 
   const toggleRoleExpand = (roleId) => {
@@ -71,21 +155,43 @@ export default function MemberRoleReportPage() {
       ...prev,
       [roleId]: !prev[roleId]
     }));
+    if (!rolePages[roleId]) {
+      setRolePages(prev => ({ ...prev, [roleId]: 1 }));
+    }
+  };
+
+  const setRolePage = (roleId, page) => {
+    setRolePages(prev => ({ ...prev, [roleId]: page }));
   };
 
   const handleExportCSV = () => {
     const csvRows = [
-      ['Role Name', 'Is Admin', 'Member Count', 'Member Names', 'Member Emails']
+      ['Role Name', 'Is Admin', 'Member Count', 'Member Name', 'Member Email', 'Organisation']
     ];
 
     roleStats.forEach(stat => {
-      csvRows.push([
-        stat.role.name,
-        stat.role.is_admin ? 'Yes' : 'No',
-        stat.memberCount.toString(),
-        stat.members.map(m => `${m.first_name || ''} ${m.last_name || ''}`).join('; '),
-        stat.members.map(m => m.email || '').join('; ')
-      ]);
+      if (stat.members.length === 0) {
+        csvRows.push([
+          stat.role.name,
+          stat.role.is_admin ? 'Yes' : 'No',
+          '0',
+          '',
+          '',
+          ''
+        ]);
+      } else {
+        stat.members.forEach((member, idx) => {
+          const org = orgMap[member.organization_id];
+          csvRows.push([
+            idx === 0 ? stat.role.name : '',
+            idx === 0 ? (stat.role.is_admin ? 'Yes' : 'No') : '',
+            idx === 0 ? stat.memberCount.toString() : '',
+            `${member.first_name || ''} ${member.last_name || ''}`.trim(),
+            member.email || '',
+            org?.name || ''
+          ]);
+        });
+      }
     });
 
     const csvContent = csvRows.map(row => 
@@ -96,7 +202,8 @@ export default function MemberRoleReportPage() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `member-role-report-${new Date().toISOString().split('T')[0]}.csv`;
+    const segmentSuffix = selectedSegment !== 'all' ? `-${selectedSegment.replace(/\s+/g, '-')}` : '';
+    link.download = `member-role-report${segmentSuffix}-${new Date().toISOString().split('T')[0]}.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -111,11 +218,11 @@ export default function MemberRoleReportPage() {
     );
   }
 
-  const isLoading = loadingRoles || loadingMembers;
+  const isLoading = loadingRoles || loadingMembers || loadingOrgs;
 
   return (
     <div className="p-6 max-w-6xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
         <div>
           <h1 className="text-2xl font-bold text-slate-800" data-testid="text-page-title">
             Member Role Report
@@ -124,15 +231,33 @@ export default function MemberRoleReportPage() {
             Overview of member counts per role
           </p>
         </div>
-        <Button 
-          onClick={handleExportCSV} 
-          variant="outline"
-          disabled={isLoading}
-          data-testid="button-export-csv"
-        >
-          <Download className="w-4 h-4 mr-2" />
-          Export CSV
-        </Button>
+        <div className="flex items-center gap-3">
+          {segmentationFieldId && segmentOptions.length > 0 && (
+            <div className="flex items-center gap-2">
+              <Filter className="w-4 h-4 text-slate-500" />
+              <Select value={selectedSegment} onValueChange={setSelectedSegment}>
+                <SelectTrigger className="w-[200px]" data-testid="select-segment-filter">
+                  <SelectValue placeholder="All segments" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All {segmentationField?.label || 'Segments'}</SelectItem>
+                  {segmentOptions.map(opt => (
+                    <SelectItem key={opt} value={opt}>{opt}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          <Button 
+            onClick={handleExportCSV} 
+            variant="outline"
+            disabled={isLoading}
+            data-testid="button-export-csv"
+          >
+            <Download className="w-4 h-4 mr-2" />
+            Export CSV
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
@@ -143,7 +268,9 @@ export default function MemberRoleReportPage() {
                 <Users className="w-6 h-6 text-blue-600" />
               </div>
               <div>
-                <p className="text-sm text-slate-600">Total Members</p>
+                <p className="text-sm text-slate-600">
+                  {selectedSegment !== 'all' ? 'Filtered Members' : 'Total Members'}
+                </p>
                 <p className="text-2xl font-bold text-slate-800" data-testid="text-total-members">
                   {isLoading ? '...' : totalMembers}
                 </p>
@@ -185,6 +312,24 @@ export default function MemberRoleReportPage() {
         </Card>
       </div>
 
+      {selectedSegment !== 'all' && (
+        <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center gap-2">
+          <Filter className="w-4 h-4 text-blue-600" />
+          <span className="text-sm text-blue-800">
+            Filtering by {segmentationField?.label}: <strong>{selectedSegment}</strong>
+          </span>
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            className="ml-auto text-blue-600 hover:text-blue-800"
+            onClick={() => setSelectedSegment('all')}
+            data-testid="button-clear-filter"
+          >
+            Clear filter
+          </Button>
+        </div>
+      )}
+
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -205,6 +350,11 @@ export default function MemberRoleReportPage() {
             <div className="space-y-2">
               {roleStats.map((stat) => {
                 const isExpanded = expandedRoles[stat.role.id];
+                const totalPages = Math.max(1, Math.ceil(stat.members.length / MEMBERS_PER_PAGE));
+                const currentPage = Math.min(rolePages[stat.role.id] || 1, totalPages);
+                const startIdx = (currentPage - 1) * MEMBERS_PER_PAGE;
+                const paginatedMembers = stat.members.slice(startIdx, startIdx + MEMBERS_PER_PAGE);
+
                 return (
                   <div 
                     key={stat.role.id} 
@@ -240,30 +390,77 @@ export default function MemberRoleReportPage() {
                     
                     {isExpanded && stat.members.length > 0 && (
                       <div className="border-t border-slate-200 bg-white">
-                        <table className="w-full">
-                          <thead className="bg-slate-50">
-                            <tr>
-                              <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Name</th>
-                              <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Email</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {stat.members.map((member, idx) => (
-                              <tr 
-                                key={member.id} 
-                                className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50'}
-                                data-testid={`row-member-${member.id}`}
-                              >
-                                <td className="px-4 py-2 text-sm text-slate-800">
-                                  {member.first_name} {member.last_name}
-                                </td>
-                                <td className="px-4 py-2 text-sm text-slate-600">
-                                  {member.email}
-                                </td>
+                        <div className="overflow-x-auto">
+                          <table className="w-full">
+                            <thead className="bg-slate-50">
+                              <tr>
+                                <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Name</th>
+                                <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">Email</th>
+                                <th className="text-left px-4 py-2 text-sm font-medium text-slate-600">
+                                  <div className="flex items-center gap-1">
+                                    <Building2 className="w-4 h-4" />
+                                    Organisation
+                                  </div>
+                                </th>
                               </tr>
-                            ))}
-                          </tbody>
-                        </table>
+                            </thead>
+                            <tbody>
+                              {paginatedMembers.map((member, idx) => {
+                                const org = orgMap[member.organization_id];
+                                return (
+                                  <tr 
+                                    key={member.id} 
+                                    className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50'}
+                                    data-testid={`row-member-${member.id}`}
+                                  >
+                                    <td className="px-4 py-2 text-sm text-slate-800">
+                                      {member.first_name} {member.last_name}
+                                    </td>
+                                    <td className="px-4 py-2 text-sm text-slate-600">
+                                      {member.email}
+                                    </td>
+                                    <td className="px-4 py-2 text-sm text-slate-600">
+                                      {org?.name || <span className="text-slate-400 italic">No organisation</span>}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                        
+                        {totalPages > 1 && (
+                          <div className="flex items-center justify-between px-4 py-3 border-t border-slate-200 bg-slate-50">
+                            <span className="text-sm text-slate-600">
+                              Showing {startIdx + 1}-{Math.min(startIdx + MEMBERS_PER_PAGE, stat.members.length)} of {stat.members.length}
+                            </span>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setRolePage(stat.role.id, currentPage - 1)}
+                                disabled={currentPage === 1}
+                                data-testid={`button-prev-page-${stat.role.id}`}
+                              >
+                                <ChevronLeft className="w-4 h-4" />
+                                Previous
+                              </Button>
+                              <span className="text-sm text-slate-600 px-2">
+                                Page {currentPage} of {totalPages}
+                              </span>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setRolePage(stat.role.id, currentPage + 1)}
+                                disabled={currentPage === totalPages}
+                                data-testid={`button-next-page-${stat.role.id}`}
+                              >
+                                Next
+                                <ChevronRight className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
                     
