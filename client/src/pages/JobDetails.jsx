@@ -110,7 +110,7 @@ export default function JobDetailsPage() {
     <div className="bg-white min-h-screen">
       {/* Header */}
       <div className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white py-12">
-        <div className="max-w-4xl mx-auto px-4">
+        <div className="max-w-6xl mx-auto px-4">
           <Button
             variant="ghost"
             onClick={() => window.location.href = createPageUrl('JobBoard')}
