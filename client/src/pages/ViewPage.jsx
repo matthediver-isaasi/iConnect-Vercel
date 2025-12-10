@@ -44,6 +44,27 @@ export default function ViewPage() {
     }
   }, [page]);
 
+  // Handle anchor scrolling after elements are loaded
+  useEffect(() => {
+    const hash = window.location.hash;
+    if (elements && elements.length > 0 && !elementsLoading && hash) {
+      const anchorId = hash.substring(1); // Remove the # prefix
+      
+      // Use a small timeout to ensure DOM has fully updated after React render
+      const scrollTimeout = setTimeout(() => {
+        const targetElement = document.getElementById(anchorId);
+        if (targetElement) {
+          targetElement.scrollIntoView({ 
+            behavior: 'smooth', 
+            block: 'start' 
+          });
+        }
+      }, 100);
+
+      return () => clearTimeout(scrollTimeout);
+    }
+  }, [elements, elementsLoading]);
+
   if (pageLoading || elementsLoading) {
     return (
       <PublicLayout currentPageName="ViewPage">

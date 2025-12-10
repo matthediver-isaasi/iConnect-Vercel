@@ -97,6 +97,27 @@ export default function DynamicPage() {
     }
   }, [page]);
 
+  // Handle anchor scrolling after elements are loaded
+  useEffect(() => {
+    // Only proceed if we have elements loaded and there's a hash in the URL
+    if (elements.length > 0 && !elementsLoading && location.hash) {
+      const anchorId = location.hash.substring(1); // Remove the # prefix
+      
+      // Use a small timeout to ensure DOM has fully updated after React render
+      const scrollTimeout = setTimeout(() => {
+        const targetElement = document.getElementById(anchorId);
+        if (targetElement) {
+          targetElement.scrollIntoView({ 
+            behavior: 'smooth', 
+            block: 'start' 
+          });
+        }
+      }, 100);
+
+      return () => clearTimeout(scrollTimeout);
+    }
+  }, [elements, elementsLoading, location.hash]);
+
   // Check if page is accessible
   const isPublished = page?.status === 'published';
   const layoutType = page?.layout_type || 'public';
