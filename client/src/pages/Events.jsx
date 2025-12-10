@@ -4,7 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Search, Calendar, Plus, History, Tag, Check, ChevronDown, Layers, X } from "lucide-react";
+import { Search, Calendar, Plus, History, Tag, Check, ChevronDown, Layers, X, MapPin } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -51,6 +51,7 @@ export default function EventsPage({
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedFilterTags, setSelectedFilterTags] = useState([]);
   const [selectedEventType, setSelectedEventType] = useState("all");
+  const [selectedDeliveryMode, setSelectedDeliveryMode] = useState("all");
   const [showPastEvents, setShowPastEvents] = useState(false);
   const [showTour, setShowTour] = useState(false);
   const [tourAutoShow, setTourAutoShow] = useState(false);
@@ -225,16 +226,22 @@ export default function EventsPage({
       matchesEventType = event.event_type === selectedEventType;
     }
     
+    // Handle delivery mode filtering (online/offline)
+    let matchesDeliveryMode = true;
+    if (selectedDeliveryMode !== "all") {
+      matchesDeliveryMode = event.delivery_mode === selectedDeliveryMode;
+    }
+    
     // Filter out past events unless showPastEvents is enabled
     const isPast = isEventPast(event);
     const matchesTimeFilter = showPastEvents || !isPast;
     
     // Debug log for each event
-    if (!matchesTimeFilter || !matchesSearch || !matchesFilterTag || !matchesEventType) {
-      console.log(`[Events] Filtered out: "${event.title}" - search:${matchesSearch}, filterTag:${matchesFilterTag}, eventType:${matchesEventType}, time:${matchesTimeFilter}, isPast:${isPast}, start_date:${event.start_date}`);
+    if (!matchesTimeFilter || !matchesSearch || !matchesFilterTag || !matchesEventType || !matchesDeliveryMode) {
+      console.log(`[Events] Filtered out: "${event.title}" - search:${matchesSearch}, filterTag:${matchesFilterTag}, eventType:${matchesEventType}, deliveryMode:${matchesDeliveryMode}, time:${matchesTimeFilter}, isPast:${isPast}, start_date:${event.start_date}`);
     }
     
-    return matchesSearch && matchesFilterTag && matchesEventType && matchesTimeFilter;
+    return matchesSearch && matchesFilterTag && matchesEventType && matchesDeliveryMode && matchesTimeFilter;
   });
   
   console.log('[Events] Debug - filteredEvents count:', filteredEvents.length);
@@ -266,7 +273,13 @@ export default function EventsPage({
       matchesEventType = event.event_type === selectedEventType;
     }
     
-    return matchesSearch && matchesFilterTag && matchesEventType && isEventPast(event);
+    // Use same delivery mode matching logic
+    let matchesDeliveryMode = true;
+    if (selectedDeliveryMode !== "all") {
+      matchesDeliveryMode = event.delivery_mode === selectedDeliveryMode;
+    }
+    
+    return matchesSearch && matchesFilterTag && matchesEventType && matchesDeliveryMode && isEventPast(event);
   }).length;
 
   // Update member tour status via base44 client
@@ -551,6 +564,104 @@ export default function EventsPage({
                     </PopoverContent>
                   </Popover>
                 )}
+                
+                {/* Delivery Mode Filter */}
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button 
+                      variant="outline" 
+                      className="w-full md:w-auto justify-between gap-2"
+                      data-testid="filter-delivery-mode-trigger"
+                    >
+                      <div className="flex items-center gap-2">
+                        <MapPin className="w-4 h-4" />
+                        {selectedDeliveryMode === "all" ? (
+                          <span>Delivery</span>
+                        ) : selectedDeliveryMode === "online" ? (
+                          <span>Online</span>
+                        ) : (
+                          <span>In person</span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1">
+                        {selectedDeliveryMode !== "all" && (
+                          <Badge variant="secondary" className="h-5 px-1.5 text-xs">
+                            1
+                          </Badge>
+                        )}
+                        <ChevronDown className="w-4 h-4 opacity-50" />
+                      </div>
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-48 p-0" align="start">
+                    <div className="p-2 border-b border-slate-100">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium text-slate-700">Delivery</span>
+                        {selectedDeliveryMode !== "all" && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 text-xs text-slate-500 hover:text-slate-700"
+                            onClick={() => setSelectedDeliveryMode("all")}
+                            data-testid="filter-delivery-mode-clear"
+                          >
+                            Clear
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                    <div className="p-1">
+                      <button
+                        className={`w-full flex items-center gap-2 px-2 py-2 text-sm rounded-md transition-colors ${
+                          selectedDeliveryMode === "all" 
+                            ? "bg-slate-100 text-slate-900 font-medium" 
+                            : "text-slate-600 hover:bg-slate-50"
+                        }`}
+                        onClick={() => setSelectedDeliveryMode("all")}
+                        data-testid="filter-delivery-mode-all"
+                      >
+                        <div className={`w-4 h-4 rounded border flex items-center justify-center ${
+                          selectedDeliveryMode === "all" ? "bg-primary border-primary" : "border-slate-300"
+                        }`}>
+                          {selectedDeliveryMode === "all" && <Check className="w-3 h-3 text-white" />}
+                        </div>
+                        All
+                      </button>
+                      <button
+                        className={`w-full flex items-center gap-2 px-2 py-2 text-sm rounded-md transition-colors ${
+                          selectedDeliveryMode === "online" 
+                            ? "bg-slate-100 text-slate-900 font-medium" 
+                            : "text-slate-600 hover:bg-slate-50"
+                        }`}
+                        onClick={() => setSelectedDeliveryMode("online")}
+                        data-testid="filter-delivery-mode-online"
+                      >
+                        <div className={`w-4 h-4 rounded border flex items-center justify-center ${
+                          selectedDeliveryMode === "online" ? "bg-primary border-primary" : "border-slate-300"
+                        }`}>
+                          {selectedDeliveryMode === "online" && <Check className="w-3 h-3 text-white" />}
+                        </div>
+                        Online
+                      </button>
+                      <button
+                        className={`w-full flex items-center gap-2 px-2 py-2 text-sm rounded-md transition-colors ${
+                          selectedDeliveryMode === "offline" 
+                            ? "bg-slate-100 text-slate-900 font-medium" 
+                            : "text-slate-600 hover:bg-slate-50"
+                        }`}
+                        onClick={() => setSelectedDeliveryMode("offline")}
+                        data-testid="filter-delivery-mode-in-person"
+                      >
+                        <div className={`w-4 h-4 rounded border flex items-center justify-center ${
+                          selectedDeliveryMode === "offline" ? "bg-primary border-primary" : "border-slate-300"
+                        }`}>
+                          {selectedDeliveryMode === "offline" && <Check className="w-3 h-3 text-white" />}
+                        </div>
+                        In person
+                      </button>
+                    </div>
+                  </PopoverContent>
+                </Popover>
               </div>
             )}
             
