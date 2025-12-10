@@ -367,8 +367,12 @@ export default function CreateEvent() {
     }
 
     // Validation for one-off event ticket classes
+    console.log('[CreateEvent] Checking ticket classes, isProgramEvent:', isProgramEvent);
+    console.log('[CreateEvent] ticketClasses:', JSON.stringify(ticketClasses, null, 2));
+    
     if (!isProgramEvent) {
       if (ticketClasses.length === 0) {
+        console.log('[CreateEvent] Validation failed: No ticket classes');
         toast.error('Please add at least one ticket class');
         return;
       }
@@ -376,21 +380,26 @@ export default function CreateEvent() {
       for (let i = 0; i < ticketClasses.length; i++) {
         const ticket = ticketClasses[i];
         const ticketLabel = ticket.name || `Ticket ${i + 1}`;
+        console.log('[CreateEvent] Validating ticket:', ticketLabel, ticket);
 
         // Name is required
         if (!ticket.name || ticket.name.trim() === "") {
+          console.log('[CreateEvent] Validation failed: No ticket name');
           toast.error(`Please enter a name for ${ticketLabel}`);
           return;
         }
 
         // Price validation: either is_free must be true, or price must be > 0
+        console.log('[CreateEvent] Checking price - is_free:', ticket.is_free, 'price:', ticket.price);
         if (!ticket.is_free) {
           if (ticket.price === "" || ticket.price === null || ticket.price === undefined) {
+            console.log('[CreateEvent] Validation failed: No price set');
             toast.error(`Please enter a price for "${ticket.name}" or mark it as free`);
             return;
           }
           const price = parseFloat(ticket.price);
           if (isNaN(price) || price <= 0) {
+            console.log('[CreateEvent] Validation failed: Invalid price:', price);
             toast.error(`Price for "${ticket.name}" must be greater than zero, or mark the ticket as free`);
             return;
           }
@@ -501,6 +510,7 @@ export default function CreateEvent() {
       };
     }
 
+    console.log('[CreateEvent] All validation passed, calling mutation with eventData:', JSON.stringify(eventData, null, 2));
     createEventMutation.mutate(eventData);
   };
 
