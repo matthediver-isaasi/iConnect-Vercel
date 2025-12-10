@@ -79,8 +79,7 @@ export default function IEditImagePanelElement({ content, variant, settings }) {
             paddingTop: `${panelPaddingTop}px`,
             paddingBottom: `${panelPaddingBottom}px`,
             paddingLeft: `${panelPaddingLeft}px`,
-            paddingRight: `${panelPaddingRight}px`,
-            gap: textGap > 0 ? `${textGap}px` : undefined
+            paddingRight: `${panelPaddingRight}px`
           }}
         >
           <div 
@@ -109,7 +108,8 @@ export default function IEditImagePanelElement({ content, variant, settings }) {
           <div 
             className="mt-auto"
             style={{
-              textAlign: panel.bottom_align || 'left'
+              textAlign: panel.bottom_align || 'left',
+              marginTop: textGap > 0 ? `${textGap}px` : undefined
             }}
           >
             {panel.bottom_text && (
