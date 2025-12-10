@@ -457,7 +457,7 @@ export default function LoginPage() {
 
         {/* Footer */}
         <p className="text-center text-sm text-slate-500 mt-6">
-          © {new Date().getFullYear()} AGCAS. All rights reserved.
+          © {new Date().getFullYear()} iConnect by isaasi. All rights reserved.
         </p>
       </div>
     </div>
