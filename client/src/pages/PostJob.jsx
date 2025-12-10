@@ -463,17 +463,25 @@ export default function PostJobPage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    console.log('[PostJob] handleSubmit called');
+    console.log('[PostJob] formData:', JSON.stringify(formData, null, 2));
+    console.log('[PostJob] isLoggedIn:', isLoggedIn);
+    console.log('[PostJob] email:', email);
+    console.log('[PostJob] agreedToTerms:', agreedToTerms);
 
     if (!formData.closing_date) {
+      console.log('[PostJob] Missing closing_date');
       toast.error('Please select a closing date');
       return;
     }
 
     if (!agreedToTerms) {
+      console.log('[PostJob] Terms not agreed');
       toast.error('Please agree to the Terms and Conditions');
       return;
     }
 
+    console.log('[PostJob] Validation passed, setting step to submitting');
     setStep('submitting');
 
     try {
@@ -1030,7 +1038,8 @@ export default function PostJobPage() {
                 <Button
                   type="submit"
                   className="flex-1 bg-blue-600 hover:bg-blue-700"
-                  disabled={step === 'submitting' || uploadingFiles || uploadingLogo || !agreedToTerms}>
+                  disabled={step === 'submitting' || uploadingFiles || uploadingLogo || !agreedToTerms}
+                  onClick={() => console.log('[PostJob] Submit button clicked, agreedToTerms:', agreedToTerms, 'step:', step)}>
 
                   {step === 'submitting' ?
                   <>
