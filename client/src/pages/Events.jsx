@@ -365,7 +365,7 @@ export default function EventsPage({
           <div className="mb-8">
             <div className="flex items-center justify-between mb-2">
               <h1 className="text-3xl md:text-4xl font-bold text-slate-900">
-                Register your tickets
+                Events
               </h1>
               <div className="flex items-center gap-2">
                 {isAdmin && (
