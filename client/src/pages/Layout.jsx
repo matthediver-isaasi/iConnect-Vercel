@@ -461,6 +461,33 @@ const { data: borderRadiusSetting = DEFAULT_BORDER_RADIUS } = useQuery({
   }
 });
 
+// Fetch portal logo settings
+const { data: portalLogoSettings } = useQuery({
+  queryKey: ['portal-logo-settings'],
+  queryFn: async () => {
+    try {
+      const data = await base44.entities.SystemSettings.list();
+      const logoUrl = data.find(s => s.setting_key === 'portal_logo_url')?.setting_value || '';
+      const logoHeight = data.find(s => s.setting_key === 'portal_logo_height')?.setting_value || 'medium';
+      const logoLink = data.find(s => s.setting_key === 'portal_logo_link')?.setting_value || '';
+      return { logoUrl, logoHeight, logoLink };
+    } catch (error) {
+      console.error('Error loading portal logo settings:', error);
+      return { logoUrl: '', logoHeight: 'medium', logoLink: '' };
+    }
+  }
+});
+
+// Compute logo height in pixels
+const logoHeightPx = useMemo(() => {
+  const height = portalLogoSettings?.logoHeight || 'medium';
+  switch (height) {
+    case 'small': return 40;
+    case 'large': return 80;
+    default: return 60;
+  }
+}, [portalLogoSettings?.logoHeight]);
+
 
   // Fetch member record for profile photo
 const { data: memberRecord } = useQuery({
@@ -1453,24 +1480,40 @@ useEffect(() => {
       <SidebarProvider key="main-sidebar-provider">
         <div className="flex h-screen w-full overflow-hidden">
         <Sidebar className="border-r border-slate-200 bg-white flex-shrink-0">
-            <SidebarHeader className="border-b border-slate-200 p-6">
-              <Link to={createPageUrl('Events')} className="flex items-center gap-3 hover:opacity-80 transition-opacity">
-                <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center shadow-md border border-slate-200 overflow-hidden">
-                  {memberRecord?.profile_photo_url ? (
-                    <img 
-                      src={memberRecord.profile_photo_url} 
-                      alt="Profile" 
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <User className="w-6 h-6 text-slate-400" />
-                  )}
-                </div>
-                <div>
-                  <h2 className="font-bold text-slate-900">AGCAS Events</h2>
-                  <p className="text-xs text-slate-500">Member Portal</p>
-                </div>
-              </Link>
+            <SidebarHeader className="border-b border-slate-200 p-4">
+              {portalLogoSettings?.logoUrl ? (
+                // Custom portal logo
+                <a 
+                  href={portalLogoSettings.logoLink || createPageUrl('Events')} 
+                  className="block hover:opacity-80 transition-opacity"
+                  style={{ height: `${logoHeightPx}px` }}
+                >
+                  <img 
+                    src={portalLogoSettings.logoUrl} 
+                    alt="Portal Logo" 
+                    className="h-full w-full object-contain object-left"
+                  />
+                </a>
+              ) : (
+                // Default AGCAS Events branding
+                <Link to={createPageUrl('Events')} className="flex items-center gap-3 hover:opacity-80 transition-opacity">
+                  <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center shadow-md border border-slate-200 overflow-hidden">
+                    {memberRecord?.profile_photo_url ? (
+                      <img 
+                        src={memberRecord.profile_photo_url} 
+                        alt="Profile" 
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <User className="w-6 h-6 text-slate-400" />
+                    )}
+                  </div>
+                  <div>
+                    <h2 className="font-bold text-slate-900">AGCAS Events</h2>
+                    <p className="text-xs text-slate-500">Member Portal</p>
+                  </div>
+                </Link>
+              )}
             </SidebarHeader>
             
             <SidebarContent ref={sidebarContentRef} className="p-3">
@@ -1709,22 +1752,38 @@ useEffect(() => {
           <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
             {/* Mobile Header - only visible on small screens */}
             <header className="md:hidden flex-shrink-0 flex items-center justify-between p-4 border-b border-slate-200 bg-white z-50">
-              <Link to={createPageUrl('Events')} className="flex items-center gap-2">
-                <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center shadow-sm border border-slate-200 overflow-hidden">
-                  {memberRecord?.profile_photo_url ? (
-                    <img 
-                      src={memberRecord.profile_photo_url} 
-                      alt="Profile" 
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <User className="w-4 h-4 text-slate-400" />
-                  )}
-                </div>
-                <div>
-                  <h2 className="font-bold text-slate-900 text-sm">AGCAS Events</h2>
-                </div>
-              </Link>
+              {portalLogoSettings?.logoUrl ? (
+                // Custom portal logo for mobile
+                <a 
+                  href={portalLogoSettings.logoLink || createPageUrl('Events')} 
+                  className="flex items-center hover:opacity-80 transition-opacity"
+                  style={{ height: `${Math.min(logoHeightPx, 40)}px` }}
+                >
+                  <img 
+                    src={portalLogoSettings.logoUrl} 
+                    alt="Portal Logo" 
+                    className="h-full max-w-[180px] object-contain object-left"
+                  />
+                </a>
+              ) : (
+                // Default branding for mobile
+                <Link to={createPageUrl('Events')} className="flex items-center gap-2">
+                  <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center shadow-sm border border-slate-200 overflow-hidden">
+                    {memberRecord?.profile_photo_url ? (
+                      <img 
+                        src={memberRecord.profile_photo_url} 
+                        alt="Profile" 
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <User className="w-4 h-4 text-slate-400" />
+                    )}
+                  </div>
+                  <div>
+                    <h2 className="font-bold text-slate-900 text-sm">AGCAS Events</h2>
+                  </div>
+                </Link>
+              )}
               <Button 
                 variant="ghost" 
                 size="icon"
@@ -1739,23 +1798,40 @@ useEffect(() => {
             <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
               <SheetContent side="left" className="w-[300px] p-0 flex flex-col">
                 <SheetHeader className="border-b border-slate-200 p-4">
-                  <SheetTitle className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center shadow-md border border-slate-200 overflow-hidden">
-                      {memberRecord?.profile_photo_url ? (
-                        <img 
-                          src={memberRecord.profile_photo_url} 
-                          alt="Profile" 
-                          className="w-full h-full object-cover"
-                        />
-                      ) : (
-                        <User className="w-6 h-6 text-slate-400" />
-                      )}
-                    </div>
-                    <div className="text-left">
-                      <div className="font-bold text-slate-900">AGCAS Events</div>
-                      <div className="text-xs text-slate-500 font-normal">Member Portal</div>
-                    </div>
-                  </SheetTitle>
+                  {portalLogoSettings?.logoUrl ? (
+                    // Custom portal logo in mobile sheet
+                    <a 
+                      href={portalLogoSettings.logoLink || createPageUrl('Events')} 
+                      className="block hover:opacity-80 transition-opacity"
+                      style={{ height: `${logoHeightPx}px` }}
+                      onClick={() => setMobileMenuOpen(false)}
+                    >
+                      <img 
+                        src={portalLogoSettings.logoUrl} 
+                        alt="Portal Logo" 
+                        className="h-full w-full object-contain object-left"
+                      />
+                    </a>
+                  ) : (
+                    // Default branding in mobile sheet
+                    <SheetTitle className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center shadow-md border border-slate-200 overflow-hidden">
+                        {memberRecord?.profile_photo_url ? (
+                          <img 
+                            src={memberRecord.profile_photo_url} 
+                            alt="Profile" 
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <User className="w-6 h-6 text-slate-400" />
+                        )}
+                      </div>
+                      <div className="text-left">
+                        <div className="font-bold text-slate-900">AGCAS Events</div>
+                        <div className="text-xs text-slate-500 font-normal">Member Portal</div>
+                      </div>
+                    </SheetTitle>
+                  )}
                 </SheetHeader>
                 
                 <ScrollArea className="flex-1 p-3">

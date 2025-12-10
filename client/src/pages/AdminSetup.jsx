@@ -1,13 +1,14 @@
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Shield, Loader2, CheckCircle2, ExternalLink, RefreshCw, Calendar, Users, Building2, Search, AlertTriangle, Unlink } from "lucide-react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Shield, Loader2, CheckCircle2, ExternalLink, RefreshCw, Calendar, Users, Building2, Search, AlertTriangle, Unlink, Upload, Image, Trash2 } from "lucide-react";
+import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { toast } from "sonner";
 
 export default function AdminSetupPage() {
   const queryClient = useQueryClient();
@@ -27,6 +28,13 @@ export default function AdminSetupPage() {
   const [singleOrgSyncLoading, setSingleOrgSyncLoading] = useState(false);
   const [singleOrgSyncResult, setSingleOrgSyncResult] = useState(null);
   const [orgSearchTerm, setOrgSearchTerm] = useState("");
+  
+  // Portal Logo state
+  const [logoUrl, setLogoUrl] = useState("");
+  const [logoHeight, setLogoHeight] = useState("medium");
+  const [logoLink, setLogoLink] = useState("");
+  const [logoUploading, setLogoUploading] = useState(false);
+  const [logoSaving, setLogoSaving] = useState(false);
 
   const { data: tokens = [] } = useQuery({
     queryKey: ['zoho-tokens'],
@@ -58,6 +66,88 @@ export default function AdminSetupPage() {
   const filteredOrganizations = organizations.filter(org => 
     org.name?.toLowerCase().includes(orgSearchTerm.toLowerCase())
   ).slice(0, 50); // Limit to 50 for performance
+
+  // Query for portal logo settings
+  const { data: systemSettings = [] } = useQuery({
+    queryKey: ['system-settings-logo'],
+    queryFn: () => base44.entities.SystemSettings.list(),
+  });
+
+  // Load logo settings when data is available
+  useEffect(() => {
+    if (systemSettings.length > 0) {
+      const logoUrlSetting = systemSettings.find(s => s.setting_key === 'portal_logo_url');
+      const logoHeightSetting = systemSettings.find(s => s.setting_key === 'portal_logo_height');
+      const logoLinkSetting = systemSettings.find(s => s.setting_key === 'portal_logo_link');
+      
+      if (logoUrlSetting?.setting_value) setLogoUrl(logoUrlSetting.setting_value);
+      if (logoHeightSetting?.setting_value) setLogoHeight(logoHeightSetting.setting_value);
+      if (logoLinkSetting?.setting_value) setLogoLink(logoLinkSetting.setting_value);
+    }
+  }, [systemSettings]);
+
+  // Handle logo file upload
+  const handleLogoUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please upload an image file');
+      return;
+    }
+
+    setLogoUploading(true);
+    try {
+      const response = await base44.integrations.Core.UploadFile({ file });
+      setLogoUrl(response.file_url);
+      toast.success('Logo uploaded successfully');
+    } catch (error) {
+      console.error('Logo upload error:', error);
+      toast.error('Failed to upload logo');
+    } finally {
+      setLogoUploading(false);
+    }
+  };
+
+  // Save logo settings
+  const handleSaveLogoSettings = async () => {
+    setLogoSaving(true);
+    try {
+      const settingsToSave = [
+        { key: 'portal_logo_url', value: logoUrl },
+        { key: 'portal_logo_height', value: logoHeight },
+        { key: 'portal_logo_link', value: logoLink }
+      ];
+
+      for (const setting of settingsToSave) {
+        const existing = systemSettings.find(s => s.setting_key === setting.key);
+        if (existing) {
+          await base44.entities.SystemSettings.update(existing.id, { setting_value: setting.value });
+        } else {
+          await base44.entities.SystemSettings.create({ 
+            setting_key: setting.key, 
+            setting_value: setting.value 
+          });
+        }
+      }
+
+      queryClient.invalidateQueries({ queryKey: ['system-settings-logo'] });
+      queryClient.invalidateQueries({ queryKey: ['system-settings'] });
+      queryClient.invalidateQueries({ queryKey: ['portal-logo-settings'] });
+      toast.success('Portal logo settings saved - refresh the portal to see changes');
+    } catch (error) {
+      console.error('Save logo settings error:', error);
+      toast.error('Failed to save logo settings');
+    } finally {
+      setLogoSaving(false);
+    }
+  };
+
+  // Remove logo
+  const handleRemoveLogo = () => {
+    setLogoUrl("");
+  };
 
   const handleAuthenticate = async () => {
     setLoading(true);
@@ -233,8 +323,148 @@ export default function AdminSetupPage() {
             <Shield className="w-8 h-8 text-white" />
           </div>
           <h1 className="text-3xl font-bold text-slate-900 mb-2">Admin Setup</h1>
-          <p className="text-slate-600">Configure Zoho and Xero integrations for AGCAS Events</p> {/* Updated description */}
+          <p className="text-slate-600">Configure portal branding and integrations</p>
         </div>
+
+        {/* Portal Logo Configuration */}
+        <Card className="shadow-xl border-slate-200 mb-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Image className="w-5 h-5" />
+              Portal Logo
+            </CardTitle>
+            <CardDescription>
+              Upload a custom logo to display in the portal navigation. This replaces the default AGCAS Events branding.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {/* Logo Preview */}
+            <div className="space-y-2">
+              <Label>Current Logo</Label>
+              <div className="border-2 border-dashed border-slate-200 rounded-lg p-4 bg-slate-50">
+                {logoUrl ? (
+                  <div className="flex items-center gap-4">
+                    <div 
+                      className="bg-white border border-slate-200 rounded-lg p-2 flex items-center justify-center"
+                      style={{ 
+                        width: '200px',
+                        height: logoHeight === 'small' ? '40px' : logoHeight === 'large' ? '80px' : '60px'
+                      }}
+                    >
+                      <img 
+                        src={logoUrl} 
+                        alt="Portal Logo" 
+                        className="max-h-full max-w-full object-contain"
+                      />
+                    </div>
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={handleRemoveLogo}
+                      className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                    >
+                      <Trash2 className="w-4 h-4 mr-1" />
+                      Remove
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="text-center py-4">
+                    <Image className="w-12 h-12 text-slate-300 mx-auto mb-2" />
+                    <p className="text-sm text-slate-500">No logo uploaded</p>
+                    <p className="text-xs text-slate-400">The default AGCAS Events branding will be shown</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Upload Button */}
+            <div className="space-y-2">
+              <Label>Upload New Logo</Label>
+              <div className="flex items-center gap-3">
+                <label className="flex-1">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleLogoUpload}
+                    className="hidden"
+                    data-testid="input-logo-upload"
+                  />
+                  <div className="flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-slate-300 rounded-lg cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors">
+                    {logoUploading ? (
+                      <>
+                        <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
+                        <span className="text-sm text-blue-600">Uploading...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="w-5 h-5 text-slate-400" />
+                        <span className="text-sm text-slate-600">Click to upload image</span>
+                      </>
+                    )}
+                  </div>
+                </label>
+              </div>
+              <p className="text-xs text-slate-500">
+                Recommended: PNG or SVG with transparent background. The logo will be constrained to the navigation width.
+              </p>
+            </div>
+
+            {/* Height Selector */}
+            <div className="space-y-2">
+              <Label htmlFor="logo-height">Logo Height</Label>
+              <Select value={logoHeight} onValueChange={setLogoHeight}>
+                <SelectTrigger id="logo-height" data-testid="select-logo-height">
+                  <SelectValue placeholder="Select height" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="small">Small (40px)</SelectItem>
+                  <SelectItem value="medium">Medium (60px)</SelectItem>
+                  <SelectItem value="large">Large (80px)</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-slate-500">
+                This controls the height of the logo container in the navigation.
+              </p>
+            </div>
+
+            {/* Link URL */}
+            <div className="space-y-2">
+              <Label htmlFor="logo-link">Logo Click Link (optional)</Label>
+              <Input
+                id="logo-link"
+                type="url"
+                placeholder="https://example.com"
+                value={logoLink}
+                onChange={(e) => setLogoLink(e.target.value)}
+                data-testid="input-logo-link"
+              />
+              <p className="text-xs text-slate-500">
+                When clicked, the logo will navigate to this URL. Leave empty to link to the Events page.
+              </p>
+            </div>
+
+            {/* Save Button */}
+            <Button
+              onClick={handleSaveLogoSettings}
+              disabled={logoSaving}
+              className="w-full"
+              size="lg"
+              data-testid="button-save-logo"
+            >
+              {logoSaving ? (
+                <>
+                  <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="w-5 h-5 mr-2" />
+                  Save Logo Settings
+                </>
+              )}
+            </Button>
+          </CardContent>
+        </Card>
 
         <Card className="shadow-xl border-slate-200 mb-6">
           <CardHeader>
