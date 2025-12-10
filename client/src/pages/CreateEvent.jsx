@@ -101,8 +101,7 @@ export default function CreateEvent() {
   // Handler for status changes - clears TBC-incompatible fields synchronously
   const handleStatusChange = (newStatus) => {
     if (newStatus === 'tbc') {
-      // Clear online mode and webinar when switching to TBC
-      setIsOnline(false);
+      // Clear dates and webinar when switching to TBC (but keep online mode available)
       setSelectedWebinarId(null);
       setFormData(prev => ({
         ...prev,
@@ -469,16 +468,16 @@ export default function CreateEvent() {
       location: locationValue,
       image_url: formData.image_url || null,
       available_seats: isOnline ? null : (formData.available_seats ? parseInt(formData.available_seats) : null),
-      // For TBC events, Zoom webinar must be null
-      zoom_webinar_id: isTbcEvent ? null : (isOnline && selectedWebinarId ? selectedWebinarId : null),
+      // TBC events can optionally have a Zoom webinar
+      zoom_webinar_id: isOnline && selectedWebinarId ? selectedWebinarId : null,
       speaker_ids: selectedSpeakers.length > 0 ? selectedSpeakers : [],
       // Convert composite keys back to plain labels for database storage
       filter_tags: selectedFilterTags.length > 0 
         ? selectedFilterTags.map(key => parseFilterTagKey(key).label) 
         : [],
       cta_override_url: formData.cta_override_url || null,
-      // For TBC events, is_online must be false
-      is_online: isTbcEvent ? false : isOnline,
+      // TBC events can still be online, but webinar is optional
+      is_online: isOnline,
       status: eventStatus
     };
 
@@ -649,12 +648,11 @@ export default function CreateEvent() {
                 <Switch
                   checked={isOnline}
                   onCheckedChange={handleDeliveryModeChange}
-                  disabled={eventStatus === 'tbc'}
                   data-testid="switch-delivery-mode"
                 />
               </div>
 
-              {isOnline && eventStatus !== 'tbc' && (
+              {isOnline && (
                 <div className="space-y-3">
                   <Label>Select Zoom Webinar</Label>
                   <Select

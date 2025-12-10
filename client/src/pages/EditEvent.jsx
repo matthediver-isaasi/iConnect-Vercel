@@ -86,8 +86,7 @@ export default function EditEvent() {
   // Handler for status changes - clears TBC-incompatible fields synchronously
   const handleStatusChange = (newStatus) => {
     if (newStatus === 'tbc') {
-      // Clear online mode and webinar when switching to TBC
-      setIsOnlineEvent(false);
+      // Clear dates and webinar when switching to TBC (but keep online mode available)
       setFormData(prev => ({
         ...prev,
         start_date: '',
@@ -333,7 +332,7 @@ export default function EditEvent() {
         available_seats: event.available_seats !== null && event.available_seats !== undefined 
           ? String(event.available_seats) 
           : "",
-        zoom_webinar_id: isTbcEvent ? null : (event.zoom_webinar_id || null),
+        zoom_webinar_id: event.zoom_webinar_id || null,
         cta_override_url: event.cta_override_url || ""
       });
       setInitialDataLoaded(true);
@@ -571,16 +570,16 @@ export default function EditEvent() {
       location: isOnlineEvent ? null : (formData.location || null),
       image_url: formData.image_url || null,
       available_seats: isNaN(parsedSeats) ? null : parsedSeats,
-      // For TBC events, Zoom webinar must be null
-      zoom_webinar_id: isTbcEvent ? null : (formData.zoom_webinar_id || null),
+      // TBC events can optionally have a Zoom webinar
+      zoom_webinar_id: formData.zoom_webinar_id || null,
       speaker_ids: selectedSpeakers.length > 0 ? selectedSpeakers : [],
       // Convert composite keys back to plain labels for database storage
       filter_tags: selectedFilterTags.length > 0 
         ? selectedFilterTags.map(key => parseFilterTagKey(key).label) 
         : [],
       cta_override_url: formData.cta_override_url || null,
-      // For TBC events, is_online must be false
-      is_online: isTbcEvent ? false : isOnlineEvent,
+      // TBC events can still be online, but webinar is optional
+      is_online: isOnlineEvent,
       status: eventStatus
     };
 
