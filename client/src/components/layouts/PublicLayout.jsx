@@ -167,6 +167,15 @@ export default function PublicLayout({ children, currentPageName }) {
         
         console.log('[PublicLayout] Fetching banners for page:', currentPageName, 'portalPageId:', portalPageId, 'isCustomSlug:', isCustomSlug, 'urlSlug:', urlSlug);
         console.log('[PublicLayout] All banners found:', allBanners?.length);
+        console.log('[PublicLayout] pageToPortalPageMap keys:', Object.keys(pageToPortalPageMap));
+        
+        // Debug: log all banners with their associated_pages for MyOrganisation troubleshooting
+        if (currentPageName === 'MyOrganisation') {
+          console.log('[PublicLayout] MyOrganisation DEBUG - looking for portal_my_organisation');
+          allBanners.forEach(b => {
+            console.log('[PublicLayout] Banner:', b.name, 'associated_pages:', b.associated_pages);
+          });
+        }
         
         // Filter banners that include this page (check both portal ID and page name for compatibility)
         const pageBanners = allBanners
