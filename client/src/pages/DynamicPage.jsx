@@ -107,9 +107,17 @@ export default function DynamicPage() {
       const scrollTimeout = setTimeout(() => {
         const targetElement = document.getElementById(anchorId);
         if (targetElement) {
-          targetElement.scrollIntoView({ 
-            behavior: 'smooth', 
-            block: 'start' 
+          // Get the sticky header height to offset the scroll position
+          const header = document.querySelector('header.sticky, header[class*="sticky"]');
+          const headerHeight = header ? header.offsetHeight : 0;
+          
+          // Calculate the target scroll position with header offset
+          const elementPosition = targetElement.getBoundingClientRect().top;
+          const offsetPosition = elementPosition + window.pageYOffset - headerHeight - 20; // 20px extra padding
+          
+          window.scrollTo({
+            top: offsetPosition,
+            behavior: 'smooth'
           });
         }
       }, 100);
