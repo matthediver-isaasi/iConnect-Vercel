@@ -413,9 +413,13 @@ export default function EditEvent() {
     }
   }, [event, eventCategories]);
 
-  const isOnlineEvent = formData.location?.toLowerCase().includes('online') || 
-                        formData.location?.includes('zoom.us') ||
-                        formData.location?.includes('https://');
+  // Use the is_online field from the event, with fallback to location-based detection for legacy events
+  const isOnlineEvent = event?.is_online === true || 
+                        (event?.is_online === undefined && (
+                          formData.location?.toLowerCase().includes('online') || 
+                          formData.location?.includes('zoom.us') ||
+                          formData.location?.includes('https://')
+                        ));
 
   // One-off event is when isProgramEvent is false
   const isOneOffEvent = !isProgramEvent;
@@ -521,7 +525,8 @@ export default function EditEvent() {
       filter_tags: selectedFilterTags.length > 0 
         ? selectedFilterTags.map(key => parseFilterTagKey(key).label) 
         : [],
-      cta_override_url: formData.cta_override_url || null
+      cta_override_url: formData.cta_override_url || null,
+      is_online: isOnlineEvent
     };
 
     // Add ticket classes for one-off events

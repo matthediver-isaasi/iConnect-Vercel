@@ -461,7 +461,8 @@ export default function CreateEvent() {
       filter_tags: selectedFilterTags.length > 0 
         ? selectedFilterTags.map(key => parseFilterTagKey(key).label) 
         : [],
-      cta_override_url: formData.cta_override_url || null
+      cta_override_url: formData.cta_override_url || null,
+      is_online: isOnline
     };
 
     // Add ticket classes for one-off events as JSON in pricing_config field
