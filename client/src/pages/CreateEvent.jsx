@@ -334,8 +334,14 @@ export default function CreateEvent() {
 
   const handleSubmit = (e) => {
     e.preventDefault();
+    console.log('[CreateEvent] handleSubmit called');
+    console.log('[CreateEvent] formData:', JSON.stringify(formData, null, 2));
+    console.log('[CreateEvent] isProgramEvent:', isProgramEvent);
+    console.log('[CreateEvent] isOnline:', isOnline);
+    console.log('[CreateEvent] selectedWebinarId:', selectedWebinarId);
     
     if (isProgramEvent && !formData.program_tag) {
+      console.log('[CreateEvent] Validation failed: No program selected');
       toast.error('Please select a program');
       return;
     }
@@ -1688,6 +1694,7 @@ export default function CreateEvent() {
               disabled={createEventMutation.isPending}
               className="bg-blue-600 hover:bg-blue-700"
               data-testid="button-create-event"
+              onClick={() => console.log('[CreateEvent] Create Event button clicked')}
             >
               {createEventMutation.isPending ? (
                 <>
