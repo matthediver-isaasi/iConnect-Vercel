@@ -103,17 +103,56 @@ export default function DynamicPage() {
     if (elements.length > 0 && !elementsLoading && location.hash) {
       const anchorId = location.hash.substring(1); // Remove the # prefix
       
+      // Debug: Check for duplicate anchors
+      const allElementsWithId = document.querySelectorAll(`[id="${anchorId}"]`);
+      console.log('[Anchor Debug] Looking for anchor ID:', anchorId);
+      console.log('[Anchor Debug] Number of elements with this ID:', allElementsWithId.length);
+      allElementsWithId.forEach((el, index) => {
+        console.log(`[Anchor Debug] Element ${index}:`, {
+          tagName: el.tagName,
+          className: el.className,
+          offsetTop: el.offsetTop,
+          innerHTML: el.innerHTML.substring(0, 100) + '...'
+        });
+      });
+      
+      // Debug: List all IDs on the page
+      const allIds = document.querySelectorAll('[id]');
+      console.log('[Anchor Debug] All IDs on page:', Array.from(allIds).map(el => el.id));
+      
+      // Debug: Check page element anchors from data
+      console.log('[Anchor Debug] Page elements with anchors:', elements.filter(el => el.content?.anchor).map(el => ({
+        type: el.element_type,
+        anchor: el.content?.anchor,
+        display_order: el.display_order
+      })));
+      
       // Use a small timeout to ensure DOM has fully updated after React render
       const scrollTimeout = setTimeout(() => {
         const targetElement = document.getElementById(anchorId);
+        console.log('[Anchor Debug] Target element found:', !!targetElement);
         if (targetElement) {
+          console.log('[Anchor Debug] Target element details:', {
+            tagName: targetElement.tagName,
+            className: targetElement.className,
+            offsetTop: targetElement.offsetTop,
+            getBoundingClientRect: targetElement.getBoundingClientRect()
+          });
+          
           // Get the sticky header height to offset the scroll position
           const header = document.querySelector('header.sticky, header[class*="sticky"]');
           const headerHeight = header ? header.offsetHeight : 0;
+          console.log('[Anchor Debug] Header height:', headerHeight);
           
           // Calculate the target scroll position with header offset
           const elementPosition = targetElement.getBoundingClientRect().top;
           const offsetPosition = elementPosition + window.pageYOffset - headerHeight - 20; // 20px extra padding
+          console.log('[Anchor Debug] Scroll position calculation:', {
+            elementPosition,
+            pageYOffset: window.pageYOffset,
+            headerHeight,
+            offsetPosition
+          });
           
           window.scrollTo({
             top: offsetPosition,
