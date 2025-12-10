@@ -341,19 +341,19 @@ export function IEditImagePanelElementEditor({ element, onChange }) {
   };
 
   const updatePanel = (index, key, value) => {
-    // Deep clone all panels to ensure no shared references
-    const newPanels = panels.map((p, i) => {
-      const clonedPanel = { ...p };
-      // Also clone nested button object if present
-      if (clonedPanel.button) {
-        clonedPanel.button = { ...clonedPanel.button };
-      }
-      return clonedPanel;
-    });
+    console.log(`[updatePanel] Called with index=${index}, key=${key}, value=${value}`);
+    console.log(`[updatePanel] Current panels:`, JSON.stringify(panels.map((p, i) => ({ index: i, text_gap: p.text_gap, bottom_vertical_align: p.bottom_vertical_align }))));
+    
+    // Deep clone all panels using JSON to ensure no shared references whatsoever
+    const newPanels = JSON.parse(JSON.stringify(panels));
+    
     if (!newPanels[index]) {
       newPanels[index] = { ...defaultPanel };
     }
     newPanels[index] = { ...newPanels[index], [key]: value };
+    
+    console.log(`[updatePanel] New panels:`, JSON.stringify(newPanels.map((p, i) => ({ index: i, text_gap: p.text_gap, bottom_vertical_align: p.bottom_vertical_align }))));
+    
     updateContent('panels', newPanels);
   };
 
