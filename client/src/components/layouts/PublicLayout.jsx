@@ -269,7 +269,7 @@ export default function PublicLayout({ children, currentPageName }) {
                 >
                   Become a member today
                 </h2>
-                <Link to={createPageUrl('PublicJoinUs')}>
+                <Link to={createPageUrl('Membership')}>
                   <Button 
                     className="text-white font-bold hover:opacity-90 transition-opacity px-6 py-5 rounded-none" 
                     style={{ 
