@@ -1,0 +1,18 @@
+index-DNInjGnc.js:1381 [updatePanel] Called with index=0, key=text_gap, value=70
+index-DNInjGnc.js:1381 [updatePanel] Current panels: [{"index":0,"text_gap":65,"bottom_vertical_align":"bottom"},{"index":1,"text_gap":35,"bottom_vertical_align":"top"},{"index":2},{"index":3,"text_gap":30,"bottom_vertical_align":"top"}]
+index-DNInjGnc.js:1381 [updatePanel] New panels: [{"index":0,"text_gap":70,"bottom_vertical_align":"bottom"},{"index":1,"text_gap":35,"bottom_vertical_align":"top"},{"index":2},{"index":3,"text_gap":30,"bottom_vertical_align":"top"}]
+index-DNInjGnc.js:1381 [updatePanel] Called with index=0, key=text_gap, value=75
+index-DNInjGnc.js:1381 [updatePanel] Current panels: [{"index":0,"text_gap":70,"bottom_vertical_align":"bottom"},{"index":1,"text_gap":35,"bottom_vertical_align":"top"},{"index":2},{"index":3,"text_gap":30,"bottom_vertical_align":"top"}]
+index-DNInjGnc.js:1381 [updatePanel] New panels: [{"index":0,"text_gap":75,"bottom_vertical_align":"bottom"},{"index":1,"text_gap":35,"bottom_vertical_align":"top"},{"index":2},{"index":3,"text_gap":30,"bottom_vertical_align":"top"}]
+index-DNInjGnc.js:1381 [updatePanel] Called with index=0, key=text_gap, value=80
+index-DNInjGnc.js:1381 [updatePanel] Current panels: [{"index":0,"text_gap":75,"bottom_vertical_align":"bottom"},{"index":1,"text_gap":35,"bottom_vertical_align":"top"},{"index":2},{"index":3,"text_gap":30,"bottom_vertical_align":"top"}]
+index-DNInjGnc.js:1381 [updatePanel] New panels: [{"index":0,"text_gap":80,"bottom_vertical_align":"bottom"},{"index":1,"text_gap":35,"bottom_vertical_align":"top"},{"index":2},{"index":3,"text_gap":30,"bottom_vertical_align":"top"}]
+index-DNInjGnc.js:1381 [updatePanel] Called with index=0, key=text_gap, value=85
+index-DNInjGnc.js:1381 [updatePanel] Current panels: [{"index":0,"text_gap":80,"bottom_vertical_align":"bottom"},{"index":1,"text_gap":35,"bottom_vertical_align":"top"},{"index":2},{"index":3,"text_gap":30,"bottom_vertical_align":"top"}]
+index-DNInjGnc.js:1381 [updatePanel] New panels: [{"index":0,"text_gap":85,"bottom_vertical_align":"bottom"},{"index":1,"text_gap":35,"bottom_vertical_align":"top"},{"index":2},{"index":3,"text_gap":30,"bottom_vertical_align":"top"}]
+index-DNInjGnc.js:1381 [updatePanel] Called with index=0, key=text_gap, value=90
+index-DNInjGnc.js:1381 [updatePanel] Current panels: [{"index":0,"text_gap":85,"bottom_vertical_align":"bottom"},{"index":1,"text_gap":35,"bottom_vertical_align":"top"},{"index":2},{"index":3,"text_gap":30,"bottom_vertical_align":"top"}]
+index-DNInjGnc.js:1381 [updatePanel] New panels: [{"index":0,"text_gap":90,"bottom_vertical_align":"bottom"},{"index":1,"text_gap":35,"bottom_vertical_align":"top"},{"index":2},{"index":3,"text_gap":30,"bottom_vertical_align":"top"}]
+index-DNInjGnc.js:1381 [updatePanel] Called with index=0, key=text_gap, value=95
+index-DNInjGnc.js:1381 [updatePanel] Current panels: [{"index":0,"text_gap":90,"bottom_vertical_align":"bottom"},{"index":1,"text_gap":35,"bottom_vertical_align":"top"},{"index":2},{"index":3,"text_gap":30,"bottom_vertical_align":"top"}]
+index-DNInjGnc.js:1381 [updatePanel] New panels: [{"index":0,"text_gap":95,"bottom_vertical_align":"bottom"},{"index":1,"text_gap":35,"bottom_vertical_align":"top"},{"index":2},{"index":3,"text_gap":30,"bottom_vertical_align":"top"}]
