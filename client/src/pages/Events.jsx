@@ -162,36 +162,16 @@ export default function EventsPage({
   // Build filter tag key map for display and filtering
   const filterTagKeyMap = useMemo(() => buildFilterTagKeyMap(eventCategories), [eventCategories]);
 
-  // Helper to check if an event has at least one public ticket class
-  const hasPublicTickets = (event) => {
-    // Program events (with program_tag) require login - not shown to non-logged-in users
-    if (event.program_tag && event.program_tag !== "") {
-      return false;
-    }
-    // One-off events: check if any ticket class is public
-    // Support both is_public field and visibility_mode field for backwards compatibility
-    if (event.pricing_config?.ticket_classes && Array.isArray(event.pricing_config.ticket_classes)) {
-      return event.pricing_config.ticket_classes.some(tc => 
-        tc.is_public === true || tc.visibility_mode === "members_and_public"
-      );
-    }
-    return false;
-  };
-
   // Filter events by status and access level
   // - Admins see all events (including drafts)
-  // - Members see published and tbc events only
-  // - Non-logged-in users only see events with public tickets (and not drafts)
+  // - Everyone else (members and non-logged-in users) sees published and tbc events
+  // - Non-logged-in users can view member-only events but tickets will be locked
+  //   This allows advertising member-only events to encourage membership signup
   const accessibleEvents = useMemo(() => {
     let filtered = events;
     
-    // First, filter by login status and public ticket availability
-    if (!memberInfo) {
-      filtered = filtered.filter(hasPublicTickets);
-    }
-    
-    // Then, filter by status based on admin status
-    // Admins see all events, members see only published and tbc
+    // Filter by status based on admin status
+    // Admins see all events, everyone else sees only published and tbc
     if (!isAdmin) {
       filtered = filtered.filter(event => 
         event.status === 'published' || event.status === 'tbc' || !event.status
@@ -199,7 +179,7 @@ export default function EventsPage({
     }
     
     return filtered;
-  }, [events, memberInfo, isAdmin]);
+  }, [events, isAdmin]);
 
   // Helper to check if event is in the past (timezone-aware)
   const isEventPast = (event) => {
