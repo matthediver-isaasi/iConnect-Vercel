@@ -7314,27 +7314,48 @@ AGCAS Events Team
       console.log('[createJobPostingMember] Request body keys:', Object.keys(req.body));
       console.log('[createJobPostingMember] postingData keys:', Object.keys(postingData));
 
-      // Get member information - query directly by email (case-insensitive using ilike)
-      console.log('[createJobPostingMember] Querying member table with ilike for email:', memberEmail);
+      // Get member information - query directly by email (exact match, lowercased)
+      const normalizedEmail = memberEmail.toLowerCase().trim();
+      console.log('[createJobPostingMember] Querying member table for email:', normalizedEmail);
+      
+      // First try exact match
       const { data: members, error: memberError } = await supabase
         .from('member')
         .select('*')
-        .ilike('email', memberEmail);
+        .eq('email', normalizedEmail);
       
-      console.log('[createJobPostingMember] Query result - members count:', members?.length, 'error:', memberError);
-      if (members && members.length > 0) {
-        console.log('[createJobPostingMember] First member found:', members[0].id, members[0].email);
+      console.log('[createJobPostingMember] Exact query result - members count:', members?.length, 'error:', memberError);
+      
+      let member = members?.[0];
+      
+      // If no exact match, try case-insensitive search for debugging
+      if (!member) {
+        console.log('[createJobPostingMember] No exact match, trying ilike search for debugging...');
+        const { data: ilikMembers, error: ilikeError } = await supabase
+          .from('member')
+          .select('id, email')
+          .ilike('email', `%${normalizedEmail.split('@')[0]}%`);
+        
+        console.log('[createJobPostingMember] ilike search result - similar emails found:', 
+          ilikMembers?.map(m => m.email).join(', ') || 'none');
+          
+        if (ilikMembers && ilikMembers.length > 0) {
+          console.log('[createJobPostingMember] Email mismatch detected!');
+          console.log('[createJobPostingMember] Requested email:', normalizedEmail);
+          console.log('[createJobPostingMember] Found similar:', ilikMembers[0].email);
+        }
+      } else {
+        console.log('[createJobPostingMember] First member found:', member.id, member.email);
       }
-      
-      const member = members?.[0];
 
       if (memberError || !member) {
-        console.error('[createJobPostingMember] Member not found for email:', memberEmail);
+        console.error('[createJobPostingMember] Member not found for email:', normalizedEmail);
         console.error('[createJobPostingMember] Query error:', memberError);
-        console.error('[createJobPostingMember] Members array:', members);
+        console.error('[createJobPostingMember] Original email passed:', memberEmail);
         return res.status(404).json({
           success: false,
-          error: 'Member not found'
+          error: 'Member not found',
+          debug_email: normalizedEmail
         });
       }
 
