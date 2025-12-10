@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import Stripe from 'stripe';
 import crypto from 'crypto';
-import { getSession } from '../_lib/session.js';
+import { getSession, getSessionMember } from '../_lib/session.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -2224,7 +2224,7 @@ const functionHandlers = {
     }
   },
 
-  async createJobPostingMember(params) {
+  async createJobPostingMember(params, req) {
     if (!supabase) throw new Error('Supabase not configured');
     
     const {
@@ -2246,11 +2246,44 @@ const functionHandlers = {
       attachment_names = []
     } = params;
 
-    const { data: allMembers } = await supabase.from('member').select('*');
-    const member = allMembers?.find(m => m.email === memberEmail);
+    console.log('[createJobPostingMember] Creating job posting');
+    console.log('[createJobPostingMember] Provided email:', memberEmail);
+
+    let member = null;
+
+    // FIRST: Try to get member from session (portal users - most reliable)
+    if (req) {
+      const sessionMember = await getSessionMember(req);
+      if (sessionMember) {
+        member = sessionMember;
+        console.log('[createJobPostingMember] Found member via session:', member.id, member.email);
+      } else {
+        console.log('[createJobPostingMember] No session member found');
+      }
+    }
+
+    // FALLBACK: Try email lookup with case-insensitive matching
+    if (!member && memberEmail) {
+      const normalizedEmail = memberEmail.toLowerCase().trim();
+      console.log('[createJobPostingMember] Falling back to email lookup:', normalizedEmail);
+      
+      const { data: emailMember, error: emailError } = await supabase
+        .from('member')
+        .select('*')
+        .eq('email', normalizedEmail)
+        .single();
+      
+      if (emailMember && !emailError) {
+        member = emailMember;
+        console.log('[createJobPostingMember] Found member via email:', member.id, member.email);
+      } else {
+        console.warn('[createJobPostingMember] Email lookup failed:', emailError?.message);
+      }
+    }
 
     if (!member) {
-      return { success: false, error: 'Member not found' };
+      console.error('[createJobPostingMember] Member not found via session or email');
+      return { success: false, error: 'Member not found. Please log in again.' };
     }
 
     // Get organization name if member has an organization
