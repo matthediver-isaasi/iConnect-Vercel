@@ -487,10 +487,12 @@ export default function PostJobPage() {
     try {
       if (isLoggedIn) {
         // Member posting - free
+        console.log('[PostJob] Calling createJobPostingMember API with email:', email);
         const response = await base44.functions.invoke('createJobPostingMember', {
           ...formData,
           memberEmail: email
         });
+        console.log('[PostJob] API response:', JSON.stringify(response, null, 2));
 
         if (response.data.success) {
           toast.success('Job posting submitted successfully!');
@@ -534,6 +536,10 @@ export default function PostJobPage() {
         }
       }
     } catch (error) {
+      console.error('[PostJob] Submission error caught:', error);
+      console.error('[PostJob] Error message:', error.message);
+      console.error('[PostJob] Error stack:', error.stack);
+      
       // Parse error message to show helpful dialog
       const errorMessage = error.message || 'Failed to submit job posting';
       let errorDetails = [];
