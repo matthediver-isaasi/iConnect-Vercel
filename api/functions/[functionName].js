@@ -2950,62 +2950,99 @@ const functionHandlers = {
   },
 
   async checkMemberStatusByEmail(params) {
-    if (!supabase) throw new Error('Supabase not configured');
+    // Debug: Check if Supabase is configured
+    const supabaseConfigured = !!supabase;
+    const hasUrl = !!process.env.SUPABASE_URL;
+    const hasKey = !!process.env.SUPABASE_SERVICE_KEY;
+    
+    if (!supabase) {
+      return { 
+        is_member: false, 
+        has_job_posting_access: false,
+        debug: { 
+          error: 'Supabase not configured',
+          hasUrl,
+          hasKey
+        }
+      };
+    }
     
     const { email } = params;
 
     if (!email) {
-      return { is_member: false, error: 'Email is required' };
+      return { is_member: false, has_job_posting_access: false, debug: { error: 'Email is required' } };
     }
 
     console.log('[checkMemberStatusByEmail] Checking email:', email);
     
-    const { data: allMembers, error: memberError } = await supabase.from('member').select('*');
-    
-    console.log('[checkMemberStatusByEmail] Query result - members count:', allMembers?.length, 'error:', memberError);
-    
-    if (memberError) {
-      console.error('[checkMemberStatusByEmail] Database error:', memberError);
-      return { is_member: false, has_job_posting_access: false, error: memberError.message };
-    }
-    
-    // Debug: log a few sample emails to see format
-    if (allMembers && allMembers.length > 0) {
-      console.log('[checkMemberStatusByEmail] Sample emails from DB:', allMembers.slice(0, 3).map(m => m.email));
-    }
-    
-    const member = allMembers?.find(m => m.email?.toLowerCase() === email.toLowerCase());
-    
-    console.log('[checkMemberStatusByEmail] Found member:', !!member, member?.email);
-
-    if (member) {
-      // Check if member has job posting access based on their role
-      let has_job_posting_access = true; // Default to true if no role restrictions
+    try {
+      const { data: allMembers, error: memberError } = await supabase.from('member').select('*');
       
-      if (member.role_id) {
-        const { data: allRoles } = await supabase.from('role').select('*');
-        const memberRole = allRoles?.find(r => r.id === member.role_id);
+      console.log('[checkMemberStatusByEmail] Query result - members count:', allMembers?.length, 'error:', memberError);
+      
+      if (memberError) {
+        console.error('[checkMemberStatusByEmail] Database error:', memberError);
+        return { 
+          is_member: false, 
+          has_job_posting_access: false, 
+          debug: { 
+            error: memberError.message,
+            code: memberError.code,
+            details: memberError.details
+          }
+        };
+      }
+      
+      // Debug info
+      const debugInfo = {
+        memberCount: allMembers?.length || 0,
+        searchedEmail: email.toLowerCase().trim(),
+        sampleEmails: allMembers?.slice(0, 5).map(m => m.email) || []
+      };
+      
+      const member = allMembers?.find(m => m.email?.toLowerCase().trim() === email.toLowerCase().trim());
+      
+      console.log('[checkMemberStatusByEmail] Found member:', !!member, member?.email);
+
+      if (member) {
+        // Check if member has job posting access based on their role
+        let has_job_posting_access = true; // Default to true if no role restrictions
         
-        if (memberRole && memberRole.excluded_features) {
-          // Check if page_PostJob is in excluded features
-          const excludedFeatures = Array.isArray(memberRole.excluded_features) 
-            ? memberRole.excluded_features 
-            : [];
-          has_job_posting_access = !excludedFeatures.includes('page_PostJob');
+        if (member.role_id) {
+          const { data: allRoles } = await supabase.from('role').select('*');
+          const memberRole = allRoles?.find(r => r.id === member.role_id);
+          
+          if (memberRole && memberRole.excluded_features) {
+            // Check if page_PostJob is in excluded features
+            const excludedFeatures = Array.isArray(memberRole.excluded_features) 
+              ? memberRole.excluded_features 
+              : [];
+            has_job_posting_access = !excludedFeatures.includes('page_PostJob');
+          }
         }
+
+        return {
+          is_member: true,
+          has_job_posting_access,
+          member_id: member.id,
+          organization_id: member.organization_id,
+          first_name: member.first_name,
+          last_name: member.last_name,
+          debug: debugInfo
+        };
       }
 
-      return {
-        is_member: true,
-        has_job_posting_access,
-        member_id: member.id,
-        organization_id: member.organization_id,
-        first_name: member.first_name,
-        last_name: member.last_name
+      return { is_member: false, has_job_posting_access: false, debug: debugInfo };
+    } catch (err) {
+      return { 
+        is_member: false, 
+        has_job_posting_access: false, 
+        debug: { 
+          error: err.message,
+          stack: err.stack?.split('\n').slice(0, 3)
+        }
       };
     }
-
-    return { is_member: false, has_job_posting_access: false };
   },
 
   async createStripePaymentIntent(params) {

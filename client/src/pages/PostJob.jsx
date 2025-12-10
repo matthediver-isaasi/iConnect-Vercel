@@ -300,6 +300,9 @@ export default function PostJobPage() {
 
     try {
       const response = await base44.functions.invoke('checkMemberStatusByEmail', { email });
+      
+      // Debug logging - remove after testing
+      console.log('[PostJob] checkMemberStatusByEmail response:', JSON.stringify(response.data, null, 2));
 
       if (response.data.is_member && response.data.has_job_posting_access) {
         // Member with job posting access - redirect to login
