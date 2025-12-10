@@ -25,15 +25,15 @@ export default function MyJobPostingsPage() {
   const queryClient = useQueryClient();
 
   const { data: jobs = [], isLoading } = useQuery({
-    queryKey: ['my-job-postings', memberInfo?.email],
+    queryKey: ['my-job-postings', memberInfo?.id],
     queryFn: async () => {
-      if (!memberInfo?.email) return [];
+      if (!memberInfo?.id) return [];
       const allJobs = await base44.entities.JobPosting.filter({ 
-        contact_email: memberInfo.email 
+        posted_by_member_id: memberInfo.id 
       });
       return allJobs.sort((a, b) => new Date(b.created_date) - new Date(a.created_date));
     },
-    enabled: !!memberInfo?.email,
+    enabled: !!memberInfo?.id,
     staleTime: 0,
     refetchOnMount: true,
   });
