@@ -804,12 +804,10 @@ export default function CreateEvent() {
                   onChange={(e) => handleInputChange('title', e.target.value)}
                   placeholder="Enter event title"
                   required
-                  readOnly={isOnline && selectedWebinar}
-                  className={isOnline && selectedWebinar ? "bg-slate-100" : ""}
                   data-testid="input-title"
                 />
                 {isOnline && selectedWebinar && (
-                  <p className="text-xs text-slate-500">Title is synced from the Zoom webinar</p>
+                  <p className="text-xs text-slate-500">Pre-filled from Zoom webinar (editable)</p>
                 )}
               </div>
 
@@ -839,7 +837,7 @@ export default function CreateEvent() {
 
               <div className="space-y-2">
                 <Label htmlFor="description">Full Description</Label>
-                <div className={`border rounded-md overflow-hidden ${isOnline && selectedWebinar ? "bg-slate-100" : ""}`} data-testid="input-description">
+                <div className="border rounded-md overflow-hidden" data-testid="input-description">
                   <ReactQuill
                     theme="snow"
                     value={formData.description || ''}
@@ -848,9 +846,11 @@ export default function CreateEvent() {
                     formats={quillFormats}
                     placeholder="Describe the event..."
                     style={{ minHeight: '150px' }}
-                    readOnly={isOnline && selectedWebinar}
                   />
                 </div>
+                {isOnline && selectedWebinar && (
+                  <p className="text-xs text-slate-500">Pre-filled from Zoom webinar (editable)</p>
+                )}
               </div>
 
               {/* Speakers Selection */}
