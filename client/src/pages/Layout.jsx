@@ -675,7 +675,7 @@ useEffect(() => {
   const adminPages = ["RoleManagement", "MemberRoleAssignment", "TeamMemberManagement", "DiscountCodeManagement", "EventSettings", "TicketSalesAnalytics", "ResourceSettings", "ResourceManagement", "TagManagement", "ResourceAuthorSettings", "TourManagement", "FileManagement", "JobPostingManagement", "JobBoardSettings", "IEditPageManagement", "IEditTemplateManagement", "PageBannerManagement", "NavigationManagement", "MemberHandleManagement", "ButtonElements", "ButtonStyleManagement", "AwardManagement", "WallOfFameManagement", "TeamInviteSettings", "FormManagement", "FormSubmissions", "FloaterManagement", "MemberDirectorySettings", "SupportManagement", "PageVisibilitySettings"];
 
   // Pages that should use the bare layout (no new header/footer)
-  const bareLayoutPages = ["Home", "TestLogin", "Login"];
+  const bareLayoutPages = ["Home", "TestLogin"];
 
   // Helper function to check if current user is an admin
   const isAdmin = () => {
