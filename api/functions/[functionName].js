@@ -2975,8 +2975,25 @@ const functionHandlers = {
     const member = allMembers?.find(m => m.email?.toLowerCase() === email.toLowerCase());
 
     if (member) {
+      // Check if member has job posting access based on their role
+      let has_job_posting_access = true; // Default to true if no role restrictions
+      
+      if (member.role_id) {
+        const { data: allRoles } = await supabase.from('role').select('*');
+        const memberRole = allRoles?.find(r => r.id === member.role_id);
+        
+        if (memberRole && memberRole.excluded_features) {
+          // Check if page_PostJob is in excluded features
+          const excludedFeatures = Array.isArray(memberRole.excluded_features) 
+            ? memberRole.excluded_features 
+            : [];
+          has_job_posting_access = !excludedFeatures.includes('page_PostJob');
+        }
+      }
+
       return {
         is_member: true,
+        has_job_posting_access,
         member_id: member.id,
         organization_id: member.organization_id,
         first_name: member.first_name,
@@ -2984,7 +3001,7 @@ const functionHandlers = {
       };
     }
 
-    return { is_member: false };
+    return { is_member: false, has_job_posting_access: false };
   },
 
   async createStripePaymentIntent(params) {

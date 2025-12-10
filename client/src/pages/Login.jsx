@@ -18,6 +18,10 @@ export default function LoginPage() {
   const [mode, setMode] = useState("login"); // 'login', 'set-password', 'forgot-password'
   const [emailSent, setEmailSent] = useState(false);
   const [confirmPassword, setConfirmPassword] = useState("");
+  
+  // Get returnTo parameter from URL
+  const urlParams = new URLSearchParams(window.location.search);
+  const returnTo = urlParams.get('returnTo');
 
   // Check if user is already logged in
   useEffect(() => {
@@ -38,6 +42,17 @@ export default function LoginPage() {
   }, []);
 
   const redirectToLandingPage = async (member) => {
+    // Store member info for backward compatibility (but session is authoritative now)
+    const sessionExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    const memberInfo = { ...member, sessionExpiry };
+    sessionStorage.setItem('agcas_member', JSON.stringify(memberInfo));
+    
+    // If there's a returnTo parameter, use it instead of the role's landing page
+    if (returnTo) {
+      window.location.href = returnTo;
+      return;
+    }
+    
     let landingPage = 'Preferences';
     
     if (member.role_id) {
@@ -51,11 +66,6 @@ export default function LoginPage() {
         console.warn('[Login] Could not fetch role for landing page:', err);
       }
     }
-    
-    // Store member info for backward compatibility (but session is authoritative now)
-    const sessionExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-    const memberInfo = { ...member, sessionExpiry };
-    sessionStorage.setItem('agcas_member', JSON.stringify(memberInfo));
     
     window.location.href = createPageUrl(landingPage);
   };

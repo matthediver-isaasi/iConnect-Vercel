@@ -301,13 +301,24 @@ export default function PostJobPage() {
     try {
       const response = await base44.functions.invoke('checkMemberStatusByEmail', { email });
 
-      if (response.data.is_member) {
+      if (response.data.is_member && response.data.has_job_posting_access) {
+        // Member with job posting access - redirect to login
         setIsMember(true);
-        toast.info('Please log in to post your job for free');
+        toast.info('You are a member with job posting access. Please log in to post for free.');
         setTimeout(() => {
-          window.location.href = createPageUrl('Home') + '?returnTo=' + encodeURIComponent(window.location.pathname);
+          window.location.href = '/login?returnTo=' + encodeURIComponent('/postjob');
         }, 2000);
+      } else if (response.data.is_member && !response.data.has_job_posting_access) {
+        // Member without job posting access - treat as non-member (pay to post)
+        setIsMember(false);
+        setFormData((prev) => ({
+          ...prev,
+          job_type: jobTypeSettings[0] || '',
+          hours: hoursSettings[0] || ''
+        }));
+        setStep('form');
       } else {
+        // Not a member - proceed to form (pay to post)
         setIsMember(false);
         setFormData((prev) => ({
           ...prev,
