@@ -56,7 +56,7 @@ export default function ZoomWebinarProvisioning() {
     start_time: "",
     duration_minutes: 60,
     timezone: "Europe/London",
-    registration_required: false,
+    registration_required: true,
     host_id: "",
     panelists: []
   });
@@ -379,7 +379,7 @@ export default function ZoomWebinarProvisioning() {
       start_time: "",
       duration_minutes: 60,
       timezone: "Europe/London",
-      registration_required: false,
+      registration_required: true,
       host_id: "",
       panelists: []
     });
