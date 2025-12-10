@@ -3,8 +3,9 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import ReactQuill from 'react-quill';
+import 'react-quill/dist/quill.snow.css';
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -87,6 +88,24 @@ export default function ZoomWebinarProvisioning() {
   ];
   
   const [newPanelist, setNewPanelist] = useState({ name: "", email: "" });
+  
+  // Rich text editor configuration
+  const quillModules = {
+    toolbar: [
+      [{ 'header': [1, 2, 3, false] }],
+      ['bold', 'italic', 'underline'],
+      [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+      ['link'],
+      ['clean']
+    ],
+  };
+  
+  const quillFormats = [
+    'header',
+    'bold', 'italic', 'underline',
+    'list', 'bullet',
+    'link'
+  ];
   const [conflicts, setConflicts] = useState([]);
   const [checkingConflicts, setCheckingConflicts] = useState(false);
   const isSubmitting = useRef(false);
@@ -849,14 +868,19 @@ export default function ZoomWebinarProvisioning() {
 
             <div className="space-y-2">
               <Label htmlFor="agenda">Description</Label>
-              <Textarea
-                id="agenda"
-                value={formData.agenda}
-                onChange={(e) => setFormData(prev => ({ ...prev, agenda: e.target.value }))}
-                placeholder="Enter webinar description (optional)"
-                rows={3}
-                data-testid="input-agenda"
-              />
+              <div className="border rounded-md">
+                <ReactQuill
+                  id="agenda"
+                  theme="snow"
+                  value={formData.agenda}
+                  onChange={(value) => setFormData(prev => ({ ...prev, agenda: value }))}
+                  modules={quillModules}
+                  formats={quillFormats}
+                  placeholder="Enter webinar description (optional)"
+                  className="bg-white"
+                  data-testid="input-agenda"
+                />
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
@@ -1577,14 +1601,19 @@ export default function ZoomWebinarProvisioning() {
 
             <div className="space-y-2">
               <Label htmlFor="edit-agenda">Description</Label>
-              <Textarea
-                id="edit-agenda"
-                placeholder="Brief description of the webinar"
-                value={formData.agenda}
-                onChange={(e) => setFormData(prev => ({ ...prev, agenda: e.target.value }))}
-                rows={3}
-                data-testid="input-edit-agenda"
-              />
+              <div className="border rounded-md">
+                <ReactQuill
+                  id="edit-agenda"
+                  theme="snow"
+                  value={formData.agenda}
+                  onChange={(value) => setFormData(prev => ({ ...prev, agenda: value }))}
+                  modules={quillModules}
+                  formats={quillFormats}
+                  placeholder="Brief description of the webinar"
+                  className="bg-white"
+                  data-testid="input-edit-agenda"
+                />
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
