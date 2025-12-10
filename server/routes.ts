@@ -2384,14 +2384,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const accessToken = await getValidZohoAccessToken();
 
-      // Get all members and find by email
-      const { data: allMembers } = await supabase
+      // Get member by email directly
+      const { data: member, error: memberError } = await supabase
         .from('member')
-        .select('*');
+        .select('*')
+        .eq('email', email)
+        .single();
 
-      const member = allMembers?.find((m: any) => m.email === email);
-
-      if (!member) {
+      if (memberError || !member) {
         return res.status(404).json({
           error: 'Member not found',
           searchedEmail: email
@@ -7311,26 +7311,33 @@ AGCAS Events Team
 
       console.log('[createJobPostingMember] Creating job posting for member:', memberEmail);
 
-      // Get member information
-      const { data: allMembers } = await supabase.from('member').select('*');
-      const member = allMembers?.find((m: any) => m.email === memberEmail);
+      // Get member information - query directly by email
+      const { data: member, error: memberError } = await supabase
+        .from('member')
+        .select('*')
+        .eq('email', memberEmail)
+        .single();
 
-      if (!member) {
-        console.error('[createJobPostingMember] Member not found for email:', memberEmail);
+      if (memberError || !member) {
+        console.error('[createJobPostingMember] Member not found for email:', memberEmail, memberError);
         return res.status(404).json({
           success: false,
-          error: 'Member record not found. Please ensure you are logged in with your member email address.'
+          error: 'Member not found'
         });
       }
 
       console.log('[createJobPostingMember] Found member:', member.id, 'organization_id:', member.organization_id);
 
-      // Get organization information
+      // Get organization information - query directly by ID
       let organizationName = null;
       if (member.organization_id) {
-        const { data: allOrgs } = await supabase.from('organization').select('*');
-        const org = allOrgs?.find((o: any) => o.id === member.organization_id);
-        if (org) {
+        const { data: org, error: orgError } = await supabase
+          .from('organization')
+          .select('name')
+          .eq('id', member.organization_id)
+          .single();
+        
+        if (org && !orgError) {
           organizationName = org.name;
           console.log('[createJobPostingMember] Found organization:', organizationName);
         } else {
