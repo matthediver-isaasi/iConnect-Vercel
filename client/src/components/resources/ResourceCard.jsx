@@ -25,9 +25,16 @@ const iconMap = {
   Plus,
 };
 
-export default function ResourceCard({ resource, isLocked = false, buttonStyles = [], enabledSocialIcons = ['x', 'linkedin', 'email'] }) {
+export default function ResourceCard({ resource, isLocked = false, buttonStyles = [], enabledSocialIcons = ['x', 'linkedin', 'email'], isAuthenticated = true }) {
   // Get button style from props instead of fetching
   const buttonStyle = buttonStyles.find(s => s.resource_type === resource.resource_type) || null;
+  
+  // Check if this resource requires login (non-public resource and user not authenticated)
+  const requiresLogin = !isAuthenticated && !resource.is_public;
+  
+  const handleLoginClick = () => {
+    window.location.href = '/login';
+  };
 
   const getResourceIcon = (type) => {
     switch (type) {
@@ -78,6 +85,20 @@ export default function ResourceCard({ resource, isLocked = false, buttonStyles 
   };
 
   const renderButton = () => {
+    // Show "Member login required" button for non-public resources when user is not authenticated
+    if (requiresLogin) {
+      return (
+        <Button 
+          onClick={handleLoginClick}
+          className="w-full bg-slate-600 hover:bg-slate-700"
+          data-testid={`button-login-required-${resource.id}`}
+        >
+          <Lock className="w-4 h-4 mr-2" />
+          Member login required
+        </Button>
+      );
+    }
+    
     if (!buttonStyle) {
       // Default fallback
       return (

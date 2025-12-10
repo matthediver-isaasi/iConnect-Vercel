@@ -88,9 +88,10 @@ export default function ResourcesPage() {
         // Always filter out draft resources
         if (resource.status === 'draft') return false;
         
-        // For unauthenticated users: only show public resources
+        // For unauthenticated users: show ALL non-draft resources
+        // (ResourceCard will handle showing "Member login required" for non-public ones)
         if (!isAuthenticated) {
-          return resource.is_public === true;
+          return true;
         }
         
         // For authenticated users:
@@ -459,6 +460,7 @@ export default function ResourcesPage() {
                       resource={resource}
                       buttonStyles={buttonStyles}
                       enabledSocialIcons={enabledSocialIcons}
+                      isAuthenticated={isAuthenticated}
                     />
                   ))}
                 </div>
