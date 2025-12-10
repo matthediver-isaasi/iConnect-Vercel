@@ -1132,18 +1132,23 @@ export default function EditEvent() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="start_date">Start Date & Time *</Label>
+                  <Label htmlFor="start_date">
+                    Start Date & Time {eventStatus !== 'tbc' && '*'}
+                  </Label>
                   <Input
                     id="start_date"
                     type="datetime-local"
                     value={formatDateForInput(formData.start_date)}
                     onChange={(e) => handleInputChange('start_date', new Date(e.target.value).toISOString())}
-                    required
-                    disabled={isOnlineEvent}
-                    className={isOnlineEvent ? "bg-slate-100 cursor-not-allowed" : ""}
+                    required={eventStatus !== 'tbc'}
+                    disabled={eventStatus === 'tbc' || isOnlineEvent}
+                    className={(eventStatus === 'tbc' || isOnlineEvent) ? "bg-slate-100 cursor-not-allowed" : ""}
                     data-testid="input-start-date"
                   />
-                  {isOnlineEvent && (
+                  {eventStatus === 'tbc' && (
+                    <p className="text-xs text-blue-600">Date disabled for TBC events</p>
+                  )}
+                  {isOnlineEvent && eventStatus !== 'tbc' && (
                     <p className="text-xs text-slate-500">Managed by Zoom webinar</p>
                   )}
                 </div>
@@ -1154,11 +1159,11 @@ export default function EditEvent() {
                     type="datetime-local"
                     value={formatDateForInput(formData.end_date)}
                     onChange={(e) => handleInputChange('end_date', new Date(e.target.value).toISOString())}
-                    disabled={isOnlineEvent}
-                    className={isOnlineEvent ? "bg-slate-100 cursor-not-allowed" : ""}
+                    disabled={eventStatus === 'tbc' || isOnlineEvent}
+                    className={(eventStatus === 'tbc' || isOnlineEvent) ? "bg-slate-100 cursor-not-allowed" : ""}
                     data-testid="input-end-date"
                   />
-                  {isOnlineEvent && (
+                  {isOnlineEvent && eventStatus !== 'tbc' && (
                     <p className="text-xs text-slate-500">Managed by Zoom webinar</p>
                   )}
                 </div>

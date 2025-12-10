@@ -1104,17 +1104,23 @@ export default function CreateEvent() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="start_date">Start Date & Time *</Label>
+                  <Label htmlFor="start_date">
+                    Start Date & Time {eventStatus !== 'tbc' && '*'}
+                  </Label>
                   <Input
                     id="start_date"
                     type="datetime-local"
                     value={formData.start_date ? format(new Date(formData.start_date), "yyyy-MM-dd'T'HH:mm") : ""}
                     onChange={(e) => handleInputChange('start_date', new Date(e.target.value).toISOString())}
-                    required
+                    required={eventStatus !== 'tbc'}
+                    disabled={eventStatus === 'tbc'}
                     readOnly={isOnline && selectedWebinar}
-                    className={isOnline && selectedWebinar ? "bg-slate-100" : ""}
+                    className={(eventStatus === 'tbc' || (isOnline && selectedWebinar)) ? "bg-slate-100 cursor-not-allowed" : ""}
                     data-testid="input-start-date"
                   />
+                  {eventStatus === 'tbc' && (
+                    <p className="text-xs text-blue-600">Date disabled for TBC events</p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="end_date">End Date & Time</Label>
@@ -1123,8 +1129,9 @@ export default function CreateEvent() {
                     type="datetime-local"
                     value={formData.end_date ? format(new Date(formData.end_date), "yyyy-MM-dd'T'HH:mm") : ""}
                     onChange={(e) => handleInputChange('end_date', new Date(e.target.value).toISOString())}
+                    disabled={eventStatus === 'tbc'}
                     readOnly={isOnline && selectedWebinar}
-                    className={isOnline && selectedWebinar ? "bg-slate-100" : ""}
+                    className={(eventStatus === 'tbc' || (isOnline && selectedWebinar)) ? "bg-slate-100 cursor-not-allowed" : ""}
                     data-testid="input-end-date"
                   />
                 </div>
