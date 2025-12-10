@@ -178,8 +178,28 @@ export default function EventsPage({
     return false;
   };
 
-  // For non-logged-in users, only show events with public tickets
-  const accessibleEvents = memberInfo ? events : events.filter(hasPublicTickets);
+  // Filter events by status and access level
+  // - Admins see all events (including drafts)
+  // - Members see published and tbc events only
+  // - Non-logged-in users only see events with public tickets (and not drafts)
+  const accessibleEvents = useMemo(() => {
+    let filtered = events;
+    
+    // First, filter by login status and public ticket availability
+    if (!memberInfo) {
+      filtered = filtered.filter(hasPublicTickets);
+    }
+    
+    // Then, filter by status based on admin status
+    // Admins see all events, members see only published and tbc
+    if (!isAdmin) {
+      filtered = filtered.filter(event => 
+        event.status === 'published' || event.status === 'tbc' || !event.status
+      );
+    }
+    
+    return filtered;
+  }, [events, memberInfo, isAdmin]);
 
   // Helper to check if event is in the past (timezone-aware)
   const isEventPast = (event) => {

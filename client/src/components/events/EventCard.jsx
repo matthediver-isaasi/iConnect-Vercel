@@ -247,7 +247,9 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
   // Get the event's timezone (default to Europe/London for UK events)
   const eventTimezone = event.timezone || DEFAULT_TIMEZONE;
   // Pass event date to get correct DST-aware abbreviation (GMT vs BST)
-  const timezoneAbbr = getTimezoneAbbr(event.start_date, eventTimezone);
+  // For TBC events, don't compute timezone abbr since there's no date
+  const isTbcEvent = event.status === 'tbc';
+  const timezoneAbbr = isTbcEvent ? '' : getTimezoneAbbr(event.start_date, eventTimezone);
   
   // Check if event is in the past using timezone-aware comparison
   const isEventPast = isEventInPast(event, eventTimezone);
@@ -314,6 +316,16 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
         <div className={`p-4 border-b border-slate-200 ${isEventPast ? 'bg-gradient-to-r from-slate-100 to-slate-50' : 'bg-gradient-to-r from-slate-50 to-blue-50'}`}>
           <div className="flex items-start justify-between gap-2 mb-2">
             <div className="flex items-center gap-2 flex-wrap">
+              {event.status === 'draft' && (
+                <Badge variant="secondary" className="bg-amber-100 text-amber-700 border-amber-200">
+                  Draft
+                </Badge>
+              )}
+              {event.status === 'tbc' && (
+                <Badge variant="secondary" className="bg-blue-100 text-blue-700 border-blue-200">
+                  TBC
+                </Badge>
+              )}
               {isEventPast && (
                 <Badge variant="secondary" className="bg-slate-200 text-slate-600 border-slate-300">
                   Past Event
@@ -368,22 +380,32 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
         </CardHeader>
 
         <CardContent className="space-y-3">
-          {event.start_date && (
-            <div className="flex items-center gap-2 text-sm text-slate-600">
-              <Calendar className="w-4 h-4 text-slate-400" />
-              <span>{formatEventDate(event.start_date, eventTimezone)}</span>
-              {event.end_date && event.start_date !== event.end_date && (
-                <span className="text-slate-400">- {formatEventDate(event.end_date, eventTimezone)}</span>
+          {/* For TBC events, show "To be confirmed" instead of dates */}
+          {event.status === 'tbc' ? (
+            <div className="flex items-center gap-2 text-sm text-blue-600">
+              <Calendar className="w-4 h-4 text-blue-400" />
+              <span className="font-medium">Date to be confirmed</span>
+            </div>
+          ) : (
+            <>
+              {event.start_date && (
+                <div className="flex items-center gap-2 text-sm text-slate-600">
+                  <Calendar className="w-4 h-4 text-slate-400" />
+                  <span>{formatEventDate(event.start_date, eventTimezone)}</span>
+                  {event.end_date && event.start_date !== event.end_date && (
+                    <span className="text-slate-400">- {formatEventDate(event.end_date, eventTimezone)}</span>
+                  )}
+                </div>
               )}
-            </div>
-          )}
 
-          {event.start_date && (
-            <div className="flex items-center gap-2 text-sm text-slate-600">
-              <Clock className="w-4 h-4 text-slate-400" />
-              <span>{formatEventTime(event.start_date, eventTimezone)}</span>
-              <span className="text-slate-400 text-xs">({timezoneAbbr})</span>
-            </div>
+              {event.start_date && (
+                <div className="flex items-center gap-2 text-sm text-slate-600">
+                  <Clock className="w-4 h-4 text-slate-400" />
+                  <span>{formatEventTime(event.start_date, eventTimezone)}</span>
+                  <span className="text-slate-400 text-xs">({timezoneAbbr})</span>
+                </div>
+              )}
+            </>
           )}
 
           {(isOnlineEvent || event.location) && (

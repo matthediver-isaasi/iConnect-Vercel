@@ -93,9 +93,25 @@ export default function CreateEvent() {
   const queryClient = useQueryClient();
   const { singular: speakerSingular, plural: speakerPlural } = useSpeakerModuleName();
   const { eventTypes } = useEventTypes();
+  const [eventStatus, setEventStatus] = useState("published"); // draft, published, tbc
   const [isOnline, setIsOnline] = useState(false);
   const [isProgramEvent, setIsProgramEvent] = useState(false);
   const [selectedWebinarId, setSelectedWebinarId] = useState("");
+  
+  // Handler for status changes - clears TBC-incompatible fields synchronously
+  const handleStatusChange = (newStatus) => {
+    if (newStatus === 'tbc') {
+      // Clear online mode and webinar when switching to TBC
+      setIsOnline(false);
+      setSelectedWebinarId(null);
+      setFormData(prev => ({
+        ...prev,
+        start_date: '',
+        end_date: ''
+      }));
+    }
+    setEventStatus(newStatus);
+  };
   
   // Ticket classes state for one-off events
   const [ticketClasses, setTicketClasses] = useState([createEmptyTicketClass(true)]);
@@ -353,15 +369,17 @@ export default function CreateEvent() {
       errors.push('Please select a program for this event');
     }
     
-    if (!formData.start_date) {
+    // Only require start_date for non-TBC events
+    if (eventStatus !== 'tbc' && !formData.start_date) {
       errors.push('Please set a start date and time');
     }
     
-    if (isOnline && !selectedWebinarId) {
+    // Only require Zoom webinar for non-TBC online events
+    if (eventStatus !== 'tbc' && isOnline && !selectedWebinarId) {
       errors.push('Please select a Zoom webinar for online events');
     }
 
-    if (isOnline && loadingJoinLinkSettings) {
+    if (eventStatus !== 'tbc' && isOnline && loadingJoinLinkSettings) {
       errors.push('Please wait for settings to finish loading');
     }
 
@@ -434,6 +452,9 @@ export default function CreateEvent() {
     // For online events: location should be null (is_online field indicates it's online)
     let locationValue = isOnline ? null : (formData.location || null);
 
+    // For TBC events, explicitly null out dates and Zoom webinar
+    const isTbcEvent = eventStatus === 'tbc';
+    
     const eventData = {
       title: formData.title,
       summary: formData.summary || null,
@@ -442,19 +463,23 @@ export default function CreateEvent() {
       event_type: formData.event_type || null,
       // Visibility is determined by program_tag: empty = one-off event, non-empty = program event
       program_tag: isProgramEvent ? formData.program_tag : "",
-      start_date: formData.start_date,
-      end_date: formData.end_date || formData.start_date,
+      // For TBC events, dates must be null
+      start_date: isTbcEvent ? null : (formData.start_date || null),
+      end_date: isTbcEvent ? null : (formData.end_date || formData.start_date || null),
       location: locationValue,
       image_url: formData.image_url || null,
       available_seats: isOnline ? null : (formData.available_seats ? parseInt(formData.available_seats) : null),
-      zoom_webinar_id: isOnline && selectedWebinarId ? selectedWebinarId : null,
+      // For TBC events, Zoom webinar must be null
+      zoom_webinar_id: isTbcEvent ? null : (isOnline && selectedWebinarId ? selectedWebinarId : null),
       speaker_ids: selectedSpeakers.length > 0 ? selectedSpeakers : [],
       // Convert composite keys back to plain labels for database storage
       filter_tags: selectedFilterTags.length > 0 
         ? selectedFilterTags.map(key => parseFilterTagKey(key).label) 
         : [],
       cta_override_url: formData.cta_override_url || null,
-      is_online: isOnline
+      // For TBC events, is_online must be false
+      is_online: isTbcEvent ? false : isOnline,
+      status: eventStatus
     };
 
     // Add ticket classes for one-off events as JSON in pricing_config field
@@ -547,6 +572,52 @@ export default function CreateEvent() {
         </div>
 
         <form onSubmit={handleSubmit}>
+          {/* Event Status Selector */}
+          <Card className="border-slate-200 shadow-sm mb-6">
+            <CardHeader className="pb-4">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Eye className="h-5 w-5 text-purple-600" />
+                Event Status
+              </CardTitle>
+              <CardDescription>Set the visibility status of this event</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <RadioGroup
+                value={eventStatus}
+                onValueChange={handleStatusChange}
+                className="grid grid-cols-3 gap-4"
+                data-testid="radio-event-status"
+              >
+                <div className={`flex items-center space-x-2 p-3 rounded-lg border-2 cursor-pointer transition-colors ${eventStatus === 'draft' ? 'border-amber-500 bg-amber-50' : 'border-slate-200 hover:border-slate-300'}`}>
+                  <RadioGroupItem value="draft" id="status-draft" data-testid="radio-status-draft" />
+                  <Label htmlFor="status-draft" className="cursor-pointer flex-1">
+                    <span className="font-medium">Draft</span>
+                    <p className="text-xs text-slate-500">Hidden from members</p>
+                  </Label>
+                </div>
+                <div className={`flex items-center space-x-2 p-3 rounded-lg border-2 cursor-pointer transition-colors ${eventStatus === 'published' ? 'border-green-500 bg-green-50' : 'border-slate-200 hover:border-slate-300'}`}>
+                  <RadioGroupItem value="published" id="status-published" data-testid="radio-status-published" />
+                  <Label htmlFor="status-published" className="cursor-pointer flex-1">
+                    <span className="font-medium">Published</span>
+                    <p className="text-xs text-slate-500">Visible to members</p>
+                  </Label>
+                </div>
+                <div className={`flex items-center space-x-2 p-3 rounded-lg border-2 cursor-pointer transition-colors ${eventStatus === 'tbc' ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:border-slate-300'}`}>
+                  <RadioGroupItem value="tbc" id="status-tbc" data-testid="radio-status-tbc" />
+                  <Label htmlFor="status-tbc" className="cursor-pointer flex-1">
+                    <span className="font-medium">To Be Confirmed</span>
+                    <p className="text-xs text-slate-500">Dates shown as TBC</p>
+                  </Label>
+                </div>
+              </RadioGroup>
+              {eventStatus === 'tbc' && (
+                <p className="mt-3 text-sm text-blue-600 bg-blue-50 p-2 rounded">
+                  Dates will be shown as "To be confirmed" and Zoom webinar selection is optional.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
           <Card className="border-slate-200 shadow-sm mb-6">
             <CardHeader className="pb-4">
               <CardTitle className="text-lg flex items-center gap-2">
@@ -578,11 +649,12 @@ export default function CreateEvent() {
                 <Switch
                   checked={isOnline}
                   onCheckedChange={handleDeliveryModeChange}
+                  disabled={eventStatus === 'tbc'}
                   data-testid="switch-delivery-mode"
                 />
               </div>
 
-              {isOnline && (
+              {isOnline && eventStatus !== 'tbc' && (
                 <div className="space-y-3">
                   <Label>Select Zoom Webinar</Label>
                   <Select
