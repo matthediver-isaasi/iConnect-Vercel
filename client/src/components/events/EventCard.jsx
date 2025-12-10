@@ -331,6 +331,11 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                   Past Event
                 </Badge>
               )}
+              {event.event_type && (
+                <Badge variant="secondary" className="bg-green-100 text-green-700 border-green-200">
+                  {event.event_type}
+                </Badge>
+              )}
               {event.program_tag && (
                 <Badge variant="secondary" className="bg-purple-100 text-purple-700 border-purple-200">
                    {event.program_tag}
