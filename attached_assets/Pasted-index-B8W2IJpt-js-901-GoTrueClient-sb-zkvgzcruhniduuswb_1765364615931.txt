@@ -1,0 +1,188 @@
+index-B8W2IJpt.js:901 GoTrueClient@sb-zkvgzcruhniduuswbfyh-auth-token:1 (2.84.0) 2025-12-10T11:03:09.084Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+Vp @ index-B8W2IJpt.js:901
+Wse @ index-B8W2IJpt.js:902
+_initSupabaseAuthClient @ index-B8W2IJpt.js:902
+Kse @ index-B8W2IJpt.js:902
+mS @ index-B8W2IJpt.js:902
+(anonymous) @ index-B8W2IJpt.js:1409
+(anonymous) @ index-B8W2IJpt.js:1
+(anonymous) @ index-B8W2IJpt.js:1723
+index-B8W2IJpt.js:901 GoTrueClient@sb-zkvgzcruhniduuswbfyh-auth-token:2 (2.84.0) 2025-12-10T11:03:09.086Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+Vp @ index-B8W2IJpt.js:901
+Wse @ index-B8W2IJpt.js:902
+_initSupabaseAuthClient @ index-B8W2IJpt.js:902
+Kse @ index-B8W2IJpt.js:902
+mS @ index-B8W2IJpt.js:902
+(anonymous) @ index-B8W2IJpt.js:1672
+(anonymous) @ index-B8W2IJpt.js:1
+(anonymous) @ index-B8W2IJpt.js:1723
+index-B8W2IJpt.js:1094 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-B8W2IJpt.js:1094 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-B8W2IJpt.js:1094 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-B8W2IJpt.js:1094 [usePendingPurchaseOrders] Query running, memberInfo.id: 48b25075-51da-437f-af20-17836a892bfe
+index-B8W2IJpt.js:1094 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-B8W2IJpt.js:1094 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-B8W2IJpt.js:1094 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-B8W2IJpt.js:1094 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-B8W2IJpt.js:1094 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-B8W2IJpt.js:1094 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-B8W2IJpt.js:1094 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-B8W2IJpt.js:1094 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-B8W2IJpt.js:1094 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-B8W2IJpt.js:1094 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-B8W2IJpt.js:1094 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-B8W2IJpt.js:1094 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-B8W2IJpt.js:1094 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-B8W2IJpt.js:1094 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-B8W2IJpt.js:1094 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-B8W2IJpt.js:1094 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-B8W2IJpt.js:1094 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-B8W2IJpt.js:1094 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-B8W2IJpt.js:1094 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-B8W2IJpt.js:1094 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-B8W2IJpt.js:1094 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-B8W2IJpt.js:1094 [usePendingPurchaseOrders] Fetched bookings count: 3
+index-B8W2IJpt.js:1094 [usePendingPurchaseOrders] Pending PO bookings: 2
+index-B8W2IJpt.js:1094 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-B8W2IJpt.js:1094 [usePendingPurchaseOrders] hasPendingPOs: true count: 2 isLoading: false
+index-B8W2IJpt.js:1094 [Layout] hasPendingPOs: true count: 2 isLoading: false
+index-B8W2IJpt.js:1094 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-B8W2IJpt.js:1094 [usePendingPurchaseOrders] hasPendingPOs: true count: 2 isLoading: false
+index-B8W2IJpt.js:1094 [Layout] hasPendingPOs: true count: 2 isLoading: false
+index-B8W2IJpt.js:40 Error: Minified React error #31; visit https://reactjs.org/docs/error-decoder.html?invariant=31&args[]=object%20with%20keys%20%7Blabel%2C%20value%7D for the full message or use the non-minified dev environment for full errors and additional helpful warnings.
+    at yg (index-B8W2IJpt.js:38:6327)
+    at p (index-B8W2IJpt.js:38:11385)
+    at cr (index-B8W2IJpt.js:40:1475)
+    at sO (index-B8W2IJpt.js:40:45767)
+    at XF (index-B8W2IJpt.js:40:39790)
+    at rK (index-B8W2IJpt.js:40:39718)
+    at pb (index-B8W2IJpt.js:40:39570)
+    at xN (index-B8W2IJpt.js:40:35934)
+    at U3 (index-B8W2IJpt.js:40:36738)
+    at ud (index-B8W2IJpt.js:38:3279)
+nN @ index-B8W2IJpt.js:40
+OF.a.callback @ index-B8W2IJpt.js:40
+N3 @ index-B8W2IJpt.js:38
+z3 @ index-B8W2IJpt.js:40
+YF @ index-B8W2IJpt.js:40
+sK @ index-B8W2IJpt.js:40
+lK @ index-B8W2IJpt.js:40
+Pd @ index-B8W2IJpt.js:40
+U3 @ index-B8W2IJpt.js:40
+ud @ index-B8W2IJpt.js:38
+(anonymous) @ index-B8W2IJpt.js:40
+setTimeout
+r @ index-B8W2IJpt.js:816
+l @ index-B8W2IJpt.js:816
+batch @ index-B8W2IJpt.js:816
+uo @ index-B8W2IJpt.js:816
+setData @ index-B8W2IJpt.js:816
+onSuccess @ index-B8W2IJpt.js:816
+h @ index-B8W2IJpt.js:816
+Promise.then
+g @ index-B8W2IJpt.js:816
+start @ index-B8W2IJpt.js:816
+fetch @ index-B8W2IJpt.js:816
+Uf @ index-B8W2IJpt.js:816
+onSubscribe @ index-B8W2IJpt.js:816
+subscribe @ index-B8W2IJpt.js:816
+(anonymous) @ index-B8W2IJpt.js:816
+bF @ index-B8W2IJpt.js:38
+Cv @ index-B8W2IJpt.js:40
+jh @ index-B8W2IJpt.js:40
+lK @ index-B8W2IJpt.js:40
+Pd @ index-B8W2IJpt.js:40
+U3 @ index-B8W2IJpt.js:40
+ud @ index-B8W2IJpt.js:38
+(anonymous) @ index-B8W2IJpt.js:40
+setTimeout
+r @ index-B8W2IJpt.js:816
+l @ index-B8W2IJpt.js:816
+batch @ index-B8W2IJpt.js:816
+uo @ index-B8W2IJpt.js:816
+setData @ index-B8W2IJpt.js:816
+onSuccess @ index-B8W2IJpt.js:816
+h @ index-B8W2IJpt.js:816
+Promise.then
+g @ index-B8W2IJpt.js:816
+start @ index-B8W2IJpt.js:816
+fetch @ index-B8W2IJpt.js:816
+Uf @ index-B8W2IJpt.js:816
+onSubscribe @ index-B8W2IJpt.js:816
+subscribe @ index-B8W2IJpt.js:816
+(anonymous) @ index-B8W2IJpt.js:816
+bF @ index-B8W2IJpt.js:38
+Cv @ index-B8W2IJpt.js:40
+jh @ index-B8W2IJpt.js:40
+(anonymous) @ index-B8W2IJpt.js:40
+k @ index-B8W2IJpt.js:25
+A @ index-B8W2IJpt.js:25
+index-B8W2IJpt.js:40 Error: Minified React error #31; visit https://reactjs.org/docs/error-decoder.html?invariant=31&args[]=object%20with%20keys%20%7Blabel%2C%20value%7D for the full message or use the non-minified dev environment for full errors and additional helpful warnings.
+    at yg (index-B8W2IJpt.js:38:6327)
+    at p (index-B8W2IJpt.js:38:11385)
+    at cr (index-B8W2IJpt.js:40:1475)
+    at sO (index-B8W2IJpt.js:40:45767)
+    at XF (index-B8W2IJpt.js:40:39790)
+    at rK (index-B8W2IJpt.js:40:39718)
+    at pb (index-B8W2IJpt.js:40:39570)
+    at xN (index-B8W2IJpt.js:40:35934)
+    at U3 (index-B8W2IJpt.js:40:36738)
+    at ud (index-B8W2IJpt.js:38:3279)
+nN @ index-B8W2IJpt.js:40
+OF.a.callback @ index-B8W2IJpt.js:40
+N3 @ index-B8W2IJpt.js:38
+z3 @ index-B8W2IJpt.js:40
+YF @ index-B8W2IJpt.js:40
+sK @ index-B8W2IJpt.js:40
+lK @ index-B8W2IJpt.js:40
+Pd @ index-B8W2IJpt.js:40
+U3 @ index-B8W2IJpt.js:40
+ud @ index-B8W2IJpt.js:38
+(anonymous) @ index-B8W2IJpt.js:40
+setTimeout
+r @ index-B8W2IJpt.js:816
+l @ index-B8W2IJpt.js:816
+batch @ index-B8W2IJpt.js:816
+uo @ index-B8W2IJpt.js:816
+setData @ index-B8W2IJpt.js:816
+onSuccess @ index-B8W2IJpt.js:816
+h @ index-B8W2IJpt.js:816
+Promise.then
+g @ index-B8W2IJpt.js:816
+start @ index-B8W2IJpt.js:816
+fetch @ index-B8W2IJpt.js:816
+Uf @ index-B8W2IJpt.js:816
+onSubscribe @ index-B8W2IJpt.js:816
+subscribe @ index-B8W2IJpt.js:816
+(anonymous) @ index-B8W2IJpt.js:816
+bF @ index-B8W2IJpt.js:38
+Cv @ index-B8W2IJpt.js:40
+jh @ index-B8W2IJpt.js:40
+lK @ index-B8W2IJpt.js:40
+Pd @ index-B8W2IJpt.js:40
+U3 @ index-B8W2IJpt.js:40
+ud @ index-B8W2IJpt.js:38
+(anonymous) @ index-B8W2IJpt.js:40
+setTimeout
+r @ index-B8W2IJpt.js:816
+l @ index-B8W2IJpt.js:816
+batch @ index-B8W2IJpt.js:816
+uo @ index-B8W2IJpt.js:816
+setData @ index-B8W2IJpt.js:816
+onSuccess @ index-B8W2IJpt.js:816
+h @ index-B8W2IJpt.js:816
+Promise.then
+g @ index-B8W2IJpt.js:816
+start @ index-B8W2IJpt.js:816
+fetch @ index-B8W2IJpt.js:816
+Uf @ index-B8W2IJpt.js:816
+onSubscribe @ index-B8W2IJpt.js:816
+subscribe @ index-B8W2IJpt.js:816
+(anonymous) @ index-B8W2IJpt.js:816
+bF @ index-B8W2IJpt.js:38
+Cv @ index-B8W2IJpt.js:40
+jh @ index-B8W2IJpt.js:40
+(anonymous) @ index-B8W2IJpt.js:40
+k @ index-B8W2IJpt.js:25
+A @ index-B8W2IJpt.js:25
+index-B8W2IJpt.js:1094 [Layout] Server session found: mat@isaasi.co.uk

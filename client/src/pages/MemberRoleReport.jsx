@@ -241,9 +241,13 @@ export default function MemberRoleReportPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All {segmentationField?.label || 'Segments'}</SelectItem>
-                  {segmentOptions.map(opt => (
-                    <SelectItem key={opt} value={opt}>{opt}</SelectItem>
-                  ))}
+                  {segmentOptions.map(opt => {
+                    const optValue = typeof opt === 'object' ? (opt.value || opt.label) : opt;
+                    const optLabel = typeof opt === 'object' ? (opt.label || opt.value) : opt;
+                    return (
+                      <SelectItem key={optValue} value={optValue}>{optLabel}</SelectItem>
+                    );
+                  })}
                 </SelectContent>
               </Select>
             </div>
