@@ -207,7 +207,8 @@ export default function EventsPage({
   let filteredEvents = accessibleEvents.filter((event) => {
     const matchesSearch =
       event.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      event.description?.toLowerCase().includes(searchQuery.toLowerCase());
+      event.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      event.location?.toLowerCase().includes(searchQuery.toLowerCase());
     
     // Handle filter tag filtering - match if event has ANY of the selected tags
     // Skip filter tag check if categories not loaded (prevents false filtering on initial load)
@@ -248,7 +249,8 @@ export default function EventsPage({
   const pastEventsCount = accessibleEvents.filter(event => {
     const matchesSearch =
       event.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      event.description?.toLowerCase().includes(searchQuery.toLowerCase());
+      event.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      event.location?.toLowerCase().includes(searchQuery.toLowerCase());
     
     // Use same filter tag matching logic with normalization (skip if categories not loaded)
     let matchesFilterTag = true;
@@ -366,7 +368,7 @@ export default function EventsPage({
               <div className="flex-1 relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-slate-400" />
                 <Input
-                  placeholder="Search events by name or description..."
+                  placeholder="Search events by name, description or location..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="pl-10"
