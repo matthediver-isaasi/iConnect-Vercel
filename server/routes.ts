@@ -7302,60 +7302,59 @@ AGCAS Events Team
     try {
       const { memberEmail, ...postingData } = req.body;
 
-      if (!memberEmail) {
-        console.error('[createJobPostingMember] No member email provided');
-        return res.status(400).json({
-          success: false,
-          error: 'Member email is required'
-        });
-      }
+      console.log('[createJobPostingMember] Creating job posting');
+      console.log('[createJobPostingMember] Session memberId:', req.session.memberId);
+      console.log('[createJobPostingMember] Provided email:', memberEmail);
 
-      console.log('[createJobPostingMember] Creating job posting for member:', memberEmail);
-      console.log('[createJobPostingMember] Request body keys:', Object.keys(req.body));
-      console.log('[createJobPostingMember] postingData keys:', Object.keys(postingData));
+      let member = null;
 
-      // Get member information - query directly by email (exact match, lowercased)
-      const normalizedEmail = memberEmail.toLowerCase().trim();
-      console.log('[createJobPostingMember] Querying member table for email:', normalizedEmail);
-      
-      // First try exact match
-      const { data: members, error: memberError } = await supabase
-        .from('member')
-        .select('*')
-        .eq('email', normalizedEmail);
-      
-      console.log('[createJobPostingMember] Exact query result - members count:', members?.length, 'error:', memberError);
-      
-      let member = members?.[0];
-      
-      // If no exact match, try case-insensitive search for debugging
-      if (!member) {
-        console.log('[createJobPostingMember] No exact match, trying ilike search for debugging...');
-        const { data: ilikMembers, error: ilikeError } = await supabase
+      // FIRST: Try to get member from session (portal users - most reliable)
+      if (req.session.memberId) {
+        console.log('[createJobPostingMember] Looking up member by session ID:', req.session.memberId);
+        const { data: sessionMember, error: sessionError } = await supabase
           .from('member')
-          .select('id, email')
-          .ilike('email', `%${normalizedEmail.split('@')[0]}%`);
+          .select('*')
+          .eq('id', req.session.memberId)
+          .single();
         
-        console.log('[createJobPostingMember] ilike search result - similar emails found:', 
-          ilikMembers?.map(m => m.email).join(', ') || 'none');
-          
-        if (ilikMembers && ilikMembers.length > 0) {
-          console.log('[createJobPostingMember] Email mismatch detected!');
-          console.log('[createJobPostingMember] Requested email:', normalizedEmail);
-          console.log('[createJobPostingMember] Found similar:', ilikMembers[0].email);
+        if (sessionMember && !sessionError) {
+          member = sessionMember;
+          console.log('[createJobPostingMember] Found member via session:', member.id, member.email);
+        } else {
+          console.warn('[createJobPostingMember] Session member lookup failed:', sessionError?.message);
         }
-      } else {
-        console.log('[createJobPostingMember] First member found:', member.id, member.email);
       }
 
-      if (memberError || !member) {
-        console.error('[createJobPostingMember] Member not found for email:', normalizedEmail);
-        console.error('[createJobPostingMember] Query error:', memberError);
-        console.error('[createJobPostingMember] Original email passed:', memberEmail);
+      // FALLBACK: Try email lookup if no session (public mode or session issue)
+      if (!member && memberEmail) {
+        const normalizedEmail = memberEmail.toLowerCase().trim();
+        console.log('[createJobPostingMember] Falling back to email lookup:', normalizedEmail);
+        
+        const { data: emailMembers, error: emailError } = await supabase
+          .from('member')
+          .select('*')
+          .eq('email', normalizedEmail);
+        
+        if (emailMembers && emailMembers.length > 0) {
+          member = emailMembers[0];
+          console.log('[createJobPostingMember] Found member via email:', member.id, member.email);
+        } else {
+          console.warn('[createJobPostingMember] Email lookup failed for:', normalizedEmail, emailError?.message);
+        }
+      }
+
+      // If still no member found, return error
+      if (!member) {
+        console.error('[createJobPostingMember] Member not found via session or email');
+        console.error('[createJobPostingMember] Session ID:', req.session.memberId);
+        console.error('[createJobPostingMember] Email:', memberEmail);
         return res.status(404).json({
           success: false,
-          error: 'Member not found',
-          debug_email: normalizedEmail
+          error: 'Member not found. Please log in again.',
+          debug: {
+            hasSession: !!req.session.memberId,
+            emailProvided: !!memberEmail
+          }
         });
       }
 
