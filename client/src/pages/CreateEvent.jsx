@@ -33,7 +33,8 @@ import {
   ChevronUp,
   Check,
   Mic,
-  Eye
+  Eye,
+  AlertCircle
 } from "lucide-react";
 import { createFilterTagKey, parseFilterTagKey } from "@/lib/utils";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -331,6 +332,74 @@ export default function CreateEvent() {
       toast.error('Failed to create event: ' + errorMessage);
     }
   });
+
+  // Compute validation errors for real-time feedback
+  const validationErrors = useMemo(() => {
+    const errors = [];
+    
+    // Basic required fields
+    if (!formData.title?.trim()) {
+      errors.push('Event title is required');
+    }
+    if (!formData.start_date) {
+      errors.push('Start date is required');
+    }
+    if (isProgramEvent && !formData.program_tag) {
+      errors.push('Program selection is required');
+    }
+    if (isOnline && !selectedWebinarId) {
+      errors.push('Zoom webinar selection is required for online events');
+    }
+    if (!isOnline && !formData.location?.trim()) {
+      errors.push('Location is required for in-person events');
+    }
+    
+    // Ticket class validation for one-off events
+    if (!isProgramEvent) {
+      if (ticketClasses.length === 0) {
+        errors.push('At least one ticket class is required');
+      } else {
+        for (let i = 0; i < ticketClasses.length; i++) {
+          const ticket = ticketClasses[i];
+          const ticketLabel = ticket.name?.trim() || `Ticket ${i + 1}`;
+          
+          if (!ticket.name?.trim()) {
+            errors.push(`Ticket ${i + 1}: Name is required`);
+          }
+          
+          // Price validation: either is_free must be true, or price must be > 0
+          if (!ticket.is_free) {
+            if (ticket.price === "" || ticket.price === null || ticket.price === undefined) {
+              errors.push(`"${ticketLabel}": Set a price or mark as free`);
+            } else {
+              const price = parseFloat(ticket.price);
+              if (isNaN(price) || price <= 0) {
+                errors.push(`"${ticketLabel}": Price must be greater than zero, or mark as free`);
+              }
+            }
+          }
+          
+          // BOGO validation
+          if (ticket.offer_type === "bogo") {
+            if (!ticket.bogo_buy_quantity || !ticket.bogo_get_free_quantity) {
+              errors.push(`"${ticketLabel}": BOGO quantities required`);
+            }
+          }
+          
+          // Bulk discount validation
+          if (ticket.offer_type === "bulk_discount") {
+            if (!ticket.bulk_discount_threshold || !ticket.bulk_discount_percentage) {
+              errors.push(`"${ticketLabel}": Bulk discount settings required`);
+            }
+          }
+        }
+      }
+    }
+    
+    return errors;
+  }, [formData, isProgramEvent, isOnline, selectedWebinarId, ticketClasses]);
+
+  const isFormValid = validationErrors.length === 0;
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -1673,6 +1742,26 @@ export default function CreateEvent() {
             </CardContent>
           </Card>
 
+          {/* Validation Messages */}
+          {validationErrors.length > 0 && (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-medium text-amber-800 mb-1">Please complete the following:</p>
+                  <ul className="text-sm text-amber-700 list-disc list-inside space-y-0.5">
+                    {validationErrors.slice(0, 5).map((error, index) => (
+                      <li key={index}>{error}</li>
+                    ))}
+                    {validationErrors.length > 5 && (
+                      <li className="text-amber-600">...and {validationErrors.length - 5} more</li>
+                    )}
+                  </ul>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="flex items-center justify-end gap-4">
             <Button
               type="button"
@@ -1685,8 +1774,8 @@ export default function CreateEvent() {
             </Button>
             <Button
               type="submit"
-              disabled={createEventMutation.isPending}
-              className="bg-blue-600 hover:bg-blue-700"
+              disabled={createEventMutation.isPending || !isFormValid}
+              className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
               data-testid="button-create-event"
             >
               {createEventMutation.isPending ? (
