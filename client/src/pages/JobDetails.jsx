@@ -110,7 +110,7 @@ export default function JobDetailsPage() {
     <div className="bg-white min-h-screen">
       {/* Header */}
       <div className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white py-12">
-        <div className="max-w-4xl mx-auto px-4">
+        <div className="px-6 lg:px-8">
           <Button
             variant="ghost"
             onClick={() => window.location.href = createPageUrl('JobBoard')}
@@ -150,7 +150,7 @@ export default function JobDetailsPage() {
       </div>
 
       {/* Main Content */}
-      <div className="max-w-6xl mx-auto px-4 py-12">
+      <div className="px-6 lg:px-8 py-12">
         {/* Closing Soon Alert */}
         {isClosingSoon && job.closing_date && (
           <div className="mb-6 p-4 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-lg flex items-start gap-3">
@@ -166,9 +166,9 @@ export default function JobDetailsPage() {
           </div>
         )}
 
-        <div className="grid lg:grid-cols-3 gap-8">
+        <div className="flex flex-col lg:flex-row gap-8">
           {/* Left Column - Job Details */}
-          <div className="lg:col-span-2 space-y-6">
+          <div className="flex-1 space-y-6">
             <Card className="border-slate-200">
               <CardHeader>
                 <CardTitle>Job Description</CardTitle>
@@ -218,7 +218,7 @@ export default function JobDetailsPage() {
           </div>
 
           {/* Right Column - Apply & Details */}
-          <div className="space-y-6">
+          <div className="lg:w-80 lg:flex-shrink-0 space-y-6">
             <Card className="border-slate-200 sticky top-8">
               <CardContent className="p-6 space-y-4">
                 <Button 
