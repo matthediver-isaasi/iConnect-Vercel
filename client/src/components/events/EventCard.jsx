@@ -254,37 +254,8 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
 
   const hasUnlimitedCapacity = event.available_seats === 0 || event.available_seats === null;
 
-  // Determine if this is an online event and if join link should be shown
-  const isOnlineEvent = event.location?.toLowerCase().startsWith('online');
-  const hasUrlInLocation = event.location?.includes('https://') || event.location?.includes('http://');
-  
-  // Find matching webinar by URL if location contains a URL
-  const getWebinarIdFromLocation = () => {
-    if (!hasUrlInLocation || !webinars?.length) return null;
-    // Extract URL from location (format: "Online - https://...")
-    const urlMatch = event.location?.match(/https?:\/\/[^\s]+/);
-    if (!urlMatch) return null;
-    const url = urlMatch[0];
-    const matchingWebinar = webinars.find(w => w.join_url === url);
-    return matchingWebinar?.id || null;
-  };
-
-  // Check if join link should be shown based on settings
-  const shouldShowJoinLink = () => {
-    if (!isOnlineEvent || !hasUrlInLocation) return false;
-    const webinarId = getWebinarIdFromLocation();
-    if (!webinarId || !joinLinkSettings) return false;
-    return joinLinkSettings[webinarId] === true;
-  };
-
-  // Get display location - show URL only if toggle is on
-  const getDisplayLocation = () => {
-    if (!isOnlineEvent) return event.location;
-    if (shouldShowJoinLink() && hasUrlInLocation) {
-      return event.location; // Show full location with URL
-    }
-    return null; // Will render "Online" badge instead
-  };
+  // Determine if this is an online event using the is_online field
+  const isOnlineEvent = event.is_online === true;
 
   const availableTickets = event.program_tag && organizationInfo?.program_ticket_balances 
     ? (organizationInfo.program_ticket_balances[event.program_tag] || 0)
@@ -415,16 +386,12 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
             </div>
           )}
 
-          {event.location && (
+          {(isOnlineEvent || event.location) && (
             <div className="flex items-center gap-2 text-sm text-slate-600">
               {isOnlineEvent ? (
                 <>
                   <Video className="w-4 h-4 text-green-500" />
-                  {shouldShowJoinLink() && hasUrlInLocation ? (
-                    <span className="line-clamp-1">{event.location}</span>
-                  ) : (
-                    <span className="text-green-600 font-medium">Online</span>
-                  )}
+                  <span className="text-green-600 font-medium">Online</span>
                 </>
               ) : (
                 <>
