@@ -366,9 +366,17 @@ export default function SupportPage() {
                         )}
                       </div>
                       <DialogTitle className="text-2xl">{selectedTicket.subject}</DialogTitle>
-                      <p className="text-sm text-slate-500 mt-2">
-                        Submitted {format(new Date(selectedTicket.created_date), 'MMM d, yyyy h:mm a')}
-                      </p>
+                      <div className="mt-2 space-y-1">
+                        <p className="text-sm text-slate-500">
+                          Submitted {format(new Date(selectedTicket.created_date), 'MMM d, yyyy h:mm a')}
+                        </p>
+                        <p className="text-sm text-slate-600">
+                          <span className="font-medium">By:</span> {selectedTicket.submitter_name || 'Unknown'} 
+                          {selectedTicket.submitter_email && (
+                            <span className="text-slate-500"> ({selectedTicket.submitter_email})</span>
+                          )}
+                        </p>
+                      </div>
                     </div>
                   </div>
                 </DialogHeader>
