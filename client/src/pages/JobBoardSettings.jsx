@@ -5,10 +5,65 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Save, Plus, X, Settings } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
+import { Save, Plus, X, Settings, FileText } from "lucide-react";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import ReactQuill from 'react-quill';
+
+const defaultTermsContent = `<h3>1. Introduction</h3>
+<p>These Terms apply to all job advertisements placed on the Graduate Futures website ("Job Board").</p>
+<p>By submitting a vacancy, you agree to these Terms and the Privacy Policy.</p>
+
+<h3>2. Eligibility and Content</h3>
+<ul>
+<li>Graduate Futures will only publish job vacancies directly relevant to the higher education careers and employability sector.</li>
+<li>Graduate Futures reserves the right to edit or decline any advert that does not meet these criteria.</li>
+<li>The Client is responsible for ensuring that all job descriptions and information are true, accurate, and non-discriminatory.</li>
+<li>The Client agrees that all job advertisements submitted to the Graduate Futures Job Board comply with applicable UK employment legislation, including but not limited to the Equality Act 2010.</li>
+<li>All data submitted by the client must comply with the UK GDPR and Graduate Futures Privacy Policy.</li>
+</ul>
+
+<h3>3. Submission and Publication</h3>
+<ul>
+<li>Job adverts can be submitted online via the Graduate Futures Job Board.</li>
+<li>Publication is subject to Graduate Futures approval and full payment (where applicable).</li>
+<li>Graduate Futures aims to publish approved adverts within 24 hours.</li>
+</ul>
+
+<h3>4. Fees and Payment</h3>
+<ul>
+<li>Non-member adverts are subject to the published rate.</li>
+<li>Members may post vacancies in accordance with their membership benefits.</li>
+<li>Payment must be made by credit/debit card.</li>
+<li>All fees are payable in pounds sterling and exclusive of VAT.</li>
+</ul>
+
+<h3>5. Duration and Removal</h3>
+<ul>
+<li>Adverts will remain live on the website until the specified closing date, unless otherwise agreed.</li>
+<li>Graduate Futures reserves the right to remove adverts early if they breach these Terms or upon the Client's written request.</li>
+<li>Fees are non-refundable once an advert has gone live.</li>
+</ul>
+
+<h3>6. Refunds</h3>
+<p>Refunds may only be issued where an advert cannot be published due to Graduate Futures error or technical failure.</p>
+<p>Requests should be made in writing to info@graduatefutures.org.uk.</p>
+
+<h3>7. Liability</h3>
+<p>Graduate Futures accepts no responsibility for:</p>
+<ul>
+<li>Errors in content supplied by the Client;</li>
+<li>Failure of an advert to attract candidates; or</li>
+<li>Any indirect or consequential loss.</li>
+</ul>
+
+<h3>8. Contact</h3>
+<p>info@graduatefutures.org.uk</p>
+
+<h3>9. Right to amend</h3>
+<p>Graduate Futures reserves the right to amend these Terms at any time.</p>`;
 
 export default function JobBoardSettingsPage() {
   const { isAdmin, isFeatureExcluded, isAccessReady } = useMemberAccess();
@@ -18,6 +73,8 @@ export default function JobBoardSettingsPage() {
   const [hours, setHours] = useState(['Full-time', 'Part-time', 'Flexible']);
   const [newJobType, setNewJobType] = useState('');
   const [newHour, setNewHour] = useState('');
+  const [termsTitle, setTermsTitle] = useState('Graduate Futures Job Advertising Terms and Conditions');
+  const [termsContent, setTermsContent] = useState(defaultTermsContent);
   
   const queryClient = useQueryClient();
 
@@ -55,6 +112,14 @@ export default function JobBoardSettingsPage() {
     }
   });
 
+  const { data: termsSettings } = useQuery({
+    queryKey: ['job-terms-settings'],
+    queryFn: async () => {
+      const allSettings = await base44.entities.SystemSettings.list();
+      return allSettings.find(s => s.setting_key === 'job_posting_terms');
+    }
+  });
+
   useEffect(() => {
     if (priceSettings?.setting_value) {
       setPrice(priceSettings.setting_value);
@@ -75,7 +140,16 @@ export default function JobBoardSettingsPage() {
         console.error('Failed to parse hours:', e);
       }
     }
-  }, [priceSettings, jobTypeSettings, hoursSettings]);
+    if (termsSettings?.setting_value) {
+      try {
+        const parsed = JSON.parse(termsSettings.setting_value);
+        if (parsed.title) setTermsTitle(parsed.title);
+        if (parsed.content) setTermsContent(parsed.content);
+      } catch (e) {
+        console.error('Failed to parse terms:', e);
+      }
+    }
+  }, [priceSettings, jobTypeSettings, hoursSettings, termsSettings]);
 
   const savePriceMutation = useMutation({
     mutationFn: async (newPrice) => {
@@ -148,6 +222,30 @@ export default function JobBoardSettingsPage() {
     }
   });
 
+  const saveTermsMutation = useMutation({
+    mutationFn: async ({ title, content }) => {
+      const value = JSON.stringify({ title, content });
+      if (termsSettings) {
+        return await base44.entities.SystemSettings.update(termsSettings.id, {
+          setting_value: value
+        });
+      } else {
+        return await base44.entities.SystemSettings.create({
+          setting_key: 'job_posting_terms',
+          setting_value: value,
+          description: 'Terms and conditions for job postings'
+        });
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['job-terms-settings'] });
+      toast.success('Terms and conditions updated successfully');
+    },
+    onError: (error) => {
+      toast.error('Failed to update terms: ' + error.message);
+    }
+  });
+
   const handleSavePrice = () => {
     const numPrice = parseFloat(price);
     if (isNaN(numPrice) || numPrice < 0) {
@@ -191,6 +289,18 @@ export default function JobBoardSettingsPage() {
     const updated = hours.filter(h => h !== hour);
     setHours(updated);
     saveHoursMutation.mutate(updated);
+  };
+
+  const handleSaveTerms = () => {
+    if (!termsTitle.trim()) {
+      toast.error('Please enter a title for the terms');
+      return;
+    }
+    if (!termsContent.trim()) {
+      toast.error('Please enter the terms content');
+      return;
+    }
+    saveTermsMutation.mutate({ title: termsTitle, content: termsContent });
   };
 
   if (!accessChecked) {
@@ -337,6 +447,63 @@ export default function JobBoardSettingsPage() {
                   </div>
                 ))}
               </div>
+            </CardContent>
+          </Card>
+
+          {/* Terms and Conditions */}
+          <Card className="border-slate-200 shadow-sm">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <FileText className="w-5 h-5" />
+                Terms and Conditions
+              </CardTitle>
+              <CardDescription>
+                Edit the terms and conditions shown to users when posting a job
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="termsTitle">Title</Label>
+                <Input
+                  id="termsTitle"
+                  value={termsTitle}
+                  onChange={(e) => setTermsTitle(e.target.value)}
+                  placeholder="Terms and Conditions Title"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Content</Label>
+                <div className="border rounded-lg overflow-hidden">
+                  <ReactQuill
+                    value={termsContent}
+                    onChange={setTermsContent}
+                    theme="snow"
+                    modules={{
+                      toolbar: [
+                        [{ 'header': [1, 2, 3, false] }],
+                        ['bold', 'italic', 'underline'],
+                        [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+                        ['link'],
+                        ['clean']
+                      ]
+                    }}
+                    style={{ minHeight: '300px' }}
+                  />
+                </div>
+                <p className="text-sm text-slate-500">
+                  Use headings (H1, H2, H3) to structure your terms into sections
+                </p>
+              </div>
+
+              <Button 
+                onClick={handleSaveTerms}
+                disabled={saveTermsMutation.isPending}
+                className="bg-blue-600 hover:bg-blue-700"
+              >
+                <Save className="w-4 h-4 mr-2" />
+                {saveTermsMutation.isPending ? 'Saving...' : 'Save Terms and Conditions'}
+              </Button>
             </CardContent>
           </Card>
         </div>

@@ -162,6 +162,23 @@ export default function PostJobPage() {
     initStripe();
   }, []);
 
+  // Fetch terms and conditions from settings
+  const { data: termsSettings } = useQuery({
+    queryKey: ['job-terms-settings'],
+    queryFn: async () => {
+      const allSettings = await base44.entities.SystemSettings.list();
+      const setting = allSettings.find((s) => s.setting_key === 'job_posting_terms');
+      if (setting) {
+        try {
+          return JSON.parse(setting.setting_value);
+        } catch (e) {
+          return null;
+        }
+      }
+      return null;
+    }
+  });
+
   // Fetch job type options from settings
   const { data: jobTypeSettings = [] } = useQuery({
     queryKey: ['job-type-settings'],
@@ -881,8 +898,7 @@ export default function PostJobPage() {
                         type="button"
                         onClick={() => setShowTermsDialog(true)}
                         className="text-blue-600 hover:text-blue-700 underline font-medium">
-
-                        Graduate Futures Job Advertising Terms and Conditions
+                        {termsSettings?.title || 'Terms and Conditions'}
                       </button>
                       {' '}*
                     </Label>
@@ -963,93 +979,22 @@ export default function PostJobPage() {
       <Dialog open={showTermsDialog} onOpenChange={setShowTermsDialog}>
         <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="text-2xl">Graduate Futures Job Advertising Terms and Conditions</DialogTitle>
+            <DialogTitle className="text-2xl">
+              {termsSettings?.title || 'Graduate Futures Job Advertising Terms and Conditions'}
+            </DialogTitle>
           </DialogHeader>
           
-          <div className="space-y-6 py-4">
-            <div className="text-sm text-slate-600 space-y-1">
-              <p><strong>Effective date:</strong> January 2026</p>
-              <p><strong>Last reviewed:</strong> January 2026</p>
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <h3 className="text-lg font-semibold text-slate-900 mb-2">1. Introduction</h3>
-                <div className="text-slate-700 space-y-2">
-                  <p>These Terms apply to all job advertisements placed on the Graduate Futures website (&quot;Job Board&quot;).</p>
-                  <p>By submitting a vacancy, you agree to these Terms and the Privacy Policy.</p>
-                </div>
+          <div className="py-4">
+            {termsSettings?.content ? (
+              <div 
+                className="prose prose-slate max-w-none prose-headings:text-slate-900 prose-h3:text-lg prose-h3:font-semibold prose-h3:mb-2 prose-p:text-slate-700 prose-li:text-slate-700 prose-ul:space-y-1 prose-a:text-blue-600 hover:prose-a:underline"
+                dangerouslySetInnerHTML={{ __html: termsSettings.content }}
+              />
+            ) : (
+              <div className="space-y-4 text-slate-700">
+                <p>Terms and conditions have not been configured. Please contact the administrator.</p>
               </div>
-
-              <div>
-                <h3 className="text-lg font-semibold text-slate-900 mb-2">2. Eligibility and Content</h3>
-                <ul className="list-disc list-inside text-slate-700 space-y-2 ml-2">
-                  <li>Graduate Futures will only publish job vacancies directly relevant to the higher education careers and employability sector.</li>
-                  <li>Graduate Futures reserves the right to edit or decline any advert that does not meet these criteria.</li>
-                  <li>The Client is responsible for ensuring that all job descriptions and information are true, accurate, and non-discriminatory.</li>
-                  <li>The Client agrees that all job advertisements submitted to the Graduate Futures Job Board comply with applicable UK employment legislation, including but not limited to the Equality Act 2010.</li>
-                  <li>All data submitted by the client must comply with the UK GDPR and Graduate Futures Privacy Policy.</li>
-                </ul>
-              </div>
-
-              <div>
-                <h3 className="text-lg font-semibold text-slate-900 mb-2">3. Submission and Publication</h3>
-                <ul className="list-disc list-inside text-slate-700 space-y-2 ml-2">
-                  <li>Job adverts can be submitted online via the GRADUATE FUTURES Job Board.</li>
-                  <li>Publication is subject to GRADUATE FUTURES approval and full payment (where applicable).</li>
-                  <li>GRADUATE FUTURES aims to publish approved adverts within 24 hours.</li>
-                </ul>
-              </div>
-
-              <div>
-                <h3 className="text-lg font-semibold text-slate-900 mb-2">4. Fees and Payment</h3>
-                <ul className="list-disc list-inside text-slate-700 space-y-2 ml-2">
-                  <li>Non-member adverts are subject to the published rate (currently £515 + VAT).</li>
-                  <li>Members may post vacancies in accordance with their membership benefits.</li>
-                  <li>Payment must be made by credit/debit card.</li>
-                  <li>All fees are payable in pounds sterling and exclusive of VAT.</li>
-                </ul>
-              </div>
-
-              <div>
-                <h3 className="text-lg font-semibold text-slate-900 mb-2">5. Duration and Removal</h3>
-                <ul className="list-disc list-inside text-slate-700 space-y-2 ml-2">
-                  <li>Adverts will remain live on the website until the specified closing date, unless otherwise agreed.</li>
-                  <li>Graduate Futures reserves the right to remove adverts early if they breach these Terms or upon the Client&apos;s written request.</li>
-                  <li>Fees are non-refundable once an advert has gone live.</li>
-                </ul>
-              </div>
-
-              <div>
-                <h3 className="text-lg font-semibold text-slate-900 mb-2">6. Refunds</h3>
-                <div className="text-slate-700 space-y-2">
-                  <p>Refunds may only be issued where an advert cannot be published due to Graduate Futures error or technical failure.</p>
-                  <p>Requests should be made in writing to <a href="mailto:info@graduatefutures.org.uk" className="text-blue-600 hover:underline">info@graduatefutures.org.uk</a>.</p>
-                </div>
-              </div>
-
-              <div>
-                <h3 className="text-lg font-semibold text-slate-900 mb-2">7. Liability</h3>
-                <p className="text-slate-700 mb-2">Graduate Futures accepts no responsibility for:</p>
-                <ul className="list-disc list-inside text-slate-700 space-y-2 ml-2">
-                  <li>Errors in content supplied by the Client;</li>
-                  <li>Failure of an advert to attract candidates; or</li>
-                  <li>Any indirect or consequential loss.</li>
-                </ul>
-              </div>
-
-              <div>
-                <h3 className="text-lg font-semibold text-slate-900 mb-2">8. Contact</h3>
-                <p className="text-slate-700">
-                  <a href="mailto:info@graduatefutures.org.uk" className="text-blue-600 hover:underline">info@graduatefutures.org.uk</a>
-                </p>
-              </div>
-
-              <div>
-                <h3 className="text-lg font-semibold text-slate-900 mb-2">9. Right to amend</h3>
-                <p className="text-slate-700">Graduate Futures reserves the right to amend these Terms at any time.</p>
-              </div>
-            </div>
+            )}
           </div>
 
           <div className="flex gap-2 mt-4">
@@ -1059,13 +1004,11 @@ export default function PostJobPage() {
                 setShowTermsDialog(false);
               }}
               className="bg-blue-600 hover:bg-blue-700">
-
               I Agree to Terms
             </Button>
             <Button
               variant="outline"
               onClick={() => setShowTermsDialog(false)}>
-
               Close
             </Button>
           </div>
