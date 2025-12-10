@@ -33,8 +33,10 @@ import {
   ChevronUp,
   Check,
   Mic,
-  Eye
+  Eye,
+  AlertCircle
 } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { createFilterTagKey, parseFilterTagKey } from "@/lib/utils";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -99,6 +101,10 @@ export default function CreateEvent() {
   const [ticketClasses, setTicketClasses] = useState([createEmptyTicketClass(true)]);
   const [expandedTickets, setExpandedTickets] = useState({});
   const [allowGuestsToViewAllTickets, setAllowGuestsToViewAllTickets] = useState(false);
+  
+  // Validation error dialog state
+  const [showValidationDialog, setShowValidationDialog] = useState(false);
+  const [validationErrors, setValidationErrors] = useState([]);
   
   const [formData, setFormData] = useState({
     title: "",
@@ -334,109 +340,94 @@ export default function CreateEvent() {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    console.log('[CreateEvent] handleSubmit called');
-    console.log('[CreateEvent] formData:', JSON.stringify(formData, null, 2));
-    console.log('[CreateEvent] isProgramEvent:', isProgramEvent);
-    console.log('[CreateEvent] isOnline:', isOnline);
-    console.log('[CreateEvent] selectedWebinarId:', selectedWebinarId);
+    
+    // Collect all validation errors
+    const errors = [];
+    
+    // Basic field validation
+    if (!formData.title) {
+      errors.push('Please enter an event title');
+    }
     
     if (isProgramEvent && !formData.program_tag) {
-      console.log('[CreateEvent] Validation failed: No program selected');
-      toast.error('Please select a program');
-      return;
+      errors.push('Please select a program for this event');
     }
     
     if (!formData.start_date) {
-      toast.error('Please set a start date');
-      return;
+      errors.push('Please set a start date and time');
     }
     
     if (isOnline && !selectedWebinarId) {
-      toast.error('Please select a Zoom webinar for online events');
-      return;
+      errors.push('Please select a Zoom webinar for online events');
     }
 
     if (isOnline && loadingJoinLinkSettings) {
-      toast.error('Please wait for settings to load');
-      return;
-    }
-
-    if (!formData.title) {
-      toast.error('Please enter an event title');
-      return;
+      errors.push('Please wait for settings to finish loading');
     }
 
     // Validation for one-off event ticket classes
-    console.log('[CreateEvent] Checking ticket classes, isProgramEvent:', isProgramEvent);
-    console.log('[CreateEvent] ticketClasses:', JSON.stringify(ticketClasses, null, 2));
-    
     if (!isProgramEvent) {
       if (ticketClasses.length === 0) {
-        console.log('[CreateEvent] Validation failed: No ticket classes');
-        toast.error('Please add at least one ticket class');
-        return;
-      }
+        errors.push('Please add at least one ticket class');
+      } else {
+        for (let i = 0; i < ticketClasses.length; i++) {
+          const ticket = ticketClasses[i];
+          const ticketLabel = ticket.name || `Ticket ${i + 1}`;
 
-      for (let i = 0; i < ticketClasses.length; i++) {
-        const ticket = ticketClasses[i];
-        const ticketLabel = ticket.name || `Ticket ${i + 1}`;
-        console.log('[CreateEvent] Validating ticket:', ticketLabel, ticket);
+          // Name is required
+          if (!ticket.name || ticket.name.trim() === "") {
+            errors.push(`Please enter a name for ${ticketLabel}`);
+          }
 
-        // Name is required
-        if (!ticket.name || ticket.name.trim() === "") {
-          console.log('[CreateEvent] Validation failed: No ticket name');
-          toast.error(`Please enter a name for ${ticketLabel}`);
-          return;
-        }
+          // Price validation: either is_free must be true, or price must be > 0
+          if (!ticket.is_free) {
+            if (ticket.price === "" || ticket.price === null || ticket.price === undefined) {
+              errors.push(`Ticket "${ticket.name || ticketLabel}": Enter a price or toggle "Free Ticket" on`);
+            } else {
+              const price = parseFloat(ticket.price);
+              if (isNaN(price) || price <= 0) {
+                errors.push(`Ticket "${ticket.name}": Price must be greater than zero, or mark as free`);
+              }
+            }
+          }
 
-        // Price validation: either is_free must be true, or price must be > 0
-        console.log('[CreateEvent] Checking price - is_free:', ticket.is_free, 'price:', ticket.price);
-        if (!ticket.is_free) {
-          if (ticket.price === "" || ticket.price === null || ticket.price === undefined) {
-            console.log('[CreateEvent] Validation failed: No price set');
-            toast.error(`Please enter a price for "${ticket.name}" or mark it as free`);
-            return;
+          // Validate BOGO offer
+          if (ticket.offer_type === "bogo") {
+            if (!ticket.bogo_buy_quantity || !ticket.bogo_get_free_quantity) {
+              errors.push(`Ticket "${ticket.name}": Please enter BOGO quantities`);
+            } else {
+              const buyQty = parseInt(ticket.bogo_buy_quantity);
+              const freeQty = parseInt(ticket.bogo_get_free_quantity);
+              if (isNaN(buyQty) || buyQty < 1 || isNaN(freeQty) || freeQty < 1) {
+                errors.push(`Ticket "${ticket.name}": BOGO quantities must be positive numbers`);
+              }
+            }
           }
-          const price = parseFloat(ticket.price);
-          if (isNaN(price) || price <= 0) {
-            console.log('[CreateEvent] Validation failed: Invalid price:', price);
-            toast.error(`Price for "${ticket.name}" must be greater than zero, or mark the ticket as free`);
-            return;
-          }
-        }
 
-        // Validate BOGO offer
-        if (ticket.offer_type === "bogo") {
-          if (!ticket.bogo_buy_quantity || !ticket.bogo_get_free_quantity) {
-            toast.error(`Please enter BOGO quantities for "${ticket.name}"`);
-            return;
-          }
-          const buyQty = parseInt(ticket.bogo_buy_quantity);
-          const freeQty = parseInt(ticket.bogo_get_free_quantity);
-          if (isNaN(buyQty) || buyQty < 1 || isNaN(freeQty) || freeQty < 1) {
-            toast.error(`BOGO quantities for "${ticket.name}" must be positive integers`);
-            return;
-          }
-        }
-
-        // Validate bulk discount offer
-        if (ticket.offer_type === "bulk_discount") {
-          if (!ticket.bulk_discount_threshold || !ticket.bulk_discount_percentage) {
-            toast.error(`Please enter bulk discount settings for "${ticket.name}"`);
-            return;
-          }
-          const threshold = parseInt(ticket.bulk_discount_threshold);
-          const percentage = parseFloat(ticket.bulk_discount_percentage);
-          if (isNaN(threshold) || threshold < 2) {
-            toast.error(`Bulk threshold for "${ticket.name}" must be at least 2`);
-            return;
-          }
-          if (isNaN(percentage) || percentage < 0 || percentage > 100) {
-            toast.error(`Bulk percentage for "${ticket.name}" must be between 0 and 100`);
-            return;
+          // Validate bulk discount offer
+          if (ticket.offer_type === "bulk_discount") {
+            if (!ticket.bulk_discount_threshold || !ticket.bulk_discount_percentage) {
+              errors.push(`Ticket "${ticket.name}": Please enter bulk discount settings`);
+            } else {
+              const threshold = parseInt(ticket.bulk_discount_threshold);
+              const percentage = parseFloat(ticket.bulk_discount_percentage);
+              if (isNaN(threshold) || threshold < 2) {
+                errors.push(`Ticket "${ticket.name}": Bulk threshold must be at least 2`);
+              }
+              if (isNaN(percentage) || percentage < 0 || percentage > 100) {
+                errors.push(`Ticket "${ticket.name}": Discount percentage must be between 0 and 100`);
+              }
+            }
           }
         }
       }
+    }
+    
+    // If there are validation errors, show the dialog
+    if (errors.length > 0) {
+      setValidationErrors(errors);
+      setShowValidationDialog(true);
+      return;
     }
 
     // Build event data - only include fields that exist in the event table
@@ -1721,6 +1712,38 @@ export default function CreateEvent() {
           </div>
         </form>
       </div>
+
+      {/* Validation Error Dialog */}
+      <Dialog open={showValidationDialog} onOpenChange={setShowValidationDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-amber-600">
+              <AlertCircle className="w-5 h-5" />
+              Please Fix the Following Issues
+            </DialogTitle>
+            <DialogDescription>
+              Your event cannot be created until these issues are resolved:
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="py-4 space-y-2 max-h-[300px] overflow-y-auto">
+            {validationErrors.map((error, index) => (
+              <div key={index} className="flex items-start gap-2 text-sm text-slate-700 p-2 bg-amber-50 rounded border border-amber-200">
+                <span className="text-amber-500 font-bold mt-0.5">{index + 1}.</span>
+                <span>{error}</span>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex justify-end">
+            <Button
+              onClick={() => setShowValidationDialog(false)}
+              className="bg-blue-600 hover:bg-blue-700">
+              I'll Fix These
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
