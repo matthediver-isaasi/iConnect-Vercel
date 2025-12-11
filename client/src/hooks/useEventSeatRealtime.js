@@ -69,7 +69,8 @@ export function useEventSeatRealtime(eventId, options = {}) {
 
           const seatsBooked = Number(newData?.seats_booked) || 0;
           const seatCapacity = Number(newData?.seat_capacity) || 0;
-          const availableSeats = seatCapacity > 0 ? seatCapacity - seatsBooked : null;
+          const isUnlimitedRegistration = newData?.is_unlimited_registration === true;
+          const availableSeats = (!isUnlimitedRegistration && seatCapacity > 0) ? seatCapacity - seatsBooked : null;
 
           setLastUpdate({
             seatsBooked,
@@ -93,7 +94,8 @@ export function useEventSeatRealtime(eventId, options = {}) {
             previousSeatsRef.current = Number(oldData?.seats_booked) || 0;
           }
 
-          if (seatCapacity > 0 && seatsBooked >= seatCapacity) {
+          // Only check for sold out if not unlimited registration
+          if (!isUnlimitedRegistration && seatCapacity > 0 && seatsBooked >= seatCapacity) {
             console.log('[useEventSeatRealtime] Event sold out!');
             
             // Show toast if transitioning to sold out (previous was below capacity)

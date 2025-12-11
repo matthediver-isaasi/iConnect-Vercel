@@ -673,7 +673,10 @@ export default function EventDetailsPage() {
 
   const startDate = event.start_date ? new Date(event.start_date) : null;
   const endDate = event.end_date ? new Date(event.end_date) : null;
-  const hasUnlimitedCapacity = event.available_seats === 0 || event.available_seats === null;
+  // Use explicit is_unlimited_registration field if set, otherwise fallback to legacy logic
+  // Only treat as unlimited if explicitly marked so - available_seats === 0 now means SOLD OUT
+  const hasUnlimitedCapacity = event.is_unlimited_registration === true || 
+    (event.is_unlimited_registration !== false && event.available_seats === null);
   
   // Calculate ticket count and costs
   // For guest checkout, it's always 1 ticket if form is valid
