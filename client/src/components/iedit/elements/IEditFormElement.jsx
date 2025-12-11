@@ -205,7 +205,28 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     mutationFn: async (data) => {
       return base44.entities.FormSubmission.create(data);
     },
-    onSuccess: () => {
+    onSuccess: async () => {
+      // Process CRM field mappings if any fields have custom_field_id
+      const hasMappings = form?.fields?.some(f => f.custom_field_id);
+      if (hasMappings && memberInfo) {
+        try {
+          await fetch('/api/forms/process-field-mappings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              form_values: formValues,
+              fields: form.fields,
+              member_id: memberInfo?.id || null,
+              organization_id: memberInfo?.organization_id || null
+            })
+          });
+          console.log('[IEditFormElement] CRM field mappings processed');
+        } catch (error) {
+          console.error('[IEditFormElement] Error processing field mappings:', error);
+          // Don't fail submission if mapping fails
+        }
+      }
+      
       setSubmitted(true);
       if (form?.redirect_url) {
         setTimeout(() => {

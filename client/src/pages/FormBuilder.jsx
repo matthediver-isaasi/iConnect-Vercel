@@ -52,6 +52,7 @@ function FieldCard({
   removeField, 
   FIELD_TYPES, 
   categories = [],
+  customFields = [],
   isApplicationForm = false,
   applicationLevel = "member",
   uniquenessChecks = [],
@@ -279,6 +280,64 @@ function FieldCard({
                 </div>
               )}
 
+              {/* CRM Field Mapping */}
+              {customFields.length > 0 && (
+                <div className="space-y-1">
+                  <Label className="text-xs flex items-center gap-1">
+                    <span>Map to Custom Field</span>
+                    <span className="text-slate-400">(CRM)</span>
+                  </Label>
+                  <Select
+                    value={field.custom_field_id || '_none_'}
+                    onValueChange={(value) => updateField(originalIndex, { 
+                      custom_field_id: value === '_none_' ? null : value 
+                    })}
+                  >
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue placeholder="No mapping" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="_none_">No mapping</SelectItem>
+                      {customFields.filter(cf => cf.entity_scope === 'member').length > 0 && (
+                        <>
+                          <div className="px-2 py-1 text-xs font-medium text-slate-500 bg-slate-50">
+                            Member Fields
+                          </div>
+                          {customFields
+                            .filter(cf => cf.entity_scope === 'member')
+                            .map(cf => (
+                              <SelectItem key={cf.id} value={cf.id}>
+                                {cf.label} ({cf.field_type})
+                              </SelectItem>
+                            ))
+                          }
+                        </>
+                      )}
+                      {customFields.filter(cf => cf.entity_scope === 'organization').length > 0 && (
+                        <>
+                          <div className="px-2 py-1 text-xs font-medium text-slate-500 bg-slate-50">
+                            Organisation Fields
+                          </div>
+                          {customFields
+                            .filter(cf => cf.entity_scope === 'organization')
+                            .map(cf => (
+                              <SelectItem key={cf.id} value={cf.id}>
+                                {cf.label} ({cf.field_type})
+                              </SelectItem>
+                            ))
+                          }
+                        </>
+                      )}
+                    </SelectContent>
+                  </Select>
+                  {field.custom_field_id && (
+                    <p className="text-xs text-green-600">
+                      Value will be saved to {customFields.find(cf => cf.id === field.custom_field_id)?.entity_scope === 'organization' ? 'organisation' : 'member'} profile
+                    </p>
+                  )}
+                </div>
+              )}
+
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
                   <div className="flex items-center gap-2">
@@ -358,6 +417,22 @@ export default function FormBuilderPage() {
       const response = await fetch('/api/public/resource-categories');
       if (!response.ok) throw new Error('Failed to fetch resource categories');
       return response.json();
+    }
+  });
+
+  // Fetch custom fields (PreferenceField) for CRM mapping
+  const { data: customFields = [] } = useQuery({
+    queryKey: ['/api/entities/PreferenceField', 'all-for-mapping'],
+    queryFn: async () => {
+      try {
+        const fields = await base44.entities.PreferenceField.list({
+          filter: { is_active: true },
+          sort: { display_order: 'asc' }
+        });
+        return fields || [];
+      } catch {
+        return [];
+      }
     }
   });
 
@@ -1043,6 +1118,7 @@ export default function FormBuilderPage() {
                                       removeField={removeField}
                                       FIELD_TYPES={FIELD_TYPES}
                                       categories={categories}
+                                      customFields={customFields}
                                       isApplicationForm={formData.is_application_form}
                                       applicationLevel={formData.application_level}
                                       uniquenessChecks={formData.uniqueness_checks}
@@ -1134,6 +1210,7 @@ export default function FormBuilderPage() {
                                               removeField={removeField}
                                               FIELD_TYPES={FIELD_TYPES}
                                               categories={categories}
+                                              customFields={customFields}
                                               isApplicationForm={formData.is_application_form}
                                               applicationLevel={formData.application_level}
                                               uniquenessChecks={formData.uniqueness_checks}
@@ -1169,6 +1246,7 @@ export default function FormBuilderPage() {
                               removeField={removeField}
                               FIELD_TYPES={FIELD_TYPES}
                               categories={categories}
+                              customFields={customFields}
                               isApplicationForm={formData.is_application_form}
                               applicationLevel={formData.application_level}
                               uniquenessChecks={formData.uniqueness_checks}

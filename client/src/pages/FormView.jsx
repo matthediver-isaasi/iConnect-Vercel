@@ -50,6 +50,28 @@ export default function FormViewPage() {
           submission_count: (form.submission_count || 0) + 1
         });
       }
+      
+      // Process CRM field mappings if any fields have custom_field_id
+      const hasMappings = form?.fields?.some(f => f.custom_field_id);
+      if (hasMappings) {
+        try {
+          await fetch('/api/forms/process-field-mappings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              form_values: formValues,
+              fields: form.fields,
+              member_id: memberRecord?.id || null,
+              organization_id: memberRecord?.organization_id || null
+            })
+          });
+          console.log('[FormView] CRM field mappings processed');
+        } catch (error) {
+          console.error('[FormView] Error processing field mappings:', error);
+          // Don't fail submission if mapping fails
+        }
+      }
+      
       queryClient.invalidateQueries({ queryKey: ['form-by-slug'] });
       setSubmitted(true);
       
