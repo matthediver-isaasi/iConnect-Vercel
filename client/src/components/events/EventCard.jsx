@@ -123,6 +123,28 @@ const getEventTypeStyle = (eventTypeName, systemSettings) => {
   return defaultStyle;
 };
 
+// Helper function to get CTA button configuration from system settings
+const getCtaButtonConfig = (systemSettings) => {
+  const defaultConfig = { style: 'default', label: 'Register' };
+  
+  if (!systemSettings?.length) return defaultConfig;
+  
+  const ctaSetting = systemSettings.find(s => s.setting_key === 'event_cta_button');
+  if (!ctaSetting?.setting_value) return defaultConfig;
+  
+  try {
+    const config = JSON.parse(ctaSetting.setting_value);
+    return {
+      style: config.style || 'default',
+      label: config.label || 'Register'
+    };
+  } catch (e) {
+    console.error('Error parsing CTA button config:', e);
+  }
+  
+  return defaultConfig;
+};
+
 export default function EventCard({ event, organizationInfo, isFeatureExcluded, isAdmin, onEventDeleted, joinLinkSettings, webinars, systemSettings = [] }) {
   const queryClient = useQueryClient();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -559,22 +581,31 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                 <ShoppingCart className="w-4 h-4 mr-2" />
                 Buy Tickets
               </Button>
-            ) : (
-              <Button 
-                className="w-full bg-blue-600 hover:bg-blue-700"
-                disabled={!hasUnlimitedCapacity && event.available_seats === 0}
-                onClick={() => {
-                  if (event.cta_override_url) {
-                    window.location.href = event.cta_override_url;
-                  } else {
-                    window.location.href = createPageUrl('EventDetails') + '?id=' + event.id;
-                  }
-                }}
-                data-testid={`button-register-event-${event.id}`}
-              >
-                {!hasUnlimitedCapacity && event.available_seats === 0 ? "Sold Out" : "Register"}
-              </Button>
-            )}
+            ) : (() => {
+              const ctaConfig = getCtaButtonConfig(systemSettings);
+              const isSoldOut = !hasUnlimitedCapacity && event.available_seats === 0;
+              const buttonLabel = isSoldOut ? "Sold Out" : ctaConfig.label;
+              const isGradient = ctaConfig.style === 'gradient';
+              
+              return (
+                <Button 
+                  className={`w-full ${isGradient 
+                    ? 'bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:from-indigo-700 hover:via-purple-700 hover:to-pink-700 text-white shadow-lg' 
+                    : 'bg-blue-600 hover:bg-blue-700'}`}
+                  disabled={isSoldOut}
+                  onClick={() => {
+                    if (event.cta_override_url) {
+                      window.location.href = event.cta_override_url;
+                    } else {
+                      window.location.href = createPageUrl('EventDetails') + '?id=' + event.id;
+                    }
+                  }}
+                  data-testid={`button-register-event-${event.id}`}
+                >
+                  {buttonLabel}
+                </Button>
+              );
+            })()}
           </div>
         </CardContent>
       </Card>

@@ -72,6 +72,11 @@ export default function EventSettingsPage() {
   const [editingEventTypeTextColor, setEditingEventTypeTextColor] = useState("");
   const [savingEventTypes, setSavingEventTypes] = useState(false);
   
+  // CTA Button configuration
+  const [ctaButtonStyle, setCtaButtonStyle] = useState("default"); // "default" or "gradient"
+  const [ctaButtonLabel, setCtaButtonLabel] = useState("View Details");
+  const [savingCtaConfig, setSavingCtaConfig] = useState(false);
+  
   const queryClient = useQueryClient();
 
   useEffect(() => {
@@ -155,6 +160,18 @@ export default function EventSettingsPage() {
     const descPreviewLinesSetting = settings.find(s => s.setting_key === 'event_description_preview_lines');
     if (descPreviewLinesSetting) {
       setDescriptionPreviewLines(parseInt(descPreviewLinesSetting.setting_value) || 3);
+    }
+    
+    // Load CTA button configuration
+    const ctaButtonSetting = settings.find(s => s.setting_key === 'event_cta_button');
+    if (ctaButtonSetting?.setting_value) {
+      try {
+        const ctaConfig = JSON.parse(ctaButtonSetting.setting_value);
+        setCtaButtonStyle(ctaConfig.style || 'default');
+        setCtaButtonLabel(ctaConfig.label || 'View Details');
+      } catch (e) {
+        console.error('Failed to parse CTA button config:', e);
+      }
     }
   }, [settings]);
 
@@ -359,6 +376,35 @@ export default function EventSettingsPage() {
       toast.error('Failed to save event types: ' + (error.message || 'Unknown error'));
     } finally {
       setSavingEventTypes(false);
+    }
+  };
+
+  // CTA Button configuration handler
+  const handleSaveCtaConfig = async () => {
+    setSavingCtaConfig(true);
+    try {
+      const ctaConfig = { style: ctaButtonStyle, label: ctaButtonLabel };
+      const ctaButtonSetting = settings.find(s => s.setting_key === 'event_cta_button');
+      const value = JSON.stringify(ctaConfig);
+      
+      if (ctaButtonSetting) {
+        await base44.entities.SystemSettings.update(ctaButtonSetting.id, {
+          setting_value: value
+        });
+      } else {
+        await base44.entities.SystemSettings.create({
+          setting_key: 'event_cta_button',
+          setting_value: value
+        });
+      }
+      
+      queryClient.invalidateQueries({ queryKey: ['system-settings'] });
+      toast.success('CTA button configuration saved successfully');
+    } catch (error) {
+      console.error('Failed to save CTA button config:', error);
+      toast.error('Failed to save CTA button config: ' + (error.message || 'Unknown error'));
+    } finally {
+      setSavingCtaConfig(false);
     }
   };
 
@@ -1266,6 +1312,99 @@ export default function EventSettingsPage() {
                     <>
                       <Save className="w-4 h-4 mr-2" />
                       Save Event Types
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* CTA Button Configuration Section */}
+        <Card className="border-slate-200 shadow-sm mb-8">
+          <CardHeader className="border-b border-slate-200">
+            <div className="flex items-center gap-2">
+              <Settings className="w-5 h-5 text-blue-600" />
+              <CardTitle>Event Card CTA Button</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-6">
+            <div className="max-w-2xl space-y-6">
+              <p className="text-sm text-slate-600">
+                Configure the appearance and label of the call-to-action button displayed on event cards.
+              </p>
+              
+              {/* Button Style Selection */}
+              <div className="space-y-3">
+                <Label className="text-sm font-medium">Button Style</Label>
+                <RadioGroup 
+                  value={ctaButtonStyle} 
+                  onValueChange={setCtaButtonStyle}
+                  className="flex flex-col gap-3"
+                >
+                  <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-lg border border-slate-200">
+                    <RadioGroupItem value="default" id="cta-default" data-testid="radio-cta-default" />
+                    <Label htmlFor="cta-default" className="flex-1 cursor-pointer">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="font-medium">Default Button</p>
+                          <p className="text-sm text-slate-500">Standard solid button with primary color</p>
+                        </div>
+                        <Button size="sm" className="pointer-events-none">
+                          {ctaButtonLabel || 'View Details'}
+                        </Button>
+                      </div>
+                    </Label>
+                  </div>
+                  <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-lg border border-slate-200">
+                    <RadioGroupItem value="gradient" id="cta-gradient" data-testid="radio-cta-gradient" />
+                    <Label htmlFor="cta-gradient" className="flex-1 cursor-pointer">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="font-medium">Gradient Button</p>
+                          <p className="text-sm text-slate-500">Eye-catching gradient with animation</p>
+                        </div>
+                        <Button 
+                          size="sm" 
+                          className="pointer-events-none bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:from-indigo-700 hover:via-purple-700 hover:to-pink-700 text-white shadow-lg"
+                        >
+                          {ctaButtonLabel || 'View Details'}
+                        </Button>
+                      </div>
+                    </Label>
+                  </div>
+                </RadioGroup>
+              </div>
+              
+              {/* Button Label */}
+              <div className="space-y-2">
+                <Label htmlFor="cta-label" className="text-sm font-medium">Button Label</Label>
+                <Input
+                  id="cta-label"
+                  value={ctaButtonLabel}
+                  onChange={(e) => setCtaButtonLabel(e.target.value)}
+                  placeholder="View Details"
+                  className="max-w-xs"
+                  data-testid="input-cta-label"
+                />
+                <p className="text-xs text-slate-500">The text displayed on the button (e.g., "View Details", "Learn More", "Register Now")</p>
+              </div>
+              
+              <div className="pt-4 border-t border-slate-200">
+                <Button
+                  onClick={handleSaveCtaConfig}
+                  disabled={savingCtaConfig}
+                  data-testid="button-save-cta-config"
+                >
+                  {savingCtaConfig ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4 mr-2" />
+                      Save CTA Configuration
                     </>
                   )}
                 </Button>
