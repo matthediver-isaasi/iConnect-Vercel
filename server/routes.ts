@@ -581,6 +581,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.json({ valid: true, conflicts: [] });
       }
       
+      console.log('[Form Uniqueness] Received uniqueness_checks:', JSON.stringify(uniqueness_checks, null, 2));
+      
       if (!form_values || typeof form_values !== 'object') {
         return res.status(400).json({ error: 'Invalid form_values' });
       }
@@ -652,8 +654,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           case 'domain_equals':
             if (searchValue.includes('@')) {
               const domain = searchValue.split('@')[1].toLowerCase();
+              console.log(`[Form Uniqueness] domain_equals: checking ${tableName}.${targetColumn} for domain @${domain}`);
               query = supabase.from(tableName).select('id').ilike(targetColumn, `%@${domain}`).limit(1);
             } else {
+              console.log(`[Form Uniqueness] domain_equals: skipping - no @ in value: ${searchValue}`);
               continue;
             }
             break;
@@ -662,6 +666,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
 
         const { data, error } = await query;
+        
+        console.log(`[Form Uniqueness] Query result for ${field_id} on ${tableName}.${targetColumn} (mode: ${mode}):`, { data, error, hasConflict: data && data.length > 0 });
 
         if (error) {
           console.error(`[Form Uniqueness] Error checking ${field_id} in ${tableName}.${targetColumn}:`, error);
