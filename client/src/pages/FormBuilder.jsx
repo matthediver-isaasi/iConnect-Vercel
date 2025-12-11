@@ -76,6 +76,29 @@ const ORG_CORE_FIELDS = [
   { value: 'website_url', label: 'Website URL' },
 ];
 
+const COMPARISON_MODES = [
+  { value: 'equals', label: 'Equals (exact match)', forEmail: true, forText: true },
+  { value: 'equals_lowercase', label: 'Equals (case insensitive)', forEmail: true, forText: true },
+  { value: 'contains', label: 'Contains', forEmail: false, forText: true },
+  { value: 'starts_with', label: 'Starts with', forEmail: false, forText: true },
+  { value: 'ends_with', label: 'Ends with', forEmail: false, forText: true },
+  { value: 'domain_equals', label: 'Email domain equals', forEmail: true, forText: false },
+];
+
+const UNIQUENESS_TARGET_FIELDS = {
+  member: [
+    { value: 'member.email', label: 'Member Email', isEmail: true },
+    { value: 'member.full_name', label: 'Member Full Name', isEmail: false },
+    { value: 'member.phone', label: 'Member Phone', isEmail: false },
+  ],
+  organization: [
+    { value: 'organization.name', label: 'Organisation Name', isEmail: false },
+    { value: 'organization.invoicing_email', label: 'Invoicing Email', isEmail: true },
+    { value: 'organization.phone', label: 'Organisation Phone', isEmail: false },
+    { value: 'organization.website_url', label: 'Website URL', isEmail: false },
+  ]
+};
+
 function FieldMappingSection({ 
   fields, 
   fieldMappings = [], 
@@ -306,17 +329,63 @@ function FieldCard({
   const isEmailType = field.type === 'email' || field.type === 'user_email';
   const uniquenessCheck = uniquenessChecks.find(u => u.field_id === field.id);
   const isUniquenessEnabled = !!uniquenessCheck;
-  const checkMode = uniquenessCheck?.check_mode || 'full';
+  const targetField = uniquenessCheck?.target_field || '';
+  const comparisonMode = uniquenessCheck?.comparison_mode || 'equals_lowercase';
+
+  // Get available target fields based on application level
+  const availableTargets = [
+    ...UNIQUENESS_TARGET_FIELDS.member,
+    ...UNIQUENESS_TARGET_FIELDS.organization
+  ];
+  
+  // Determine if current target field is email type
+  const currentTargetConfig = availableTargets.find(t => t.value === targetField);
+  const isTargetEmail = currentTargetConfig?.isEmail || false;
+  
+  // Filter comparison modes based on target field type
+  const availableComparisonModes = COMPARISON_MODES.filter(mode => 
+    isTargetEmail ? mode.forEmail : mode.forText
+  );
 
   const handleUniquenessToggle = (enabled) => {
     if (onUniquenessChange) {
-      onUniquenessChange(field.id, enabled, isEmailType ? (applicationLevel === 'organization' ? 'domain_only' : 'full') : 'full');
+      // Smart defaults based on field type and application level
+      let defaultTarget;
+      let defaultComparison;
+      
+      if (isEmailType) {
+        defaultTarget = applicationLevel === 'member' ? 'member.email' : 'organization.invoicing_email';
+        defaultComparison = 'equals_lowercase';
+      } else {
+        defaultTarget = applicationLevel === 'member' ? 'member.full_name' : 'organization.name';
+        defaultComparison = 'equals_lowercase';
+      }
+      
+      onUniquenessChange(field.id, enabled, { target_field: defaultTarget, comparison_mode: defaultComparison });
     }
   };
 
-  const handleCheckModeChange = (mode) => {
+  const handleUniquenessUpdate = (updates) => {
     if (onUniquenessChange) {
-      onUniquenessChange(field.id, true, mode);
+      let newTargetField = updates.target_field ?? targetField;
+      let newComparisonMode = updates.comparison_mode ?? comparisonMode;
+      
+      // If target field changed, validate comparison mode is still valid
+      if (updates.target_field) {
+        const newTargetConfig = availableTargets.find(t => t.value === updates.target_field);
+        const isNewTargetEmail = newTargetConfig?.isEmail || false;
+        const validModes = COMPARISON_MODES.filter(m => isNewTargetEmail ? m.forEmail : m.forText);
+        
+        // Reset to default if current mode is invalid for new target
+        if (!validModes.find(m => m.value === newComparisonMode)) {
+          newComparisonMode = 'equals_lowercase';
+        }
+      }
+      
+      onUniquenessChange(field.id, true, { 
+        target_field: newTargetField, 
+        comparison_mode: newComparisonMode 
+      });
     }
   };
 
@@ -373,7 +442,7 @@ function FieldCard({
 
               {/* Uniqueness Check - Only for Application Forms */}
               {isApplicationForm && (
-                <div className="p-2 bg-amber-50 border border-amber-200 rounded-lg space-y-2">
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg space-y-3">
                   <div className="flex items-center gap-2">
                     <Checkbox
                       id={`uniqueness-${field.id}`}
@@ -386,44 +455,59 @@ function FieldCard({
                     </Label>
                   </div>
                   
-                  {isUniquenessEnabled && isEmailType && applicationLevel === 'member' && (
-                    <div className="ml-6 space-y-1">
-                      <Label className="text-xs text-slate-600">Email matching:</Label>
-                      <div className="flex gap-3">
-                        <div className="flex items-center gap-1">
-                          <input
-                            type="radio"
-                            id={`email-full-${field.id}`}
-                            name={`email-mode-${field.id}`}
-                            value="full"
-                            checked={checkMode === 'full'}
-                            onChange={() => handleCheckModeChange('full')}
-                            className="w-3 h-3"
-                            data-testid={`radio-email-full-${field.id}`}
-                          />
-                          <Label htmlFor={`email-full-${field.id}`} className="text-xs cursor-pointer">Entire email</Label>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <input
-                            type="radio"
-                            id={`email-domain-${field.id}`}
-                            name={`email-mode-${field.id}`}
-                            value="domain_only"
-                            checked={checkMode === 'domain_only'}
-                            onChange={() => handleCheckModeChange('domain_only')}
-                            className="w-3 h-3"
-                            data-testid={`radio-email-domain-${field.id}`}
-                          />
-                          <Label htmlFor={`email-domain-${field.id}`} className="text-xs cursor-pointer">Domain only</Label>
-                        </div>
+                  {isUniquenessEnabled && (
+                    <div className="ml-6 space-y-3">
+                      <div className="space-y-1">
+                        <Label className="text-xs text-slate-600">Compare against:</Label>
+                        <Select
+                          value={targetField}
+                          onValueChange={(value) => handleUniquenessUpdate({ target_field: value })}
+                        >
+                          <SelectTrigger className="h-8 text-xs" data-testid={`select-uniqueness-target-${field.id}`}>
+                            <SelectValue placeholder="Select target field..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <div className="px-2 py-1 text-xs font-medium text-slate-500 bg-slate-50">
+                              Member Fields
+                            </div>
+                            {UNIQUENESS_TARGET_FIELDS.member.map(t => (
+                              <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                            ))}
+                            <div className="px-2 py-1 text-xs font-medium text-slate-500 bg-slate-50">
+                              Organisation Fields
+                            </div>
+                            {UNIQUENESS_TARGET_FIELDS.organization.map(t => (
+                              <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
+                      
+                      <div className="space-y-1">
+                        <Label className="text-xs text-slate-600">Comparison logic:</Label>
+                        <Select
+                          value={comparisonMode}
+                          onValueChange={(value) => handleUniquenessUpdate({ comparison_mode: value })}
+                        >
+                          <SelectTrigger className="h-8 text-xs" data-testid={`select-uniqueness-comparison-${field.id}`}>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {availableComparisonModes.map(mode => (
+                              <SelectItem key={mode.value} value={mode.value}>
+                                {mode.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      
+                      {targetField && (
+                        <p className="text-xs text-amber-700">
+                          Will check if submitted value already exists in {targetField.replace('.', ' → ')}
+                        </p>
+                      )}
                     </div>
-                  )}
-                  
-                  {isUniquenessEnabled && isEmailType && applicationLevel === 'organization' && (
-                    <p className="ml-6 text-xs text-slate-500">
-                      Organisation-level applications check email domain only
-                    </p>
                   )}
                 </div>
               )}
@@ -522,128 +606,6 @@ function FieldCard({
                     <Plus className="w-3 h-3 mr-1" />
                     Add Option
                   </Button>
-                </div>
-              )}
-
-              {/* Core Entity Field Mapping - for application forms */}
-              {isApplicationForm && (
-                <div className="space-y-1">
-                  <Label className="text-xs flex items-center gap-1">
-                    <span>Map to Core Field</span>
-                    <span className="text-slate-400">(Entity Creation)</span>
-                  </Label>
-                  <Select
-                    value={field.core_field_mapping || '_none_'}
-                    onValueChange={(value) => updateField(originalIndex, { 
-                      core_field_mapping: value === '_none_' ? null : value 
-                    })}
-                  >
-                    <SelectTrigger className="h-8 text-xs">
-                      <SelectValue placeholder="No mapping" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="_none_">No mapping</SelectItem>
-                      {applicationLevel === 'member' ? (
-                        <>
-                          <div className="px-2 py-1 text-xs font-medium text-slate-500 bg-slate-50">
-                            Member Core Fields
-                          </div>
-                          <SelectItem value="member.email">Email</SelectItem>
-                          <SelectItem value="member.first_name">First Name</SelectItem>
-                          <SelectItem value="member.last_name">Last Name</SelectItem>
-                          <SelectItem value="member.full_name">Full Name</SelectItem>
-                          <SelectItem value="member.job_title">Job Title</SelectItem>
-                          <SelectItem value="member.phone">Phone</SelectItem>
-                          <div className="px-2 py-1 text-xs font-medium text-slate-500 bg-slate-50">
-                            Organisation Core Fields
-                          </div>
-                          <SelectItem value="organization.name">Organisation Name</SelectItem>
-                        </>
-                      ) : (
-                        <>
-                          <div className="px-2 py-1 text-xs font-medium text-slate-500 bg-slate-50">
-                            Organisation Core Fields
-                          </div>
-                          <SelectItem value="organization.name">Organisation Name</SelectItem>
-                          <SelectItem value="organization.invoicing_email">Invoicing Email</SelectItem>
-                          <SelectItem value="organization.phone">Phone</SelectItem>
-                          <SelectItem value="organization.website_url">Website URL</SelectItem>
-                          <div className="px-2 py-1 text-xs font-medium text-slate-500 bg-slate-50">
-                            Contact Person Fields
-                          </div>
-                          <SelectItem value="member.email">Contact Email</SelectItem>
-                          <SelectItem value="member.first_name">Contact First Name</SelectItem>
-                          <SelectItem value="member.last_name">Contact Last Name</SelectItem>
-                          <SelectItem value="member.full_name">Contact Full Name</SelectItem>
-                          <SelectItem value="member.job_title">Contact Job Title</SelectItem>
-                          <SelectItem value="member.phone">Contact Phone</SelectItem>
-                        </>
-                      )}
-                    </SelectContent>
-                  </Select>
-                  {field.core_field_mapping && (
-                    <p className="text-xs text-blue-600">
-                      Will populate {field.core_field_mapping.replace('.', ' → ')} when entity is created
-                    </p>
-                  )}
-                </div>
-              )}
-
-              {/* CRM Custom Field Mapping */}
-              {customFields.length > 0 && (
-                <div className="space-y-1">
-                  <Label className="text-xs flex items-center gap-1">
-                    <span>Map to Custom Field</span>
-                    <span className="text-slate-400">(CRM)</span>
-                  </Label>
-                  <Select
-                    value={field.custom_field_id || '_none_'}
-                    onValueChange={(value) => updateField(originalIndex, { 
-                      custom_field_id: value === '_none_' ? null : value 
-                    })}
-                  >
-                    <SelectTrigger className="h-8 text-xs">
-                      <SelectValue placeholder="No mapping" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="_none_">No mapping</SelectItem>
-                      {customFields.filter(cf => cf.entity_scope === 'member').length > 0 && (
-                        <>
-                          <div className="px-2 py-1 text-xs font-medium text-slate-500 bg-slate-50">
-                            Member Fields
-                          </div>
-                          {customFields
-                            .filter(cf => cf.entity_scope === 'member')
-                            .map(cf => (
-                              <SelectItem key={cf.id} value={cf.id}>
-                                {cf.label} ({cf.field_type})
-                              </SelectItem>
-                            ))
-                          }
-                        </>
-                      )}
-                      {customFields.filter(cf => cf.entity_scope === 'organization').length > 0 && (
-                        <>
-                          <div className="px-2 py-1 text-xs font-medium text-slate-500 bg-slate-50">
-                            Organisation Fields
-                          </div>
-                          {customFields
-                            .filter(cf => cf.entity_scope === 'organization')
-                            .map(cf => (
-                              <SelectItem key={cf.id} value={cf.id}>
-                                {cf.label} ({cf.field_type})
-                              </SelectItem>
-                            ))
-                          }
-                        </>
-                      )}
-                    </SelectContent>
-                  </Select>
-                  {field.custom_field_id && (
-                    <p className="text-xs text-green-600">
-                      Value will be saved to {customFields.find(cf => cf.id === field.custom_field_id)?.entity_scope === 'organization' ? 'organisation' : 'member'} profile
-                    </p>
-                  )}
                 </div>
               )}
 
@@ -907,17 +869,23 @@ export default function FormBuilderPage() {
     setFormData({ ...formData, fields: newFields, uniqueness_checks: newUniquenessChecks });
   };
 
-  const handleUniquenessChange = (fieldId, enabled, checkMode = 'full') => {
+  const handleUniquenessChange = (fieldId, enabled, options = {}) => {
     const existingChecks = formData.uniqueness_checks || [];
     
     if (enabled) {
       const existingIndex = existingChecks.findIndex(c => c.field_id === fieldId);
+      const newCheck = { 
+        field_id: fieldId, 
+        target_field: options.target_field || (formData.application_level === 'member' ? 'member.email' : 'organization.name'),
+        comparison_mode: options.comparison_mode || 'equals_lowercase'
+      };
+      
       if (existingIndex >= 0) {
         const newChecks = [...existingChecks];
-        newChecks[existingIndex] = { field_id: fieldId, check_mode: checkMode };
+        newChecks[existingIndex] = newCheck;
         setFormData({ ...formData, uniqueness_checks: newChecks });
       } else {
-        setFormData({ ...formData, uniqueness_checks: [...existingChecks, { field_id: fieldId, check_mode: checkMode }] });
+        setFormData({ ...formData, uniqueness_checks: [...existingChecks, newCheck] });
       }
     } else {
       setFormData({ ...formData, uniqueness_checks: existingChecks.filter(c => c.field_id !== fieldId) });

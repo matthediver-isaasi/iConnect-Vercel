@@ -7,6 +7,12 @@ const supabase = supabaseUrl && supabaseServiceKey
   ? createClient(supabaseUrl, supabaseServiceKey)
   : null;
 
+// Valid target fields whitelist for uniqueness checks
+const VALID_UNIQUENESS_TARGETS = {
+  member: ['email', 'full_name', 'phone'],
+  organization: ['name', 'invoicing_email', 'phone', 'website_url']
+};
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -31,13 +37,7 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Invalid fields array' });
     }
 
-    const normalizedLevel = application_level === 'organisation' ? 'organization' : (application_level || 'member');
-    if (!['member', 'organization'].includes(normalizedLevel)) {
-      return res.status(400).json({ error: 'Invalid application_level' });
-    }
-
     const conflicts = [];
-    const tableName = normalizedLevel === 'organization' ? 'organization' : 'member';
     
     const validFieldIds = new Set(fields.filter(f => f && f.id).map(f => f.id));
     const sanitizedChecks = uniqueness_checks.filter(
@@ -45,7 +45,7 @@ export default async function handler(req, res) {
     );
 
     for (const check of sanitizedChecks) {
-      const { field_id, check_mode } = check;
+      const { field_id, target_field, comparison_mode } = check;
       
       const field = fields.find(f => f && f.id === field_id);
       if (!field) continue;
@@ -53,64 +53,122 @@ export default async function handler(req, res) {
       const value = form_values[field_id];
       if (!value) continue;
 
-      const isEmailField = field.type === 'email' || field.type === 'user_email';
-      let searchValue = String(value).toLowerCase().trim();
-      let columnToCheck = 'email';
+      // Parse target_field (e.g., "member.email" or "organization.name")
+      if (!target_field || !target_field.includes('.')) {
+        console.log(`[Form Uniqueness] Skipping check for ${field_id}: invalid target_field`, target_field);
+        continue;
+      }
+
+      const [targetEntity, targetColumn] = target_field.split('.');
+      const tableName = targetEntity === 'organization' ? 'organization' : 'member';
       
-      const effectiveCheckMode = normalizedLevel === 'organization' && isEmailField 
-        ? 'domain_only' 
-        : (check_mode || 'full');
-
-      if (isEmailField && effectiveCheckMode === 'domain_only' && searchValue.includes('@')) {
-        searchValue = searchValue.split('@')[1];
+      // Validate target column against whitelist
+      const validColumns = VALID_UNIQUENESS_TARGETS[tableName];
+      if (!validColumns || !validColumns.includes(targetColumn)) {
+        console.log(`[Form Uniqueness] Skipping check for ${field_id}: invalid column ${targetColumn} for ${tableName}`);
+        continue;
       }
+      
+      // Validate domain_equals is only used with email columns
+      const emailColumns = ['email', 'invoicing_email'];
+      if (comparison_mode === 'domain_equals' && !emailColumns.includes(targetColumn)) {
+        console.log(`[Form Uniqueness] Skipping domain_equals for non-email column ${targetColumn}`);
+        continue;
+      }
+      
+      let searchValue = String(value).trim();
+      const mode = comparison_mode || 'equals_lowercase';
 
-      if (!isEmailField) {
-        if (normalizedLevel === 'organization') {
-          columnToCheck = 'name';
-        } else {
-          if (field.type === 'text' && field.label?.toLowerCase().includes('name')) {
-            columnToCheck = 'full_name';
+      // Apply comparison logic
+      let query;
+      switch (mode) {
+        case 'equals':
+          // Exact match
+          query = supabase
+            .from(tableName)
+            .select('id')
+            .eq(targetColumn, searchValue)
+            .limit(1);
+          break;
+          
+        case 'equals_lowercase':
+          // Case insensitive match
+          query = supabase
+            .from(tableName)
+            .select('id')
+            .ilike(targetColumn, searchValue)
+            .limit(1);
+          break;
+          
+        case 'contains':
+          // Contains match
+          query = supabase
+            .from(tableName)
+            .select('id')
+            .ilike(targetColumn, `%${searchValue}%`)
+            .limit(1);
+          break;
+          
+        case 'starts_with':
+          // Starts with match
+          query = supabase
+            .from(tableName)
+            .select('id')
+            .ilike(targetColumn, `${searchValue}%`)
+            .limit(1);
+          break;
+          
+        case 'ends_with':
+          // Ends with match
+          query = supabase
+            .from(tableName)
+            .select('id')
+            .ilike(targetColumn, `%${searchValue}`)
+            .limit(1);
+          break;
+          
+        case 'domain_equals':
+          // Extract domain from email and match
+          if (searchValue.includes('@')) {
+            const domain = searchValue.split('@')[1].toLowerCase();
+            query = supabase
+              .from(tableName)
+              .select('id')
+              .ilike(targetColumn, `%@${domain}`)
+              .limit(1);
           } else {
-            columnToCheck = '';
+            // If not an email, skip this check
+            continue;
           }
-        }
-      }
-
-      if (columnToCheck) {
-        let query;
-        if (isEmailField && effectiveCheckMode === 'domain_only') {
+          break;
+          
+        default:
+          // Default to case insensitive
           query = supabase
             .from(tableName)
             .select('id')
-            .ilike(columnToCheck, `%@${searchValue}`)
+            .ilike(targetColumn, searchValue)
             .limit(1);
-        } else {
-          query = supabase
-            .from(tableName)
-            .select('id')
-            .ilike(columnToCheck, searchValue)
-            .limit(1);
-        }
-
-        const { data, error } = await query;
-
-        if (error) {
-          console.error(`[Form Uniqueness] Error checking ${field_id} in ${tableName}:`, error);
-        } else if (data && data.length > 0) {
-          const entityLabel = normalizedLevel === 'organization' ? 'an organisation' : 'a member';
-          const matchType = effectiveCheckMode === 'domain_only' ? 'email domain' : 'value';
-          conflicts.push({
-            field_id,
-            field_label: field.label || field_id,
-            message: `We already have ${entityLabel} registered with this ${matchType}. Please contact us if you believe this is an error.`
-          });
-          continue;
-        }
       }
 
+      const { data, error } = await query;
+
+      if (error) {
+        console.error(`[Form Uniqueness] Error checking ${field_id} in ${tableName}.${targetColumn}:`, error);
+      } else if (data && data.length > 0) {
+        const entityLabel = tableName === 'organization' ? 'an organisation' : 'a member';
+        const modeLabel = mode === 'domain_equals' ? 'email domain' : 'value';
+        conflicts.push({
+          field_id,
+          field_label: field.label || field_id,
+          message: `We already have ${entityLabel} registered with this ${modeLabel}. Please contact us if you believe this is an error.`
+        });
+        continue;
+      }
+
+      // Also check previous form submissions
       if (form_id) {
-        const originalValue = String(form_values[field_id]).toLowerCase().trim();
+        const originalValue = String(form_values[field_id]).trim();
         
         const { data: submissions, error: subError } = await supabase
           .from('form_submission')
@@ -131,15 +189,37 @@ export default async function handler(req, res) {
             const subValue = subData[field_id];
             if (!subValue) continue;
             
-            let subValueStr = String(subValue).toLowerCase().trim();
+            let subValueStr = String(subValue).trim();
             let compareValue = originalValue;
             
-            if (isEmailField && effectiveCheckMode === 'domain_only') {
-              if (subValueStr.includes('@')) subValueStr = subValueStr.split('@')[1];
-              if (compareValue.includes('@')) compareValue = compareValue.split('@')[1];
+            // Apply comparison logic for submission check
+            let matches = false;
+            switch (mode) {
+              case 'equals':
+                matches = subValueStr === compareValue;
+                break;
+              case 'equals_lowercase':
+                matches = subValueStr.toLowerCase() === compareValue.toLowerCase();
+                break;
+              case 'contains':
+                matches = subValueStr.toLowerCase().includes(compareValue.toLowerCase());
+                break;
+              case 'starts_with':
+                matches = subValueStr.toLowerCase().startsWith(compareValue.toLowerCase());
+                break;
+              case 'ends_with':
+                matches = subValueStr.toLowerCase().endsWith(compareValue.toLowerCase());
+                break;
+              case 'domain_equals':
+                const subDomain = subValueStr.includes('@') ? subValueStr.split('@')[1].toLowerCase() : '';
+                const compareDomain = compareValue.includes('@') ? compareValue.split('@')[1].toLowerCase() : '';
+                matches = subDomain && compareDomain && subDomain === compareDomain;
+                break;
+              default:
+                matches = subValueStr.toLowerCase() === compareValue.toLowerCase();
             }
             
-            if (subValueStr === compareValue) {
+            if (matches) {
               conflicts.push({
                 field_id,
                 field_label: field.label || field_id,

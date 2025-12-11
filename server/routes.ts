@@ -561,16 +561,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ============ Form Uniqueness Validation ============
   
+  // Valid target fields whitelist for uniqueness checks
+  const VALID_UNIQUENESS_TARGETS: Record<string, string[]> = {
+    member: ['email', 'full_name', 'phone'],
+    organization: ['name', 'invoicing_email', 'phone', 'website_url']
+  };
+  
   // Validates form fields for uniqueness against Member/Organization tables and existing form submissions
+  // Supports new target_field and comparison_mode structure
   app.post('/api/forms/validate-uniqueness', async (req: Request, res: Response) => {
     if (!supabase) {
       return res.status(503).json({ error: 'Database not configured' });
     }
 
     try {
-      const { application_level, uniqueness_checks, form_values, fields, form_id } = req.body;
+      const { uniqueness_checks, form_values, fields, form_id } = req.body;
 
-      // Input validation - defensive guards for malformed requests
       if (!Array.isArray(uniqueness_checks) || uniqueness_checks.length === 0) {
         return res.json({ valid: true, conflicts: [] });
       }
@@ -583,23 +589,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: 'Invalid fields array' });
       }
 
-      // Normalize application_level - accept both UK and US spellings
-      const normalizedLevel = application_level === 'organisation' ? 'organization' : (application_level || 'member');
-      if (!['member', 'organization'].includes(normalizedLevel)) {
-        return res.status(400).json({ error: 'Invalid application_level' });
-      }
-
       const conflicts: Array<{ field_id: string; field_label: string; message: string }> = [];
-      const tableName = normalizedLevel === 'organization' ? 'organization' : 'member';
       
-      // Backend sanitization: filter uniqueness_checks to only valid field IDs
       const validFieldIds = new Set(fields.filter((f: any) => f && f.id).map((f: any) => f.id));
       const sanitizedChecks = uniqueness_checks.filter(
         (c: any) => c && typeof c === 'object' && c.field_id && validFieldIds.has(c.field_id)
       );
 
       for (const check of sanitizedChecks) {
-        const { field_id, check_mode } = check;
+        const { field_id, target_field, comparison_mode } = check;
         
         const field = fields.find((f: any) => f && f.id === field_id);
         if (!field) continue;
@@ -607,81 +605,87 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const value = form_values[field_id];
         if (!value) continue;
 
-        const isEmailField = field.type === 'email' || field.type === 'user_email';
-        let searchValue = String(value).toLowerCase().trim();
-        let columnToCheck = 'email'; // Default column for email fields
+        // Parse target_field (e.g., "member.email" or "organization.name")
+        if (!target_field || !target_field.includes('.')) {
+          console.log(`[Form Uniqueness] Skipping check for ${field_id}: invalid target_field`, target_field);
+          continue;
+        }
+
+        const [targetEntity, targetColumn] = target_field.split('.');
+        const tableName = targetEntity === 'organization' ? 'organization' : 'member';
         
-        // For organization level, always use domain check for email
-        const effectiveCheckMode = normalizedLevel === 'organization' && isEmailField 
-          ? 'domain_only' 
-          : (check_mode || 'full');
-
-        // Extract domain for domain_only mode
-        if (isEmailField && effectiveCheckMode === 'domain_only' && searchValue.includes('@')) {
-          searchValue = searchValue.split('@')[1];
+        // Validate target column against whitelist
+        const validColumns = VALID_UNIQUENESS_TARGETS[tableName];
+        if (!validColumns || !validColumns.includes(targetColumn)) {
+          console.log(`[Form Uniqueness] Skipping check for ${field_id}: invalid column ${targetColumn} for ${tableName}`);
+          continue;
         }
+        
+        // Validate domain_equals is only used with email columns
+        const emailColumns = ['email', 'invoicing_email'];
+        if (comparison_mode === 'domain_equals' && !emailColumns.includes(targetColumn)) {
+          console.log(`[Form Uniqueness] Skipping domain_equals for non-email column ${targetColumn}`);
+          continue;
+        }
+        
+        let searchValue = String(value).trim();
+        const mode = comparison_mode || 'equals_lowercase';
 
-        // Determine which column to search based on field type
-        if (!isEmailField) {
-          // For non-email fields, we need to search in a text column
-          if (normalizedLevel === 'organization') {
-            columnToCheck = 'name';
-          } else {
-            // For member, try to match against common text fields
-            if (field.type === 'text' && field.label?.toLowerCase().includes('name')) {
-              columnToCheck = 'full_name';
+        // Apply comparison logic
+        let query;
+        switch (mode) {
+          case 'equals':
+            query = supabase.from(tableName).select('id').eq(targetColumn, searchValue).limit(1);
+            break;
+          case 'equals_lowercase':
+            query = supabase.from(tableName).select('id').ilike(targetColumn, searchValue).limit(1);
+            break;
+          case 'contains':
+            query = supabase.from(tableName).select('id').ilike(targetColumn, `%${searchValue}%`).limit(1);
+            break;
+          case 'starts_with':
+            query = supabase.from(tableName).select('id').ilike(targetColumn, `${searchValue}%`).limit(1);
+            break;
+          case 'ends_with':
+            query = supabase.from(tableName).select('id').ilike(targetColumn, `%${searchValue}`).limit(1);
+            break;
+          case 'domain_equals':
+            if (searchValue.includes('@')) {
+              const domain = searchValue.split('@')[1].toLowerCase();
+              query = supabase.from(tableName).select('id').ilike(targetColumn, `%@${domain}`).limit(1);
             } else {
-              // Skip non-matchable fields for entity table check
-              columnToCheck = '';
+              continue;
             }
-          }
+            break;
+          default:
+            query = supabase.from(tableName).select('id').ilike(targetColumn, searchValue).limit(1);
         }
 
-        // 1. Check against Member/Organization table
-        if (columnToCheck) {
-          let query;
-          if (isEmailField && effectiveCheckMode === 'domain_only') {
-            query = supabase
-              .from(tableName)
-              .select('id')
-              .ilike(columnToCheck, `%@${searchValue}`)
-              .limit(1);
-          } else {
-            query = supabase
-              .from(tableName)
-              .select('id')
-              .ilike(columnToCheck, searchValue)
-              .limit(1);
-          }
+        const { data, error } = await query;
 
-          const { data, error } = await query;
-
-          if (error) {
-            console.error(`[Form Uniqueness] Error checking ${field_id} in ${tableName}:`, error);
-          } else if (data && data.length > 0) {
-            const entityLabel = normalizedLevel === 'organization' ? 'an organisation' : 'a member';
-            const matchType = effectiveCheckMode === 'domain_only' ? 'email domain' : 'value';
-            conflicts.push({
-              field_id,
-              field_label: field.label || field_id,
-              message: `We already have ${entityLabel} registered with this ${matchType}. Please contact us if you believe this is an error.`
-            });
-            continue; // Skip submission check if entity conflict found
-          }
+        if (error) {
+          console.error(`[Form Uniqueness] Error checking ${field_id} in ${tableName}.${targetColumn}:`, error);
+        } else if (data && data.length > 0) {
+          const entityLabel = tableName === 'organization' ? 'an organisation' : 'a member';
+          const modeLabel = mode === 'domain_equals' ? 'email domain' : 'value';
+          conflicts.push({
+            field_id,
+            field_label: field.label || field_id,
+            message: `We already have ${entityLabel} registered with this ${modeLabel}. Please contact us if you believe this is an error.`
+          });
+          continue;
         }
 
-        // 2. Check against existing form submissions for this form using JSONB operators
+        // Check against existing form submissions
         if (form_id) {
-          const originalValue = String(form_values[field_id]).toLowerCase().trim();
+          const originalValue = String(form_values[field_id]).trim();
           
-          // Use Supabase's containedBy or raw filter for JSONB field matching
-          // Query only submissions that have a value for this field_id
           const { data: submissions, error: subError } = await supabase
             .from('form_submission')
             .select('id, submission_data')
             .eq('form_id', form_id)
             .not('submission_data', 'is', null)
-            .limit(100); // Limit to prevent timeout on large forms
+            .limit(100);
 
           if (subError) {
             console.error(`[Form Uniqueness] Error checking form_submission:`, subError);
@@ -695,16 +699,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
               const subValue = subData[field_id];
               if (!subValue) continue;
               
-              let subValueStr = String(subValue).toLowerCase().trim();
+              let subValueStr = String(subValue).trim();
               let compareValue = originalValue;
               
-              // Handle domain-only comparison for emails
-              if (isEmailField && effectiveCheckMode === 'domain_only') {
-                if (subValueStr.includes('@')) subValueStr = subValueStr.split('@')[1];
-                if (compareValue.includes('@')) compareValue = compareValue.split('@')[1];
+              let matches = false;
+              switch (mode) {
+                case 'equals':
+                  matches = subValueStr === compareValue;
+                  break;
+                case 'equals_lowercase':
+                  matches = subValueStr.toLowerCase() === compareValue.toLowerCase();
+                  break;
+                case 'contains':
+                  matches = subValueStr.toLowerCase().includes(compareValue.toLowerCase());
+                  break;
+                case 'starts_with':
+                  matches = subValueStr.toLowerCase().startsWith(compareValue.toLowerCase());
+                  break;
+                case 'ends_with':
+                  matches = subValueStr.toLowerCase().endsWith(compareValue.toLowerCase());
+                  break;
+                case 'domain_equals':
+                  const subDomain = subValueStr.includes('@') ? subValueStr.split('@')[1].toLowerCase() : '';
+                  const compareDomain = compareValue.includes('@') ? compareValue.split('@')[1].toLowerCase() : '';
+                  matches = subDomain && compareDomain && subDomain === compareDomain;
+                  break;
+                default:
+                  matches = subValueStr.toLowerCase() === compareValue.toLowerCase();
               }
               
-              if (subValueStr === compareValue) {
+              if (matches) {
                 conflicts.push({
                   field_id,
                   field_label: field.label || field_id,
