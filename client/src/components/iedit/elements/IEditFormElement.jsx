@@ -295,27 +295,6 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     );
   }
 
-  if (submitted) {
-    return (
-      <div id={anchor || undefined} style={containerStyle}>
-        <div className="relative mx-auto px-4" style={{ maxWidth: `${content_max_width}px` }}>
-          <Card style={getCardStyle()}>
-            <CardContent className="p-12 text-center">
-              <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <CheckCircle2 className="w-8 h-8 text-green-600" />
-              </div>
-              <h3 className="text-xl font-semibold text-slate-900 mb-2">Success!</h3>
-              <p className="text-slate-600">{form.success_message || 'Your form has been submitted successfully.'}</p>
-              {form.redirect_url && (
-                <p className="text-sm text-slate-500 mt-4">Redirecting...</p>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      </div>
-    );
-  }
-
   const isSubmitting = submitFormMutation.isPending || isValidating;
 
   const renderHeaderSection = () => {
@@ -355,6 +334,27 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     paddingBottom: `${vertical_padding}px`,
     position: 'relative'
   };
+
+  if (submitted) {
+    return (
+      <div id={anchor || undefined} style={containerStyle}>
+        <div className="relative mx-auto px-4" style={{ maxWidth: `${content_max_width}px` }}>
+          <Card style={getCardStyle()}>
+            <CardContent className="p-12 text-center">
+              <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <CheckCircle2 className="w-8 h-8 text-green-600" />
+              </div>
+              <h3 className="text-xl font-semibold text-slate-900 mb-2">Success!</h3>
+              <p className="text-slate-600">{form.success_message || 'Your form has been submitted successfully.'}</p>
+              {form.redirect_url && (
+                <p className="text-sm text-slate-500 mt-4">Redirecting...</p>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
 
   if (form.layout_type === 'card_swipe') {
     const currentField = form.fields[currentStep];
