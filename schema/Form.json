@@ -92,6 +92,11 @@
         },
         "default": [],
         "description": "Array of field IDs that must be unique in existing submissions or database records"
+      },
+      "auto_create_entity": {
+        "type": "boolean",
+        "default": false,
+        "description": "For application forms: automatically create member/organization on submission (vs require admin approval)"
       }
     },
     "required": [

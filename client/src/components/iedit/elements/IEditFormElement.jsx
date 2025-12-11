@@ -205,27 +205,53 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     mutationFn: async (data) => {
       return base44.entities.FormSubmission.create(data);
     },
-    onSuccess: async () => {
-      // Process CRM field mappings if any fields have custom_field_id (only for authenticated users)
-      const hasMappings = form?.fields?.some(f => f.custom_field_id);
-      if (hasMappings && memberInfo) {
+    onSuccess: async (submissionResult) => {
+      // For application forms with auto_create_entity, create member/org entities
+      if (form?.is_application_form && form?.auto_create_entity) {
         try {
-          const response = await fetch('/api/forms/process-field-mappings', {
+          const response = await fetch('/api/forms/process-application', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
+              form_id: form.id,
               form_values: formValues,
-              fields: form.fields
+              fields: form.fields,
+              application_level: form.application_level || 'member',
+              submission_id: submissionResult?.id
             })
           });
           if (response.ok) {
-            console.log('[IEditFormElement] CRM field mappings processed');
-          } else if (response.status === 401) {
-            console.log('[IEditFormElement] Field mappings skipped - user not authenticated');
+            const result = await response.json();
+            console.log('[IEditFormElement] Application processed:', result);
+          } else {
+            const error = await response.json();
+            console.error('[IEditFormElement] Application processing failed:', error);
           }
         } catch (error) {
-          console.error('[IEditFormElement] Error processing field mappings:', error);
-          // Don't fail submission if mapping fails
+          console.error('[IEditFormElement] Error processing application:', error);
+        }
+      }
+      // For authenticated users with custom field mappings (non-application forms)
+      else if (memberInfo) {
+        const hasMappings = form?.fields?.some(f => f.custom_field_id);
+        if (hasMappings) {
+          try {
+            const response = await fetch('/api/forms/process-field-mappings', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                form_values: formValues,
+                fields: form.fields
+              })
+            });
+            if (response.ok) {
+              console.log('[IEditFormElement] CRM field mappings processed');
+            } else if (response.status === 401) {
+              console.log('[IEditFormElement] Field mappings skipped - user not authenticated');
+            }
+          } catch (error) {
+            console.error('[IEditFormElement] Error processing field mappings:', error);
+          }
         }
       }
       

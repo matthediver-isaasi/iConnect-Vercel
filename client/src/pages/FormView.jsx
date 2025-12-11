@@ -43,7 +43,7 @@ export default function FormViewPage() {
     mutationFn: async (submissionData) => {
       return await base44.entities.FormSubmission.create(submissionData);
     },
-    onSuccess: async () => {
+    onSuccess: async (submissionResult) => {
       // Increment form submission count
       if (form) {
         await base44.entities.Form.update(form.id, {
@@ -51,26 +51,52 @@ export default function FormViewPage() {
         });
       }
       
-      // Process CRM field mappings if any fields have custom_field_id (only for authenticated users)
-      const hasMappings = form?.fields?.some(f => f.custom_field_id);
-      if (hasMappings && memberInfo) {
+      // For application forms with auto_create_entity, create member/org entities
+      if (form?.is_application_form && form?.auto_create_entity) {
         try {
-          const response = await fetch('/api/forms/process-field-mappings', {
+          const response = await fetch('/api/forms/process-application', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
+              form_id: form.id,
               form_values: formValues,
-              fields: form.fields
+              fields: form.fields,
+              application_level: form.application_level || 'member',
+              submission_id: submissionResult?.id
             })
           });
           if (response.ok) {
-            console.log('[FormView] CRM field mappings processed');
-          } else if (response.status === 401) {
-            console.log('[FormView] Field mappings skipped - user not authenticated');
+            const result = await response.json();
+            console.log('[FormView] Application processed:', result);
+          } else {
+            const error = await response.json();
+            console.error('[FormView] Application processing failed:', error);
           }
         } catch (error) {
-          console.error('[FormView] Error processing field mappings:', error);
-          // Don't fail submission if mapping fails
+          console.error('[FormView] Error processing application:', error);
+        }
+      }
+      // For authenticated users with custom field mappings (non-application forms)
+      else if (memberInfo) {
+        const hasMappings = form?.fields?.some(f => f.custom_field_id);
+        if (hasMappings) {
+          try {
+            const response = await fetch('/api/forms/process-field-mappings', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                form_values: formValues,
+                fields: form.fields
+              })
+            });
+            if (response.ok) {
+              console.log('[FormView] CRM field mappings processed');
+            } else if (response.status === 401) {
+              console.log('[FormView] Field mappings skipped - user not authenticated');
+            }
+          } catch (error) {
+            console.error('[FormView] Error processing field mappings:', error);
+          }
         }
       }
       

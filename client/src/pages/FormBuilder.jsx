@@ -280,7 +280,71 @@ function FieldCard({
                 </div>
               )}
 
-              {/* CRM Field Mapping */}
+              {/* Core Entity Field Mapping - for application forms */}
+              {isApplicationForm && (
+                <div className="space-y-1">
+                  <Label className="text-xs flex items-center gap-1">
+                    <span>Map to Core Field</span>
+                    <span className="text-slate-400">(Entity Creation)</span>
+                  </Label>
+                  <Select
+                    value={field.core_field_mapping || '_none_'}
+                    onValueChange={(value) => updateField(originalIndex, { 
+                      core_field_mapping: value === '_none_' ? null : value 
+                    })}
+                  >
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue placeholder="No mapping" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="_none_">No mapping</SelectItem>
+                      {applicationLevel === 'member' ? (
+                        <>
+                          <div className="px-2 py-1 text-xs font-medium text-slate-500 bg-slate-50">
+                            Member Core Fields
+                          </div>
+                          <SelectItem value="member.email">Email</SelectItem>
+                          <SelectItem value="member.first_name">First Name</SelectItem>
+                          <SelectItem value="member.last_name">Last Name</SelectItem>
+                          <SelectItem value="member.full_name">Full Name</SelectItem>
+                          <SelectItem value="member.job_title">Job Title</SelectItem>
+                          <SelectItem value="member.phone">Phone</SelectItem>
+                          <div className="px-2 py-1 text-xs font-medium text-slate-500 bg-slate-50">
+                            Organisation Core Fields
+                          </div>
+                          <SelectItem value="organization.name">Organisation Name</SelectItem>
+                        </>
+                      ) : (
+                        <>
+                          <div className="px-2 py-1 text-xs font-medium text-slate-500 bg-slate-50">
+                            Organisation Core Fields
+                          </div>
+                          <SelectItem value="organization.name">Organisation Name</SelectItem>
+                          <SelectItem value="organization.invoicing_email">Invoicing Email</SelectItem>
+                          <SelectItem value="organization.phone">Phone</SelectItem>
+                          <SelectItem value="organization.website_url">Website URL</SelectItem>
+                          <div className="px-2 py-1 text-xs font-medium text-slate-500 bg-slate-50">
+                            Contact Person Fields
+                          </div>
+                          <SelectItem value="member.email">Contact Email</SelectItem>
+                          <SelectItem value="member.first_name">Contact First Name</SelectItem>
+                          <SelectItem value="member.last_name">Contact Last Name</SelectItem>
+                          <SelectItem value="member.full_name">Contact Full Name</SelectItem>
+                          <SelectItem value="member.job_title">Contact Job Title</SelectItem>
+                          <SelectItem value="member.phone">Contact Phone</SelectItem>
+                        </>
+                      )}
+                    </SelectContent>
+                  </Select>
+                  {field.core_field_mapping && (
+                    <p className="text-xs text-blue-600">
+                      Will populate {field.core_field_mapping.replace('.', ' → ')} when entity is created
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* CRM Custom Field Mapping */}
               {customFields.length > 0 && (
                 <div className="space-y-1">
                   <Label className="text-xs flex items-center gap-1">
@@ -393,6 +457,7 @@ export default function FormBuilderPage() {
     is_active: true,
     is_application_form: false,
     application_level: "member",
+    auto_create_entity: false,
     uniqueness_checks: []
   });
 
@@ -470,6 +535,7 @@ export default function FormBuilderPage() {
         is_active: existingForm.is_active ?? true,
         is_application_form: existingForm.is_application_form || false,
         application_level: existingForm.application_level || "member",
+        auto_create_entity: existingForm.auto_create_entity || false,
         uniqueness_checks: existingForm.uniqueness_checks || []
       });
     }
@@ -958,6 +1024,23 @@ export default function FormBuilderPage() {
                     ? "Uniqueness will be checked against the Member table" 
                     : "Uniqueness will be checked against the Organisation table (email fields use domain-only matching)"}
                 </p>
+                
+                <div className="flex items-center gap-2 mt-4 pt-4 border-t border-slate-100">
+                  <Switch
+                    id="auto_create_entity"
+                    checked={formData.auto_create_entity || false}
+                    onCheckedChange={(checked) => setFormData({ ...formData, auto_create_entity: checked })}
+                    data-testid="switch-auto-create-entity"
+                  />
+                  <div>
+                    <Label htmlFor="auto_create_entity" className="text-sm">Auto-create {formData.application_level === "member" ? "Member" : "Organisation"} on submission</Label>
+                    <p className="text-xs text-slate-500 mt-1">
+                      {formData.auto_create_entity 
+                        ? `New ${formData.application_level === "member" ? "member" : "organisation"} records will be created automatically when the form is submitted` 
+                        : "Submissions will require admin approval before creating records"}
+                    </p>
+                  </div>
+                </div>
               </div>
             )}
           </CardContent>
