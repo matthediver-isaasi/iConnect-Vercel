@@ -659,12 +659,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           if (error) {
             console.error(`[Form Uniqueness] Error checking ${field_id} in ${tableName}:`, error);
           } else if (data && data.length > 0) {
-            const entityLabel = normalizedLevel === 'organization' ? 'organisation' : 'member';
+            const entityLabel = normalizedLevel === 'organization' ? 'an organisation' : 'a member';
             const matchType = effectiveCheckMode === 'domain_only' ? 'email domain' : 'value';
             conflicts.push({
               field_id,
               field_label: field.label || field_id,
-              message: `A ${entityLabel} with this ${matchType} already exists`
+              message: `We already have ${entityLabel} registered with this ${matchType}. Please contact us if you believe this is an error.`
             });
             continue; // Skip submission check if entity conflict found
           }

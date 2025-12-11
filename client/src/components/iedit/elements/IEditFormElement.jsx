@@ -65,6 +65,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   const [currentStep, setCurrentStep] = useState(0);
   const [submitted, setSubmitted] = useState(false);
   const [isValidating, setIsValidating] = useState(false);
+  const [validationErrors, setValidationErrors] = useState([]);
 
   const {
     anchor,
@@ -221,12 +222,17 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   const handleSubmit = async () => {
     if (!form) return;
     
+    // Clear any previous validation errors
+    setValidationErrors([]);
+    
     // Validate required fields
     const missingFields = form.fields.filter(field => 
       field.required && (!formValues[field.id] || formValues[field.id].length === 0)
     );
 
     if (missingFields.length > 0) {
+      const errors = missingFields.map(f => `Please fill in the required field: ${f.label}`);
+      setValidationErrors(errors);
       toast.error(`Please fill in all required fields: ${missingFields.map(f => f.label).join(', ')}`);
       return;
     }
@@ -250,13 +256,15 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
         const result = await response.json();
         
         if (!result.valid && result.conflicts && result.conflicts.length > 0) {
-          const conflictMessages = result.conflicts.map(c => `${c.field_label}: ${c.message}`);
-          toast.error(`Validation failed:\n${conflictMessages.join('\n')}`);
+          const errors = result.conflicts.map(c => c.message);
+          setValidationErrors(errors);
+          toast.error(`Validation failed: ${errors.join(', ')}`);
           setIsValidating(false);
           return;
         }
       } catch (error) {
         console.error('[IEditFormElement] Uniqueness validation error:', error);
+        setValidationErrors(['Unable to validate form. Please try again.']);
         toast.error('Unable to validate form. Please try again.');
         setIsValidating(false);
         return;
@@ -575,6 +583,21 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                 </>
               );
             })()}
+            {validationErrors.length > 0 && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <h4 className="font-medium text-red-800 mb-1">Unable to submit application</h4>
+                    <ul className="text-sm text-red-700 space-y-1">
+                      {validationErrors.map((error, index) => (
+                        <li key={index}>{error}</li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            )}
             <div className="flex justify-end pt-4">
               <Button 
                 onClick={handleSubmit}
