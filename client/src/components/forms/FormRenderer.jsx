@@ -99,6 +99,7 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
     switch (field.type) {
       case 'text':
       case 'email':
+      case 'url':
       case 'tel':
       case 'number':
         return (
@@ -106,7 +107,7 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
             type={field.type}
             value={value || ''}
             onChange={(e) => onChange(e.target.value)}
-            placeholder={field.placeholder}
+            placeholder={field.placeholder || (field.type === 'url' ? 'https://example.com' : undefined)}
             required={field.required}
           />
         );

@@ -29,6 +29,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 const FIELD_TYPES = [
   { value: 'text', label: 'Text Input' },
   { value: 'email', label: 'Email' },
+  { value: 'url', label: 'Website URL' },
   { value: 'number', label: 'Number' },
   { value: 'tel', label: 'Phone' },
   { value: 'textarea', label: 'Text Area' },
@@ -327,6 +328,7 @@ function FieldCard({
   onUniquenessChange
 }) {
   const isEmailType = field.type === 'email' || field.type === 'user_email';
+  const isUrlType = field.type === 'url';
   const uniquenessCheck = uniquenessChecks.find(u => u.field_id === field.id);
   const isUniquenessEnabled = !!uniquenessCheck;
   const targetField = uniquenessCheck?.target_field || '';
@@ -356,6 +358,10 @@ function FieldCard({
       if (isEmailType) {
         defaultTarget = applicationLevel === 'member' ? 'member.email' : 'organization.invoicing_email';
         defaultComparison = 'equals_lowercase';
+      } else if (isUrlType) {
+        // URL fields default to domain comparison against email
+        defaultTarget = applicationLevel === 'member' ? 'member.email' : 'organization.invoicing_email';
+        defaultComparison = 'domain_equals';
       } else {
         defaultTarget = applicationLevel === 'member' ? 'member.full_name' : 'organization.name';
         defaultComparison = 'equals_lowercase';
