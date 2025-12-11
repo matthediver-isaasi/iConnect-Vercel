@@ -549,6 +549,7 @@ export default function CreateEvent() {
       location: locationValue,
       image_url: formData.image_url || null,
       available_seats: unlimitedSeats ? null : (formData.available_seats ? parseInt(formData.available_seats) : null),
+      is_unlimited_registration: unlimitedSeats,
       // Per-event seat visibility (only meaningful when global setting is ON)
       show_seat_count: showSeatCount,
       // TBC events can optionally have a Zoom webinar or meeting

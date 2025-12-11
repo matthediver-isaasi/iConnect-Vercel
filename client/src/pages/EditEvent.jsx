@@ -387,9 +387,15 @@ export default function EditEvent() {
         setZoomType("webinar");
       }
       
-      // Set unlimited seats based on whether available_seats is null/0
-      const hasLimitedSeats = event.available_seats !== null && event.available_seats !== undefined && event.available_seats > 0;
-      setUnlimitedSeats(!hasLimitedSeats);
+      // Set unlimited seats based on explicit is_unlimited_registration field (preferred)
+      // Fallback to old logic for events without the new field
+      if (event.is_unlimited_registration !== undefined && event.is_unlimited_registration !== null) {
+        setUnlimitedSeats(event.is_unlimited_registration);
+      } else {
+        // Legacy fallback: treat null available_seats as unlimited
+        const hasLimitedSeats = event.available_seats !== null && event.available_seats !== undefined && event.available_seats > 0;
+        setUnlimitedSeats(!hasLimitedSeats);
+      }
       
       // Set per-event seat visibility (default to true if not set)
       setShowSeatCount(event.show_seat_count !== false);
@@ -643,6 +649,7 @@ export default function EditEvent() {
       location: isOnlineEvent ? null : (formData.location || null),
       image_url: formData.image_url || null,
       available_seats: unlimitedSeats ? null : (formData.available_seats ? parseInt(formData.available_seats) : null),
+      is_unlimited_registration: unlimitedSeats,
       // Per-event seat visibility (only meaningful when global setting is ON)
       show_seat_count: showSeatCount,
       // TBC events can optionally have a Zoom webinar or meeting
