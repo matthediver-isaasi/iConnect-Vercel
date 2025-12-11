@@ -90,6 +90,9 @@ export default function EditEvent() {
   // Unlimited seats toggle
   const [unlimitedSeats, setUnlimitedSeats] = useState(true);
   
+  // Per-event seat visibility
+  const [showSeatCount, setShowSeatCount] = useState(true);
+  
   // Handler for status changes - clears TBC-incompatible fields synchronously
   const handleStatusChange = (newStatus) => {
     if (newStatus === 'tbc') {
@@ -166,6 +169,12 @@ export default function EditEvent() {
   const summaryMaxLength = useMemo(() => {
     const setting = systemSettings.find(s => s.setting_key === 'event_summary_max_length');
     return setting ? parseInt(setting.setting_value) || 150 : 150;
+  }, [systemSettings]);
+
+  // Check if global seat visibility is enabled (defaults to true)
+  const globalShowSeats = useMemo(() => {
+    const setting = systemSettings.find(s => s.setting_key === 'show_event_seats');
+    return !setting || setting.setting_value !== 'false';
   }, [systemSettings]);
 
   // Trim summary if it exceeds the limit when settings load or summary changes
@@ -381,6 +390,9 @@ export default function EditEvent() {
       // Set unlimited seats based on whether available_seats is null/0
       const hasLimitedSeats = event.available_seats !== null && event.available_seats !== undefined && event.available_seats > 0;
       setUnlimitedSeats(!hasLimitedSeats);
+      
+      // Set per-event seat visibility (default to true if not set)
+      setShowSeatCount(event.show_seat_count !== false);
       
       setInitialDataLoaded(true);
 
@@ -631,6 +643,8 @@ export default function EditEvent() {
       location: isOnlineEvent ? null : (formData.location || null),
       image_url: formData.image_url || null,
       available_seats: unlimitedSeats ? null : (formData.available_seats ? parseInt(formData.available_seats) : null),
+      // Per-event seat visibility (only meaningful when global setting is ON)
+      show_seat_count: showSeatCount,
       // TBC events can optionally have a Zoom webinar or meeting
       zoom_webinar_id: zoomType === 'webinar' ? (formData.zoom_webinar_id || null) : null,
       zoom_meeting_id: zoomType === 'meeting' ? (selectedMeetingId || null) : null,
@@ -1860,6 +1874,22 @@ export default function EditEvent() {
                     ? "For online events, capacity is managed by your Zoom plan limits" 
                     : "Set the maximum number of attendees for this event"}
                 </p>
+                
+                {/* Per-event seat visibility toggle - only shown when global setting is ON */}
+                {globalShowSeats && (
+                  <div className="flex items-center justify-between pt-2 border-t">
+                    <div>
+                      <Label htmlFor="show-seat-count" className="text-sm">Show seat count</Label>
+                      <p className="text-xs text-slate-500">Display available seats on event cards</p>
+                    </div>
+                    <Switch
+                      id="show-seat-count"
+                      checked={showSeatCount}
+                      onCheckedChange={setShowSeatCount}
+                      data-testid="switch-show-seat-count"
+                    />
+                  </div>
+                )}
               </div>
 
               <EventImageUpload

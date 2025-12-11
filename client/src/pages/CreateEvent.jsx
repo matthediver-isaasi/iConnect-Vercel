@@ -100,6 +100,7 @@ export default function CreateEvent() {
   const [selectedWebinarId, setSelectedWebinarId] = useState("");
   const [selectedMeetingId, setSelectedMeetingId] = useState("");
   const [unlimitedSeats, setUnlimitedSeats] = useState(true); // Default to unlimited
+  const [showSeatCount, setShowSeatCount] = useState(true); // Per-event seat visibility (default: show)
   
   // Handler for status changes - clears TBC-incompatible fields synchronously
   const handleStatusChange = (newStatus) => {
@@ -202,6 +203,12 @@ export default function CreateEvent() {
   const summaryMaxLength = useMemo(() => {
     const setting = systemSettings.find(s => s.setting_key === 'event_summary_max_length');
     return setting ? parseInt(setting.setting_value) || 150 : 150;
+  }, [systemSettings]);
+
+  // Check if global seat visibility is enabled (defaults to true)
+  const globalShowSeats = useMemo(() => {
+    const setting = systemSettings.find(s => s.setting_key === 'show_event_seats');
+    return !setting || setting.setting_value !== 'false';
   }, [systemSettings]);
 
   // Trim summary if it exceeds the limit when settings load or summary changes
@@ -542,6 +549,8 @@ export default function CreateEvent() {
       location: locationValue,
       image_url: formData.image_url || null,
       available_seats: unlimitedSeats ? null : (formData.available_seats ? parseInt(formData.available_seats) : null),
+      // Per-event seat visibility (only meaningful when global setting is ON)
+      show_seat_count: showSeatCount,
       // TBC events can optionally have a Zoom webinar or meeting
       zoom_webinar_id: isOnline && zoomType === 'webinar' && selectedWebinarId ? selectedWebinarId : null,
       zoom_meeting_id: isOnline && zoomType === 'meeting' && selectedMeetingId ? selectedMeetingId : null,
@@ -1968,6 +1977,22 @@ export default function CreateEvent() {
                     ? "For online events, capacity is managed by your Zoom plan limits" 
                     : "Set the maximum number of attendees for this event"}
                 </p>
+                
+                {/* Per-event seat visibility toggle - only shown when global setting is ON */}
+                {globalShowSeats && (
+                  <div className="flex items-center justify-between pt-2 border-t">
+                    <div>
+                      <Label htmlFor="show-seat-count" className="text-sm">Show seat count</Label>
+                      <p className="text-xs text-slate-500">Display available seats on event cards</p>
+                    </div>
+                    <Switch
+                      id="show-seat-count"
+                      checked={showSeatCount}
+                      onCheckedChange={setShowSeatCount}
+                      data-testid="switch-show-seat-count"
+                    />
+                  </div>
+                )}
               </div>
 
               <EventImageUpload

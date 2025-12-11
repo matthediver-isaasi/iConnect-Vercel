@@ -268,14 +268,18 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
 
   const backstageEventUrl = event.backstage_public_url || null;
 
-  // Check system setting for showing seats
+  // Check system setting for showing seats (global override)
   // Default to true (show seats) to preserve existing UX - only hide if explicitly set to 'false'
   const showSeatsSetting = Array.isArray(systemSettings) 
     ? systemSettings.find(s => s.setting_key === 'show_event_seats')
     : null;
-  // Default to true unless setting explicitly set to 'false'
-  // This preserves existing behavior for legacy tenants
-  const showSeatsEnabled = showSeatsSetting?.setting_value !== 'false';
+  const globalShowSeats = showSeatsSetting?.setting_value !== 'false';
+  
+  // Per-event visibility: when global is ON, check per-event setting (default to true if not set)
+  // When global is OFF, never show regardless of per-event setting
+  const perEventShowSeats = event.show_seat_count !== false;
+  const showSeatsEnabled = globalShowSeats && perEventShowSeats;
+  
   // Combine both role-based permission and system setting
   const showAvailableSeats = showSeatsEnabled && (!isFeatureExcluded || !isFeatureExcluded('element_AvailableSeatsDisplay'));
 

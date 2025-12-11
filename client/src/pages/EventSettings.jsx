@@ -922,10 +922,10 @@ export default function EventSettingsPage() {
               <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg border border-slate-200">
                 <div className="space-y-1">
                   <Label htmlFor="show-event-seats" className="font-medium">
-                    Show Available Seats
+                    Enable Seat Visibility
                   </Label>
                   <p className="text-sm text-slate-500">
-                    Display available seats count on event cards and event details pages
+                    Master switch for seat counts. When OFF, seats are hidden everywhere. When ON, you can control visibility per event.
                   </p>
                 </div>
                 <div className="flex items-center gap-4">
