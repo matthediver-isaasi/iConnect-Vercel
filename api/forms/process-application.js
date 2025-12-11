@@ -62,6 +62,7 @@ export default async function handler(req, res) {
       fields,
       field_mappings,
       application_level,
+      create_entity_type,
       submission_id
     } = req.body;
 
@@ -73,9 +74,12 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'fields array is required' });
     }
 
-    if (!application_level || !['member', 'organization'].includes(application_level)) {
-      return res.status(400).json({ error: 'Valid application_level is required (member or organization)' });
-    }
+    // Determine which entities to create
+    const entityType = create_entity_type || application_level || 'member';
+    const shouldCreateMember = entityType === 'member' || entityType === 'both';
+    const shouldCreateOrganization = entityType === 'organization' || entityType === 'both';
+    
+    console.log('[AppProcessor] Entity creation mode:', entityType, '| Member:', shouldCreateMember, '| Org:', shouldCreateOrganization);
 
     // Idempotency check: if submission_id provided, check if already processed
     if (submission_id) {
@@ -189,7 +193,8 @@ export default async function handler(req, res) {
     let createdOrganizationId = null;
     let createdMemberId = null;
 
-    if (Object.keys(orgData).length > 0 || application_level === 'organization') {
+    // Create organization if enabled and we have org data
+    if (shouldCreateOrganization && (Object.keys(orgData).length > 0 || orgCustomFields.length > 0)) {
       // Check for existing organization by name
       let existingOrg = null;
       if (orgData.name) {
@@ -205,9 +210,9 @@ export default async function handler(req, res) {
       if (existingOrg) {
         createdOrganizationId = existingOrg.id;
         console.log('[AppProcessor] Found existing organization:', createdOrganizationId);
-      } else {
+      } else if (orgData.name) {
         const orgInsertData = {
-          name: orgData.name || 'New Organisation',
+          name: orgData.name,
           invoicing_email: orgData.invoicing_email || null,
           phone: orgData.phone || null,
           website_url: orgData.website_url || null,
@@ -230,16 +235,20 @@ export default async function handler(req, res) {
         console.log('[AppProcessor] Created organization:', createdOrganizationId);
       }
 
-      for (const cf of orgCustomFields) {
-        await supabase.from('organization_preference_value').insert({
-          organization_id: createdOrganizationId,
-          field_id: cf.field_id,
-          value: cf.value
-        });
+      // Save org custom fields if we have an org ID
+      if (createdOrganizationId) {
+        for (const cf of orgCustomFields) {
+          await supabase.from('organization_preference_value').insert({
+            organization_id: createdOrganizationId,
+            field_id: cf.field_id,
+            value: cf.value
+          });
+        }
       }
     }
 
-    if (memberData.email || application_level === 'member') {
+    // Create member if enabled and we have member data
+    if (shouldCreateMember && (memberData.email || Object.keys(memberData).length > 0 || memberCustomFields.length > 0)) {
       // Check for existing member by email
       let existingMember = null;
       if (memberData.email) {

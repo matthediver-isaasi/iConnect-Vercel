@@ -216,7 +216,9 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
               form_id: form.id,
               form_values: formValues,
               fields: form.fields,
+              field_mappings: form.field_mappings || [],
               application_level: form.application_level || 'member',
+              create_entity_type: form.create_entity_type || 'member',
               submission_id: submissionResult?.id
             })
           });

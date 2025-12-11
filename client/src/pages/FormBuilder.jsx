@@ -671,6 +671,7 @@ export default function FormBuilderPage() {
     is_application_form: false,
     application_level: "member",
     auto_create_entity: false,
+    create_entity_type: "member", // Which entity to create: "member", "organization", or "both"
     uniqueness_checks: [],
     field_mappings: [] // Submission field mappings with transformations
   });
@@ -750,6 +751,7 @@ export default function FormBuilderPage() {
         is_application_form: existingForm.is_application_form || false,
         application_level: existingForm.application_level || "member",
         auto_create_entity: existingForm.auto_create_entity || false,
+        create_entity_type: existingForm.create_entity_type || "member",
         uniqueness_checks: existingForm.uniqueness_checks || [],
         field_mappings: existingForm.field_mappings || []
       });
@@ -1246,21 +1248,74 @@ export default function FormBuilderPage() {
                     : "Uniqueness will be checked against the Organisation table (email fields use domain-only matching)"}
                 </p>
                 
-                <div className="flex items-center gap-2 mt-4 pt-4 border-t border-slate-100">
-                  <Switch
-                    id="auto_create_entity"
-                    checked={formData.auto_create_entity || false}
-                    onCheckedChange={(checked) => setFormData({ ...formData, auto_create_entity: checked })}
-                    data-testid="switch-auto-create-entity"
-                  />
-                  <div>
-                    <Label htmlFor="auto_create_entity" className="text-sm">Auto-create {formData.application_level === "member" ? "Member" : "Organisation"} on submission</Label>
-                    <p className="text-xs text-slate-500 mt-1">
-                      {formData.auto_create_entity 
-                        ? `New ${formData.application_level === "member" ? "member" : "organisation"} records will be created automatically when the form is submitted` 
-                        : "Submissions will require admin approval before creating records"}
-                    </p>
+                <div className="mt-4 pt-4 border-t border-slate-100 space-y-4">
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      id="auto_create_entity"
+                      checked={formData.auto_create_entity || false}
+                      onCheckedChange={(checked) => setFormData({ ...formData, auto_create_entity: checked })}
+                      data-testid="switch-auto-create-entity"
+                    />
+                    <Label htmlFor="auto_create_entity" className="text-sm">Auto-create records on submission</Label>
                   </div>
+                  
+                  {formData.auto_create_entity && (
+                    <div className="ml-6 space-y-3">
+                      <Label className="text-xs text-slate-600">Create which record type:</Label>
+                      <div className="flex flex-wrap gap-4">
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="radio"
+                            id="create-member"
+                            name="create_entity_type"
+                            value="member"
+                            checked={formData.create_entity_type === "member"}
+                            onChange={() => setFormData({ ...formData, create_entity_type: "member" })}
+                            className="w-4 h-4 text-blue-600"
+                            data-testid="radio-create-member"
+                          />
+                          <Label htmlFor="create-member" className="text-sm cursor-pointer">Member only</Label>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="radio"
+                            id="create-organization"
+                            name="create_entity_type"
+                            value="organization"
+                            checked={formData.create_entity_type === "organization"}
+                            onChange={() => setFormData({ ...formData, create_entity_type: "organization" })}
+                            className="w-4 h-4 text-blue-600"
+                            data-testid="radio-create-organization"
+                          />
+                          <Label htmlFor="create-organization" className="text-sm cursor-pointer">Organisation only</Label>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="radio"
+                            id="create-both"
+                            name="create_entity_type"
+                            value="both"
+                            checked={formData.create_entity_type === "both"}
+                            onChange={() => setFormData({ ...formData, create_entity_type: "both" })}
+                            className="w-4 h-4 text-blue-600"
+                            data-testid="radio-create-both"
+                          />
+                          <Label htmlFor="create-both" className="text-sm cursor-pointer">Both Member &amp; Organisation</Label>
+                        </div>
+                      </div>
+                      <p className="text-xs text-slate-500">
+                        {formData.create_entity_type === "member" && "A new member record will be created from the mapped fields"}
+                        {formData.create_entity_type === "organization" && "A new organisation record will be created from the mapped fields"}
+                        {formData.create_entity_type === "both" && "Both member and organisation records will be created and linked together"}
+                      </p>
+                    </div>
+                  )}
+                  
+                  {!formData.auto_create_entity && (
+                    <p className="text-xs text-slate-500 ml-6">
+                      Submissions will require admin approval before creating records
+                    </p>
+                  )}
                 </div>
               </div>
             )}
