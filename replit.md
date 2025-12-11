@@ -1,4 +1,5 @@
 # Overview
+<!-- Last updated: 2024-12-11 CRM branch -->
 
 This project is a membership management platform built with React (Vite) and Express.js. It manages members, organizations, events, bookings, program tickets, resources, and blog posts, along with administrative functions. The platform is migrating from Base44 to Replit, requiring 100% visual and functional parity. It integrates with Supabase for data, Zoho CRM for contact management, Zoho Backstage for events, Stripe for payments, and Xero for invoicing.
 
