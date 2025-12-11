@@ -47,7 +47,6 @@ const DEFAULT_COLUMNS = [
 ];
 
 const STORAGE_KEY = 'organisations_list_columns';
-const getColumnPrefKey = (memberId) => `crm_org_columns_${memberId}`;
 
 const loadLocalColumns = () => {
   try {
@@ -85,9 +84,6 @@ export default function OrganisationsListPage() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [columns, setColumns] = useState(() => loadLocalColumns() || DEFAULT_COLUMNS);
   const [draggedColumn, setDraggedColumn] = useState(null);
-  const [columnsInitialized, setColumnsInitialized] = useState(false);
-  const [dbPrefId, setDbPrefId] = useState(null);
-  const saveTimeoutRef = useRef(null);
 
   useEffect(() => {
     if (isAccessReady) {
@@ -154,89 +150,7 @@ export default function OrganisationsListPage() {
     }
   });
 
-  // Load user's saved column preferences from SystemSettings (fetch once)
-  const columnPrefKey = memberInfo?.id ? getColumnPrefKey(memberInfo.id) : null;
-  const columnPrefIdRef = useRef(null);
-  const columnsFetchedRef = useRef(false);
-  
-  const { data: savedColumnPref, isFetched: columnPrefFetched } = useQuery({
-    queryKey: ['system-settings-column-prefs', columnPrefKey],
-    enabled: accessChecked && !!columnPrefKey && !columnsFetchedRef.current,
-    staleTime: Infinity,
-    gcTime: Infinity,
-    refetchOnMount: false,
-    refetchOnWindowFocus: false,
-    refetchOnReconnect: false,
-    queryFn: async () => {
-      if (columnsFetchedRef.current) return null;
-      columnsFetchedRef.current = true;
-      try {
-        const settings = await base44.entities.SystemSettings.list();
-        const setting = settings?.find(s => s.setting_key === columnPrefKey);
-        if (setting?.id) columnPrefIdRef.current = setting.id;
-        return setting || null;
-      } catch {
-        return null;
-      }
-    }
-  });
-
-  // Mutation to save column preferences to SystemSettings
-  const saveColumnsMutation = useMutation({
-    mutationFn: async (columnsData) => {
-      const valueStr = JSON.stringify(columnsData);
-      const idToUpdate = dbPrefId || columnPrefIdRef.current;
-      if (idToUpdate) {
-        return await base44.entities.SystemSettings.update(idToUpdate, { 
-          setting_value: valueStr
-        });
-      } else {
-        return await base44.entities.SystemSettings.create({
-          setting_key: columnPrefKey,
-          setting_value: valueStr
-        });
-      }
-    },
-    onSuccess: (result) => {
-      if (result?.id) {
-        setDbPrefId(result.id);
-        columnPrefIdRef.current = result.id;
-      }
-    },
-    onError: () => {
-      // Fallback: ensure localStorage is updated
-      saveLocalColumns(columns);
-    }
-  });
-
-  // Load columns from database when preference is fetched (runs once)
-  useEffect(() => {
-    if (columnPrefFetched && !columnsInitialized) {
-      if (savedColumnPref?.id) {
-        setDbPrefId(savedColumnPref.id);
-        columnPrefIdRef.current = savedColumnPref.id;
-      }
-      if (savedColumnPref?.setting_value) {
-        try {
-          const parsed = JSON.parse(savedColumnPref.setting_value);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            setColumns(parsed);
-          }
-        } catch {}
-      }
-      setColumnsInitialized(true);
-    }
-  }, [columnPrefFetched, savedColumnPref, columnsInitialized]);
-
-  // Debounced save to database
-  const debouncedSaveToDb = useCallback((columnsData) => {
-    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-    saveTimeoutRef.current = setTimeout(() => {
-      if (memberInfo?.id) {
-        saveColumnsMutation.mutate(columnsData);
-      }
-    }, 1000);
-  }, [memberInfo?.id, saveColumnsMutation]);
+  // Column preferences are stored in localStorage (simple and reliable)
 
   const organizationMemberCounts = useMemo(() => {
     const counts = {};
@@ -314,9 +228,13 @@ export default function OrganisationsListPage() {
 
   const hasActiveFilters = searchQuery || statusFilter !== 'all' || Object.values(customFieldFilters).some(v => v && v !== 'all');
 
+  // Track if custom fields have been merged into columns
+  const customFieldsMergedRef = useRef(false);
+
   // Update columns when custom fields are loaded - merge with saved preferences
   useEffect(() => {
-    if (orgCustomFields.length > 0 && !columnsInitialized) {
+    if (orgCustomFields.length > 0 && !customFieldsMergedRef.current) {
+      customFieldsMergedRef.current = true;
       setColumns(prev => {
         const existingIds = prev.map(c => c.id);
         const newCustomFieldColumns = orgCustomFields
@@ -329,26 +247,20 @@ export default function OrganisationsListPage() {
             isCustomField: true,
             fieldId: f.id
           }));
-        return [...prev, ...newCustomFieldColumns];
+        if (newCustomFieldColumns.length > 0) {
+          const updated = [...prev, ...newCustomFieldColumns];
+          saveLocalColumns(updated);
+          return updated;
+        }
+        return prev;
       });
-      setColumnsInitialized(true);
     }
-  }, [orgCustomFields, columnsInitialized]);
+  }, [orgCustomFields]);
 
-  // Save columns to localStorage and database when they change
+  // Save columns to localStorage when they change
   useEffect(() => {
-    if (columnsInitialized) {
-      saveLocalColumns(columns);
-      debouncedSaveToDb(columns);
-    }
-  }, [columns, columnsInitialized, debouncedSaveToDb]);
-
-  // Cleanup timeout on unmount
-  useEffect(() => {
-    return () => {
-      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-    };
-  }, []);
+    saveLocalColumns(columns);
+  }, [columns]);
 
   const visibleColumns = useMemo(() => columns.filter(c => c.visible), [columns]);
 
