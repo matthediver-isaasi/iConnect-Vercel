@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { User, Mail, Linkedin, Loader2 } from "lucide-react";
 import DOMPurify from 'dompurify';
+import { LazyImage } from "@/components/ui/lazy-image";
 
 export default function WallOfFameDisplay({ 
   sectionId,
@@ -369,11 +370,14 @@ export default function WallOfFameDisplay({
                         <Card className="w-full h-full p-6 flex flex-col items-center justify-center text-center border-2 border-slate-200 hover:border-blue-500 transition-colors bg-white">
                           <div className={`${sizeClasses[photoSize]} rounded-full bg-slate-100 flex items-center justify-center overflow-hidden mb-4 flex-shrink-0 aspect-square`} style={{ minWidth: photoSize === 'large' ? '10rem' : photoSize === 'medium' ? '8rem' : '6rem', minHeight: photoSize === 'large' ? '10rem' : photoSize === 'medium' ? '8rem' : '6rem' }}>
                             {person.profile_photo_url ? (
-                              <img
+                              <LazyImage
                                 src={person.profile_photo_url}
                                 alt={`${person.first_name} ${person.last_name}`}
                                 className="w-full h-full object-cover"
                                 style={{ borderRadius: '50%' }}
+                                placeholderClassName="rounded-full"
+                                fallback={<User className={`${photoSize === 'large' ? 'w-20 h-20' : photoSize === 'medium' ? 'w-16 h-16' : 'w-12 h-12'} text-slate-400`} />}
+                                rootMargin="200px"
                               />
                             ) : (
                               <User className={`${photoSize === 'large' ? 'w-20 h-20' : photoSize === 'medium' ? 'w-16 h-16' : 'w-12 h-12'} text-slate-400`} />
