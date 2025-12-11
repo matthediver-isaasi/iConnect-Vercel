@@ -30,6 +30,10 @@
       "available_seats": {
         "type": "number"
       },
+      "is_unlimited_registration": {
+        "type": "boolean",
+        "description": "If true, event has no seat limit (open registration). If false/null, use available_seats to track capacity."
+      },
       "backstage_event_id": {
         "type": "string",
         "description": "Zoho Backstage Event ID"
