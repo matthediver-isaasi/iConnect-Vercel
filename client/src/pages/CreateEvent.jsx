@@ -85,7 +85,9 @@ const createEmptyTicketClass = (isDefault = false) => ({
   bogo_buy_quantity: "",
   bogo_get_free_quantity: "",
   bulk_discount_threshold: "",
-  bulk_discount_percentage: ""
+  bulk_discount_percentage: "",
+  available_count: "", // Empty = unlimited, number = limited availability
+  is_unlimited_tickets: true // When true, ticket has no quantity limit
 });
 
 export default function CreateEvent() {
@@ -101,6 +103,7 @@ export default function CreateEvent() {
   const [selectedMeetingId, setSelectedMeetingId] = useState("");
   const [unlimitedSeats, setUnlimitedSeats] = useState(true); // Default to unlimited
   const [showSeatCount, setShowSeatCount] = useState(true); // Per-event seat visibility (default: show)
+  const [showTicketAvailability, setShowTicketAvailability] = useState(false); // Per-event ticket availability display
   
   // Handler for status changes - clears TBC-incompatible fields synchronously
   const handleStatusChange = (newStatus) => {
@@ -552,6 +555,8 @@ export default function CreateEvent() {
       is_unlimited_registration: unlimitedSeats,
       // Per-event seat visibility (only meaningful when global setting is ON)
       show_seat_count: showSeatCount,
+      // Per-event ticket availability display toggle
+      show_ticket_availability: showTicketAvailability,
       // TBC events can optionally have a Zoom webinar or meeting
       zoom_webinar_id: isOnline && zoomType === 'webinar' && selectedWebinarId ? selectedWebinarId : null,
       zoom_meeting_id: isOnline && zoomType === 'meeting' && selectedMeetingId ? selectedMeetingId : null,
@@ -577,7 +582,10 @@ export default function CreateEvent() {
           is_default: ticket.is_default || false,
           visibility_mode: ticket.visibility_mode || 'members_only',
           role_match_only: ticket.role_match_only || false,
-          offer_type: ticket.offer_type
+          offer_type: ticket.offer_type,
+          // Ticket availability: null = unlimited, number = limited
+          available_count: ticket.is_unlimited_tickets ? null : (ticket.available_count ? parseInt(ticket.available_count) : null),
+          is_unlimited_tickets: ticket.is_unlimited_tickets !== false
         };
 
         if (ticket.offer_type === "bogo") {
@@ -1475,6 +1483,45 @@ export default function CreateEvent() {
                           </div>
                         </div>
 
+                        {/* Ticket Availability */}
+                        <div className="space-y-2">
+                          <Label className="flex items-center gap-2">
+                            <Ticket className="h-4 w-4 text-slate-500" />
+                            Ticket Availability
+                          </Label>
+                          <p className="text-xs text-slate-500 mb-2">
+                            Set how many of this ticket type are available. This is independent of event seat capacity.
+                          </p>
+                          <div className="flex items-center gap-4">
+                            <div className="flex items-center gap-2">
+                              <Switch
+                                id={`ticket-unlimited-${ticket.id}`}
+                                checked={ticket.is_unlimited_tickets !== false}
+                                onCheckedChange={(checked) => updateTicketClass(ticket.id, 'is_unlimited_tickets', checked)}
+                                data-testid={`switch-unlimited-tickets-${ticket.id}`}
+                              />
+                              <Label htmlFor={`ticket-unlimited-${ticket.id}`} className="text-sm font-medium">
+                                Unlimited
+                              </Label>
+                            </div>
+                            {ticket.is_unlimited_tickets === false && (
+                              <div className="flex items-center gap-2">
+                                <Input
+                                  id={`ticket-available-count-${ticket.id}`}
+                                  type="number"
+                                  min="0"
+                                  value={ticket.available_count || ""}
+                                  onChange={(e) => updateTicketClass(ticket.id, 'available_count', e.target.value)}
+                                  placeholder="e.g. 50"
+                                  className="w-24"
+                                  data-testid={`input-ticket-available-count-${ticket.id}`}
+                                />
+                                <span className="text-sm text-slate-500">tickets</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
                         {/* Role Assignment */}
                         <div className="space-y-2">
                           <Label className="flex items-center gap-2">
@@ -1974,6 +2021,22 @@ export default function CreateEvent() {
                       checked={showSeatCount}
                       onCheckedChange={setShowSeatCount}
                       data-testid="switch-show-seat-count"
+                    />
+                  </div>
+                )}
+                
+                {/* Per-event ticket availability visibility toggle - for one-off events */}
+                {!isProgramEvent && (
+                  <div className="flex items-center justify-between pt-2 border-t">
+                    <div>
+                      <Label htmlFor="show-ticket-availability" className="text-sm">Show ticket availability</Label>
+                      <p className="text-xs text-slate-500">Display remaining tickets per class on event page</p>
+                    </div>
+                    <Switch
+                      id="show-ticket-availability"
+                      checked={showTicketAvailability}
+                      onCheckedChange={setShowTicketAvailability}
+                      data-testid="switch-show-ticket-availability"
                     />
                   </div>
                 )}
