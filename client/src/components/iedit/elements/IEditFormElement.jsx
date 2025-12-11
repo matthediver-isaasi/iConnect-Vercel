@@ -4,8 +4,9 @@ import 'react-quill/dist/quill.snow.css';
 import DOMPurify from 'dompurify';
 import FormRenderer from "../../forms/FormRenderer";
 import { base44 } from "@/api/base44Client";
-import { useQuery } from "@tanstack/react-query";
-import { Loader2, AlertCircle, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Upload, X, Image as ImageIcon, FolderOpen, Folder, Home, Search, FileText } from "lucide-react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { Loader2, AlertCircle, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Upload, X, Image as ImageIcon, FolderOpen, Folder, Home, Search, FileText, CheckCircle2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -62,6 +63,8 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   const formSlug = content.form_slug;
   const [formValues, setFormValues] = useState({});
   const [currentStep, setCurrentStep] = useState(0);
+  const [submitted, setSubmitted] = useState(false);
+  const [isValidating, setIsValidating] = useState(false);
 
   const {
     anchor,
@@ -197,6 +200,82 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     enabled: !!formSlug
   });
 
+  const submitFormMutation = useMutation({
+    mutationFn: async (data) => {
+      return base44.entities.FormSubmission.create(data);
+    },
+    onSuccess: () => {
+      setSubmitted(true);
+      if (form?.redirect_url) {
+        setTimeout(() => {
+          window.location.href = form.redirect_url;
+        }, 2000);
+      }
+    },
+    onError: (error) => {
+      toast.error("Failed to submit form. Please try again.");
+      console.error("Form submission error:", error);
+    }
+  });
+
+  const handleSubmit = async () => {
+    if (!form) return;
+    
+    // Validate required fields
+    const missingFields = form.fields.filter(field => 
+      field.required && (!formValues[field.id] || formValues[field.id].length === 0)
+    );
+
+    if (missingFields.length > 0) {
+      toast.error(`Please fill in all required fields: ${missingFields.map(f => f.label).join(', ')}`);
+      return;
+    }
+
+    // Application form uniqueness validation
+    if (form.is_application_form && form.uniqueness_checks && form.uniqueness_checks.length > 0) {
+      setIsValidating(true);
+      try {
+        const response = await fetch('/api/forms/validate-uniqueness', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            application_level: form.application_level || 'member',
+            uniqueness_checks: form.uniqueness_checks,
+            form_values: formValues,
+            fields: form.fields,
+            form_id: form.id
+          })
+        });
+
+        const result = await response.json();
+        
+        if (!result.valid && result.conflicts && result.conflicts.length > 0) {
+          const conflictMessages = result.conflicts.map(c => `${c.field_label}: ${c.message}`);
+          toast.error(`Validation failed:\n${conflictMessages.join('\n')}`);
+          setIsValidating(false);
+          return;
+        }
+      } catch (error) {
+        console.error('[IEditFormElement] Uniqueness validation error:', error);
+        toast.error('Unable to validate form. Please try again.');
+        setIsValidating(false);
+        return;
+      }
+      setIsValidating(false);
+    }
+
+    const submissionData = {
+      form_id: form.id,
+      form_name: form.name,
+      submitted_by_email: memberInfo?.email || null,
+      submitted_by_name: memberInfo ? `${memberInfo.first_name} ${memberInfo.last_name}` : null,
+      submission_data: formValues,
+      created_date: new Date().toISOString()
+    };
+
+    submitFormMutation.mutate(submissionData);
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-12" style={getBackgroundStyle()}>
@@ -215,6 +294,29 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
       </div>
     );
   }
+
+  if (submitted) {
+    return (
+      <div id={anchor || undefined} style={containerStyle}>
+        <div className="relative mx-auto px-4" style={{ maxWidth: `${content_max_width}px` }}>
+          <Card style={getCardStyle()}>
+            <CardContent className="p-12 text-center">
+              <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <CheckCircle2 className="w-8 h-8 text-green-600" />
+              </div>
+              <h3 className="text-xl font-semibold text-slate-900 mb-2">Success!</h3>
+              <p className="text-slate-600">{form.success_message || 'Your form has been submitted successfully.'}</p>
+              {form.redirect_url && (
+                <p className="text-sm text-slate-500 mt-4">Redirecting...</p>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
+  const isSubmitting = submitFormMutation.isPending || isValidating;
 
   const renderHeaderSection = () => {
     const hasHeaderContent = heading || subheading || text_content;
@@ -329,8 +431,19 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                 Previous
               </Button>
               {isLastStep ? (
-                <Button className="bg-blue-600 hover:bg-blue-700" disabled>
-                  {form.submit_button_text || 'Submit'}
+                <Button 
+                  onClick={handleSubmit}
+                  disabled={!canProceed || isSubmitting}
+                  className="bg-blue-600 hover:bg-blue-700"
+                >
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Submitting...
+                    </>
+                  ) : (
+                    form.submit_button_text || 'Submit'
+                  )}
                 </Button>
               ) : (
                 <Button
@@ -463,8 +576,19 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
               );
             })()}
             <div className="flex justify-end pt-4">
-              <Button className="bg-blue-600 hover:bg-blue-700" disabled>
-                {form.submit_button_text || 'Submit'}
+              <Button 
+                onClick={handleSubmit}
+                disabled={isSubmitting}
+                className="bg-blue-600 hover:bg-blue-700"
+              >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Submitting...
+                  </>
+                ) : (
+                  form.submit_button_text || 'Submit'
+                )}
               </Button>
             </div>
           </CardContent>
