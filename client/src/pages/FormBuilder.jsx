@@ -1033,6 +1033,35 @@ export default function FormBuilderPage() {
       return;
     }
 
+    // Validate organization name mapping when org creation is enabled
+    if (formData.is_application_form && formData.auto_create_entity) {
+      const createType = formData.create_entity_type || 'member';
+      const needsOrgName = createType === 'organization' || createType === 'both';
+      
+      if (needsOrgName) {
+        const hasOrgNameMapping = (formData.field_mappings || []).some(
+          m => m.target_entity === 'organization' && m.target_field === 'name'
+        );
+        
+        if (!hasOrgNameMapping) {
+          toast.error('Organisation creation requires a field mapped to "Organisation Name". Please add this mapping in Field Mappings.');
+          return;
+        }
+      }
+      
+      const needsMemberEmail = createType === 'member' || createType === 'both';
+      if (needsMemberEmail) {
+        const hasMemberEmailMapping = (formData.field_mappings || []).some(
+          m => m.target_entity === 'member' && m.target_field === 'email'
+        );
+        
+        if (!hasMemberEmailMapping) {
+          toast.error('Member creation requires a field mapped to "Member Email". Please add this mapping in Field Mappings.');
+          return;
+        }
+      }
+    }
+
     if (formId) {
       updateFormMutation.mutate({ id: formId, data: formData });
     } else {

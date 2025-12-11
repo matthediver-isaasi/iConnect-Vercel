@@ -193,24 +193,33 @@ export default async function handler(req, res) {
     let createdOrganizationId = null;
     let createdMemberId = null;
 
-    // Create organization if enabled and we have org data
-    if (shouldCreateOrganization && (Object.keys(orgData).length > 0 || orgCustomFields.length > 0)) {
+    // Create organization if enabled
+    if (shouldCreateOrganization) {
+      console.log('[AppProcessor] Org creation enabled. OrgData:', orgData, 'CustomFields:', orgCustomFields.length);
+      
+      // Require organization name to be mapped
+      if (!orgData.name) {
+        console.error('[AppProcessor] Organization creation requested but no organization.name field mapped');
+        return res.status(400).json({ 
+          error: 'Organisation name is required. Please map a form field to "Organisation Name" in the Submission Settings.',
+          code: 'MISSING_ORG_NAME'
+        });
+      }
+      
       // Check for existing organization by name
       let existingOrg = null;
-      if (orgData.name) {
-        const { data: foundOrg } = await supabase
-          .from('organization')
-          .select('id')
-          .ilike('name', orgData.name)
-          .limit(1)
-          .single();
-        existingOrg = foundOrg;
-      }
+      const { data: foundOrg } = await supabase
+        .from('organization')
+        .select('id')
+        .ilike('name', orgData.name)
+        .limit(1)
+        .single();
+      existingOrg = foundOrg;
       
       if (existingOrg) {
         createdOrganizationId = existingOrg.id;
         console.log('[AppProcessor] Found existing organization:', createdOrganizationId);
-      } else if (orgData.name) {
+      } else {
         const orgInsertData = {
           name: orgData.name,
           invoicing_email: orgData.invoicing_email || null,
@@ -219,6 +228,8 @@ export default async function handler(req, res) {
           status: 'active',
           created_at: new Date().toISOString()
         };
+
+        console.log('[AppProcessor] Creating organization with data:', orgInsertData);
 
         const { data: newOrg, error: orgError } = await supabase
           .from('organization')
@@ -236,7 +247,7 @@ export default async function handler(req, res) {
       }
 
       // Save org custom fields if we have an org ID
-      if (createdOrganizationId) {
+      if (createdOrganizationId && orgCustomFields.length > 0) {
         for (const cf of orgCustomFields) {
           await supabase.from('organization_preference_value').insert({
             organization_id: createdOrganizationId,
@@ -247,19 +258,28 @@ export default async function handler(req, res) {
       }
     }
 
-    // Create member if enabled and we have member data
-    if (shouldCreateMember && (memberData.email || Object.keys(memberData).length > 0 || memberCustomFields.length > 0)) {
+    // Create member if enabled
+    if (shouldCreateMember) {
+      console.log('[AppProcessor] Member creation enabled. MemberData:', memberData, 'CustomFields:', memberCustomFields.length);
+      
+      // Require member email to be mapped
+      if (!memberData.email) {
+        console.error('[AppProcessor] Member creation requested but no member.email field mapped');
+        return res.status(400).json({ 
+          error: 'Member email is required. Please map a form field to "Member Email" in the Submission Settings.',
+          code: 'MISSING_MEMBER_EMAIL'
+        });
+      }
+      
       // Check for existing member by email
       let existingMember = null;
-      if (memberData.email) {
-        const { data: foundMember } = await supabase
-          .from('member')
-          .select('id')
-          .ilike('email', memberData.email)
-          .limit(1)
-          .single();
-        existingMember = foundMember;
-      }
+      const { data: foundMember } = await supabase
+        .from('member')
+        .select('id')
+        .ilike('email', memberData.email)
+        .limit(1)
+        .single();
+      existingMember = foundMember;
 
       if (existingMember) {
         createdMemberId = existingMember.id;
@@ -272,7 +292,7 @@ export default async function handler(req, res) {
         }
 
         const memberInsertData = {
-          email: memberData.email || `pending-${Date.now()}@example.com`,
+          email: memberData.email,
           first_name: memberData.first_name || '',
           last_name: memberData.last_name || '',
           full_name: memberData.full_name || `${memberData.first_name || ''} ${memberData.last_name || ''}`.trim(),
