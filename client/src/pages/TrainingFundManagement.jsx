@@ -9,7 +9,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Building2, Search, ChevronLeft, ChevronRight, Plus, Minus, Wallet, TrendingUp, TrendingDown } from "lucide-react";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Building2, Search, ChevronLeft, ChevronRight, Plus, Minus, Wallet, TrendingUp, TrendingDown, History, ArrowLeft, X } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { createPageUrl } from "@/utils";
@@ -18,7 +19,7 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 const ITEMS_PER_PAGE = 15;
 
 export default function TrainingFundManagementPage() {
-  const { isAdmin, isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const { isAdmin, isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   
   const [searchTerm, setSearchTerm] = useState("");
@@ -30,6 +31,8 @@ export default function TrainingFundManagementPage() {
   const [adjustmentAmount, setAdjustmentAmount] = useState("");
   const [adjustmentReason, setAdjustmentReason] = useState("");
   const [showAdjustDialog, setShowAdjustDialog] = useState(false);
+  
+  const [selectedOrg, setSelectedOrg] = useState(null);
   
   const queryClient = useQueryClient();
 
@@ -49,6 +52,30 @@ export default function TrainingFundManagementPage() {
     staleTime: 0,
     refetchOnMount: true,
   });
+
+  const { data: allTransactions = [], isLoading: loadingTransactions } = useQuery({
+    queryKey: ['training-fund-transactions'],
+    queryFn: () => base44.entities.TrainingFundTransaction.list('-created_date'),
+    staleTime: 0,
+    refetchOnMount: true,
+  });
+
+  const { data: members = [] } = useQuery({
+    queryKey: ['members-for-transactions'],
+    queryFn: () => base44.entities.Member.list(),
+    staleTime: 60000,
+  });
+
+  const memberMap = useMemo(() => {
+    const map = {};
+    members.forEach(m => { map[m.id] = m; });
+    return map;
+  }, [members]);
+
+  const selectedOrgTransactions = useMemo(() => {
+    if (!selectedOrg) return [];
+    return allTransactions.filter(t => t.organization_id === selectedOrg.id);
+  }, [allTransactions, selectedOrg]);
 
   const filteredOrgs = useMemo(() => {
     let filtered = organizations;
@@ -87,9 +114,29 @@ export default function TrainingFundManagementPage() {
     return organizations.filter(org => (org.training_fund_balance || 0) > 0).length;
   }, [organizations]);
 
+  const createTransactionMutation = useMutation({
+    mutationFn: (transactionData) => base44.entities.TrainingFundTransaction.create(transactionData),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['training-fund-transactions'] });
+    }
+  });
+
   const updateBalanceMutation = useMutation({
-    mutationFn: async ({ orgId, newBalance }) => {
-      return base44.entities.Organization.update(orgId, { training_fund_balance: newBalance });
+    mutationFn: async ({ orgId, newBalance, balanceBefore, type, reason }) => {
+      await base44.entities.Organization.update(orgId, { training_fund_balance: newBalance });
+      
+      await createTransactionMutation.mutateAsync({
+        organization_id: orgId,
+        type: type,
+        amount: Math.abs(newBalance - balanceBefore),
+        balance_before: balanceBefore,
+        balance_after: newBalance,
+        reason: reason || (type === 'add' ? 'Funds added' : 'Funds deducted'),
+        created_by: memberInfo?.id || null,
+        created_date: new Date().toISOString()
+      });
+      
+      return { orgId, newBalance };
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['organizations'] });
@@ -104,7 +151,8 @@ export default function TrainingFundManagementPage() {
     }
   });
 
-  const handleAdjust = (org) => {
+  const handleAdjust = (org, e) => {
+    if (e) e.stopPropagation();
     setAdjustingOrg(org);
     setAdjustmentType("add");
     setAdjustmentAmount("");
@@ -134,27 +182,169 @@ export default function TrainingFundManagementPage() {
 
     updateBalanceMutation.mutate({
       orgId: adjustingOrg.id,
-      newBalance: newBalance
+      newBalance: newBalance,
+      balanceBefore: currentBalance,
+      type: adjustmentType,
+      reason: adjustmentReason
     });
   };
 
-  const handleSetBalance = (org, newBalance) => {
-    const balance = parseFloat(newBalance);
-    if (isNaN(balance) || balance < 0) {
-      toast.error('Please enter a valid balance');
-      return;
+  const handleOrgClick = (org) => {
+    setSelectedOrg(org);
+  };
+
+  const handleBackToList = () => {
+    setSelectedOrg(null);
+  };
+
+  const formatTransactionType = (type) => {
+    switch (type) {
+      case 'add': return { label: 'Added', color: 'bg-green-100 text-green-800' };
+      case 'deduct': return { label: 'Deducted', color: 'bg-red-100 text-red-800' };
+      case 'booking_usage': return { label: 'Booking', color: 'bg-blue-100 text-blue-800' };
+      default: return { label: type, color: 'bg-slate-100 text-slate-800' };
     }
-    
-    updateBalanceMutation.mutate({
-      orgId: org.id,
-      newBalance: balance
-    });
   };
 
   if (!accessChecked) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
         <div className="animate-pulse text-slate-600">Loading...</div>
+      </div>
+    );
+  }
+
+  if (selectedOrg) {
+    const orgBalance = selectedOrg.training_fund_balance || 0;
+    
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+        <div className="max-w-4xl mx-auto">
+          <div className="mb-6">
+            <Button 
+              variant="ghost" 
+              onClick={handleBackToList}
+              className="mb-4"
+              data-testid="button-back-to-list"
+            >
+              <ArrowLeft className="w-4 h-4 mr-2" />
+              Back to Organisations
+            </Button>
+            
+            <div className="flex items-start justify-between gap-4 flex-wrap">
+              <div>
+                <h1 className="text-2xl md:text-3xl font-bold text-slate-900 mb-1">
+                  {selectedOrg.name}
+                </h1>
+                <p className="text-slate-600">Training Fund History</p>
+              </div>
+              <div className="text-right">
+                <p className="text-sm text-slate-500">Current Balance</p>
+                <p className={`text-3xl font-bold ${orgBalance > 0 ? 'text-green-600' : 'text-slate-400'}`}>
+                  £{orgBalance.toFixed(2)}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <Card className="border-slate-200 shadow-sm mb-6">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <History className="w-5 h-5 text-slate-500" />
+                  <span className="font-medium text-slate-700">
+                    {selectedOrgTransactions.length} {selectedOrgTransactions.length === 1 ? 'transaction' : 'transactions'}
+                  </span>
+                </div>
+                <Button
+                  onClick={() => handleAdjust(selectedOrg)}
+                  data-testid="button-adjust-from-history"
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  Adjust Balance
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          {loadingTransactions ? (
+            <div className="text-center py-12">Loading transaction history...</div>
+          ) : selectedOrgTransactions.length === 0 ? (
+            <Card className="border-slate-200 shadow-sm">
+              <CardContent className="p-12 text-center">
+                <History className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+                <h3 className="text-xl font-semibold text-slate-900 mb-2">
+                  No Transaction History
+                </h3>
+                <p className="text-slate-600 mb-4">
+                  No adjustments have been made to this organisation's training fund yet
+                </p>
+                <Button onClick={() => handleAdjust(selectedOrg)}>
+                  <Plus className="w-4 h-4 mr-2" />
+                  Make First Adjustment
+                </Button>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-3">
+              {selectedOrgTransactions.map((transaction) => {
+                const typeInfo = formatTransactionType(transaction.type);
+                const createdBy = transaction.created_by ? memberMap[transaction.created_by] : null;
+                
+                return (
+                  <Card 
+                    key={transaction.id} 
+                    className="border-slate-200 shadow-sm"
+                    data-testid={`card-transaction-${transaction.id}`}
+                  >
+                    <CardContent className="p-4">
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-2 flex-wrap">
+                            <Badge className={typeInfo.color}>
+                              {transaction.type === 'add' && <Plus className="w-3 h-3 mr-1" />}
+                              {transaction.type === 'deduct' && <Minus className="w-3 h-3 mr-1" />}
+                              {typeInfo.label}
+                            </Badge>
+                            <span className="text-sm text-slate-500">
+                              {transaction.created_date ? format(new Date(transaction.created_date), 'dd MMM yyyy, HH:mm') : 'Unknown date'}
+                            </span>
+                          </div>
+                          
+                          {transaction.reason && (
+                            <p className="text-slate-700 mb-2">{transaction.reason}</p>
+                          )}
+                          
+                          <div className="flex items-center gap-4 text-sm text-slate-500">
+                            <span>
+                              Before: <span className="font-medium text-slate-700">£{(transaction.balance_before || 0).toFixed(2)}</span>
+                            </span>
+                            <span>→</span>
+                            <span>
+                              After: <span className="font-medium text-slate-700">£{(transaction.balance_after || 0).toFixed(2)}</span>
+                            </span>
+                          </div>
+                          
+                          {createdBy && (
+                            <p className="text-xs text-slate-400 mt-2">
+                              By: {createdBy.full_name || createdBy.email}
+                            </p>
+                          )}
+                        </div>
+                        
+                        <div className="text-right flex-shrink-0">
+                          <p className={`text-xl font-bold ${transaction.type === 'add' ? 'text-green-600' : 'text-red-600'}`}>
+                            {transaction.type === 'add' ? '+' : '-'}£{(transaction.amount || 0).toFixed(2)}
+                          </p>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
     );
   }
@@ -167,7 +357,7 @@ export default function TrainingFundManagementPage() {
             Training Fund Management
           </h1>
           <p className="text-slate-600">
-            View and adjust training fund balances for organisations
+            View and adjust training fund balances for organisations. Click on an organisation to view its adjustment history.
           </p>
         </div>
 
@@ -271,11 +461,13 @@ export default function TrainingFundManagementPage() {
           <div className="space-y-3">
             {paginatedOrgs.map((org) => {
               const balance = org.training_fund_balance || 0;
+              const orgTransactionCount = allTransactions.filter(t => t.organization_id === org.id).length;
               
               return (
                 <Card 
                   key={org.id} 
-                  className="border-slate-200 shadow-sm hover:shadow-md transition-shadow"
+                  className="border-slate-200 shadow-sm hover:shadow-md transition-shadow cursor-pointer"
+                  onClick={() => handleOrgClick(org)}
                   data-testid={`card-org-${org.id}`}
                 >
                   <CardContent className="p-4">
@@ -286,9 +478,15 @@ export default function TrainingFundManagementPage() {
                         </div>
                         <div className="min-w-0">
                           <h3 className="font-semibold text-slate-900 truncate">{org.name}</h3>
-                          {org.type && (
-                            <p className="text-sm text-slate-500">{org.type}</p>
-                          )}
+                          <div className="flex items-center gap-2 text-sm text-slate-500">
+                            {org.type && <span>{org.type}</span>}
+                            {orgTransactionCount > 0 && (
+                              <span className="flex items-center gap-1">
+                                <History className="w-3 h-3" />
+                                {orgTransactionCount} {orgTransactionCount === 1 ? 'transaction' : 'transactions'}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
                       
@@ -303,7 +501,7 @@ export default function TrainingFundManagementPage() {
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => handleAdjust(org)}
+                          onClick={(e) => handleAdjust(org, e)}
                           data-testid={`button-adjust-${org.id}`}
                         >
                           Adjust

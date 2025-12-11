@@ -37,6 +37,8 @@ Preferred communication style: Simple, everyday language.
 **Communications:** Manages communication categories and member preferences for opt-in/opt-out.
 **Custom Fields:** Supports custom preference fields for members and organizations, defining field definitions and storing values.
 **Organization Fields:** Includes default contact fields (phone, invoicing_email, invoicing_address, website_url) and custom fields displayed on the `/myorganisation` page.
+**Training Funds:** Organization training_fund_balance field tracks available funds. TrainingFundTransaction entity records all balance adjustments with type (add/deduct/booking_usage), amounts, before/after balances, and audit trail (created_by, created_date). Managed via TrainingFundManagement admin page.
+**Vouchers:** Discrete voucher codes with organization_id, code, value, expires_at, status (active/used/expired). Managed via VoucherManagement admin page.
 
 ## Deployment Architecture
 
@@ -62,3 +64,27 @@ A dedicated page (`/myorganisation`) displaying organization details, including 
 **Xero:** Used for invoice generation with OAuth authentication.
 **File Storage:** Handled by Supabase Storage or a Base44 integration layer.
 **Email Delivery:** Used for magic links and notifications via an integration layer.
+
+# Pending Database Migrations
+
+The following SQL must be run in Supabase SQL Editor to enable new features:
+
+## TrainingFundTransaction Table (for Training Fund adjustment history)
+
+```sql
+CREATE TABLE IF NOT EXISTS training_fund_transaction (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  organization_id TEXT,
+  type TEXT CHECK (type IN ('add', 'deduct', 'booking_usage')),
+  amount NUMERIC,
+  balance_before NUMERIC,
+  balance_after NUMERIC,
+  reason TEXT,
+  booking_id TEXT,
+  created_by TEXT,
+  created_date TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_tft_organization_id ON training_fund_transaction(organization_id);
+CREATE INDEX IF NOT EXISTS idx_tft_created_date ON training_fund_transaction(created_date DESC);
+```

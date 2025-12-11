@@ -241,6 +241,7 @@ class EntitiesProxy {
   get TypographyStyle() { return this._getEntity('TypographyStyle'); }
   get CardDeck() { return this._getEntity('CardDeck'); }
   get DynamicDirectory() { return this._getEntity('DynamicDirectory'); }
+  get TrainingFundTransaction() { return this._getEntity('TrainingFundTransaction'); }
 }
 
 class CoreIntegration {

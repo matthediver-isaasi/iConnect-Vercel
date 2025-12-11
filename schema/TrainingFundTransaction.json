@@ -1,0 +1,45 @@
+{
+  "name": "TrainingFundTransaction",
+  "type": "object",
+  "properties": {
+    "organization_id": {
+      "type": "string",
+      "description": "Organization this transaction belongs to"
+    },
+    "type": {
+      "type": "string",
+      "enum": ["add", "deduct", "booking_usage"],
+      "description": "Type of transaction: add (credit), deduct (admin deduction), or booking_usage (used for event booking)"
+    },
+    "amount": {
+      "type": "number",
+      "description": "Transaction amount (always positive)"
+    },
+    "balance_before": {
+      "type": "number",
+      "description": "Balance before the transaction"
+    },
+    "balance_after": {
+      "type": "number",
+      "description": "Balance after the transaction"
+    },
+    "reason": {
+      "type": "string",
+      "description": "Reason or description for the transaction"
+    },
+    "booking_id": {
+      "type": "string",
+      "description": "Related booking ID if this was a booking usage"
+    },
+    "created_by": {
+      "type": "string",
+      "description": "Member ID of admin who made the adjustment"
+    },
+    "created_date": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the transaction was created"
+    }
+  },
+  "required": ["organization_id", "type", "amount", "balance_before", "balance_after", "created_date"]
+}
