@@ -477,6 +477,21 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                   organizationInfo={organizationInfo}
                 />
               )}
+              {validationErrors.length > 0 && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4 mt-6">
+                  <div className="flex items-start gap-3">
+                    <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <h4 className="font-medium text-red-800 mb-1">Unable to submit application</h4>
+                      <ul className="text-sm text-red-700 space-y-1">
+                        {validationErrors.map((error, index) => (
+                          <li key={index}>{error}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              )}
             </CardContent>
             <div className="p-6 pt-0 flex justify-between">
               <Button
