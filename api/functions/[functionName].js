@@ -1391,7 +1391,9 @@ const functionHandlers = {
       stripePaymentIntentId = null,
       ticketClassId = null,
       ticketClassName = null,
-      ticketClassPrice = null
+      ticketClassPrice = null,
+      isGuestBooking = false,
+      guestInfo = null
     } = params;
 
     console.log('[createOneOffEventBooking] Starting booking:', {
@@ -1403,33 +1405,86 @@ const functionHandlers = {
       ticketClassId,
       ticketClassName,
       attendeesReceived: attendees?.length || 0,
-      attendeesData: JSON.stringify(attendees)
+      attendeesData: JSON.stringify(attendees),
+      isGuestBooking,
+      guestInfo: guestInfo ? { email: guestInfo.email, first_name: guestInfo.first_name } : null
     });
 
-    // Validate required fields
-    if (!eventId || !memberEmail || !ticketsRequired) {
-      return { success: false, error: 'Missing required parameters' };
+    // Validate required fields - for guest bookings, require guestInfo instead of memberEmail
+    if (!eventId || !ticketsRequired) {
+      console.log('[createOneOffEventBooking] VALIDATION FAILED - Missing eventId or ticketsRequired:', { eventId, ticketsRequired });
+      return { success: false, error: `Missing required parameters: eventId=${eventId}, ticketsRequired=${ticketsRequired}` };
+    }
+    
+    if (!isGuestBooking && !memberEmail) {
+      console.log('[createOneOffEventBooking] VALIDATION FAILED - Member booking without memberEmail');
+      return { success: false, error: 'Missing required parameter: memberEmail (for member bookings)' };
+    }
+    
+    if (isGuestBooking && (!guestInfo || !guestInfo.email || !guestInfo.first_name || !guestInfo.last_name)) {
+      console.log('[createOneOffEventBooking] VALIDATION FAILED - Guest booking missing guestInfo:', {
+        hasGuestInfo: !!guestInfo,
+        email: guestInfo?.email,
+        first_name: guestInfo?.first_name,
+        last_name: guestInfo?.last_name
+      });
+      return { success: false, error: `Missing required guest information: email=${guestInfo?.email}, first_name=${guestInfo?.first_name}, last_name=${guestInfo?.last_name}` };
+    }
+    
+    // For guest bookings, create attendee from guestInfo if no attendees provided
+    let bookingAttendees = attendees;
+    if (isGuestBooking && (!attendees || attendees.length === 0)) {
+      bookingAttendees = [{
+        email: guestInfo.email,
+        first_name: guestInfo.first_name,
+        last_name: guestInfo.last_name,
+        organization: guestInfo.organization,
+        phone: guestInfo.phone,
+        job_title: guestInfo.job_title,
+        isGuest: true
+      }];
     }
     
     // Validate attendees array
-    if (!attendees || !Array.isArray(attendees) || attendees.length === 0) {
-      console.error('[createOneOffEventBooking] No attendees provided:', { attendees });
+    if (!bookingAttendees || !Array.isArray(bookingAttendees) || bookingAttendees.length === 0) {
+      console.error('[createOneOffEventBooking] No attendees provided:', { attendees: bookingAttendees });
       return { success: false, error: 'No attendees provided' };
     }
 
-    // Get member details
-    const { data: member, error: memberError } = await supabase
-      .from('member')
-      .select('*')
-      .ilike('email', memberEmail.toLowerCase())
-      .maybeSingle();
+    // Get member details (skip for guest bookings)
+    let member = null;
+    let org = null;
     
-    if (memberError || !member) {
-      console.error('[createOneOffEventBooking] Member query error:', memberError);
-      return { success: false, error: 'Member not found' };
+    if (!isGuestBooking) {
+      const { data: memberData, error: memberError } = await supabase
+        .from('member')
+        .select('*')
+        .ilike('email', memberEmail.toLowerCase())
+        .maybeSingle();
+      
+      if (memberError || !memberData) {
+        console.error('[createOneOffEventBooking] Member query error:', memberError);
+        return { success: false, error: 'Member not found' };
+      }
+      
+      member = memberData;
+      console.log('[createOneOffEventBooking] Member found:', member.id, member.email);
+      
+      // Get organization (only for member bookings)
+      const { data: orgData, error: orgError } = await supabase
+        .from('organization')
+        .select('*')
+        .eq('id', member.organization_id)
+        .single();
+
+      if (orgError || !orgData) {
+        console.error('[createOneOffEventBooking] Organization not found');
+        return { success: false, error: 'Organization not found' };
+      }
+      org = orgData;
+    } else {
+      console.log('[createOneOffEventBooking] Guest booking - no member lookup needed');
     }
-    
-    console.log('[createOneOffEventBooking] Member found:', member.id, member.email);
 
     // Get event details
     const { data: event, error: eventError } = await supabase
@@ -1441,18 +1496,6 @@ const functionHandlers = {
     if (eventError || !event) {
       console.error('[createOneOffEventBooking] Event query error:', eventError);
       return { success: false, error: 'Event not found' };
-    }
-
-    // Get organization
-    const { data: org, error: orgError } = await supabase
-      .from('organization')
-      .select('*')
-      .eq('id', member.organization_id)
-      .single();
-
-    if (orgError || !org) {
-      console.error('[createOneOffEventBooking] Organization not found');
-      return { success: false, error: 'Organization not found' };
     }
 
     // Verify Stripe payment if card payment was used
@@ -1492,74 +1535,78 @@ const functionHandlers = {
     // Generate booking reference
     const bookingReference = `OOE-${Date.now()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
     
-    // Server-side validation: Clamp training fund amount to available balance
-    const validatedTrainingFundAmount = Math.min(
-      Math.max(0, trainingFundAmount || 0),
-      org.training_fund_balance || 0,
-      totalCost
-    );
-    
-    // Process voucher deductions if any - with ownership validation
+    // For guest bookings, skip vouchers and training fund - use full card payment
+    let validatedTrainingFundAmount = 0;
     let voucherAmountApplied = 0;
     const voucherDeductions = [];
     
-    if (selectedVoucherIds && selectedVoucherIds.length > 0) {
-      for (const voucherId of selectedVoucherIds) {
-        // Fetch voucher and validate it belongs to the member's organization
-        const { data: voucher } = await supabase
-          .from('program_ticket_transaction')
-          .select('*')
-          .eq('id', voucherId)
-          .eq('organization_id', org.id)
-          .eq('transaction_type', 'voucher')
-          .eq('status', 'active')
-          .single();
-        
-        if (voucher && voucher.value > 0) {
-          // Clamp amount to remaining cost
-          const amountToUse = Math.min(voucher.value, totalCost - voucherAmountApplied - validatedTrainingFundAmount);
-          if (amountToUse > 0) {
-            voucherAmountApplied += amountToUse;
-            voucherDeductions.push({ voucherId, amount: amountToUse });
-            
-            // Update voucher balance
-            const newValue = voucher.value - amountToUse;
-            await supabase
-              .from('program_ticket_transaction')
-              .update({
-                value: newValue,
-                status: newValue <= 0 ? 'used' : 'active',
-                notes: `${voucher.notes || ''} | Used £${amountToUse.toFixed(2)} for ${event.title || 'event'} (${bookingReference})`
-              })
-              .eq('id', voucherId);
+    if (!isGuestBooking && org) {
+      // Server-side validation: Clamp training fund amount to available balance
+      validatedTrainingFundAmount = Math.min(
+        Math.max(0, trainingFundAmount || 0),
+        org.training_fund_balance || 0,
+        totalCost
+      );
+      
+      // Process voucher deductions if any - with ownership validation
+      if (selectedVoucherIds && selectedVoucherIds.length > 0) {
+        for (const voucherId of selectedVoucherIds) {
+          // Fetch voucher and validate it belongs to the member's organization
+          const { data: voucher } = await supabase
+            .from('program_ticket_transaction')
+            .select('*')
+            .eq('id', voucherId)
+            .eq('organization_id', org.id)
+            .eq('transaction_type', 'voucher')
+            .eq('status', 'active')
+            .single();
+          
+          if (voucher && voucher.value > 0) {
+            // Clamp amount to remaining cost
+            const amountToUse = Math.min(voucher.value, totalCost - voucherAmountApplied - validatedTrainingFundAmount);
+            if (amountToUse > 0) {
+              voucherAmountApplied += amountToUse;
+              voucherDeductions.push({ voucherId, amount: amountToUse });
+              
+              // Update voucher balance
+              const newValue = voucher.value - amountToUse;
+              await supabase
+                .from('program_ticket_transaction')
+                .update({
+                  value: newValue,
+                  status: newValue <= 0 ? 'used' : 'active',
+                  notes: `${voucher.notes || ''} | Used £${amountToUse.toFixed(2)} for ${event.title || 'event'} (${bookingReference})`
+                })
+                .eq('id', voucherId);
+            }
+          } else {
+            console.warn('[createOneOffEventBooking] Voucher not found or not owned by org:', voucherId);
           }
-        } else {
-          console.warn('[createOneOffEventBooking] Voucher not found or not owned by org:', voucherId);
         }
       }
-    }
 
-    // Process training fund deduction if any (use validated amount)
-    if (validatedTrainingFundAmount > 0) {
-      await supabase
-        .from('organization')
-        .update({
-          training_fund_balance: org.training_fund_balance - validatedTrainingFundAmount
-        })
-        .eq('id', org.id);
-      
-      // Create training fund transaction record
-      await supabase
-        .from('program_ticket_transaction')
-        .insert({
-          organization_id: org.id,
-          transaction_type: 'training_fund_usage',
-          value: -validatedTrainingFundAmount,
-          booking_reference: bookingReference,
-          event_name: event.title || 'One-off Event',
-          member_email: memberEmail,
-          notes: `Training fund used: £${validatedTrainingFundAmount.toFixed(2)} for ${event.title || 'event'}`
-        });
+      // Process training fund deduction if any (use validated amount)
+      if (validatedTrainingFundAmount > 0) {
+        await supabase
+          .from('organization')
+          .update({
+            training_fund_balance: org.training_fund_balance - validatedTrainingFundAmount
+          })
+          .eq('id', org.id);
+        
+        // Create training fund transaction record
+        await supabase
+          .from('program_ticket_transaction')
+          .insert({
+            organization_id: org.id,
+            transaction_type: 'training_fund_usage',
+            value: -validatedTrainingFundAmount,
+            booking_reference: bookingReference,
+            event_name: event.title || 'One-off Event',
+            member_email: memberEmail,
+            notes: `Training fund used: £${validatedTrainingFundAmount.toFixed(2)} for ${event.title || 'event'}`
+          });
+      }
     }
 
     // Calculate validated remaining balance after vouchers and training fund
@@ -1567,24 +1614,24 @@ const functionHandlers = {
     
     // Create booking records for each attendee
     const createdBookings = [];
-    console.log('[createOneOffEventBooking] About to create bookings for', attendees.length, 'attendees');
+    console.log('[createOneOffEventBooking] About to create bookings for', bookingAttendees.length, 'attendees (isGuestBooking:', isGuestBooking, ')');
     
-    for (let i = 0; i < attendees.length; i++) {
-      const attendee = attendees[i];
-      console.log(`[createOneOffEventBooking] Processing attendee ${i + 1}/${attendees.length}:`, attendee.email);
+    for (let i = 0; i < bookingAttendees.length; i++) {
+      const attendee = bookingAttendees[i];
+      console.log(`[createOneOffEventBooking] Processing attendee ${i + 1}/${bookingAttendees.length}:`, attendee.email);
       // Calculate ticket price - use ticket class price if provided, otherwise from pricing config or total cost
       const ticketPriceValue = ticketClassPrice || event.pricing_config?.ticketPrice || (totalCost / ticketsRequired);
       
       // Generate unique booking reference for each attendee (append index if multiple attendees)
       // Keep the base reference in booking_group_reference for grouping all attendees together
-      const attendeeBookingRef = attendees.length > 1 
+      const attendeeBookingRef = bookingAttendees.length > 1 
         ? `${bookingReference}-${i + 1}` 
         : bookingReference;
       
       const bookingData = {
         event_id: event.id,
-        member_id: member.id,
-        organization_id: org.id,
+        member_id: isGuestBooking ? null : member?.id,
+        organization_id: isGuestBooking ? null : org?.id,
         booking_reference: attendeeBookingRef,
         booking_group_reference: bookingReference, // Base reference to group all attendees from same booking session
         attendee_email: attendee.email,
@@ -1602,7 +1649,8 @@ const functionHandlers = {
         stripe_payment_intent_id: stripePaymentIntentId,
         is_one_off_event: true,
         ticket_class_id: ticketClassId,
-        ticket_class_name: ticketClassName
+        ticket_class_name: ticketClassName,
+        is_guest_booking: isGuestBooking
       };
 
       console.log('[createOneOffEventBooking] Inserting booking:', JSON.stringify(bookingData));
@@ -1652,15 +1700,15 @@ const functionHandlers = {
         if (webinar.zoom_webinar_id && webinar.registration_required && webinar.status === 'scheduled') {
           const webinarStartTime = new Date(webinar.start_time);
           if (webinarStartTime > new Date()) {
-            console.log('[createOneOffEventBooking] Registering', attendees.length, 'attendees with Zoom');
+            console.log('[createOneOffEventBooking] Registering', bookingAttendees.length, 'attendees with Zoom');
             
             try {
               const zoomToken = await getZoomAccessToken();
               
               // Register each attendee with Zoom
-              for (let i = 0; i < attendees.length; i++) {
-                const attendee = attendees[i];
-                console.log(`[createOneOffEventBooking] Registering attendee ${i + 1}/${attendees.length}: ${attendee.email}`);
+              for (let i = 0; i < bookingAttendees.length; i++) {
+                const attendee = bookingAttendees[i];
+                console.log(`[createOneOffEventBooking] Registering attendee ${i + 1}/${bookingAttendees.length}: ${attendee.email}`);
                 
                 try {
                   const zoomResponse = await fetch(
@@ -1709,7 +1757,7 @@ const functionHandlers = {
                     });
                     
                     // Update the booking record with the Zoom registrant ID
-                    const attendeeBookingRef = attendees.length > 1 
+                    const attendeeBookingRef = bookingAttendees.length > 1 
                       ? `${bookingReference}-${i + 1}` 
                       : bookingReference;
                     
@@ -1759,7 +1807,8 @@ const functionHandlers = {
       error: null
     };
     
-    if (validatedRemainingBalance > 0 && paymentMethod === 'account') {
+    // Account charges and Xero invoices only apply to member bookings (not guest checkouts)
+    if (!isGuestBooking && validatedRemainingBalance > 0 && paymentMethod === 'account' && org) {
       await supabase
         .from('program_ticket_transaction')
         .insert({
@@ -1800,7 +1849,7 @@ const functionHandlers = {
             xeroDebug.contactId = contactId;
 
             // Build attendee list for description
-            const attendeeList = attendees.map(a => {
+            const attendeeList = bookingAttendees.map(a => {
               const firstName = a.first_name || a.firstName || '';
               const lastName = a.last_name || a.lastName || '';
               return `${firstName} ${lastName}`.trim() || a.email;
