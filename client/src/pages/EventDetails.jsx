@@ -26,6 +26,7 @@ import TourButton from "../components/tour/TourButton";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useSpeakerModuleName } from "@/hooks/useSpeakerModuleName";
 import { useEventSeatRealtime } from "@/hooks/useEventSeatRealtime";
+import { useTicketAvailabilityRealtime } from "@/hooks/useTicketAvailabilityRealtime";
 
 export default function EventDetailsPage() {
   const { memberInfo, organizationInfo, memberRole, isFeatureExcluded, reloadMemberInfo, refreshOrganizationInfo } = useMemberAccess();
@@ -321,6 +322,16 @@ export default function EventDetailsPage() {
     return parsed;
   }, [event, isOneOffEvent]);
   
+  // Set up realtime subscription for ticket class availability updates
+  // MUST be after pricingConfig is defined to seed initial state
+  const { ticketClassAvailability, getTicketClassAvailability } = useTicketAvailabilityRealtime(eventId, {
+    showSoldOutToast: true,
+    initialPricingConfig: pricingConfig, // Seed with initial data
+    onTicketSoldOut: (ticketClassId, ticketClassName) => {
+      console.log('[EventDetails] Ticket class sold out via realtime update:', ticketClassName);
+    }
+  });
+  
   // Get ALL normalized ticket classes (for display purposes when "show all" toggle is on)
   const allNormalizedTickets = useMemo(() => {
     if (!isOneOffEvent || !pricingConfig) return [];
@@ -375,7 +386,10 @@ export default function EventDetailsPage() {
           bogo_buy_quantity: Number(tc.bogo_buy_quantity) || 0,
           bogo_get_free_quantity: Number(tc.bogo_get_free_quantity) || 0,
           bulk_discount_threshold: Number(tc.bulk_discount_threshold) || 0,
-          bulk_discount_percentage: Number(tc.bulk_discount_percentage) || 0
+          bulk_discount_percentage: Number(tc.bulk_discount_percentage) || 0,
+          // Ticket class availability fields
+          available_count: tc.available_count,
+          is_unlimited_tickets: tc.is_unlimited_tickets
         };
       });
   }, [isOneOffEvent, pricingConfig]);
@@ -387,6 +401,31 @@ export default function EventDetailsPage() {
   // - Public Only: ONLY visible/purchasable by non-logged-in visitors
   const isTicketPurchasable = (ticket) => {
     if (!ticket) return false;
+    
+    // Check ticket class availability first (using realtime data if available)
+    // Always use string ID for lookup to match the normalized keys in the realtime map
+    const realtimeAvail = getTicketClassAvailability(String(ticket.id));
+    const rawAvailCount = realtimeAvail?.available_count ?? ticket.available_count;
+    
+    // Check if unlimited: explicit flag, null, undefined, or empty string all mean unlimited
+    const isUnlimited = (realtimeAvail?.is_unlimited_tickets ?? ticket.is_unlimited_tickets) || 
+                        rawAvailCount === null || 
+                        rawAvailCount === undefined ||
+                        rawAvailCount === '';
+    
+    // Parse available_count safely
+    // Empty string, null, undefined -> treat as unlimited
+    // Invalid number -> treat as 0 (sold out for safety)
+    let availCount = null;
+    if (rawAvailCount !== null && rawAvailCount !== undefined && rawAvailCount !== '') {
+      const parsed = Number(rawAvailCount);
+      availCount = isNaN(parsed) ? 0 : parsed;
+    }
+    
+    // If ticket class is sold out, it's not purchasable
+    if (!isUnlimited && availCount !== null && availCount <= 0) {
+      return false;
+    }
     
     const visibilityMode = ticket.visibility_mode;
     
@@ -1485,6 +1524,34 @@ export default function EventDetailsPage() {
                                   {tc.offer_type === 'bulk_discount' && `${tc.bulk_discount_percentage || 0}% off for ${tc.bulk_discount_threshold || 0}+ tickets`}
                                 </div>
                               )}
+                              {/* Show ticket availability if enabled */}
+                              {event.show_ticket_availability && (() => {
+                                const realtimeAvail = getTicketClassAvailability(String(tc.id));
+                                const rawAvailCount = realtimeAvail?.available_count ?? tc.available_count;
+                                // Check if unlimited: explicit flag, null, undefined, or empty string all mean unlimited
+                                const isUnlimited = (realtimeAvail?.is_unlimited_tickets ?? tc.is_unlimited_tickets) || 
+                                                    rawAvailCount === null || 
+                                                    rawAvailCount === undefined ||
+                                                    rawAvailCount === '';
+                                
+                                // Parse available_count safely - empty string is already handled above
+                                let availCount = null;
+                                if (rawAvailCount !== null && rawAvailCount !== undefined && rawAvailCount !== '') {
+                                  const parsed = Number(rawAvailCount);
+                                  availCount = isNaN(parsed) ? 0 : parsed;
+                                }
+                                
+                                if (!isUnlimited && availCount !== null) {
+                                  if (availCount <= 0) {
+                                    return <span className="text-xs text-red-600 mt-0.5">Sold out</span>;
+                                  } else if (availCount <= 5) {
+                                    return <span className="text-xs text-amber-600 mt-0.5">Only {availCount} left</span>;
+                                  } else {
+                                    return <span className="text-xs text-slate-500 mt-0.5">{availCount} available</span>;
+                                  }
+                                }
+                                return null;
+                              })()}
                             </div>
                           </div>
                           <div className={`flex items-center gap-1 text-lg font-semibold ${purchasable ? 'text-slate-900' : 'text-slate-500'}`}>
@@ -1542,6 +1609,34 @@ export default function EventDetailsPage() {
                                 {selectedTicketClass.offer_type === 'bulk_discount' && `${selectedTicketClass.bulk_discount_percentage || 0}% off for ${selectedTicketClass.bulk_discount_threshold || 0}+ tickets`}
                               </div>
                             )}
+                            {/* Show ticket availability if enabled */}
+                            {event.show_ticket_availability && (() => {
+                              const realtimeAvail = getTicketClassAvailability(String(selectedTicketClass.id));
+                              const rawAvailCount = realtimeAvail?.available_count ?? selectedTicketClass.available_count;
+                              // Check if unlimited: explicit flag, null, undefined, or empty string all mean unlimited
+                              const isUnlimited = (realtimeAvail?.is_unlimited_tickets ?? selectedTicketClass.is_unlimited_tickets) || 
+                                                  rawAvailCount === null || 
+                                                  rawAvailCount === undefined ||
+                                                  rawAvailCount === '';
+                              
+                              // Parse available_count safely - empty string is already handled above
+                              let availCount = null;
+                              if (rawAvailCount !== null && rawAvailCount !== undefined && rawAvailCount !== '') {
+                                const parsed = Number(rawAvailCount);
+                                availCount = isNaN(parsed) ? 0 : parsed;
+                              }
+                              
+                              if (!isUnlimited && availCount !== null) {
+                                if (availCount <= 0) {
+                                  return <span className="text-xs text-red-600 mt-0.5">Sold out</span>;
+                                } else if (availCount <= 5) {
+                                  return <span className="text-xs text-amber-600 mt-0.5">Only {availCount} left</span>;
+                                } else {
+                                  return <span className="text-xs text-slate-500 mt-0.5">{availCount} available</span>;
+                                }
+                              }
+                              return null;
+                            })()}
                           </div>
                         </div>
                         <div className={`flex items-center gap-1 text-lg font-semibold ${purchasable ? 'text-slate-900' : 'text-slate-500'}`}>

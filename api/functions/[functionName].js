@@ -2037,6 +2037,45 @@ const functionHandlers = {
       }
     }
 
+    // Decrement ticket class availability if ticket class has limited tickets
+    if (ticketClassId && event.pricing_config?.ticket_classes && createdBookings.length > 0) {
+      try {
+        const ticketClasses = event.pricing_config.ticket_classes;
+        const ticketClassIndex = ticketClasses.findIndex(tc => tc.id === ticketClassId);
+        
+        if (ticketClassIndex !== -1) {
+          const ticketClass = ticketClasses[ticketClassIndex];
+          // Only decrement if ticket class has limited availability (not unlimited)
+          if (ticketClass.available_count !== null && ticketClass.available_count !== undefined && !ticketClass.is_unlimited_tickets) {
+            const ticketsToDecrement = createdBookings.length;
+            const newAvailableCount = Math.max(0, Number(ticketClass.available_count) - ticketsToDecrement);
+            
+            // Update the ticket class in pricing_config
+            const updatedTicketClasses = [...ticketClasses];
+            updatedTicketClasses[ticketClassIndex] = {
+              ...ticketClass,
+              available_count: newAvailableCount
+            };
+            
+            const updatedPricingConfig = {
+              ...event.pricing_config,
+              ticket_classes: updatedTicketClasses
+            };
+            
+            await supabase
+              .from('event')
+              .update({ pricing_config: updatedPricingConfig })
+              .eq('id', eventId);
+            
+            console.log(`[createOneOffEventBooking] Decremented ticket class '${ticketClass.name}' availability: ${ticketClass.available_count} -> ${newAvailableCount}`);
+          }
+        }
+      } catch (ticketClassErr) {
+        console.error(`[createOneOffEventBooking] Ticket class availability decrement failed:`, ticketClassErr.message);
+        // Don't fail the booking, just log the error
+      }
+    }
+
     const response = {
       success: true,
       booking_reference: bookingReference,

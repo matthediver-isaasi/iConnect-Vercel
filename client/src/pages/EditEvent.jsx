@@ -162,6 +162,24 @@ export default function EditEvent() {
     queryFn: () => base44.entities.ResourceCategory.list('display_order')
   });
 
+  // Fetch bookings for this event to count sold tickets per ticket class
+  const { data: eventBookings = [] } = useQuery({
+    queryKey: ['event-bookings', eventId],
+    queryFn: () => base44.entities.Booking.filter({ event_id: eventId }),
+    enabled: !!eventId
+  });
+
+  // Calculate sold count per ticket class
+  const ticketClassSoldCounts = useMemo(() => {
+    const counts = {};
+    eventBookings.forEach(booking => {
+      if (booking.ticket_class_id && booking.status !== 'cancelled') {
+        counts[booking.ticket_class_id] = (counts[booking.ticket_class_id] || 0) + 1;
+      }
+    });
+    return counts;
+  }, [eventBookings]);
+
   // Fetch system settings for summary max length
   const { data: systemSettings = [] } = useQuery({
     queryKey: ['/api/entities/SystemSettings'],
@@ -629,6 +647,16 @@ export default function EditEvent() {
           }
           if (isNaN(percentage) || percentage < 0 || percentage > 100) {
             toast.error(`Bulk percentage for "${ticket.name}" must be between 0 and 100`);
+            return;
+          }
+        }
+
+        // Validate ticket availability is not reduced below sold count
+        if (!ticket.is_unlimited_tickets && ticket.available_count !== undefined && ticket.available_count !== "") {
+          const soldCount = ticketClassSoldCounts[ticket.id] || 0;
+          const availableCount = parseInt(ticket.available_count);
+          if (!isNaN(availableCount) && availableCount < soldCount) {
+            toast.error(`Cannot reduce availability for "${ticket.name}" below ${soldCount} (tickets already sold)`);
             return;
           }
         }
@@ -1439,7 +1467,7 @@ export default function EditEvent() {
                                 <Input
                                   id={`ticket-available-count-${ticket.id}`}
                                   type="number"
-                                  min="0"
+                                  min={ticketClassSoldCounts[ticket.id] || 0}
                                   value={ticket.available_count || ""}
                                   onChange={(e) => updateTicketClass(ticket.id, 'available_count', e.target.value)}
                                   placeholder="e.g. 50"
@@ -1447,6 +1475,11 @@ export default function EditEvent() {
                                   data-testid={`input-ticket-available-count-${ticket.id}`}
                                 />
                                 <span className="text-sm text-slate-500">tickets</span>
+                                {ticketClassSoldCounts[ticket.id] > 0 && (
+                                  <span className="text-xs text-amber-600">
+                                    ({ticketClassSoldCounts[ticket.id]} sold)
+                                  </span>
+                                )}
                               </div>
                             )}
                           </div>

@@ -3962,6 +3962,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         poToFollow = false,
         paymentMethod = 'account',
         stripePaymentIntentId = null,
+        ticketClassId = null,
+        ticketClassName = null,
+        ticketClassPrice = null,
         isGuestBooking = false,
         guestInfo = null
       } = req.body;
@@ -4239,6 +4242,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           po_to_follow: (!isGuestBooking && paymentMethod === 'account') ? poToFollow : false,
           stripe_payment_intent_id: stripePaymentIntentId,
           is_one_off_event: true,
+          ticket_class_id: ticketClassId,
+          ticket_class_name: ticketClassName,
+          ticket_price: ticketClassPrice || (totalCost / ticketsRequired),
           is_guest_booking: isGuestBooking
         };
         
@@ -4379,6 +4385,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
             await supabase.from('event').update({ available_seats: newSeatCount }).eq('id', eventId);
             console.log(`[createOneOffEventBooking] Fallback: Decremented seats to ${newSeatCount}`);
           }
+        }
+      }
+
+      // Decrement ticket class availability if ticket class has limited tickets
+      if (ticketClassId && event.pricing_config?.ticket_classes && createdBookings.length > 0) {
+        try {
+          const ticketClasses = event.pricing_config.ticket_classes;
+          const ticketClassIndex = ticketClasses.findIndex((tc: any) => tc.id === ticketClassId);
+          
+          if (ticketClassIndex !== -1) {
+            const ticketClass = ticketClasses[ticketClassIndex];
+            // Only decrement if ticket class has limited availability (not unlimited)
+            if (ticketClass.available_count !== null && ticketClass.available_count !== undefined && !ticketClass.is_unlimited_tickets) {
+              const ticketsToDecrement = createdBookings.length;
+              const newAvailableCount = Math.max(0, Number(ticketClass.available_count) - ticketsToDecrement);
+              
+              // Update the ticket class in pricing_config
+              const updatedTicketClasses = [...ticketClasses];
+              updatedTicketClasses[ticketClassIndex] = {
+                ...ticketClass,
+                available_count: newAvailableCount
+              };
+              
+              const updatedPricingConfig = {
+                ...event.pricing_config,
+                ticket_classes: updatedTicketClasses
+              };
+              
+              await supabase
+                .from('event')
+                .update({ pricing_config: updatedPricingConfig })
+                .eq('id', eventId);
+              
+              console.log(`[createOneOffEventBooking] Decremented ticket class '${ticketClass.name}' availability: ${ticketClass.available_count} -> ${newAvailableCount}`);
+            }
+          }
+        } catch (ticketClassErr: any) {
+          console.error(`[createOneOffEventBooking] Ticket class availability decrement failed:`, ticketClassErr.message);
+          // Don't fail the booking, just log the error
         }
       }
 
