@@ -97,6 +97,40 @@
         "type": "boolean",
         "default": false,
         "description": "For application forms: automatically create member/organization on submission (vs require admin approval)"
+      },
+      "field_mappings": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "source_field_id": {
+              "type": "string",
+              "description": "ID of the form field to map from"
+            },
+            "target_type": {
+              "type": "string",
+              "enum": ["core", "custom"],
+              "description": "Whether mapping to a core field or custom preference field"
+            },
+            "target_entity": {
+              "type": "string",
+              "enum": ["member", "organization"],
+              "description": "Target entity type"
+            },
+            "target_field": {
+              "type": "string",
+              "description": "Name of core field or ID of custom field"
+            },
+            "transformation": {
+              "type": "string",
+              "enum": ["none", "trim", "uppercase", "lowercase", "titlecase", "extract_domain", "extract_username", "first_word", "last_word", "remove_spaces", "numbers_only"],
+              "default": "none",
+              "description": "Transformation to apply to the value"
+            }
+          }
+        },
+        "default": [],
+        "description": "Array of field mappings for application forms"
       }
     },
     "required": [

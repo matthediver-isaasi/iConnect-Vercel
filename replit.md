@@ -88,3 +88,10 @@ CREATE TABLE IF NOT EXISTS training_fund_transaction (
 CREATE INDEX IF NOT EXISTS idx_tft_organization_id ON training_fund_transaction(organization_id);
 CREATE INDEX IF NOT EXISTS idx_tft_created_date ON training_fund_transaction(created_date DESC);
 ```
+
+## Form Table - Application Form Columns
+
+```sql
+ALTER TABLE form ADD COLUMN IF NOT EXISTS auto_create_entity BOOLEAN DEFAULT FALSE;
+ALTER TABLE form ADD COLUMN IF NOT EXISTS field_mappings JSONB DEFAULT '[]'::jsonb;
+```
