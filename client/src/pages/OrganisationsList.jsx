@@ -159,7 +159,8 @@ export default function OrganisationsListPage() {
   
   const { data: savedColumnPref } = useQuery({
     queryKey: ['system-settings-column-prefs', columnPrefKey],
-    enabled: accessChecked && !!columnPrefKey,
+    enabled: accessChecked && !!columnPrefKey && !columnsInitialized,
+    staleTime: Infinity,
     queryFn: async () => {
       try {
         const settings = await base44.entities.SystemSettings.list();
@@ -192,7 +193,6 @@ export default function OrganisationsListPage() {
     },
     onSuccess: (result) => {
       if (result?.id) setDbPrefId(result.id);
-      queryClient.invalidateQueries({ queryKey: ['system-settings-column-prefs', columnPrefKey] });
     },
     onError: () => {
       // Fallback: ensure localStorage is updated
@@ -200,20 +200,23 @@ export default function OrganisationsListPage() {
     }
   });
 
-  // Load columns from database when preference is fetched
+  // Load columns from database when preference is fetched (runs once)
   useEffect(() => {
-    if (savedColumnPref?.id && !dbPrefId) {
-      setDbPrefId(savedColumnPref.id);
+    if (savedColumnPref && !columnsInitialized) {
+      if (savedColumnPref.id) {
+        setDbPrefId(savedColumnPref.id);
+      }
+      if (savedColumnPref.setting_value) {
+        try {
+          const parsed = JSON.parse(savedColumnPref.setting_value);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setColumns(parsed);
+          }
+        } catch {}
+      }
+      setColumnsInitialized(true);
     }
-    if (savedColumnPref?.setting_value && !columnsInitialized) {
-      try {
-        const parsed = JSON.parse(savedColumnPref.setting_value);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setColumns(parsed);
-        }
-      } catch {}
-    }
-  }, [savedColumnPref, columnsInitialized, dbPrefId]);
+  }, [savedColumnPref, columnsInitialized]);
 
   // Debounced save to database
   const debouncedSaveToDb = useCallback((columnsData) => {
