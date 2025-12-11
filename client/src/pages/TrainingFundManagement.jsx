@@ -123,22 +123,34 @@ export default function TrainingFundManagementPage() {
 
   const updateBalanceMutation = useMutation({
     mutationFn: async ({ orgId, newBalance, balanceBefore, type, reason }) => {
-      await base44.entities.Organization.update(orgId, { training_fund_balance: newBalance });
+      console.log('[TrainingFund] Starting balance update:', { orgId, newBalance, balanceBefore, type, reason });
       
-      await createTransactionMutation.mutateAsync({
-        organization_id: orgId,
-        type: type,
-        amount: Math.abs(newBalance - balanceBefore),
-        balance_before: balanceBefore,
-        balance_after: newBalance,
-        reason: reason || (type === 'add' ? 'Funds added' : 'Funds deducted'),
-        created_by: memberInfo?.id || null,
-        created_date: new Date().toISOString()
-      });
-      
-      return { orgId, newBalance };
+      try {
+        console.log('[TrainingFund] Updating organization balance...');
+        await base44.entities.Organization.update(orgId, { training_fund_balance: newBalance });
+        console.log('[TrainingFund] Organization balance updated successfully');
+        
+        console.log('[TrainingFund] Creating transaction record...');
+        await createTransactionMutation.mutateAsync({
+          organization_id: orgId,
+          type: type,
+          amount: Math.abs(newBalance - balanceBefore),
+          balance_before: balanceBefore,
+          balance_after: newBalance,
+          reason: reason || (type === 'add' ? 'Funds added' : 'Funds deducted'),
+          created_by: memberInfo?.id || null,
+          created_date: new Date().toISOString()
+        });
+        console.log('[TrainingFund] Transaction record created successfully');
+        
+        return { orgId, newBalance };
+      } catch (innerError) {
+        console.error('[TrainingFund] Error in mutationFn:', innerError);
+        throw innerError;
+      }
     },
     onSuccess: () => {
+      console.log('[TrainingFund] Mutation success - invalidating queries');
       queryClient.invalidateQueries({ queryKey: ['organizations'] });
       setShowAdjustDialog(false);
       setAdjustingOrg(null);
@@ -147,6 +159,7 @@ export default function TrainingFundManagementPage() {
       toast.success('Training fund balance updated successfully');
     },
     onError: (error) => {
+      console.error('[TrainingFund] Mutation error:', error);
       toast.error('Failed to update balance: ' + error.message);
     }
   });
