@@ -3439,6 +3439,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const event = eventData;
 
+      // Check seat availability (null = unlimited seats)
+      if (event.available_seats !== null && event.available_seats !== undefined) {
+        if (event.available_seats < ticketsRequired) {
+          return res.status(400).json({
+            success: false,
+            error: event.available_seats === 0 
+              ? 'This event is sold out' 
+              : `Only ${event.available_seats} seat(s) remaining for this event`
+          });
+        }
+      }
+
       // Check if event requires program tickets
       if (!programTag || !event.program_tag) {
         return res.status(400).json({
@@ -3815,6 +3827,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
         })
         .eq('id', org.id);
 
+      // Decrement available seats atomically using RPC (only if not unlimited)
+      if (event.available_seats !== null && event.available_seats !== undefined && createdBookings.length > 0) {
+        const seatsToDecrement = createdBookings.length;
+        
+        try {
+          const { data: newSeatCount, error: rpcError } = await supabase
+            .rpc('adjust_event_seats', { p_event_id: eventId, p_delta: -seatsToDecrement });
+          
+          if (rpcError) {
+            console.error(`[createBooking] RPC seat decrement failed:`, rpcError.message);
+          } else {
+            console.log(`[createBooking] Atomically decremented seats, new count: ${newSeatCount}`);
+          }
+        } catch (rpcErr: any) {
+          // Fallback to non-atomic update if RPC doesn't exist yet
+          console.warn(`[createBooking] RPC not available, using fallback:`, rpcErr.message);
+          const { data: currentEvent } = await supabase
+            .from('event')
+            .select('available_seats')
+            .eq('id', eventId)
+            .single();
+          
+          if (currentEvent && currentEvent.available_seats !== null) {
+            const newSeatCount = Math.max(0, currentEvent.available_seats - seatsToDecrement);
+            await supabase.from('event').update({ available_seats: newSeatCount }).eq('id', eventId);
+            console.log(`[createBooking] Fallback: Decremented seats to ${newSeatCount}`);
+          }
+        }
+      }
+
       // Build sync status notes for transaction record
       let syncNotes = '';
       if (anyBackstageSyncFailed) {
@@ -3940,6 +3982,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
       const event = eventData;
+
+      // Check seat availability (null = unlimited seats)
+      if (event.available_seats !== null && event.available_seats !== undefined) {
+        if (event.available_seats < ticketsRequired) {
+          return res.status(400).json({
+            success: false,
+            error: event.available_seats === 0 
+              ? 'This event is sold out' 
+              : `Only ${event.available_seats} seat(s) remaining for this event`
+          });
+        }
+      }
 
       // Get organization
       const { data: org, error: orgError } = await supabase
@@ -4201,6 +4255,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
           } catch (xeroError: any) {
             console.error('[createOneOffEventBooking] Xero invoice creation failed:', xeroError.message);
             // Don't fail the booking, just log the error
+          }
+        }
+      }
+
+      // Decrement available seats atomically using RPC (only if not unlimited)
+      if (event.available_seats !== null && event.available_seats !== undefined && createdBookings.length > 0) {
+        const seatsToDecrement = createdBookings.length;
+        
+        try {
+          const { data: newSeatCount, error: rpcError } = await supabase
+            .rpc('adjust_event_seats', { p_event_id: eventId, p_delta: -seatsToDecrement });
+          
+          if (rpcError) {
+            console.error(`[createOneOffEventBooking] RPC seat decrement failed:`, rpcError.message);
+          } else {
+            console.log(`[createOneOffEventBooking] Atomically decremented seats, new count: ${newSeatCount}`);
+          }
+        } catch (rpcErr: any) {
+          // Fallback to non-atomic update if RPC doesn't exist yet
+          console.warn(`[createOneOffEventBooking] RPC not available, using fallback:`, rpcErr.message);
+          const { data: currentEvent } = await supabase
+            .from('event')
+            .select('available_seats')
+            .eq('id', eventId)
+            .single();
+          
+          if (currentEvent && currentEvent.available_seats !== null) {
+            const newSeatCount = Math.max(0, currentEvent.available_seats - seatsToDecrement);
+            await supabase.from('event').update({ available_seats: newSeatCount }).eq('id', eventId);
+            console.log(`[createOneOffEventBooking] Fallback: Decremented seats to ${newSeatCount}`);
           }
         }
       }
@@ -8497,6 +8581,26 @@ AGCAS Events Team
 
       console.log('Updated booking status to cancelled in database');
 
+      // STEP 4.5: Restore seat to event atomically using RPC (only if event has limited seats)
+      if (event && event.available_seats !== null && event.available_seats !== undefined) {
+        try {
+          const { data: newSeatCount, error: rpcError } = await supabase
+            .rpc('adjust_event_seats', { p_event_id: event.id, p_delta: 1 });
+          
+          if (rpcError) {
+            console.error(`[cancelTicketViaFlow] RPC seat restore failed:`, rpcError.message);
+          } else {
+            console.log(`[cancelTicketViaFlow] Atomically restored seat, new count: ${newSeatCount}`);
+          }
+        } catch (rpcErr: any) {
+          // Fallback to non-atomic update if RPC doesn't exist yet
+          console.warn(`[cancelTicketViaFlow] RPC not available, using fallback:`, rpcErr.message);
+          const newSeatCount = event.available_seats + 1;
+          await supabase.from('event').update({ available_seats: newSeatCount }).eq('id', event.id);
+          console.log(`[cancelTicketViaFlow] Fallback: Restored seat to ${newSeatCount}`);
+        }
+      }
+
       // STEP 5: Call Zoho Flow webhook to cancel in Backstage
       const ZOHO_FLOW_WEBHOOK_URL = process.env.ZOHO_FLOW_CANCEL_WEBHOOK_URL ||
         'https://flow.zoho.eu/20108063378/flow/webhook/incoming?zapikey=1001.ee25c218c557d7dddb0eed4f3e0e981a.70bb4e51162d59156ab4899ad8bcc38c&isdebug=false';
@@ -8642,6 +8746,19 @@ AGCAS Events Team
             .update({ status: 'cancelled' })
             .eq('id', booking.id);
 
+          // Restore seat to event atomically using RPC (only if event has limited seats)
+          if (event.available_seats !== null && event.available_seats !== undefined) {
+            try {
+              const { data: newSeatCount, error: rpcError } = await supabase
+                .rpc('adjust_event_seats', { p_event_id: event.id, p_delta: 1 });
+              if (!rpcError) console.log(`[cancelBackstageOrder] Atomically restored seat, new count: ${newSeatCount}`);
+            } catch (rpcErr: any) {
+              const newSeatCount = event.available_seats + 1;
+              await supabase.from('event').update({ available_seats: newSeatCount }).eq('id', event.id);
+              console.log(`[cancelBackstageOrder] Fallback: Restored seat to ${newSeatCount}`);
+            }
+          }
+
           return res.json({
             success: true,
             method: 'PUT',
@@ -8690,6 +8807,19 @@ AGCAS Events Team
             .from('booking')
             .update({ status: 'cancelled' })
             .eq('id', booking.id);
+
+          // Restore seat to event atomically using RPC (only if event has limited seats)
+          if (event.available_seats !== null && event.available_seats !== undefined) {
+            try {
+              const { data: newSeatCount, error: rpcError } = await supabase
+                .rpc('adjust_event_seats', { p_event_id: event.id, p_delta: 1 });
+              if (!rpcError) console.log(`[cancelBackstageOrder] Atomically restored seat, new count: ${newSeatCount}`);
+            } catch (rpcErr: any) {
+              const newSeatCount = event.available_seats + 1;
+              await supabase.from('event').update({ available_seats: newSeatCount }).eq('id', event.id);
+              console.log(`[cancelBackstageOrder] Fallback: Restored seat to ${newSeatCount}`);
+            }
+          }
 
           return res.json({
             success: true,
@@ -8740,6 +8870,19 @@ AGCAS Events Team
             .from('booking')
             .update({ status: 'cancelled' })
             .eq('id', booking.id);
+
+          // Restore seat to event atomically using RPC (only if event has limited seats)
+          if (event.available_seats !== null && event.available_seats !== undefined) {
+            try {
+              const { data: newSeatCount, error: rpcError } = await supabase
+                .rpc('adjust_event_seats', { p_event_id: event.id, p_delta: 1 });
+              if (!rpcError) console.log(`[cancelBackstageOrder] Atomically restored seat, new count: ${newSeatCount}`);
+            } catch (rpcErr: any) {
+              const newSeatCount = event.available_seats + 1;
+              await supabase.from('event').update({ available_seats: newSeatCount }).eq('id', event.id);
+              console.log(`[cancelBackstageOrder] Fallback: Restored seat to ${newSeatCount}`);
+            }
+          }
 
           return res.json({
             success: true,
@@ -8827,6 +8970,25 @@ AGCAS Events Team
             .eq('id', bookingToCancel.id);
 
           console.log(`Booking ${bookingToCancel.id} (${bookingToCancel.attendee_email}) updated to cancelled.`);
+
+          // Restore seat to event atomically using RPC (only if event has limited seats)
+          const { data: event } = await supabase
+            .from('event')
+            .select('available_seats')
+            .eq('id', bookingToCancel.event_id)
+            .single();
+          
+          if (event && event.available_seats !== null && event.available_seats !== undefined) {
+            try {
+              const { data: newSeatCount, error: rpcError } = await supabase
+                .rpc('adjust_event_seats', { p_event_id: bookingToCancel.event_id, p_delta: 1 });
+              if (!rpcError) console.log(`[processBackstageCancellation] Atomically restored seat, new count: ${newSeatCount}`);
+            } catch (rpcErr: any) {
+              const newSeatCount = event.available_seats + 1;
+              await supabase.from('event').update({ available_seats: newSeatCount }).eq('id', bookingToCancel.event_id);
+              console.log(`[processBackstageCancellation] Fallback: Restored seat to ${newSeatCount}`);
+            }
+          }
 
           return res.json({
             success: true,
