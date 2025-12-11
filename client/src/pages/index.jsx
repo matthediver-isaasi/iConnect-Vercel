@@ -140,6 +140,8 @@ import OrganisationDirectory from "./OrganisationDirectory";
 
 import OrganisationsList from "./OrganisationsList";
 
+import MembersList from "./MembersList";
+
 import FloaterManagement from "./FloaterManagement";
 
 import FormManagement from "./FormManagement";
@@ -368,6 +370,7 @@ const PAGES = {
     OrganisationDirectory: OrganisationDirectory,
     
     OrganisationsList: OrganisationsList,
+    MembersList: MembersList,
     
     FloaterManagement: FloaterManagement,
     
@@ -634,6 +637,8 @@ function PagesContent() {
                 <Route path="/OrganisationDirectory" element={<OrganisationDirectory />} />
                 
                 <Route path="/organisations" element={<OrganisationsList />} />
+                
+                <Route path="/members" element={<MembersList />} />
                 
                 <Route path="/FloaterManagement" element={<FloaterManagement />} />
                 

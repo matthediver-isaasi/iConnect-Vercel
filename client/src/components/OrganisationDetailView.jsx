@@ -628,14 +628,20 @@ export default function OrganisationDetailView({
                               <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center">
                                 <User className="w-4 h-4 text-blue-600" />
                               </div>
-                              <span className="font-medium text-slate-900">{member.full_name || '-'}</span>
+                              <a 
+                                href={`/members?id=${member.id}`}
+                                className="font-medium text-blue-600 hover:text-blue-800 hover:underline"
+                                data-testid={`link-member-${member.id}`}
+                              >
+                                {member.full_name || '-'}
+                              </a>
                             </div>
                           </td>
                           <td className="px-4 py-3 text-slate-600">{member.email}</td>
                           <td className="px-4 py-3 text-slate-600">{member.job_title || '-'}</td>
                           <td className="px-4 py-3">
-                            <Badge variant={member.status === 'active' ? 'default' : 'secondary'} className="capitalize">
-                              {member.status || 'unknown'}
+                            <Badge variant={!member.disabled ? 'default' : 'secondary'} className="capitalize">
+                              {member.disabled ? 'disabled' : 'active'}
                             </Badge>
                           </td>
                         </tr>
