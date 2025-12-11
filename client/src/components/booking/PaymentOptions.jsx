@@ -124,7 +124,8 @@ export default function PaymentOptions({
   selectedTicketClass = null,
   onCanProceedChange = null,
   isGuestCheckout = false,
-  guestInfo = null
+  guestInfo = null,
+  noTicketsForRole = false
 }) {
   // Payment state for one-off events
   const [selectedVouchers, setSelectedVouchers] = useState([]);
@@ -881,8 +882,9 @@ export default function PaymentOptions({
   };
 
   // Determine if booking can proceed
+  // For one-off events, also block if no tickets available for user's role
   const canProceed = isOneOffEvent 
-    ? (ticketsRequired > 0 && !submitting && (totalCost === 0 || isFullyPaid))
+    ? (ticketsRequired > 0 && !submitting && (totalCost === 0 || isFullyPaid) && !noTicketsForRole)
     : (hasEnoughTickets && event.program_tag && !submitting && ticketsRequired > 0);
 
   // Notify parent component of canProceed state changes

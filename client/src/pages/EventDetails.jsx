@@ -1104,6 +1104,8 @@ export default function EventDetailsPage() {
               )}
             </Card>
 
+            {/* Hide attendees card if no tickets available for user's role */}
+            {!noTicketsForRole && (
             <Card className="border-slate-200 shadow-sm">
               <CardHeader className="border-b border-slate-200">
                 <div className="flex items-center justify-between">
@@ -1342,6 +1344,7 @@ export default function EventDetailsPage() {
                 )}
               </CardContent>
             </Card>
+            )}
           </div>
 
           <div className="lg:col-span-1 space-y-6">
@@ -1545,6 +1548,7 @@ export default function EventDetailsPage() {
               onCanProceedChange={setPaymentCanProceed}
               isGuestCheckout={isGuestCheckout}
               guestInfo={guestInfo}
+              noTicketsForRole={noTicketsForRole}
             />
 
           </div>
