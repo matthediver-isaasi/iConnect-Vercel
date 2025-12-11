@@ -164,7 +164,7 @@ export default function AttendeeList({ attendees, onUpdate, onRemove, onAdd, mem
             )}
 
             <div className="flex items-center gap-2">
-              {!attendee.isSelf && (
+              {!attendee.isSelf && onRemove && (
                 <Button
                   variant="ghost"
                   size="icon"

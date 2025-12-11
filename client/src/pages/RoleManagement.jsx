@@ -126,6 +126,7 @@ const AVAILABLE_FEATURES = [
   { id: "element_EventsPageDescription", label: "Events Page Description", category: "UI Elements" },
   { id: "element_EventsSearch", label: "Events Page Search & Filters", category: "UI Elements" },
   { id: "element_SelfRegistration", label: "Self Registration for Events", category: "UI Elements" },
+  { id: "element_AddColleaguesToEvents", label: "Add Colleagues to Events", category: "UI Elements" },
   { id: "element_PurchaseButton", label: "Purchase Button", category: "UI Elements" },
   { id: "element_AvailableSeatsDisplay", label: "Event Available Seats Display", category: "UI Elements" },
   { id: "element_FloatersDisplay", label: "Floater Elements Display", category: "UI Elements" },

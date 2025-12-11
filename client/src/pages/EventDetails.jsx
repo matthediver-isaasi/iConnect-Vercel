@@ -480,6 +480,40 @@ export default function EventDetailsPage() {
     return userRoleId && roleIds.includes(userRoleId);
   }, [isOneOffEvent, selectedTicketClass, userRoleId]);
   
+  // Check if user can add colleagues to events (role-based permission)
+  // If this permission is excluded, user is auto-registered and cannot add colleagues
+  const canAddColleagues = !isFeatureExcluded || !isFeatureExcluded('element_AddColleaguesToEvents');
+  
+  // Auto-register user if they cannot add colleagues and are logged in
+  // This runs after initialization is complete
+  useEffect(() => {
+    // Only apply if initialization is complete for this event
+    if (hasInitialized.current !== eventId) return;
+    // Only apply for logged-in users
+    if (!currentMemberInfo) return;
+    // Only apply if user cannot add colleagues
+    if (canAddColleagues) return;
+    // Only apply if user can self-register for selected ticket
+    if (!canSelfRegister) return;
+    
+    // Check if user is already in attendees list
+    const alreadyAdded = attendees.some(a => a.isSelf);
+    if (!alreadyAdded) {
+      console.log('[EventDetails] User cannot add colleagues - auto-registering as attendee');
+      const memberAsAttendee = {
+        email: currentMemberInfo.email || "",
+        first_name: currentMemberInfo.first_name || "",
+        last_name: currentMemberInfo.last_name || "",
+        organization: organizationInfo?.name || currentMemberInfo.organization || "",
+        isValid: true,
+        isSelf: true
+      };
+      // Preserve existing colleagues and prepend the self-attendee
+      setAttendees(prev => [memberAsAttendee, ...prev.filter(a => !a.isSelf)]);
+      setMemberAttending(true);
+      setShowColleagueSelector(false);
+    }
+  }, [eventId, currentMemberInfo, canAddColleagues, canSelfRegister, organizationInfo, attendees]);
   
   // When ticket selection changes and user can no longer self-register, handle mode/attendance changes
   useEffect(() => {
@@ -1076,7 +1110,7 @@ export default function EventDetailsPage() {
                   <CardTitle className="text-xl">
                     {isGuestCheckout ? 'Your Details' : 'Attendees'}
                   </CardTitle>
-                  {!isGuestCheckout && (
+                  {!isGuestCheckout && canAddColleagues && (
                     <div className="flex items-center gap-4">
                       {currentMemberInfo && canSelfRegister && (
                         <div className="flex items-center gap-3" id="member-attending-toggle">
@@ -1253,7 +1287,7 @@ export default function EventDetailsPage() {
                       <div className="text-center py-8 text-slate-500">
                         <Users className="w-12 h-12 text-slate-300 mx-auto mb-3" />
                         <p>No attendees added yet</p>
-                        {currentMemberInfo && (
+                        {currentMemberInfo && canAddColleagues && (
                           <p className="text-sm mt-1">Toggle "I am attending" or add colleagues to get started.</p>
                         )}
                       </div>
@@ -1262,7 +1296,7 @@ export default function EventDetailsPage() {
                         <AttendeeList
                           attendees={attendees}
                           onUpdate={updateAttendee}
-                          onRemove={removeAttendee}
+                          onRemove={canAddColleagues ? removeAttendee : null}
                           memberInfo={currentMemberInfo}
                         />
                         
