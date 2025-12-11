@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 
 export function LazyImage({ 
   src, 
@@ -8,44 +8,56 @@ export function LazyImage({
   fallback = null,
   placeholderClassName = ""
 }) {
-  const [loadState, setLoadState] = useState('loading');
+  const [status, setStatus] = useState('loading');
+  const imgRef = useRef(null);
+
+  useEffect(() => {
+    const img = imgRef.current;
+    if (!img) return;
+
+    if (img.complete && img.naturalWidth > 0) {
+      setStatus('loaded');
+    }
+  }, [src]);
 
   const handleLoad = () => {
-    setLoadState('loaded');
+    setStatus('loaded');
   };
 
   const handleError = () => {
-    setLoadState('error');
+    setStatus('error');
   };
 
-  const isLoading = loadState === 'loading';
-  const isError = loadState === 'error';
-  const isLoaded = loadState === 'loaded';
+  if (status === 'error' && fallback) {
+    return (
+      <div 
+        className={`relative flex items-center justify-center bg-slate-100 dark:bg-slate-800 ${className}`}
+        style={style}
+      >
+        {fallback}
+      </div>
+    );
+  }
 
   return (
     <div 
-      className={`relative overflow-hidden ${className}`} 
+      className={`relative ${className}`} 
       style={style}
     >
-      {isLoading && (
+      {status === 'loading' && (
         <div 
-          className={`absolute inset-0 flex items-center justify-center bg-slate-100 dark:bg-slate-800 ${placeholderClassName}`}
+          className={`absolute inset-0 z-10 flex items-center justify-center bg-slate-100 dark:bg-slate-800 ${placeholderClassName}`}
+          style={style}
         >
           <div className="w-6 h-6 rounded-full border-2 border-slate-300 dark:border-slate-600 border-t-blue-500 animate-spin" />
         </div>
       )}
       
-      {isError && fallback && (
-        <div className="absolute inset-0 flex items-center justify-center bg-slate-100 dark:bg-slate-800">
-          {fallback}
-        </div>
-      )}
-      
       <img
+        ref={imgRef}
         src={src}
         alt={alt}
-        loading="lazy"
-        className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-200 ${isLoaded ? 'opacity-100' : 'opacity-0'}`}
+        className="w-full h-full object-cover"
         style={{ borderRadius: style.borderRadius }}
         onLoad={handleLoad}
         onError={handleError}
