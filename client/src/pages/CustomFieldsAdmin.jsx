@@ -427,8 +427,8 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
       </CardContent>
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="sm:max-w-[500px]">
-          <DialogHeader>
+        <DialogContent className="sm:max-w-[500px] max-h-[90vh] flex flex-col">
+          <DialogHeader className="flex-shrink-0">
             <DialogTitle>
               {editingField ? 'Edit Custom Field' : 'Create Custom Field'}
             </DialogTitle>
@@ -439,7 +439,7 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4 py-4">
+          <div className="space-y-4 py-4 overflow-y-auto flex-1">
             <div className="space-y-2">
               <Label htmlFor="fieldLabel">Field Label *</Label>
               <Input
@@ -572,7 +572,7 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
             )}
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="flex-shrink-0">
             <Button variant="outline" onClick={resetForm} data-testid="button-cancel-field">
               Cancel
             </Button>
