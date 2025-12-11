@@ -3961,7 +3961,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         purchaseOrderNumber = null,
         poToFollow = false,
         paymentMethod = 'account',
-        stripePaymentIntentId = null
+        stripePaymentIntentId = null,
+        isGuestBooking = false,
+        guestInfo = null
       } = req.body;
 
       console.log('[createOneOffEventBooking] Starting booking:', {
@@ -3969,34 +3971,57 @@ export async function registerRoutes(app: Express): Promise<Server> {
         memberEmail,
         ticketsRequired,
         totalCost,
-        paymentMethod
+        paymentMethod,
+        isGuestBooking,
+        guestInfo: guestInfo ? { email: guestInfo.email } : null
       });
 
-      // Validate required fields
-      if (!eventId || !memberEmail || !ticketsRequired) {
+      // Validate required fields - for guest bookings, require guestInfo instead of memberEmail
+      if (!eventId || !ticketsRequired) {
         return res.status(400).json({
           success: false,
-          error: 'Missing required parameters'
+          error: 'Missing required parameters: eventId and ticketsRequired'
+        });
+      }
+      
+      if (!isGuestBooking && !memberEmail) {
+        return res.status(400).json({
+          success: false,
+          error: 'Missing required parameter: memberEmail (for member bookings)'
+        });
+      }
+      
+      if (isGuestBooking && (!guestInfo || !guestInfo.email || !guestInfo.first_name || !guestInfo.last_name)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Missing required guest information: email, first_name, and last_name are required'
         });
       }
 
-      // Get member details
-      const { data: memberData, error: memberError } = await supabase
-        .from('member')
-        .select('*')
-        .eq('email', memberEmail)
-        .single();
+      // Get member details (skip for guest bookings)
+      let member = null;
+      let org = null;
       
-      if (memberError) {
-        console.error('[createOneOffEventBooking] Member query error:', memberError);
-        return res.status(404).json({
-          success: false,
-          error: 'Member not found'
-        });
+      if (!isGuestBooking) {
+        const { data: memberData, error: memberError } = await supabase
+          .from('member')
+          .select('*')
+          .eq('email', memberEmail)
+          .single();
+        
+        if (memberError) {
+          console.error('[createOneOffEventBooking] Member query error:', memberError);
+          return res.status(404).json({
+            success: false,
+            error: 'Member not found'
+          });
+        }
+        
+        member = memberData;
+        console.log('[createOneOffEventBooking] Member found:', member?.id, member?.email);
+      } else {
+        console.log('[createOneOffEventBooking] Guest booking - no member lookup needed');
       }
-      
-      const member = memberData;
-      console.log('[createOneOffEventBooking] Member found:', member?.id, member?.email);
 
       // Get event details
       const { data: eventData, error: eventError } = await supabase
@@ -4026,19 +4051,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      // Get organization
-      const { data: org, error: orgError } = await supabase
-        .from('organization')
-        .select('*')
-        .eq('id', member.organization_id)
-        .single();
+      // Get organization (only for member bookings)
+      if (!isGuestBooking && member) {
+        const { data: orgData, error: orgError } = await supabase
+          .from('organization')
+          .select('*')
+          .eq('id', member.organization_id)
+          .single();
 
-      if (orgError || !org) {
-        console.error('[createOneOffEventBooking] Organization not found');
-        return res.status(404).json({
-          success: false,
-          error: 'Organization not found'
-        });
+        if (orgError || !orgData) {
+          console.error('[createOneOffEventBooking] Organization not found');
+          return res.status(404).json({
+            success: false,
+            error: 'Organization not found'
+          });
+        }
+        org = orgData;
       }
 
       // Verify Stripe payment if card payment was used
@@ -4088,20 +4116,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Generate booking reference
-      const bookingReference = `OOE-${Date.now()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
+      const bookingReference = isGuestBooking 
+        ? `GUEST-${Date.now()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`
+        : `OOE-${Date.now()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
       
-      // Server-side validation: Clamp training fund amount to available balance
-      const validatedTrainingFundAmount = Math.min(
+      // Server-side validation: Clamp training fund amount to available balance (members only)
+      const validatedTrainingFundAmount = isGuestBooking ? 0 : Math.min(
         Math.max(0, trainingFundAmount || 0),
-        org.training_fund_balance || 0,
+        org?.training_fund_balance || 0,
         totalCost
       );
       
-      // Process voucher deductions if any - with ownership validation
+      // Process voucher deductions if any - with ownership validation (members only)
       let voucherAmountApplied = 0;
       const voucherDeductions: { voucherId: string; amount: number }[] = [];
       
-      if (selectedVoucherIds && selectedVoucherIds.length > 0) {
+      if (!isGuestBooking && org && selectedVoucherIds && selectedVoucherIds.length > 0) {
         for (const voucherId of selectedVoucherIds) {
           // Fetch voucher and validate it belongs to the member's organization
           const { data: voucher } = await supabase
@@ -4137,8 +4167,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      // Process training fund deduction if any (use validated amount)
-      if (validatedTrainingFundAmount > 0) {
+      // Process training fund deduction if any (use validated amount) - members only
+      if (!isGuestBooking && org && validatedTrainingFundAmount > 0) {
         await supabase
           .from('organization')
           .update({
@@ -4166,11 +4196,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Create booking records for each attendee
       const createdBookings: any[] = [];
       
-      for (const attendee of attendees) {
+      // For guest bookings, use guestInfo as the single attendee if no attendees provided
+      const bookingAttendees = isGuestBooking && (!attendees || attendees.length === 0)
+        ? [{
+            email: guestInfo.email,
+            first_name: guestInfo.first_name,
+            last_name: guestInfo.last_name,
+            organization: guestInfo.organization,
+            phone: guestInfo.phone,
+            job_title: guestInfo.job_title,
+            isGuest: true
+          }]
+        : attendees;
+      
+      for (const attendee of bookingAttendees) {
         const bookingData: any = {
           event_id: event.id,
-          member_id: member.id,
-          organization_id: org.id,
+          member_id: isGuestBooking ? null : member?.id,
+          organization_id: isGuestBooking ? null : org?.id,
           booking_reference: bookingReference,
           attendee_email: attendee.email,
           attendee_first_name: attendee.first_name || attendee.firstName,
@@ -4181,11 +4224,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
           voucher_amount: voucherAmountApplied / ticketsRequired,
           training_fund_amount: validatedTrainingFundAmount / ticketsRequired,
           account_amount: (paymentMethod === 'account' ? validatedRemainingBalance : 0) / ticketsRequired,
-          purchase_order_number: purchaseOrderNumber,
-          po_to_follow: paymentMethod === 'account' ? poToFollow : false,
+          purchase_order_number: isGuestBooking ? null : purchaseOrderNumber,
+          po_to_follow: (!isGuestBooking && paymentMethod === 'account') ? poToFollow : false,
           stripe_payment_intent_id: stripePaymentIntentId,
-          is_one_off_event: true
+          is_one_off_event: true,
+          is_guest_booking: isGuestBooking
         };
+        
+        // Add guest-specific fields
+        if (isGuestBooking && attendee.isGuest) {
+          bookingData.guest_organization = attendee.organization || null;
+          bookingData.guest_phone = attendee.phone || null;
+          bookingData.guest_job_title = attendee.job_title || null;
+        }
 
         console.log('[createOneOffEventBooking] Inserting booking:', JSON.stringify(bookingData));
         
@@ -4203,9 +4254,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      // If paying to account, create an account charge record and optionally a Xero invoice
+      // If paying to account, create an account charge record and optionally a Xero invoice (members only)
       let xeroInvoiceResult = null;
-      if (validatedRemainingBalance > 0 && paymentMethod === 'account') {
+      if (!isGuestBooking && org && validatedRemainingBalance > 0 && paymentMethod === 'account') {
         await supabase
           .from('program_ticket_transaction')
           .insert({
@@ -4324,6 +4375,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         success: true,
         booking_reference: bookingReference,
         bookings: createdBookings,
+        is_guest_booking: isGuestBooking,
         payment_details: {
           total_cost: totalCost,
           voucher_amount: voucherAmountApplied,
