@@ -138,6 +138,8 @@ import TeamInviteSettings from "./TeamInviteSettings";
 
 import OrganisationDirectory from "./OrganisationDirectory";
 
+import OrganisationsList from "./OrganisationsList";
+
 import FloaterManagement from "./FloaterManagement";
 
 import FormManagement from "./FormManagement";
@@ -364,6 +366,8 @@ const PAGES = {
     TeamInviteSettings: TeamInviteSettings,
     
     OrganisationDirectory: OrganisationDirectory,
+    
+    OrganisationsList: OrganisationsList,
     
     FloaterManagement: FloaterManagement,
     
@@ -628,6 +632,9 @@ function PagesContent() {
                 <Route path="/TeamInviteSettings" element={<TeamInviteSettings />} />
                 
                 <Route path="/OrganisationDirectory" element={<OrganisationDirectory />} />
+                
+                <Route path="/OrganisationsList" element={<OrganisationsList />} />
+                <Route path="/organisations" element={<OrganisationsList />} />
                 
                 <Route path="/FloaterManagement" element={<FloaterManagement />} />
                 

@@ -55,6 +55,19 @@ Enables administrators to create and manage pages/routes at runtime using a `/:s
 
 A dedicated page (`/myorganisation`) displaying organization details, including default contact information and custom fields, with access controlled via Role Management.
 
+## Organisations CRM List (/organisations)
+
+A CRM-style admin page for managing organisations with:
+- **Left sidebar filters:** Search, status dropdown, and custom field filters (for filterable dropdown/picklist fields)
+- **View toggle:** Switch between list (table) and card grid layouts
+- **Pagination:** Navigate through large organisation lists
+- **Detail view:** Click any organisation to open a CRM-style profile with:
+  - Overview tab: Core details, contact info, custom fields (editable by admins)
+  - Members tab: List of organisation members
+  - Activity tab: Recent booking activity
+  - Training fund balance display
+- **Access control:** Admin-only, respects `page_OrganisationsList` and `page_OrganisationDirectory` feature exclusions
+
 # External Dependencies
 
 **Supabase:** Primary database for application data (PostgreSQL), used for CRUD operations and realtime subscriptions.
