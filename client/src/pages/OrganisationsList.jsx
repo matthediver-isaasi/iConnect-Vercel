@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { 
   Building2, 
   Search, 
@@ -26,11 +27,24 @@ import {
   MapPin,
   Loader2,
   SlidersHorizontal,
-  RotateCcw
+  RotateCcw,
+  Columns3,
+  GripVertical,
+  PanelLeftClose,
+  PanelLeft,
+  Eye,
+  EyeOff
 } from "lucide-react";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 import OrganisationDetailView from "@/components/OrganisationDetailView";
+
+const DEFAULT_COLUMNS = [
+  { id: 'name', label: 'Organisation', visible: true, locked: true },
+  { id: 'status', label: 'Status', visible: true, locked: false },
+  { id: 'members', label: 'Members', visible: true, locked: false },
+  { id: 'contact', label: 'Contact', visible: true, locked: false },
+];
 
 const STATUS_OPTIONS = [
   { value: 'all', label: 'All Statuses' },
@@ -50,7 +64,9 @@ export default function OrganisationsListPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(20);
   const [selectedOrg, setSelectedOrg] = useState(null);
-  const [showFilters, setShowFilters] = useState(true);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [columns, setColumns] = useState(DEFAULT_COLUMNS);
+  const [draggedColumn, setDraggedColumn] = useState(null);
 
   useEffect(() => {
     if (isAccessReady) {
@@ -193,6 +209,67 @@ export default function OrganisationsListPage() {
 
   const hasActiveFilters = searchQuery || statusFilter !== 'all' || Object.values(customFieldFilters).some(v => v && v !== 'all');
 
+  // Update columns when custom fields are loaded
+  useEffect(() => {
+    if (orgCustomFields.length > 0) {
+      setColumns(prev => {
+        const existingIds = prev.map(c => c.id);
+        const newCustomFieldColumns = orgCustomFields
+          .filter(f => !existingIds.includes(`cf_${f.id}`))
+          .map(f => ({
+            id: `cf_${f.id}`,
+            label: f.label,
+            visible: false,
+            locked: false,
+            isCustomField: true,
+            fieldId: f.id
+          }));
+        return [...prev, ...newCustomFieldColumns];
+      });
+    }
+  }, [orgCustomFields]);
+
+  const visibleColumns = useMemo(() => columns.filter(c => c.visible), [columns]);
+
+  const toggleColumnVisibility = (columnId) => {
+    setColumns(prev => prev.map(col => 
+      col.id === columnId && !col.locked 
+        ? { ...col, visible: !col.visible }
+        : col
+    ));
+  };
+
+  const moveColumn = (fromIndex, toIndex) => {
+    if (fromIndex === toIndex) return;
+    setColumns(prev => {
+      const result = [...prev];
+      const [removed] = result.splice(fromIndex, 1);
+      result.splice(toIndex, 0, removed);
+      return result;
+    });
+  };
+
+  const handleDragStart = (e, index) => {
+    setDraggedColumn(index);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragOver = (e, index) => {
+    e.preventDefault();
+    if (draggedColumn === null || draggedColumn === index) return;
+    moveColumn(draggedColumn, index);
+    setDraggedColumn(index);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedColumn(null);
+  };
+
+  const resetColumns = () => {
+    const customFieldCols = columns.filter(c => c.isCustomField).map(c => ({ ...c, visible: false }));
+    setColumns([...DEFAULT_COLUMNS, ...customFieldCols]);
+  };
+
   if (!accessChecked) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
@@ -215,14 +292,18 @@ export default function OrganisationsListPage() {
   return (
     <div className="min-h-screen bg-slate-50">
       <div className="flex h-screen">
-        {showFilters && (
-          <aside className="w-72 bg-white border-r border-slate-200 flex flex-col">
-            <div className="p-4 border-b border-slate-200">
-              <div className="flex items-center justify-between mb-3">
-                <h2 className="font-semibold text-slate-900 flex items-center gap-2">
-                  <SlidersHorizontal className="w-4 h-4" />
-                  Filters
-                </h2>
+        <aside 
+          className={`bg-white border-r border-slate-200 flex flex-col transition-all duration-300 ease-in-out ${
+            sidebarCollapsed ? 'w-0 overflow-hidden' : 'w-72'
+          }`}
+        >
+          <div className="p-4 border-b border-slate-200 min-w-[288px]">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="font-semibold text-slate-900 flex items-center gap-2">
+                <SlidersHorizontal className="w-4 h-4" />
+                Filters
+              </h2>
+              <div className="flex items-center gap-1">
                 {hasActiveFilters && (
                   <Button 
                     variant="ghost" 
@@ -235,92 +316,102 @@ export default function OrganisationsListPage() {
                     Reset
                   </Button>
                 )}
-              </div>
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <Input
-                  placeholder="Search organisations..."
-                  value={searchQuery}
-                  onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
-                  className="pl-9"
-                  data-testid="input-search-orgs"
-                />
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setSidebarCollapsed(true)}
+                  className="h-8 w-8 text-slate-400 hover:text-slate-600"
+                  data-testid="button-collapse-sidebar"
+                >
+                  <PanelLeftClose className="w-4 h-4" />
+                </Button>
               </div>
             </div>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <Input
+                placeholder="Search organisations..."
+                value={searchQuery}
+                onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
+                className="pl-9"
+                data-testid="input-search-orgs"
+              />
+            </div>
+          </div>
 
-            <ScrollArea className="flex-1 p-4">
-              <div className="space-y-6">
-                <div className="space-y-2">
-                  <Label className="text-xs font-medium text-slate-500 uppercase tracking-wide">Status</Label>
-                  <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setCurrentPage(1); }}>
-                    <SelectTrigger data-testid="select-status-filter">
-                      <SelectValue />
+          <ScrollArea className="flex-1 p-4 min-w-[288px]">
+            <div className="space-y-6">
+              <div className="space-y-2">
+                <Label className="text-xs font-medium text-slate-500 uppercase tracking-wide">Status</Label>
+                <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setCurrentPage(1); }}>
+                  <SelectTrigger data-testid="select-status-filter">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {STATUS_OPTIONS.map(opt => (
+                      <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {orgCustomFields.filter(f => f.is_filterable && f.options && f.options.length > 0).map(field => (
+                <div key={field.id} className="space-y-2">
+                  <Label className="text-xs font-medium text-slate-500 uppercase tracking-wide">{field.label}</Label>
+                  <Select 
+                    value={customFieldFilters[field.id] || 'all'} 
+                    onValueChange={(v) => { 
+                      setCustomFieldFilters(prev => ({ ...prev, [field.id]: v })); 
+                      setCurrentPage(1); 
+                    }}
+                  >
+                    <SelectTrigger data-testid={`select-filter-${field.id}`}>
+                      <SelectValue placeholder={`All ${field.label}`} />
                     </SelectTrigger>
                     <SelectContent>
-                      {STATUS_OPTIONS.map(opt => (
-                        <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                      <SelectItem value="all">All {field.label}</SelectItem>
+                      {field.options.map((opt, idx) => (
+                        <SelectItem key={idx} value={opt.value}>{opt.label || opt.value}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
+              ))}
 
-                {orgCustomFields.filter(f => f.is_filterable && f.options && f.options.length > 0).map(field => (
-                  <div key={field.id} className="space-y-2">
-                    <Label className="text-xs font-medium text-slate-500 uppercase tracking-wide">{field.label}</Label>
-                    <Select 
-                      value={customFieldFilters[field.id] || 'all'} 
-                      onValueChange={(v) => { 
-                        setCustomFieldFilters(prev => ({ ...prev, [field.id]: v })); 
-                        setCurrentPage(1); 
-                      }}
-                    >
-                      <SelectTrigger data-testid={`select-filter-${field.id}`}>
-                        <SelectValue placeholder={`All ${field.label}`} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All {field.label}</SelectItem>
-                        {field.options.map((opt, idx) => (
-                          <SelectItem key={idx} value={opt.value}>{opt.label || opt.value}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                ))}
-
-                {orgCustomFields.filter(f => !f.is_filterable || !f.options?.length).length > 0 && (
-                  <>
-                    <Separator />
-                    <p className="text-xs text-slate-400">
-                      {orgCustomFields.filter(f => f.is_filterable && (!f.options || f.options.length === 0)).length > 0 && 
-                        "Some filterable fields need dropdown options to appear here."
-                      }
-                    </p>
-                  </>
-                )}
-              </div>
-            </ScrollArea>
-
-            <div className="p-4 border-t border-slate-200 bg-slate-50">
-              <p className="text-xs text-slate-500">
-                Showing {filteredOrganizations.length} of {organizations.length} organisations
-              </p>
+              {orgCustomFields.filter(f => !f.is_filterable || !f.options?.length).length > 0 && (
+                <>
+                  <Separator />
+                  <p className="text-xs text-slate-400">
+                    {orgCustomFields.filter(f => f.is_filterable && (!f.options || f.options.length === 0)).length > 0 && 
+                      "Some filterable fields need dropdown options to appear here."
+                    }
+                  </p>
+                </>
+              )}
             </div>
-          </aside>
-        )}
+          </ScrollArea>
+
+          <div className="p-4 border-t border-slate-200 bg-slate-50 min-w-[288px]">
+            <p className="text-xs text-slate-500">
+              Showing {filteredOrganizations.length} of {organizations.length} organisations
+            </p>
+          </div>
+        </aside>
 
         <main className="flex-1 flex flex-col overflow-hidden">
           <header className="bg-white border-b border-slate-200 px-6 py-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setShowFilters(!showFilters)}
-                  className={showFilters ? 'bg-slate-100' : ''}
-                  data-testid="button-toggle-filters"
-                >
-                  <Filter className="w-4 h-4" />
-                </Button>
+                {sidebarCollapsed && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setSidebarCollapsed(false)}
+                    data-testid="button-expand-sidebar"
+                  >
+                    <PanelLeft className="w-4 h-4" />
+                  </Button>
+                )}
                 <div>
                   <h1 className="text-xl font-semibold text-slate-900 flex items-center gap-2">
                     <Building2 className="w-5 h-5 text-blue-600" />
@@ -333,6 +424,69 @@ export default function OrganisationsListPage() {
               </div>
 
               <div className="flex items-center gap-2">
+                {viewMode === 'list' && (
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" size="sm" className="gap-1" data-testid="button-configure-columns">
+                        <Columns3 className="w-4 h-4" />
+                        Columns
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-80" align="end">
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between">
+                          <h4 className="font-medium text-sm">Configure Columns</h4>
+                          <Button variant="ghost" size="sm" onClick={resetColumns} className="h-7 text-xs" data-testid="button-reset-columns">
+                            Reset
+                          </Button>
+                        </div>
+                        <p className="text-xs text-slate-500">Drag to reorder. Click to show/hide.</p>
+                        <ScrollArea className="h-64">
+                          <div className="space-y-1">
+                            {columns.map((col, index) => (
+                              <div
+                                key={col.id}
+                                draggable={!col.locked}
+                                onDragStart={(e) => handleDragStart(e, index)}
+                                onDragOver={(e) => handleDragOver(e, index)}
+                                onDragEnd={handleDragEnd}
+                                className={`flex items-center gap-2 p-2 rounded-md border ${
+                                  draggedColumn === index ? 'border-blue-400 bg-blue-50' : 'border-transparent hover:bg-slate-50'
+                                } ${col.locked ? 'opacity-60' : 'cursor-grab'}`}
+                                data-testid={`column-item-${col.id}`}
+                              >
+                                <GripVertical className={`w-4 h-4 text-slate-400 ${col.locked ? 'invisible' : ''}`} />
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-6 w-6"
+                                  onClick={() => toggleColumnVisibility(col.id)}
+                                  disabled={col.locked}
+                                  data-testid={`toggle-column-${col.id}`}
+                                >
+                                  {col.visible ? (
+                                    <Eye className="w-3.5 h-3.5 text-blue-600" />
+                                  ) : (
+                                    <EyeOff className="w-3.5 h-3.5 text-slate-400" />
+                                  )}
+                                </Button>
+                                <span className={`text-sm flex-1 ${col.visible ? 'text-slate-900' : 'text-slate-400'}`}>
+                                  {col.label}
+                                </span>
+                                {col.locked && (
+                                  <Badge variant="secondary" className="text-xs h-5">Required</Badge>
+                                )}
+                                {col.isCustomField && (
+                                  <Badge variant="outline" className="text-xs h-5">Custom</Badge>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </ScrollArea>
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                )}
                 <div className="bg-slate-100 rounded-lg p-1 flex">
                   <Button
                     variant={viewMode === 'list' ? 'default' : 'ghost'}
@@ -375,13 +529,9 @@ export default function OrganisationsListPage() {
                 <table className="w-full">
                   <thead className="bg-slate-50 border-b border-slate-200">
                     <tr>
-                      <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide">Organisation</th>
-                      <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide">Status</th>
-                      <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide">Members</th>
-                      <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide">Contact</th>
-                      {orgCustomFields.slice(0, 2).map(field => (
-                        <th key={field.id} className="text-left px-4 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide">
-                          {field.label}
+                      {visibleColumns.map(col => (
+                        <th key={col.id} className="text-left px-4 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide">
+                          {col.label}
                         </th>
                       ))}
                     </tr>
@@ -394,69 +544,89 @@ export default function OrganisationsListPage() {
                         onClick={() => setSelectedOrg(org)}
                         data-testid={`row-org-${org.id}`}
                       >
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-3">
-                            {org.logo_url ? (
-                              <img src={org.logo_url} alt={org.name} className="w-10 h-10 rounded-lg object-contain bg-slate-100" />
-                            ) : (
-                              <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center">
-                                <Building2 className="w-5 h-5 text-blue-600" />
-                              </div>
-                            )}
-                            <div>
-                              <p className="font-medium text-slate-900">{org.name}</p>
-                              {org.website_url && (
-                                <p className="text-xs text-slate-500 truncate max-w-[200px]">{org.website_url}</p>
-                              )}
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3">
-                          <Badge variant={org.status === 'active' ? 'default' : 'secondary'} className="capitalize">
-                            {org.status || 'unknown'}
-                          </Badge>
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-1 text-slate-600">
-                            <Users className="w-4 h-4" />
-                            <span>{organizationMemberCounts[org.id] || 0}</span>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="text-sm text-slate-600">
-                            {org.invoicing_email && (
-                              <p className="truncate max-w-[180px]">{org.invoicing_email}</p>
-                            )}
-                            {org.phone && (
-                              <p className="text-xs text-slate-400">{org.phone}</p>
-                            )}
-                          </div>
-                        </td>
-                        {orgCustomFields.slice(0, 2).map(field => {
-                          const value = orgValuesMap[org.id]?.[field.id];
-                          let displayValue = value || '-';
-                          if (value && (field.field_type === 'picklist' || field.field_type === 'dropdown')) {
-                            try {
-                              const parsed = JSON.parse(value);
-                              if (Array.isArray(parsed)) {
-                                displayValue = parsed.map(v => {
-                                  const opt = field.options?.find(o => o.value === v);
-                                  return opt?.label || v;
-                                }).join(', ');
-                              } else {
+                        {visibleColumns.map(col => {
+                          if (col.id === 'name') {
+                            return (
+                              <td key={col.id} className="px-4 py-3">
+                                <div className="flex items-center gap-3">
+                                  {org.logo_url ? (
+                                    <img src={org.logo_url} alt={org.name} className="w-10 h-10 rounded-lg object-contain bg-slate-100" />
+                                  ) : (
+                                    <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center">
+                                      <Building2 className="w-5 h-5 text-blue-600" />
+                                    </div>
+                                  )}
+                                  <div>
+                                    <p className="font-medium text-slate-900">{org.name}</p>
+                                    {org.website_url && (
+                                      <p className="text-xs text-slate-500 truncate max-w-[200px]">{org.website_url}</p>
+                                    )}
+                                  </div>
+                                </div>
+                              </td>
+                            );
+                          }
+                          if (col.id === 'status') {
+                            return (
+                              <td key={col.id} className="px-4 py-3">
+                                <Badge variant={org.status === 'active' ? 'default' : 'secondary'} className="capitalize">
+                                  {org.status || 'unknown'}
+                                </Badge>
+                              </td>
+                            );
+                          }
+                          if (col.id === 'members') {
+                            return (
+                              <td key={col.id} className="px-4 py-3">
+                                <div className="flex items-center gap-1 text-slate-600">
+                                  <Users className="w-4 h-4" />
+                                  <span>{organizationMemberCounts[org.id] || 0}</span>
+                                </div>
+                              </td>
+                            );
+                          }
+                          if (col.id === 'contact') {
+                            return (
+                              <td key={col.id} className="px-4 py-3">
+                                <div className="text-sm text-slate-600">
+                                  {org.invoicing_email && (
+                                    <p className="truncate max-w-[180px]">{org.invoicing_email}</p>
+                                  )}
+                                  {org.phone && (
+                                    <p className="text-xs text-slate-400">{org.phone}</p>
+                                  )}
+                                </div>
+                              </td>
+                            );
+                          }
+                          if (col.isCustomField) {
+                            const field = orgCustomFields.find(f => f.id === col.fieldId);
+                            const value = orgValuesMap[org.id]?.[col.fieldId];
+                            let displayValue = value || '-';
+                            if (value && field && (field.field_type === 'picklist' || field.field_type === 'dropdown')) {
+                              try {
+                                const parsed = JSON.parse(value);
+                                if (Array.isArray(parsed)) {
+                                  displayValue = parsed.map(v => {
+                                    const opt = field.options?.find(o => o.value === v);
+                                    return opt?.label || v;
+                                  }).join(', ');
+                                } else {
+                                  const opt = field.options?.find(o => o.value === value);
+                                  displayValue = opt?.label || value;
+                                }
+                              } catch {
                                 const opt = field.options?.find(o => o.value === value);
                                 displayValue = opt?.label || value;
                               }
-                            } catch {
-                              const opt = field.options?.find(o => o.value === value);
-                              displayValue = opt?.label || value;
                             }
+                            return (
+                              <td key={col.id} className="px-4 py-3 text-sm text-slate-600">
+                                {displayValue}
+                              </td>
+                            );
                           }
-                          return (
-                            <td key={field.id} className="px-4 py-3 text-sm text-slate-600">
-                              {displayValue}
-                            </td>
-                          );
+                          return <td key={col.id} className="px-4 py-3">-</td>;
                         })}
                       </tr>
                     ))}
