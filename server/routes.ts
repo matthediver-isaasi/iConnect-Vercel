@@ -561,6 +561,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ============ Form Uniqueness Validation ============
   
+  // Helper to extract domain from email or URL
+  // Returns lowercase domain or null if extraction fails
+  const extractDomain = (value: string): string | null => {
+    if (!value || typeof value !== 'string') return null;
+    
+    const trimmed = value.trim().toLowerCase();
+    
+    // Check if it's an email address (contains @)
+    if (trimmed.includes('@')) {
+      const parts = trimmed.split('@');
+      if (parts.length === 2 && parts[1]) {
+        return parts[1];
+      }
+      return null;
+    }
+    
+    // Try to extract domain from URL
+    try {
+      let urlStr = trimmed;
+      // Add protocol if missing for URL parsing
+      if (!urlStr.startsWith('http://') && !urlStr.startsWith('https://')) {
+        urlStr = 'https://' + urlStr;
+      }
+      const url = new URL(urlStr);
+      let hostname = url.hostname;
+      // Remove www. prefix
+      if (hostname.startsWith('www.')) {
+        hostname = hostname.substring(4);
+      }
+      return hostname || null;
+    } catch (e) {
+      // If URL parsing fails, try simple extraction
+      let cleaned = trimmed
+        .replace(/^https?:\/\//, '')
+        .replace(/^www\./, '')
+        .split('/')[0]
+        .split('?')[0];
+      return cleaned || null;
+    }
+  };
+  
   // Valid target fields whitelist for uniqueness checks
   const VALID_UNIQUENESS_TARGETS: Record<string, string[]> = {
     member: ['email', 'full_name', 'phone'],
@@ -652,12 +693,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
             query = supabase.from(tableName).select('id').ilike(targetColumn, `%${searchValue}`).limit(1);
             break;
           case 'domain_equals':
-            if (searchValue.includes('@')) {
-              const domain = searchValue.split('@')[1].toLowerCase();
-              console.log(`[Form Uniqueness] domain_equals: checking ${tableName}.${targetColumn} for domain @${domain}`);
-              query = supabase.from(tableName).select('id').ilike(targetColumn, `%@${domain}`).limit(1);
+            const extractedDomain = extractDomain(searchValue);
+            if (extractedDomain) {
+              console.log(`[Form Uniqueness] domain_equals: checking ${tableName}.${targetColumn} for domain ${extractedDomain} (from: ${searchValue})`);
+              // Query emails that end with @domain
+              query = supabase.from(tableName).select('id').ilike(targetColumn, `%@${extractedDomain}`).limit(1);
             } else {
-              console.log(`[Form Uniqueness] domain_equals: skipping - no @ in value: ${searchValue}`);
+              console.log(`[Form Uniqueness] domain_equals: skipping - could not extract domain from: ${searchValue}`);
               continue;
             }
             break;
@@ -726,9 +768,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   matches = subValueStr.toLowerCase().endsWith(compareValue.toLowerCase());
                   break;
                 case 'domain_equals':
-                  const subDomain = subValueStr.includes('@') ? subValueStr.split('@')[1].toLowerCase() : '';
-                  const compareDomain = compareValue.includes('@') ? compareValue.split('@')[1].toLowerCase() : '';
-                  matches = subDomain && compareDomain && subDomain === compareDomain;
+                  const subDomain = extractDomain(subValueStr);
+                  const compareDomain = extractDomain(compareValue);
+                  matches = !!(subDomain && compareDomain && subDomain === compareDomain);
                   break;
                 default:
                   matches = subValueStr.toLowerCase() === compareValue.toLowerCase();

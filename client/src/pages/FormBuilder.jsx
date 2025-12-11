@@ -82,7 +82,7 @@ const COMPARISON_MODES = [
   { value: 'contains', label: 'Contains', forEmail: false, forText: true },
   { value: 'starts_with', label: 'Starts with', forEmail: false, forText: true },
   { value: 'ends_with', label: 'Ends with', forEmail: false, forText: true },
-  { value: 'domain_equals', label: 'Email domain equals', forEmail: true, forText: false },
+  { value: 'domain_equals', label: 'Domain equals (email or URL)', forEmail: true, forText: true },
 ];
 
 const UNIQUENESS_TARGET_FIELDS = {

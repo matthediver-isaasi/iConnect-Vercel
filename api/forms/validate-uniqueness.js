@@ -7,6 +7,47 @@ const supabase = supabaseUrl && supabaseServiceKey
   ? createClient(supabaseUrl, supabaseServiceKey)
   : null;
 
+// Helper to extract domain from email or URL
+// Returns lowercase domain or null if extraction fails
+const extractDomain = (value) => {
+  if (!value || typeof value !== 'string') return null;
+  
+  const trimmed = value.trim().toLowerCase();
+  
+  // Check if it's an email address (contains @)
+  if (trimmed.includes('@')) {
+    const parts = trimmed.split('@');
+    if (parts.length === 2 && parts[1]) {
+      return parts[1];
+    }
+    return null;
+  }
+  
+  // Try to extract domain from URL
+  try {
+    let urlStr = trimmed;
+    // Add protocol if missing for URL parsing
+    if (!urlStr.startsWith('http://') && !urlStr.startsWith('https://')) {
+      urlStr = 'https://' + urlStr;
+    }
+    const url = new URL(urlStr);
+    let hostname = url.hostname;
+    // Remove www. prefix
+    if (hostname.startsWith('www.')) {
+      hostname = hostname.substring(4);
+    }
+    return hostname || null;
+  } catch (e) {
+    // If URL parsing fails, try simple extraction
+    let cleaned = trimmed
+      .replace(/^https?:\/\//, '')
+      .replace(/^www\./, '')
+      .split('/')[0]
+      .split('?')[0];
+    return cleaned || null;
+  }
+};
+
 // Valid target fields whitelist for uniqueness checks
 const VALID_UNIQUENESS_TARGETS = {
   member: ['email', 'full_name', 'phone'],
@@ -128,16 +169,16 @@ export default async function handler(req, res) {
           break;
           
         case 'domain_equals':
-          // Extract domain from email and match
-          if (searchValue.includes('@')) {
-            const domain = searchValue.split('@')[1].toLowerCase();
+          // Extract domain from email or URL and match
+          const extractedDomain = extractDomain(searchValue);
+          if (extractedDomain) {
             query = supabase
               .from(tableName)
               .select('id')
-              .ilike(targetColumn, `%@${domain}`)
+              .ilike(targetColumn, `%@${extractedDomain}`)
               .limit(1);
           } else {
-            // If not an email, skip this check
+            // If domain extraction fails, skip this check
             continue;
           }
           break;
@@ -211,9 +252,9 @@ export default async function handler(req, res) {
                 matches = subValueStr.toLowerCase().endsWith(compareValue.toLowerCase());
                 break;
               case 'domain_equals':
-                const subDomain = subValueStr.includes('@') ? subValueStr.split('@')[1].toLowerCase() : '';
-                const compareDomain = compareValue.includes('@') ? compareValue.split('@')[1].toLowerCase() : '';
-                matches = subDomain && compareDomain && subDomain === compareDomain;
+                const subDomain = extractDomain(subValueStr);
+                const compareDomain = extractDomain(compareValue);
+                matches = !!(subDomain && compareDomain && subDomain === compareDomain);
                 break;
               default:
                 matches = subValueStr.toLowerCase() === compareValue.toLowerCase();
