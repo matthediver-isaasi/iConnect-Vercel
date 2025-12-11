@@ -38,7 +38,7 @@ export default function DiscountCodeManagementPage() {
 
   const { data: discountCodes = [], isLoading: loadingCodes } = useQuery({
     queryKey: ['discount-codes'],
-    queryFn: () => base44.entities.DiscountCode.list('-created_at'),
+    queryFn: () => base44.entities.DiscountCode.list('-created_date'),
     staleTime: 0,
     refetchOnMount: true,
   });
