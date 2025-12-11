@@ -53,6 +53,10 @@
         "type": "string",
         "format": "date-time",
         "description": "Last sync from Backstage"
+      },
+      "show_ticket_availability": {
+        "type": "boolean",
+        "description": "If true, show ticket class availability counts to users on the event details page"
       }
     },
     "required": [
