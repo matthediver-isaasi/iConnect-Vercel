@@ -154,17 +154,26 @@ export default function OrganisationsListPage() {
     }
   });
 
-  // Load user's saved column preferences from SystemSettings
+  // Load user's saved column preferences from SystemSettings (fetch once)
   const columnPrefKey = memberInfo?.id ? getColumnPrefKey(memberInfo.id) : null;
+  const columnPrefIdRef = useRef(null);
+  const columnsFetchedRef = useRef(false);
   
-  const { data: savedColumnPref } = useQuery({
+  const { data: savedColumnPref, isFetched: columnPrefFetched } = useQuery({
     queryKey: ['system-settings-column-prefs', columnPrefKey],
-    enabled: accessChecked && !!columnPrefKey && !columnsInitialized,
+    enabled: accessChecked && !!columnPrefKey && !columnsFetchedRef.current,
     staleTime: Infinity,
+    gcTime: Infinity,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
     queryFn: async () => {
+      if (columnsFetchedRef.current) return null;
+      columnsFetchedRef.current = true;
       try {
         const settings = await base44.entities.SystemSettings.list();
         const setting = settings?.find(s => s.setting_key === columnPrefKey);
+        if (setting?.id) columnPrefIdRef.current = setting.id;
         return setting || null;
       } catch {
         return null;
@@ -172,14 +181,11 @@ export default function OrganisationsListPage() {
     }
   });
 
-  // Track the existing record ID from query result
-  const existingPrefId = savedColumnPref?.id || null;
-
   // Mutation to save column preferences to SystemSettings
   const saveColumnsMutation = useMutation({
     mutationFn: async (columnsData) => {
       const valueStr = JSON.stringify(columnsData);
-      const idToUpdate = dbPrefId || existingPrefId;
+      const idToUpdate = dbPrefId || columnPrefIdRef.current;
       if (idToUpdate) {
         return await base44.entities.SystemSettings.update(idToUpdate, { 
           setting_value: valueStr
@@ -192,7 +198,10 @@ export default function OrganisationsListPage() {
       }
     },
     onSuccess: (result) => {
-      if (result?.id) setDbPrefId(result.id);
+      if (result?.id) {
+        setDbPrefId(result.id);
+        columnPrefIdRef.current = result.id;
+      }
     },
     onError: () => {
       // Fallback: ensure localStorage is updated
@@ -202,11 +211,12 @@ export default function OrganisationsListPage() {
 
   // Load columns from database when preference is fetched (runs once)
   useEffect(() => {
-    if (savedColumnPref && !columnsInitialized) {
-      if (savedColumnPref.id) {
+    if (columnPrefFetched && !columnsInitialized) {
+      if (savedColumnPref?.id) {
         setDbPrefId(savedColumnPref.id);
+        columnPrefIdRef.current = savedColumnPref.id;
       }
-      if (savedColumnPref.setting_value) {
+      if (savedColumnPref?.setting_value) {
         try {
           const parsed = JSON.parse(savedColumnPref.setting_value);
           if (Array.isArray(parsed) && parsed.length > 0) {
@@ -216,7 +226,7 @@ export default function OrganisationsListPage() {
       }
       setColumnsInitialized(true);
     }
-  }, [savedColumnPref, columnsInitialized]);
+  }, [columnPrefFetched, savedColumnPref, columnsInitialized]);
 
   // Debounced save to database
   const debouncedSaveToDb = useCallback((columnsData) => {
