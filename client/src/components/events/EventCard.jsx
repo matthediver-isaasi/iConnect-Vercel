@@ -322,66 +322,73 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
 
   const isDeleteButtonDisabled = deleteConfirmText !== "DELETE EVENT" || deleteEventMutation.isPending;
 
+  // Check if any badges should be shown
+  const hasBadges = event.status === 'draft' || event.status === 'tbc' || isEventPast || event.event_type || event.program_tag;
+
   return (
     <>
       <Card className="overflow-hidden hover:shadow-lg transition-shadow duration-300 border-slate-200 bg-white">
-        {/* Program and Ticket Info - Above Image */}
-        <div className={`p-4 border-b border-slate-200 ${isEventPast ? 'bg-gradient-to-r from-slate-100 to-slate-50' : 'bg-gradient-to-r from-slate-50 to-blue-50'}`}>
-          <div className="flex items-start justify-between gap-2 mb-2">
-            <div className="flex items-center gap-2 flex-wrap">
+        {/* Event Image with Badge Overlay */}
+        <div className="relative">
+          {event.image_url ? (
+            <div className="h-48 overflow-hidden bg-slate-100">
+              <img 
+                src={event.image_url} 
+                alt={event.title}
+                className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
+              />
+            </div>
+          ) : (
+            <div className={`h-24 ${isEventPast ? 'bg-gradient-to-r from-slate-100 to-slate-50' : 'bg-gradient-to-r from-slate-50 to-blue-50'}`} />
+          )}
+          
+          {/* Badges Overlay - Top Left */}
+          {hasBadges && (
+            <div className="absolute top-2 left-2 flex flex-wrap items-center gap-1.5 max-w-[calc(100%-1rem)]">
               {event.status === 'draft' && (
-                <Badge variant="secondary" className="bg-amber-100 text-amber-700 border-amber-200">
+                <Badge variant="secondary" className="bg-amber-100/95 text-amber-700 border-amber-200 shadow-sm">
                   Draft
                 </Badge>
               )}
               {event.status === 'tbc' && (
-                <Badge variant="secondary" className="bg-blue-100 text-blue-700 border-blue-200">
+                <Badge variant="secondary" className="bg-blue-100/95 text-blue-700 border-blue-200 shadow-sm">
                   TBC
                 </Badge>
               )}
               {isEventPast && (
-                <Badge variant="secondary" className="bg-slate-200 text-slate-600 border-slate-300">
+                <Badge variant="secondary" className="bg-slate-200/95 text-slate-600 border-slate-300 shadow-sm">
                   Past Event
                 </Badge>
               )}
               {event.event_type && (
-                <Badge variant="secondary" className="bg-green-100 text-green-700 border-green-200">
+                <Badge variant="secondary" className="bg-green-100/95 text-green-700 border-green-200 shadow-sm">
                   {event.event_type}
                 </Badge>
               )}
               {event.program_tag && (
-                <Badge variant="secondary" className="bg-purple-100 text-purple-700 border-purple-200">
-                   {event.program_tag}
+                <Badge variant="secondary" className="bg-purple-100/95 text-purple-700 border-purple-200 shadow-sm">
+                  {event.program_tag}
                 </Badge>
               )}
             </div>
-            {organizationInfo && event.program_tag && (
-              <div className="flex items-center gap-1 text-xs text-slate-600">
-                <Ticket className="w-3 h-3 text-purple-600" />
-                <span className="font-medium">{availableTickets}</span>
-              </div>
-            )}
-          </div>
+          )}
           
-          {/* Purchase Tickets Banner */}
-          {needsTickets && (
-            <div className="flex items-start gap-2 p-2 bg-amber-50 border border-amber-200 rounded-lg">
-              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-              <div className="flex-1">
-                <p className="text-xs font-medium text-amber-900">Purchase tickets to attend</p>
-              </div>
+          {/* Program Ticket Count - Top Right */}
+          {organizationInfo && event.program_tag && (
+            <div className="absolute top-2 right-2 flex items-center gap-1 text-xs bg-white/95 text-slate-600 px-2 py-1 rounded-full shadow-sm">
+              <Ticket className="w-3 h-3 text-purple-600" />
+              <span className="font-medium">{availableTickets}</span>
             </div>
           )}
         </div>
-
-        {/* Event Image */}
-        {event.image_url && (
-          <div className="h-48 overflow-hidden bg-slate-100">
-            <img 
-              src={event.image_url} 
-              alt={event.title}
-              className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
-            />
+        
+        {/* Purchase Tickets Banner */}
+        {needsTickets && (
+          <div className="flex items-start gap-2 p-3 bg-amber-50 border-b border-amber-200">
+            <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="text-xs font-medium text-amber-900">Purchase tickets to attend</p>
+            </div>
           </div>
         )}
         
