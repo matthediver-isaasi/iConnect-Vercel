@@ -86,6 +86,7 @@ const entityToTable: Record<string, string> = {
   'TypographyStyle': 'typography_style',
   'CardDeck': 'card_deck',
   'DynamicDirectory': 'dynamic_directory',
+  'TrainingFundTransaction': 'training_fund_transaction',
 };
 
 // Extend session type
