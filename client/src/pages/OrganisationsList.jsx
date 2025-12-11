@@ -171,12 +171,16 @@ export default function OrganisationsListPage() {
     }
   });
 
+  // Track the existing record ID from query result
+  const existingPrefId = savedColumnPref?.id || null;
+
   // Mutation to save column preferences to SystemSettings
   const saveColumnsMutation = useMutation({
     mutationFn: async (columnsData) => {
       const valueStr = JSON.stringify(columnsData);
-      if (dbPrefId) {
-        return await base44.entities.SystemSettings.update(dbPrefId, { 
+      const idToUpdate = dbPrefId || existingPrefId;
+      if (idToUpdate) {
+        return await base44.entities.SystemSettings.update(idToUpdate, { 
           setting_value: valueStr
         });
       } else {
@@ -198,16 +202,18 @@ export default function OrganisationsListPage() {
 
   // Load columns from database when preference is fetched
   useEffect(() => {
+    if (savedColumnPref?.id && !dbPrefId) {
+      setDbPrefId(savedColumnPref.id);
+    }
     if (savedColumnPref?.setting_value && !columnsInitialized) {
       try {
         const parsed = JSON.parse(savedColumnPref.setting_value);
         if (Array.isArray(parsed) && parsed.length > 0) {
           setColumns(parsed);
-          setDbPrefId(savedColumnPref.id);
         }
       } catch {}
     }
-  }, [savedColumnPref, columnsInitialized]);
+  }, [savedColumnPref, columnsInitialized, dbPrefId]);
 
   // Debounced save to database
   const debouncedSaveToDb = useCallback((columnsData) => {
