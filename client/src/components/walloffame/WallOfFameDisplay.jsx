@@ -373,11 +373,10 @@ export default function WallOfFameDisplay({
                               <LazyImage
                                 src={person.profile_photo_url}
                                 alt={`${person.first_name} ${person.last_name}`}
-                                className="w-full h-full object-cover"
+                                className="w-full h-full rounded-full"
                                 style={{ borderRadius: '50%' }}
                                 placeholderClassName="rounded-full"
                                 fallback={<User className={`${photoSize === 'large' ? 'w-20 h-20' : photoSize === 'medium' ? 'w-16 h-16' : 'w-12 h-12'} text-slate-400`} />}
-                                rootMargin="200px"
                               />
                             ) : (
                               <User className={`${photoSize === 'large' ? 'w-20 h-20' : photoSize === 'medium' ? 'w-16 h-16' : 'w-12 h-12'} text-slate-400`} />
