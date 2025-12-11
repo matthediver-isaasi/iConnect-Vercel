@@ -1524,7 +1524,7 @@ export default function EventDetailsPage() {
                                   {tc.offer_type === 'bulk_discount' && `${tc.bulk_discount_percentage || 0}% off for ${tc.bulk_discount_threshold || 0}+ tickets`}
                                 </div>
                               )}
-                              {/* Show ticket availability if enabled */}
+                              {/* Show ticket availability if enabled - on its own line below ticket name */}
                               {event.show_ticket_availability && (() => {
                                 const realtimeAvail = getTicketClassAvailability(String(tc.id));
                                 const rawAvailCount = realtimeAvail?.available_count ?? tc.available_count;
@@ -1543,18 +1543,18 @@ export default function EventDetailsPage() {
                                 
                                 if (!isUnlimited && availCount !== null) {
                                   if (availCount <= 0) {
-                                    return <span className="text-xs text-red-600 mt-0.5">Sold out</span>;
+                                    return <div className="text-xs text-red-600 mt-0.5">Sold out</div>;
                                   } else if (availCount <= 5) {
-                                    return <span className="text-xs text-amber-600 mt-0.5">Only {availCount} left</span>;
+                                    return <div className="text-xs text-amber-600 mt-0.5">Only {availCount} left</div>;
                                   } else {
-                                    return <span className="text-xs text-slate-500 mt-0.5">{availCount} available</span>;
+                                    return <div className="text-xs text-slate-500 mt-0.5">{availCount} available</div>;
                                   }
                                 }
                                 return null;
                               })()}
                             </div>
                           </div>
-                          <div className={`flex items-center gap-1 text-lg font-semibold ${purchasable ? 'text-slate-900' : 'text-slate-500'}`}>
+                          <div className={`flex items-center gap-1 text-lg font-semibold flex-shrink-0 ${purchasable ? 'text-slate-900' : 'text-slate-500'}`}>
                             <PoundSterling className="h-4 w-4" />
                             {ticketPrice.toFixed(2)}
                           </div>
@@ -1609,7 +1609,7 @@ export default function EventDetailsPage() {
                                 {selectedTicketClass.offer_type === 'bulk_discount' && `${selectedTicketClass.bulk_discount_percentage || 0}% off for ${selectedTicketClass.bulk_discount_threshold || 0}+ tickets`}
                               </div>
                             )}
-                            {/* Show ticket availability if enabled */}
+                            {/* Show ticket availability if enabled - on its own line below ticket name */}
                             {event.show_ticket_availability && (() => {
                               const realtimeAvail = getTicketClassAvailability(String(selectedTicketClass.id));
                               const rawAvailCount = realtimeAvail?.available_count ?? selectedTicketClass.available_count;
@@ -1628,11 +1628,11 @@ export default function EventDetailsPage() {
                               
                               if (!isUnlimited && availCount !== null) {
                                 if (availCount <= 0) {
-                                  return <span className="text-xs text-red-600 mt-0.5">Sold out</span>;
+                                  return <div className="text-xs text-red-600 mt-0.5">Sold out</div>;
                                 } else if (availCount <= 5) {
-                                  return <span className="text-xs text-amber-600 mt-0.5">Only {availCount} left</span>;
+                                  return <div className="text-xs text-amber-600 mt-0.5">Only {availCount} left</div>;
                                 } else {
-                                  return <span className="text-xs text-slate-500 mt-0.5">{availCount} available</span>;
+                                  return <div className="text-xs text-slate-500 mt-0.5">{availCount} available</div>;
                                 }
                               }
                               return null;
