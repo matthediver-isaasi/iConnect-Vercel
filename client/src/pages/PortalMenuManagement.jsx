@@ -43,6 +43,7 @@ const builtInPages = [
   { value: "Dashboard", label: "Dashboard" },
   { value: "DataExport", label: "Data Export" },
   { value: "DiscountCodeManagement", label: "Discount Code Management" },
+  { value: "DynamicDirectoryManagement", label: "Dynamic Directory Management" },
   { value: "DynamicPage", label: "Dynamic Page" },
   { value: "EventDetails", label: "Event Details" },
   { value: "Events", label: "Events" },
