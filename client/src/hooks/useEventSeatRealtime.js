@@ -69,7 +69,11 @@ export function useEventSeatRealtime(eventId, options = {}) {
 
           const seatsBooked = Number(newData?.seats_booked) || 0;
           const seatCapacity = Number(newData?.seat_capacity) || 0;
-          const isUnlimitedRegistration = newData?.is_unlimited_registration === true;
+          // Check explicit flag, with legacy fallback for events without the field
+          const hasNoCapacity = seatCapacity === 0;
+          const availableSeats_value = Number(newData?.available_seats) || 0;
+          const isUnlimitedRegistration = newData?.is_unlimited_registration === true || 
+            (newData?.is_unlimited_registration !== false && hasNoCapacity && availableSeats_value === 0);
           const availableSeats = (!isUnlimitedRegistration && seatCapacity > 0) ? seatCapacity - seatsBooked : null;
 
           setLastUpdate({

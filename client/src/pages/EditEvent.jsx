@@ -389,12 +389,19 @@ export default function EditEvent() {
       
       // Set unlimited seats based on explicit is_unlimited_registration field (preferred)
       // Fallback to old logic for events without the new field
-      if (event.is_unlimited_registration !== undefined && event.is_unlimited_registration !== null) {
-        setUnlimitedSeats(event.is_unlimited_registration);
+      if (event.is_unlimited_registration === true) {
+        setUnlimitedSeats(true);
+      } else if (event.is_unlimited_registration === false) {
+        setUnlimitedSeats(false);
       } else {
-        // Legacy fallback: treat null available_seats as unlimited
-        const hasLimitedSeats = event.available_seats !== null && event.available_seats !== undefined && event.available_seats > 0;
-        setUnlimitedSeats(!hasLimitedSeats);
+        // Legacy fallback for events without the new field:
+        // - null available_seats = unlimited
+        // - available_seats = 0 with no seat_capacity = unlimited (old logic)
+        // - available_seats > 0 = limited
+        const hasNoCapacity = event.seat_capacity === null || event.seat_capacity === undefined || event.seat_capacity === 0;
+        const isLegacyUnlimited = event.available_seats === null || 
+          (event.available_seats === 0 && hasNoCapacity);
+        setUnlimitedSeats(isLegacyUnlimited);
       }
       
       // Set per-event seat visibility (default to true if not set)
