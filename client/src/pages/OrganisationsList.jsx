@@ -1,6 +1,6 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { base44 } from "@/api/base44Client";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -46,26 +46,21 @@ const DEFAULT_COLUMNS = [
   { id: 'contact', label: 'Contact', visible: true, locked: false },
 ];
 
-const STORAGE_KEY = 'organisations_list_columns';
+const LOCAL_STORAGE_KEY = 'organisations_list_columns';
+const getSettingKey = (memberId) => `member_${memberId}_org_list_columns`;
 
-const loadSavedColumns = () => {
+const loadLocalColumns = () => {
   try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      return JSON.parse(saved);
-    }
-  } catch {
-    // Ignore parse errors
-  }
+    const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
+    if (saved) return JSON.parse(saved);
+  } catch { /* ignore */ }
   return null;
 };
 
-const saveColumnsToStorage = (columns) => {
+const saveLocalColumns = (columns) => {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(columns));
-  } catch {
-    // Ignore storage errors
-  }
+    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(columns));
+  } catch { /* ignore */ }
 };
 
 const STATUS_OPTIONS = [
@@ -76,7 +71,8 @@ const STATUS_OPTIONS = [
 ];
 
 export default function OrganisationsListPage() {
-  const { isAdmin, isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const { isAdmin, isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
+  const queryClient = useQueryClient();
   const [accessChecked, setAccessChecked] = useState(false);
   
   const [viewMode, setViewMode] = useState('list');
@@ -87,9 +83,74 @@ export default function OrganisationsListPage() {
   const [itemsPerPage] = useState(20);
   const [selectedOrg, setSelectedOrg] = useState(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [columns, setColumns] = useState(() => loadSavedColumns() || DEFAULT_COLUMNS);
+  const [columns, setColumns] = useState(() => loadLocalColumns() || DEFAULT_COLUMNS);
   const [draggedColumn, setDraggedColumn] = useState(null);
   const [columnsInitialized, setColumnsInitialized] = useState(false);
+  const [dbColumnsLoaded, setDbColumnsLoaded] = useState(false);
+
+  const settingKey = memberInfo?.id ? getSettingKey(memberInfo.id) : null;
+
+  // Load column settings from database for current member
+  const { data: savedColumnSetting } = useQuery({
+    queryKey: ['org-list-column-settings', settingKey],
+    enabled: !!settingKey && accessChecked,
+    queryFn: async () => {
+      try {
+        const settings = await base44.entities.SystemSettings.list({
+          filter: { setting_key: settingKey }
+        });
+        return settings?.[0] || null;
+      } catch {
+        return null;
+      }
+    }
+  });
+
+  // Apply saved columns from database when loaded
+  useEffect(() => {
+    if (savedColumnSetting && !dbColumnsLoaded) {
+      try {
+        const savedCols = JSON.parse(savedColumnSetting.setting_value);
+        if (Array.isArray(savedCols) && savedCols.length > 0) {
+          setColumns(savedCols);
+          saveLocalColumns(savedCols); // Sync to localStorage
+        }
+      } catch { /* ignore parse errors */ }
+      setDbColumnsLoaded(true);
+    } else if (savedColumnSetting === null && settingKey && !dbColumnsLoaded) {
+      // No saved setting in DB, use localStorage or defaults
+      setDbColumnsLoaded(true);
+    }
+  }, [savedColumnSetting, dbColumnsLoaded, settingKey]);
+
+  // Mutation to save column settings to database
+  const saveColumnsMutation = useMutation({
+    mutationFn: async (newColumns) => {
+      if (!settingKey) return;
+      const value = JSON.stringify(newColumns);
+      
+      if (savedColumnSetting?.id) {
+        return await base44.entities.SystemSettings.update(savedColumnSetting.id, {
+          setting_value: value
+        });
+      } else {
+        return await base44.entities.SystemSettings.create({
+          setting_key: settingKey,
+          setting_value: value
+        });
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['org-list-column-settings', settingKey] });
+    }
+  });
+
+  const saveColumns = useCallback((newColumns) => {
+    saveLocalColumns(newColumns); // Always save to localStorage for quick access
+    if (settingKey) {
+      saveColumnsMutation.mutate(newColumns);
+    }
+  }, [settingKey, saveColumnsMutation]);
 
   useEffect(() => {
     if (isAccessReady) {
@@ -253,12 +314,12 @@ export default function OrganisationsListPage() {
     }
   }, [orgCustomFields, columnsInitialized]);
 
-  // Save columns to localStorage when they change
+  // Save columns when they change (debounced to avoid too many saves)
   useEffect(() => {
-    if (columnsInitialized) {
-      saveColumnsToStorage(columns);
+    if (columnsInitialized && dbColumnsLoaded) {
+      saveColumns(columns);
     }
-  }, [columns, columnsInitialized]);
+  }, [columns, columnsInitialized, dbColumnsLoaded, saveColumns]);
 
   const visibleColumns = useMemo(() => columns.filter(c => c.visible), [columns]);
 
@@ -307,7 +368,7 @@ export default function OrganisationsListPage() {
     }));
     const newColumns = [...DEFAULT_COLUMNS, ...customFieldCols];
     setColumns(newColumns);
-    saveColumnsToStorage(newColumns);
+    // The useEffect will trigger saveColumns automatically
   };
 
   if (!accessChecked) {
