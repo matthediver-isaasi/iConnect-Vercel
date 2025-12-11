@@ -358,6 +358,109 @@ export default function TrainingFundManagementPage() {
             </div>
           )}
         </div>
+
+        {/* Dialog for selectedOrg view */}
+        <Dialog open={showAdjustDialog} onOpenChange={setShowAdjustDialog}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Adjust Training Fund Balance</DialogTitle>
+            </DialogHeader>
+            
+            {adjustingOrg && (
+              <div className="space-y-4">
+                <div className="p-3 bg-slate-50 rounded-lg">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Building2 className="w-4 h-4 text-slate-500" />
+                    <span className="font-medium text-slate-900">{adjustingOrg.name}</span>
+                  </div>
+                  <p className="text-sm text-slate-500">
+                    Current Balance: <span className="font-semibold text-slate-900">£{(adjustingOrg.training_fund_balance || 0).toFixed(2)}</span>
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Adjustment Type</Label>
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant={adjustmentType === "add" ? "default" : "outline"}
+                      className={adjustmentType === "add" ? "bg-green-600 hover:bg-green-700" : ""}
+                      onClick={() => setAdjustmentType("add")}
+                      data-testid="button-add-funds-history"
+                    >
+                      <Plus className="w-4 h-4 mr-1" />
+                      Add Funds
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={adjustmentType === "deduct" ? "default" : "outline"}
+                      className={adjustmentType === "deduct" ? "bg-red-600 hover:bg-red-700" : ""}
+                      onClick={() => setAdjustmentType("deduct")}
+                      data-testid="button-deduct-funds-history"
+                    >
+                      <Minus className="w-4 h-4 mr-1" />
+                      Deduct Funds
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="amount-history">Amount (£) *</Label>
+                  <Input
+                    id="amount-history"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={adjustmentAmount}
+                    onChange={(e) => setAdjustmentAmount(e.target.value)}
+                    placeholder="0.00"
+                    data-testid="input-adjustment-amount-history"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="reason-history">Reason (optional)</Label>
+                  <Textarea
+                    id="reason-history"
+                    value={adjustmentReason}
+                    onChange={(e) => setAdjustmentReason(e.target.value)}
+                    placeholder="Reason for adjustment..."
+                    rows={2}
+                    data-testid="input-adjustment-reason-history"
+                  />
+                </div>
+
+                {adjustmentAmount && !isNaN(parseFloat(adjustmentAmount)) && (
+                  <div className="p-3 bg-blue-50 rounded-lg">
+                    <p className="text-sm text-blue-800">
+                      New Balance: <span className="font-bold">
+                        £{(
+                          (adjustingOrg.training_fund_balance || 0) + 
+                          (adjustmentType === "add" ? 1 : -1) * parseFloat(adjustmentAmount || 0)
+                        ).toFixed(2)}
+                      </span>
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+            
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowAdjustDialog(false)}>
+                Cancel
+              </Button>
+              <Button 
+                onClick={handleSaveAdjustment} 
+                disabled={updateBalanceMutation.isPending}
+                className={adjustmentType === "add" ? "bg-green-600 hover:bg-green-700" : "bg-red-600 hover:bg-red-700"}
+                data-testid="button-save-adjustment-history"
+              >
+                {updateBalanceMutation.isPending ? 'Saving...' : 
+                  adjustmentType === "add" ? 'Add Funds' : 'Deduct Funds'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     );
   }
