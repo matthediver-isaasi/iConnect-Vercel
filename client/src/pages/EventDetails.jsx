@@ -761,10 +761,18 @@ export default function EventDetailsPage() {
   // Check if event is sold out (not unlimited and available_seats <= 0)
   const isSoldOut = !hasUnlimitedCapacity && event.available_seats !== null && event.available_seats <= 0;
   
+  // Check if any attendees are missing required name fields
+  const hasAttendeesWithMissingNames = attendees.some((a) => {
+    const needsManualName = !a.isSelf && (
+      a.validationStatus === 'unregistered_domain_match' ||
+      a.validationStatus === 'external');
+    return needsManualName && (!a.first_name || !a.last_name);
+  });
+  
   // For one-off events, use paymentCanProceed from PaymentOptions (includes payment validation)
   // For program events, need enough tickets
-  // Also disable if sold out
-  const canConfirmBooking = !isSoldOut && (isOneOffEvent 
+  // Also disable if sold out or if attendees are missing required names
+  const canConfirmBooking = !isSoldOut && !hasAttendeesWithMissingNames && (isOneOffEvent 
     ? paymentCanProceed
     : (hasEnoughTickets && event.program_tag && !submitting && ticketsRequired > 0));
 
@@ -1359,6 +1367,12 @@ export default function EventDetailsPage() {
                                 Add attendees to proceed with booking
                               </p>
                             )}
+                            
+                            {hasAttendeesWithMissingNames && (
+                              <p className="text-xs text-center text-red-600 mt-2">
+                                Please enter first and last names for all external attendees
+                              </p>
+                            )}
                           </div>
                         )}
                       </>
@@ -1573,6 +1587,7 @@ export default function EventDetailsPage() {
               guestInfo={guestInfo}
               noTicketsForRole={noTicketsForRole}
               isSoldOut={isSoldOut}
+              hasAttendeesWithMissingNames={hasAttendeesWithMissingNames}
             />
 
           </div>

@@ -126,7 +126,8 @@ export default function PaymentOptions({
   isGuestCheckout = false,
   guestInfo = null,
   noTicketsForRole = false,
-  isSoldOut = false
+  isSoldOut = false,
+  hasAttendeesWithMissingNames = false
 }) {
   // Payment state for one-off events
   const [selectedVouchers, setSelectedVouchers] = useState([]);
@@ -884,8 +885,8 @@ export default function PaymentOptions({
 
   // Determine if booking can proceed
   // For one-off events, also block if no tickets available for user's role
-  // Also block if event is sold out
-  const canProceed = !isSoldOut && (isOneOffEvent 
+  // Also block if event is sold out or if attendees are missing required names
+  const canProceed = !isSoldOut && !hasAttendeesWithMissingNames && (isOneOffEvent 
     ? (ticketsRequired > 0 && !submitting && (totalCost === 0 || isFullyPaid) && !noTicketsForRole)
     : (hasEnoughTickets && event.program_tag && !submitting && ticketsRequired > 0));
 
@@ -946,6 +947,12 @@ export default function PaymentOptions({
           {ticketsRequired === 0 && registrationMode === 'colleagues' && (
             <p className="text-xs text-center text-slate-500">
               Add attendees to proceed with booking
+            </p>
+          )}
+          
+          {hasAttendeesWithMissingNames && (
+            <p className="text-xs text-center text-red-600 mt-2">
+              Please enter first and last names for all external attendees
             </p>
           )}
         </CardContent>

@@ -119,6 +119,11 @@ export default function AttendeeList({ attendees, onUpdate, onRemove, onAdd, mem
             attendee.validationStatus === 'wrong_organization');
   };
 
+  // Check if attendee is missing required name fields
+  const isMissingRequiredName = (attendee) => {
+    return needsManualName(attendee) && (!attendee.first_name || !attendee.last_name);
+  };
+
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
       {attendees.map((attendee, index) => (
@@ -149,17 +154,23 @@ export default function AttendeeList({ attendees, onUpdate, onRemove, onAdd, mem
                     placeholder="First Name *"
                     value={attendee.first_name || ''}
                     onChange={(e) => onUpdate(index, 'first_name', e.target.value)}
-                    className="text-sm"
+                    className={`text-sm ${!attendee.first_name ? 'border-red-300 focus:border-red-500' : ''}`}
                     required
                   />
                   <Input
                     placeholder="Last Name *"
                     value={attendee.last_name || ''}
                     onChange={(e) => onUpdate(index, 'last_name', e.target.value)}
-                    className="text-sm"
+                    className={`text-sm ${!attendee.last_name ? 'border-red-300 focus:border-red-500' : ''}`}
                     required
                   />
                 </div>
+                {isMissingRequiredName(attendee) && (
+                  <p className="text-xs text-red-600 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3" />
+                    Please enter first and last name to continue
+                  </p>
+                )}
               </div>
             )}
 
