@@ -80,6 +80,12 @@ export default function OrganisationsListPage() {
   const [viewMode, setViewMode] = useState('list');
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [coreFieldFilters, setCoreFieldFilters] = useState({
+    phone: '',
+    website_url: '',
+    invoicing_email: '',
+    invoicing_address: ''
+  });
   const [customFieldFilters, setCustomFieldFilters] = useState({});
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(20);
@@ -266,11 +272,31 @@ export default function OrganisationsListPage() {
       result = result.filter(org => org.status === statusFilter);
     }
 
+    // Apply core field filters (text-based)
+    Object.entries(coreFieldFilters).forEach(([field, filterValue]) => {
+      if (filterValue && filterValue.trim()) {
+        const query = filterValue.toLowerCase().trim();
+        result = result.filter(org => {
+          const fieldVal = org[field];
+          return fieldVal && fieldVal.toLowerCase().includes(query);
+        });
+      }
+    });
+
+    // Apply custom field filters
     Object.entries(customFieldFilters).forEach(([fieldId, filterValue]) => {
-      if (filterValue && filterValue !== 'all') {
+      if (filterValue && filterValue !== 'all' && filterValue.trim() !== '') {
+        const isTextFilter = filterValue.startsWith('__text__:');
+        const actualValue = isTextFilter ? filterValue.replace('__text__:', '').toLowerCase() : filterValue;
+        
         result = result.filter(org => {
           const orgFieldValue = orgValuesMap[org.id]?.[fieldId];
           if (!orgFieldValue) return false;
+          
+          if (isTextFilter) {
+            // Text search
+            return orgFieldValue.toLowerCase().includes(actualValue);
+          }
           
           try {
             const parsed = JSON.parse(orgFieldValue);
@@ -286,7 +312,7 @@ export default function OrganisationsListPage() {
     });
 
     return result;
-  }, [organizations, searchQuery, statusFilter, customFieldFilters, orgValuesMap]);
+  }, [organizations, searchQuery, statusFilter, coreFieldFilters, customFieldFilters, orgValuesMap]);
 
   const paginatedOrganizations = useMemo(() => {
     const start = (currentPage - 1) * itemsPerPage;
@@ -298,11 +324,15 @@ export default function OrganisationsListPage() {
   const resetFilters = () => {
     setSearchQuery('');
     setStatusFilter('all');
+    setCoreFieldFilters({ phone: '', website_url: '', invoicing_email: '', invoicing_address: '' });
     setCustomFieldFilters({});
     setCurrentPage(1);
   };
 
-  const hasActiveFilters = searchQuery || statusFilter !== 'all' || Object.values(customFieldFilters).some(v => v && v !== 'all');
+  const hasActiveFilters = searchQuery || 
+    statusFilter !== 'all' || 
+    Object.values(coreFieldFilters).some(v => v && v.trim() !== '') ||
+    Object.values(customFieldFilters).some(v => v && v !== 'all' && v.trim() !== '');
 
   // Track if custom fields have been merged into columns
   const customFieldsMergedRef = useRef(false);
@@ -462,7 +492,8 @@ export default function OrganisationsListPage() {
           </div>
 
           <ScrollArea className="flex-1 p-4 min-w-[288px]">
-            <div className="space-y-6">
+            <div className="space-y-5">
+              {/* Status Filter */}
               <div className="space-y-2">
                 <Label className="text-xs font-medium text-slate-500 uppercase tracking-wide">Status</Label>
                 <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setCurrentPage(1); }}>
@@ -477,37 +508,128 @@ export default function OrganisationsListPage() {
                 </Select>
               </div>
 
-              {orgCustomFields.filter(f => f.is_filterable && f.options && f.options.length > 0).map(field => (
-                <div key={field.id} className="space-y-2">
-                  <Label className="text-xs font-medium text-slate-500 uppercase tracking-wide">{field.label}</Label>
-                  <Select 
-                    value={customFieldFilters[field.id] || 'all'} 
-                    onValueChange={(v) => { 
-                      setCustomFieldFilters(prev => ({ ...prev, [field.id]: v })); 
-                      setCurrentPage(1); 
-                    }}
-                  >
-                    <SelectTrigger data-testid={`select-filter-${field.id}`}>
-                      <SelectValue placeholder={`All ${field.label}`} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All {field.label}</SelectItem>
-                      {field.options.map((opt, idx) => (
-                        <SelectItem key={idx} value={opt.value}>{opt.label || opt.value}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              ))}
+              <Separator />
 
-              {orgCustomFields.filter(f => !f.is_filterable || !f.options?.length).length > 0 && (
+              {/* Core Field Filters */}
+              <div className="space-y-4">
+                <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Contact Details</p>
+                
+                <div className="space-y-2">
+                  <Label className="text-xs text-slate-600">Phone</Label>
+                  <Input
+                    placeholder="Filter by phone..."
+                    value={coreFieldFilters.phone}
+                    onChange={(e) => { 
+                      setCoreFieldFilters(prev => ({ ...prev, phone: e.target.value }));
+                      setCurrentPage(1);
+                    }}
+                    className="h-9"
+                    data-testid="input-filter-phone"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-xs text-slate-600">Email</Label>
+                  <Input
+                    placeholder="Filter by email..."
+                    value={coreFieldFilters.invoicing_email}
+                    onChange={(e) => { 
+                      setCoreFieldFilters(prev => ({ ...prev, invoicing_email: e.target.value }));
+                      setCurrentPage(1);
+                    }}
+                    className="h-9"
+                    data-testid="input-filter-email"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-xs text-slate-600">Website</Label>
+                  <Input
+                    placeholder="Filter by website..."
+                    value={coreFieldFilters.website_url}
+                    onChange={(e) => { 
+                      setCoreFieldFilters(prev => ({ ...prev, website_url: e.target.value }));
+                      setCurrentPage(1);
+                    }}
+                    className="h-9"
+                    data-testid="input-filter-website"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-xs text-slate-600">Address</Label>
+                  <Input
+                    placeholder="Filter by address..."
+                    value={coreFieldFilters.invoicing_address}
+                    onChange={(e) => { 
+                      setCoreFieldFilters(prev => ({ ...prev, invoicing_address: e.target.value }));
+                      setCurrentPage(1);
+                    }}
+                    className="h-9"
+                    data-testid="input-filter-address"
+                  />
+                </div>
+              </div>
+
+              {/* Custom Fields */}
+              {orgCustomFields.length > 0 && (
                 <>
                   <Separator />
-                  <p className="text-xs text-slate-400">
-                    {orgCustomFields.filter(f => f.is_filterable && (!f.options || f.options.length === 0)).length > 0 && 
-                      "Some filterable fields need dropdown options to appear here."
-                    }
-                  </p>
+                  <div className="space-y-4">
+                    <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Custom Fields</p>
+                    
+                    {orgCustomFields.map(field => {
+                      const hasOptions = field.options && field.options.length > 0;
+                      
+                      if (hasOptions) {
+                        // Dropdown filter for fields with options
+                        return (
+                          <div key={field.id} className="space-y-2">
+                            <Label className="text-xs text-slate-600">{field.label}</Label>
+                            <Select 
+                              value={customFieldFilters[field.id] || 'all'} 
+                              onValueChange={(v) => { 
+                                setCustomFieldFilters(prev => ({ ...prev, [field.id]: v })); 
+                                setCurrentPage(1); 
+                              }}
+                            >
+                              <SelectTrigger data-testid={`select-filter-${field.id}`}>
+                                <SelectValue placeholder={`All ${field.label}`} />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="all">All {field.label}</SelectItem>
+                                {field.options.map((opt, idx) => (
+                                  <SelectItem key={idx} value={opt.value}>{opt.label || opt.value}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        );
+                      } else {
+                        // Text filter for fields without options
+                        const textValue = customFieldFilters[field.id]?.replace('__text__:', '') || '';
+                        return (
+                          <div key={field.id} className="space-y-2">
+                            <Label className="text-xs text-slate-600">{field.label}</Label>
+                            <Input
+                              placeholder={`Filter by ${field.label.toLowerCase()}...`}
+                              value={textValue}
+                              onChange={(e) => { 
+                                const val = e.target.value;
+                                setCustomFieldFilters(prev => ({ 
+                                  ...prev, 
+                                  [field.id]: val ? `__text__:${val}` : '' 
+                                }));
+                                setCurrentPage(1);
+                              }}
+                              className="h-9"
+                              data-testid={`input-filter-cf-${field.id}`}
+                            />
+                          </div>
+                        );
+                      }
+                    })}
+                  </div>
                 </>
               )}
             </div>
