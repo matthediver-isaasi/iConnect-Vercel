@@ -2,7 +2,7 @@
 import { useState, useEffect, createContext, useContext } from "react";
 
 const TOAST_LIMIT = 20;
-const TOAST_REMOVE_DELAY = 5000;
+const TOAST_REMOVE_DELAY = 300; // Animation duration before removal
 
 const actionTypes = {
   ADD_TOAST: "ADD_TOAST",
@@ -110,7 +110,9 @@ function dispatch(action) {
   });
 }
 
-function toast({ ...props }) {
+const AUTO_DISMISS_DELAY = 4000; // Auto-dismiss after 4 seconds
+
+function toast({ duration = AUTO_DISMISS_DELAY, ...props }) {
   const id = genId();
 
   const update = (props) =>
@@ -133,6 +135,13 @@ function toast({ ...props }) {
       },
     },
   });
+
+  // Auto-dismiss after duration (unless duration is Infinity)
+  if (duration !== Infinity) {
+    setTimeout(() => {
+      dismiss();
+    }, duration);
+  }
 
   return {
     id,
