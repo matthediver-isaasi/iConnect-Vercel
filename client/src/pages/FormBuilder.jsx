@@ -110,7 +110,9 @@ function FieldMappingSection({
   const addMapping = () => {
     const newMapping = {
       id: `mapping_${Date.now()}`,
+      source_type: 'field', // 'field' or 'static'
       source_field_id: '',
+      static_value: '',
       target_type: 'core', // 'core' or 'custom'
       target_entity: applicationLevel === 'member' ? 'member' : 'organization',
       target_field: '',
@@ -138,6 +140,10 @@ function FieldMappingSection({
     return customFields.filter(cf => cf.entity_scope === targetEntity);
   };
 
+  const getCustomFieldById = (fieldId) => {
+    return customFields.find(cf => cf.id === fieldId);
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -147,7 +153,7 @@ function FieldMappingSection({
             Field Mappings
           </h3>
           <p className="text-xs text-slate-500 mt-1">
-            Define how form field values are saved to member or organisation records
+            Map form fields or set fixed values for member/organisation records
           </p>
         </div>
         <Button 
@@ -169,144 +175,206 @@ function FieldMappingSection({
         </div>
       ) : (
         <div className="space-y-3">
-          {fieldMappings.map((mapping, index) => (
-            <div 
-              key={mapping.id} 
-              className="p-4 bg-slate-50 border border-slate-200 rounded-lg space-y-3"
-              data-testid={`mapping-row-${index}`}
-            >
-              {/* First row: Source Field -> Target */}
-              <div className="flex flex-wrap items-end gap-3">
-                {/* Source Field */}
-                <div className="space-y-1 min-w-[180px] flex-1">
-                  <Label className="text-xs">Source (Form Field)</Label>
-                  <Select
-                    value={mapping.source_field_id}
-                    onValueChange={(value) => updateMapping(mapping.id, { source_field_id: value })}
-                  >
-                    <SelectTrigger className="h-9" data-testid={`select-source-${index}`}>
-                      <SelectValue placeholder="Select field..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {fields.map(field => (
-                        <SelectItem key={field.id} value={field.id}>
-                          {field.label || field.type}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+          {fieldMappings.map((mapping, index) => {
+            const sourceType = mapping.source_type || 'field';
+            const targetCustomField = mapping.target_type === 'custom' ? getCustomFieldById(mapping.target_field) : null;
+            const hasOptions = targetCustomField && targetCustomField.options && targetCustomField.options.length > 0;
+            
+            return (
+              <div 
+                key={mapping.id} 
+                className="p-4 bg-slate-50 border border-slate-200 rounded-lg space-y-3"
+                data-testid={`mapping-row-${index}`}
+              >
+                {/* First row: Source Type Selection + Source Value */}
+                <div className="flex flex-wrap items-end gap-3">
+                  {/* Source Type */}
+                  <div className="space-y-1 min-w-[100px]">
+                    <Label className="text-xs">Source</Label>
+                    <Select
+                      value={sourceType}
+                      onValueChange={(value) => updateMapping(mapping.id, { 
+                        source_type: value, 
+                        source_field_id: '',
+                        static_value: ''
+                      })}
+                    >
+                      <SelectTrigger className="h-9" data-testid={`select-source-type-${index}`}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="field">Form Field</SelectItem>
+                        <SelectItem value="static">Fixed Value</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
 
-                {/* Arrow */}
-                <div className="hidden sm:flex items-center justify-center pb-2">
-                  <ArrowRight className="w-4 h-4 text-slate-400" />
-                </div>
-
-                {/* Target Type */}
-                <div className="space-y-1 min-w-[120px]">
-                  <Label className="text-xs">Type</Label>
-                  <Select
-                    value={mapping.target_type}
-                    onValueChange={(value) => updateMapping(mapping.id, { 
-                      target_type: value, 
-                      target_field: '' 
-                    })}
-                  >
-                    <SelectTrigger className="h-9" data-testid={`select-target-type-${index}`}>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="core">Core</SelectItem>
-                      <SelectItem value="custom">Custom</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* Target Entity */}
-                <div className="space-y-1 min-w-[120px]">
-                  <Label className="text-xs">Entity</Label>
-                  <Select
-                    value={mapping.target_entity}
-                    onValueChange={(value) => updateMapping(mapping.id, { 
-                      target_entity: value, 
-                      target_field: '' 
-                    })}
-                  >
-                    <SelectTrigger className="h-9" data-testid={`select-target-entity-${index}`}>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="member">Member</SelectItem>
-                      <SelectItem value="organization">Organisation</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* Target Field */}
-                <div className="space-y-1 min-w-[160px] flex-1">
-                  <Label className="text-xs">Target Field</Label>
-                  <Select
-                    value={mapping.target_field}
-                    onValueChange={(value) => updateMapping(mapping.id, { target_field: value })}
-                  >
-                    <SelectTrigger className="h-9" data-testid={`select-target-field-${index}`}>
-                      <SelectValue placeholder="Select..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {mapping.target_type === 'core' ? (
-                        getAvailableCoreFields(mapping.target_entity).map(f => (
-                          <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>
-                        ))
+                  {/* Source Field or Static Value */}
+                  {sourceType === 'field' ? (
+                    <div className="space-y-1 min-w-[160px] flex-1">
+                      <Label className="text-xs">Form Field</Label>
+                      <Select
+                        value={mapping.source_field_id}
+                        onValueChange={(value) => updateMapping(mapping.id, { source_field_id: value })}
+                      >
+                        <SelectTrigger className="h-9" data-testid={`select-source-${index}`}>
+                          <SelectValue placeholder="Select field..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {fields.map(field => (
+                            <SelectItem key={field.id} value={field.id}>
+                              {field.label || field.type}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  ) : (
+                    <div className="space-y-1 min-w-[160px] flex-1">
+                      <Label className="text-xs">Fixed Value</Label>
+                      {hasOptions ? (
+                        <Select
+                          value={mapping.static_value || ''}
+                          onValueChange={(value) => updateMapping(mapping.id, { static_value: value })}
+                        >
+                          <SelectTrigger className="h-9" data-testid={`select-static-value-${index}`}>
+                            <SelectValue placeholder="Select value..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {targetCustomField.options.map((opt, optIdx) => (
+                              <SelectItem key={optIdx} value={opt.value}>
+                                {opt.label || opt.value}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       ) : (
-                        getAvailableCustomFields(mapping.target_entity).length === 0 ? (
-                          <SelectItem value="__none" disabled>No custom fields available</SelectItem>
-                        ) : (
-                          getAvailableCustomFields(mapping.target_entity).map(f => (
-                            <SelectItem key={f.id} value={f.id}>{f.label}</SelectItem>
-                          ))
-                        )
+                        <Input
+                          value={mapping.static_value || ''}
+                          onChange={(e) => updateMapping(mapping.id, { static_value: e.target.value })}
+                          placeholder="Enter value..."
+                          className="h-9"
+                          data-testid={`input-static-value-${index}`}
+                        />
                       )}
-                    </SelectContent>
-                  </Select>
+                    </div>
+                  )}
+
+                  {/* Arrow */}
+                  <div className="hidden sm:flex items-center justify-center pb-2">
+                    <ArrowRight className="w-4 h-4 text-slate-400" />
+                  </div>
+
+                  {/* Target Type */}
+                  <div className="space-y-1 min-w-[100px]">
+                    <Label className="text-xs">Type</Label>
+                    <Select
+                      value={mapping.target_type}
+                      onValueChange={(value) => updateMapping(mapping.id, { 
+                        target_type: value, 
+                        target_field: '',
+                        static_value: ''
+                      })}
+                    >
+                      <SelectTrigger className="h-9" data-testid={`select-target-type-${index}`}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="core">Core</SelectItem>
+                        <SelectItem value="custom">Custom</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Target Entity */}
+                  <div className="space-y-1 min-w-[110px]">
+                    <Label className="text-xs">Entity</Label>
+                    <Select
+                      value={mapping.target_entity}
+                      onValueChange={(value) => updateMapping(mapping.id, { 
+                        target_entity: value, 
+                        target_field: '',
+                        static_value: ''
+                      })}
+                    >
+                      <SelectTrigger className="h-9" data-testid={`select-target-entity-${index}`}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="member">Member</SelectItem>
+                        <SelectItem value="organization">Organisation</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Target Field */}
+                  <div className="space-y-1 min-w-[140px] flex-1">
+                    <Label className="text-xs">Target Field</Label>
+                    <Select
+                      value={mapping.target_field}
+                      onValueChange={(value) => updateMapping(mapping.id, { target_field: value, static_value: '' })}
+                    >
+                      <SelectTrigger className="h-9" data-testid={`select-target-field-${index}`}>
+                        <SelectValue placeholder="Select..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {mapping.target_type === 'core' ? (
+                          getAvailableCoreFields(mapping.target_entity).map(f => (
+                            <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>
+                          ))
+                        ) : (
+                          getAvailableCustomFields(mapping.target_entity).length === 0 ? (
+                            <SelectItem value="__none" disabled>No custom fields available</SelectItem>
+                          ) : (
+                            getAvailableCustomFields(mapping.target_entity).map(f => (
+                              <SelectItem key={f.id} value={f.id}>{f.label}</SelectItem>
+                            ))
+                          )
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Delete */}
+                  <div className="flex items-end pb-0.5">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => removeMapping(mapping.id)}
+                      className="h-9 w-9 text-red-600 hover:text-red-700 hover:bg-red-50"
+                      data-testid={`button-delete-mapping-${index}`}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
                 </div>
 
-                {/* Delete */}
-                <div className="flex items-end pb-0.5">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => removeMapping(mapping.id)}
-                    className="h-9 w-9 text-red-600 hover:text-red-700 hover:bg-red-50"
-                    data-testid={`button-delete-mapping-${index}`}
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
-                </div>
+                {/* Transformation row - only show for field mappings */}
+                {sourceType === 'field' && (
+                  <div className="flex items-center gap-3 pt-2 border-t border-slate-200">
+                    <Wand2 className="w-4 h-4 text-slate-400" />
+                    <Label className="text-xs text-slate-600 whitespace-nowrap">Transform:</Label>
+                    <Select
+                      value={mapping.transformation}
+                      onValueChange={(value) => updateMapping(mapping.id, { transformation: value })}
+                    >
+                      <SelectTrigger className="h-8 flex-1 max-w-xs" data-testid={`select-transformation-${index}`}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {TRANSFORMATIONS.map(t => (
+                          <SelectItem key={t.value} value={t.value}>
+                            <span>{t.label}</span>
+                            <span className="text-xs text-slate-400 ml-2">- {t.description}</span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
               </div>
-
-              {/* Transformation row */}
-              <div className="flex items-center gap-3 pt-2 border-t border-slate-200">
-                <Wand2 className="w-4 h-4 text-slate-400" />
-                <Label className="text-xs text-slate-600 whitespace-nowrap">Transform:</Label>
-                <Select
-                  value={mapping.transformation}
-                  onValueChange={(value) => updateMapping(mapping.id, { transformation: value })}
-                >
-                  <SelectTrigger className="h-8 flex-1 max-w-xs" data-testid={`select-transformation-${index}`}>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {TRANSFORMATIONS.map(t => (
-                      <SelectItem key={t.value} value={t.value}>
-                        <span>{t.label}</span>
-                        <span className="text-xs text-slate-400 ml-2">- {t.description}</span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

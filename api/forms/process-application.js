@@ -117,15 +117,29 @@ export default async function handler(req, res) {
       console.log('[AppProcessor] Using field_mappings:', field_mappings.length, 'mappings');
       
       for (const mapping of field_mappings) {
-        const { source_field_id, target_type, target_entity, target_field, transformation } = mapping;
-        if (!source_field_id || !target_field) continue;
+        const { source_type, source_field_id, static_value, target_type, target_entity, target_field, transformation } = mapping;
         
-        let value = form_values[source_field_id];
-        if (value === undefined || value === null || value === '') continue;
+        // Skip if no target field
+        if (!target_field) continue;
         
-        // Apply transformation
-        if (transformation && transformation !== 'none') {
-          value = applyTransformation(value, transformation);
+        let value;
+        
+        // Determine value source: form field or static value
+        if (source_type === 'static') {
+          // Static value mapping - use the fixed value
+          value = static_value;
+          if (value === undefined || value === null || value === '') continue;
+          console.log('[AppProcessor] Static mapping:', target_field, '=', value);
+        } else {
+          // Form field mapping (default)
+          if (!source_field_id) continue;
+          value = form_values[source_field_id];
+          if (value === undefined || value === null || value === '') continue;
+          
+          // Apply transformation only for field mappings
+          if (transformation && transformation !== 'none') {
+            value = applyTransformation(value, transformation);
+          }
         }
         
         if (target_type === 'core') {
