@@ -3973,18 +3973,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         totalCost,
         paymentMethod,
         isGuestBooking,
-        guestInfo: guestInfo ? { email: guestInfo.email } : null
+        guestInfo: guestInfo ? { email: guestInfo.email, first_name: guestInfo.first_name, last_name: guestInfo.last_name } : null,
+        attendeesCount: attendees?.length || 0
       });
+      
+      console.log('[createOneOffEventBooking] Full request body keys:', Object.keys(req.body));
 
       // Validate required fields - for guest bookings, require guestInfo instead of memberEmail
       if (!eventId || !ticketsRequired) {
+        console.log('[createOneOffEventBooking] VALIDATION FAILED - Missing eventId or ticketsRequired:', { eventId, ticketsRequired });
         return res.status(400).json({
           success: false,
-          error: 'Missing required parameters: eventId and ticketsRequired'
+          error: `Missing required parameters: eventId=${eventId}, ticketsRequired=${ticketsRequired}`
         });
       }
       
       if (!isGuestBooking && !memberEmail) {
+        console.log('[createOneOffEventBooking] VALIDATION FAILED - Member booking without memberEmail');
         return res.status(400).json({
           success: false,
           error: 'Missing required parameter: memberEmail (for member bookings)'
@@ -3992,9 +3997,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       if (isGuestBooking && (!guestInfo || !guestInfo.email || !guestInfo.first_name || !guestInfo.last_name)) {
+        console.log('[createOneOffEventBooking] VALIDATION FAILED - Guest booking missing guestInfo:', {
+          hasGuestInfo: !!guestInfo,
+          email: guestInfo?.email,
+          first_name: guestInfo?.first_name,
+          last_name: guestInfo?.last_name
+        });
         return res.status(400).json({
           success: false,
-          error: 'Missing required guest information: email, first_name, and last_name are required'
+          error: `Missing required guest information: email=${guestInfo?.email}, first_name=${guestInfo?.first_name}, last_name=${guestInfo?.last_name}`
         });
       }
 
