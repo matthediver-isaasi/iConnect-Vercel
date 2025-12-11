@@ -1993,6 +1993,50 @@ const functionHandlers = {
       }
     }
 
+    // Decrement available seats for the event (if not unlimited)
+    if (event.available_seats !== null && event.available_seats !== undefined && !event.is_unlimited_registration) {
+      const seatsToDecrement = bookingAttendees.length;
+      console.log(`[createOneOffEventBooking] Decrementing ${seatsToDecrement} seats for event ${eventId}`);
+      
+      try {
+        // Try atomic RPC first
+        const { data: newSeatCount, error: rpcError } = await supabase
+          .rpc('adjust_event_seats', { p_event_id: eventId, p_delta: -seatsToDecrement });
+        
+        if (rpcError) {
+          console.error(`[createOneOffEventBooking] RPC seat decrement failed:`, rpcError.message);
+          // Fallback to direct update
+          const { data: currentEvent } = await supabase
+            .from('event')
+            .select('available_seats')
+            .eq('id', eventId)
+            .single();
+          
+          if (currentEvent && currentEvent.available_seats !== null) {
+            const newSeatCount = Math.max(0, currentEvent.available_seats - seatsToDecrement);
+            await supabase.from('event').update({ available_seats: newSeatCount }).eq('id', eventId);
+            console.log(`[createOneOffEventBooking] Fallback: Decremented seats to ${newSeatCount}`);
+          }
+        } else {
+          console.log(`[createOneOffEventBooking] Atomically decremented seats, new count: ${newSeatCount}`);
+        }
+      } catch (rpcErr) {
+        console.error(`[createOneOffEventBooking] Seat decrement exception:`, rpcErr.message);
+        // Fallback to direct update
+        const { data: currentEvent } = await supabase
+          .from('event')
+          .select('available_seats')
+          .eq('id', eventId)
+          .single();
+        
+        if (currentEvent && currentEvent.available_seats !== null) {
+          const newSeatCount = Math.max(0, currentEvent.available_seats - seatsToDecrement);
+          await supabase.from('event').update({ available_seats: newSeatCount }).eq('id', eventId);
+          console.log(`[createOneOffEventBooking] Fallback: Decremented seats to ${newSeatCount}`);
+        }
+      }
+    }
+
     const response = {
       success: true,
       booking_reference: bookingReference,
