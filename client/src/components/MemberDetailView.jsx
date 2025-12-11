@@ -327,6 +327,14 @@ export default function MemberDetailView({
                   ) : (
                     <>
                       <div className="flex items-center gap-3 py-2">
+                        <User className="w-4 h-4 text-slate-400" />
+                        <div>
+                          <p className="text-xs text-slate-500">Full Name</p>
+                          <p className="text-sm font-medium">{member.full_name || '-'}</p>
+                        </div>
+                      </div>
+                      <Separator />
+                      <div className="flex items-center gap-3 py-2">
                         <Mail className="w-4 h-4 text-slate-400" />
                         <div>
                           <p className="text-xs text-slate-500">Email</p>
