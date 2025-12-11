@@ -61,11 +61,15 @@ export default function EventSettingsPage() {
   const [newBulkPercentage, setNewBulkPercentage] = useState("");
   const [savingNewProgram, setSavingNewProgram] = useState(false);
   
-  // Event Types state
+  // Event Types state - now stores objects with {name, bgColor, textColor}
   const [eventTypes, setEventTypes] = useState([]);
   const [newEventType, setNewEventType] = useState("");
+  const [newEventTypeBgColor, setNewEventTypeBgColor] = useState("#dcfce7"); // green-100
+  const [newEventTypeTextColor, setNewEventTypeTextColor] = useState("#15803d"); // green-700
   const [editingEventTypeIndex, setEditingEventTypeIndex] = useState(null);
   const [editingEventTypeValue, setEditingEventTypeValue] = useState("");
+  const [editingEventTypeBgColor, setEditingEventTypeBgColor] = useState("");
+  const [editingEventTypeTextColor, setEditingEventTypeTextColor] = useState("");
   const [savingEventTypes, setSavingEventTypes] = useState(false);
   
   const queryClient = useQueryClient();
@@ -113,12 +117,23 @@ export default function EventSettingsPage() {
       setXeroInvoiceEnabled(xeroSetting.setting_value === 'true');
     }
     
-    // Load event types
+    // Load event types - migrate old string format to new object format
     const eventTypesSetting = settings.find(s => s.setting_key === 'event_types');
     if (eventTypesSetting?.setting_value) {
       try {
         const parsed = JSON.parse(eventTypesSetting.setting_value);
-        setEventTypes(parsed);
+        // Migrate old string format to new object format
+        const migrated = parsed.map(type => {
+          if (typeof type === 'string') {
+            return {
+              name: type,
+              bgColor: '#dcfce7', // green-100
+              textColor: '#15803d' // green-700
+            };
+          }
+          return type;
+        });
+        setEventTypes(migrated);
       } catch (e) {
         console.error('Failed to parse event types:', e);
       }
@@ -257,12 +272,18 @@ export default function EventSettingsPage() {
       toast.error('Please enter an event type');
       return;
     }
-    if (eventTypes.includes(trimmedType)) {
+    if (eventTypes.some(t => t.name === trimmedType)) {
       toast.error('This event type already exists');
       return;
     }
-    setEventTypes([...eventTypes, trimmedType]);
+    setEventTypes([...eventTypes, {
+      name: trimmedType,
+      bgColor: newEventTypeBgColor,
+      textColor: newEventTypeTextColor
+    }]);
     setNewEventType("");
+    setNewEventTypeBgColor("#dcfce7");
+    setNewEventTypeTextColor("#15803d");
   };
 
   const handleRemoveEventType = (index) => {
@@ -271,8 +292,11 @@ export default function EventSettingsPage() {
   };
 
   const handleStartEditEventType = (index) => {
+    const eventType = eventTypes[index];
     setEditingEventTypeIndex(index);
-    setEditingEventTypeValue(eventTypes[index]);
+    setEditingEventTypeValue(eventType.name);
+    setEditingEventTypeBgColor(eventType.bgColor || '#dcfce7');
+    setEditingEventTypeTextColor(eventType.textColor || '#15803d');
   };
 
   const handleSaveEditEventType = () => {
@@ -281,20 +305,34 @@ export default function EventSettingsPage() {
       toast.error('Event type cannot be empty');
       return;
     }
-    if (eventTypes.some((t, i) => i !== editingEventTypeIndex && t === trimmedValue)) {
+    if (eventTypes.some((t, i) => i !== editingEventTypeIndex && t.name === trimmedValue)) {
       toast.error('This event type already exists');
       return;
     }
     const updated = [...eventTypes];
-    updated[editingEventTypeIndex] = trimmedValue;
+    updated[editingEventTypeIndex] = {
+      name: trimmedValue,
+      bgColor: editingEventTypeBgColor,
+      textColor: editingEventTypeTextColor
+    };
     setEventTypes(updated);
     setEditingEventTypeIndex(null);
     setEditingEventTypeValue("");
+    setEditingEventTypeBgColor("");
+    setEditingEventTypeTextColor("");
   };
 
   const handleCancelEditEventType = () => {
     setEditingEventTypeIndex(null);
     setEditingEventTypeValue("");
+    setEditingEventTypeBgColor("");
+    setEditingEventTypeTextColor("");
+  };
+
+  const handleUpdateEventTypeColor = (index, colorType, value) => {
+    const updated = [...eventTypes];
+    updated[index] = { ...updated[index], [colorType]: value };
+    setEventTypes(updated);
   };
 
   const handleSaveEventTypes = async () => {
@@ -1027,30 +1065,65 @@ export default function EventSettingsPage() {
             </div>
           </CardHeader>
           <CardContent className="pt-6">
-            <div className="max-w-2xl space-y-4">
+            <div className="space-y-4">
               <p className="text-sm text-slate-600">
-                Define event types (e.g., Workshop, Self-paced Training, Conference) that can be assigned to events during creation.
+                Define event types (e.g., Workshop, Self-paced Training, Conference) that can be assigned to events. Each type has customizable badge colors.
               </p>
               
-              <div className="flex items-center gap-2">
-                <Input
-                  placeholder="Enter new event type..."
-                  value={newEventType}
-                  onChange={(e) => setNewEventType(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleAddEventType()}
-                  className="flex-1"
-                  data-testid="input-new-event-type"
-                />
-                <Button
-                  onClick={handleAddEventType}
-                  variant="outline"
-                  data-testid="button-add-event-type"
-                >
-                  <Plus className="w-4 h-4 mr-2" />
-                  Add
-                </Button>
+              {/* Add New Event Type */}
+              <div className="p-4 bg-slate-50 rounded-lg border border-slate-200 space-y-3">
+                <Label className="text-sm font-medium">Add New Event Type</Label>
+                <div className="flex flex-wrap items-center gap-3">
+                  <Input
+                    placeholder="Enter event type name..."
+                    value={newEventType}
+                    onChange={(e) => setNewEventType(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleAddEventType()}
+                    className="flex-1 min-w-[200px]"
+                    data-testid="input-new-event-type"
+                  />
+                  <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1">
+                      <Label className="text-xs text-slate-500">Background:</Label>
+                      <input
+                        type="color"
+                        value={newEventTypeBgColor}
+                        onChange={(e) => setNewEventTypeBgColor(e.target.value)}
+                        className="w-8 h-8 rounded border border-slate-300 cursor-pointer"
+                        data-testid="input-new-event-type-bg-color"
+                      />
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Label className="text-xs text-slate-500">Text:</Label>
+                      <input
+                        type="color"
+                        value={newEventTypeTextColor}
+                        onChange={(e) => setNewEventTypeTextColor(e.target.value)}
+                        className="w-8 h-8 rounded border border-slate-300 cursor-pointer"
+                        data-testid="input-new-event-type-text-color"
+                      />
+                    </div>
+                  </div>
+                  {newEventType && (
+                    <Badge 
+                      style={{ backgroundColor: newEventTypeBgColor, color: newEventTypeTextColor }}
+                      className="border-0"
+                    >
+                      {newEventType || 'Preview'}
+                    </Badge>
+                  )}
+                  <Button
+                    onClick={handleAddEventType}
+                    variant="outline"
+                    data-testid="button-add-event-type"
+                  >
+                    <Plus className="w-4 h-4 mr-2" />
+                    Add
+                  </Button>
+                </div>
               </div>
               
+              {/* Event Types List */}
               {eventTypes.length === 0 ? (
                 <p className="text-sm text-slate-500 py-4">No event types defined yet. Add your first event type above.</p>
               ) : (
@@ -1058,11 +1131,11 @@ export default function EventSettingsPage() {
                   {eventTypes.map((type, index) => (
                     <div 
                       key={index} 
-                      className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-200"
+                      className="flex flex-wrap items-center justify-between gap-3 p-3 bg-slate-50 rounded-lg border border-slate-200"
                       data-testid={`event-type-item-${index}`}
                     >
                       {editingEventTypeIndex === index ? (
-                        <div className="flex items-center gap-2 flex-1">
+                        <div className="flex flex-wrap items-center gap-3 flex-1">
                           <Input
                             value={editingEventTypeValue}
                             onChange={(e) => setEditingEventTypeValue(e.target.value)}
@@ -1070,30 +1143,89 @@ export default function EventSettingsPage() {
                               if (e.key === 'Enter') handleSaveEditEventType();
                               if (e.key === 'Escape') handleCancelEditEventType();
                             }}
-                            className="flex-1"
+                            className="flex-1 min-w-[150px]"
                             autoFocus
                             data-testid={`input-edit-event-type-${index}`}
                           />
-                          <Button
-                            onClick={handleSaveEditEventType}
-                            size="sm"
-                            data-testid={`button-save-event-type-${index}`}
+                          <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-1">
+                              <Label className="text-xs text-slate-500">Bg:</Label>
+                              <input
+                                type="color"
+                                value={editingEventTypeBgColor}
+                                onChange={(e) => setEditingEventTypeBgColor(e.target.value)}
+                                className="w-8 h-8 rounded border border-slate-300 cursor-pointer"
+                                data-testid={`input-edit-event-type-bg-color-${index}`}
+                              />
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <Label className="text-xs text-slate-500">Text:</Label>
+                              <input
+                                type="color"
+                                value={editingEventTypeTextColor}
+                                onChange={(e) => setEditingEventTypeTextColor(e.target.value)}
+                                className="w-8 h-8 rounded border border-slate-300 cursor-pointer"
+                                data-testid={`input-edit-event-type-text-color-${index}`}
+                              />
+                            </div>
+                          </div>
+                          <Badge 
+                            style={{ backgroundColor: editingEventTypeBgColor, color: editingEventTypeTextColor }}
+                            className="border-0"
                           >
-                            <Save className="w-4 h-4" />
-                          </Button>
-                          <Button
-                            onClick={handleCancelEditEventType}
-                            size="sm"
-                            variant="outline"
-                            data-testid={`button-cancel-edit-event-type-${index}`}
-                          >
-                            <X className="w-4 h-4" />
-                          </Button>
+                            {editingEventTypeValue || 'Preview'}
+                          </Badge>
+                          <div className="flex items-center gap-1">
+                            <Button
+                              onClick={handleSaveEditEventType}
+                              size="sm"
+                              data-testid={`button-save-event-type-${index}`}
+                            >
+                              <Save className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              onClick={handleCancelEditEventType}
+                              size="sm"
+                              variant="outline"
+                              data-testid={`button-cancel-edit-event-type-${index}`}
+                            >
+                              <X className="w-4 h-4" />
+                            </Button>
+                          </div>
                         </div>
                       ) : (
                         <>
-                          <span className="font-medium text-slate-700">{type}</span>
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-3">
+                            <Badge 
+                              style={{ backgroundColor: type.bgColor || '#dcfce7', color: type.textColor || '#15803d' }}
+                              className="border-0 shadow-sm"
+                            >
+                              {type.name}
+                            </Badge>
+                            <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-1">
+                                <Label className="text-xs text-slate-500">Bg:</Label>
+                                <input
+                                  type="color"
+                                  value={type.bgColor || '#dcfce7'}
+                                  onChange={(e) => handleUpdateEventTypeColor(index, 'bgColor', e.target.value)}
+                                  className="w-6 h-6 rounded border border-slate-300 cursor-pointer"
+                                  data-testid={`input-event-type-bg-color-${index}`}
+                                />
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <Label className="text-xs text-slate-500">Text:</Label>
+                                <input
+                                  type="color"
+                                  value={type.textColor || '#15803d'}
+                                  onChange={(e) => handleUpdateEventTypeColor(index, 'textColor', e.target.value)}
+                                  className="w-6 h-6 rounded border border-slate-300 cursor-pointer"
+                                  data-testid={`input-event-type-text-color-${index}`}
+                                />
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1">
                             <Button
                               onClick={() => handleStartEditEventType(index)}
                               size="sm"

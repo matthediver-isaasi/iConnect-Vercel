@@ -93,6 +93,36 @@ const isEventInPast = (event, timezone = DEFAULT_TIMEZONE) => {
 
 const ZOHO_PUBLIC_BACKSTAGE_SUBDOMAIN = "agcasevents";
 
+// Helper function to get event type styling from system settings
+const getEventTypeStyle = (eventTypeName, systemSettings) => {
+  const defaultStyle = { bgColor: '#dcfce7', textColor: '#15803d' }; // green default
+  
+  if (!eventTypeName || !systemSettings?.length) return defaultStyle;
+  
+  const eventTypesSetting = systemSettings.find(s => s.setting_key === 'event_types');
+  if (!eventTypesSetting?.setting_value) return defaultStyle;
+  
+  try {
+    const eventTypes = JSON.parse(eventTypesSetting.setting_value);
+    // Handle both old string format and new object format
+    const eventType = eventTypes.find(t => 
+      (typeof t === 'string' && t === eventTypeName) ||
+      (typeof t === 'object' && t.name === eventTypeName)
+    );
+    
+    if (eventType && typeof eventType === 'object') {
+      return {
+        bgColor: eventType.bgColor || defaultStyle.bgColor,
+        textColor: eventType.textColor || defaultStyle.textColor
+      };
+    }
+  } catch (e) {
+    console.error('Error parsing event types:', e);
+  }
+  
+  return defaultStyle;
+};
+
 export default function EventCard({ event, organizationInfo, isFeatureExcluded, isAdmin, onEventDeleted, joinLinkSettings, webinars, systemSettings = [] }) {
   const queryClient = useQueryClient();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -360,11 +390,21 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                   Past Event
                 </Badge>
               )}
-              {event.event_type && (
-                <Badge variant="secondary" className="bg-green-100/95 text-green-700 border-green-200 shadow-sm">
-                  {event.event_type}
-                </Badge>
-              )}
+              {event.event_type && (() => {
+                const eventTypeStyle = getEventTypeStyle(event.event_type, systemSettings);
+                return (
+                  <Badge 
+                    variant="secondary" 
+                    className="border-0 shadow-sm"
+                    style={{ 
+                      backgroundColor: `${eventTypeStyle.bgColor}f2`, // add slight transparency
+                      color: eventTypeStyle.textColor 
+                    }}
+                  >
+                    {event.event_type}
+                  </Badge>
+                );
+              })()}
               {event.program_tag && (
                 <Badge variant="secondary" className="bg-purple-100/95 text-purple-700 border-purple-200 shadow-sm">
                   {event.program_tag}
