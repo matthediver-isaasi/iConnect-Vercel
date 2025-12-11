@@ -46,6 +46,10 @@ import TeamMemberManagement from "./TeamMemberManagement";
 
 import DiscountCodeManagement from "./DiscountCodeManagement";
 
+import VoucherManagement from "./VoucherManagement";
+
+import TrainingFundManagement from "./TrainingFundManagement";
+
 import MyTickets from "./MyTickets";
 
 import EventSettings from "./EventSettings";
@@ -268,6 +272,10 @@ const PAGES = {
     TeamMemberManagement: TeamMemberManagement,
     
     DiscountCodeManagement: DiscountCodeManagement,
+    
+    VoucherManagement: VoucherManagement,
+    
+    TrainingFundManagement: TrainingFundManagement,
     
     MyTickets: MyTickets,
     
@@ -526,6 +534,10 @@ function PagesContent() {
                 <Route path="/TeamMemberManagement" element={<TeamMemberManagement />} />
                 
                 <Route path="/DiscountCodeManagement" element={<DiscountCodeManagement />} />
+                
+                <Route path="/VoucherManagement" element={<VoucherManagement />} />
+                
+                <Route path="/TrainingFundManagement" element={<TrainingFundManagement />} />
                 
                 <Route path="/MyTickets" element={<MyTickets />} />
                 
