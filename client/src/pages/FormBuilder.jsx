@@ -44,7 +44,36 @@ const FIELD_TYPES = [
   { value: 'user_job_title', label: 'User Job Title (Auto)' },
 ];
 
-function FieldCard({ field, index, originalIndex, updateField, removeField, FIELD_TYPES, categories = [] }) {
+function FieldCard({ 
+  field, 
+  index, 
+  originalIndex, 
+  updateField, 
+  removeField, 
+  FIELD_TYPES, 
+  categories = [],
+  isApplicationForm = false,
+  applicationLevel = "member",
+  uniquenessChecks = [],
+  onUniquenessChange
+}) {
+  const isEmailType = field.type === 'email' || field.type === 'user_email';
+  const uniquenessCheck = uniquenessChecks.find(u => u.field_id === field.id);
+  const isUniquenessEnabled = !!uniquenessCheck;
+  const checkMode = uniquenessCheck?.check_mode || 'full';
+
+  const handleUniquenessToggle = (enabled) => {
+    if (onUniquenessChange) {
+      onUniquenessChange(field.id, enabled, isEmailType ? (applicationLevel === 'organization' ? 'domain_only' : 'full') : 'full');
+    }
+  };
+
+  const handleCheckModeChange = (mode) => {
+    if (onUniquenessChange) {
+      onUniquenessChange(field.id, true, mode);
+    }
+  };
+
   return (
     <Draggable draggableId={field.id} index={index}>
       {(provided) => (
@@ -95,6 +124,63 @@ function FieldCard({ field, index, originalIndex, updateField, removeField, FIEL
                   className="h-9"
                 />
               </div>
+
+              {/* Uniqueness Check - Only for Application Forms */}
+              {isApplicationForm && (
+                <div className="p-2 bg-amber-50 border border-amber-200 rounded-lg space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id={`uniqueness-${field.id}`}
+                      checked={isUniquenessEnabled}
+                      onCheckedChange={handleUniquenessToggle}
+                      data-testid={`checkbox-uniqueness-${field.id}`}
+                    />
+                    <Label htmlFor={`uniqueness-${field.id}`} className="text-xs font-medium cursor-pointer">
+                      Check for uniqueness
+                    </Label>
+                  </div>
+                  
+                  {isUniquenessEnabled && isEmailType && applicationLevel === 'member' && (
+                    <div className="ml-6 space-y-1">
+                      <Label className="text-xs text-slate-600">Email matching:</Label>
+                      <div className="flex gap-3">
+                        <div className="flex items-center gap-1">
+                          <input
+                            type="radio"
+                            id={`email-full-${field.id}`}
+                            name={`email-mode-${field.id}`}
+                            value="full"
+                            checked={checkMode === 'full'}
+                            onChange={() => handleCheckModeChange('full')}
+                            className="w-3 h-3"
+                            data-testid={`radio-email-full-${field.id}`}
+                          />
+                          <Label htmlFor={`email-full-${field.id}`} className="text-xs cursor-pointer">Entire email</Label>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <input
+                            type="radio"
+                            id={`email-domain-${field.id}`}
+                            name={`email-mode-${field.id}`}
+                            value="domain_only"
+                            checked={checkMode === 'domain_only'}
+                            onChange={() => handleCheckModeChange('domain_only')}
+                            className="w-3 h-3"
+                            data-testid={`radio-email-domain-${field.id}`}
+                          />
+                          <Label htmlFor={`email-domain-${field.id}`} className="text-xs cursor-pointer">Domain only</Label>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {isUniquenessEnabled && isEmailType && applicationLevel === 'organization' && (
+                    <p className="ml-6 text-xs text-slate-500">
+                      Organisation-level applications check email domain only
+                    </p>
+                  )}
+                </div>
+              )}
 
               {field.type === 'category_multiselect' && (
                 <div className="space-y-2">
@@ -245,7 +331,10 @@ export default function FormBuilderPage() {
     success_message: "Thank you for your submission!",
     redirect_url: "",
     require_authentication: false,
-    is_active: true
+    is_active: true,
+    is_application_form: false,
+    application_level: "member",
+    uniqueness_checks: []
   });
 
   const queryClient = useQueryClient();
@@ -303,7 +392,10 @@ export default function FormBuilderPage() {
         success_message: existingForm.success_message || "Thank you for your submission!",
         redirect_url: existingForm.redirect_url || "",
         require_authentication: existingForm.require_authentication || false,
-        is_active: existingForm.is_active ?? true
+        is_active: existingForm.is_active ?? true,
+        is_application_form: existingForm.is_application_form || false,
+        application_level: existingForm.application_level || "member",
+        uniqueness_checks: existingForm.uniqueness_checks || []
       });
     }
   }, [existingForm]);
@@ -417,8 +509,31 @@ export default function FormBuilderPage() {
   };
 
   const removeField = (index) => {
+    const removedField = formData.fields[index];
     const newFields = formData.fields.filter((_, i) => i !== index);
-    setFormData({ ...formData, fields: newFields });
+    
+    // Clean up orphaned uniqueness checks when field is removed
+    const newUniquenessChecks = (formData.uniqueness_checks || [])
+      .filter(c => c.field_id !== removedField?.id);
+    
+    setFormData({ ...formData, fields: newFields, uniqueness_checks: newUniquenessChecks });
+  };
+
+  const handleUniquenessChange = (fieldId, enabled, checkMode = 'full') => {
+    const existingChecks = formData.uniqueness_checks || [];
+    
+    if (enabled) {
+      const existingIndex = existingChecks.findIndex(c => c.field_id === fieldId);
+      if (existingIndex >= 0) {
+        const newChecks = [...existingChecks];
+        newChecks[existingIndex] = { field_id: fieldId, check_mode: checkMode };
+        setFormData({ ...formData, uniqueness_checks: newChecks });
+      } else {
+        setFormData({ ...formData, uniqueness_checks: [...existingChecks, { field_id: fieldId, check_mode: checkMode }] });
+      }
+    } else {
+      setFormData({ ...formData, uniqueness_checks: existingChecks.filter(c => c.field_id !== fieldId) });
+    }
   };
 
   // Parse droppable ID to extract page ID and column index
@@ -691,7 +806,7 @@ export default function FormBuilderPage() {
             </div>
 
             {/* Toggles Row */}
-            <div className="flex items-center gap-6 mt-4 pt-4 border-t border-slate-100">
+            <div className="flex items-center gap-6 mt-4 pt-4 border-t border-slate-100 flex-wrap">
               <div className="flex items-center gap-2">
                 <Switch
                   id="require_authentication"
@@ -710,10 +825,66 @@ export default function FormBuilderPage() {
                 <Label htmlFor="is_active" className="text-sm">Active</Label>
               </div>
 
+              <div className="flex items-center gap-2">
+                <Switch
+                  id="is_application_form"
+                  checked={formData.is_application_form}
+                  onCheckedChange={(checked) => setFormData({ 
+                    ...formData, 
+                    is_application_form: checked,
+                    uniqueness_checks: checked ? formData.uniqueness_checks : []
+                  })}
+                  data-testid="switch-application-form"
+                />
+                <Label htmlFor="is_application_form" className="text-sm">Application Form</Label>
+              </div>
+
               <div className="text-xs text-slate-500 ml-auto">
                 URL: /FormView?slug={formData.slug || 'your-slug'}
               </div>
             </div>
+
+            {/* Application Form Settings */}
+            {formData.is_application_form && (
+              <div className="mt-4 pt-4 border-t border-slate-100 space-y-4">
+                <div className="flex items-center gap-4">
+                  <Label className="text-sm font-medium">Application Level:</Label>
+                  <div className="flex gap-3">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="radio"
+                        id="level-member"
+                        name="application_level"
+                        value="member"
+                        checked={formData.application_level === "member"}
+                        onChange={() => setFormData({ ...formData, application_level: "member" })}
+                        className="w-4 h-4 text-blue-600"
+                        data-testid="radio-level-member"
+                      />
+                      <Label htmlFor="level-member" className="text-sm cursor-pointer">Member Level</Label>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="radio"
+                        id="level-organization"
+                        name="application_level"
+                        value="organization"
+                        checked={formData.application_level === "organization"}
+                        onChange={() => setFormData({ ...formData, application_level: "organization" })}
+                        className="w-4 h-4 text-blue-600"
+                        data-testid="radio-level-organization"
+                      />
+                      <Label htmlFor="level-organization" className="text-sm cursor-pointer">Organisation Level</Label>
+                    </div>
+                  </div>
+                </div>
+                <p className="text-xs text-slate-500">
+                  {formData.application_level === "member" 
+                    ? "Uniqueness will be checked against the Member table" 
+                    : "Uniqueness will be checked against the Organisation table (email fields use domain-only matching)"}
+                </p>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -872,6 +1043,10 @@ export default function FormBuilderPage() {
                                       removeField={removeField}
                                       FIELD_TYPES={FIELD_TYPES}
                                       categories={categories}
+                                      isApplicationForm={formData.is_application_form}
+                                      applicationLevel={formData.application_level}
+                                      uniquenessChecks={formData.uniqueness_checks}
+                                      onUniquenessChange={handleUniquenessChange}
                                     />
                                   ))}
                                 {provided.placeholder}
@@ -959,6 +1134,10 @@ export default function FormBuilderPage() {
                                               removeField={removeField}
                                               FIELD_TYPES={FIELD_TYPES}
                                               categories={categories}
+                                              isApplicationForm={formData.is_application_form}
+                                              applicationLevel={formData.application_level}
+                                              uniquenessChecks={formData.uniqueness_checks}
+                                              onUniquenessChange={handleUniquenessChange}
                                             />
                                           ))
                                         )}
@@ -990,6 +1169,10 @@ export default function FormBuilderPage() {
                               removeField={removeField}
                               FIELD_TYPES={FIELD_TYPES}
                               categories={categories}
+                              isApplicationForm={formData.is_application_form}
+                              applicationLevel={formData.application_level}
+                              uniquenessChecks={formData.uniqueness_checks}
+                              onUniquenessChange={handleUniquenessChange}
                             />
                           ))}
                           {provided.placeholder}

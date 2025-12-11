@@ -146,6 +146,35 @@ export default function FormViewPage() {
       }
     }
 
+    // Application form uniqueness validation
+    if (form.is_application_form && form.uniqueness_checks && form.uniqueness_checks.length > 0) {
+      try {
+        const response = await fetch('/api/forms/validate-uniqueness', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            application_level: form.application_level || 'member',
+            uniqueness_checks: form.uniqueness_checks,
+            form_values: formValues,
+            fields: form.fields,
+            form_id: form.id
+          })
+        });
+
+        const result = await response.json();
+        
+        if (!result.valid && result.conflicts && result.conflicts.length > 0) {
+          const conflictMessages = result.conflicts.map(c => `${c.field_label}: ${c.message}`);
+          toast.error(`Validation failed:\n${conflictMessages.join('\n')}`);
+          return;
+        }
+      } catch (error) {
+        console.error('[FormView] Uniqueness validation error:', error);
+        toast.error('Unable to validate form. Please try again.');
+        return;
+      }
+    }
+
     const submissionData = {
       form_id: form.id,
       form_name: form.name,

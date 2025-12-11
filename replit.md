@@ -30,7 +30,7 @@ Preferred communication style: Simple, everyday language.
 **Events & Bookings:** Manages Event (synced from Zoho Backstage or one-off), Booking, Program, and ProgramTicketTransaction. One-off events support direct pricing and role-based ticket classes with options for public visibility, BOGO, and bulk discounts. Events include `summary` and rich-text `description` fields. Guest checkout is supported for public tickets, capturing guest information and processing Stripe payments.
 **Content Management:** Includes BlogPost, Resource, NewsPost, and a dynamic page builder (IEditPage/IEditPageElement).
 **Typography System:** Pre-defined typography styles can be applied to elements in the page builder, with responsive mobile sizing and manual font settings.
-**Forms System:** Custom forms with `card_swipe` (step-by-step) and `standard` layouts, supporting multi-page pagination and multi-column field arrangement. Integrates with public endpoints for organization and resource category selections.
+**Forms System:** Custom forms with `card_swipe` (step-by-step) and `standard` layouts, supporting multi-page pagination and multi-column field arrangement. Integrates with public endpoints for organization and resource category selections. Application forms support uniqueness validation for member-level and organization-level applications, checking email fields against existing records and prior form submissions.
 **Speakers:** Manages speaker profiles for event assignments.
 **Card Deck:** A content management feature for displaying curated card collections on dynamic pages, with admin management and styling controls.
 **Configuration:** Manages navigation, menus, page banners, onboarding tours, and system settings.
