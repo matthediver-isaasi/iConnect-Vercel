@@ -46,6 +46,28 @@ const DEFAULT_COLUMNS = [
   { id: 'contact', label: 'Contact', visible: true, locked: false },
 ];
 
+const STORAGE_KEY = 'organisations_list_columns';
+
+const loadSavedColumns = () => {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      return JSON.parse(saved);
+    }
+  } catch {
+    // Ignore parse errors
+  }
+  return null;
+};
+
+const saveColumnsToStorage = (columns) => {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(columns));
+  } catch {
+    // Ignore storage errors
+  }
+};
+
 const STATUS_OPTIONS = [
   { value: 'all', label: 'All Statuses' },
   { value: 'active', label: 'Active' },
@@ -65,8 +87,9 @@ export default function OrganisationsListPage() {
   const [itemsPerPage] = useState(20);
   const [selectedOrg, setSelectedOrg] = useState(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [columns, setColumns] = useState(DEFAULT_COLUMNS);
+  const [columns, setColumns] = useState(() => loadSavedColumns() || DEFAULT_COLUMNS);
   const [draggedColumn, setDraggedColumn] = useState(null);
+  const [columnsInitialized, setColumnsInitialized] = useState(false);
 
   useEffect(() => {
     if (isAccessReady) {
@@ -209,9 +232,9 @@ export default function OrganisationsListPage() {
 
   const hasActiveFilters = searchQuery || statusFilter !== 'all' || Object.values(customFieldFilters).some(v => v && v !== 'all');
 
-  // Update columns when custom fields are loaded
+  // Update columns when custom fields are loaded - merge with saved preferences
   useEffect(() => {
-    if (orgCustomFields.length > 0) {
+    if (orgCustomFields.length > 0 && !columnsInitialized) {
       setColumns(prev => {
         const existingIds = prev.map(c => c.id);
         const newCustomFieldColumns = orgCustomFields
@@ -226,8 +249,16 @@ export default function OrganisationsListPage() {
           }));
         return [...prev, ...newCustomFieldColumns];
       });
+      setColumnsInitialized(true);
     }
-  }, [orgCustomFields]);
+  }, [orgCustomFields, columnsInitialized]);
+
+  // Save columns to localStorage when they change
+  useEffect(() => {
+    if (columnsInitialized) {
+      saveColumnsToStorage(columns);
+    }
+  }, [columns, columnsInitialized]);
 
   const visibleColumns = useMemo(() => columns.filter(c => c.visible), [columns]);
 
@@ -266,8 +297,17 @@ export default function OrganisationsListPage() {
   };
 
   const resetColumns = () => {
-    const customFieldCols = columns.filter(c => c.isCustomField).map(c => ({ ...c, visible: false }));
-    setColumns([...DEFAULT_COLUMNS, ...customFieldCols]);
+    const customFieldCols = orgCustomFields.map(f => ({
+      id: `cf_${f.id}`,
+      label: f.label,
+      visible: false,
+      locked: false,
+      isCustomField: true,
+      fieldId: f.id
+    }));
+    const newColumns = [...DEFAULT_COLUMNS, ...customFieldCols];
+    setColumns(newColumns);
+    saveColumnsToStorage(newColumns);
   };
 
   if (!accessChecked) {
