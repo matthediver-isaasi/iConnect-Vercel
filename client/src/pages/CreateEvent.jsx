@@ -1268,9 +1268,12 @@ export default function CreateEvent() {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="_none">None</SelectItem>
-                        {eventTypes.map((type, idx) => (
-                          <SelectItem key={idx} value={type}>{type}</SelectItem>
-                        ))}
+                        {eventTypes.map((type, idx) => {
+                          const typeName = typeof type === 'string' ? type : type.name;
+                          return (
+                            <SelectItem key={idx} value={typeName}>{typeName}</SelectItem>
+                          );
+                        })}
                       </SelectContent>
                     </Select>
                     <p className="text-xs text-slate-500">
