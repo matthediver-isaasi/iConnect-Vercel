@@ -125,7 +125,8 @@ export default function PaymentOptions({
   onCanProceedChange = null,
   isGuestCheckout = false,
   guestInfo = null,
-  noTicketsForRole = false
+  noTicketsForRole = false,
+  isSoldOut = false
 }) {
   // Payment state for one-off events
   const [selectedVouchers, setSelectedVouchers] = useState([]);
@@ -883,9 +884,10 @@ export default function PaymentOptions({
 
   // Determine if booking can proceed
   // For one-off events, also block if no tickets available for user's role
-  const canProceed = isOneOffEvent 
+  // Also block if event is sold out
+  const canProceed = !isSoldOut && (isOneOffEvent 
     ? (ticketsRequired > 0 && !submitting && (totalCost === 0 || isFullyPaid) && !noTicketsForRole)
-    : (hasEnoughTickets && event.program_tag && !submitting && ticketsRequired > 0);
+    : (hasEnoughTickets && event.program_tag && !submitting && ticketsRequired > 0));
 
   // Notify parent component of canProceed state changes
   useEffect(() => {
@@ -932,6 +934,8 @@ export default function PaymentOptions({
                 <Loader2 className="w-5 h-5 mr-2 animate-spin" />
                 Processing...
               </>
+            ) : isSoldOut ? (
+              'Sold Out'
             ) : isOneOffEvent ? (
               totalCost > 0 ? `Book & Pay £${remainingBalance.toFixed(2)}` : 'Confirm Booking'
             ) : (

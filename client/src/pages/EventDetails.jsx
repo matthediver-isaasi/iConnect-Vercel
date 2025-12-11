@@ -758,11 +758,15 @@ export default function EventDetailsPage() {
   // Check if user has no tickets available for their role
   const noTicketsForRole = isOneOffEvent && availableTicketClasses.length === 0;
   
+  // Check if event is sold out (not unlimited and available_seats <= 0)
+  const isSoldOut = !hasUnlimitedCapacity && event.available_seats !== null && event.available_seats <= 0;
+  
   // For one-off events, use paymentCanProceed from PaymentOptions (includes payment validation)
   // For program events, need enough tickets
-  const canConfirmBooking = isOneOffEvent 
+  // Also disable if sold out
+  const canConfirmBooking = !isSoldOut && (isOneOffEvent 
     ? paymentCanProceed
-    : (hasEnoughTickets && event.program_tag && !submitting && ticketsRequired > 0);
+    : (hasEnoughTickets && event.program_tag && !submitting && ticketsRequired > 0));
 
   // Check system setting for showing seats (global override)
   // Default to true (show seats) to preserve existing UX - only hide if explicitly set to 'false'
@@ -1337,6 +1341,8 @@ export default function EventDetailsPage() {
                                   <Loader2 className="w-5 h-5 mr-2 animate-spin" />
                                   Processing...
                                 </>
+                              ) : isSoldOut ? (
+                                'Sold Out'
                               ) : (
                                 'Confirm Booking'
                               )}
@@ -1566,6 +1572,7 @@ export default function EventDetailsPage() {
               isGuestCheckout={isGuestCheckout}
               guestInfo={guestInfo}
               noTicketsForRole={noTicketsForRole}
+              isSoldOut={isSoldOut}
             />
 
           </div>
