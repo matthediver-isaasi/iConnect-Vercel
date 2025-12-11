@@ -633,7 +633,6 @@ function PagesContent() {
                 
                 <Route path="/OrganisationDirectory" element={<OrganisationDirectory />} />
                 
-                <Route path="/OrganisationsList" element={<OrganisationsList />} />
                 <Route path="/organisations" element={<OrganisationsList />} />
                 
                 <Route path="/FloaterManagement" element={<FloaterManagement />} />
