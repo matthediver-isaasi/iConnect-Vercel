@@ -287,6 +287,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       console.log(`[Entity PATCH] ${entity}/${id} with payload:`, JSON.stringify(req.body));
 
+      // Special validation for Event seat capacity changes
+      if (entity === 'Event' && req.body.available_seats !== undefined) {
+        const newSeatCapacity = req.body.available_seats;
+        
+        // If setting to null (unlimited), that's always allowed
+        if (newSeatCapacity !== null) {
+          // Count active bookings for this event
+          const { count: activeBookingCount, error: countError } = await supabase
+            .from('booking')
+            .select('*', { count: 'exact', head: true })
+            .eq('event_id', id)
+            .neq('status', 'cancelled');
+          
+          if (countError) {
+            console.error('[Entity PATCH] Error counting bookings:', countError);
+          } else {
+            const bookingCount = activeBookingCount || 0;
+            
+            // Prevent reducing seats below registered attendees
+            if (newSeatCapacity < bookingCount) {
+              console.log(`[Entity PATCH] Seat validation failed: ${newSeatCapacity} < ${bookingCount} bookings`);
+              return res.status(400).json({ 
+                error: `Cannot reduce seat capacity to ${newSeatCapacity}. There are ${bookingCount} registered attendees. You can reduce to ${bookingCount} (will show as sold out) or higher.`
+              });
+            }
+            
+            console.log(`[Entity PATCH] Seat validation passed: ${newSeatCapacity} >= ${bookingCount} bookings`);
+          }
+        }
+      }
+
       const { data, error } = await supabase
         .from(tableName)
         .update(req.body)
