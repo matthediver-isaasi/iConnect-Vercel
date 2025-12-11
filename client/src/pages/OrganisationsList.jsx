@@ -1,6 +1,6 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { base44 } from "@/api/base44Client";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -47,25 +47,20 @@ const DEFAULT_COLUMNS = [
 ];
 
 const STORAGE_KEY = 'organisations_list_columns';
+const COLUMN_PREF_KEY = '_system_crm_org_columns';
 
-const loadSavedColumns = () => {
+const loadLocalColumns = () => {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      return JSON.parse(saved);
-    }
-  } catch {
-    // Ignore parse errors
-  }
+    if (saved) return JSON.parse(saved);
+  } catch {}
   return null;
 };
 
-const saveColumnsToStorage = (columns) => {
+const saveLocalColumns = (columns) => {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(columns));
-  } catch {
-    // Ignore storage errors
-  }
+  } catch {}
 };
 
 const STATUS_OPTIONS = [
@@ -76,7 +71,8 @@ const STATUS_OPTIONS = [
 ];
 
 export default function OrganisationsListPage() {
-  const { isAdmin, isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const { isAdmin, isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
+  const queryClient = useQueryClient();
   const [accessChecked, setAccessChecked] = useState(false);
   
   const [viewMode, setViewMode] = useState('list');
@@ -87,9 +83,11 @@ export default function OrganisationsListPage() {
   const [itemsPerPage] = useState(20);
   const [selectedOrg, setSelectedOrg] = useState(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [columns, setColumns] = useState(() => loadSavedColumns() || DEFAULT_COLUMNS);
+  const [columns, setColumns] = useState(() => loadLocalColumns() || DEFAULT_COLUMNS);
   const [draggedColumn, setDraggedColumn] = useState(null);
   const [columnsInitialized, setColumnsInitialized] = useState(false);
+  const [dbPrefId, setDbPrefId] = useState(null);
+  const saveTimeoutRef = useRef(null);
 
   useEffect(() => {
     if (isAccessReady) {
@@ -155,6 +153,73 @@ export default function OrganisationsListPage() {
       }
     }
   });
+
+  // Load user's saved column preferences from database
+  const { data: savedColumnPref } = useQuery({
+    queryKey: ['member-column-prefs', memberInfo?.id, COLUMN_PREF_KEY],
+    enabled: accessChecked && !!memberInfo?.id,
+    queryFn: async () => {
+      try {
+        const prefs = await base44.entities.MemberPreferenceValue.list({
+          filter: { member_id: memberInfo.id }
+        });
+        const columnPref = prefs?.find(p => p.field_id === COLUMN_PREF_KEY);
+        return columnPref || null;
+      } catch {
+        return null;
+      }
+    }
+  });
+
+  // Mutation to save column preferences to database
+  const saveColumnsMutation = useMutation({
+    mutationFn: async (columnsData) => {
+      const valueStr = JSON.stringify(columnsData);
+      if (dbPrefId) {
+        return await base44.entities.MemberPreferenceValue.update(dbPrefId, { 
+          value: valueStr,
+          updated_at: new Date().toISOString()
+        });
+      } else {
+        return await base44.entities.MemberPreferenceValue.create({
+          member_id: memberInfo.id,
+          field_id: COLUMN_PREF_KEY,
+          value: valueStr
+        });
+      }
+    },
+    onSuccess: (result) => {
+      if (result?.id) setDbPrefId(result.id);
+      queryClient.invalidateQueries({ queryKey: ['member-column-prefs', memberInfo?.id] });
+    },
+    onError: () => {
+      // Fallback: ensure localStorage is updated
+      saveLocalColumns(columns);
+    }
+  });
+
+  // Load columns from database when preference is fetched
+  useEffect(() => {
+    if (savedColumnPref?.value && !columnsInitialized) {
+      try {
+        const parsed = JSON.parse(savedColumnPref.value);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setColumns(parsed);
+          setDbPrefId(savedColumnPref.id);
+        }
+      } catch {}
+    }
+  }, [savedColumnPref, columnsInitialized]);
+
+  // Debounced save to database
+  const debouncedSaveToDb = useCallback((columnsData) => {
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    saveTimeoutRef.current = setTimeout(() => {
+      if (memberInfo?.id) {
+        saveColumnsMutation.mutate(columnsData);
+      }
+    }, 1000);
+  }, [memberInfo?.id, saveColumnsMutation]);
 
   const organizationMemberCounts = useMemo(() => {
     const counts = {};
@@ -253,12 +318,20 @@ export default function OrganisationsListPage() {
     }
   }, [orgCustomFields, columnsInitialized]);
 
-  // Save columns to localStorage when they change
+  // Save columns to localStorage and database when they change
   useEffect(() => {
     if (columnsInitialized) {
-      saveColumnsToStorage(columns);
+      saveLocalColumns(columns);
+      debouncedSaveToDb(columns);
     }
-  }, [columns, columnsInitialized]);
+  }, [columns, columnsInitialized, debouncedSaveToDb]);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    };
+  }, []);
 
   const visibleColumns = useMemo(() => columns.filter(c => c.visible), [columns]);
 
@@ -307,7 +380,11 @@ export default function OrganisationsListPage() {
     }));
     const newColumns = [...DEFAULT_COLUMNS, ...customFieldCols];
     setColumns(newColumns);
-    saveColumnsToStorage(newColumns);
+    // Save immediately to both local and database
+    saveLocalColumns(newColumns);
+    if (memberInfo?.id) {
+      saveColumnsMutation.mutate(newColumns);
+    }
   };
 
   if (!accessChecked) {
