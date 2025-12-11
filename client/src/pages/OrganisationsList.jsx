@@ -492,17 +492,17 @@ export default function OrganisationsListPage() {
           </div>
 
           <ScrollArea className="flex-1 p-4 min-w-[288px]">
-            <div className="space-y-5">
+            <div className="space-y-4">
               {/* Status Filter */}
-              <div className="space-y-2">
-                <Label className="text-xs font-medium text-slate-500 uppercase tracking-wide">Status</Label>
+              <div className="space-y-1.5">
+                <Label className="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Status</Label>
                 <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setCurrentPage(1); }}>
-                  <SelectTrigger data-testid="select-status-filter">
+                  <SelectTrigger className="h-8 text-xs" data-testid="select-status-filter">
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="max-w-[260px]">
                     {STATUS_OPTIONS.map(opt => (
-                      <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                      <SelectItem key={opt.value} value={opt.value} className="text-xs whitespace-normal">{opt.label}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -511,11 +511,11 @@ export default function OrganisationsListPage() {
               <Separator />
 
               {/* Core Field Filters */}
-              <div className="space-y-4">
-                <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Contact Details</p>
+              <div className="space-y-3">
+                <p className="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Contact Details</p>
                 
-                <div className="space-y-2">
-                  <Label className="text-xs text-slate-600">Phone</Label>
+                <div className="space-y-1.5">
+                  <Label className="text-[11px] text-slate-600 break-words">Phone</Label>
                   <Input
                     placeholder="Filter by phone..."
                     value={coreFieldFilters.phone}
@@ -523,13 +523,13 @@ export default function OrganisationsListPage() {
                       setCoreFieldFilters(prev => ({ ...prev, phone: e.target.value }));
                       setCurrentPage(1);
                     }}
-                    className="h-9"
+                    className="h-8 text-xs"
                     data-testid="input-filter-phone"
                   />
                 </div>
 
-                <div className="space-y-2">
-                  <Label className="text-xs text-slate-600">Email</Label>
+                <div className="space-y-1.5">
+                  <Label className="text-[11px] text-slate-600 break-words">Email</Label>
                   <Input
                     placeholder="Filter by email..."
                     value={coreFieldFilters.invoicing_email}
@@ -537,13 +537,13 @@ export default function OrganisationsListPage() {
                       setCoreFieldFilters(prev => ({ ...prev, invoicing_email: e.target.value }));
                       setCurrentPage(1);
                     }}
-                    className="h-9"
+                    className="h-8 text-xs"
                     data-testid="input-filter-email"
                   />
                 </div>
 
-                <div className="space-y-2">
-                  <Label className="text-xs text-slate-600">Website</Label>
+                <div className="space-y-1.5">
+                  <Label className="text-[11px] text-slate-600 break-words">Website</Label>
                   <Input
                     placeholder="Filter by website..."
                     value={coreFieldFilters.website_url}
@@ -551,13 +551,13 @@ export default function OrganisationsListPage() {
                       setCoreFieldFilters(prev => ({ ...prev, website_url: e.target.value }));
                       setCurrentPage(1);
                     }}
-                    className="h-9"
+                    className="h-8 text-xs"
                     data-testid="input-filter-website"
                   />
                 </div>
 
-                <div className="space-y-2">
-                  <Label className="text-xs text-slate-600">Address</Label>
+                <div className="space-y-1.5">
+                  <Label className="text-[11px] text-slate-600 break-words">Address</Label>
                   <Input
                     placeholder="Filter by address..."
                     value={coreFieldFilters.invoicing_address}
@@ -565,7 +565,7 @@ export default function OrganisationsListPage() {
                       setCoreFieldFilters(prev => ({ ...prev, invoicing_address: e.target.value }));
                       setCurrentPage(1);
                     }}
-                    className="h-9"
+                    className="h-8 text-xs"
                     data-testid="input-filter-address"
                   />
                 </div>
@@ -575,17 +575,21 @@ export default function OrganisationsListPage() {
               {orgCustomFields.length > 0 && (
                 <>
                   <Separator />
-                  <div className="space-y-4">
-                    <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Custom Fields</p>
+                  <div className="space-y-3">
+                    <p className="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Custom Fields</p>
                     
                     {orgCustomFields.map(field => {
-                      const hasOptions = field.options && field.options.length > 0;
+                      // Filter out title options (is_title=true or no value)
+                      const validOptions = (field.options || []).filter(opt => 
+                        !opt.is_title && opt.value && opt.value.trim() !== ''
+                      );
+                      const hasOptions = validOptions.length > 0;
                       
                       if (hasOptions) {
                         // Dropdown filter for fields with options
                         return (
-                          <div key={field.id} className="space-y-2">
-                            <Label className="text-xs text-slate-600">{field.label}</Label>
+                          <div key={field.id} className="space-y-1.5">
+                            <Label className="text-[11px] text-slate-600 break-words leading-tight">{field.label}</Label>
                             <Select 
                               value={customFieldFilters[field.id] || 'all'} 
                               onValueChange={(v) => { 
@@ -593,13 +597,19 @@ export default function OrganisationsListPage() {
                                 setCurrentPage(1); 
                               }}
                             >
-                              <SelectTrigger data-testid={`select-filter-${field.id}`}>
-                                <SelectValue placeholder={`All ${field.label}`} />
+                              <SelectTrigger className="h-8 text-xs" data-testid={`select-filter-${field.id}`}>
+                                <SelectValue placeholder={`All`} />
                               </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="all">All {field.label}</SelectItem>
-                                {field.options.map((opt, idx) => (
-                                  <SelectItem key={idx} value={opt.value}>{opt.label || opt.value}</SelectItem>
+                              <SelectContent className="max-w-[260px]">
+                                <SelectItem value="all" className="text-xs">All</SelectItem>
+                                {validOptions.map((opt, idx) => (
+                                  <SelectItem 
+                                    key={idx} 
+                                    value={opt.value} 
+                                    className="text-xs whitespace-normal break-words"
+                                  >
+                                    {opt.label || opt.value}
+                                  </SelectItem>
                                 ))}
                               </SelectContent>
                             </Select>
@@ -609,10 +619,10 @@ export default function OrganisationsListPage() {
                         // Text filter for fields without options
                         const textValue = customFieldFilters[field.id]?.replace('__text__:', '') || '';
                         return (
-                          <div key={field.id} className="space-y-2">
-                            <Label className="text-xs text-slate-600">{field.label}</Label>
+                          <div key={field.id} className="space-y-1.5">
+                            <Label className="text-[11px] text-slate-600 break-words leading-tight">{field.label}</Label>
                             <Input
-                              placeholder={`Filter by ${field.label.toLowerCase()}...`}
+                              placeholder={`Filter...`}
                               value={textValue}
                               onChange={(e) => { 
                                 const val = e.target.value;
@@ -622,7 +632,7 @@ export default function OrganisationsListPage() {
                                 }));
                                 setCurrentPage(1);
                               }}
-                              className="h-9"
+                              className="h-8 text-xs"
                               data-testid={`input-filter-cf-${field.id}`}
                             />
                           </div>
