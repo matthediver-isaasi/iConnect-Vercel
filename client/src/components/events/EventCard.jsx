@@ -93,7 +93,7 @@ const isEventInPast = (event, timezone = DEFAULT_TIMEZONE) => {
 
 const ZOHO_PUBLIC_BACKSTAGE_SUBDOMAIN = "agcasevents";
 
-export default function EventCard({ event, organizationInfo, isFeatureExcluded, isAdmin, onEventDeleted, joinLinkSettings, webinars }) {
+export default function EventCard({ event, organizationInfo, isFeatureExcluded, isAdmin, onEventDeleted, joinLinkSettings, webinars, systemSettings = [] }) {
   const queryClient = useQueryClient();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
@@ -268,7 +268,16 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
 
   const backstageEventUrl = event.backstage_public_url || null;
 
-  const showAvailableSeats = !isFeatureExcluded || !isFeatureExcluded('element_AvailableSeatsDisplay');
+  // Check system setting for showing seats
+  // Default to true (show seats) to preserve existing UX - only hide if explicitly set to 'false'
+  const showSeatsSetting = Array.isArray(systemSettings) 
+    ? systemSettings.find(s => s.setting_key === 'show_event_seats')
+    : null;
+  // Default to true unless setting explicitly set to 'false'
+  // This preserves existing behavior for legacy tenants
+  const showSeatsEnabled = showSeatsSetting?.setting_value !== 'false';
+  // Combine both role-based permission and system setting
+  const showAvailableSeats = showSeatsEnabled && (!isFeatureExcluded || !isFeatureExcluded('element_AvailableSeatsDisplay'));
 
   const deleteEventMutation = useMutation({
     mutationFn: async () => {

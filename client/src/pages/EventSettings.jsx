@@ -24,6 +24,7 @@ export default function EventSettingsPage() {
   const [cancellationDeadlineHours, setCancellationDeadlineHours] = useState(24);
   const [xeroInvoiceEnabled, setXeroInvoiceEnabled] = useState(false);
   const [summaryMaxLength, setSummaryMaxLength] = useState(150);
+  const [showEventSeats, setShowEventSeats] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [editingEventImage, setEditingEventImage] = useState(null);
   const [selectedImage, setSelectedImage] = useState(null);
@@ -127,6 +128,12 @@ export default function EventSettingsPage() {
     if (summaryLengthSetting) {
       setSummaryMaxLength(parseInt(summaryLengthSetting.setting_value) || 150);
     }
+    
+    // Load show event seats setting
+    const showSeatsSetting = settings.find(s => s.setting_key === 'show_event_seats');
+    if (showSeatsSetting) {
+      setShowEventSeats(showSeatsSetting.setting_value === 'true');
+    }
   }, [settings]);
 
   const syncEventsMutation = useMutation({
@@ -188,6 +195,22 @@ export default function EventSettingsPage() {
           setting_key: 'event_summary_max_length',
           setting_value: summaryMaxLength.toString(),
           description: 'Maximum character length for event summaries'
+        });
+      }
+      
+      // Save show event seats setting
+      const showSeatsSetting = settings.find(s => s.setting_key === 'show_event_seats');
+      
+      if (showSeatsSetting) {
+        await base44.entities.SystemSettings.update(showSeatsSetting.id, {
+          setting_value: showEventSeats.toString(),
+          description: 'Show available seats on event cards and details pages'
+        });
+      } else {
+        await base44.entities.SystemSettings.create({
+          setting_key: 'show_event_seats',
+          setting_value: showEventSeats.toString(),
+          description: 'Show available seats on event cards and details pages'
         });
       }
       
@@ -881,6 +904,47 @@ export default function EventSettingsPage() {
                 <p className="text-xs text-slate-500">
                   This limit applies when creating or editing events. The summary is displayed on event cards and listings.
                 </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Event Display Settings Section */}
+        <Card className="border-slate-200 shadow-sm mb-8">
+          <CardHeader className="border-b border-slate-200">
+            <div className="flex items-center gap-2">
+              <Settings className="w-5 h-5 text-purple-600" />
+              <CardTitle>Event Display Settings</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-6">
+            <div className="max-w-2xl space-y-4">
+              <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg border border-slate-200">
+                <div className="space-y-1">
+                  <Label htmlFor="show-event-seats" className="font-medium">
+                    Show Available Seats
+                  </Label>
+                  <p className="text-sm text-slate-500">
+                    Display available seats count on event cards and event details pages
+                  </p>
+                </div>
+                <div className="flex items-center gap-4">
+                  <Switch
+                    id="show-event-seats"
+                    checked={showEventSeats}
+                    onCheckedChange={setShowEventSeats}
+                    data-testid="switch-show-event-seats"
+                  />
+                  <Button
+                    onClick={handleSaveSettings}
+                    disabled={isSaving}
+                    size="sm"
+                    data-testid="button-save-display-settings"
+                  >
+                    <Save className="w-4 h-4 mr-2" />
+                    Save
+                  </Button>
+                </div>
               </div>
             </div>
           </CardContent>

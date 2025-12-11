@@ -97,6 +97,12 @@ export default function EventsPage({
     refetchOnMount: true,
   });
 
+  // Query for all system settings
+  const { data: systemSettings = [] } = useQuery({
+    queryKey: ['system-settings'],
+    queryFn: () => base44.entities.SystemSettings.list()
+  });
+
   // Query for webinar join link visibility settings
   const { data: joinLinkSettings } = useQuery({
     queryKey: ['webinar-join-link-settings'],
@@ -775,6 +781,7 @@ export default function EventsPage({
                     isAdmin={isAdmin}
                     joinLinkSettings={joinLinkSettings}
                     webinars={webinars}
+                    systemSettings={systemSettings}
                   />
                 ))}
               </div>

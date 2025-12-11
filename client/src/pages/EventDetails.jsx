@@ -185,6 +185,12 @@ export default function EventDetailsPage() {
     enabled: !!event?.speaker_ids && event.speaker_ids.length > 0
   });
 
+  // Query for all system settings
+  const { data: systemSettings = [] } = useQuery({
+    queryKey: ['system-settings'],
+    queryFn: () => base44.entities.SystemSettings.list()
+  });
+
   // Query for webinar join link visibility settings
   const { data: joinLinkSettings } = useQuery({
     queryKey: ['webinar-join-link-settings'],
@@ -705,8 +711,16 @@ export default function EventDetailsPage() {
     ? paymentCanProceed
     : (hasEnoughTickets && event.program_tag && !submitting && ticketsRequired > 0);
 
-  // Check if available seats display is excluded
-  const showAvailableSeats = !isFeatureExcluded || !isFeatureExcluded('element_AvailableSeatsDisplay');
+  // Check system setting for showing seats
+  // Default to true (show seats) to preserve existing UX - only hide if explicitly set to 'false'
+  const showSeatsSetting = Array.isArray(systemSettings) 
+    ? systemSettings.find(s => s.setting_key === 'show_event_seats')
+    : null;
+  // Default to true unless setting explicitly set to 'false'
+  // This preserves existing behavior for legacy tenants
+  const showSeatsEnabled = showSeatsSetting?.setting_value !== 'false';
+  // Combine both role-based permission and system setting
+  const showAvailableSeats = showSeatsEnabled && (!isFeatureExcluded || !isFeatureExcluded('element_AvailableSeatsDisplay'));
 
   const handleConfirmBooking = async () => {
     console.log('[EventDetails] handleConfirmBooking called');

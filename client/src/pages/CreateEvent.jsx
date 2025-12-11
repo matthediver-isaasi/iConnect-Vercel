@@ -99,6 +99,7 @@ export default function CreateEvent() {
   const [zoomType, setZoomType] = useState("webinar"); // "webinar" or "meeting"
   const [selectedWebinarId, setSelectedWebinarId] = useState("");
   const [selectedMeetingId, setSelectedMeetingId] = useState("");
+  const [unlimitedSeats, setUnlimitedSeats] = useState(true); // Default to unlimited
   
   // Handler for status changes - clears TBC-incompatible fields synchronously
   const handleStatusChange = (newStatus) => {
@@ -505,6 +506,14 @@ export default function CreateEvent() {
       }
     }
     
+    // Validate seats when unlimited is off
+    if (!unlimitedSeats) {
+      const seats = parseInt(formData.available_seats);
+      if (!formData.available_seats || isNaN(seats) || seats < 1) {
+        errors.push('Please enter a valid number of seats (or enable "Unlimited")');
+      }
+    }
+    
     // If there are validation errors, show the dialog
     if (errors.length > 0) {
       setValidationErrors(errors);
@@ -532,7 +541,7 @@ export default function CreateEvent() {
       end_date: isTbcEvent ? null : (formData.end_date || formData.start_date || null),
       location: locationValue,
       image_url: formData.image_url || null,
-      available_seats: isOnline ? null : (formData.available_seats ? parseInt(formData.available_seats) : null),
+      available_seats: unlimitedSeats ? null : (formData.available_seats ? parseInt(formData.available_seats) : null),
       // TBC events can optionally have a Zoom webinar or meeting
       zoom_webinar_id: isOnline && zoomType === 'webinar' && selectedWebinarId ? selectedWebinarId : null,
       zoom_meeting_id: isOnline && zoomType === 'meeting' && selectedMeetingId ? selectedMeetingId : null,
@@ -1909,36 +1918,57 @@ export default function CreateEvent() {
                   )}
                 </div>
               ) : (
-                <>
-                  <div className="space-y-2">
-                    <Label htmlFor="location">Venue / Location *</Label>
-                    <Input
-                      id="location"
-                      value={formData.location}
-                      onChange={(e) => handleInputChange('location', e.target.value)}
-                      placeholder="Enter venue address or location name"
-                      required={!isOnline}
-                      data-testid="input-location"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="available_seats">Available Seats</Label>
-                    <Input
-                      id="available_seats"
-                      type="number"
-                      min="0"
-                      value={formData.available_seats}
-                      onChange={(e) => handleInputChange('available_seats', e.target.value)}
-                      placeholder="Leave empty for unlimited"
-                      data-testid="input-seats"
-                    />
-                    <p className="text-xs text-slate-500">
-                      Leave empty or set to 0 for unlimited capacity
-                    </p>
-                  </div>
-                </>
+                <div className="space-y-2">
+                  <Label htmlFor="location">Venue / Location *</Label>
+                  <Input
+                    id="location"
+                    value={formData.location}
+                    onChange={(e) => handleInputChange('location', e.target.value)}
+                    placeholder="Enter venue address or location name"
+                    required={!isOnline}
+                    data-testid="input-location"
+                  />
+                </div>
               )}
+
+              {/* Available Seats - shown for all event types */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="available_seats">Available Seats</Label>
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      id="unlimited-seats"
+                      checked={unlimitedSeats}
+                      onCheckedChange={(checked) => {
+                        setUnlimitedSeats(checked);
+                        if (checked) {
+                          handleInputChange('available_seats', '');
+                        }
+                      }}
+                      data-testid="switch-unlimited-seats"
+                    />
+                    <Label htmlFor="unlimited-seats" className="text-sm font-normal cursor-pointer">
+                      Unlimited
+                    </Label>
+                  </div>
+                </div>
+                {!unlimitedSeats && (
+                  <Input
+                    id="available_seats"
+                    type="number"
+                    min="1"
+                    value={formData.available_seats}
+                    onChange={(e) => handleInputChange('available_seats', e.target.value)}
+                    placeholder="Enter number of seats"
+                    data-testid="input-seats"
+                  />
+                )}
+                <p className="text-xs text-slate-500">
+                  {isOnline 
+                    ? "For online events, capacity is managed by your Zoom plan limits" 
+                    : "Set the maximum number of attendees for this event"}
+                </p>
+              </div>
 
               <EventImageUpload
                 value={formData.image_url}

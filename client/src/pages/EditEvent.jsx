@@ -87,6 +87,9 @@ export default function EditEvent() {
   // Event status: draft, published, tbc
   const [eventStatus, setEventStatus] = useState("published");
   
+  // Unlimited seats toggle
+  const [unlimitedSeats, setUnlimitedSeats] = useState(true);
+  
   // Handler for status changes - clears TBC-incompatible fields synchronously
   const handleStatusChange = (newStatus) => {
     if (newStatus === 'tbc') {
@@ -358,7 +361,8 @@ export default function EditEvent() {
         end_date: isTbcEvent ? "" : (event.end_date || ""),
         location: event.location || "",
         image_url: event.image_url || "",
-        available_seats: event.available_seats !== null && event.available_seats !== undefined 
+        // Only show available_seats if it's a positive number (limited seats), otherwise treat as unlimited
+        available_seats: event.available_seats !== null && event.available_seats !== undefined && event.available_seats > 0
           ? String(event.available_seats) 
           : "",
         zoom_webinar_id: event.zoom_webinar_id || null,
@@ -373,6 +377,10 @@ export default function EditEvent() {
       } else if (event.zoom_webinar_id) {
         setZoomType("webinar");
       }
+      
+      // Set unlimited seats based on whether available_seats is null/0
+      const hasLimitedSeats = event.available_seats !== null && event.available_seats !== undefined && event.available_seats > 0;
+      setUnlimitedSeats(!hasLimitedSeats);
       
       setInitialDataLoaded(true);
 
@@ -596,7 +604,15 @@ export default function EditEvent() {
       }
     }
 
-    const parsedSeats = formData.available_seats ? parseInt(formData.available_seats, 10) : null;
+    // Validate seats when unlimited is off
+    if (!unlimitedSeats) {
+      const seats = parseInt(formData.available_seats);
+      if (!formData.available_seats || isNaN(seats) || seats < 1) {
+        toast.error('Please enter a valid number of seats (or enable "Unlimited")');
+        return;
+      }
+    }
+
     // For TBC events, explicitly null out dates and Zoom webinar
     const isTbcEvent = eventStatus === 'tbc';
     
@@ -614,7 +630,7 @@ export default function EditEvent() {
       end_date: isTbcEvent ? null : (formData.end_date || formData.start_date || null),
       location: isOnlineEvent ? null : (formData.location || null),
       image_url: formData.image_url || null,
-      available_seats: isNaN(parsedSeats) ? null : parsedSeats,
+      available_seats: unlimitedSeats ? null : (formData.available_seats ? parseInt(formData.available_seats) : null),
       // TBC events can optionally have a Zoom webinar or meeting
       zoom_webinar_id: zoomType === 'webinar' ? (formData.zoom_webinar_id || null) : null,
       zoom_meeting_id: zoomType === 'meeting' ? (selectedMeetingId || null) : null,
@@ -1807,23 +1823,42 @@ export default function EditEvent() {
                 )}
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="available_seats">Available Seats</Label>
-                <Input
-                  id="available_seats"
-                  type="number"
-                  min="0"
-                  value={formData.available_seats}
-                  onChange={(e) => handleInputChange('available_seats', e.target.value)}
-                  placeholder="Leave empty for unlimited"
-                  disabled={isOnlineEvent}
-                  className={isOnlineEvent ? "bg-slate-100 cursor-not-allowed" : ""}
-                  data-testid="input-seats"
-                />
+              {/* Available Seats - shown for all event types */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="available_seats">Available Seats</Label>
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      id="unlimited-seats"
+                      checked={unlimitedSeats}
+                      onCheckedChange={(checked) => {
+                        setUnlimitedSeats(checked);
+                        if (checked) {
+                          handleInputChange('available_seats', '');
+                        }
+                      }}
+                      data-testid="switch-unlimited-seats"
+                    />
+                    <Label htmlFor="unlimited-seats" className="text-sm font-normal cursor-pointer">
+                      Unlimited
+                    </Label>
+                  </div>
+                </div>
+                {!unlimitedSeats && (
+                  <Input
+                    id="available_seats"
+                    type="number"
+                    min="1"
+                    value={formData.available_seats}
+                    onChange={(e) => handleInputChange('available_seats', e.target.value)}
+                    placeholder="Enter number of seats"
+                    data-testid="input-seats"
+                  />
+                )}
                 <p className="text-xs text-slate-500">
                   {isOnlineEvent 
-                    ? "Online events have unlimited capacity" 
-                    : "Leave empty for unlimited capacity"}
+                    ? "For online events, capacity is managed by your Zoom plan limits" 
+                    : "Set the maximum number of attendees for this event"}
                 </p>
               </div>
 
