@@ -905,6 +905,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ============ Application Processor - Entity Creation from Form Submissions ============
   
+  // Helper function to apply value transformations
+  const applyTransformation = (value: any, transformation: string): any => {
+    if (value === null || value === undefined) return value;
+    const strValue = String(value);
+    
+    switch (transformation) {
+      case 'trim':
+        return strValue.trim();
+      case 'uppercase':
+        return strValue.toUpperCase();
+      case 'lowercase':
+        return strValue.toLowerCase();
+      case 'titlecase':
+        return strValue.replace(/\w\S*/g, (txt) => txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase());
+      case 'extract_domain':
+        // Extract domain from email (after @)
+        if (strValue.includes('@')) {
+          return strValue.split('@')[1] || strValue;
+        }
+        return strValue;
+      case 'extract_username':
+        // Extract username from email (before @)
+        if (strValue.includes('@')) {
+          return strValue.split('@')[0] || strValue;
+        }
+        return strValue;
+      case 'first_word':
+        return strValue.trim().split(/\s+/)[0] || strValue;
+      case 'last_word':
+        const words = strValue.trim().split(/\s+/);
+        return words[words.length - 1] || strValue;
+      case 'remove_spaces':
+        return strValue.replace(/\s+/g, '');
+      case 'numbers_only':
+        return strValue.replace(/[^0-9]/g, '');
+      case 'none':
+      default:
+        return strValue;
+    }
+  };
+
   // Process application form submission and create member/organization entities
   // This is called when auto_create_entity is true or when admin approves an application
   app.post('/api/forms/process-application', async (req: Request, res: Response) => {
@@ -917,6 +958,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         form_id,
         form_values,     // The submitted form values { field_id: value }
         fields,          // The form field definitions with core_field_mapping and custom_field_id
+        field_mappings,  // New: array of {source_field_id, target_type, target_entity, target_field, transformation}
         application_level, // 'member' or 'organization'
         submission_id    // Optional: link back to FormSubmission record
       } = req.body;
@@ -966,24 +1008,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const prefFieldMap = new Map((preferenceFields || []).map((pf: any) => [pf.id, pf]));
 
-      for (const field of fields) {
-        const value = form_values[field.id];
-        if (value === undefined || value === null || value === '') continue;
-
-        // Process core field mappings
-        if (field.core_field_mapping) {
-          const [entity, fieldName] = field.core_field_mapping.split('.');
-          if (entity === 'member') {
-            memberData[fieldName] = value;
-          } else if (entity === 'organization') {
-            orgData[fieldName] = value;
+      // Process new field_mappings array first (preferred method)
+      if (field_mappings && Array.isArray(field_mappings) && field_mappings.length > 0) {
+        console.log('[AppProcessor] Using field_mappings:', field_mappings.length, 'mappings');
+        
+        for (const mapping of field_mappings) {
+          const { source_field_id, target_type, target_entity, target_field, transformation } = mapping;
+          if (!source_field_id || !target_field) continue;
+          
+          let value = form_values[source_field_id];
+          if (value === undefined || value === null || value === '') continue;
+          
+          // Apply transformation
+          if (transformation && transformation !== 'none') {
+            value = applyTransformation(value, transformation);
           }
-        }
-
-        // Process custom field mappings
-        if (field.custom_field_id) {
-          const customField = prefFieldMap.get(field.custom_field_id);
-          if (customField) {
+          
+          if (target_type === 'core') {
+            // Core field mapping
+            if (target_entity === 'member') {
+              memberData[target_field] = value;
+            } else if (target_entity === 'organization') {
+              orgData[target_field] = value;
+            }
+          } else if (target_type === 'custom') {
+            // Custom field mapping
             let storedValue = value;
             if (Array.isArray(value)) {
               storedValue = JSON.stringify(value);
@@ -992,11 +1041,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
             } else {
               storedValue = String(value);
             }
-
-            if (customField.entity_scope === 'organization') {
-              orgCustomFields.push({ field_id: customField.id, value: storedValue });
+            
+            if (target_entity === 'organization') {
+              orgCustomFields.push({ field_id: target_field, value: storedValue });
             } else {
-              memberCustomFields.push({ field_id: customField.id, value: storedValue });
+              memberCustomFields.push({ field_id: target_field, value: storedValue });
+            }
+          }
+        }
+      } else {
+        // Fallback: Use legacy core_field_mapping and custom_field_id on fields
+        for (const field of fields) {
+          const value = form_values[field.id];
+          if (value === undefined || value === null || value === '') continue;
+
+          // Process core field mappings
+          if (field.core_field_mapping) {
+            const [entity, fieldName] = field.core_field_mapping.split('.');
+            if (entity === 'member') {
+              memberData[fieldName] = value;
+            } else if (entity === 'organization') {
+              orgData[fieldName] = value;
+            }
+          }
+
+          // Process custom field mappings
+          if (field.custom_field_id) {
+            const customField = prefFieldMap.get(field.custom_field_id);
+            if (customField) {
+              let storedValue = value;
+              if (Array.isArray(value)) {
+                storedValue = JSON.stringify(value);
+              } else if (typeof value === 'object') {
+                storedValue = JSON.stringify(value);
+              } else {
+                storedValue = String(value);
+              }
+
+              if (customField.entity_scope === 'organization') {
+                orgCustomFields.push({ field_id: customField.id, value: storedValue });
+              } else {
+                memberCustomFields.push({ field_id: customField.id, value: storedValue });
+              }
             }
           }
         }

@@ -21,8 +21,10 @@ import { createPageUrl } from "@/utils";
 import { Link } from "react-router-dom";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
-import { Columns2, Columns3 } from "lucide-react";
+import { Columns2, Columns3, ArrowRight, Settings2, Wand2 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 
 const FIELD_TYPES = [
   { value: 'text', label: 'Text Input' },
@@ -43,6 +45,245 @@ const FIELD_TYPES = [
   { value: 'user_organization', label: 'User Organisation (Auto)' },
   { value: 'user_job_title', label: 'User Job Title (Auto)' },
 ];
+
+const TRANSFORMATIONS = [
+  { value: 'none', label: 'No transformation', description: 'Use value as-is' },
+  { value: 'trim', label: 'Trim whitespace', description: 'Remove leading/trailing spaces' },
+  { value: 'uppercase', label: 'UPPERCASE', description: 'Convert to uppercase' },
+  { value: 'lowercase', label: 'lowercase', description: 'Convert to lowercase' },
+  { value: 'titlecase', label: 'Title Case', description: 'Capitalize first letter of each word' },
+  { value: 'extract_domain', label: 'Extract domain', description: 'Get domain from email (after @)' },
+  { value: 'extract_username', label: 'Extract username', description: 'Get username from email (before @)' },
+  { value: 'first_word', label: 'First word', description: 'Extract first word only' },
+  { value: 'last_word', label: 'Last word', description: 'Extract last word only' },
+  { value: 'remove_spaces', label: 'Remove spaces', description: 'Strip all spaces' },
+  { value: 'numbers_only', label: 'Numbers only', description: 'Keep only numeric characters' },
+];
+
+const MEMBER_CORE_FIELDS = [
+  { value: 'email', label: 'Email' },
+  { value: 'first_name', label: 'First Name' },
+  { value: 'last_name', label: 'Last Name' },
+  { value: 'full_name', label: 'Full Name' },
+  { value: 'phone', label: 'Phone' },
+  { value: 'job_title', label: 'Job Title' },
+];
+
+const ORG_CORE_FIELDS = [
+  { value: 'name', label: 'Organisation Name' },
+  { value: 'invoicing_email', label: 'Invoicing Email' },
+  { value: 'phone', label: 'Phone' },
+  { value: 'website_url', label: 'Website URL' },
+];
+
+function FieldMappingSection({ 
+  fields, 
+  fieldMappings = [], 
+  onMappingsChange,
+  applicationLevel = "member",
+  customFields = []
+}) {
+  const addMapping = () => {
+    const newMapping = {
+      id: `mapping_${Date.now()}`,
+      source_field_id: '',
+      target_type: 'core', // 'core' or 'custom'
+      target_entity: applicationLevel === 'member' ? 'member' : 'organization',
+      target_field: '',
+      transformation: 'none'
+    };
+    onMappingsChange([...fieldMappings, newMapping]);
+  };
+
+  const updateMapping = (mappingId, updates) => {
+    const newMappings = fieldMappings.map(m => 
+      m.id === mappingId ? { ...m, ...updates } : m
+    );
+    onMappingsChange(newMappings);
+  };
+
+  const removeMapping = (mappingId) => {
+    onMappingsChange(fieldMappings.filter(m => m.id !== mappingId));
+  };
+
+  const getAvailableCoreFields = (targetEntity) => {
+    return targetEntity === 'member' ? MEMBER_CORE_FIELDS : ORG_CORE_FIELDS;
+  };
+
+  const getAvailableCustomFields = (targetEntity) => {
+    return customFields.filter(cf => cf.entity_scope === targetEntity);
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-sm font-medium flex items-center gap-2">
+            <Settings2 className="w-4 h-4" />
+            Field Mappings
+          </h3>
+          <p className="text-xs text-slate-500 mt-1">
+            Define how form field values are saved to member or organisation records
+          </p>
+        </div>
+        <Button 
+          onClick={addMapping} 
+          size="sm" 
+          variant="outline"
+          data-testid="button-add-mapping"
+        >
+          <Plus className="w-4 h-4 mr-2" />
+          Add Mapping
+        </Button>
+      </div>
+
+      {fieldMappings.length === 0 ? (
+        <div className="text-center py-8 text-slate-400 border border-dashed border-slate-200 rounded-lg">
+          <Wand2 className="w-8 h-8 mx-auto mb-2 opacity-50" />
+          <p className="text-sm">No field mappings defined</p>
+          <p className="text-xs mt-1">Add mappings to save form data to member/organisation profiles</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {fieldMappings.map((mapping, index) => (
+            <div 
+              key={mapping.id} 
+              className="p-4 bg-slate-50 border border-slate-200 rounded-lg space-y-3"
+              data-testid={`mapping-row-${index}`}
+            >
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
+                {/* Source Field */}
+                <div className="space-y-1">
+                  <Label className="text-xs">Source (Form Field)</Label>
+                  <Select
+                    value={mapping.source_field_id}
+                    onValueChange={(value) => updateMapping(mapping.id, { source_field_id: value })}
+                  >
+                    <SelectTrigger className="h-9" data-testid={`select-source-${index}`}>
+                      <SelectValue placeholder="Select field..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {fields.map(field => (
+                        <SelectItem key={field.id} value={field.id}>
+                          {field.label || field.type}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Arrow */}
+                <div className="hidden md:flex items-center justify-center pt-5">
+                  <ArrowRight className="w-4 h-4 text-slate-400" />
+                </div>
+
+                {/* Target Type & Entity */}
+                <div className="space-y-1">
+                  <Label className="text-xs">Target Type</Label>
+                  <div className="flex gap-1">
+                    <Select
+                      value={mapping.target_type}
+                      onValueChange={(value) => updateMapping(mapping.id, { 
+                        target_type: value, 
+                        target_field: '' 
+                      })}
+                    >
+                      <SelectTrigger className="h-9 flex-1" data-testid={`select-target-type-${index}`}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="core">Core Field</SelectItem>
+                        <SelectItem value="custom">Custom Field</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Select
+                      value={mapping.target_entity}
+                      onValueChange={(value) => updateMapping(mapping.id, { 
+                        target_entity: value, 
+                        target_field: '' 
+                      })}
+                    >
+                      <SelectTrigger className="h-9 w-28" data-testid={`select-target-entity-${index}`}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="member">Member</SelectItem>
+                        <SelectItem value="organization">Organisation</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                {/* Target Field */}
+                <div className="space-y-1">
+                  <Label className="text-xs">Target Field</Label>
+                  <Select
+                    value={mapping.target_field}
+                    onValueChange={(value) => updateMapping(mapping.id, { target_field: value })}
+                  >
+                    <SelectTrigger className="h-9" data-testid={`select-target-field-${index}`}>
+                      <SelectValue placeholder="Select..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {mapping.target_type === 'core' ? (
+                        getAvailableCoreFields(mapping.target_entity).map(f => (
+                          <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>
+                        ))
+                      ) : (
+                        getAvailableCustomFields(mapping.target_entity).length === 0 ? (
+                          <SelectItem value="__none" disabled>No custom fields available</SelectItem>
+                        ) : (
+                          getAvailableCustomFields(mapping.target_entity).map(f => (
+                            <SelectItem key={f.id} value={f.id}>{f.label}</SelectItem>
+                          ))
+                        )
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Delete */}
+                <div className="flex justify-end">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => removeMapping(mapping.id)}
+                    className="h-9 w-9 text-red-600 hover:text-red-700 hover:bg-red-50"
+                    data-testid={`button-delete-mapping-${index}`}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
+
+              {/* Transformation row */}
+              <div className="flex items-center gap-3 pt-2 border-t border-slate-200">
+                <Wand2 className="w-4 h-4 text-slate-400" />
+                <Label className="text-xs text-slate-600 whitespace-nowrap">Transform:</Label>
+                <Select
+                  value={mapping.transformation}
+                  onValueChange={(value) => updateMapping(mapping.id, { transformation: value })}
+                >
+                  <SelectTrigger className="h-8 flex-1 max-w-xs" data-testid={`select-transformation-${index}`}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {TRANSFORMATIONS.map(t => (
+                      <SelectItem key={t.value} value={t.value}>
+                        <span>{t.label}</span>
+                        <span className="text-xs text-slate-400 ml-2">- {t.description}</span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function FieldCard({ 
   field, 
@@ -458,7 +699,8 @@ export default function FormBuilderPage() {
     is_application_form: false,
     application_level: "member",
     auto_create_entity: false,
-    uniqueness_checks: []
+    uniqueness_checks: [],
+    field_mappings: [] // Submission field mappings with transformations
   });
 
   const queryClient = useQueryClient();
@@ -536,7 +778,8 @@ export default function FormBuilderPage() {
         is_application_form: existingForm.is_application_form || false,
         application_level: existingForm.application_level || "member",
         auto_create_entity: existingForm.auto_create_entity || false,
-        uniqueness_checks: existingForm.uniqueness_checks || []
+        uniqueness_checks: existingForm.uniqueness_checks || [],
+        field_mappings: existingForm.field_mappings || []
       });
     }
   }, [existingForm]);
@@ -1043,6 +1286,36 @@ export default function FormBuilderPage() {
                 </div>
               </div>
             )}
+          </CardContent>
+        </Card>
+
+        {/* Submission Settings Card - Field Mappings */}
+        <Card className="border-slate-200 mb-6">
+          <CardHeader className="pb-4">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Settings2 className="w-5 h-5" />
+              Submission Settings
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Accordion type="single" collapsible defaultValue="mappings">
+              <AccordionItem value="mappings" className="border-none">
+                <AccordionTrigger className="py-2 hover:no-underline" data-testid="accordion-field-mappings">
+                  <span className="text-sm font-medium">Field Mappings &amp; Transformations</span>
+                </AccordionTrigger>
+                <AccordionContent>
+                  <div className="pt-2">
+                    <FieldMappingSection
+                      fields={formData.fields}
+                      fieldMappings={formData.field_mappings}
+                      onMappingsChange={(mappings) => setFormData({ ...formData, field_mappings: mappings })}
+                      applicationLevel={formData.application_level}
+                      customFields={customFields}
+                    />
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
           </CardContent>
         </Card>
 

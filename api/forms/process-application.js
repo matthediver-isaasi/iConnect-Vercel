@@ -7,6 +7,45 @@ const supabase = supabaseUrl && supabaseServiceKey
   ? createClient(supabaseUrl, supabaseServiceKey)
   : null;
 
+// Helper function to apply value transformations
+const applyTransformation = (value, transformation) => {
+  if (value === null || value === undefined) return value;
+  const strValue = String(value);
+  
+  switch (transformation) {
+    case 'trim':
+      return strValue.trim();
+    case 'uppercase':
+      return strValue.toUpperCase();
+    case 'lowercase':
+      return strValue.toLowerCase();
+    case 'titlecase':
+      return strValue.replace(/\w\S*/g, (txt) => txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase());
+    case 'extract_domain':
+      if (strValue.includes('@')) {
+        return strValue.split('@')[1] || strValue;
+      }
+      return strValue;
+    case 'extract_username':
+      if (strValue.includes('@')) {
+        return strValue.split('@')[0] || strValue;
+      }
+      return strValue;
+    case 'first_word':
+      return strValue.trim().split(/\s+/)[0] || strValue;
+    case 'last_word':
+      const words = strValue.trim().split(/\s+/);
+      return words[words.length - 1] || strValue;
+    case 'remove_spaces':
+      return strValue.replace(/\s+/g, '');
+    case 'numbers_only':
+      return strValue.replace(/[^0-9]/g, '');
+    case 'none':
+    default:
+      return strValue;
+  }
+};
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -21,6 +60,7 @@ export default async function handler(req, res) {
       form_id,
       form_values,
       fields,
+      field_mappings,
       application_level,
       submission_id
     } = req.body;
@@ -68,22 +108,29 @@ export default async function handler(req, res) {
 
     const prefFieldMap = new Map((preferenceFields || []).map(pf => [pf.id, pf]));
 
-    for (const field of fields) {
-      const value = form_values[field.id];
-      if (value === undefined || value === null || value === '') continue;
-
-      if (field.core_field_mapping) {
-        const [entity, fieldName] = field.core_field_mapping.split('.');
-        if (entity === 'member') {
-          memberData[fieldName] = value;
-        } else if (entity === 'organization') {
-          orgData[fieldName] = value;
+    // Process new field_mappings array first (preferred method)
+    if (field_mappings && Array.isArray(field_mappings) && field_mappings.length > 0) {
+      console.log('[AppProcessor] Using field_mappings:', field_mappings.length, 'mappings');
+      
+      for (const mapping of field_mappings) {
+        const { source_field_id, target_type, target_entity, target_field, transformation } = mapping;
+        if (!source_field_id || !target_field) continue;
+        
+        let value = form_values[source_field_id];
+        if (value === undefined || value === null || value === '') continue;
+        
+        // Apply transformation
+        if (transformation && transformation !== 'none') {
+          value = applyTransformation(value, transformation);
         }
-      }
-
-      if (field.custom_field_id) {
-        const customField = prefFieldMap.get(field.custom_field_id);
-        if (customField) {
+        
+        if (target_type === 'core') {
+          if (target_entity === 'member') {
+            memberData[target_field] = value;
+          } else if (target_entity === 'organization') {
+            orgData[target_field] = value;
+          }
+        } else if (target_type === 'custom') {
           let storedValue = value;
           if (Array.isArray(value)) {
             storedValue = JSON.stringify(value);
@@ -92,11 +139,46 @@ export default async function handler(req, res) {
           } else {
             storedValue = String(value);
           }
-
-          if (customField.entity_scope === 'organization') {
-            orgCustomFields.push({ field_id: customField.id, value: storedValue });
+          
+          if (target_entity === 'organization') {
+            orgCustomFields.push({ field_id: target_field, value: storedValue });
           } else {
-            memberCustomFields.push({ field_id: customField.id, value: storedValue });
+            memberCustomFields.push({ field_id: target_field, value: storedValue });
+          }
+        }
+      }
+    } else {
+      // Fallback: Use legacy core_field_mapping and custom_field_id on fields
+      for (const field of fields) {
+        const value = form_values[field.id];
+        if (value === undefined || value === null || value === '') continue;
+
+        if (field.core_field_mapping) {
+          const [entity, fieldName] = field.core_field_mapping.split('.');
+          if (entity === 'member') {
+            memberData[fieldName] = value;
+          } else if (entity === 'organization') {
+            orgData[fieldName] = value;
+          }
+        }
+
+        if (field.custom_field_id) {
+          const customField = prefFieldMap.get(field.custom_field_id);
+          if (customField) {
+            let storedValue = value;
+            if (Array.isArray(value)) {
+              storedValue = JSON.stringify(value);
+            } else if (typeof value === 'object') {
+              storedValue = JSON.stringify(value);
+            } else {
+              storedValue = String(value);
+            }
+
+            if (customField.entity_scope === 'organization') {
+              orgCustomFields.push({ field_id: customField.id, value: storedValue });
+            } else {
+              memberCustomFields.push({ field_id: customField.id, value: storedValue });
+            }
           }
         }
       }
