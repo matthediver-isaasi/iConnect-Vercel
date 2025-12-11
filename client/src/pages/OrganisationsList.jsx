@@ -47,7 +47,7 @@ const DEFAULT_COLUMNS = [
 ];
 
 const STORAGE_KEY = 'organisations_list_columns';
-const COLUMN_PREF_KEY = '_system_crm_org_columns';
+const getColumnPrefKey = (memberId) => `crm_org_columns_${memberId}`;
 
 const loadLocalColumns = () => {
   try {
@@ -154,43 +154,41 @@ export default function OrganisationsListPage() {
     }
   });
 
-  // Load user's saved column preferences from database
+  // Load user's saved column preferences from SystemSettings
+  const columnPrefKey = memberInfo?.id ? getColumnPrefKey(memberInfo.id) : null;
+  
   const { data: savedColumnPref } = useQuery({
-    queryKey: ['member-column-prefs', memberInfo?.id, COLUMN_PREF_KEY],
-    enabled: accessChecked && !!memberInfo?.id,
+    queryKey: ['system-settings-column-prefs', columnPrefKey],
+    enabled: accessChecked && !!columnPrefKey,
     queryFn: async () => {
       try {
-        const prefs = await base44.entities.MemberPreferenceValue.list({
-          filter: { member_id: memberInfo.id }
-        });
-        const columnPref = prefs?.find(p => p.field_id === COLUMN_PREF_KEY);
-        return columnPref || null;
+        const settings = await base44.entities.SystemSettings.list();
+        const setting = settings?.find(s => s.key === columnPrefKey);
+        return setting || null;
       } catch {
         return null;
       }
     }
   });
 
-  // Mutation to save column preferences to database
+  // Mutation to save column preferences to SystemSettings
   const saveColumnsMutation = useMutation({
     mutationFn: async (columnsData) => {
       const valueStr = JSON.stringify(columnsData);
       if (dbPrefId) {
-        return await base44.entities.MemberPreferenceValue.update(dbPrefId, { 
-          value: valueStr,
-          updated_at: new Date().toISOString()
+        return await base44.entities.SystemSettings.update(dbPrefId, { 
+          value: valueStr
         });
       } else {
-        return await base44.entities.MemberPreferenceValue.create({
-          member_id: memberInfo.id,
-          field_id: COLUMN_PREF_KEY,
+        return await base44.entities.SystemSettings.create({
+          key: columnPrefKey,
           value: valueStr
         });
       }
     },
     onSuccess: (result) => {
       if (result?.id) setDbPrefId(result.id);
-      queryClient.invalidateQueries({ queryKey: ['member-column-prefs', memberInfo?.id] });
+      queryClient.invalidateQueries({ queryKey: ['system-settings-column-prefs', columnPrefKey] });
     },
     onError: () => {
       // Fallback: ensure localStorage is updated
