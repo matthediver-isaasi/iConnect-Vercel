@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,16 +10,22 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Ticket, Plus, Pencil, Copy, Trash2, AlertCircle, Building2, Globe } from "lucide-react";
+import { Ticket, Plus, Pencil, Copy, Trash2, AlertCircle, Building2, Globe, Search, ChevronLeft, ChevronRight, EyeOff, Eye } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 
+const ITEMS_PER_PAGE = 10;
+
 export default function DiscountCodeManagementPage() {
   const { isAdmin, isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const [editingCode, setEditingCode] = useState(null);
+  
+  const [searchTerm, setSearchTerm] = useState("");
+  const [showExpired, setShowExpired] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
 
   useEffect(() => {
     if (isAccessReady) {
@@ -63,6 +69,38 @@ export default function DiscountCodeManagementPage() {
     staleTime: 0,
     refetchOnMount: true,
   });
+
+  const filteredCodes = useMemo(() => {
+    let filtered = discountCodes;
+    
+    if (searchTerm.trim()) {
+      const term = searchTerm.toLowerCase();
+      filtered = filtered.filter(code => 
+        code.code?.toLowerCase().includes(term) ||
+        code.description?.toLowerCase().includes(term) ||
+        organizations.find(o => o.id === code.organization_id)?.name?.toLowerCase().includes(term)
+      );
+    }
+    
+    if (!showExpired) {
+      filtered = filtered.filter(code => {
+        if (!code.expires_at) return true;
+        return new Date(code.expires_at) >= new Date();
+      });
+    }
+    
+    return filtered;
+  }, [discountCodes, searchTerm, showExpired, organizations]);
+
+  const totalPages = Math.ceil(filteredCodes.length / ITEMS_PER_PAGE);
+  const paginatedCodes = useMemo(() => {
+    const start = (currentPage - 1) * ITEMS_PER_PAGE;
+    return filteredCodes.slice(start, start + ITEMS_PER_PAGE);
+  }, [filteredCodes, currentPage]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, showExpired]);
 
   const createCodeMutation = useMutation({
     mutationFn: (codeData) => base44.entities.DiscountCode.create(codeData),
@@ -261,6 +299,40 @@ export default function DiscountCodeManagementPage() {
           </Button>
         </div>
 
+        <Card className="border-slate-200 shadow-sm mb-6">
+          <CardContent className="p-4">
+            <div className="flex flex-col md:flex-row gap-4 items-start md:items-center justify-between">
+              <div className="relative flex-1 max-w-md">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <Input
+                  placeholder="Search by code, description, or organisation..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-10"
+                  data-testid="input-search-discount-codes"
+                />
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setShowExpired(!showExpired)}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-md border text-sm transition-colors ${
+                    showExpired 
+                      ? 'bg-amber-50 border-amber-200 text-amber-700' 
+                      : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                  }`}
+                  data-testid="button-toggle-expired"
+                >
+                  {showExpired ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                  {showExpired ? 'Showing expired' : 'Hiding expired'}
+                </button>
+                <div className="text-sm text-slate-500">
+                  {filteredCodes.length} {filteredCodes.length === 1 ? 'code' : 'codes'}
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
         {loadingCodes ? (
           <div className="text-center py-12">Loading discount codes...</div>
         ) : discountCodes.length === 0 ? (
@@ -279,9 +351,27 @@ export default function DiscountCodeManagementPage() {
               </Button>
             </CardContent>
           </Card>
+        ) : filteredCodes.length === 0 ? (
+          <Card className="border-slate-200 shadow-sm">
+            <CardContent className="p-12 text-center">
+              <Search className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+              <h3 className="text-xl font-semibold text-slate-900 mb-2">
+                No Matching Codes
+              </h3>
+              <p className="text-slate-600 mb-4">
+                No discount codes match your search criteria
+              </p>
+              <Button 
+                variant="outline" 
+                onClick={() => { setSearchTerm(""); setShowExpired(true); }}
+              >
+                Clear Filters
+              </Button>
+            </CardContent>
+          </Card>
         ) : (
           <div className="grid gap-6">
-            {discountCodes.map((code) => {
+            {paginatedCodes.map((code) => {
               const usageInfo = getUsageInfo(code);
               const org = code.organization_id ? organizations.find(o => o.id === code.organization_id) : null;
               const isExpired = code.expires_at && new Date(code.expires_at) < new Date();
@@ -432,6 +522,62 @@ export default function DiscountCodeManagementPage() {
                 </Card>
               );
             })}
+            
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between mt-6 pt-4 border-t border-slate-200">
+                <div className="text-sm text-slate-500">
+                  Showing {((currentPage - 1) * ITEMS_PER_PAGE) + 1} - {Math.min(currentPage * ITEMS_PER_PAGE, filteredCodes.length)} of {filteredCodes.length}
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                    data-testid="button-prev-page"
+                  >
+                    <ChevronLeft className="w-4 h-4 mr-1" />
+                    Previous
+                  </Button>
+                  <div className="flex items-center gap-1">
+                    {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                      let pageNum;
+                      if (totalPages <= 5) {
+                        pageNum = i + 1;
+                      } else if (currentPage <= 3) {
+                        pageNum = i + 1;
+                      } else if (currentPage >= totalPages - 2) {
+                        pageNum = totalPages - 4 + i;
+                      } else {
+                        pageNum = currentPage - 2 + i;
+                      }
+                      return (
+                        <Button
+                          key={pageNum}
+                          variant={currentPage === pageNum ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => setCurrentPage(pageNum)}
+                          className="w-9"
+                          data-testid={`button-page-${pageNum}`}
+                        >
+                          {pageNum}
+                        </Button>
+                      );
+                    })}
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                    disabled={currentPage === totalPages}
+                    data-testid="button-next-page"
+                  >
+                    Next
+                    <ChevronRight className="w-4 h-4 ml-1" />
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
