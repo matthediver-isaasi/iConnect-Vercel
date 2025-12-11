@@ -80,6 +80,7 @@ const entityToTable = {
   'TypographyStyle': 'typography_style',
   'CardDeck': 'card_deck',
   'DynamicDirectory': 'dynamic_directory',
+  'TrainingFundTransaction': 'training_fund_transaction',
 };
 
 const getTableName = (entity) => entityToTable[entity] || entity.toLowerCase().replace(/([A-Z])/g, '_$1').toLowerCase().replace(/^_/, '');
