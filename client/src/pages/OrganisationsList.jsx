@@ -33,11 +33,13 @@ import {
   PanelLeftClose,
   PanelLeft,
   Eye,
-  EyeOff
+  EyeOff,
+  Save
 } from "lucide-react";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 import OrganisationDetailView from "@/components/OrganisationDetailView";
+import { useToast } from "@/components/ui/use-toast";
 
 const DEFAULT_COLUMNS = [
   { id: 'name', label: 'Organisation', visible: true, locked: true },
@@ -47,6 +49,7 @@ const DEFAULT_COLUMNS = [
 ];
 
 const STORAGE_KEY = 'organisations_list_columns';
+const getColumnPrefKey = (memberId) => `crm_org_columns_${memberId}`;
 
 const loadLocalColumns = () => {
   try {
@@ -150,7 +153,80 @@ export default function OrganisationsListPage() {
     }
   });
 
-  // Column preferences are stored in localStorage (simple and reliable)
+  // Fetch saved column preferences from database (once on load)
+  const { toast } = useToast();
+  const columnPrefKey = memberInfo?.id ? getColumnPrefKey(memberInfo.id) : null;
+  const dbColumnsLoadedRef = useRef(false);
+  const savedPrefIdRef = useRef(null);
+
+  const { data: savedDbColumns } = useQuery({
+    queryKey: ['crm-org-column-prefs', columnPrefKey],
+    enabled: accessChecked && !!columnPrefKey && !dbColumnsLoadedRef.current,
+    staleTime: Infinity,
+    gcTime: Infinity,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    queryFn: async () => {
+      if (dbColumnsLoadedRef.current) return null;
+      dbColumnsLoadedRef.current = true;
+      try {
+        const settings = await base44.entities.SystemSettings.list();
+        const setting = settings?.find(s => s.setting_key === columnPrefKey);
+        if (setting) {
+          savedPrefIdRef.current = setting.id;
+          return setting;
+        }
+        return null;
+      } catch {
+        return null;
+      }
+    }
+  });
+
+  // Load columns from database on initial fetch (overrides localStorage)
+  useEffect(() => {
+    if (savedDbColumns?.setting_value) {
+      try {
+        const parsed = JSON.parse(savedDbColumns.setting_value);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setColumns(parsed);
+          saveLocalColumns(parsed);
+        }
+      } catch {}
+    }
+  }, [savedDbColumns]);
+
+  // Mutation to save view (user-initiated)
+  const saveViewMutation = useMutation({
+    mutationFn: async () => {
+      const valueStr = JSON.stringify(columns);
+      if (savedPrefIdRef.current) {
+        return await base44.entities.SystemSettings.update(savedPrefIdRef.current, {
+          setting_value: valueStr
+        });
+      } else {
+        return await base44.entities.SystemSettings.create({
+          setting_key: columnPrefKey,
+          setting_value: valueStr,
+          description: 'CRM organisation list column preferences'
+        });
+      }
+    },
+    onSuccess: (result) => {
+      if (result?.id) savedPrefIdRef.current = result.id;
+      toast({
+        title: "View saved",
+        description: "Your column preferences have been saved."
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Save failed",
+        description: "Could not save your column preferences. Please try again.",
+        variant: "destructive"
+      });
+    }
+  });
 
   const organizationMemberCounts = useMemo(() => {
     const counts = {};
@@ -487,7 +563,21 @@ export default function OrganisationsListPage() {
                           </Button>
                         </div>
                         <p className="text-xs text-slate-500">Drag to reorder. Click to show/hide.</p>
-                        <ScrollArea className="h-64">
+                        <Button 
+                          size="sm" 
+                          className="w-full gap-1" 
+                          onClick={() => saveViewMutation.mutate()}
+                          disabled={saveViewMutation.isPending}
+                          data-testid="button-save-view"
+                        >
+                          {saveViewMutation.isPending ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Save className="w-3.5 h-3.5" />
+                          )}
+                          Save View
+                        </Button>
+                        <ScrollArea className="h-56">
                           <div className="space-y-1">
                             {columns.map((col, index) => (
                               <div
