@@ -24,6 +24,9 @@ export function useEventSeatRealtime(eventId, options = {}) {
 
   const invalidateEventQueries = useCallback(() => {
     if (eventIdRef.current) {
+      // Invalidate the specific event query used in EventDetails
+      queryClient.invalidateQueries({ queryKey: ['event', eventIdRef.current] });
+      // Also invalidate any entity-style queries
       queryClient.invalidateQueries({ queryKey: ['/api/entities/Event', eventIdRef.current] });
       queryClient.invalidateQueries({ queryKey: ['/api/entities/Event'] });
     }
@@ -85,10 +88,16 @@ export function useEventSeatRealtime(eventId, options = {}) {
             });
           }
 
+          // Seed previousSeatsRef from old data if not yet set
+          if (previousSeatsRef.current === null) {
+            previousSeatsRef.current = Number(oldData?.seats_booked) || 0;
+          }
+
           if (seatCapacity > 0 && seatsBooked >= seatCapacity) {
             console.log('[useEventSeatRealtime] Event sold out!');
             
-            if (showSoldOutToast && previousSeatsRef.current !== null && previousSeatsRef.current < seatCapacity) {
+            // Show toast if transitioning to sold out (previous was below capacity)
+            if (showSoldOutToast && previousSeatsRef.current < seatCapacity) {
               toast.error('This event has just sold out!', {
                 description: 'All available tickets have been booked.',
                 duration: 5000

@@ -25,6 +25,7 @@ import PageTour from "../components/tour/PageTour";
 import TourButton from "../components/tour/TourButton";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useSpeakerModuleName } from "@/hooks/useSpeakerModuleName";
+import { useEventSeatRealtime } from "@/hooks/useEventSeatRealtime";
 
 export default function EventDetailsPage() {
   const { memberInfo, organizationInfo, memberRole, isFeatureExcluded, reloadMemberInfo, refreshOrganizationInfo } = useMemberAccess();
@@ -167,13 +168,23 @@ export default function EventDetailsPage() {
     }
   }, [attendees, registrationMode, memberAttending, eventId, currentMemberInfo]);
 
+  // Set up realtime subscription for seat updates
+  const { isConnected: realtimeConnected } = useEventSeatRealtime(eventId, {
+    showSoldOutToast: true,
+    onSoldOut: () => {
+      console.log('[EventDetails] Event sold out via realtime update');
+    }
+  });
+
   const { data: event, isLoading } = useQuery({
     queryKey: ['event', eventId],
     queryFn: async () => {
       const events = await base44.entities.Event.list();
       return events.find((e) => e.id === eventId);
     },
-    enabled: !!eventId
+    enabled: !!eventId,
+    // Fallback polling every 15s when realtime is not connected
+    refetchInterval: realtimeConnected ? false : 15000
   });
 
   // Query for speakers assigned to this event
