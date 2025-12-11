@@ -51,21 +51,23 @@ export default function FormViewPage() {
         });
       }
       
-      // Process CRM field mappings if any fields have custom_field_id
+      // Process CRM field mappings if any fields have custom_field_id (only for authenticated users)
       const hasMappings = form?.fields?.some(f => f.custom_field_id);
-      if (hasMappings) {
+      if (hasMappings && memberInfo) {
         try {
-          await fetch('/api/forms/process-field-mappings', {
+          const response = await fetch('/api/forms/process-field-mappings', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               form_values: formValues,
-              fields: form.fields,
-              member_id: memberRecord?.id || null,
-              organization_id: memberRecord?.organization_id || null
+              fields: form.fields
             })
           });
-          console.log('[FormView] CRM field mappings processed');
+          if (response.ok) {
+            console.log('[FormView] CRM field mappings processed');
+          } else if (response.status === 401) {
+            console.log('[FormView] Field mappings skipped - user not authenticated');
+          }
         } catch (error) {
           console.error('[FormView] Error processing field mappings:', error);
           // Don't fail submission if mapping fails

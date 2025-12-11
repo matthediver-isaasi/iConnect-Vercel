@@ -731,21 +731,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   // Process form field mappings after form submission
   // This updates MemberPreferenceValue or OrgPreferenceValue based on field mappings
+  // Security: Uses session-based member/org IDs, not request body
   app.post('/api/forms/process-field-mappings', async (req: Request, res: Response) => {
     if (!supabase) {
       return res.status(503).json({ error: 'Supabase not configured' });
     }
 
+    // Require authentication - get member/org IDs from session
+    const memberId = (req.session as any)?.memberId;
+    if (!memberId) {
+      return res.status(401).json({ error: 'Authentication required for field mappings' });
+    }
+
     try {
+      // Fetch member to get organization_id
+      const { data: member, error: memberError } = await supabase
+        .from('member')
+        .select('id, organization_id')
+        .eq('id', memberId)
+        .single();
+
+      if (memberError || !member) {
+        return res.status(404).json({ error: 'Member not found' });
+      }
+
       const { 
         form_values,     // The submitted form values { field_id: value }
-        fields,          // The form field definitions with custom_field_id mappings
-        member_id,       // Target member ID (if available)
-        organization_id  // Target organization ID (if available)
+        fields           // The form field definitions with custom_field_id mappings
       } = req.body;
 
-      if (!form_values || !fields || !Array.isArray(fields)) {
-        return res.status(400).json({ error: 'Invalid request: form_values and fields are required' });
+      if (!form_values || typeof form_values !== 'object') {
+        return res.status(400).json({ error: 'Invalid request: form_values is required' });
+      }
+      
+      if (!fields || !Array.isArray(fields)) {
+        return res.status(400).json({ error: 'Invalid request: fields array is required' });
       }
 
       const results = {
@@ -792,12 +812,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         const entityScope = customField.entity_scope || 'member';
 
-        if (entityScope === 'member' && member_id) {
+        if (entityScope === 'member') {
           // Handle member preference value
           const { data: existing } = await supabase
             .from('member_preference_value')
             .select('id')
-            .eq('member_id', member_id)
+            .eq('member_id', member.id)
             .eq('field_id', customField.id)
             .maybeSingle();
 
@@ -818,7 +838,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const { error: createError } = await supabase
               .from('member_preference_value')
               .insert({
-                member_id,
+                member_id: member.id,
                 field_id: customField.id,
                 value: storedValue
               });
@@ -829,19 +849,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
               results.member_updates.push(customField.label);
             }
           }
-        } else if (entityScope === 'organization' && organization_id) {
+        } else if (entityScope === 'organization' && member.organization_id) {
           // Handle organization preference value
           const { data: existing } = await supabase
-            .from('org_preference_value')
+            .from('organization_preference_value')
             .select('id')
-            .eq('organization_id', organization_id)
+            .eq('organization_id', member.organization_id)
             .eq('field_id', customField.id)
             .maybeSingle();
 
           if (existing) {
             // Update existing
             const { error: updateError } = await supabase
-              .from('org_preference_value')
+              .from('organization_preference_value')
               .update({ value: storedValue, updated_at: new Date().toISOString() })
               .eq('id', existing.id);
             
@@ -853,9 +873,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           } else {
             // Create new
             const { error: createError } = await supabase
-              .from('org_preference_value')
+              .from('organization_preference_value')
               .insert({
-                organization_id,
+                organization_id: member.organization_id,
                 field_id: customField.id,
                 value: storedValue
               });
@@ -866,9 +886,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
               results.organization_updates.push(customField.label);
             }
           }
-        } else {
-          // Skip if we don't have the required entity ID
-          console.log(`[Field Mapping] Skipping ${customField.label} - no ${entityScope}_id provided`);
+        } else if (entityScope === 'organization' && !member.organization_id) {
+          // Skip if member has no organization
+          console.log(`[Field Mapping] Skipping ${customField.label} - member has no organization_id`);
         }
       }
 
