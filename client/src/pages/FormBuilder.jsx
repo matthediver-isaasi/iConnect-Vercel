@@ -151,9 +151,10 @@ function FieldMappingSection({
               className="p-4 bg-slate-50 border border-slate-200 rounded-lg space-y-3"
               data-testid={`mapping-row-${index}`}
             >
-              <div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
+              {/* First row: Source Field -> Target */}
+              <div className="flex flex-wrap items-end gap-3">
                 {/* Source Field */}
-                <div className="space-y-1">
+                <div className="space-y-1 min-w-[180px] flex-1">
                   <Label className="text-xs">Source (Form Field)</Label>
                   <Select
                     value={mapping.source_field_id}
@@ -173,49 +174,52 @@ function FieldMappingSection({
                 </div>
 
                 {/* Arrow */}
-                <div className="hidden md:flex items-center justify-center pt-5">
+                <div className="hidden sm:flex items-center justify-center pb-2">
                   <ArrowRight className="w-4 h-4 text-slate-400" />
                 </div>
 
-                {/* Target Type & Entity */}
-                <div className="space-y-1">
-                  <Label className="text-xs">Target Type</Label>
-                  <div className="flex gap-1">
-                    <Select
-                      value={mapping.target_type}
-                      onValueChange={(value) => updateMapping(mapping.id, { 
-                        target_type: value, 
-                        target_field: '' 
-                      })}
-                    >
-                      <SelectTrigger className="h-9 flex-1" data-testid={`select-target-type-${index}`}>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="core">Core Field</SelectItem>
-                        <SelectItem value="custom">Custom Field</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <Select
-                      value={mapping.target_entity}
-                      onValueChange={(value) => updateMapping(mapping.id, { 
-                        target_entity: value, 
-                        target_field: '' 
-                      })}
-                    >
-                      <SelectTrigger className="h-9 w-28" data-testid={`select-target-entity-${index}`}>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="member">Member</SelectItem>
-                        <SelectItem value="organization">Organisation</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+                {/* Target Type */}
+                <div className="space-y-1 min-w-[120px]">
+                  <Label className="text-xs">Type</Label>
+                  <Select
+                    value={mapping.target_type}
+                    onValueChange={(value) => updateMapping(mapping.id, { 
+                      target_type: value, 
+                      target_field: '' 
+                    })}
+                  >
+                    <SelectTrigger className="h-9" data-testid={`select-target-type-${index}`}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="core">Core</SelectItem>
+                      <SelectItem value="custom">Custom</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Target Entity */}
+                <div className="space-y-1 min-w-[120px]">
+                  <Label className="text-xs">Entity</Label>
+                  <Select
+                    value={mapping.target_entity}
+                    onValueChange={(value) => updateMapping(mapping.id, { 
+                      target_entity: value, 
+                      target_field: '' 
+                    })}
+                  >
+                    <SelectTrigger className="h-9" data-testid={`select-target-entity-${index}`}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="member">Member</SelectItem>
+                      <SelectItem value="organization">Organisation</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 {/* Target Field */}
-                <div className="space-y-1">
+                <div className="space-y-1 min-w-[160px] flex-1">
                   <Label className="text-xs">Target Field</Label>
                   <Select
                     value={mapping.target_field}
@@ -243,7 +247,7 @@ function FieldMappingSection({
                 </div>
 
                 {/* Delete */}
-                <div className="flex justify-end">
+                <div className="flex items-end pb-0.5">
                   <Button
                     variant="ghost"
                     size="icon"
