@@ -242,39 +242,46 @@ export default function FormViewPage() {
               />
             )}
           </CardContent>
-          <div className="p-6 pt-0 flex justify-between">
-            <Button
-              variant="outline"
-              onClick={() => setCurrentStep(currentStep - 1)}
-              disabled={currentStep === 0}
-            >
-              <ChevronLeft className="w-4 h-4 mr-2" />
-              Previous
-            </Button>
-            {isLastStep ? (
-              <Button
-                onClick={handleSubmit}
-                disabled={!canProceed || submitFormMutation.isPending}
-                className="bg-blue-600 hover:bg-blue-700"
-              >
-                {submitFormMutation.isPending ? (
-                  <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Submitting...
-                  </>
-                ) : (
-                  form.submit_button_text
-                )}
-              </Button>
-            ) : (
-              <Button
-                onClick={() => setCurrentStep(currentStep + 1)}
-                disabled={!canProceed}
-              >
-                Next
-                <ChevronRight className="w-4 h-4 ml-2" />
-              </Button>
+          <div className="p-6 pt-0 flex flex-col gap-2">
+            {!canProceed && currentField?.required && (
+              <p className="text-sm text-amber-600 text-center">
+                Please complete the required field above to continue
+              </p>
             )}
+            <div className="flex justify-between">
+              <Button
+                variant="outline"
+                onClick={() => setCurrentStep(currentStep - 1)}
+                disabled={currentStep === 0}
+              >
+                <ChevronLeft className="w-4 h-4 mr-2" />
+                Previous
+              </Button>
+              {isLastStep ? (
+                <Button
+                  onClick={handleSubmit}
+                  disabled={!canProceed || submitFormMutation.isPending}
+                  className="bg-blue-600 hover:bg-blue-700"
+                >
+                  {submitFormMutation.isPending ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Submitting...
+                    </>
+                  ) : (
+                    form.submit_button_text
+                  )}
+                </Button>
+              ) : (
+                <Button
+                  onClick={() => setCurrentStep(currentStep + 1)}
+                  disabled={!canProceed}
+                >
+                  Next
+                  <ChevronRight className="w-4 h-4 ml-2" />
+                </Button>
+              )}
+            </div>
           </div>
         </Card>
       </div>
