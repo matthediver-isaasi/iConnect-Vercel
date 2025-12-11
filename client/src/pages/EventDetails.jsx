@@ -674,13 +674,11 @@ export default function EventDetailsPage() {
   const startDate = event.start_date ? new Date(event.start_date) : null;
   const endDate = event.end_date ? new Date(event.end_date) : null;
   // Use explicit is_unlimited_registration field if set, otherwise fallback to legacy logic
-  // Legacy fallback treats available_seats = 0 with no seat_capacity as unlimited
   const hasUnlimitedCapacity = (() => {
     if (event.is_unlimited_registration === true) return true;
     if (event.is_unlimited_registration === false) return false;
-    // Legacy fallback for events without the new field
-    const hasNoCapacity = event.seat_capacity === null || event.seat_capacity === undefined || event.seat_capacity === 0;
-    return event.available_seats === null || (event.available_seats === 0 && hasNoCapacity);
+    // Legacy fallback: null available_seats = unlimited
+    return event.available_seats === null;
   })();
   
   // Calculate ticket count and costs

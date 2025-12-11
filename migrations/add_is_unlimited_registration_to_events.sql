@@ -11,13 +11,5 @@ UPDATE event
 SET is_unlimited_registration = true 
 WHERE available_seats IS NULL;
 
--- Also migrate legacy data: events with available_seats = 0 AND no seat_capacity set
--- These were previously treated as "unlimited" in the old logic
-UPDATE event 
-SET is_unlimited_registration = true 
-WHERE available_seats = 0 
-  AND (seat_capacity IS NULL OR seat_capacity = 0)
-  AND is_unlimited_registration = false;
-
 -- Add comment for documentation
 COMMENT ON COLUMN event.is_unlimited_registration IS 'If true, event has no seat limit (open registration). If false/null, use available_seats to track capacity.';

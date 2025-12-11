@@ -60,26 +60,23 @@ export function useEventSeatRealtime(eventId, options = {}) {
           const newData = payload.new;
           const oldData = payload.old;
 
+          const availableSeats = newData?.available_seats;
+          const oldAvailableSeats = oldData?.available_seats;
+
           console.log('[useEventSeatRealtime] Event update detected:', {
             eventId: newData?.id,
-            oldSeatsBooked: oldData?.seats_booked,
-            newSeatsBooked: newData?.seats_booked,
-            seatCapacity: newData?.seat_capacity
+            oldAvailableSeats,
+            newAvailableSeats: availableSeats,
+            isUnlimitedRegistration: newData?.is_unlimited_registration
           });
 
-          const seatsBooked = Number(newData?.seats_booked) || 0;
-          const seatCapacity = Number(newData?.seat_capacity) || 0;
-          // Check explicit flag, with legacy fallback for events without the field
-          const hasNoCapacity = seatCapacity === 0;
-          const availableSeats_value = Number(newData?.available_seats) || 0;
+          // Check explicit flag, with legacy fallback (null available_seats = unlimited)
           const isUnlimitedRegistration = newData?.is_unlimited_registration === true || 
-            (newData?.is_unlimited_registration !== false && hasNoCapacity && availableSeats_value === 0);
-          const availableSeats = (!isUnlimitedRegistration && seatCapacity > 0) ? seatCapacity - seatsBooked : null;
+            (newData?.is_unlimited_registration !== false && availableSeats === null);
 
           setLastUpdate({
-            seatsBooked,
-            seatCapacity,
             availableSeats,
+            isUnlimitedRegistration,
             timestamp: Date.now()
           });
 
@@ -87,23 +84,23 @@ export function useEventSeatRealtime(eventId, options = {}) {
 
           if (onSeatsUpdatedRef.current) {
             onSeatsUpdatedRef.current({
-              seatsBooked,
-              seatCapacity,
-              availableSeats
+              availableSeats,
+              isUnlimitedRegistration
             });
           }
 
           // Seed previousSeatsRef from old data if not yet set
           if (previousSeatsRef.current === null) {
-            previousSeatsRef.current = Number(oldData?.seats_booked) || 0;
+            previousSeatsRef.current = oldAvailableSeats;
           }
 
           // Only check for sold out if not unlimited registration
-          if (!isUnlimitedRegistration && seatCapacity > 0 && seatsBooked >= seatCapacity) {
+          // Sold out = available_seats is 0 (or less) and not unlimited
+          if (!isUnlimitedRegistration && availableSeats !== null && availableSeats <= 0) {
             console.log('[useEventSeatRealtime] Event sold out!');
             
-            // Show toast if transitioning to sold out (previous was below capacity)
-            if (showSoldOutToast && previousSeatsRef.current < seatCapacity) {
+            // Show toast if transitioning to sold out (previous was above 0)
+            if (showSoldOutToast && previousSeatsRef.current !== null && previousSeatsRef.current > 0) {
               toast.error('This event has just sold out!', {
                 description: 'All available tickets have been booked.',
                 duration: 5000
@@ -115,7 +112,7 @@ export function useEventSeatRealtime(eventId, options = {}) {
             }
           }
 
-          previousSeatsRef.current = seatsBooked;
+          previousSeatsRef.current = availableSeats;
         }
       )
       .subscribe((status) => {
