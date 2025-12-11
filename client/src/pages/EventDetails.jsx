@@ -910,9 +910,9 @@ export default function EventDetailsPage() {
 
             <Card className="border-slate-200 shadow-sm">
               <CardHeader>
-                <div className="flex items-start justify-between gap-4 mb-2">
-                  <h1 className="text-3xl font-bold text-slate-900">{event.title}</h1>
-                  <div className="flex flex-wrap gap-2 shrink-0">
+                {/* Badges at top left, above title */}
+                {(event.program_tag || (event.filter_tags && event.filter_tags.length > 0)) && (
+                  <div className="flex flex-wrap gap-2 mb-3">
                     {event.program_tag && (
                       <Badge className="bg-purple-100 text-purple-700 border-purple-200">
                         {event.program_tag}
@@ -924,7 +924,8 @@ export default function EventDetailsPage() {
                       </Badge>
                     ))}
                   </div>
-                </div>
+                )}
+                <h1 className="text-3xl font-bold text-slate-900 mb-2">{event.title}</h1>
                 
                 <div className="space-y-3 pt-4">
                   {startDate && (
