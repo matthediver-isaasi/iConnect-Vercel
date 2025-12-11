@@ -163,7 +163,7 @@ export default function OrganisationsListPage() {
     queryFn: async () => {
       try {
         const settings = await base44.entities.SystemSettings.list();
-        const setting = settings?.find(s => s.key === columnPrefKey);
+        const setting = settings?.find(s => s.setting_key === columnPrefKey);
         return setting || null;
       } catch {
         return null;
@@ -177,12 +177,12 @@ export default function OrganisationsListPage() {
       const valueStr = JSON.stringify(columnsData);
       if (dbPrefId) {
         return await base44.entities.SystemSettings.update(dbPrefId, { 
-          value: valueStr
+          setting_value: valueStr
         });
       } else {
         return await base44.entities.SystemSettings.create({
-          key: columnPrefKey,
-          value: valueStr
+          setting_key: columnPrefKey,
+          setting_value: valueStr
         });
       }
     },
@@ -198,9 +198,9 @@ export default function OrganisationsListPage() {
 
   // Load columns from database when preference is fetched
   useEffect(() => {
-    if (savedColumnPref?.value && !columnsInitialized) {
+    if (savedColumnPref?.setting_value && !columnsInitialized) {
       try {
-        const parsed = JSON.parse(savedColumnPref.value);
+        const parsed = JSON.parse(savedColumnPref.setting_value);
         if (Array.isArray(parsed) && parsed.length > 0) {
           setColumns(parsed);
           setDbPrefId(savedColumnPref.id);
