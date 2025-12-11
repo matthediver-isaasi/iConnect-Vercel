@@ -24,6 +24,7 @@ export default function EventSettingsPage() {
   const [cancellationDeadlineHours, setCancellationDeadlineHours] = useState(24);
   const [xeroInvoiceEnabled, setXeroInvoiceEnabled] = useState(false);
   const [summaryMaxLength, setSummaryMaxLength] = useState(150);
+  const [descriptionPreviewLines, setDescriptionPreviewLines] = useState(3);
   const [showEventSeats, setShowEventSeats] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [editingEventImage, setEditingEventImage] = useState(null);
@@ -134,6 +135,12 @@ export default function EventSettingsPage() {
     if (showSeatsSetting) {
       setShowEventSeats(showSeatsSetting.setting_value === 'true');
     }
+    
+    // Load description preview lines setting
+    const descPreviewLinesSetting = settings.find(s => s.setting_key === 'event_description_preview_lines');
+    if (descPreviewLinesSetting) {
+      setDescriptionPreviewLines(parseInt(descPreviewLinesSetting.setting_value) || 3);
+    }
   }, [settings]);
 
   const syncEventsMutation = useMutation({
@@ -211,6 +218,22 @@ export default function EventSettingsPage() {
           setting_key: 'show_event_seats',
           setting_value: showEventSeats.toString(),
           description: 'Show available seats on event cards and details pages'
+        });
+      }
+      
+      // Save description preview lines setting
+      const descPreviewLinesSetting = settings.find(s => s.setting_key === 'event_description_preview_lines');
+      
+      if (descPreviewLinesSetting) {
+        await base44.entities.SystemSettings.update(descPreviewLinesSetting.id, {
+          setting_value: descriptionPreviewLines.toString(),
+          description: 'Number of lines to show in event description preview before Show More'
+        });
+      } else {
+        await base44.entities.SystemSettings.create({
+          setting_key: 'event_description_preview_lines',
+          setting_value: descriptionPreviewLines.toString(),
+          description: 'Number of lines to show in event description preview before Show More'
         });
       }
       
@@ -903,6 +926,51 @@ export default function EventSettingsPage() {
                 </div>
                 <p className="text-xs text-slate-500">
                   This limit applies when creating or editing events. The summary is displayed on event cards and listings.
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Event Description Preview Settings */}
+        <Card className="border-slate-200 shadow-sm mb-8">
+          <CardHeader className="border-b border-slate-200">
+            <div className="flex items-center gap-2">
+              <FileText className="w-5 h-5 text-teal-600" />
+              <CardTitle>Event Description Preview</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-6">
+            <div className="max-w-2xl space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="description-preview-lines">
+                  Lines to Show Before "Show More"
+                </Label>
+                <div className="flex items-center gap-4">
+                  <Input
+                    id="description-preview-lines"
+                    type="number"
+                    min="1"
+                    max="20"
+                    step="1"
+                    value={descriptionPreviewLines}
+                    onChange={(e) => setDescriptionPreviewLines(parseInt(e.target.value) || 3)}
+                    className="w-32"
+                    data-testid="input-description-preview-lines"
+                  />
+                  <span className="text-sm text-slate-600">lines</span>
+                  <Button
+                    onClick={handleSaveSettings}
+                    disabled={isSaving}
+                    className="ml-auto"
+                    data-testid="button-save-description-preview-settings"
+                  >
+                    <Save className="w-4 h-4 mr-2" />
+                    Save Settings
+                  </Button>
+                </div>
+                <p className="text-xs text-slate-500">
+                  On the event details page, the description will be truncated to this number of lines with a "Show more" button to reveal the rest.
                 </p>
               </div>
             </div>

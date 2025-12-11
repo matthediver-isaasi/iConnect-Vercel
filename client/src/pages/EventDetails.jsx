@@ -12,7 +12,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
-import { Calendar, MapPin, Clock, Users, ArrowLeft, Ticket, Plus, Loader2, Video, AlertTriangle, PoundSterling, User, Mic, ChevronRight, X, Lock } from "lucide-react";
+import { Calendar, MapPin, Clock, Users, ArrowLeft, Ticket, Plus, Loader2, Video, AlertTriangle, PoundSterling, User, Mic, ChevronRight, ChevronDown, ChevronUp, X, Lock } from "lucide-react";
 import { format } from "date-fns";
 import DOMPurify from "dompurify";
 import { createPageUrl } from "@/utils";
@@ -43,10 +43,12 @@ export default function EventDetailsPage() {
   const [selectedTicketClassId, setSelectedTicketClassId] = useState(null);
   const [paymentCanProceed, setPaymentCanProceed] = useState(false);
 
-  // Modal states for description and speaker profiles
-  const [showDescriptionModal, setShowDescriptionModal] = useState(false);
+  // Modal states for speaker profiles
   const [showSpeakerModal, setShowSpeakerModal] = useState(false);
   const [selectedSpeaker, setSelectedSpeaker] = useState(null);
+  
+  // Description accordion state
+  const [descriptionExpanded, setDescriptionExpanded] = useState(false);
 
   // Guest registration form state (for non-logged-in users)
   const [guestInfo, setGuestInfo] = useState({
@@ -726,6 +728,12 @@ export default function EventDetailsPage() {
   // Combine both role-based permission and system setting
   const showAvailableSeats = showSeatsEnabled && (!isFeatureExcluded || !isFeatureExcluded('element_AvailableSeatsDisplay'));
 
+  // Get description preview lines setting (default to 3 lines)
+  const descPreviewLinesSetting = Array.isArray(systemSettings) 
+    ? systemSettings.find(s => s.setting_key === 'event_description_preview_lines')
+    : null;
+  const descriptionPreviewLines = parseInt(descPreviewLinesSetting?.setting_value) || 3;
+
   const handleConfirmBooking = async () => {
     console.log('[EventDetails] handleConfirmBooking called');
     console.log('[EventDetails] canConfirmBooking:', canConfirmBooking);
@@ -974,31 +982,43 @@ export default function EventDetailsPage() {
                 </div>
               </CardHeader>
 
-              {/* Description Preview Section - Shows summary, with link to full description */}
-              {(event.summary || event.description) && (
+              {/* Description Section - Expandable accordion style */}
+              {event.description && (
                 <CardContent className="pt-6 border-t border-slate-200">
                   <h3 className="font-semibold text-slate-900 mb-3">About this event</h3>
                   <div className="space-y-3">
-                    {event.summary && (
-                      <p 
-                        className="text-slate-600"
-                        data-testid="text-event-summary"
-                      >
-                        {event.summary}
-                      </p>
-                    )}
-                    {event.description && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 px-0 h-auto py-1"
-                        onClick={() => setShowDescriptionModal(true)}
-                        data-testid="button-more-information"
-                      >
-                        More information
-                        <ChevronRight className="w-4 h-4 ml-1" />
-                      </Button>
-                    )}
+                    <div 
+                      className={`text-slate-600 leading-relaxed prose prose-slate max-w-none prose-headings:text-slate-900 prose-p:text-slate-600 prose-a:text-blue-600 prose-li:text-slate-600 transition-all duration-300 ease-in-out overflow-hidden ${
+                        !descriptionExpanded ? 'prose-p:my-1 prose-headings:my-2' : ''
+                      }`}
+                      style={!descriptionExpanded ? { 
+                        display: '-webkit-box',
+                        WebkitLineClamp: descriptionPreviewLines,
+                        WebkitBoxOrient: 'vertical',
+                        overflow: 'hidden'
+                      } : {}}
+                      data-testid="text-event-description"
+                      dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(event.description) }}
+                    />
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 px-0 h-auto py-1"
+                      onClick={() => setDescriptionExpanded(!descriptionExpanded)}
+                      data-testid="button-toggle-description"
+                    >
+                      {descriptionExpanded ? (
+                        <>
+                          Show less
+                          <ChevronUp className="w-4 h-4 ml-1" />
+                        </>
+                      ) : (
+                        <>
+                          Show more
+                          <ChevronDown className="w-4 h-4 ml-1" />
+                        </>
+                      )}
+                    </Button>
                   </div>
                 </CardContent>
               )}
@@ -1495,22 +1515,6 @@ export default function EventDetailsPage() {
           </div>
         </div>
       </div>
-
-      {/* Description Modal - Renders sanitized rich text HTML */}
-      <Dialog open={showDescriptionModal} onOpenChange={setShowDescriptionModal}>
-        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="text-xl font-semibold">About this event</DialogTitle>
-          </DialogHeader>
-          <div className="mt-4">
-            <div 
-              className="text-slate-600 leading-relaxed prose prose-slate max-w-none prose-headings:text-slate-900 prose-p:text-slate-600 prose-a:text-blue-600 prose-li:text-slate-600"
-              data-testid="text-description-full"
-              dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(event?.description || '') }}
-            />
-          </div>
-        </DialogContent>
-      </Dialog>
 
       {/* Speaker Profile Modal */}
       <Dialog open={showSpeakerModal} onOpenChange={setShowSpeakerModal}>
