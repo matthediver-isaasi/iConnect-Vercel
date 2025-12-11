@@ -59,6 +59,39 @@
         "type": "number",
         "default": 0,
         "description": "Number of submissions received"
+      },
+      "is_application_form": {
+        "type": "boolean",
+        "default": false,
+        "description": "Whether this is an application form that requires uniqueness validation"
+      },
+      "application_level": {
+        "type": "string",
+        "enum": [
+          "member",
+          "organization"
+        ],
+        "description": "For application forms: whether to check uniqueness at member or organization level"
+      },
+      "uniqueness_checks": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "field_id": {
+              "type": "string",
+              "description": "The ID of the field to check for uniqueness"
+            },
+            "check_mode": {
+              "type": "string",
+              "enum": ["full", "domain_only"],
+              "default": "full",
+              "description": "For email fields: full = entire email, domain_only = just the domain part"
+            }
+          }
+        },
+        "default": [],
+        "description": "Array of field IDs that must be unique in existing submissions or database records"
       }
     },
     "required": [
