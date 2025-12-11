@@ -269,10 +269,8 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
       return;
     }
 
-    if ((fieldType === 'picklist' || fieldType === 'dropdown') && fieldOptions.length === 0) {
-      toast.error('Please add at least one option for picklist/dropdown fields');
-      return;
-    }
+    // Note: We no longer require options for picklist/dropdown fields
+    // This allows creating fields where options are added per-record (e.g., approved domains per organisation)
 
     const fieldData = {
       name: fieldName.trim().toLowerCase().replace(/\s+/g, '_'),
@@ -484,7 +482,10 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
 
             {(fieldType === 'picklist' || fieldType === 'dropdown') && (
               <div className="space-y-3">
-                <Label>Options</Label>
+                <Label>Options (Optional)</Label>
+                <p className="text-xs text-slate-500 -mt-1">
+                  Leave empty if values will be unique per {entityScope === 'member' ? 'member' : 'organisation'} (e.g., approved domains, custom tags)
+                </p>
                 
                 {fieldOptions.length > 0 && (
                   <div className="space-y-2">
