@@ -23,6 +23,7 @@ export default function EventSettingsPage() {
   const [accessChecked, setAccessChecked] = useState(false);
   const [cancellationDeadlineHours, setCancellationDeadlineHours] = useState(24);
   const [xeroInvoiceEnabled, setXeroInvoiceEnabled] = useState(false);
+  const [summaryMaxLength, setSummaryMaxLength] = useState(150);
   const [isSaving, setIsSaving] = useState(false);
   const [editingEventImage, setEditingEventImage] = useState(null);
   const [selectedImage, setSelectedImage] = useState(null);
@@ -120,6 +121,12 @@ export default function EventSettingsPage() {
         console.error('Failed to parse event types:', e);
       }
     }
+    
+    // Load summary max length setting
+    const summaryLengthSetting = settings.find(s => s.setting_key === 'event_summary_max_length');
+    if (summaryLengthSetting) {
+      setSummaryMaxLength(parseInt(summaryLengthSetting.setting_value) || 150);
+    }
   }, [settings]);
 
   const syncEventsMutation = useMutation({
@@ -165,6 +172,22 @@ export default function EventSettingsPage() {
           setting_key: 'xero_invoice_enabled',
           setting_value: xeroInvoiceEnabled.toString(),
           description: 'Enable or disable Xero invoice generation for program ticket purchases'
+        });
+      }
+      
+      // Save summary max length setting
+      const summaryLengthSetting = settings.find(s => s.setting_key === 'event_summary_max_length');
+      
+      if (summaryLengthSetting) {
+        await base44.entities.SystemSettings.update(summaryLengthSetting.id, {
+          setting_value: summaryMaxLength.toString(),
+          description: 'Maximum character length for event summaries'
+        });
+      } else {
+        await base44.entities.SystemSettings.create({
+          setting_key: 'event_summary_max_length',
+          setting_value: summaryMaxLength.toString(),
+          description: 'Maximum character length for event summaries'
         });
       }
       
@@ -823,6 +846,51 @@ export default function EventSettingsPage() {
                     Save
                   </Button>
                 </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Event Summary Settings Section */}
+        <Card className="border-slate-200 shadow-sm mb-8">
+          <CardHeader className="border-b border-slate-200">
+            <div className="flex items-center gap-2">
+              <FileText className="w-5 h-5 text-cyan-600" />
+              <CardTitle>Event Summary Settings</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-6">
+            <div className="max-w-2xl space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="summary-max-length">
+                  Summary Maximum Character Length
+                </Label>
+                <div className="flex items-center gap-4">
+                  <Input
+                    id="summary-max-length"
+                    type="number"
+                    min="50"
+                    max="500"
+                    step="10"
+                    value={summaryMaxLength}
+                    onChange={(e) => setSummaryMaxLength(parseInt(e.target.value) || 150)}
+                    className="w-32"
+                    data-testid="input-summary-max-length"
+                  />
+                  <span className="text-sm text-slate-600">characters</span>
+                  <Button
+                    onClick={handleSaveSettings}
+                    disabled={isSaving}
+                    className="ml-auto"
+                    data-testid="button-save-summary-settings"
+                  >
+                    <Save className="w-4 h-4 mr-2" />
+                    Save Settings
+                  </Button>
+                </div>
+                <p className="text-xs text-slate-500">
+                  This limit applies when creating or editing events. The summary is displayed on event cards and listings.
+                </p>
               </div>
             </div>
           </CardContent>

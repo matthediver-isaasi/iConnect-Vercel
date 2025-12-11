@@ -153,6 +153,28 @@ export default function EditEvent() {
     queryFn: () => base44.entities.ResourceCategory.list('display_order')
   });
 
+  // Fetch system settings for summary max length
+  const { data: systemSettings = [] } = useQuery({
+    queryKey: ['/api/entities/SystemSettings'],
+    queryFn: () => base44.entities.SystemSettings.list()
+  });
+
+  // Get summary max length from settings (default 150)
+  const summaryMaxLength = useMemo(() => {
+    const setting = systemSettings.find(s => s.setting_key === 'event_summary_max_length');
+    return setting ? parseInt(setting.setting_value) || 150 : 150;
+  }, [systemSettings]);
+
+  // Trim summary if it exceeds the limit when settings load or summary changes
+  useEffect(() => {
+    if (formData.summary && formData.summary.length > summaryMaxLength) {
+      setFormData(prev => ({
+        ...prev,
+        summary: prev.summary.slice(0, summaryMaxLength)
+      }));
+    }
+  }, [summaryMaxLength, formData.summary]);
+
   // Get categories that have 'Events' in their applies_to_content_types - with subcategories
   const eventCategories = useMemo(() => {
     return resourceCategories
@@ -504,6 +526,12 @@ export default function EditEvent() {
 
     if (!formData.title) {
       toast.error('Please enter an event title');
+      return;
+    }
+
+    // Summary length validation
+    if (formData.summary && formData.summary.length > summaryMaxLength) {
+      toast.error(`Summary exceeds the maximum length of ${summaryMaxLength} characters`);
       return;
     }
 
@@ -867,19 +895,19 @@ export default function EditEvent() {
                   value={formData.summary}
                   onChange={(e) => {
                     const value = e.target.value;
-                    if (value.length <= 150) {
+                    if (value.length <= summaryMaxLength) {
                       handleInputChange('summary', value);
                     }
                   }}
-                  placeholder="Brief summary for event cards (max 150 characters)"
+                  placeholder={`Brief summary for event cards (max ${summaryMaxLength} characters)`}
                   className="resize-none"
                   rows={2}
                   data-testid="input-summary"
                 />
                 <div className="flex justify-between text-xs text-slate-500">
                   <span>Displayed on event cards and listings</span>
-                  <span className={formData.summary.length >= 140 ? 'text-amber-600' : ''}>
-                    {formData.summary.length}/150
+                  <span className={formData.summary.length >= summaryMaxLength - 10 ? 'text-amber-600' : ''}>
+                    {formData.summary.length}/{summaryMaxLength}
                   </span>
                 </div>
               </div>

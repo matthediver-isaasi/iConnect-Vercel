@@ -378,7 +378,7 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
           </h3>
           
           {event.summary && (
-            <p className="text-sm text-slate-600 line-clamp-2 mt-2" data-testid="text-event-summary">
+            <p className="text-sm text-slate-600 mt-2" data-testid="text-event-summary">
               {event.summary}
             </p>
           )}
