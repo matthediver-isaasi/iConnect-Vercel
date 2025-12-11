@@ -1615,42 +1615,41 @@ export default function EditEvent() {
                           <RadioGroup 
                             value={ticket.offer_type} 
                             onValueChange={(value) => updateTicketClass(ticket.id, 'offer_type', value)}
+                            className="grid grid-cols-1 md:grid-cols-3 gap-2"
                           >
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                              <div 
+                              <Label 
+                                htmlFor={`edit-offer-none-${ticket.id}`}
                                 className={`flex items-center gap-2 p-3 rounded-lg border-2 cursor-pointer transition-colors ${
                                   ticket.offer_type === 'none' 
                                     ? 'border-blue-500 bg-blue-50' 
                                     : 'border-slate-200 hover:bg-slate-50'
                                 }`}
-                                onClick={() => updateTicketClass(ticket.id, 'offer_type', 'none')}
                               >
                                 <RadioGroupItem value="none" id={`edit-offer-none-${ticket.id}`} />
-                                <Label htmlFor={`edit-offer-none-${ticket.id}`} className="text-sm cursor-pointer">No Offer</Label>
-                              </div>
-                              <div 
+                                <span className="text-sm">No Offer</span>
+                              </Label>
+                              <Label 
+                                htmlFor={`edit-offer-bogo-${ticket.id}`}
                                 className={`flex items-center gap-2 p-3 rounded-lg border-2 cursor-pointer transition-colors ${
                                   ticket.offer_type === 'bogo' 
                                     ? 'border-blue-500 bg-blue-50' 
                                     : 'border-slate-200 hover:bg-slate-50'
                                 }`}
-                                onClick={() => updateTicketClass(ticket.id, 'offer_type', 'bogo')}
                               >
                                 <RadioGroupItem value="bogo" id={`edit-offer-bogo-${ticket.id}`} />
-                                <Label htmlFor={`edit-offer-bogo-${ticket.id}`} className="text-sm cursor-pointer">BOGO</Label>
-                              </div>
-                              <div 
+                                <span className="text-sm">BOGO</span>
+                              </Label>
+                              <Label 
+                                htmlFor={`edit-offer-bulk-${ticket.id}`}
                                 className={`flex items-center gap-2 p-3 rounded-lg border-2 cursor-pointer transition-colors ${
                                   ticket.offer_type === 'bulk_discount' 
                                     ? 'border-blue-500 bg-blue-50' 
                                     : 'border-slate-200 hover:bg-slate-50'
                                 }`}
-                                onClick={() => updateTicketClass(ticket.id, 'offer_type', 'bulk_discount')}
                               >
                                 <RadioGroupItem value="bulk_discount" id={`edit-offer-bulk-${ticket.id}`} />
-                                <Label htmlFor={`edit-offer-bulk-${ticket.id}`} className="text-sm cursor-pointer">Bulk Discount</Label>
-                              </div>
-                            </div>
+                                <span className="text-sm">Bulk Discount</span>
+                              </Label>
                           </RadioGroup>
 
                           {/* BOGO Configuration */}
