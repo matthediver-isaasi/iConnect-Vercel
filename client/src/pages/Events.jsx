@@ -381,16 +381,6 @@ export default function EventsPage({
                 Events
               </h1>
               <div className="flex items-center gap-2">
-                {isAdmin && (
-                  <Button
-                    onClick={() => window.location.href = createPageUrl('CreateEvent')}
-                    className="bg-blue-600 hover:bg-blue-700"
-                    data-testid="button-create-event"
-                  >
-                    <Plus className="h-4 w-4 mr-2" />
-                    Create Event
-                  </Button>
-                )}
                 {shouldShowTours && typeof handleStartTour === "function" && (
                   <TourButton onClick={handleStartTour} />
                 )}
@@ -687,6 +677,32 @@ export default function EventsPage({
                     </div>
                   </PopoverContent>
                 </Popover>
+
+                {/* Create Event Button - shown for admins */}
+                {isAdmin && (
+                  <Button
+                    onClick={() => window.location.href = createPageUrl('CreateEvent')}
+                    className="bg-blue-600 hover:bg-blue-700 ml-auto"
+                    data-testid="button-create-event"
+                  >
+                    <Plus className="h-4 w-4 mr-2" />
+                    Create Event
+                  </Button>
+                )}
+              </div>
+            )}
+
+            {/* Create Event Button - shown for admins when no filter row */}
+            {isAdmin && !(eventCategories.length > 0 || eventTypes.length > 0) && (
+              <div className="flex justify-end mt-4">
+                <Button
+                  onClick={() => window.location.href = createPageUrl('CreateEvent')}
+                  className="bg-blue-600 hover:bg-blue-700"
+                  data-testid="button-create-event-no-filters"
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Create Event
+                </Button>
               </div>
             )}
             
