@@ -102,8 +102,9 @@ export default async function handler(req, res) {
 
     const memberData = {};
     const orgData = {};
-    const memberCustomFields = [];
-    const orgCustomFields = [];
+    // Use Maps to aggregate values for list fields
+    const memberCustomFieldsMap = new Map();
+    const orgCustomFieldsMap = new Map();
 
     const { data: preferenceFields } = await supabase
       .from('preference_field')
@@ -111,6 +112,26 @@ export default async function handler(req, res) {
       .eq('is_active', true);
 
     const prefFieldMap = new Map((preferenceFields || []).map(pf => [pf.id, pf]));
+
+    // Helper to add value to custom field map (aggregates for list fields)
+    const addCustomFieldValue = (map, fieldId, value, prefField) => {
+      const isListField = prefField?.field_type === 'list';
+      
+      if (isListField) {
+        // Aggregate values into an array for list fields
+        if (!map.has(fieldId)) {
+          map.set(fieldId, []);
+        }
+        const arr = map.get(fieldId);
+        // Add value if not already present (dedupe)
+        if (!arr.includes(value)) {
+          arr.push(value);
+        }
+      } else {
+        // For non-list fields, just store the value (last one wins)
+        map.set(fieldId, value);
+      }
+    };
 
     // Process new field_mappings array first (preferred method)
     if (field_mappings && Array.isArray(field_mappings) && field_mappings.length > 0) {
@@ -149,19 +170,11 @@ export default async function handler(req, res) {
             orgData[target_field] = value;
           }
         } else if (target_type === 'custom') {
-          let storedValue = value;
-          if (Array.isArray(value)) {
-            storedValue = JSON.stringify(value);
-          } else if (typeof value === 'object') {
-            storedValue = JSON.stringify(value);
-          } else {
-            storedValue = String(value);
-          }
-          
+          const prefField = prefFieldMap.get(target_field);
           if (target_entity === 'organization') {
-            orgCustomFields.push({ field_id: target_field, value: storedValue });
+            addCustomFieldValue(orgCustomFieldsMap, target_field, value, prefField);
           } else {
-            memberCustomFields.push({ field_id: target_field, value: storedValue });
+            addCustomFieldValue(memberCustomFieldsMap, target_field, value, prefField);
           }
         }
       }
@@ -183,26 +196,37 @@ export default async function handler(req, res) {
         if (field.custom_field_id) {
           const customField = prefFieldMap.get(field.custom_field_id);
           if (customField) {
-            let storedValue = value;
-            if (Array.isArray(value)) {
-              storedValue = JSON.stringify(value);
-            } else if (typeof value === 'object') {
-              storedValue = JSON.stringify(value);
-            } else {
-              storedValue = String(value);
-            }
-
             if (customField.entity_scope === 'organization') {
-              orgCustomFields.push({ field_id: customField.id, value: storedValue });
+              addCustomFieldValue(orgCustomFieldsMap, customField.id, value, customField);
             } else {
-              memberCustomFields.push({ field_id: customField.id, value: storedValue });
+              addCustomFieldValue(memberCustomFieldsMap, customField.id, value, customField);
             }
           }
         }
       }
     }
 
-    console.log('[AppProcessor] Extracted data:', { memberData, orgData, memberCustomFields: memberCustomFields.length, orgCustomFields: orgCustomFields.length });
+    // Convert maps to arrays for insertion, stringifying values appropriately
+    const convertMapToArray = (map) => {
+      const result = [];
+      for (const [fieldId, value] of map.entries()) {
+        let storedValue;
+        if (Array.isArray(value)) {
+          storedValue = JSON.stringify(value);
+        } else if (typeof value === 'object') {
+          storedValue = JSON.stringify(value);
+        } else {
+          storedValue = String(value);
+        }
+        result.push({ field_id: fieldId, value: storedValue });
+      }
+      return result;
+    };
+
+    const orgCustomFields = convertMapToArray(orgCustomFieldsMap);
+    const memberCustomFields = convertMapToArray(memberCustomFieldsMap);
+
+    console.log('[AppProcessor] Extracted data:', { memberData, orgData, memberCustomFields: memberCustomFields.length, orgCustomFields: orgCustomFields.length, orgCustomFieldsDetail: orgCustomFields });
 
     let createdOrganizationId = null;
     let createdMemberId = null;
