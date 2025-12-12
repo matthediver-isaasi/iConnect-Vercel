@@ -562,25 +562,30 @@ export default function EventsPage({
                           </div>
                           All types
                         </button>
-                        {eventTypes.map((type) => (
-                          <button
-                            key={type}
-                            className={`w-full flex items-center gap-2 px-2 py-2 text-sm rounded-md transition-colors ${
-                              selectedEventType === type 
-                                ? "bg-slate-100 text-slate-900 font-medium" 
-                                : "text-slate-600 hover:bg-slate-50"
-                            }`}
-                            onClick={() => setSelectedEventType(type)}
-                            data-testid={`filter-event-type-${type}`}
-                          >
-                            <div className={`w-4 h-4 rounded border flex items-center justify-center ${
-                              selectedEventType === type ? "bg-primary border-primary" : "border-slate-300"
-                            }`}>
-                              {selectedEventType === type && <Check className="w-3 h-3 text-white" />}
-                            </div>
-                            <span className="truncate">{type}</span>
-                          </button>
-                        ))}
+                        {eventTypes.map((type) => {
+                          const typeName = typeof type === 'object' ? type.name : type;
+                          const typeKey = typeName || 'unknown';
+                          const isSelected = selectedEventType === typeName;
+                          return (
+                            <button
+                              key={typeKey}
+                              className={`w-full flex items-center gap-2 px-2 py-2 text-sm rounded-md transition-colors ${
+                                isSelected 
+                                  ? "bg-slate-100 text-slate-900 font-medium" 
+                                  : "text-slate-600 hover:bg-slate-50"
+                              }`}
+                              onClick={() => setSelectedEventType(typeName)}
+                              data-testid={`filter-event-type-${typeKey}`}
+                            >
+                              <div className={`w-4 h-4 rounded border flex items-center justify-center ${
+                                isSelected ? "bg-primary border-primary" : "border-slate-300"
+                              }`}>
+                                {isSelected && <Check className="w-3 h-3 text-white" />}
+                              </div>
+                              <span className="truncate">{typeName}</span>
+                            </button>
+                          );
+                        })}
                       </div>
                     </PopoverContent>
                   </Popover>
