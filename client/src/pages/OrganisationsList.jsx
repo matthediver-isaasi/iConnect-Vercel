@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { format } from "date-fns";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -34,7 +35,8 @@ import {
   PanelLeft,
   Eye,
   EyeOff,
-  Save
+  Save,
+  Calendar
 } from "lucide-react";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
@@ -45,6 +47,7 @@ const DEFAULT_COLUMNS = [
   { id: 'name', label: 'Organisation', visible: true, locked: true },
   { id: 'members', label: 'Members', visible: true, locked: false },
   { id: 'contact', label: 'Contact', visible: true, locked: false },
+  { id: 'created_at', label: 'Created', visible: false, locked: false },
 ];
 
 const STORAGE_KEY = 'organisations_list_columns';
@@ -827,6 +830,13 @@ export default function OrganisationsListPage() {
                               </td>
                             );
                           }
+                          if (col.id === 'created_at') {
+                            return (
+                              <td key={col.id} className="px-4 py-3 text-sm text-slate-600">
+                                {org.created_at ? format(new Date(org.created_at), 'dd MMM yyyy') : '-'}
+                              </td>
+                            );
+                          }
                           if (col.isCustomField) {
                             const field = orgCustomFields.find(f => f.id === col.fieldId);
                             const value = orgValuesMap[org.id]?.[col.fieldId];
@@ -905,6 +915,12 @@ export default function OrganisationsListPage() {
                           <div className="flex items-center gap-2">
                             <Globe className="w-4 h-4 text-slate-400" />
                             <span className="truncate">{org.website_url}</span>
+                          </div>
+                        )}
+                        {columns.find(c => c.id === 'created_at')?.visible && org.created_at && (
+                          <div className="flex items-center gap-2">
+                            <Calendar className="w-4 h-4 text-slate-400" />
+                            <span>{format(new Date(org.created_at), 'dd MMM yyyy')}</span>
                           </div>
                         )}
                       </div>
