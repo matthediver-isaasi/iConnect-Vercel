@@ -40,6 +40,8 @@ const applyTransformation = (value, transformation) => {
       return strValue.replace(/\s+/g, '');
     case 'numbers_only':
       return strValue.replace(/[^0-9]/g, '');
+    case 'current_date':
+      return new Date().toISOString().split('T')[0]; // Returns YYYY-MM-DD format
     case 'none':
     default:
       return strValue;
@@ -145,8 +147,11 @@ export default async function handler(req, res) {
         
         let value;
         
-        // Determine value source: form field or static value
-        if (source_type === 'static') {
+        // Handle current_date transformation first - it doesn't need a source value
+        if (transformation === 'current_date') {
+          value = applyTransformation('', transformation);
+          console.log('[AppProcessor] Current date mapping:', target_field, '=', value);
+        } else if (source_type === 'static') {
           // Static value mapping - use the fixed value
           value = static_value;
           if (value === undefined || value === null || value === '') continue;

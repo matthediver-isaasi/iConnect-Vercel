@@ -59,6 +59,7 @@ const TRANSFORMATIONS = [
   { value: 'last_word', label: 'Last word', description: 'Extract last word only' },
   { value: 'remove_spaces', label: 'Remove spaces', description: 'Strip all spaces' },
   { value: 'numbers_only', label: 'Numbers only', description: 'Keep only numeric characters' },
+  { value: 'current_date', label: 'Current date', description: 'Use current date (ignores source field)' },
 ];
 
 const MEMBER_CORE_FIELDS = [
