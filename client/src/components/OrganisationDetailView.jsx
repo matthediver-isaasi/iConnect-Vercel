@@ -292,11 +292,14 @@ export default function OrganisationDetailView({
     const valuesMap = {};
     orgValues.forEach(pv => {
       const field = orgCustomFields.find(f => f.id === pv.field_id);
-      if (field?.field_type === 'picklist' && pv.value) {
+      if ((field?.field_type === 'picklist' || field?.field_type === 'list') && pv.value) {
         try {
-          valuesMap[pv.field_id] = JSON.parse(pv.value);
+          const parsed = JSON.parse(pv.value);
+          valuesMap[pv.field_id] = Array.isArray(parsed) 
+            ? parsed.map(v => String(v).trim()).filter(Boolean)
+            : [];
         } catch {
-          valuesMap[pv.field_id] = pv.value;
+          valuesMap[pv.field_id] = [];
         }
       } else {
         valuesMap[pv.field_id] = pv.value;
