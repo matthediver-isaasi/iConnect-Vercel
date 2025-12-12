@@ -319,9 +319,10 @@ export default async function handler(req, res) {
       if (isPreferenceValueEntity && data) {
         const entityType = entity === 'OrganizationPreferenceValue' ? 'organization' : 'member';
         const entityId = data.organization_id || data.member_id;
-        if (entityId && data.preference_field_id) {
-          console.log(`[Entity PATCH] Triggering workflow for ${entityType} preference value change: ${entityId}, field: ${data.preference_field_id}`);
-          triggerPreferenceWorkflows(entityType, entityId, data.preference_field_id, data.value).catch(err => {
+        const fieldId = data.field_id; // Column is 'field_id' not 'preference_field_id'
+        if (entityId && fieldId) {
+          console.log(`[Entity PATCH] Triggering workflow for ${entityType} preference value change: ${entityId}, field: ${fieldId}`);
+          triggerPreferenceWorkflows(entityType, entityId, fieldId, data.value).catch(err => {
             console.error('[Entity PATCH] Preference workflow error:', err);
           });
         }
