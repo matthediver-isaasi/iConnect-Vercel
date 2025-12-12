@@ -1158,14 +1158,17 @@ export default function FormBuilderPage() {
     // Validate organization name mapping when org creation is enabled
     if (formData.is_application_form && formData.auto_create_entity) {
       const createType = formData.create_entity_type || 'member';
+      console.log('[FormBuilder] Entity creation validation - createType:', createType);
       const needsOrgName = createType === 'organization' || createType === 'both';
       
       if (needsOrgName) {
         const hasOrgNameMapping = (formData.field_mappings || []).some(
           m => m.target_entity === 'organization' && m.target_field === 'name'
         );
+        console.log('[FormBuilder] Needs org name mapping:', needsOrgName, '| Has it:', hasOrgNameMapping);
         
         if (!hasOrgNameMapping) {
+          console.log('[FormBuilder] VALIDATION FAILED: Missing org name mapping');
           toast.error('Organisation creation requires a field mapped to "Organisation Name". Please add this mapping in Field Mappings.');
           return;
         }
@@ -1176,8 +1179,10 @@ export default function FormBuilderPage() {
         const hasMemberEmailMapping = (formData.field_mappings || []).some(
           m => m.target_entity === 'member' && m.target_field === 'email'
         );
+        console.log('[FormBuilder] Needs member email mapping:', needsMemberEmail, '| Has it:', hasMemberEmailMapping);
         
         if (!hasMemberEmailMapping) {
+          console.log('[FormBuilder] VALIDATION FAILED: Missing member email mapping');
           toast.error('Member creation requires a field mapped to "Member Email". Please add this mapping in Field Mappings.');
           return;
         }
