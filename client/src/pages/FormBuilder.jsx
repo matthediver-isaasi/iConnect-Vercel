@@ -1115,23 +1115,31 @@ export default function FormBuilderPage() {
   };
 
   const handleSubmit = () => {
+    console.log('[FormBuilder] handleSubmit called');
+    console.log('[FormBuilder] formData:', JSON.stringify(formData, null, 2));
+    
     if (!formData.name || !formData.slug) {
+      console.log('[FormBuilder] Validation failed: missing name or slug');
       toast.error('Please fill in name and slug');
       return;
     }
 
     if (formData.fields.length === 0) {
+      console.log('[FormBuilder] Validation failed: no fields');
       toast.error('Please add at least one field');
       return;
     }
 
     // Validate field mappings - check for incomplete mappings
     const mappings = formData.field_mappings || [];
+    console.log('[FormBuilder] Validating', mappings.length, 'field mappings');
     for (let i = 0; i < mappings.length; i++) {
       const m = mappings[i];
+      console.log(`[FormBuilder] Mapping #${i + 1}:`, m);
       
       // All mappings must have a target field
       if (!m.target_field) {
+        console.log(`[FormBuilder] Validation failed: mapping #${i + 1} missing target_field`);
         toast.error(`Field mapping #${i + 1} is missing a target field. Please select a target field or remove the mapping.`);
         return;
       }
@@ -1139,11 +1147,13 @@ export default function FormBuilderPage() {
       // Non-current_date mappings need a source field (unless static)
       if (m.transformation !== 'current_date' && m.source_type !== 'static') {
         if (!m.source_field_id) {
+          console.log(`[FormBuilder] Validation failed: mapping #${i + 1} missing source_field_id`);
           toast.error(`Field mapping #${i + 1} is missing a source field. Please select a source field or use "Current date" transformation.`);
           return;
         }
       }
     }
+    console.log('[FormBuilder] All mappings validated successfully');
 
     // Validate organization name mapping when org creation is enabled
     if (formData.is_application_form && formData.auto_create_entity) {
@@ -1174,9 +1184,12 @@ export default function FormBuilderPage() {
       }
     }
 
+    console.log('[FormBuilder] All validation passed, submitting form');
     if (formId) {
+      console.log('[FormBuilder] Updating form:', formId);
       updateFormMutation.mutate({ id: formId, data: formData });
     } else {
+      console.log('[FormBuilder] Creating new form');
       createFormMutation.mutate(formData);
     }
   };
