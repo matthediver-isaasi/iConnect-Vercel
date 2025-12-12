@@ -2047,6 +2047,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Backfill created_at for organizations that don't have it
+  app.post('/api/admin/backfill-organization-dates', async (req: Request, res: Response) => {
+    const { isAdmin, error } = await verifyAdminSession(req);
+    
+    if (error) {
+      return res.status(401).json({ error });
+    }
+    
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    if (!supabase) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+
+    try {
+      const backfillDate = new Date().toISOString();
+      
+      // Update all organizations where created_at is null
+      const { data, error: updateError } = await supabase
+        .from('organization')
+        .update({ created_at: backfillDate })
+        .is('created_at', null)
+        .select('id');
+
+      if (updateError) {
+        console.error('[Backfill Org Dates] Error:', updateError);
+        return res.status(500).json({ error: updateError.message });
+      }
+
+      const count = data?.length || 0;
+      console.log(`[Backfill Org Dates] Updated ${count} organizations with created_at`);
+      
+      res.json({ 
+        success: true, 
+        updated: count,
+        backfillDate 
+      });
+    } catch (error) {
+      console.error('[Backfill Org Dates] Error:', error);
+      res.status(500).json({ error: 'Failed to backfill organization dates' });
+    }
+  });
+
   // Update own organization (for members to edit their organization details)
   app.patch('/api/my-organization', async (req: Request, res: Response) => {
     if (!supabase) {
@@ -3488,10 +3533,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           orgId = orgsByName[0].id;
           action = 'updated';
         } else {
-          // Create new organization
+          // Create new organization with created_at
           const { data: newOrg } = await supabase
             .from('organization')
-            .insert(orgData)
+            .insert({ ...orgData, created_at: new Date().toISOString() })
             .select('id')
             .single();
           orgId = newOrg?.id;
