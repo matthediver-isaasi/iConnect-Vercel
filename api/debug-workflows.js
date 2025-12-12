@@ -41,6 +41,40 @@ export default async function handler(req, res) {
       .order('id', { ascending: false })
       .limit(5);
 
+    // Get a specific preference value by ID to check its structure
+    const testPrefId = req.query.pref_id;
+    let prefValueDetails = null;
+    if (testPrefId) {
+      const { data: pv, error: pvErr } = await supabase
+        .from('organization_preference_value')
+        .select('*')
+        .eq('id', testPrefId)
+        .single();
+      prefValueDetails = { data: pv, error: pvErr?.message };
+    }
+    
+    // Simulate a PATCH update and see what data is returned
+    const simulatePatchId = req.query.simulate_patch_id;
+    let patchSimulation = null;
+    if (simulatePatchId) {
+      // This simulates what happens when we update and select
+      const { data: beforeData } = await supabase
+        .from('organization_preference_value')
+        .select('*')
+        .eq('id', simulatePatchId)
+        .single();
+        
+      patchSimulation = {
+        id: simulatePatchId,
+        before_data: beforeData,
+        has_field_id: !!beforeData?.field_id,
+        has_organization_id: !!beforeData?.organization_id,
+        field_id: beforeData?.field_id,
+        organization_id: beforeData?.organization_id,
+        value: beforeData?.value
+      };
+    }
+
     // Test a specific workflow trigger manually
     // Note: DB column is 'field_id' (not preference_field_id)
     const testFieldId = req.query.field_id;
@@ -108,6 +142,8 @@ export default async function handler(req, res) {
       log_error: logError?.message,
       recent_preference_values: prefValues || [],
       pv_error: pvError?.message,
+      pref_value_details: prefValueDetails,
+      patch_simulation: patchSimulation,
       test_result: testResult
     });
   } catch (error) {

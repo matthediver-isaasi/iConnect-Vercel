@@ -280,10 +280,14 @@ export default async function handler(req, res) {
       return res.json(data);
 
     } else if (req.method === 'PATCH') {
+      console.log(`[Entity PATCH] Entity: ${entity}, ID: ${id}, Body:`, JSON.stringify(req.body));
+      
       // For Organization/Member, fetch before data for workflow evaluation
       let beforeData = null;
       const isWorkflowEntity = entity === 'Organization' || entity === 'Member';
       const isPreferenceValueEntity = entity === 'OrganizationPreferenceValue' || entity === 'MemberPreferenceValue';
+      
+      console.log(`[Entity PATCH] isPreferenceValueEntity: ${isPreferenceValueEntity}`);
       
       if (isWorkflowEntity) {
         try {
@@ -317,14 +321,18 @@ export default async function handler(req, res) {
       
       // Also trigger workflows when preference values are updated
       if (isPreferenceValueEntity && data) {
+        console.log(`[Entity PATCH] Preference value updated, data:`, JSON.stringify(data));
         const entityType = entity === 'OrganizationPreferenceValue' ? 'organization' : 'member';
         const entityId = data.organization_id || data.member_id;
         const fieldId = data.field_id; // Column is 'field_id' not 'preference_field_id'
+        console.log(`[Entity PATCH] entityId: ${entityId}, fieldId: ${fieldId}, value: ${data.value}`);
         if (entityId && fieldId) {
           console.log(`[Entity PATCH] Triggering workflow for ${entityType} preference value change: ${entityId}, field: ${fieldId}`);
           triggerPreferenceWorkflows(entityType, entityId, fieldId, data.value).catch(err => {
             console.error('[Entity PATCH] Preference workflow error:', err);
           });
+        } else {
+          console.log(`[Entity PATCH] Missing entityId or fieldId, not triggering workflow`);
         }
       }
 
