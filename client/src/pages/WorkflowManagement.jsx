@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectGroup, SelectLabel } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
@@ -629,11 +629,24 @@ export default function WorkflowManagementPage() {
                           <SelectValue placeholder="Select a field" />
                         </SelectTrigger>
                         <SelectContent>
-                          {availableFields.map((field) => (
-                            <SelectItem key={`${field.field_type}:${field.id}`} value={`${field.field_type}:${field.id}`}>
-                              {field.label} {field.field_type === 'custom' && <Badge variant="outline" className="ml-2">Custom</Badge>}
-                            </SelectItem>
-                          ))}
+                          <SelectGroup>
+                            <SelectLabel>Core Fields</SelectLabel>
+                            {availableFields.filter(f => f.field_type === 'core').map((field) => (
+                              <SelectItem key={`core:${field.id}`} value={`core:${field.id}`}>
+                                {field.label}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                          {availableFields.filter(f => f.field_type === 'custom').length > 0 && (
+                            <SelectGroup>
+                              <SelectLabel>Custom Fields</SelectLabel>
+                              {availableFields.filter(f => f.field_type === 'custom').map((field) => (
+                                <SelectItem key={`custom:${field.id}`} value={`custom:${field.id}`}>
+                                  {field.label}
+                                </SelectItem>
+                              ))}
+                            </SelectGroup>
+                          )}
                         </SelectContent>
                       </Select>
                     </div>
@@ -730,11 +743,24 @@ export default function WorkflowManagementPage() {
                                   <SelectValue placeholder="Select field" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  {availableFields.map((field) => (
-                                    <SelectItem key={`${field.field_type}:${field.id}`} value={`${field.field_type}:${field.id}`}>
-                                      {field.label}
-                                    </SelectItem>
-                                  ))}
+                                  <SelectGroup>
+                                    <SelectLabel>Core Fields</SelectLabel>
+                                    {availableFields.filter(f => f.field_type === 'core').map((field) => (
+                                      <SelectItem key={`core:${field.id}`} value={`core:${field.id}`}>
+                                        {field.label}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectGroup>
+                                  {availableFields.filter(f => f.field_type === 'custom').length > 0 && (
+                                    <SelectGroup>
+                                      <SelectLabel>Custom Fields</SelectLabel>
+                                      {availableFields.filter(f => f.field_type === 'custom').map((field) => (
+                                        <SelectItem key={`custom:${field.id}`} value={`custom:${field.id}`}>
+                                          {field.label}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectGroup>
+                                  )}
                                 </SelectContent>
                               </Select>
                               <Select
@@ -887,11 +913,24 @@ export default function WorkflowManagementPage() {
                                     <SelectValue placeholder="Select field" />
                                   </SelectTrigger>
                                   <SelectContent>
-                                    {availableFields.map((field) => (
-                                      <SelectItem key={`${field.field_type}:${field.id}`} value={`${field.field_type}:${field.id}`}>
-                                        {field.label}
-                                      </SelectItem>
-                                    ))}
+                                    <SelectGroup>
+                                      <SelectLabel>Core Fields</SelectLabel>
+                                      {availableFields.filter(f => f.field_type === 'core').map((field) => (
+                                        <SelectItem key={`core:${field.id}`} value={`core:${field.id}`}>
+                                          {field.label}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectGroup>
+                                    {availableFields.filter(f => f.field_type === 'custom').length > 0 && (
+                                      <SelectGroup>
+                                        <SelectLabel>Custom Fields</SelectLabel>
+                                        {availableFields.filter(f => f.field_type === 'custom').map((field) => (
+                                          <SelectItem key={`custom:${field.id}`} value={`custom:${field.id}`}>
+                                            {field.label}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectGroup>
+                                    )}
                                   </SelectContent>
                                 </Select>
                               </div>
