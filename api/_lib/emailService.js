@@ -25,7 +25,9 @@ function getMailgunClient() {
   return mailgunClient;
 }
 
-export async function sendEmail({ to, subject, html, text, from = DEFAULT_FROM }) {
+export async function sendEmail({ to, subject, html, text, from, replyTo }) {
+  const fromAddress = from || DEFAULT_FROM;
+  
   if (!MAILGUN_API_KEY) {
     console.error('[Email Service] MAILGUN_API_KEY not configured');
     return {
@@ -47,12 +49,16 @@ export async function sendEmail({ to, subject, html, text, from = DEFAULT_FROM }
     console.log(`[Email Service] Subject: ${subject}`);
 
     const messageData = {
-      from,
+      from: fromAddress,
       to: [to],
       subject,
-      html,
-      text: text || html.replace(/<[^>]*>/g, ''),
+      html: html || '',
+      text: text || (html || '').replace(/<[^>]*>/g, ''),
     };
+    
+    if (replyTo) {
+      messageData['h:Reply-To'] = replyTo;
+    }
 
     const response = await client.messages.create(MAILGUN_DOMAIN, messageData);
 
