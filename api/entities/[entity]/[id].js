@@ -337,9 +337,13 @@ export default async function handler(req, res) {
         
         if (entityId && fieldId) {
           console.log(`[Entity PATCH] Calling triggerPreferenceWorkflows with entityType=${entityType}, entityId=${entityId}, fieldId=${fieldId}, value=${newValue}`);
-          triggerPreferenceWorkflows(entityType, entityId, fieldId, newValue).catch(err => {
+          // Await the workflow trigger to ensure it completes before returning
+          try {
+            await triggerPreferenceWorkflows(entityType, entityId, fieldId, newValue);
+            console.log(`[Entity PATCH] triggerPreferenceWorkflows completed`);
+          } catch (err) {
             console.error('[Entity PATCH] Preference workflow error:', err);
-          });
+          }
         } else {
           console.log(`[Entity PATCH] SKIPPING workflow - missing entityId (${entityId}) or fieldId (${fieldId})`);
         }
