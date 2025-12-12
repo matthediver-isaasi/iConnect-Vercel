@@ -276,7 +276,9 @@ export default async function handler(req, res) {
       return res.json(data);
 
     } else if (req.method === 'PATCH') {
-      console.log(`[Entity PATCH] Entity: ${entity}, ID: ${id}, Body:`, JSON.stringify(req.body));
+      console.log(`[Entity PATCH] Entity: "${entity}", ID: ${id}, Body:`, JSON.stringify(req.body));
+      console.log(`[Entity PATCH] Entity check: entity === 'OrganizationPreferenceValue' is ${entity === 'OrganizationPreferenceValue'}`);
+      console.log(`[Entity PATCH] Entity length: ${entity?.length}, expected length: ${'OrganizationPreferenceValue'.length}`);
       
       // For Organization/Member, fetch before data for workflow evaluation
       let beforeData = null;
