@@ -134,7 +134,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Helper to get table name from entity (uses singular form for Base44 compatibility)
   const getTableName = (entity: string): string => {
-    return entityToTable[entity] || entity.toLowerCase().replace(/([A-Z])/g, '_$1').toLowerCase().replace(/^_/, '');
+    const mapped = entityToTable[entity];
+    if (mapped) {
+      return mapped;
+    }
+    // Fallback: convert PascalCase to snake_case properly
+    const snakeCase = entity.replace(/([A-Z])/g, (match, p1, offset) => 
+      offset > 0 ? '_' + p1.toLowerCase() : p1.toLowerCase()
+    );
+    console.log(`[getTableName] Entity '${entity}' not in mapping, using fallback: '${snakeCase}'`);
+    return snakeCase;
   };
 
   // ============ Entity Routes ============
