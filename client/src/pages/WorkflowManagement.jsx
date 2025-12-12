@@ -127,8 +127,8 @@ export default function WorkflowManagementPage() {
     enabled: accessChecked,
   });
 
-  const orgCustomFields = customFields.filter(f => f.scope === 'organization');
-  const memberCustomFields = customFields.filter(f => f.scope === 'member');
+  const orgCustomFields = customFields.filter(f => f.entity_scope === 'organization');
+  const memberCustomFields = customFields.filter(f => !f.entity_scope || f.entity_scope === 'member');
 
   const getAvailableFields = (entityType) => {
     const coreFields = entityType === 'organization' ? ORGANIZATION_CORE_FIELDS : MEMBER_CORE_FIELDS;
