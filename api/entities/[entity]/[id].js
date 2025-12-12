@@ -275,6 +275,7 @@ const entityToTable = {
   'WallOfFamePerson': 'wall_of_fame_person',
   'Floater': 'floater',
   'Form': 'form',
+  'EmailTemplate': 'email_template',
   'FormSubmission': 'form_submission',
   'NewsPost': 'news_post',
   'SupportTicket': 'support_ticket',

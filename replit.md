@@ -156,3 +156,34 @@ ALTER TABLE workflow ADD COLUMN IF NOT EXISTS trigger_mode TEXT DEFAULT 'every_t
 -- Index for efficient lookup of existing logs per entity
 CREATE INDEX IF NOT EXISTS idx_workflow_log_entity ON workflow_log(workflow_id, entity_type, entity_id);
 ```
+
+## Email Templates Table
+
+```sql
+CREATE TABLE IF NOT EXISTS email_template (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  description TEXT,
+  subject TEXT NOT NULL,
+  body TEXT NOT NULL,
+  from_name TEXT,
+  from_email TEXT,
+  reply_to TEXT,
+  category TEXT,
+  placeholders JSONB DEFAULT '[]'::jsonb,
+  is_active BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  created_by TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_email_template_category ON email_template(category);
+CREATE INDEX IF NOT EXISTS idx_email_template_is_active ON email_template(is_active);
+```
+
+## Form Table - Email Template on Submission
+
+```sql
+ALTER TABLE form ADD COLUMN IF NOT EXISTS submission_email_template_id UUID REFERENCES email_template(id);
+ALTER TABLE form ADD COLUMN IF NOT EXISTS submission_email_recipient TEXT;
+```
