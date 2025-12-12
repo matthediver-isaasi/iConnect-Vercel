@@ -263,18 +263,21 @@ export default async function handler(req, res) {
         return res.status(500).json({ error: error.message, details: error.details, hint: error.hint, code: error.code });
       }
 
+      // Normalize entity name for comparison (handles both PascalCase and slug-case)
+      const entityNormalized = entity.replace(/[-_]/g, '').toLowerCase();
+
       // Trigger workflow evaluation for new Organization/Member (non-blocking)
-      if ((entity === 'Organization' || entity === 'Member') && data) {
-        const entityType = entity.toLowerCase();
+      if ((entityNormalized === 'organization' || entityNormalized === 'member') && data) {
+        const entityType = entityNormalized;
         triggerWorkflows(entityType, data.id, data).catch(err => {
           console.error('[Entity POST] Workflow error:', err);
         });
       }
       
       // Also trigger workflows when preference values are created
-      const isPreferenceValueEntity = entity === 'OrganizationPreferenceValue' || entity === 'MemberPreferenceValue';
+      const isPreferenceValueEntity = entityNormalized === 'organizationpreferencevalue' || entityNormalized === 'memberpreferencevalue';
       if (isPreferenceValueEntity && data) {
-        const entityType = entity === 'OrganizationPreferenceValue' ? 'organization' : 'member';
+        const entityType = entityNormalized === 'organizationpreferencevalue' ? 'organization' : 'member';
         const entityId = data.organization_id || data.member_id;
         const fieldId = data.field_id;
         

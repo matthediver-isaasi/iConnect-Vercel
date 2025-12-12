@@ -277,13 +277,15 @@ export default async function handler(req, res) {
 
     } else if (req.method === 'PATCH') {
       console.log(`[Entity PATCH] Entity: "${entity}", ID: ${id}, Body:`, JSON.stringify(req.body));
-      console.log(`[Entity PATCH] Entity check: entity === 'OrganizationPreferenceValue' is ${entity === 'OrganizationPreferenceValue'}`);
-      console.log(`[Entity PATCH] Entity length: ${entity?.length}, expected length: ${'OrganizationPreferenceValue'.length}`);
+      
+      // Normalize entity name for comparison (handles both PascalCase and slug-case)
+      const entityNormalized = entity.replace(/[-_]/g, '').toLowerCase();
+      console.log(`[Entity PATCH] Normalized entity: "${entityNormalized}"`);
       
       // For Organization/Member, fetch before data for workflow evaluation
       let beforeData = null;
-      const isWorkflowEntity = entity === 'Organization' || entity === 'Member';
-      const isPreferenceValueEntity = entity === 'OrganizationPreferenceValue' || entity === 'MemberPreferenceValue';
+      const isWorkflowEntity = entityNormalized === 'organization' || entityNormalized === 'member';
+      const isPreferenceValueEntity = entityNormalized === 'organizationpreferencevalue' || entityNormalized === 'memberpreferencevalue';
       
       console.log(`[Entity PATCH] isPreferenceValueEntity: ${isPreferenceValueEntity}`);
       
@@ -319,7 +321,7 @@ export default async function handler(req, res) {
       
       // Also trigger workflows when preference values are updated
       if (isPreferenceValueEntity && data) {
-        const entityType = entity === 'OrganizationPreferenceValue' ? 'organization' : 'member';
+        const entityType = entityNormalized === 'organizationpreferencevalue' ? 'organization' : 'member';
         const entityId = data.organization_id || data.member_id;
         const fieldId = data.field_id;
         
