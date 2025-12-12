@@ -154,7 +154,13 @@ async function triggerPreferenceWorkflows(entityType, entityId, fieldId, value) 
         workflow_id: workflow.id,
         entity_type: entityType,
         entity_id: entityId,
-        trigger_data: { field_id: fieldId, value: value, trigger_type: 'field_change' },
+        trigger_data: { 
+          field_id: fieldId, 
+          value: value, 
+          trigger_type: 'field_change',
+          debug_value_passed: String(value),
+          debug_target: String(cfg.value ?? '')
+        },
         actions_executed: results,
         status: 'success'
       });
