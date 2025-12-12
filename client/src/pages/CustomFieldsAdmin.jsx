@@ -19,6 +19,7 @@ const FIELD_TYPES = [
   { value: 'text', label: 'Text' },
   { value: 'email', label: 'Email Address' },
   { value: 'url', label: 'URL / Website' },
+  { value: 'date', label: 'Date' },
   { value: 'number', label: 'Number (Integer)' },
   { value: 'decimal', label: 'Decimal Number' },
   { value: 'picklist', label: 'Picklist (Multiple Selection)' },
