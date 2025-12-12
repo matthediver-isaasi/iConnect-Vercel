@@ -52,6 +52,8 @@ import TrainingFundManagement from "./TrainingFundManagement";
 
 import WorkflowManagement from "./WorkflowManagement";
 
+import EmailTemplateManagement from "./EmailTemplateManagement";
+
 import MyTickets from "./MyTickets";
 
 import EventSettings from "./EventSettings";
@@ -284,6 +286,8 @@ const PAGES = {
     TrainingFundManagement: TrainingFundManagement,
     
     WorkflowManagement: WorkflowManagement,
+    
+    EmailTemplateManagement: EmailTemplateManagement,
     
     MyTickets: MyTickets,
     
@@ -551,6 +555,8 @@ function PagesContent() {
                 <Route path="/TrainingFundManagement" element={<TrainingFundManagement />} />
                 
                 <Route path="/WorkflowManagement" element={<WorkflowManagement />} />
+                
+                <Route path="/EmailTemplateManagement" element={<EmailTemplateManagement />} />
                 
                 <Route path="/MyTickets" element={<MyTickets />} />
                 

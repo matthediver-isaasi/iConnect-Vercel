@@ -759,7 +759,9 @@ export default function FormBuilderPage() {
     auto_create_entity: false,
     create_entity_type: "member", // Which entity to create: "member", "organization", or "both"
     uniqueness_checks: [],
-    field_mappings: [] // Submission field mappings with transformations
+    field_mappings: [], // Submission field mappings with transformations
+    submission_email_template_id: null,
+    submission_email_recipient: ''
   });
 
   const queryClient = useQueryClient();
@@ -787,6 +789,19 @@ export default function FormBuilderPage() {
   });
 
   // Fetch custom fields (PreferenceField) for CRM mapping
+  const { data: emailTemplates = [] } = useQuery({
+    queryKey: ['email-templates-active'],
+    queryFn: async () => {
+      try {
+        const templates = await base44.entities.EmailTemplate.list();
+        return (templates || []).filter(t => t.is_active !== false);
+      } catch (err) {
+        console.warn('Failed to fetch email templates:', err);
+        return [];
+      }
+    },
+  });
+
   const { data: customFields = [] } = useQuery({
     queryKey: ['/api/entities/PreferenceField', 'all-for-mapping'],
     queryFn: async () => {
@@ -839,7 +854,9 @@ export default function FormBuilderPage() {
         auto_create_entity: existingForm.auto_create_entity || false,
         create_entity_type: existingForm.create_entity_type || "member",
         uniqueness_checks: existingForm.uniqueness_checks || [],
-        field_mappings: existingForm.field_mappings || []
+        field_mappings: existingForm.field_mappings || [],
+        submission_email_template_id: existingForm.submission_email_template_id || null,
+        submission_email_recipient: existingForm.submission_email_recipient || ''
       });
     }
   }, [existingForm]);
@@ -1325,6 +1342,48 @@ export default function FormBuilderPage() {
                   onChange={(e) => setFormData({ ...formData, redirect_url: e.target.value })}
                   placeholder="https://example.com/thanks"
                 />
+              </div>
+            </div>
+
+            {/* Email on Submission */}
+            <div className="mt-4 pt-4 border-t border-slate-100 space-y-4">
+              <Label className="text-sm font-medium">Email on Submission</Label>
+              <p className="text-xs text-slate-500">Optionally send an email when the form is submitted</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <Label className="text-xs text-slate-600 mb-1">Email Template</Label>
+                  <Select
+                    value={formData.submission_email_template_id || '_none'}
+                    onValueChange={(val) => setFormData({ 
+                      ...formData, 
+                      submission_email_template_id: val === '_none' ? null : val 
+                    })}
+                  >
+                    <SelectTrigger data-testid="select-submission-email-template">
+                      <SelectValue placeholder="Select email template" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="_none">No email</SelectItem>
+                      {emailTemplates.map(t => (
+                        <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {formData.submission_email_template_id && (
+                  <div>
+                    <Label className="text-xs text-slate-600 mb-1">Send To (Field or Address)</Label>
+                    <Input
+                      value={formData.submission_email_recipient || ''}
+                      onChange={(e) => setFormData({ ...formData, submission_email_recipient: e.target.value })}
+                      placeholder="{{email}} or admin@example.com"
+                      data-testid="input-submission-email-recipient"
+                    />
+                    <p className="text-xs text-slate-500 mt-1">
+                      Use {'{{field_id}}'} for a form field value, or enter a fixed email address
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
 

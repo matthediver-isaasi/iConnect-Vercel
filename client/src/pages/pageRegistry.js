@@ -103,4 +103,6 @@ export const PAGE_NAMES = [
   "CardDeckManagement",
   "DynamicDirectoryManagement",
   "DynamicDirectoryView",
+  "EmailTemplateManagement",
+  "WorkflowManagement",
 ];

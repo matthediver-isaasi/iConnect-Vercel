@@ -46,6 +46,83 @@ async function triggerWorkflows(entityType, entityId, afterData) {
   }
 }
 
+// Send email on form submission if configured
+async function sendFormSubmissionEmail(submissionData) {
+  if (!supabase) return;
+  
+  try {
+    const formId = submissionData.form_id;
+    if (!formId) return;
+
+    // Fetch the form to check if it has email template configured
+    const { data: form } = await supabase
+      .from('form')
+      .select('submission_email_template_id, submission_email_recipient, fields')
+      .eq('id', formId)
+      .single();
+
+    if (!form || !form.submission_email_template_id) return;
+
+    // Fetch the email template
+    const { data: template } = await supabase
+      .from('email_template')
+      .select('*')
+      .eq('id', form.submission_email_template_id)
+      .single();
+
+    if (!template || template.is_active === false) {
+      console.log('[FormSubmission] Email template not found or inactive');
+      return;
+    }
+
+    // Determine recipient
+    let recipient = form.submission_email_recipient || '';
+    const formValues = submissionData.form_values || {};
+    
+    // Replace {{field_id}} placeholders with form values
+    recipient = recipient.replace(/\{\{(\w+)\}\}/g, (_, fieldId) => {
+      return formValues[fieldId] || '';
+    });
+
+    if (!recipient || !recipient.includes('@')) {
+      console.log('[FormSubmission] No valid recipient configured');
+      return;
+    }
+
+    // Replace placeholders in subject and body with form values
+    let subject = template.subject || 'Form Submission';
+    let body = template.body || '';
+
+    // Replace form field placeholders
+    for (const [fieldId, value] of Object.entries(formValues)) {
+      const placeholder = new RegExp(`\\{\\{form\\.${fieldId}\\}\\}`, 'gi');
+      subject = subject.replace(placeholder, String(value || ''));
+      body = body.replace(placeholder, String(value || ''));
+    }
+
+    // Also support simple {{field_id}} format for form values
+    subject = subject.replace(/\{\{(\w+)\}\}/g, (_, fieldId) => {
+      return String(formValues[fieldId] || '');
+    });
+    body = body.replace(/\{\{(\w+)\}\}/g, (_, fieldId) => {
+      return String(formValues[fieldId] || '');
+    });
+
+    // Send the email
+    const result = await sendEmail({
+      to: recipient,
+      subject: subject,
+      html: body,
+      from: template.from_email,
+      replyTo: template.reply_to
+    });
+
+    console.log(`[FormSubmission] Email sent to ${recipient}:`, result.success ? 'success' : result.error);
+  } catch (err) {
+    console.error('[FormSubmission] Email error:', err.message);
+  }
+}
+
 // Trigger workflows when a preference field value changes
 async function triggerPreferenceWorkflows(entityType, entityId, fieldId, value) {
   if (!supabase) return;
@@ -303,6 +380,13 @@ export default async function handler(req, res) {
             console.error('[Entity POST] Preference workflow error:', err);
           });
         }
+      }
+
+      // Send email on FormSubmission creation (non-blocking)
+      if (entityNormalized === 'formsubmission' && data) {
+        sendFormSubmissionEmail(data).catch(err => {
+          console.error('[Entity POST] Form submission email error:', err);
+        });
       }
 
       return res.status(201).json(data);

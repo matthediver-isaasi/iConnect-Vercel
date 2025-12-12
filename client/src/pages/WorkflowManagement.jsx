@@ -119,6 +119,15 @@ export default function WorkflowManagementPage() {
     enabled: accessChecked && activeTab === 'logs',
   });
 
+  const { data: emailTemplates = [] } = useQuery({
+    queryKey: ['email-templates'],
+    queryFn: async () => {
+      const result = await base44.entities.EmailTemplate.list();
+      return (result || []).filter(t => t.is_active !== false);
+    },
+    enabled: accessChecked,
+  });
+
   const { data: customFields = [] } = useQuery({
     queryKey: ['preference-fields'],
     queryFn: async () => {
@@ -957,6 +966,46 @@ export default function WorkflowManagementPage() {
 
                           {action.type === 'send_email' && (
                             <div className="space-y-3">
+                              <div className="space-y-2">
+                                <Label>Email Template (Optional)</Label>
+                                <Select
+                                  value={action.config?.template_id || '_none'}
+                                  onValueChange={(val) => {
+                                    if (val === '_none') {
+                                      updateAction(index, { 
+                                        config: { ...action.config, template_id: null } 
+                                      });
+                                    } else {
+                                      const template = emailTemplates.find(t => t.id === val);
+                                      if (template) {
+                                        updateAction(index, { 
+                                          config: { 
+                                            ...action.config, 
+                                            template_id: val,
+                                            subject: template.subject,
+                                            body: template.body,
+                                            from_name: template.from_name,
+                                            from_email: template.from_email,
+                                          } 
+                                        });
+                                      }
+                                    }
+                                  }}
+                                >
+                                  <SelectTrigger data-testid={`select-email-template-${index}`}>
+                                    <SelectValue placeholder="Select a template or enter manually" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="_none">No template (enter manually)</SelectItem>
+                                    {emailTemplates.map(t => (
+                                      <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                                <p className="text-xs text-muted-foreground">
+                                  Select a template to pre-fill subject and body, or enter values manually
+                                </p>
+                              </div>
                               <div className="space-y-2">
                                 <Label>To (Email Address or Placeholder)</Label>
                                 <Input
