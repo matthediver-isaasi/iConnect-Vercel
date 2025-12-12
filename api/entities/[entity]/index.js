@@ -171,16 +171,21 @@ async function triggerPreferenceWorkflows(entityType, entityId, fieldId, value) 
           const table = entityType === 'organization' ? 'organization' : 'member';
           const { data: entityData } = await supabase.from(table).select('*').eq('id', entityId).single();
           
+          console.log(`[Workflows] send_email action config:`, JSON.stringify(action.config, null, 2));
+          
           let subject, body, fromEmail, replyTo;
           
           // Check if using template mode
           if (action.config?.mode === 'template' && action.config?.template_id) {
+            console.log(`[Workflows] Using template mode, fetching template: ${action.config.template_id}`);
             // Fetch template at runtime
-            const { data: template } = await supabase
+            const { data: template, error: templateError } = await supabase
               .from('email_template')
               .select('*')
               .eq('id', action.config.template_id)
               .single();
+            
+            console.log(`[Workflows] Template fetch result:`, template ? 'found' : 'not found', templateError ? templateError.message : '');
             
             if (!template || template.is_active === false) {
               console.log(`[Workflows] Email template ${action.config.template_id} not found or inactive`);
@@ -196,17 +201,23 @@ async function triggerPreferenceWorkflows(entityType, entityId, fieldId, value) 
             body = template.body || '';
             fromEmail = template.from_email;
             replyTo = template.reply_to;
+            console.log(`[Workflows] Template loaded - subject: "${subject}", body length: ${body?.length}, from: ${fromEmail}`);
           } else {
             // Custom email mode - use inline subject/body
             subject = action.config?.subject || '';
             body = action.config?.body || '';
+            console.log(`[Workflows] Using custom email mode`);
           }
           
           const to = replacePlaceholders(action.config.to, entityType, entityData || {});
           subject = replacePlaceholders(subject, entityType, entityData || {});
           body = replacePlaceholders(body, entityType, entityData || {});
           
+          console.log(`[Workflows] Sending email - to: "${to}", subject: "${subject}", body length: ${body?.length}`);
+          
           const emailResult = await sendEmail({ to, subject, html: body, from: fromEmail, replyTo });
+          console.log(`[Workflows] Email result:`, JSON.stringify(emailResult));
+          
           results.push({ 
             action_type: 'send_email', 
             status: emailResult.success ? 'success' : 'failed',
