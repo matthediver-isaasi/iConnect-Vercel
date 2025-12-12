@@ -283,37 +283,58 @@ export default function OrgDetailLayoutEditor({
                                   <div
                                     ref={provided.innerRef}
                                     {...provided.droppableProps}
-                                    className={`p-2 min-h-[60px] ${snapshot.isDraggingOver ? 'bg-blue-50' : ''}`}
+                                    className={`p-3 min-h-[80px] ${snapshot.isDraggingOver ? 'bg-blue-50' : ''}`}
                                   >
                                     {card.fields.length === 0 ? (
                                       <p className="text-xs text-slate-400 text-center py-4">
                                         Drag fields here
                                       </p>
                                     ) : (
-                                      <div className="flex flex-wrap gap-2">
-                                        {card.fields.map((field, fieldIndex) => (
-                                          <Draggable 
-                                            key={field.id} 
-                                            draggableId={field.id} 
-                                            index={fieldIndex}
+                                      <div className={`grid gap-2 ${
+                                        card.columns === 1 ? 'grid-cols-1' : 
+                                        card.columns === 2 ? 'grid-cols-2' : 'grid-cols-3'
+                                      }`}>
+                                        {Array.from({ length: card.columns }).map((_, colIndex) => (
+                                          <div 
+                                            key={colIndex} 
+                                            className={`
+                                              space-y-2 p-2 rounded-md bg-slate-100/50
+                                              ${colIndex < card.columns - 1 ? 'border-r border-slate-200' : ''}
+                                            `}
                                           >
-                                            {(provided, snapshot) => (
-                                              <div
-                                                ref={provided.innerRef}
-                                                {...provided.draggableProps}
-                                                {...provided.dragHandleProps}
-                                                className={`
-                                                  px-3 py-1.5 rounded-md text-sm flex items-center gap-2
-                                                  ${field.type === 'core' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}
-                                                  ${snapshot.isDragging ? 'shadow-md' : ''}
-                                                  cursor-grab
-                                                `}
-                                              >
-                                                <GripVertical className="w-3 h-3 opacity-50" />
-                                                {getFieldLabel(field)}
-                                              </div>
-                                            )}
-                                          </Draggable>
+                                            <div className="text-xs text-slate-400 font-medium text-center pb-1 border-b border-slate-200">
+                                              Column {colIndex + 1}
+                                            </div>
+                                            {card.fields
+                                              .filter((_, idx) => idx % card.columns === colIndex)
+                                              .map((field) => {
+                                                const originalIndex = card.fields.findIndex(f => f.id === field.id);
+                                                return (
+                                                  <Draggable 
+                                                    key={field.id} 
+                                                    draggableId={field.id} 
+                                                    index={originalIndex}
+                                                  >
+                                                    {(provided, snapshot) => (
+                                                      <div
+                                                        ref={provided.innerRef}
+                                                        {...provided.draggableProps}
+                                                        {...provided.dragHandleProps}
+                                                        className={`
+                                                          px-3 py-2 rounded-md text-sm flex items-center gap-2
+                                                          ${field.type === 'core' ? 'bg-blue-100 text-blue-700 border border-blue-200' : 'bg-green-100 text-green-700 border border-green-200'}
+                                                          ${snapshot.isDragging ? 'shadow-lg ring-2 ring-blue-400' : ''}
+                                                          cursor-grab hover:shadow-sm transition-shadow
+                                                        `}
+                                                      >
+                                                        <GripVertical className="w-3 h-3 opacity-50 flex-shrink-0" />
+                                                        <span className="truncate">{getFieldLabel(field)}</span>
+                                                      </div>
+                                                    )}
+                                                  </Draggable>
+                                                );
+                                              })}
+                                          </div>
                                         ))}
                                       </div>
                                     )}
@@ -362,13 +383,13 @@ export default function OrgDetailLayoutEditor({
                                   {...provided.dragHandleProps}
                                   className={`
                                     px-3 py-2 rounded-md text-sm flex items-center gap-2
-                                    ${field.type === 'core' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}
-                                    ${snapshot.isDragging ? 'shadow-md' : ''}
-                                    cursor-grab
+                                    ${field.type === 'core' ? 'bg-blue-100 text-blue-700 border border-blue-200' : 'bg-green-100 text-green-700 border border-green-200'}
+                                    ${snapshot.isDragging ? 'shadow-lg ring-2 ring-blue-400' : ''}
+                                    cursor-grab hover:shadow-sm transition-shadow
                                   `}
                                 >
-                                  <GripVertical className="w-3 h-3 opacity-50" />
-                                  {field.label}
+                                  <GripVertical className="w-3 h-3 opacity-50 flex-shrink-0" />
+                                  <span className="truncate">{field.label}</span>
                                 </div>
                               )}
                             </Draggable>
