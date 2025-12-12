@@ -171,16 +171,48 @@ async function triggerPreferenceWorkflows(entityType, entityId, fieldId, value) 
           const table = entityType === 'organization' ? 'organization' : 'member';
           const { data: entityData } = await supabase.from(table).select('*').eq('id', entityId).single();
           
-          const to = replacePlaceholders(action.config.to, entityType, entityData || {});
-          const subject = replacePlaceholders(action.config.subject, entityType, entityData || {});
-          const body = replacePlaceholders(action.config.body, entityType, entityData || {});
+          let subject, body, fromEmail, replyTo;
           
-          const emailResult = await sendEmail({ to, subject, html: body });
+          // Check if using template mode
+          if (action.config?.mode === 'template' && action.config?.template_id) {
+            // Fetch template at runtime
+            const { data: template } = await supabase
+              .from('email_template')
+              .select('*')
+              .eq('id', action.config.template_id)
+              .single();
+            
+            if (!template || template.is_active === false) {
+              console.log(`[Workflows] Email template ${action.config.template_id} not found or inactive`);
+              results.push({ 
+                action_type: 'send_email', 
+                status: 'failed',
+                error: 'Email template not found or inactive'
+              });
+              continue;
+            }
+            
+            subject = template.subject || '';
+            body = template.body || '';
+            fromEmail = template.from_email;
+            replyTo = template.reply_to;
+          } else {
+            // Custom email mode - use inline subject/body
+            subject = action.config?.subject || '';
+            body = action.config?.body || '';
+          }
+          
+          const to = replacePlaceholders(action.config.to, entityType, entityData || {});
+          subject = replacePlaceholders(subject, entityType, entityData || {});
+          body = replacePlaceholders(body, entityType, entityData || {});
+          
+          const emailResult = await sendEmail({ to, subject, html: body, from: fromEmail, replyTo });
           results.push({ 
             action_type: 'send_email', 
             status: emailResult.success ? 'success' : 'failed',
             messageId: emailResult.messageId,
-            error: emailResult.error
+            error: emailResult.error,
+            template_id: action.config?.template_id
           });
         }
       }

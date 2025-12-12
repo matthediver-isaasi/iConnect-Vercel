@@ -967,45 +967,61 @@ export default function WorkflowManagementPage() {
                           {action.type === 'send_email' && (
                             <div className="space-y-3">
                               <div className="space-y-2">
-                                <Label>Email Template (Optional)</Label>
+                                <Label>Email Source</Label>
                                 <Select
-                                  value={action.config?.template_id || '_none'}
+                                  value={action.config?.mode || 'custom'}
                                   onValueChange={(val) => {
-                                    if (val === '_none') {
+                                    if (val === 'template') {
                                       updateAction(index, { 
-                                        config: { ...action.config, template_id: null } 
+                                        config: { mode: 'template', template_id: null, to: action.config?.to || '' } 
                                       });
                                     } else {
-                                      const template = emailTemplates.find(t => t.id === val);
-                                      if (template) {
-                                        updateAction(index, { 
-                                          config: { 
-                                            ...action.config, 
-                                            template_id: val,
-                                            subject: template.subject,
-                                            body: template.body,
-                                            from_name: template.from_name,
-                                            from_email: template.from_email,
-                                          } 
-                                        });
-                                      }
+                                      updateAction(index, { 
+                                        config: { mode: 'custom', to: action.config?.to || '', subject: '', body: '' } 
+                                      });
                                     }
                                   }}
                                 >
-                                  <SelectTrigger data-testid={`select-email-template-${index}`}>
-                                    <SelectValue placeholder="Select a template or enter manually" />
+                                  <SelectTrigger data-testid={`select-email-mode-${index}`}>
+                                    <SelectValue placeholder="Choose email source" />
                                   </SelectTrigger>
                                   <SelectContent>
-                                    <SelectItem value="_none">No template (enter manually)</SelectItem>
-                                    {emailTemplates.map(t => (
-                                      <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
-                                    ))}
+                                    <SelectItem value="template">Use Email Template</SelectItem>
+                                    <SelectItem value="custom">Custom Email (enter manually)</SelectItem>
                                   </SelectContent>
                                 </Select>
-                                <p className="text-xs text-muted-foreground">
-                                  Select a template to pre-fill subject and body, or enter values manually
-                                </p>
                               </div>
+
+                              {action.config?.mode === 'template' && (
+                                <div className="space-y-2">
+                                  <Label>Email Template</Label>
+                                  <Select
+                                    value={action.config?.template_id || '_none'}
+                                    onValueChange={(val) => {
+                                      updateAction(index, { 
+                                        config: { 
+                                          ...action.config, 
+                                          template_id: val === '_none' ? null : val
+                                        } 
+                                      });
+                                    }}
+                                  >
+                                    <SelectTrigger data-testid={`select-email-template-${index}`}>
+                                      <SelectValue placeholder="Select a template" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="_none">-- Select template --</SelectItem>
+                                      {emailTemplates.map(t => (
+                                        <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                  <p className="text-xs text-muted-foreground">
+                                    Template content will be fetched when the workflow runs, so updates to the template will automatically apply.
+                                  </p>
+                                </div>
+                              )}
+
                               <div className="space-y-2">
                                 <Label>To (Email Address or Placeholder)</Label>
                                 <Input
@@ -1020,29 +1036,34 @@ export default function WorkflowManagementPage() {
                                   Use {'{{field_name}}'} for dynamic values
                                 </p>
                               </div>
-                              <div className="space-y-2">
-                                <Label>Subject</Label>
-                                <Input
-                                  value={action.config?.subject || ''}
-                                  onChange={(e) => updateAction(index, { 
-                                    config: { ...action.config, subject: e.target.value } 
-                                  })}
-                                  placeholder="Email subject"
-                                  data-testid={`input-action-email-subject-${index}`}
-                                />
-                              </div>
-                              <div className="space-y-2">
-                                <Label>Body</Label>
-                                <Textarea
-                                  value={action.config?.body || ''}
-                                  onChange={(e) => updateAction(index, { 
-                                    config: { ...action.config, body: e.target.value } 
-                                  })}
-                                  placeholder="Email body content..."
-                                  rows={4}
-                                  data-testid={`input-action-email-body-${index}`}
-                                />
-                              </div>
+
+                              {action.config?.mode !== 'template' && (
+                                <>
+                                  <div className="space-y-2">
+                                    <Label>Subject</Label>
+                                    <Input
+                                      value={action.config?.subject || ''}
+                                      onChange={(e) => updateAction(index, { 
+                                        config: { ...action.config, subject: e.target.value } 
+                                      })}
+                                      placeholder="Email subject"
+                                      data-testid={`input-action-email-subject-${index}`}
+                                    />
+                                  </div>
+                                  <div className="space-y-2">
+                                    <Label>Body</Label>
+                                    <Textarea
+                                      value={action.config?.body || ''}
+                                      onChange={(e) => updateAction(index, { 
+                                        config: { ...action.config, body: e.target.value } 
+                                      })}
+                                      placeholder="Email body content..."
+                                      rows={4}
+                                      data-testid={`input-action-email-body-${index}`}
+                                    />
+                                  </div>
+                                </>
+                              )}
                             </div>
                           )}
 
