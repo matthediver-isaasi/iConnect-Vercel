@@ -175,8 +175,9 @@ async function triggerPreferenceWorkflows(entityType, entityId, fieldId, value) 
           
           let subject, body, fromEmail, replyTo;
           
-          // Check if using template mode
-          if (action.config?.mode === 'template' && action.config?.template_id) {
+          // Check if using template mode (also support legacy workflows that have template_id but no mode)
+          const useTemplateMode = (action.config?.mode === 'template' || action.config?.template_id) && action.config?.template_id;
+          if (useTemplateMode) {
             console.log(`[Workflows] Using template mode, fetching template: ${action.config.template_id}`);
             // Fetch template at runtime
             const { data: template, error: templateError } = await supabase
