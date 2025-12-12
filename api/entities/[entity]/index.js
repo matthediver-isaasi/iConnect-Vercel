@@ -45,6 +45,71 @@ async function triggerWorkflows(entityType, entityId, afterData) {
   }
 }
 
+// Trigger workflows when a preference field value changes
+async function triggerPreferenceWorkflows(entityType, entityId, fieldId, value) {
+  if (!supabase) return;
+  
+  try {
+    const { data: workflows } = await supabase
+      .from('workflow')
+      .select('*')
+      .eq('entity_type', entityType)
+      .eq('trigger_type', 'field_change')
+      .eq('is_active', true);
+
+    if (!workflows || workflows.length === 0) return;
+    
+    console.log(`[Workflows] Evaluating ${workflows.length} workflows for ${entityType} preference field ${fieldId}`);
+
+    for (const workflow of workflows) {
+      const cfg = workflow.trigger_config;
+      if (!cfg || cfg.field_type !== 'custom' || cfg.field_id !== fieldId) continue;
+      
+      const target = String(cfg.value ?? '');
+      const actual = String(value ?? '');
+      let triggerMatches = false;
+      
+      switch (cfg.operator) {
+        case 'equals': triggerMatches = actual.toLowerCase() === target.toLowerCase(); break;
+        case 'changed_to': triggerMatches = actual.toLowerCase() === target.toLowerCase(); break;
+        case 'is_not_empty': triggerMatches = actual !== ''; break;
+        default: triggerMatches = false;
+      }
+      
+      console.log(`[Workflows] Check ${workflow.name}: value="${actual}", target="${target}", op=${cfg.operator}, matches=${triggerMatches}`);
+      
+      if (!triggerMatches) continue;
+      
+      console.log(`[Workflows] Executing workflow: ${workflow.name}`);
+
+      const results = [];
+      for (const action of (workflow.actions || [])) {
+        if (action.type === 'update_field' && action.config?.field_type === 'core') {
+          const table = entityType === 'organization' ? 'organization' : 'member';
+          await supabase.from(table).update({ [action.config.field_id]: action.config.value }).eq('id', entityId);
+          results.push({ action_type: 'update_field', status: 'success' });
+        } else if (action.type === 'send_email') {
+          console.log(`[Workflows] Email action: to=${action.config.to}, subject=${action.config.subject}`);
+          results.push({ action_type: 'send_email', status: 'success', config: action.config });
+        }
+      }
+
+      await supabase.from('workflow_log').insert({
+        workflow_id: workflow.id,
+        entity_type: entityType,
+        entity_id: entityId,
+        trigger_data: { field_id: fieldId, value: value, trigger_type: 'field_change' },
+        actions_executed: results,
+        status: 'success'
+      });
+      
+      console.log(`[Workflows] Logged execution for ${workflow.name}`);
+    }
+  } catch (err) {
+    console.error('[Workflows] Error:', err.message, err.stack);
+  }
+}
+
 // Entity name to Supabase table mapping (singular names for Base44 compatibility)
 const entityToTable = {
   'Member': 'member',
@@ -204,6 +269,19 @@ export default async function handler(req, res) {
         triggerWorkflows(entityType, data.id, data).catch(err => {
           console.error('[Entity POST] Workflow error:', err);
         });
+      }
+      
+      // Also trigger workflows when preference values are created
+      const isPreferenceValueEntity = entity === 'OrganizationPreferenceValue' || entity === 'MemberPreferenceValue';
+      if (isPreferenceValueEntity && data) {
+        const entityType = entity === 'OrganizationPreferenceValue' ? 'organization' : 'member';
+        const entityId = data.organization_id || data.member_id;
+        if (entityId) {
+          console.log(`[Entity POST] Triggering workflow for ${entityType} preference value: ${entityId}`);
+          triggerPreferenceWorkflows(entityType, entityId, data.preference_field_id, data.value).catch(err => {
+            console.error('[Entity POST] Preference workflow error:', err);
+          });
+        }
       }
 
       return res.status(201).json(data);

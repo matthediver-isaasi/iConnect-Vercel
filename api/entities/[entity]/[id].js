@@ -19,6 +19,8 @@ async function triggerWorkflows(entityType, entityId, beforeData, afterData, tri
       .eq('is_active', true);
 
     if (!workflows || workflows.length === 0) return;
+    
+    console.log(`[Workflows] Evaluating ${workflows.length} workflows for ${entityType}:${entityId}`);
 
     for (const workflow of workflows) {
       let triggerMatches = false;
@@ -29,21 +31,54 @@ async function triggerWorkflows(entityType, entityId, beforeData, afterData, tri
         triggerMatches = true;
       } else if (workflow.trigger_type === 'field_change' && triggerType === 'field_change') {
         const cfg = workflow.trigger_config;
-        if (cfg && cfg.field_id && cfg.field_type === 'core') {
-          const before = String(beforeData?.[cfg.field_id] ?? '');
-          const after = String(afterData?.[cfg.field_id] ?? '');
+        if (cfg && cfg.field_id) {
+          let before = '';
+          let after = '';
+          
+          if (cfg.field_type === 'core') {
+            before = String(beforeData?.[cfg.field_id] ?? '');
+            after = String(afterData?.[cfg.field_id] ?? '');
+          } else if (cfg.field_type === 'custom') {
+            // Fetch custom field values from preference tables
+            const prefTable = entityType === 'organization' ? 'organization_preference_value' : 'member_preference_value';
+            const foreignKey = entityType === 'organization' ? 'organization_id' : 'member_id';
+            
+            const { data: prefValue } = await supabase
+              .from(prefTable)
+              .select('value')
+              .eq(foreignKey, entityId)
+              .eq('preference_field_id', cfg.field_id)
+              .single();
+            
+            after = String(prefValue?.value ?? '');
+            // For custom fields, we don't have before value easily, so check if current matches target
+          }
+          
           const target = String(cfg.value ?? '');
+          
+          console.log(`[Workflows] Check ${workflow.name}: field=${cfg.field_id}, type=${cfg.field_type}, after="${after}", target="${target}", op=${cfg.operator}`);
           
           switch (cfg.operator) {
             case 'equals': triggerMatches = after.toLowerCase() === target.toLowerCase(); break;
             case 'changed': triggerMatches = before !== after; break;
-            case 'changed_to': triggerMatches = before !== after && after.toLowerCase() === target.toLowerCase(); break;
+            case 'changed_to': 
+              // For custom fields without before, just check if current value matches target
+              if (cfg.field_type === 'custom') {
+                triggerMatches = after.toLowerCase() === target.toLowerCase();
+              } else {
+                triggerMatches = before !== after && after.toLowerCase() === target.toLowerCase();
+              }
+              break;
             default: triggerMatches = false;
           }
+          
+          console.log(`[Workflows] Trigger match for ${workflow.name}: ${triggerMatches}`);
         }
       }
 
       if (!triggerMatches) continue;
+
+      console.log(`[Workflows] Executing workflow: ${workflow.name}`);
 
       // Execute actions
       const results = [];
@@ -52,6 +87,10 @@ async function triggerWorkflows(entityType, entityId, beforeData, afterData, tri
           const table = entityType === 'organization' ? 'organization' : 'member';
           await supabase.from(table).update({ [action.config.field_id]: action.config.value }).eq('id', entityId);
           results.push({ action_type: 'update_field', status: 'success' });
+        } else if (action.type === 'send_email') {
+          // Log email action (actual sending would need email service integration)
+          console.log(`[Workflows] Email action: to=${action.config.to}, subject=${action.config.subject}`);
+          results.push({ action_type: 'send_email', status: 'success', config: action.config });
         }
       }
 
@@ -60,13 +99,80 @@ async function triggerWorkflows(entityType, entityId, beforeData, afterData, tri
         workflow_id: workflow.id,
         entity_type: entityType,
         entity_id: entityId,
-        trigger_data: { before: beforeData, after: afterData },
+        trigger_data: { before: beforeData, after: afterData, trigger_type: triggerType },
         actions_executed: results,
         status: 'success'
       });
+      
+      console.log(`[Workflows] Logged execution for ${workflow.name}`);
     }
   } catch (err) {
-    console.error('[Workflows] Error:', err.message);
+    console.error('[Workflows] Error:', err.message, err.stack);
+  }
+}
+
+// Trigger workflows when a preference field value changes
+async function triggerPreferenceWorkflows(entityType, entityId, fieldId, value) {
+  if (!supabase) return;
+  
+  try {
+    const { data: workflows } = await supabase
+      .from('workflow')
+      .select('*')
+      .eq('entity_type', entityType)
+      .eq('trigger_type', 'field_change')
+      .eq('is_active', true);
+
+    if (!workflows || workflows.length === 0) return;
+    
+    console.log(`[Workflows] Evaluating ${workflows.length} workflows for ${entityType} preference field ${fieldId}`);
+
+    for (const workflow of workflows) {
+      const cfg = workflow.trigger_config;
+      if (!cfg || cfg.field_type !== 'custom' || cfg.field_id !== fieldId) continue;
+      
+      const target = String(cfg.value ?? '');
+      const actual = String(value ?? '');
+      let triggerMatches = false;
+      
+      switch (cfg.operator) {
+        case 'equals': triggerMatches = actual.toLowerCase() === target.toLowerCase(); break;
+        case 'changed_to': triggerMatches = actual.toLowerCase() === target.toLowerCase(); break;
+        case 'is_not_empty': triggerMatches = actual !== ''; break;
+        default: triggerMatches = false;
+      }
+      
+      console.log(`[Workflows] Check ${workflow.name}: value="${actual}", target="${target}", op=${cfg.operator}, matches=${triggerMatches}`);
+      
+      if (!triggerMatches) continue;
+      
+      console.log(`[Workflows] Executing workflow: ${workflow.name}`);
+
+      const results = [];
+      for (const action of (workflow.actions || [])) {
+        if (action.type === 'update_field' && action.config?.field_type === 'core') {
+          const table = entityType === 'organization' ? 'organization' : 'member';
+          await supabase.from(table).update({ [action.config.field_id]: action.config.value }).eq('id', entityId);
+          results.push({ action_type: 'update_field', status: 'success' });
+        } else if (action.type === 'send_email') {
+          console.log(`[Workflows] Email action: to=${action.config.to}, subject=${action.config.subject}`);
+          results.push({ action_type: 'send_email', status: 'success', config: action.config });
+        }
+      }
+
+      await supabase.from('workflow_log').insert({
+        workflow_id: workflow.id,
+        entity_type: entityType,
+        entity_id: entityId,
+        trigger_data: { field_id: fieldId, value: value, trigger_type: 'field_change' },
+        actions_executed: results,
+        status: 'success'
+      });
+      
+      console.log(`[Workflows] Logged execution for ${workflow.name}`);
+    }
+  } catch (err) {
+    console.error('[Workflows] Preference Error:', err.message, err.stack);
   }
 }
 
@@ -177,6 +283,7 @@ export default async function handler(req, res) {
       // For Organization/Member, fetch before data for workflow evaluation
       let beforeData = null;
       const isWorkflowEntity = entity === 'Organization' || entity === 'Member';
+      const isPreferenceValueEntity = entity === 'OrganizationPreferenceValue' || entity === 'MemberPreferenceValue';
       
       if (isWorkflowEntity) {
         try {
@@ -206,6 +313,18 @@ export default async function handler(req, res) {
         triggerWorkflows(entityType, id, beforeData, data, 'field_change').catch(err => {
           console.error('[Entity PATCH] Workflow error:', err);
         });
+      }
+      
+      // Also trigger workflows when preference values are updated
+      if (isPreferenceValueEntity && data) {
+        const entityType = entity === 'OrganizationPreferenceValue' ? 'organization' : 'member';
+        const entityId = data.organization_id || data.member_id;
+        if (entityId && data.preference_field_id) {
+          console.log(`[Entity PATCH] Triggering workflow for ${entityType} preference value change: ${entityId}, field: ${data.preference_field_id}`);
+          triggerPreferenceWorkflows(entityType, entityId, data.preference_field_id, data.value).catch(err => {
+            console.error('[Entity PATCH] Preference workflow error:', err);
+          });
+        }
       }
 
       return res.json(data);
