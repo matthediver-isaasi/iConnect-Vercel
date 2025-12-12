@@ -43,7 +43,6 @@ import { useToast } from "@/components/ui/use-toast";
 
 const DEFAULT_COLUMNS = [
   { id: 'name', label: 'Organisation', visible: true, locked: true },
-  { id: 'status', label: 'Status', visible: true, locked: false },
   { id: 'members', label: 'Members', visible: true, locked: false },
   { id: 'contact', label: 'Contact', visible: true, locked: false },
 ];
@@ -65,12 +64,6 @@ const saveLocalColumns = (columns) => {
   } catch {}
 };
 
-const STATUS_OPTIONS = [
-  { value: 'all', label: 'All Statuses' },
-  { value: 'active', label: 'Active' },
-  { value: 'inactive', label: 'Inactive' },
-  { value: 'pending', label: 'Pending' }
-];
 
 export default function OrganisationsListPage() {
   const { isAdmin, isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
@@ -79,7 +72,6 @@ export default function OrganisationsListPage() {
   
   const [viewMode, setViewMode] = useState('list');
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
   const [coreFieldFilters, setCoreFieldFilters] = useState({
     phone: '',
     website_url: '',
@@ -268,10 +260,6 @@ export default function OrganisationsListPage() {
       );
     }
 
-    if (statusFilter !== 'all') {
-      result = result.filter(org => org.status === statusFilter);
-    }
-
     // Apply core field filters (text-based)
     Object.entries(coreFieldFilters).forEach(([field, filterValue]) => {
       if (filterValue && filterValue.trim()) {
@@ -312,7 +300,7 @@ export default function OrganisationsListPage() {
     });
 
     return result;
-  }, [organizations, searchQuery, statusFilter, coreFieldFilters, customFieldFilters, orgValuesMap]);
+  }, [organizations, searchQuery, coreFieldFilters, customFieldFilters, orgValuesMap]);
 
   const paginatedOrganizations = useMemo(() => {
     const start = (currentPage - 1) * itemsPerPage;
@@ -323,14 +311,12 @@ export default function OrganisationsListPage() {
 
   const resetFilters = () => {
     setSearchQuery('');
-    setStatusFilter('all');
     setCoreFieldFilters({ phone: '', website_url: '', invoicing_email: '', invoicing_address: '' });
     setCustomFieldFilters({});
     setCurrentPage(1);
   };
 
   const hasActiveFilters = searchQuery || 
-    statusFilter !== 'all' || 
     Object.values(coreFieldFilters).some(v => v && v.trim() !== '') ||
     Object.values(customFieldFilters).some(v => v && v !== 'all' && v.trim() !== '');
 
@@ -493,23 +479,6 @@ export default function OrganisationsListPage() {
 
           <ScrollArea className="flex-1 p-4 min-w-[288px]">
             <div className="space-y-4">
-              {/* Status Filter */}
-              <div className="space-y-1.5">
-                <Label className="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Status</Label>
-                <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setCurrentPage(1); }}>
-                  <SelectTrigger className="h-8 text-xs" data-testid="select-status-filter">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="max-w-[260px]">
-                    {STATUS_OPTIONS.map(opt => (
-                      <SelectItem key={opt.value} value={opt.value} className="text-xs whitespace-normal">{opt.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <Separator />
-
               {/* Core Field Filters */}
               <div className="space-y-3">
                 <p className="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Contact Details</p>
@@ -834,15 +803,6 @@ export default function OrganisationsListPage() {
                               </td>
                             );
                           }
-                          if (col.id === 'status') {
-                            return (
-                              <td key={col.id} className="px-4 py-3">
-                                <Badge variant={org.status === 'active' ? 'default' : 'secondary'} className="capitalize">
-                                  {org.status || 'unknown'}
-                                </Badge>
-                              </td>
-                            );
-                          }
                           if (col.id === 'members') {
                             return (
                               <td key={col.id} className="px-4 py-3">
@@ -921,9 +881,6 @@ export default function OrganisationsListPage() {
                         )}
                         <div className="min-w-0 flex-1">
                           <h3 className="font-medium text-slate-900 truncate">{org.name}</h3>
-                          <Badge variant={org.status === 'active' ? 'default' : 'secondary'} className="capitalize mt-1">
-                            {org.status || 'unknown'}
-                          </Badge>
                         </div>
                       </div>
 

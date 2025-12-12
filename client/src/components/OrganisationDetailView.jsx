@@ -189,7 +189,6 @@ export default function OrganisationDetailView({
     if (organization) {
       setFormData({
         name: organization.name || '',
-        status: organization.status || 'active',
         phone: organization.phone || '',
         website_url: organization.website_url || '',
         invoicing_email: organization.invoicing_email || '',
@@ -276,7 +275,6 @@ export default function OrganisationDetailView({
   const handleCancel = () => {
     setFormData({
       name: organization.name || '',
-      status: organization.status || 'active',
       phone: organization.phone || '',
       website_url: organization.website_url || '',
       invoicing_email: organization.invoicing_email || '',
@@ -410,9 +408,6 @@ export default function OrganisationDetailView({
                 <div>
                   <h1 className="text-xl font-semibold text-slate-900">{organization.name}</h1>
                   <div className="flex items-center gap-2 mt-1">
-                    <Badge variant={organization.status === 'active' ? 'default' : 'secondary'} className="capitalize">
-                      {organization.status || 'unknown'}
-                    </Badge>
                     <span className="text-sm text-slate-500 flex items-center gap-1">
                       <Users className="w-4 h-4" />
                       {memberCount} members
@@ -481,38 +476,17 @@ export default function OrganisationDetailView({
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label className="text-slate-500">Organisation Name</Label>
-                      {isEditing ? (
-                        <Input
-                          value={formData.name}
-                          onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-                          data-testid="input-org-name"
-                        />
-                      ) : (
-                        <p className="font-medium">{formData.name || '-'}</p>
-                      )}
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="text-slate-500">Status</Label>
-                      {isEditing ? (
-                        <Select value={formData.status} onValueChange={(v) => setFormData(prev => ({ ...prev, status: v }))}>
-                          <SelectTrigger data-testid="select-org-status">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="active">Active</SelectItem>
-                            <SelectItem value="inactive">Inactive</SelectItem>
-                            <SelectItem value="pending">Pending</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      ) : (
-                        <Badge variant={formData.status === 'active' ? 'default' : 'secondary'} className="capitalize">
-                          {formData.status || 'unknown'}
-                        </Badge>
-                      )}
-                    </div>
+                  <div className="space-y-2">
+                    <Label className="text-slate-500">Organisation Name</Label>
+                    {isEditing ? (
+                      <Input
+                        value={formData.name}
+                        onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
+                        data-testid="input-org-name"
+                      />
+                    ) : (
+                      <p className="font-medium">{formData.name || '-'}</p>
+                    )}
                   </div>
 
                   <div className="space-y-2">
