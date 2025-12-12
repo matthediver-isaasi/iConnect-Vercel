@@ -408,10 +408,12 @@ export default function OrganisationDetailView({
             onChange={(e) => setCustomFieldValues(prev => ({ ...prev, [field.id]: e.target.value }))}
             data-testid={`input-custom-email-${field.id}`}
           />
-        ) : value ? (
-          <a href={`mailto:${value}`} className="text-blue-600 hover:underline text-sm">{value}</a>
         ) : (
-          <p className="text-sm">-</p>
+          <p className="text-sm">
+            {value ? (
+              <a href={`mailto:${value}`} className="text-blue-600 hover:underline">{value}</a>
+            ) : '-'}
+          </p>
         );
       case 'url':
         return isEditing ? (
@@ -422,12 +424,14 @@ export default function OrganisationDetailView({
             placeholder="https://"
             data-testid={`input-custom-url-${field.id}`}
           />
-        ) : value ? (
-          <a href={value} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline text-sm flex items-center gap-1">
-            {value} <ExternalLink className="w-3 h-3" />
-          </a>
         ) : (
-          <p className="text-sm">-</p>
+          <p className="text-sm">
+            {value ? (
+              <a href={value} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline inline-flex items-center gap-1">
+                {value} <ExternalLink className="w-3 h-3" />
+              </a>
+            ) : '-'}
+          </p>
         );
       default:
         return (
