@@ -1,5 +1,4 @@
 import { createClient } from '@supabase/supabase-js';
-import { evaluateWorkflows } from '../_lib/workflows.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -7,6 +6,44 @@ const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
 const supabase = supabaseUrl && supabaseServiceKey 
   ? createClient(supabaseUrl, supabaseServiceKey)
   : null;
+
+// Inline workflow evaluation for record creation
+async function triggerWorkflows(entityType, entityId, afterData) {
+  if (!supabase) return;
+  
+  try {
+    const { data: workflows } = await supabase
+      .from('workflow')
+      .select('*')
+      .eq('entity_type', entityType)
+      .eq('trigger_type', 'record_create')
+      .eq('is_active', true);
+
+    if (!workflows || workflows.length === 0) return;
+
+    for (const workflow of workflows) {
+      const results = [];
+      for (const action of (workflow.actions || [])) {
+        if (action.type === 'update_field' && action.config?.field_type === 'core') {
+          const table = entityType === 'organization' ? 'organization' : 'member';
+          await supabase.from(table).update({ [action.config.field_id]: action.config.value }).eq('id', entityId);
+          results.push({ action_type: 'update_field', status: 'success' });
+        }
+      }
+
+      await supabase.from('workflow_log').insert({
+        workflow_id: workflow.id,
+        entity_type: entityType,
+        entity_id: entityId,
+        trigger_data: { after: afterData, trigger_type: 'record_create' },
+        actions_executed: results,
+        status: 'success'
+      });
+    }
+  } catch (err) {
+    console.error('[Workflows] Error:', err.message);
+  }
+}
 
 // Entity name to Supabase table mapping (singular names for Base44 compatibility)
 const entityToTable = {
@@ -164,7 +201,7 @@ export default async function handler(req, res) {
       // Trigger workflow evaluation for new Organization/Member (non-blocking)
       if ((entity === 'Organization' || entity === 'Member') && data) {
         const entityType = entity.toLowerCase();
-        evaluateWorkflows(entityType, data.id, null, data, 'record_create').catch(err => {
+        triggerWorkflows(entityType, data.id, data).catch(err => {
           console.error('[Entity POST] Workflow error:', err);
         });
       }

@@ -1,5 +1,4 @@
 import { createClient } from '@supabase/supabase-js';
-import { evaluateWorkflows } from '../_lib/workflows.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -7,6 +6,69 @@ const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
 const supabase = supabaseUrl && supabaseServiceKey 
   ? createClient(supabaseUrl, supabaseServiceKey)
   : null;
+
+// Inline workflow evaluation to avoid module import issues in Vercel
+async function triggerWorkflows(entityType, entityId, beforeData, afterData, triggerType) {
+  if (!supabase) return;
+  
+  try {
+    const { data: workflows } = await supabase
+      .from('workflow')
+      .select('*')
+      .eq('entity_type', entityType)
+      .eq('is_active', true);
+
+    if (!workflows || workflows.length === 0) return;
+
+    for (const workflow of workflows) {
+      let triggerMatches = false;
+      
+      if (workflow.trigger_type === 'record_update' && triggerType === 'field_change') {
+        triggerMatches = true;
+      } else if (workflow.trigger_type === 'record_create' && triggerType === 'record_create') {
+        triggerMatches = true;
+      } else if (workflow.trigger_type === 'field_change' && triggerType === 'field_change') {
+        const cfg = workflow.trigger_config;
+        if (cfg && cfg.field_id && cfg.field_type === 'core') {
+          const before = String(beforeData?.[cfg.field_id] ?? '');
+          const after = String(afterData?.[cfg.field_id] ?? '');
+          const target = String(cfg.value ?? '');
+          
+          switch (cfg.operator) {
+            case 'equals': triggerMatches = after.toLowerCase() === target.toLowerCase(); break;
+            case 'changed': triggerMatches = before !== after; break;
+            case 'changed_to': triggerMatches = before !== after && after.toLowerCase() === target.toLowerCase(); break;
+            default: triggerMatches = false;
+          }
+        }
+      }
+
+      if (!triggerMatches) continue;
+
+      // Execute actions
+      const results = [];
+      for (const action of (workflow.actions || [])) {
+        if (action.type === 'update_field' && action.config?.field_type === 'core') {
+          const table = entityType === 'organization' ? 'organization' : 'member';
+          await supabase.from(table).update({ [action.config.field_id]: action.config.value }).eq('id', entityId);
+          results.push({ action_type: 'update_field', status: 'success' });
+        }
+      }
+
+      // Log execution
+      await supabase.from('workflow_log').insert({
+        workflow_id: workflow.id,
+        entity_type: entityType,
+        entity_id: entityId,
+        trigger_data: { before: beforeData, after: afterData },
+        actions_executed: results,
+        status: 'success'
+      });
+    }
+  } catch (err) {
+    console.error('[Workflows] Error:', err.message);
+  }
+}
 
 // Entity name to Supabase table mapping (singular names for Base44 compatibility)
 const entityToTable = {
@@ -141,7 +203,7 @@ export default async function handler(req, res) {
       // Trigger workflow evaluation (non-blocking)
       if (isWorkflowEntity && data) {
         const entityType = entity.toLowerCase();
-        evaluateWorkflows(entityType, id, beforeData, data, 'field_change').catch(err => {
+        triggerWorkflows(entityType, id, beforeData, data, 'field_change').catch(err => {
           console.error('[Entity PATCH] Workflow error:', err);
         });
       }
