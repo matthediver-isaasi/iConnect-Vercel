@@ -61,7 +61,23 @@ async function triggerWorkflows(entityType, entityId, beforeData, afterData, tri
 
       if (!triggerMatches) continue;
 
-      console.log(`[Workflows] Executing workflow: ${workflow.name}`);
+      // Check trigger_mode: if 'once_per_record', skip if already executed for this entity
+      if (workflow.trigger_mode === 'once_per_record') {
+        const { data: existingLogs } = await supabase
+          .from('workflow_log')
+          .select('id')
+          .eq('workflow_id', workflow.id)
+          .eq('entity_type', entityType)
+          .eq('entity_id', entityId)
+          .limit(1);
+        
+        if (existingLogs && existingLogs.length > 0) {
+          console.log(`[Workflows] Skipping "${workflow.name}" - trigger_mode=once_per_record and already executed for entity ${entityId}`);
+          continue;
+        }
+      }
+
+      console.log(`[Workflows] Executing workflow: ${workflow.name} (trigger_mode=${workflow.trigger_mode || 'every_time'})`);
 
       // Execute actions
       const results = [];
@@ -136,7 +152,23 @@ async function triggerPreferenceWorkflows(entityType, entityId, fieldId, value) 
       
       if (!triggerMatches) continue;
       
-      console.log(`[Workflows] Executing workflow: ${workflow.name}`);
+      // Check trigger_mode: if 'once_per_record', skip if already executed for this entity
+      if (workflow.trigger_mode === 'once_per_record') {
+        const { data: existingLogs } = await supabase
+          .from('workflow_log')
+          .select('id')
+          .eq('workflow_id', workflow.id)
+          .eq('entity_type', entityType)
+          .eq('entity_id', entityId)
+          .limit(1);
+        
+        if (existingLogs && existingLogs.length > 0) {
+          console.log(`[Workflows] Skipping "${workflow.name}" - trigger_mode=once_per_record and already executed for entity ${entityId}`);
+          continue;
+        }
+      }
+      
+      console.log(`[Workflows] Executing workflow: ${workflow.name} (trigger_mode=${workflow.trigger_mode || 'every_time'})`);
 
       const results = [];
       for (const action of (workflow.actions || [])) {

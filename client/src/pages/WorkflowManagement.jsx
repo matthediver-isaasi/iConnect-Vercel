@@ -82,6 +82,7 @@ export default function WorkflowManagementPage() {
     entity_type: 'organization',
     trigger_type: 'field_change',
     trigger_config: { field_id: '', field_type: 'core', operator: 'changed_to', value: '' },
+    trigger_mode: 'every_time',
     conditions: [],
     actions: [],
     is_active: true,
@@ -215,6 +216,7 @@ export default function WorkflowManagementPage() {
       entity_type: 'organization',
       trigger_type: 'field_change',
       trigger_config: { field_id: '', field_type: 'core', operator: 'changed_to', value: '' },
+      trigger_mode: 'every_time',
       conditions: [],
       actions: [],
       is_active: true,
@@ -229,6 +231,7 @@ export default function WorkflowManagementPage() {
       entity_type: workflow.entity_type || 'organization',
       trigger_type: workflow.trigger_type || 'field_change',
       trigger_config: workflow.trigger_config || { field_id: '', field_type: 'core', operator: 'changed_to', value: '' },
+      trigger_mode: workflow.trigger_mode || 'every_time',
       conditions: workflow.conditions || [],
       actions: workflow.actions || [],
       is_active: workflow.is_active !== false,
@@ -406,6 +409,9 @@ export default function WorkflowManagementPage() {
                                 {workflow.conditions.length} condition(s)
                               </span>
                             )}
+                            <span className={workflow.trigger_mode === 'once_per_record' ? 'text-amber-600 dark:text-amber-400 font-medium' : ''}>
+                              {workflow.trigger_mode === 'once_per_record' ? 'Runs once per record' : 'Runs every time'}
+                            </span>
                           </div>
                         </div>
                       </div>
@@ -585,6 +591,49 @@ export default function WorkflowManagementPage() {
                       <div className="text-left">
                         <p className="font-medium">Member</p>
                         <p className="text-xs text-muted-foreground">Trigger on member changes</p>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+                
+                <Separator className="my-4" />
+                
+                <div className="space-y-2">
+                  <Label>Trigger Mode</Label>
+                  <p className="text-sm text-muted-foreground mb-3">
+                    Control how often this workflow runs for each record
+                  </p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setFormData(prev => ({ ...prev, trigger_mode: 'every_time' }))}
+                      className={`p-4 rounded-lg border-2 flex items-center gap-3 transition-colors ${
+                        formData.trigger_mode === 'every_time' 
+                          ? 'border-primary bg-primary/5' 
+                          : 'border-border hover:border-primary/50'
+                      }`}
+                      data-testid="button-trigger-mode-every-time"
+                    >
+                      <Clock className="h-6 w-6" />
+                      <div className="text-left">
+                        <p className="font-medium">Every Time</p>
+                        <p className="text-xs text-muted-foreground">Run each time the trigger condition is met</p>
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFormData(prev => ({ ...prev, trigger_mode: 'once_per_record' }))}
+                      className={`p-4 rounded-lg border-2 flex items-center gap-3 transition-colors ${
+                        formData.trigger_mode === 'once_per_record' 
+                          ? 'border-primary bg-primary/5' 
+                          : 'border-border hover:border-primary/50'
+                      }`}
+                      data-testid="button-trigger-mode-once"
+                    >
+                      <CheckCircle2 className="h-6 w-6" />
+                      <div className="text-left">
+                        <p className="font-medium">Only Once</p>
+                        <p className="text-xs text-muted-foreground">Run only the first time per record (prevents duplicates)</p>
                       </div>
                     </button>
                   </div>

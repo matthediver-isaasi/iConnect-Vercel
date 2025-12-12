@@ -40,7 +40,7 @@ Preferred communication style: Simple, everyday language.
 **Organization Fields:** Includes default contact fields (phone, invoicing_email, invoicing_address, website_url) and custom fields displayed on the `/myorganisation` page.
 **Training Funds:** Organization training_fund_balance field tracks available funds. TrainingFundTransaction entity records all balance adjustments with type (add/deduct/booking_usage), amounts, before/after balances, and audit trail (created_by, created_date). Managed via TrainingFundManagement admin page.
 **Vouchers:** Discrete voucher codes with organization_id, code, value, expires_at, status (active/used/expired). Managed via VoucherManagement admin page.
-**Workflows:** Automation rules triggered by field changes on organizations or members. Each workflow defines: entity_type (organization/member), trigger_type (field_change/record_create/record_update), trigger_config (field, operator, value), conditions (optional AND/OR field comparisons), and actions (send_email, update_field). WorkflowLog tracks execution history with status (success/partial/failed). Managed via /WorkflowManagement admin page with a 4-step builder UI (Basics → Trigger → Conditions → Actions).
+**Workflows:** Automation rules triggered by field changes on organizations or members. Each workflow defines: entity_type (organization/member), trigger_type (field_change/record_create/record_update), trigger_config (field, operator, value), conditions (optional AND/OR field comparisons), and actions (send_email, update_field). WorkflowLog tracks execution history with status (success/partial/failed). Managed via /WorkflowManagement admin page with a 4-step builder UI (Basics → Trigger → Conditions → Actions). **Trigger Mode:** Workflows support `trigger_mode` field with values `every_time` (default) or `once_per_record`. When set to `once_per_record`, the workflow only executes the first time the trigger condition is met for each entity, preventing duplicate emails or actions if the same field value is set multiple times.
 
 ## Deployment Architecture
 
@@ -146,4 +146,13 @@ CREATE INDEX IF NOT EXISTS idx_workflow_entity_type ON workflow(entity_type);
 CREATE INDEX IF NOT EXISTS idx_workflow_is_active ON workflow(is_active);
 CREATE INDEX IF NOT EXISTS idx_workflow_log_workflow_id ON workflow_log(workflow_id);
 CREATE INDEX IF NOT EXISTS idx_workflow_log_executed_at ON workflow_log(executed_at DESC);
+```
+
+## Workflow trigger_mode Column (for once-per-record execution)
+
+```sql
+ALTER TABLE workflow ADD COLUMN IF NOT EXISTS trigger_mode TEXT DEFAULT 'every_time' CHECK (trigger_mode IN ('every_time', 'once_per_record'));
+
+-- Index for efficient lookup of existing logs per entity
+CREATE INDEX IF NOT EXISTS idx_workflow_log_entity ON workflow_log(workflow_id, entity_type, entity_id);
 ```
