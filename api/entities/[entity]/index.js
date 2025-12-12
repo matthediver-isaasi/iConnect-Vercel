@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
-import { sendEmail, replacePlaceholders } from '../../_lib/emailService.js';
+import { sendEmail } from '../../_lib/emailService.js';
+import { triggerWorkflows, triggerPreferenceWorkflows } from '../../_lib/workflows.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -7,44 +8,6 @@ const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
 const supabase = supabaseUrl && supabaseServiceKey 
   ? createClient(supabaseUrl, supabaseServiceKey)
   : null;
-
-// Inline workflow evaluation for record creation
-async function triggerWorkflows(entityType, entityId, afterData) {
-  if (!supabase) return;
-  
-  try {
-    const { data: workflows } = await supabase
-      .from('workflow')
-      .select('*')
-      .eq('entity_type', entityType)
-      .eq('trigger_type', 'record_create')
-      .eq('is_active', true);
-
-    if (!workflows || workflows.length === 0) return;
-
-    for (const workflow of workflows) {
-      const results = [];
-      for (const action of (workflow.actions || [])) {
-        if (action.type === 'update_field' && action.config?.field_type === 'core') {
-          const table = entityType === 'organization' ? 'organization' : 'member';
-          await supabase.from(table).update({ [action.config.field_id]: action.config.value }).eq('id', entityId);
-          results.push({ action_type: 'update_field', status: 'success' });
-        }
-      }
-
-      await supabase.from('workflow_log').insert({
-        workflow_id: workflow.id,
-        entity_type: entityType,
-        entity_id: entityId,
-        trigger_data: { after: afterData, trigger_type: 'record_create' },
-        actions_executed: results,
-        status: 'success'
-      });
-    }
-  } catch (err) {
-    console.error('[Workflows] Error:', err.message);
-  }
-}
 
 // Send email on form submission if configured
 async function sendFormSubmissionEmail(submissionData) {
@@ -120,128 +83,6 @@ async function sendFormSubmissionEmail(submissionData) {
     console.log(`[FormSubmission] Email sent to ${recipient}:`, result.success ? 'success' : result.error);
   } catch (err) {
     console.error('[FormSubmission] Email error:', err.message);
-  }
-}
-
-// Trigger workflows when a preference field value changes
-async function triggerPreferenceWorkflows(entityType, entityId, fieldId, value) {
-  if (!supabase) return;
-  
-  try {
-    const { data: workflows } = await supabase
-      .from('workflow')
-      .select('*')
-      .eq('entity_type', entityType)
-      .eq('trigger_type', 'field_change')
-      .eq('is_active', true);
-
-    if (!workflows || workflows.length === 0) return;
-    
-    console.log(`[Workflows] Evaluating ${workflows.length} workflows for ${entityType} preference field ${fieldId}`);
-
-    for (const workflow of workflows) {
-      const cfg = workflow.trigger_config;
-      if (!cfg || cfg.field_type !== 'custom' || cfg.field_id !== fieldId) continue;
-      
-      const target = String(cfg.value ?? '');
-      const actual = String(value ?? '');
-      let triggerMatches = false;
-      
-      switch (cfg.operator) {
-        case 'equals': triggerMatches = actual.toLowerCase() === target.toLowerCase(); break;
-        case 'changed_to': triggerMatches = actual.toLowerCase() === target.toLowerCase(); break;
-        case 'is_not_empty': triggerMatches = actual !== ''; break;
-        default: triggerMatches = false;
-      }
-      
-      console.log(`[Workflows] Check ${workflow.name}: value="${actual}", target="${target}", op=${cfg.operator}, matches=${triggerMatches}`);
-      
-      if (!triggerMatches) continue;
-      
-      console.log(`[Workflows] Executing workflow: ${workflow.name}`);
-
-      const results = [];
-      for (const action of (workflow.actions || [])) {
-        if (action.type === 'update_field' && action.config?.field_type === 'core') {
-          const table = entityType === 'organization' ? 'organization' : 'member';
-          await supabase.from(table).update({ [action.config.field_id]: action.config.value }).eq('id', entityId);
-          results.push({ action_type: 'update_field', status: 'success' });
-        } else if (action.type === 'send_email') {
-          // Fetch full entity data for placeholder replacement
-          const table = entityType === 'organization' ? 'organization' : 'member';
-          const { data: entityData } = await supabase.from(table).select('*').eq('id', entityId).single();
-          
-          console.log(`[Workflows] send_email action config:`, JSON.stringify(action.config, null, 2));
-          
-          let subject, body, fromEmail, replyTo;
-          
-          // Check if using template mode (also support legacy workflows that have template_id but no mode)
-          const useTemplateMode = (action.config?.mode === 'template' || action.config?.template_id) && action.config?.template_id;
-          if (useTemplateMode) {
-            console.log(`[Workflows] Using template mode, fetching template: ${action.config.template_id}`);
-            // Fetch template at runtime
-            const { data: template, error: templateError } = await supabase
-              .from('email_template')
-              .select('*')
-              .eq('id', action.config.template_id)
-              .single();
-            
-            console.log(`[Workflows] Template fetch result:`, template ? 'found' : 'not found', templateError ? templateError.message : '');
-            
-            if (!template || template.is_active === false) {
-              console.log(`[Workflows] Email template ${action.config.template_id} not found or inactive`);
-              results.push({ 
-                action_type: 'send_email', 
-                status: 'failed',
-                error: 'Email template not found or inactive'
-              });
-              continue;
-            }
-            
-            subject = template.subject || '';
-            body = template.body || '';
-            fromEmail = template.from_email;
-            replyTo = template.reply_to;
-            console.log(`[Workflows] Template loaded - subject: "${subject}", body length: ${body?.length}, from: ${fromEmail}`);
-          } else {
-            // Custom email mode - use inline subject/body
-            subject = action.config?.subject || '';
-            body = action.config?.body || '';
-            console.log(`[Workflows] Using custom email mode`);
-          }
-          
-          const to = replacePlaceholders(action.config.to, entityType, entityData || {});
-          subject = replacePlaceholders(subject, entityType, entityData || {});
-          body = replacePlaceholders(body, entityType, entityData || {});
-          
-          console.log(`[Workflows] Sending email - to: "${to}", subject: "${subject}", body length: ${body?.length}`);
-          
-          const emailResult = await sendEmail({ to, subject, html: body, from: fromEmail, replyTo });
-          console.log(`[Workflows] Email result:`, JSON.stringify(emailResult));
-          
-          results.push({ 
-            action_type: 'send_email', 
-            status: emailResult.success ? 'success' : 'failed',
-            messageId: emailResult.messageId,
-            error: emailResult.error,
-            template_id: action.config?.template_id
-          });
-        }
-      }
-
-      await supabase.from('workflow_log').insert({
-        workflow_id: workflow.id,
-        entity_type: entityType,
-        entity_id: entityId,
-        trigger_data: { field_id: fieldId, value: value, trigger_type: 'field_change' },
-        actions_executed: results,
-        status: 'success'
-      });
-      
-      console.log(`[Workflows] Logged execution for ${workflow.name}`);
-    }
-  } catch (err) {
-    console.error('[Workflows] Error:', err.message, err.stack);
   }
 }
 
