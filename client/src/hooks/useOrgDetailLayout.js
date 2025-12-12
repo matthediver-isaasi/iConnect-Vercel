@@ -46,34 +46,32 @@ export const CORE_FIELDS = [
 export function useOrgDetailLayout() {
   const queryClient = useQueryClient();
 
-  const { data: layoutConfig, isLoading } = useQuery({
-    queryKey: ['org-detail-layout-config'],
+  const { data: layoutData, isLoading } = useQuery({
+    queryKey: ['org-detail-layout'],
     queryFn: async () => {
       const allSettings = await base44.entities.SystemSettings.list();
       const setting = allSettings.find(s => s.setting_key === LAYOUT_SETTING_KEY);
       
+      let parsedConfig = DEFAULT_LAYOUT;
       if (setting?.setting_value) {
         try {
-          return JSON.parse(setting.setting_value);
+          parsedConfig = JSON.parse(setting.setting_value);
         } catch {
-          return DEFAULT_LAYOUT;
+          parsedConfig = DEFAULT_LAYOUT;
         }
       }
-      return DEFAULT_LAYOUT;
-    }
-  });
-
-  const { data: settingRecord } = useQuery({
-    queryKey: ['org-detail-layout-setting-record'],
-    queryFn: async () => {
-      const allSettings = await base44.entities.SystemSettings.list();
-      return allSettings.find(s => s.setting_key === LAYOUT_SETTING_KEY) || null;
+      
+      return {
+        config: parsedConfig,
+        record: setting || null
+      };
     }
   });
 
   const saveLayoutMutation = useMutation({
     mutationFn: async (newLayout) => {
       const layoutJson = JSON.stringify(newLayout);
+      const settingRecord = layoutData?.record;
       
       if (settingRecord?.id) {
         return await base44.entities.SystemSettings.update(settingRecord.id, {
@@ -88,15 +86,14 @@ export function useOrgDetailLayout() {
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['org-detail-layout-config'] });
-      queryClient.invalidateQueries({ queryKey: ['org-detail-layout-setting-record'] });
+      queryClient.invalidateQueries({ queryKey: ['org-detail-layout'] });
     }
   });
 
   return {
-    layoutConfig: layoutConfig || DEFAULT_LAYOUT,
+    layoutConfig: layoutData?.config || DEFAULT_LAYOUT,
     isLoading,
-    saveLayout: saveLayoutMutation.mutate,
+    saveLayout: saveLayoutMutation.mutateAsync,
     isSaving: saveLayoutMutation.isPending,
     DEFAULT_LAYOUT
   };

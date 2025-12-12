@@ -154,9 +154,14 @@ export default function OrgDetailLayoutEditor({
     return customField?.label || 'Unknown Field';
   };
 
-  const handleSave = () => {
-    onSave(editedLayout);
-    toast.success('Layout saved successfully');
+  const handleSave = async () => {
+    try {
+      await onSave(editedLayout);
+      toast.success('Layout saved successfully');
+    } catch (error) {
+      toast.error('Failed to save layout');
+      console.error('Layout save error:', error);
+    }
   };
 
   return (

@@ -613,8 +613,8 @@ export default function OrganisationDetailView({
         <OrgDetailLayoutEditor
           layout={effectiveLayout}
           customFields={orgCustomFields}
-          onSave={(newLayout) => {
-            saveLayout(newLayout);
+          onSave={async (newLayout) => {
+            await saveLayout(newLayout);
             setShowLayoutEditor(false);
           }}
           onCancel={() => setShowLayoutEditor(false)}
