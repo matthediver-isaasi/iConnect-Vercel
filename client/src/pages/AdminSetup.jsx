@@ -3,12 +3,15 @@ import React, { useState, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Shield, Loader2, CheckCircle2, ExternalLink, RefreshCw, Calendar, Users, Building2, Search, AlertTriangle, Unlink, Upload, Image, Trash2 } from "lucide-react";
+import { Shield, Loader2, CheckCircle2, ExternalLink, RefreshCw, Calendar, Users, Building2, Search, AlertTriangle, Unlink, Upload, Image, Trash2, Database } from "lucide-react";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar as CalendarComponent } from "@/components/ui/calendar";
+import { format } from "date-fns";
 
 export default function AdminSetupPage() {
   const queryClient = useQueryClient();
@@ -35,6 +38,11 @@ export default function AdminSetupPage() {
   const [logoLink, setLogoLink] = useState("");
   const [logoUploading, setLogoUploading] = useState(false);
   const [logoSaving, setLogoSaving] = useState(false);
+  
+  // Backfill state
+  const [backfillDate, setBackfillDate] = useState(new Date());
+  const [backfillLoading, setBackfillLoading] = useState(false);
+  const [backfillResult, setBackfillResult] = useState(null);
 
   const { data: tokens = [] } = useQuery({
     queryKey: ['zoho-tokens'],
@@ -312,6 +320,38 @@ export default function AdminSetupPage() {
       });
     } finally {
       setSingleOrgSyncLoading(false);
+    }
+  };
+
+  const handleBackfillOrgDates = async () => {
+    setBackfillLoading(true);
+    setBackfillResult(null);
+    try {
+      const response = await fetch('/api/admin/backfill-organization-dates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ date: backfillDate.toISOString() })
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to backfill dates');
+      }
+      setBackfillResult({
+        success: true,
+        updated: data.updated,
+        date: data.backfillDate
+      });
+      toast.success(`Updated ${data.updated} organisations with created date`);
+      queryClient.invalidateQueries({ queryKey: ['organizations'] });
+    } catch (error) {
+      setBackfillResult({
+        success: false,
+        error: error.message
+      });
+      toast.error(error.message);
+    } finally {
+      setBackfillLoading(false);
     }
   };
 
@@ -1073,6 +1113,94 @@ export default function AdminSetupPage() {
             </CardContent>
           </Card>
         )}
+
+        {/* Data Maintenance */}
+        <Card className="shadow-xl border-slate-200 mb-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Database className="w-5 h-5" />
+              Data Maintenance
+            </CardTitle>
+            <CardDescription>
+              Tools for maintaining and fixing data in the database.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="space-y-4">
+              <div>
+                <h3 className="font-medium text-slate-900 mb-2">Backfill Organisation Created Dates</h3>
+                <p className="text-sm text-slate-600 mb-4">
+                  Set a created date for all organisations that don't have one. This is useful for legacy data imported before date tracking was enabled.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Select backfill date</Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className="w-full justify-start text-left font-normal"
+                      data-testid="button-backfill-date"
+                    >
+                      <Calendar className="mr-2 h-4 w-4" />
+                      {backfillDate ? format(backfillDate, "PPP") : "Pick a date"}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <CalendarComponent
+                      mode="single"
+                      selected={backfillDate}
+                      onSelect={(date) => date && setBackfillDate(date)}
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              <Button
+                onClick={handleBackfillOrgDates}
+                disabled={backfillLoading}
+                className="w-full"
+                data-testid="button-backfill-dates"
+              >
+                {backfillLoading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Updating...
+                  </>
+                ) : (
+                  <>
+                    <Database className="w-4 h-4 mr-2" />
+                    Backfill Created Dates
+                  </>
+                )}
+              </Button>
+
+              {backfillResult && (
+                <div className={`p-3 rounded-lg border ${
+                  backfillResult.success 
+                    ? 'bg-green-50 border-green-200' 
+                    : 'bg-red-50 border-red-200'
+                }`}>
+                  {backfillResult.success ? (
+                    <div className="flex items-center gap-2 text-green-700">
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span className="text-sm">
+                        Updated {backfillResult.updated} organisations with date {format(new Date(backfillResult.date), "PPP")}
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 text-red-700">
+                      <AlertTriangle className="w-4 h-4" />
+                      <span className="text-sm">{backfillResult.error}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

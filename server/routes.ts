@@ -2064,7 +2064,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     try {
-      const backfillDate = new Date().toISOString();
+      // Accept custom date from request body, default to today
+      const { date } = req.body || {};
+      const backfillDate = date ? new Date(date).toISOString() : new Date().toISOString();
       
       // Update all organizations where created_at is null
       const { data, error: updateError } = await supabase
@@ -2079,7 +2081,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const count = data?.length || 0;
-      console.log(`[Backfill Org Dates] Updated ${count} organizations with created_at`);
+      console.log(`[Backfill Org Dates] Updated ${count} organizations with created_at: ${backfillDate}`);
       
       res.json({ 
         success: true, 
