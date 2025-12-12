@@ -278,22 +278,7 @@ export default async function handler(req, res) {
         const entityId = data.organization_id || data.member_id;
         const fieldId = data.field_id;
         
-        // Log to database for debugging
-        await supabase.from('workflow_log').insert({
-          workflow_id: '00000000-0000-0000-0000-000000000001',
-          entity_type: entityType,
-          entity_id: entityId || 'unknown',
-          trigger_data: { 
-            debug: 'POST_HANDLER_REACHED', 
-            field_id: fieldId, 
-            value: data.value,
-            entity: entity,
-            has_field_id: !!fieldId,
-            has_entity_id: !!entityId
-          },
-          actions_executed: [],
-          status: 'success'
-        }).catch(() => {});
+        console.log(`[Entity POST] Preference value created - entityId: ${entityId}, fieldId: ${fieldId}, value: ${data.value}`);
         
         if (entityId && fieldId) {
           triggerPreferenceWorkflows(entityType, entityId, fieldId, data.value).catch(err => {
