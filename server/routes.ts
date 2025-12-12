@@ -134,6 +134,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Helper to get table name from entity (uses singular form for Base44 compatibility)
   const getTableName = (entity: string): string => {
+    // Direct check for WorkflowLog since the mapping seems to not be working
+    if (entity === 'WorkflowLog') {
+      return 'workflow_log';
+    }
+    if (entity === 'Workflow') {
+      return 'workflow';
+    }
+    
     const mapped = entityToTable[entity];
     if (mapped) {
       return mapped;
@@ -157,6 +165,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { entity } = req.params;
       const tableName = getTableName(entity);
+      console.log(`[Entity GET] entity='${entity}' -> tableName='${tableName}' (in mapping: ${!!entityToTable[entity]})`);
       const { filter, sort, limit, offset, expand } = req.query;
 
       let query = supabase.from(tableName).select(expand as string || '*');
