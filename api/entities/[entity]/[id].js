@@ -1,5 +1,4 @@
 import { createClient } from '@supabase/supabase-js';
-import { evaluateWorkflows } from '../_lib/workflowEngine.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -112,19 +111,6 @@ export default async function handler(req, res) {
       return res.json(data);
 
     } else if (req.method === 'PATCH') {
-      // For workflow-enabled entities, fetch before data
-      let beforeData = null;
-      const isWorkflowEntity = entity === 'Organization' || entity === 'Member';
-      
-      if (isWorkflowEntity) {
-        const { data: existingData } = await supabase
-          .from(tableName)
-          .select('*')
-          .eq('id', id)
-          .single();
-        beforeData = existingData;
-      }
-
       const { data, error } = await supabase
         .from(tableName)
         .update(req.body)
@@ -133,15 +119,6 @@ export default async function handler(req, res) {
         .single();
 
       if (error) return res.status(500).json({ error: error.message });
-
-      // Trigger workflows for Organization and Member updates
-      if (isWorkflowEntity && data) {
-        const entityType = entity.toLowerCase();
-        evaluateWorkflows(entityType, id, beforeData, data, 'field_change').catch(err => {
-          console.error('[Workflow Trigger] Error:', err);
-        });
-      }
-
       return res.json(data);
 
     } else if (req.method === 'DELETE') {
