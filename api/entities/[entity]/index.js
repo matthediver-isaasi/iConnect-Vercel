@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { evaluateWorkflows } from '../_lib/workflows.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -159,6 +160,15 @@ export default async function handler(req, res) {
         console.error(`Error inserting into ${tableName}:`, error);
         return res.status(500).json({ error: error.message, details: error.details, hint: error.hint, code: error.code });
       }
+
+      // Trigger workflow evaluation for new Organization/Member (non-blocking)
+      if ((entity === 'Organization' || entity === 'Member') && data) {
+        const entityType = entity.toLowerCase();
+        evaluateWorkflows(entityType, data.id, null, data, 'record_create').catch(err => {
+          console.error('[Entity POST] Workflow error:', err);
+        });
+      }
+
       return res.status(201).json(data);
     }
 

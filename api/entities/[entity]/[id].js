@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { evaluateWorkflows } from '../_lib/workflows.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -111,6 +112,23 @@ export default async function handler(req, res) {
       return res.json(data);
 
     } else if (req.method === 'PATCH') {
+      // For Organization/Member, fetch before data for workflow evaluation
+      let beforeData = null;
+      const isWorkflowEntity = entity === 'Organization' || entity === 'Member';
+      
+      if (isWorkflowEntity) {
+        try {
+          const { data: existingData } = await supabase
+            .from(tableName)
+            .select('*')
+            .eq('id', id)
+            .single();
+          beforeData = existingData;
+        } catch (e) {
+          console.error('[Entity PATCH] Error fetching before data:', e);
+        }
+      }
+
       const { data, error } = await supabase
         .from(tableName)
         .update(req.body)
@@ -119,6 +137,15 @@ export default async function handler(req, res) {
         .single();
 
       if (error) return res.status(500).json({ error: error.message });
+
+      // Trigger workflow evaluation (non-blocking)
+      if (isWorkflowEntity && data) {
+        const entityType = entity.toLowerCase();
+        evaluateWorkflows(entityType, id, beforeData, data, 'field_change').catch(err => {
+          console.error('[Entity PATCH] Workflow error:', err);
+        });
+      }
+
       return res.json(data);
 
     } else if (req.method === 'DELETE') {
