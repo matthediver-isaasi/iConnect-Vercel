@@ -125,15 +125,22 @@ async function triggerPreferenceWorkflows(entityType, entityId, fieldId, value) 
 
     if (!workflows || workflows.length === 0) return;
     
-    console.log(`[Workflows] Evaluating ${workflows.length} workflows for ${entityType} preference field ${fieldId}`);
+    console.log(`[Workflows] Evaluating ${workflows.length} workflows for ${entityType} preference field ${fieldId}, incoming value="${value}"`);
 
     for (const workflow of workflows) {
       const cfg = workflow.trigger_config;
-      if (!cfg || cfg.field_type !== 'custom' || cfg.field_id !== fieldId) continue;
+      console.log(`[Workflows] Checking workflow "${workflow.name}": cfg.field_id=${cfg?.field_id}, our fieldId=${fieldId}, cfg.field_type=${cfg?.field_type}`);
+      
+      if (!cfg || cfg.field_type !== 'custom' || cfg.field_id !== fieldId) {
+        console.log(`[Workflows] Skipping - field mismatch or not custom field`);
+        continue;
+      }
       
       const target = String(cfg.value ?? '');
       const actual = String(value ?? '');
       let triggerMatches = false;
+      
+      console.log(`[Workflows] Comparing: actual="${actual}" vs target="${target}", operator=${cfg.operator}`);
       
       switch (cfg.operator) {
         case 'equals': triggerMatches = actual.toLowerCase() === target.toLowerCase(); break;
@@ -142,7 +149,7 @@ async function triggerPreferenceWorkflows(entityType, entityId, fieldId, value) 
         default: triggerMatches = false;
       }
       
-      console.log(`[Workflows] Check ${workflow.name}: value="${actual}", target="${target}", op=${cfg.operator}, matches=${triggerMatches}`);
+      console.log(`[Workflows] Result: triggerMatches=${triggerMatches}`);
       
       if (!triggerMatches) continue;
       
@@ -325,10 +332,16 @@ export default async function handler(req, res) {
         const entityId = data.organization_id || data.member_id;
         const fieldId = data.field_id;
         
+        // Log what was in the request vs what's in the response
+        console.log(`[Entity PATCH] Preference PATCH - req.body.value: "${req.body.value}", data.value: "${data.value}"`);
         console.log(`[Entity PATCH] Preference value updated - entityId: ${entityId}, fieldId: ${fieldId}, value: ${data.value}`);
         
+        // Use req.body.value (what was sent) rather than data.value (what was returned)
+        // This ensures we check against the NEW value being set
+        const newValue = req.body.value !== undefined ? req.body.value : data.value;
+        
         if (entityId && fieldId) {
-          triggerPreferenceWorkflows(entityType, entityId, fieldId, data.value).catch(err => {
+          triggerPreferenceWorkflows(entityType, entityId, fieldId, newValue).catch(err => {
             console.error('[Entity PATCH] Preference workflow error:', err);
           });
         }
