@@ -829,6 +829,7 @@ export default function FormBuilderPage() {
 
   const createFormMutation = useMutation({
     mutationFn: async (data) => {
+      console.log('[FormBuilder] Creating form with data:', JSON.stringify(data, null, 2));
       return await base44.entities.Form.create(data);
     },
     onSuccess: () => {
@@ -837,12 +838,15 @@ export default function FormBuilderPage() {
       window.location.href = createPageUrl('FormManagement');
     },
     onError: (error) => {
-      toast.error('Failed to create form');
+      console.error('[FormBuilder] Create form error:', error);
+      const errorMessage = error?.message || error?.response?.data?.error || 'Unknown error';
+      toast.error(`Failed to create form: ${errorMessage}`);
     }
   });
 
   const updateFormMutation = useMutation({
     mutationFn: async ({ id, data }) => {
+      console.log('[FormBuilder] Updating form', id, 'with data:', JSON.stringify(data, null, 2));
       return await base44.entities.Form.update(id, data);
     },
     onSuccess: () => {
@@ -850,7 +854,9 @@ export default function FormBuilderPage() {
       toast.success('Form updated successfully');
     },
     onError: (error) => {
-      toast.error('Failed to update form');
+      console.error('[FormBuilder] Update form error:', error);
+      const errorMessage = error?.message || error?.response?.data?.error || 'Unknown error';
+      toast.error(`Failed to update form: ${errorMessage}`);
     }
   });
 
@@ -1100,6 +1106,26 @@ export default function FormBuilderPage() {
     if (formData.fields.length === 0) {
       toast.error('Please add at least one field');
       return;
+    }
+
+    // Validate field mappings - check for incomplete mappings
+    const mappings = formData.field_mappings || [];
+    for (let i = 0; i < mappings.length; i++) {
+      const m = mappings[i];
+      
+      // All mappings must have a target field
+      if (!m.target_field) {
+        toast.error(`Field mapping #${i + 1} is missing a target field. Please select a target field or remove the mapping.`);
+        return;
+      }
+      
+      // Non-current_date mappings need a source field (unless static)
+      if (m.transformation !== 'current_date' && m.source_type !== 'static') {
+        if (!m.source_field_id) {
+          toast.error(`Field mapping #${i + 1} is missing a source field. Please select a source field or use "Current date" transformation.`);
+          return;
+        }
+      }
     }
 
     // Validate organization name mapping when org creation is enabled
