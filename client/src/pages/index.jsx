@@ -50,6 +50,8 @@ import VoucherManagement from "./VoucherManagement";
 
 import TrainingFundManagement from "./TrainingFundManagement";
 
+import WorkflowManagement from "./WorkflowManagement";
+
 import MyTickets from "./MyTickets";
 
 import EventSettings from "./EventSettings";
@@ -280,6 +282,8 @@ const PAGES = {
     VoucherManagement: VoucherManagement,
     
     TrainingFundManagement: TrainingFundManagement,
+    
+    WorkflowManagement: WorkflowManagement,
     
     MyTickets: MyTickets,
     
@@ -545,6 +549,8 @@ function PagesContent() {
                 <Route path="/VoucherManagement" element={<VoucherManagement />} />
                 
                 <Route path="/TrainingFundManagement" element={<TrainingFundManagement />} />
+                
+                <Route path="/WorkflowManagement" element={<WorkflowManagement />} />
                 
                 <Route path="/MyTickets" element={<MyTickets />} />
                 

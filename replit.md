@@ -40,6 +40,7 @@ Preferred communication style: Simple, everyday language.
 **Organization Fields:** Includes default contact fields (phone, invoicing_email, invoicing_address, website_url) and custom fields displayed on the `/myorganisation` page.
 **Training Funds:** Organization training_fund_balance field tracks available funds. TrainingFundTransaction entity records all balance adjustments with type (add/deduct/booking_usage), amounts, before/after balances, and audit trail (created_by, created_date). Managed via TrainingFundManagement admin page.
 **Vouchers:** Discrete voucher codes with organization_id, code, value, expires_at, status (active/used/expired). Managed via VoucherManagement admin page.
+**Workflows:** Automation rules triggered by field changes on organizations or members. Each workflow defines: entity_type (organization/member), trigger_type (field_change/record_create/record_update), trigger_config (field, operator, value), conditions (optional AND/OR field comparisons), and actions (send_email, update_field). WorkflowLog tracks execution history with status (success/partial/failed). Managed via /WorkflowManagement admin page with a 4-step builder UI (Basics → Trigger → Conditions → Actions).
 
 ## Deployment Architecture
 
@@ -109,4 +110,40 @@ CREATE INDEX IF NOT EXISTS idx_tft_created_date ON training_fund_transaction(cre
 ALTER TABLE form ADD COLUMN IF NOT EXISTS auto_create_entity BOOLEAN DEFAULT FALSE;
 ALTER TABLE form ADD COLUMN IF NOT EXISTS create_entity_type TEXT DEFAULT 'member';
 ALTER TABLE form ADD COLUMN IF NOT EXISTS field_mappings JSONB DEFAULT '[]'::jsonb;
+```
+
+## Workflow Automation Tables
+
+```sql
+CREATE TABLE IF NOT EXISTS workflow (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  description TEXT,
+  entity_type TEXT NOT NULL CHECK (entity_type IN ('organization', 'member')),
+  trigger_type TEXT NOT NULL CHECK (trigger_type IN ('field_change', 'record_create', 'record_update')),
+  trigger_config JSONB,
+  conditions JSONB DEFAULT '[]'::jsonb,
+  actions JSONB DEFAULT '[]'::jsonb,
+  is_active BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  created_by TEXT
+);
+
+CREATE TABLE IF NOT EXISTS workflow_log (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  workflow_id UUID NOT NULL REFERENCES workflow(id) ON DELETE CASCADE,
+  entity_type TEXT NOT NULL,
+  entity_id TEXT NOT NULL,
+  trigger_data JSONB,
+  actions_executed JSONB,
+  status TEXT NOT NULL CHECK (status IN ('success', 'partial', 'failed')),
+  error_message TEXT,
+  executed_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_workflow_entity_type ON workflow(entity_type);
+CREATE INDEX IF NOT EXISTS idx_workflow_is_active ON workflow(is_active);
+CREATE INDEX IF NOT EXISTS idx_workflow_log_workflow_id ON workflow_log(workflow_id);
+CREATE INDEX IF NOT EXISTS idx_workflow_log_executed_at ON workflow_log(executed_at DESC);
 ```
