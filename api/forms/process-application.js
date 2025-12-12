@@ -267,7 +267,8 @@ export default async function handler(req, res) {
           name: orgData.name,
           invoicing_email: orgData.invoicing_email || null,
           phone: orgData.phone || null,
-          website_url: orgData.website_url || null
+          website_url: orgData.website_url || null,
+          created_at: new Date().toISOString()
         };
 
         console.log('[AppProcessor] Creating organization with data:', orgInsertData);
