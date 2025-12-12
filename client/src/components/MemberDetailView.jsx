@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { useDateFormat } from "@/hooks/useDateFormat";
 
 export default function MemberDetailView({ 
   member, 
@@ -42,6 +43,7 @@ export default function MemberDetailView({
   roles = []
 }) {
   const { isAdmin } = useMemberAccess();
+  const { formatDate } = useDateFormat();
   const queryClient = useQueryClient();
   const [isEditing, setIsEditing] = useState(false);
   const [activeTab, setActiveTab] = useState('overview');
@@ -469,12 +471,27 @@ export default function MemberDetailView({
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {memberCustomFields.map(field => (
-                        <div key={field.id} className="space-y-1">
-                          <p className="text-xs text-slate-500">{field.label}</p>
-                          <p className="text-sm">{customFieldValues[field.id] || '-'}</p>
-                        </div>
-                      ))}
+                      {memberCustomFields.map(field => {
+                        const value = customFieldValues[field.id];
+                        let displayValue;
+                        
+                        if (field.field_type === 'date') {
+                          displayValue = formatDate(value);
+                        } else if (field.field_type === 'email' && value) {
+                          displayValue = <a href={`mailto:${value}`} className="text-blue-600 hover:underline">{value}</a>;
+                        } else if (field.field_type === 'url' && value) {
+                          displayValue = <a href={value} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline flex items-center gap-1">{value} <ExternalLink className="w-3 h-3" /></a>;
+                        } else {
+                          displayValue = value || '-';
+                        }
+                        
+                        return (
+                          <div key={field.id} className="space-y-1">
+                            <p className="text-xs text-slate-500">{field.label}</p>
+                            <p className="text-sm">{displayValue}</p>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </CardContent>
@@ -510,7 +527,7 @@ export default function MemberDetailView({
                             <div>
                               <p className="font-medium text-sm">{event?.title || 'Unknown Event'}</p>
                               <p className="text-xs text-slate-500">
-                                {booking.created_date ? new Date(booking.created_date).toLocaleDateString() : 'Date unknown'}
+                                {formatDate(booking.created_date)}
                               </p>
                             </div>
                           </div>

@@ -43,6 +43,20 @@ export default function AdminSetupPage() {
   const [backfillDate, setBackfillDate] = useState(new Date());
   const [backfillLoading, setBackfillLoading] = useState(false);
   const [backfillResult, setBackfillResult] = useState(null);
+  
+  // Date format state
+  const [dateDisplayFormat, setDateDisplayFormat] = useState("dd MMM yyyy");
+  const [dateFormatSaving, setDateFormatSaving] = useState(false);
+  
+  const DATE_FORMAT_OPTIONS = [
+    { value: 'dd/MM/yyyy', label: 'DD/MM/YYYY (31/12/2024)' },
+    { value: 'MM/dd/yyyy', label: 'MM/DD/YYYY (12/31/2024)' },
+    { value: 'yyyy-MM-dd', label: 'YYYY-MM-DD (2024-12-31)' },
+    { value: 'dd MMM yyyy', label: 'DD Mon YYYY (31 Dec 2024)' },
+    { value: 'MMM dd, yyyy', label: 'Mon DD, YYYY (Dec 31, 2024)' },
+    { value: 'MMMM dd, yyyy', label: 'Month DD, YYYY (December 31, 2024)' },
+    { value: 'dd MMMM yyyy', label: 'DD Month YYYY (31 December 2024)' },
+  ];
 
   const { data: tokens = [] } = useQuery({
     queryKey: ['zoho-tokens'],
@@ -87,10 +101,12 @@ export default function AdminSetupPage() {
       const logoUrlSetting = systemSettings.find(s => s.setting_key === 'portal_logo_url');
       const logoHeightSetting = systemSettings.find(s => s.setting_key === 'portal_logo_height');
       const logoLinkSetting = systemSettings.find(s => s.setting_key === 'portal_logo_link');
+      const dateFormatSetting = systemSettings.find(s => s.setting_key === 'date_display_format');
       
       if (logoUrlSetting?.setting_value) setLogoUrl(logoUrlSetting.setting_value);
       if (logoHeightSetting?.setting_value) setLogoHeight(logoHeightSetting.setting_value);
       if (logoLinkSetting?.setting_value) setLogoLink(logoLinkSetting.setting_value);
+      if (dateFormatSetting?.setting_value) setDateDisplayFormat(dateFormatSetting.setting_value);
     }
   }, [systemSettings]);
 
@@ -155,6 +171,32 @@ export default function AdminSetupPage() {
   // Remove logo
   const handleRemoveLogo = () => {
     setLogoUrl("");
+  };
+
+  // Save date format settings
+  const handleSaveDateFormat = async () => {
+    setDateFormatSaving(true);
+    try {
+      const existing = systemSettings.find(s => s.setting_key === 'date_display_format');
+      if (existing) {
+        await base44.entities.SystemSettings.update(existing.id, { setting_value: dateDisplayFormat });
+      } else {
+        await base44.entities.SystemSettings.create({ 
+          setting_key: 'date_display_format', 
+          setting_value: dateDisplayFormat 
+        });
+      }
+
+      queryClient.invalidateQueries({ queryKey: ['system-settings-logo'] });
+      queryClient.invalidateQueries({ queryKey: ['system-settings'] });
+      queryClient.invalidateQueries({ queryKey: ['system-settings-date-format'] });
+      toast.success('Date format saved successfully');
+    } catch (error) {
+      console.error('Save date format error:', error);
+      toast.error('Failed to save date format');
+    } finally {
+      setDateFormatSaving(false);
+    }
   };
 
   const handleAuthenticate = async () => {
@@ -500,6 +542,63 @@ export default function AdminSetupPage() {
                 <>
                   <CheckCircle2 className="w-5 h-5 mr-2" />
                   Save Logo Settings
+                </>
+              )}
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card className="shadow-xl border-slate-200 mb-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Calendar className="w-5 h-5 text-blue-600" />
+              Date Display Format
+            </CardTitle>
+            <CardDescription>
+              Configure how dates are displayed across the portal, including organisation and member detail views.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="space-y-2">
+              <Label htmlFor="date-format">Date Format</Label>
+              <Select value={dateDisplayFormat} onValueChange={setDateDisplayFormat}>
+                <SelectTrigger id="date-format" data-testid="select-date-format">
+                  <SelectValue placeholder="Select date format" />
+                </SelectTrigger>
+                <SelectContent>
+                  {DATE_FORMAT_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-slate-500">
+                This format will be used for all date fields in organisation and member views.
+              </p>
+            </div>
+
+            <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
+              <p className="text-sm text-slate-600 mb-1">Preview:</p>
+              <p className="text-lg font-medium text-slate-900">
+                {format(new Date(), dateDisplayFormat)}
+              </p>
+            </div>
+
+            <Button
+              onClick={handleSaveDateFormat}
+              disabled={dateFormatSaving}
+              className="w-full"
+              size="lg"
+              data-testid="button-save-date-format"
+            >
+              {dateFormatSaving ? (
+                <>
+                  <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="w-5 h-5 mr-2" />
+                  Save Date Format
                 </>
               )}
             </Button>

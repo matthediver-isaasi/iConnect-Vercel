@@ -37,6 +37,7 @@ import {
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useOrgDetailLayout, mergeLayoutWithCustomFields, CORE_FIELDS } from "@/hooks/useOrgDetailLayout";
+import { useDateFormat } from "@/hooks/useDateFormat";
 import OrgDetailLayoutEditor from "@/components/OrgDetailLayoutEditor";
 
 // --- List Field Editor Component for Organisations ---
@@ -124,6 +125,7 @@ export default function OrganisationDetailView({
   memberCount = 0 
 }) {
   const { isAdmin } = useMemberAccess();
+  const { formatDate } = useDateFormat();
   const queryClient = useQueryClient();
   const [isEditing, setIsEditing] = useState(false);
   const [activeTab, setActiveTab] = useState('overview');
@@ -387,6 +389,46 @@ export default function OrganisationDetailView({
             placeholder={`Add ${field.label.toLowerCase()}...`}
           />
         );
+      case 'date':
+        return isEditing ? (
+          <Input
+            type="date"
+            value={value || ''}
+            onChange={(e) => setCustomFieldValues(prev => ({ ...prev, [field.id]: e.target.value }))}
+            data-testid={`input-custom-date-${field.id}`}
+          />
+        ) : (
+          <p className="text-sm">{formatDate(value)}</p>
+        );
+      case 'email':
+        return isEditing ? (
+          <Input
+            type="email"
+            value={value || ''}
+            onChange={(e) => setCustomFieldValues(prev => ({ ...prev, [field.id]: e.target.value }))}
+            data-testid={`input-custom-email-${field.id}`}
+          />
+        ) : value ? (
+          <a href={`mailto:${value}`} className="text-blue-600 hover:underline text-sm">{value}</a>
+        ) : (
+          <p className="text-sm">-</p>
+        );
+      case 'url':
+        return isEditing ? (
+          <Input
+            type="url"
+            value={value || ''}
+            onChange={(e) => setCustomFieldValues(prev => ({ ...prev, [field.id]: e.target.value }))}
+            placeholder="https://"
+            data-testid={`input-custom-url-${field.id}`}
+          />
+        ) : value ? (
+          <a href={value} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline text-sm flex items-center gap-1">
+            {value} <ExternalLink className="w-3 h-3" />
+          </a>
+        ) : (
+          <p className="text-sm">-</p>
+        );
       default:
         return (
           <Input
@@ -474,7 +516,7 @@ export default function OrganisationDetailView({
           <Label className="text-slate-500 flex items-center gap-1">
             <Calendar className="w-3 h-3" /> {label}
           </Label>
-          <p>{dateValue ? format(new Date(dateValue), 'dd MMM yyyy') : '-'}</p>
+          <p>{formatDate(dateValue)}</p>
         </div>
       );
     }
