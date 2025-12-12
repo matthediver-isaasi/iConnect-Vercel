@@ -276,9 +276,26 @@ export default async function handler(req, res) {
       if (isPreferenceValueEntity && data) {
         const entityType = entity === 'OrganizationPreferenceValue' ? 'organization' : 'member';
         const entityId = data.organization_id || data.member_id;
-        const fieldId = data.field_id; // Column is 'field_id' not 'preference_field_id'
+        const fieldId = data.field_id;
+        
+        // Log to database for debugging
+        await supabase.from('workflow_log').insert({
+          workflow_id: '00000000-0000-0000-0000-000000000001',
+          entity_type: entityType,
+          entity_id: entityId || 'unknown',
+          trigger_data: { 
+            debug: 'POST_HANDLER_REACHED', 
+            field_id: fieldId, 
+            value: data.value,
+            entity: entity,
+            has_field_id: !!fieldId,
+            has_entity_id: !!entityId
+          },
+          actions_executed: [],
+          status: 'success'
+        }).catch(() => {});
+        
         if (entityId && fieldId) {
-          console.log(`[Entity POST] Triggering workflow for ${entityType} preference value: ${entityId}, field: ${fieldId}`);
           triggerPreferenceWorkflows(entityType, entityId, fieldId, data.value).catch(err => {
             console.error('[Entity POST] Preference workflow error:', err);
           });
