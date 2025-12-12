@@ -135,14 +135,19 @@ export default function WorkflowManagementPage() {
     const customFieldsList = entityType === 'organization' ? orgCustomFields : memberCustomFields;
     
     return [
-      ...coreFields.map(f => ({ ...f, field_type: 'core' })),
+      ...coreFields.map(f => ({ ...f, field_type: 'core', options: f.options || null })),
       ...customFieldsList.map(f => ({ 
         id: f.id, 
         label: f.label, 
         type: f.field_type,
-        field_type: 'custom'
+        field_type: 'custom',
+        options: f.options || null
       }))
     ];
+  };
+
+  const getSelectedField = (fieldType, fieldId) => {
+    return availableFields.find(f => f.field_type === fieldType && f.id === fieldId);
   };
 
   const createMutation = useMutation({
@@ -671,20 +676,46 @@ export default function WorkflowManagementPage() {
                       </Select>
                     </div>
 
-                    {!['is_empty', 'is_not_empty'].includes(formData.trigger_config.operator) && (
-                      <div className="space-y-2">
-                        <Label>Value</Label>
-                        <Input
-                          value={formData.trigger_config.value || ''}
-                          onChange={(e) => setFormData(prev => ({
-                            ...prev,
-                            trigger_config: { ...prev.trigger_config, value: e.target.value }
-                          }))}
-                          placeholder="Enter value"
-                          data-testid="input-trigger-value"
-                        />
-                      </div>
-                    )}
+                    {!['is_empty', 'is_not_empty'].includes(formData.trigger_config.operator) && (() => {
+                      const selectedField = getSelectedField(formData.trigger_config.field_type, formData.trigger_config.field_id);
+                      const hasOptions = selectedField?.options && selectedField.options.length > 0;
+                      
+                      return (
+                        <div className="space-y-2">
+                          <Label>Value</Label>
+                          {hasOptions ? (
+                            <Select
+                              value={formData.trigger_config.value || ''}
+                              onValueChange={(val) => setFormData(prev => ({
+                                ...prev,
+                                trigger_config: { ...prev.trigger_config, value: val }
+                              }))}
+                            >
+                              <SelectTrigger data-testid="select-trigger-value">
+                                <SelectValue placeholder="Select a value" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {selectedField.options.map((option) => (
+                                  <SelectItem key={option.value || option.label} value={option.value || option.label}>
+                                    {option.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <Input
+                              value={formData.trigger_config.value || ''}
+                              onChange={(e) => setFormData(prev => ({
+                                ...prev,
+                                trigger_config: { ...prev.trigger_config, value: e.target.value }
+                              }))}
+                              placeholder="Enter value"
+                              data-testid="input-trigger-value"
+                            />
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>
                 )}
               </div>
@@ -776,13 +807,34 @@ export default function WorkflowManagementPage() {
                                   ))}
                                 </SelectContent>
                               </Select>
-                              {!['is_empty', 'is_not_empty'].includes(condition.operator) && (
-                                <Input
-                                  value={condition.value || ''}
-                                  onChange={(e) => updateCondition(index, { value: e.target.value })}
-                                  placeholder="Value"
-                                />
-                              )}
+                              {!['is_empty', 'is_not_empty'].includes(condition.operator) && (() => {
+                                const conditionField = getSelectedField(condition.field_type, condition.field_id);
+                                const hasConditionOptions = conditionField?.options && conditionField.options.length > 0;
+                                
+                                return hasConditionOptions ? (
+                                  <Select
+                                    value={condition.value || ''}
+                                    onValueChange={(val) => updateCondition(index, { value: val })}
+                                  >
+                                    <SelectTrigger>
+                                      <SelectValue placeholder="Select value" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {conditionField.options.map((option) => (
+                                        <SelectItem key={option.value || option.label} value={option.value || option.label}>
+                                          {option.label}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                ) : (
+                                  <Input
+                                    value={condition.value || ''}
+                                    onChange={(e) => updateCondition(index, { value: e.target.value })}
+                                    placeholder="Value"
+                                  />
+                                );
+                              })()}
                             </div>
                             <Button 
                               variant="ghost" 
