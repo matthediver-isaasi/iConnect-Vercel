@@ -247,12 +247,12 @@ export default function OrganisationDetailView({
   });
 
   const updateCustomFieldMutation = useMutation({
-    mutationFn: async ({ fieldId, value }) => {
-      const existingValue = orgValues.find(v => v.field_id === fieldId);
+    mutationFn: async ({ fieldId, value, existingRecordId }) => {
       const storedValue = Array.isArray(value) ? JSON.stringify(value) : String(value);
+      console.log('[CustomField Mutation] fieldId:', fieldId, 'value:', value, 'storedValue:', storedValue, 'existingRecordId:', existingRecordId);
       
-      if (existingValue) {
-        return await base44.entities.OrganizationPreferenceValue.update(existingValue.id, { value: storedValue });
+      if (existingRecordId) {
+        return await base44.entities.OrganizationPreferenceValue.update(existingRecordId, { value: storedValue });
       } else {
         return await base44.entities.OrganizationPreferenceValue.create({
           organization_id: organization.id,
@@ -270,13 +270,27 @@ export default function OrganisationDetailView({
   const handleSave = () => {
     updateOrgMutation.mutate(formData);
     
-    Object.entries(customFieldValues).forEach(([fieldId, value]) => {
-      const existingVal = orgValues.find(v => v.field_id === fieldId);
+    // Capture current values at save time to avoid stale closure issues
+    const currentCustomFieldValues = { ...customFieldValues };
+    const currentOrgValues = [...orgValues];
+    
+    console.log('[handleSave] customFieldValues:', currentCustomFieldValues);
+    console.log('[handleSave] orgValues:', currentOrgValues.map(v => ({ field_id: v.field_id, value: v.value })));
+    
+    Object.entries(currentCustomFieldValues).forEach(([fieldId, value]) => {
+      const existingVal = currentOrgValues.find(v => v.field_id === fieldId);
       const storedValue = Array.isArray(value) ? JSON.stringify(value) : String(value || '');
       const existingStored = existingVal?.value || '';
       
+      console.log('[handleSave] Field:', fieldId, 'newValue:', storedValue, 'existingValue:', existingStored, 'changed:', storedValue !== existingStored);
+      
       if (storedValue !== existingStored) {
-        updateCustomFieldMutation.mutate({ fieldId, value });
+        // Pass existingRecordId directly to avoid closure issues with orgValues
+        updateCustomFieldMutation.mutate({ 
+          fieldId, 
+          value,
+          existingRecordId: existingVal?.id 
+        });
       }
     });
   };
