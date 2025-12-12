@@ -5,6 +5,7 @@ import session from "express-session";
 import pgSession from "connect-pg-simple";
 import multer from "multer";
 import bcrypt from "bcryptjs";
+import { evaluateWorkflows } from "./workflowEngine";
 
 // Supabase client for server-side operations
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -271,6 +272,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       console.log(`[Entity POST] ${entity} created successfully:`, data?.id);
+
+      // Trigger workflow evaluation for new Organization and Member records
+      const isWorkflowEntity = entity === 'Organization' || entity === 'Member';
+      if (isWorkflowEntity && data) {
+        const entityType = entity.toLowerCase() as 'organization' | 'member';
+        // Run asynchronously to not block the response
+        evaluateWorkflows(entityType, data.id, null, data, 'record_create').catch(err => {
+          console.error('[Entity POST] Workflow evaluation error:', err);
+        });
+      }
+
       res.status(201).json(data);
     } catch (error) {
       console.error('Entity create error:', error);
@@ -289,6 +301,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const tableName = getTableName(entity);
 
       console.log(`[Entity PATCH] ${entity}/${id} with payload:`, JSON.stringify(req.body));
+
+      // Fetch before state for workflow evaluation (Organization and Member only)
+      let beforeData: any = null;
+      const isWorkflowEntity = entity === 'Organization' || entity === 'Member';
+      
+      if (isWorkflowEntity) {
+        const { data: existingData } = await supabase
+          .from(tableName)
+          .select('*')
+          .eq('id', id)
+          .single();
+        beforeData = existingData;
+      }
 
       // Special validation for Event seat capacity changes
       if (entity === 'Event' && req.body.available_seats !== undefined) {
@@ -338,6 +363,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       console.log(`[Entity PATCH] ${entity}/${id} success:`, data ? 'updated' : 'no data returned');
+
+      // Trigger workflow evaluation for Organization and Member updates
+      if (isWorkflowEntity && beforeData && data) {
+        const entityType = entity.toLowerCase() as 'organization' | 'member';
+        // Run asynchronously to not block the response
+        evaluateWorkflows(entityType, id, beforeData, data, 'field_change').catch(err => {
+          console.error('[Entity PATCH] Workflow evaluation error:', err);
+        });
+      }
+
       res.json(data);
     } catch (error) {
       console.error('Entity update error:', error);
