@@ -4,6 +4,7 @@ import formData from 'form-data';
 const MAILGUN_API_KEY = process.env.MAILGUN_API_KEY;
 const MAILGUN_DOMAIN = process.env.MAILGUN_DOMAIN || 'mail.iconn.app';
 const DEFAULT_FROM = process.env.MAILGUN_FROM_EMAIL || 'ICONN <noreply@mail.iconn.app>';
+const MAILGUN_REGION = process.env.MAILGUN_REGION || 'eu';
 
 interface EmailOptions {
   to: string;
@@ -24,10 +25,16 @@ let mailgunClient: any = null;
 function getMailgunClient() {
   if (!mailgunClient && MAILGUN_API_KEY) {
     const mailgun = new Mailgun(formData);
-    mailgunClient = mailgun.client({
+    const config: any = {
       username: 'api',
       key: MAILGUN_API_KEY,
-    });
+    };
+    
+    if (MAILGUN_REGION === 'eu') {
+      config.url = 'https://api.eu.mailgun.net';
+    }
+    
+    mailgunClient = mailgun.client(config);
   }
   return mailgunClient;
 }
