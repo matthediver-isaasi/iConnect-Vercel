@@ -2,8 +2,8 @@ import Mailgun from 'mailgun.js';
 import formData from 'form-data';
 
 const MAILGUN_API_KEY = process.env.MAILGUN_API_KEY;
-const MAILGUN_DOMAIN = 'mail.iconn.app';
-const DEFAULT_FROM = 'ICONN <noreply@mail.iconn.app>';
+const MAILGUN_DOMAIN = process.env.MAILGUN_DOMAIN || 'mail.iconn.app';
+const DEFAULT_FROM = process.env.MAILGUN_FROM_EMAIL || 'ICONN <noreply@mail.iconn.app>';
 
 interface EmailOptions {
   to: string;

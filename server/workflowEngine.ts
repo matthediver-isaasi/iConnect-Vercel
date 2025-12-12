@@ -2,6 +2,7 @@
 // Handles detecting field changes and executing workflow actions
 
 import { createClient } from "@supabase/supabase-js";
+import { sendEmail as sendMailgunEmail } from "./emailService";
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -155,16 +156,27 @@ async function executeEmailAction(config: EmailActionConfig, entityType: string,
 
   console.log(`[Workflow Engine] Sending email to: ${to}`);
   console.log(`[Workflow Engine] Subject: ${subject}`);
-  console.log(`[Workflow Engine] Body: ${body}`);
 
-  // For now, log the email action - in production, integrate with email service
-  // TODO: Integrate with actual email service (SendGrid, Resend, etc.)
-  
-  return {
-    action_type: 'send_email',
-    status: 'success',
-    result: { to, subject, body, note: 'Email logged - integrate with email service for actual delivery' }
-  };
+  // Send email via Mailgun
+  const emailResult = await sendMailgunEmail({
+    to,
+    subject,
+    html: body,
+  });
+
+  if (emailResult.success) {
+    return {
+      action_type: 'send_email',
+      status: 'success',
+      result: { to, subject, messageId: emailResult.messageId }
+    };
+  } else {
+    return {
+      action_type: 'send_email',
+      status: 'failed',
+      error: emailResult.error || 'Failed to send email'
+    };
+  }
 }
 
 // Execute update field action
