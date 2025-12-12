@@ -30,10 +30,13 @@ import {
   Calendar,
   ClipboardList,
   Wallet,
-  FileText
+  FileText,
+  LayoutGrid
 } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { useOrgDetailLayout, mergeLayoutWithCustomFields, CORE_FIELDS } from "@/hooks/useOrgDetailLayout";
+import OrgDetailLayoutEditor from "@/components/OrgDetailLayoutEditor";
 
 // --- List Field Editor Component for Organisations ---
 function ListFieldEditorOrg({ fieldId, values = [], onChange, placeholder, disabled = false }) {
@@ -123,9 +126,9 @@ export default function OrganisationDetailView({
   const queryClient = useQueryClient();
   const [isEditing, setIsEditing] = useState(false);
   const [activeTab, setActiveTab] = useState('overview');
+  const [showLayoutEditor, setShowLayoutEditor] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
-    status: 'active',
     phone: '',
     website_url: '',
     invoicing_email: '',
@@ -134,6 +137,9 @@ export default function OrganisationDetailView({
     training_fund_balance: 0
   });
   const [customFieldValues, setCustomFieldValues] = useState({});
+  
+  const { layoutConfig, saveLayout, isSaving: isLayoutSaving } = useOrgDetailLayout();
+  const effectiveLayout = mergeLayoutWithCustomFields(layoutConfig, orgCustomFields);
 
   const { data: orgMembers = [], isLoading: membersLoading } = useQuery({
     queryKey: ['org-detail-members', organization?.id],
@@ -388,6 +394,139 @@ export default function OrganisationDetailView({
     }
   };
 
+  const renderCoreField = (fieldKey) => {
+    const coreFieldDef = CORE_FIELDS.find(f => f.fieldKey === fieldKey);
+    if (!coreFieldDef) return null;
+    
+    const value = formData[fieldKey];
+    const label = coreFieldDef.label;
+    
+    if (fieldKey === 'description') {
+      return (
+        <div className="space-y-2">
+          <Label className="text-slate-500">{label}</Label>
+          {isEditing ? (
+            <Textarea
+              value={value || ''}
+              onChange={(e) => setFormData(prev => ({ ...prev, [fieldKey]: e.target.value }))}
+              rows={3}
+              data-testid={`textarea-${fieldKey}`}
+            />
+          ) : (
+            <p className="text-slate-700">{value || 'No description provided'}</p>
+          )}
+        </div>
+      );
+    }
+    
+    if (fieldKey === 'invoicing_address') {
+      return (
+        <div className="space-y-2">
+          <Label className="text-slate-500 flex items-center gap-1">
+            <MapPin className="w-3 h-3" /> {label}
+          </Label>
+          {isEditing ? (
+            <Textarea
+              value={value || ''}
+              onChange={(e) => setFormData(prev => ({ ...prev, [fieldKey]: e.target.value }))}
+              rows={2}
+              data-testid={`textarea-${fieldKey}`}
+            />
+          ) : (
+            <p className="whitespace-pre-line">{value || '-'}</p>
+          )}
+        </div>
+      );
+    }
+    
+    if (fieldKey === 'website_url') {
+      return (
+        <div className="space-y-2">
+          <Label className="text-slate-500 flex items-center gap-1">
+            <Globe className="w-3 h-3" /> {label}
+          </Label>
+          {isEditing ? (
+            <Input
+              value={value || ''}
+              onChange={(e) => setFormData(prev => ({ ...prev, [fieldKey]: e.target.value }))}
+              data-testid={`input-${fieldKey}`}
+            />
+          ) : value ? (
+            <a href={value} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline flex items-center gap-1">
+              {value}
+              <ExternalLink className="w-3 h-3" />
+            </a>
+          ) : (
+            <p>-</p>
+          )}
+        </div>
+      );
+    }
+    
+    const iconMap = {
+      invoicing_email: <Mail className="w-3 h-3" />,
+      phone: <Phone className="w-3 h-3" />,
+      name: null
+    };
+    
+    return (
+      <div className="space-y-2">
+        <Label className="text-slate-500 flex items-center gap-1">
+          {iconMap[fieldKey]} {label}
+        </Label>
+        {isEditing ? (
+          <Input
+            type={fieldKey === 'invoicing_email' ? 'email' : 'text'}
+            value={value || ''}
+            onChange={(e) => setFormData(prev => ({ ...prev, [fieldKey]: e.target.value }))}
+            data-testid={`input-${fieldKey}`}
+          />
+        ) : (
+          <p className={fieldKey === 'name' ? 'font-medium' : ''}>{value || '-'}</p>
+        )}
+      </div>
+    );
+  };
+
+  const renderLayoutCard = (card) => {
+    if (card.fields.length === 0) return null;
+    
+    const gridCols = card.columns === 1 ? 'grid-cols-1' : card.columns === 2 ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1 md:grid-cols-3';
+    
+    return (
+      <Card key={card.id}>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <ClipboardList className="w-4 h-4 text-blue-600" />
+            {card.title}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className={`grid ${gridCols} gap-4`}>
+            {card.fields.map(field => {
+              if (field.type === 'core') {
+                return (
+                  <div key={field.id}>
+                    {renderCoreField(field.fieldKey)}
+                  </div>
+                );
+              } else {
+                const customField = orgCustomFields.find(cf => cf.id === field.fieldId);
+                if (!customField) return null;
+                return (
+                  <div key={field.id} className="space-y-2">
+                    <Label className="text-slate-500">{customField.label}</Label>
+                    {renderFieldEditor(customField)}
+                  </div>
+                );
+              }
+            })}
+          </div>
+        </CardContent>
+      </Card>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-slate-50">
       <header className="bg-white border-b border-slate-200 sticky top-0 z-10">
@@ -439,10 +578,16 @@ export default function OrganisationDetailView({
                     </Button>
                   </>
                 ) : (
-                  <Button onClick={() => setIsEditing(true)} data-testid="button-edit-org">
-                    <Pencil className="w-4 h-4 mr-2" />
-                    Edit
-                  </Button>
+                  <>
+                    <Button variant="outline" onClick={() => setShowLayoutEditor(true)} data-testid="button-customize-layout">
+                      <LayoutGrid className="w-4 h-4 mr-2" />
+                      Customize Layout
+                    </Button>
+                    <Button onClick={() => setIsEditing(true)} data-testid="button-edit-org">
+                      <Pencil className="w-4 h-4 mr-2" />
+                      Edit
+                    </Button>
+                  </>
                 )}
               </div>
             )}
@@ -464,143 +609,24 @@ export default function OrganisationDetailView({
         </Tabs>
       </header>
 
+      {showLayoutEditor && (
+        <OrgDetailLayoutEditor
+          layout={effectiveLayout}
+          customFields={orgCustomFields}
+          onSave={(newLayout) => {
+            saveLayout(newLayout);
+            setShowLayoutEditor(false);
+          }}
+          onCancel={() => setShowLayoutEditor(false)}
+          isSaving={isLayoutSaving}
+        />
+      )}
+
       <main className="p-6">
         {activeTab === 'overview' && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2 space-y-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <Building2 className="w-4 h-4 text-blue-600" />
-                    Organisation Details
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <Label className="text-slate-500">Organisation Name</Label>
-                    {isEditing ? (
-                      <Input
-                        value={formData.name}
-                        onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-                        data-testid="input-org-name"
-                      />
-                    ) : (
-                      <p className="font-medium">{formData.name || '-'}</p>
-                    )}
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label className="text-slate-500">Description</Label>
-                    {isEditing ? (
-                      <Textarea
-                        value={formData.description}
-                        onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-                        rows={3}
-                        data-testid="textarea-org-description"
-                      />
-                    ) : (
-                      <p className="text-slate-700">{formData.description || 'No description provided'}</p>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <Mail className="w-4 h-4 text-blue-600" />
-                    Contact Information
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label className="text-slate-500 flex items-center gap-1">
-                        <Mail className="w-3 h-3" /> Invoicing Email
-                      </Label>
-                      {isEditing ? (
-                        <Input
-                          type="email"
-                          value={formData.invoicing_email}
-                          onChange={(e) => setFormData(prev => ({ ...prev, invoicing_email: e.target.value }))}
-                          data-testid="input-invoicing-email"
-                        />
-                      ) : (
-                        <p>{formData.invoicing_email || '-'}</p>
-                      )}
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="text-slate-500 flex items-center gap-1">
-                        <Phone className="w-3 h-3" /> Phone
-                      </Label>
-                      {isEditing ? (
-                        <Input
-                          value={formData.phone}
-                          onChange={(e) => setFormData(prev => ({ ...prev, phone: e.target.value }))}
-                          data-testid="input-phone"
-                        />
-                      ) : (
-                        <p>{formData.phone || '-'}</p>
-                      )}
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="text-slate-500 flex items-center gap-1">
-                        <Globe className="w-3 h-3" /> Website
-                      </Label>
-                      {isEditing ? (
-                        <Input
-                          value={formData.website_url}
-                          onChange={(e) => setFormData(prev => ({ ...prev, website_url: e.target.value }))}
-                          data-testid="input-website"
-                        />
-                      ) : formData.website_url ? (
-                        <a href={formData.website_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline flex items-center gap-1">
-                          {formData.website_url}
-                          <ExternalLink className="w-3 h-3" />
-                        </a>
-                      ) : (
-                        <p>-</p>
-                      )}
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="text-slate-500 flex items-center gap-1">
-                        <MapPin className="w-3 h-3" /> Invoicing Address
-                      </Label>
-                      {isEditing ? (
-                        <Textarea
-                          value={formData.invoicing_address}
-                          onChange={(e) => setFormData(prev => ({ ...prev, invoicing_address: e.target.value }))}
-                          rows={2}
-                          data-testid="textarea-address"
-                        />
-                      ) : (
-                        <p className="whitespace-pre-line">{formData.invoicing_address || '-'}</p>
-                      )}
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {orgCustomFields.length > 0 && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-base flex items-center gap-2">
-                      <ClipboardList className="w-4 h-4 text-blue-600" />
-                      Custom Fields
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {orgCustomFields.map(field => (
-                        <div key={field.id} className="space-y-2">
-                          <Label className="text-slate-500">{field.label}</Label>
-                          {renderFieldEditor(field)}
-                        </div>
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
+              {effectiveLayout.cards.map(card => renderLayoutCard(card))}
             </div>
 
             <div className="space-y-6">
