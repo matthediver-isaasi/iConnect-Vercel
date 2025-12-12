@@ -324,16 +324,23 @@ export default async function handler(req, res) {
         // Log what was in the request vs what's in the response
         console.log(`[Entity PATCH] Preference PATCH - req.body.value: "${req.body.value}", data.value: "${data.value}"`);
         console.log(`[Entity PATCH] Preference value updated - entityId: ${entityId}, fieldId: ${fieldId}, value: ${data.value}`);
+        console.log(`[Entity PATCH] Full data returned:`, JSON.stringify(data));
         
         // Use req.body.value (what was sent) rather than data.value (what was returned)
         // This ensures we check against the NEW value being set
         const newValue = req.body.value !== undefined ? req.body.value : data.value;
+        console.log(`[Entity PATCH] newValue to use: "${newValue}"`);
         
         if (entityId && fieldId) {
+          console.log(`[Entity PATCH] Calling triggerPreferenceWorkflows with entityType=${entityType}, entityId=${entityId}, fieldId=${fieldId}, value=${newValue}`);
           triggerPreferenceWorkflows(entityType, entityId, fieldId, newValue).catch(err => {
             console.error('[Entity PATCH] Preference workflow error:', err);
           });
+        } else {
+          console.log(`[Entity PATCH] SKIPPING workflow - missing entityId (${entityId}) or fieldId (${fieldId})`);
         }
+      } else {
+        console.log(`[Entity PATCH] Not a preference value entity or no data: isPreferenceValueEntity=${isPreferenceValueEntity}, data=${!!data}`);
       }
 
       return res.json(data);
