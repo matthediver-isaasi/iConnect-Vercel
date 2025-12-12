@@ -20,7 +20,8 @@ const FIELD_TYPES = [
   { value: 'number', label: 'Number (Integer)' },
   { value: 'decimal', label: 'Decimal Number' },
   { value: 'picklist', label: 'Picklist (Multiple Selection)' },
-  { value: 'dropdown', label: 'Dropdown (Single Selection)' }
+  { value: 'dropdown', label: 'Dropdown (Single Selection)' },
+  { value: 'list', label: 'List (User-Defined Values)' }
 ];
 
 const ENTITY_SCOPES = [
@@ -479,6 +480,18 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
                 </SelectContent>
               </Select>
             </div>
+
+            {fieldType === 'list' && (
+              <div className="p-3 bg-green-50 rounded-lg border border-green-200">
+                <p className="text-sm text-green-800">
+                  <strong>List Field:</strong> Users can add their own custom values to this field. 
+                  Unlike picklists, there are no pre-defined options - each {entityScope === 'member' ? 'member' : 'organisation'} can enter their own list items.
+                </p>
+                <p className="text-xs text-green-600 mt-1">
+                  Example uses: skills, interests, tags, domains, certifications
+                </p>
+              </div>
+            )}
 
             {(fieldType === 'picklist' || fieldType === 'dropdown') && (
               <div className="space-y-3">

@@ -46,6 +46,84 @@ import { toast } from "sonner";
 import { Switch } from "@/components/ui/switch";
 import { useLayoutContext } from "@/contexts/LayoutContext";
 
+// --- List Field Editor Component ---
+function ListFieldEditor({ fieldId, values = [], onChange, placeholder, disabled = false }) {
+  const [inputValue, setInputValue] = useState('');
+  
+  // Ensure values is always a clean array with trimmed entries
+  const safeValues = Array.isArray(values) ? values.map(v => String(v).trim()).filter(Boolean) : [];
+
+  const handleAddItem = () => {
+    const trimmed = inputValue.trim();
+    // Check for duplicates case-insensitively
+    if (!trimmed || safeValues.some(v => v.toLowerCase() === trimmed.toLowerCase())) return;
+    onChange([...safeValues, trimmed]);
+    setInputValue('');
+  };
+
+  const handleRemoveItem = (itemToRemove) => {
+    onChange(safeValues.filter(item => item !== itemToRemove));
+  };
+
+  const handleKeyPress = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleAddItem();
+    }
+  };
+
+  return (
+    <div className="space-y-2">
+      {safeValues.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {safeValues.map((item, index) => (
+            <Badge 
+              key={index} 
+              variant="secondary" 
+              className="flex items-center gap-1 px-2 py-1"
+              data-testid={`list-item-${fieldId}-${index}`}
+            >
+              <span>{item}</span>
+              {!disabled && (
+                <button
+                  type="button"
+                  onClick={() => handleRemoveItem(item)}
+                  className="ml-1 hover:text-red-600 transition-colors"
+                  data-testid={`button-remove-list-item-${fieldId}-${index}`}
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </Badge>
+          ))}
+        </div>
+      )}
+      
+      {!disabled && (
+        <div className="flex gap-2">
+          <Input
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
+            onKeyPress={handleKeyPress}
+            placeholder={placeholder || 'Add item...'}
+            className="flex-1"
+            data-testid={`input-list-${fieldId}`}
+          />
+          <Button 
+            type="button" 
+            variant="outline" 
+            onClick={handleAddItem}
+            disabled={!inputValue.trim()}
+            data-testid={`button-add-list-item-${fieldId}`}
+          >
+            Add
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // --- Helper: upload to Supabase Storage and return public URL ---
 async function uploadImageToSupabase(file, bucket, folderPrefix = "") {
   const fileExt = file.name.split(".").pop();
@@ -630,11 +708,16 @@ export default function PreferencesPage() {
       memberPreferenceValues.forEach(pv => {
         const field = preferenceFields.find(f => f.id === pv.field_id);
         if (field) {
-          // For picklist, parse as array
-          if (field.field_type === 'picklist' && pv.value) {
+          // For picklist and list, parse as array with defensive handling
+          if ((field.field_type === 'picklist' || field.field_type === 'list') && pv.value) {
             try {
-              valuesMap[pv.field_id] = JSON.parse(pv.value);
+              const parsed = JSON.parse(pv.value);
+              // Ensure it's an array, normalize values
+              valuesMap[pv.field_id] = Array.isArray(parsed) 
+                ? parsed.map(v => String(v).trim()).filter(Boolean)
+                : [];
             } catch {
+              console.warn(`Failed to parse ${field.field_type} value for field ${pv.field_id}, defaulting to empty array`);
               valuesMap[pv.field_id] = [];
             }
           } else {
@@ -715,9 +798,9 @@ export default function PreferencesPage() {
         const existingValue = memberPreferenceValues.find(pv => pv.field_id === fieldId);
         const field = preferenceFields.find(f => f.id === fieldId);
         
-        // Convert picklist arrays to JSON string
+        // Convert picklist and list arrays to JSON string
         let storedValue = value;
-        if (field?.field_type === 'picklist' && Array.isArray(value)) {
+        if ((field?.field_type === 'picklist' || field?.field_type === 'list') && Array.isArray(value)) {
           storedValue = JSON.stringify(value);
         }
         
@@ -2079,6 +2162,17 @@ export default function PreferencesPage() {
                               );
                             })}
                           </div>
+                        )}
+
+                        {field.field_type === 'list' && (
+                          <ListFieldEditor
+                            fieldId={field.id}
+                            values={Array.isArray(fieldValue) ? fieldValue : []}
+                            onChange={(newValues) => {
+                              handleAdditionalInfoChange(field.id, newValues);
+                            }}
+                            placeholder={`Add ${field.label.toLowerCase()}...`}
+                          />
                         )}
                       </div>
                     );

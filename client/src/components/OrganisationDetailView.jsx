@@ -35,6 +35,84 @@ import {
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 
+// --- List Field Editor Component for Organisations ---
+function ListFieldEditorOrg({ fieldId, values = [], onChange, placeholder, disabled = false }) {
+  const [inputValue, setInputValue] = useState('');
+  
+  // Ensure values is always a clean array with trimmed entries
+  const safeValues = Array.isArray(values) ? values.map(v => String(v).trim()).filter(Boolean) : [];
+
+  const handleAddItem = () => {
+    const trimmed = inputValue.trim();
+    // Check for duplicates case-insensitively
+    if (!trimmed || safeValues.some(v => v.toLowerCase() === trimmed.toLowerCase())) return;
+    onChange([...safeValues, trimmed]);
+    setInputValue('');
+  };
+
+  const handleRemoveItem = (itemToRemove) => {
+    onChange(safeValues.filter(item => item !== itemToRemove));
+  };
+
+  const handleKeyPress = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleAddItem();
+    }
+  };
+
+  return (
+    <div className="space-y-2">
+      {safeValues.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {safeValues.map((item, index) => (
+            <Badge 
+              key={index} 
+              variant="secondary" 
+              className="flex items-center gap-1 px-2 py-1"
+              data-testid={`list-item-org-${fieldId}-${index}`}
+            >
+              <span>{item}</span>
+              {!disabled && (
+                <button
+                  type="button"
+                  onClick={() => handleRemoveItem(item)}
+                  className="ml-1 hover:text-red-600 transition-colors"
+                  data-testid={`button-remove-list-item-org-${fieldId}-${index}`}
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </Badge>
+          ))}
+        </div>
+      )}
+      
+      {!disabled && (
+        <div className="flex gap-2">
+          <Input
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
+            onKeyPress={handleKeyPress}
+            placeholder={placeholder || 'Add item...'}
+            className="flex-1"
+            data-testid={`input-list-org-${fieldId}`}
+          />
+          <Button 
+            type="button" 
+            variant="outline" 
+            onClick={handleAddItem}
+            disabled={!inputValue.trim()}
+            data-testid={`button-add-list-item-org-${fieldId}`}
+          >
+            Add
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function OrganisationDetailView({ 
   organization, 
   onBack, 
@@ -127,11 +205,16 @@ export default function OrganisationDetailView({
       const valuesMap = {};
       orgValues.forEach(pv => {
         const field = orgCustomFields.find(f => f.id === pv.field_id);
-        if (field?.field_type === 'picklist' && pv.value) {
+        if ((field?.field_type === 'picklist' || field?.field_type === 'list') && pv.value) {
           try {
-            valuesMap[pv.field_id] = JSON.parse(pv.value);
+            const parsed = JSON.parse(pv.value);
+            // Ensure it's an array, normalize values
+            valuesMap[pv.field_id] = Array.isArray(parsed) 
+              ? parsed.map(v => String(v).trim()).filter(Boolean)
+              : [];
           } catch {
-            valuesMap[pv.field_id] = pv.value;
+            console.warn(`Failed to parse ${field?.field_type} value for field ${pv.field_id}, defaulting to empty array`);
+            valuesMap[pv.field_id] = [];
           }
         } else {
           valuesMap[pv.field_id] = pv.value;
@@ -283,6 +366,18 @@ export default function OrganisationDetailView({
               </div>
             ))}
           </div>
+        );
+      case 'list':
+        return (
+          <ListFieldEditorOrg
+            fieldId={field.id}
+            values={Array.isArray(value) ? value : []}
+            onChange={(newValues) => {
+              setCustomFieldValues(prev => ({ ...prev, [field.id]: newValues }));
+            }}
+            disabled={!isEditing}
+            placeholder={`Add ${field.label.toLowerCase()}...`}
+          />
         );
       default:
         return (
