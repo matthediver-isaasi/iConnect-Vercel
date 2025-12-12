@@ -38,8 +38,23 @@ export default async function handler(req, res) {
     const { data: prefValues, error: pvError } = await supabase
       .from('organization_preference_value')
       .select('*')
-      .order('id', { ascending: false })
+      .order('updated_at', { ascending: false })
+      .limit(10);
+    
+    // Specifically search for the Application Status field preference value
+    const targetFieldId = req.query.search_field_id || '1c395ccf-7df2-4818-917d-1cd672216f71';
+    const { data: targetPrefValues } = await supabase
+      .from('organization_preference_value')
+      .select('*')
+      .eq('field_id', targetFieldId)
       .limit(5);
+    
+    // Get the custom field definition
+    const { data: fieldDef } = await supabase
+      .from('organization_custom_field')
+      .select('*')
+      .eq('id', targetFieldId)
+      .single();
 
     // Get a specific preference value by ID to check its structure
     const testPrefId = req.query.pref_id;
@@ -142,6 +157,11 @@ export default async function handler(req, res) {
       log_error: logError?.message,
       recent_preference_values: prefValues || [],
       pv_error: pvError?.message,
+      target_field: {
+        field_id: targetFieldId,
+        field_definition: fieldDef,
+        preference_values: targetPrefValues || []
+      },
       pref_value_details: prefValueDetails,
       patch_simulation: patchSimulation,
       test_result: testResult
