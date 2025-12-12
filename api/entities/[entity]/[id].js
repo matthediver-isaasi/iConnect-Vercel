@@ -32,42 +32,25 @@ async function triggerWorkflows(entityType, entityId, beforeData, afterData, tri
       } else if (workflow.trigger_type === 'field_change' && triggerType === 'field_change') {
         const cfg = workflow.trigger_config;
         if (cfg && cfg.field_id) {
-          let before = '';
-          let after = '';
-          
-          if (cfg.field_type === 'core') {
-            before = String(beforeData?.[cfg.field_id] ?? '');
-            after = String(afterData?.[cfg.field_id] ?? '');
-          } else if (cfg.field_type === 'custom') {
-            // Fetch custom field values from preference tables
-            const prefTable = entityType === 'organization' ? 'organization_preference_value' : 'member_preference_value';
-            const foreignKey = entityType === 'organization' ? 'organization_id' : 'member_id';
-            
-            const { data: prefValue } = await supabase
-              .from(prefTable)
-              .select('value')
-              .eq(foreignKey, entityId)
-              .eq('preference_field_id', cfg.field_id)
-              .single();
-            
-            after = String(prefValue?.value ?? '');
-            // For custom fields, we don't have before value easily, so check if current matches target
+          // Skip custom field workflows here - they are handled by triggerPreferenceWorkflows
+          // when the OrganizationPreferenceValue/MemberPreferenceValue is updated
+          if (cfg.field_type === 'custom') {
+            console.log(`[Workflows] Skipping custom field workflow "${workflow.name}" - handled by preference value update`);
+            continue;
           }
           
+          // Only handle core field changes here
+          const before = String(beforeData?.[cfg.field_id] ?? '');
+          const after = String(afterData?.[cfg.field_id] ?? '');
           const target = String(cfg.value ?? '');
           
-          console.log(`[Workflows] Check ${workflow.name}: field=${cfg.field_id}, type=${cfg.field_type}, after="${after}", target="${target}", op=${cfg.operator}`);
+          console.log(`[Workflows] Check ${workflow.name}: field=${cfg.field_id}, type=${cfg.field_type}, before="${before}", after="${after}", target="${target}", op=${cfg.operator}`);
           
           switch (cfg.operator) {
             case 'equals': triggerMatches = after.toLowerCase() === target.toLowerCase(); break;
             case 'changed': triggerMatches = before !== after; break;
             case 'changed_to': 
-              // For custom fields without before, just check if current value matches target
-              if (cfg.field_type === 'custom') {
-                triggerMatches = after.toLowerCase() === target.toLowerCase();
-              } else {
-                triggerMatches = before !== after && after.toLowerCase() === target.toLowerCase();
-              }
+              triggerMatches = before !== after && after.toLowerCase() === target.toLowerCase();
               break;
             default: triggerMatches = false;
           }
