@@ -493,6 +493,25 @@ export default function OrganisationDetailView({
     
     const gridCols = card.columns === 1 ? 'grid-cols-1' : card.columns === 2 ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1 md:grid-cols-3';
     
+    const renderField = (field) => {
+      if (field.type === 'core') {
+        return (
+          <div key={field.id}>
+            {renderCoreField(field.fieldKey)}
+          </div>
+        );
+      } else {
+        const customField = orgCustomFields.find(cf => cf.id === field.fieldId);
+        if (!customField) return null;
+        return (
+          <div key={field.id} className="space-y-2">
+            <Label className="text-slate-500">{customField.label}</Label>
+            {renderFieldEditor(customField)}
+          </div>
+        );
+      }
+    };
+    
     return (
       <Card key={card.id}>
         <CardHeader>
@@ -503,23 +522,15 @@ export default function OrganisationDetailView({
         </CardHeader>
         <CardContent>
           <div className={`grid ${gridCols} gap-4`}>
-            {card.fields.map(field => {
-              if (field.type === 'core') {
-                return (
-                  <div key={field.id}>
-                    {renderCoreField(field.fieldKey)}
-                  </div>
-                );
-              } else {
-                const customField = orgCustomFields.find(cf => cf.id === field.fieldId);
-                if (!customField) return null;
-                return (
-                  <div key={field.id} className="space-y-2">
-                    <Label className="text-slate-500">{customField.label}</Label>
-                    {renderFieldEditor(customField)}
-                  </div>
-                );
-              }
+            {Array.from({ length: card.columns }).map((_, colIndex) => {
+              const colFields = card.fields.filter(f => 
+                f.columnIndex !== undefined ? f.columnIndex === colIndex : (card.fields.indexOf(f) % card.columns === colIndex)
+              );
+              return (
+                <div key={colIndex} className="space-y-4">
+                  {colFields.map(field => renderField(field))}
+                </div>
+              );
             })}
           </div>
         </CardContent>

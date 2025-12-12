@@ -10,8 +10,8 @@ const DEFAULT_LAYOUT = {
       title: 'Organisation Details',
       columns: 1,
       fields: [
-        { id: 'core:name', type: 'core', fieldKey: 'name' },
-        { id: 'core:description', type: 'core', fieldKey: 'description' }
+        { id: 'core:name', type: 'core', fieldKey: 'name', columnIndex: 0 },
+        { id: 'core:description', type: 'core', fieldKey: 'description', columnIndex: 0 }
       ]
     },
     {
@@ -19,10 +19,10 @@ const DEFAULT_LAYOUT = {
       title: 'Contact Information',
       columns: 2,
       fields: [
-        { id: 'core:invoicing_email', type: 'core', fieldKey: 'invoicing_email' },
-        { id: 'core:phone', type: 'core', fieldKey: 'phone' },
-        { id: 'core:website_url', type: 'core', fieldKey: 'website_url' },
-        { id: 'core:invoicing_address', type: 'core', fieldKey: 'invoicing_address' }
+        { id: 'core:invoicing_email', type: 'core', fieldKey: 'invoicing_email', columnIndex: 0 },
+        { id: 'core:phone', type: 'core', fieldKey: 'phone', columnIndex: 1 },
+        { id: 'core:website_url', type: 'core', fieldKey: 'website_url', columnIndex: 0 },
+        { id: 'core:invoicing_address', type: 'core', fieldKey: 'invoicing_address', columnIndex: 1 }
       ]
     },
     {
@@ -33,6 +33,21 @@ const DEFAULT_LAYOUT = {
     }
   ]
 };
+
+function migrateLayoutWithColumnIndex(layout) {
+  if (!layout || !layout.cards) return DEFAULT_LAYOUT;
+  
+  return {
+    ...layout,
+    cards: layout.cards.map(card => ({
+      ...card,
+      fields: card.fields.map((field, idx) => ({
+        ...field,
+        columnIndex: field.columnIndex !== undefined ? field.columnIndex : (idx % card.columns)
+      }))
+    }))
+  };
+}
 
 export const CORE_FIELDS = [
   { id: 'core:name', fieldKey: 'name', label: 'Organisation Name', type: 'text' },
@@ -55,7 +70,7 @@ export function useOrgDetailLayout() {
       let parsedConfig = DEFAULT_LAYOUT;
       if (setting?.setting_value) {
         try {
-          parsedConfig = JSON.parse(setting.setting_value);
+          parsedConfig = migrateLayoutWithColumnIndex(JSON.parse(setting.setting_value));
         } catch {
           parsedConfig = DEFAULT_LAYOUT;
         }
@@ -129,14 +144,16 @@ export function mergeLayoutWithCustomFields(layout, customFields) {
   }
 
   const cardIndex = updatedCards.findIndex(c => c.id === customCard.id);
+  const existingFieldCount = customCard.fields.length;
   updatedCards[cardIndex] = {
     ...customCard,
     fields: [
       ...customCard.fields,
-      ...unassignedCustomFields.map(cf => ({
+      ...unassignedCustomFields.map((cf, idx) => ({
         id: `custom:${cf.id}`,
         type: 'custom',
-        fieldId: cf.id
+        fieldId: cf.id,
+        columnIndex: (existingFieldCount + idx) % customCard.columns
       }))
     ]
   };
