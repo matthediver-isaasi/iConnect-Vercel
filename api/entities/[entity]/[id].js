@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { sendEmail, replacePlaceholders } from '../../_lib/emailService.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -87,9 +88,17 @@ async function triggerWorkflows(entityType, entityId, beforeData, afterData, tri
           await supabase.from(table).update({ [action.config.field_id]: action.config.value }).eq('id', entityId);
           results.push({ action_type: 'update_field', status: 'success' });
         } else if (action.type === 'send_email') {
-          // Log email action (actual sending would need email service integration)
-          console.log(`[Workflows] Email action: to=${action.config.to}, subject=${action.config.subject}`);
-          results.push({ action_type: 'send_email', status: 'success', config: action.config });
+          const to = replacePlaceholders(action.config.to, entityType, afterData);
+          const subject = replacePlaceholders(action.config.subject, entityType, afterData);
+          const body = replacePlaceholders(action.config.body, entityType, afterData);
+          
+          const emailResult = await sendEmail({ to, subject, html: body });
+          results.push({ 
+            action_type: 'send_email', 
+            status: emailResult.success ? 'success' : 'failed',
+            messageId: emailResult.messageId,
+            error: emailResult.error
+          });
         }
       }
 
@@ -177,8 +186,21 @@ async function triggerPreferenceWorkflows(entityType, entityId, fieldId, value) 
           await supabase.from(table).update({ [action.config.field_id]: action.config.value }).eq('id', entityId);
           results.push({ action_type: 'update_field', status: 'success' });
         } else if (action.type === 'send_email') {
-          console.log(`[Workflows] Email action: to=${action.config.to}, subject=${action.config.subject}`);
-          results.push({ action_type: 'send_email', status: 'success', config: action.config });
+          // Fetch full entity data for placeholder replacement
+          const table = entityType === 'organization' ? 'organization' : 'member';
+          const { data: entityData } = await supabase.from(table).select('*').eq('id', entityId).single();
+          
+          const to = replacePlaceholders(action.config.to, entityType, entityData || {});
+          const subject = replacePlaceholders(action.config.subject, entityType, entityData || {});
+          const body = replacePlaceholders(action.config.body, entityType, entityData || {});
+          
+          const emailResult = await sendEmail({ to, subject, html: body });
+          results.push({ 
+            action_type: 'send_email', 
+            status: emailResult.success ? 'success' : 'failed',
+            messageId: emailResult.messageId,
+            error: emailResult.error
+          });
         }
       }
 
