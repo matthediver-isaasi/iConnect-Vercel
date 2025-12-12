@@ -123,6 +123,12 @@ export const Speaker = base44.entities.Speaker;
 
 export const DynamicDirectory = base44.entities.DynamicDirectory;
 
+export const EmailTemplate = base44.entities.EmailTemplate;
+
+export const Workflow = base44.entities.Workflow;
+
+export const WorkflowLog = base44.entities.WorkflowLog;
+
 export const TrainingFundTransaction = base44.entities.TrainingFundTransaction;
 
 // auth sdk:

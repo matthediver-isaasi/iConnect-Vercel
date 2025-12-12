@@ -244,6 +244,7 @@ class EntitiesProxy {
   get TrainingFundTransaction() { return this._getEntity('TrainingFundTransaction'); }
   get Workflow() { return this._getEntity('Workflow'); }
   get WorkflowLog() { return this._getEntity('WorkflowLog'); }
+  get EmailTemplate() { return this._getEntity('EmailTemplate'); }
 }
 
 class CoreIntegration {
