@@ -123,10 +123,17 @@ function FieldMappingSection({
   };
 
   const updateMapping = (mappingId, updates) => {
-    const newMappings = fieldMappings.map(m => 
-      m.id === mappingId ? { ...m, ...updates } : m
-    );
-    onMappingsChange(newMappings);
+    console.log('[FieldMapping] updateMapping called:', mappingId, updates);
+    try {
+      const newMappings = fieldMappings.map(m => 
+        m.id === mappingId ? { ...m, ...updates } : m
+      );
+      console.log('[FieldMapping] New mappings:', newMappings);
+      onMappingsChange(newMappings);
+    } catch (error) {
+      console.error('[FieldMapping] Error updating mapping:', error);
+      toast.error(`Failed to update mapping: ${error.message}`);
+    }
   };
 
   const removeMapping = (mappingId) => {
@@ -215,8 +222,13 @@ function FieldMappingSection({
                     <div className="space-y-1 min-w-[160px] flex-1">
                       <Label className="text-xs">Form Field</Label>
                       <Select
-                        value={mapping.source_field_id}
-                        onValueChange={(value) => updateMapping(mapping.id, { source_field_id: value })}
+                        value={mapping.source_field_id || undefined}
+                        onValueChange={(value) => {
+                          console.log('[FieldMapping] Source field changed to:', value);
+                          if (value) {
+                            updateMapping(mapping.id, { source_field_id: value });
+                          }
+                        }}
                       >
                         <SelectTrigger className="h-9" data-testid={`select-source-${index}`}>
                           <SelectValue placeholder="Select field..." />
@@ -312,8 +324,13 @@ function FieldMappingSection({
                   <div className="space-y-1 min-w-[140px] flex-1">
                     <Label className="text-xs">Target Field</Label>
                     <Select
-                      value={mapping.target_field}
-                      onValueChange={(value) => updateMapping(mapping.id, { target_field: value, static_value: '' })}
+                      value={mapping.target_field || undefined}
+                      onValueChange={(value) => {
+                        console.log('[FieldMapping] Target field changed to:', value);
+                        if (value && value !== '__none') {
+                          updateMapping(mapping.id, { target_field: value, static_value: '' });
+                        }
+                      }}
                     >
                       <SelectTrigger className="h-9" data-testid={`select-target-field-${index}`}>
                         <SelectValue placeholder="Select..." />
@@ -1465,7 +1482,15 @@ export default function FormBuilderPage() {
                     <FieldMappingSection
                       fields={formData.fields}
                       fieldMappings={formData.field_mappings}
-                      onMappingsChange={(mappings) => setFormData({ ...formData, field_mappings: mappings })}
+                      onMappingsChange={(mappings) => {
+                        console.log('[FormBuilder] onMappingsChange called with:', mappings);
+                        try {
+                          setFormData(prev => ({ ...prev, field_mappings: mappings }));
+                        } catch (error) {
+                          console.error('[FormBuilder] Error setting field_mappings:', error);
+                          toast.error(`Failed to update mappings: ${error.message}`);
+                        }
+                      }}
                       applicationLevel={formData.application_level}
                       customFields={customFields}
                     />
