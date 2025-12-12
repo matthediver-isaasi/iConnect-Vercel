@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { format } from "date-fns";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -462,6 +463,18 @@ export default function OrganisationDetailView({
           ) : (
             <p>-</p>
           )}
+        </div>
+      );
+    }
+    
+    if (fieldKey === 'created_at') {
+      const dateValue = organization?.created_at;
+      return (
+        <div className="space-y-2">
+          <Label className="text-slate-500 flex items-center gap-1">
+            <Calendar className="w-3 h-3" /> {label}
+          </Label>
+          <p>{dateValue ? format(new Date(dateValue), 'dd MMM yyyy') : '-'}</p>
         </div>
       );
     }

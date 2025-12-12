@@ -55,7 +55,8 @@ export const CORE_FIELDS = [
   { id: 'core:invoicing_email', fieldKey: 'invoicing_email', label: 'Invoicing Email', type: 'email' },
   { id: 'core:phone', fieldKey: 'phone', label: 'Phone', type: 'text' },
   { id: 'core:website_url', fieldKey: 'website_url', label: 'Website', type: 'url' },
-  { id: 'core:invoicing_address', fieldKey: 'invoicing_address', label: 'Invoicing Address', type: 'textarea' }
+  { id: 'core:invoicing_address', fieldKey: 'invoicing_address', label: 'Invoicing Address', type: 'textarea' },
+  { id: 'core:created_at', fieldKey: 'created_at', label: 'Created Date', type: 'date' }
 ];
 
 export function useOrgDetailLayout() {
