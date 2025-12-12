@@ -17,6 +17,8 @@ import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 
 const FIELD_TYPES = [
   { value: 'text', label: 'Text' },
+  { value: 'email', label: 'Email Address' },
+  { value: 'url', label: 'URL / Website' },
   { value: 'number', label: 'Number (Integer)' },
   { value: 'decimal', label: 'Decimal Number' },
   { value: 'picklist', label: 'Picklist (Multiple Selection)' },
