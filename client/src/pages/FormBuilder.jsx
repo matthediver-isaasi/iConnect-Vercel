@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Loader2, Plus, Trash2, GripVertical, Save, ArrowLeft, FileText, ChevronDown, ChevronUp, Edit2, X } from "lucide-react";
+import { Loader2, Plus, Trash2, GripVertical, Save, ArrowLeft, FileText, ChevronDown, ChevronUp, Edit2, X, Eye, EyeOff } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -406,6 +406,255 @@ function FieldMappingSection({
                     </Select>
                   </div>
                 )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const VISIBILITY_OPERATORS = [
+  { value: 'equals', label: 'Equals' },
+  { value: 'not_equals', label: 'Does not equal' },
+  { value: 'contains', label: 'Contains' },
+  { value: 'not_empty', label: 'Is not empty' },
+  { value: 'is_empty', label: 'Is empty' },
+];
+
+function LogicRulesSection({ 
+  fields, 
+  visibilityRules = [], 
+  onRulesChange 
+}) {
+  const addRule = () => {
+    const newRule = {
+      id: `rule_${Date.now()}`,
+      trigger_field_id: '',
+      operator: 'equals',
+      value: '',
+      action: 'show',
+      target_field_ids: []
+    };
+    onRulesChange([...visibilityRules, newRule]);
+  };
+
+  const updateRule = (ruleId, updates) => {
+    const newRules = visibilityRules.map(r => 
+      r.id === ruleId ? { ...r, ...updates } : r
+    );
+    onRulesChange(newRules);
+  };
+
+  const removeRule = (ruleId) => {
+    onRulesChange(visibilityRules.filter(r => r.id !== ruleId));
+  };
+
+  const toggleTargetField = (ruleId, fieldId) => {
+    const rule = visibilityRules.find(r => r.id === ruleId);
+    if (!rule) return;
+    
+    const currentTargets = rule.target_field_ids || [];
+    const newTargets = currentTargets.includes(fieldId)
+      ? currentTargets.filter(id => id !== fieldId)
+      : [...currentTargets, fieldId];
+    
+    updateRule(ruleId, { target_field_ids: newTargets });
+  };
+
+  const getTriggerFieldOptions = (triggerFieldId) => {
+    const field = fields.find(f => f.id === triggerFieldId);
+    if (!field) return [];
+    
+    if (field.type === 'select' || field.type === 'radio') {
+      return field.options || [];
+    }
+    if (field.type === 'checkbox') {
+      return field.options || [];
+    }
+    return [];
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-sm font-medium flex items-center gap-2">
+            <Eye className="w-4 h-4" />
+            Visibility Rules
+          </h3>
+          <p className="text-xs text-slate-500 mt-1">
+            Show or hide fields based on user responses
+          </p>
+        </div>
+        <Button 
+          onClick={addRule} 
+          size="sm" 
+          variant="outline"
+          data-testid="button-add-visibility-rule"
+        >
+          <Plus className="w-4 h-4 mr-2" />
+          Add Rule
+        </Button>
+      </div>
+
+      {visibilityRules.length === 0 ? (
+        <div className="text-center py-8 text-slate-400 border border-dashed border-slate-200 rounded-lg">
+          <Eye className="w-8 h-8 mx-auto mb-2 opacity-50" />
+          <p className="text-sm">No visibility rules defined</p>
+          <p className="text-xs mt-1">Add rules to conditionally show or hide form fields</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {visibilityRules.map((rule, index) => {
+            const triggerField = fields.find(f => f.id === rule.trigger_field_id);
+            const triggerOptions = getTriggerFieldOptions(rule.trigger_field_id);
+            const needsValueInput = rule.operator !== 'is_empty' && rule.operator !== 'not_empty';
+            const availableTargetFields = fields.filter(f => f.id !== rule.trigger_field_id);
+            
+            return (
+              <div 
+                key={rule.id} 
+                className="p-4 bg-slate-50 border border-slate-200 rounded-lg space-y-3"
+                data-testid={`visibility-rule-row-${index}`}
+              >
+                <div className="flex flex-wrap items-end gap-3">
+                  <div className="space-y-1 min-w-[80px]">
+                    <Label className="text-xs">When</Label>
+                    <Select
+                      value={rule.trigger_field_id || undefined}
+                      onValueChange={(value) => {
+                        if (value) {
+                          updateRule(rule.id, { trigger_field_id: value, value: '' });
+                        }
+                      }}
+                    >
+                      <SelectTrigger className="h-9" data-testid={`select-trigger-field-${index}`}>
+                        <SelectValue placeholder="Select field..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {fields.map(field => (
+                          <SelectItem key={field.id} value={field.id}>
+                            {field.label || field.type}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-1 min-w-[120px]">
+                    <Label className="text-xs">Condition</Label>
+                    <Select
+                      value={rule.operator}
+                      onValueChange={(value) => updateRule(rule.id, { operator: value })}
+                    >
+                      <SelectTrigger className="h-9" data-testid={`select-operator-${index}`}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {VISIBILITY_OPERATORS.map(op => (
+                          <SelectItem key={op.value} value={op.value}>{op.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {needsValueInput && (
+                    <div className="space-y-1 min-w-[140px] flex-1">
+                      <Label className="text-xs">Value</Label>
+                      {triggerOptions.length > 0 ? (
+                        <Select
+                          value={rule.value || undefined}
+                          onValueChange={(value) => updateRule(rule.id, { value })}
+                        >
+                          <SelectTrigger className="h-9" data-testid={`select-value-${index}`}>
+                            <SelectValue placeholder="Select value..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {triggerOptions.map((opt, optIdx) => (
+                              <SelectItem key={optIdx} value={typeof opt === 'string' ? opt : opt.value || opt}>
+                                {typeof opt === 'string' ? opt : opt.label || opt.value || opt}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <Input
+                          value={rule.value || ''}
+                          onChange={(e) => updateRule(rule.id, { value: e.target.value })}
+                          placeholder="Enter value..."
+                          className="h-9"
+                          data-testid={`input-value-${index}`}
+                        />
+                      )}
+                    </div>
+                  )}
+
+                  <div className="space-y-1 min-w-[80px]">
+                    <Label className="text-xs">Then</Label>
+                    <Select
+                      value={rule.action}
+                      onValueChange={(value) => updateRule(rule.id, { action: value })}
+                    >
+                      <SelectTrigger className="h-9" data-testid={`select-action-${index}`}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="show">
+                          <span className="flex items-center gap-1">
+                            <Eye className="w-3 h-3" /> Show
+                          </span>
+                        </SelectItem>
+                        <SelectItem value="hide">
+                          <span className="flex items-center gap-1">
+                            <EyeOff className="w-3 h-3" /> Hide
+                          </span>
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="flex items-end pb-0.5">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => removeRule(rule.id)}
+                      className="h-9 w-9 text-red-600 hover:text-red-700 hover:bg-red-50"
+                      data-testid={`button-delete-rule-${index}`}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-slate-200">
+                  <Label className="text-xs text-slate-600 mb-2 block">
+                    Target Fields ({rule.target_field_ids?.length || 0} selected)
+                  </Label>
+                  {availableTargetFields.length === 0 ? (
+                    <p className="text-xs text-slate-400">Add more fields to the form to select targets</p>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {availableTargetFields.map(field => {
+                        const isSelected = (rule.target_field_ids || []).includes(field.id);
+                        return (
+                          <Button
+                            key={field.id}
+                            variant={isSelected ? "default" : "outline"}
+                            size="sm"
+                            className="h-7 text-xs"
+                            onClick={() => toggleTargetField(rule.id, field.id)}
+                            data-testid={`button-target-field-${field.id}`}
+                          >
+                            {isSelected ? <Eye className="w-3 h-3 mr-1" /> : <EyeOff className="w-3 h-3 mr-1" />}
+                            {field.label || field.type}
+                          </Button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               </div>
             );
           })}
@@ -889,7 +1138,8 @@ export default function FormBuilderPage() {
     field_mappings: [], // Submission field mappings with transformations
     submission_email_template_id: null,
     submission_email_recipient: '',
-    prefill_source: "none" // "none", "member", or "organization" - enables pre-populating form from entity data
+    prefill_source: "none", // "none", "member", or "organization" - enables pre-populating form from entity data
+    visibility_rules: [] // Conditional logic rules: [{id, trigger_field_id, operator, value, action, target_field_ids}]
   });
 
   const queryClient = useQueryClient();
@@ -985,7 +1235,8 @@ export default function FormBuilderPage() {
         field_mappings: existingForm.field_mappings || [],
         submission_email_template_id: existingForm.submission_email_template_id || null,
         submission_email_recipient: existingForm.submission_email_recipient || '',
-        prefill_source: existingForm.prefill_source || "none"
+        prefill_source: existingForm.prefill_source || "none",
+        visibility_rules: existingForm.visibility_rules || []
       });
     }
   }, [existingForm]);
@@ -1726,6 +1977,36 @@ export default function FormBuilderPage() {
                       }}
                       applicationLevel={formData.application_level}
                       customFields={customFields}
+                    />
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
+          </CardContent>
+        </Card>
+
+        {/* Conditional Logic Card */}
+        <Card className="border-slate-200 mb-6">
+          <CardHeader className="pb-4">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Eye className="w-5 h-5" />
+              Conditional Logic
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Accordion type="single" collapsible defaultValue="logic">
+              <AccordionItem value="logic" className="border-none">
+                <AccordionTrigger className="py-2 hover:no-underline" data-testid="accordion-visibility-rules">
+                  <span className="text-sm font-medium">Visibility Rules</span>
+                </AccordionTrigger>
+                <AccordionContent>
+                  <div className="pt-2">
+                    <LogicRulesSection
+                      fields={formData.fields}
+                      visibilityRules={formData.visibility_rules}
+                      onRulesChange={(rules) => {
+                        setFormData(prev => ({ ...prev, visibility_rules: rules }));
+                      }}
                     />
                   </div>
                 </AccordionContent>
