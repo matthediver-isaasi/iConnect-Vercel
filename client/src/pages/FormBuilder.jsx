@@ -1217,6 +1217,51 @@ export default function FormBuilderPage() {
     prefill_source: "none", // "none", "member", or "organization" - enables pre-populating form from entity data
     visibility_rules: [] // Conditional logic rules: [{id, trigger_field_id, operator, value, action, target_field_ids}]
   });
+  
+  // Track which form pages are expanded (for collapsible UI) - true = expanded, false = collapsed
+  // Use a ref to track "all collapsed" mode separately from individual toggles
+  const [expandedPages, setExpandedPages] = useState({});
+  const [allCollapsedMode, setAllCollapsedMode] = useState(false);
+  
+  const togglePageExpanded = (pageId) => {
+    setExpandedPages(prev => {
+      // Derive current state: if allCollapsedMode and not explicitly set, treat as collapsed
+      let currentState;
+      if (prev[pageId] !== undefined) {
+        currentState = prev[pageId];
+      } else if (allCollapsedMode) {
+        currentState = false; // Collapsed by default when in allCollapsedMode
+      } else {
+        currentState = true; // Expanded by default otherwise
+      }
+      return {
+        ...prev,
+        [pageId]: !currentState
+      };
+    });
+    setAllCollapsedMode(false); // Exit "all collapsed" mode after toggling
+  };
+  
+  const isPageExpanded = (pageId) => {
+    // If in "all collapsed" mode and not explicitly expanded, stay collapsed
+    if (allCollapsedMode && expandedPages[pageId] !== true) {
+      return false;
+    }
+    // Otherwise default to expanded unless explicitly collapsed
+    return expandedPages[pageId] !== false;
+  };
+  
+  const expandAllPages = () => {
+    setAllCollapsedMode(false);
+    const allExpanded = {};
+    formData.pages.forEach(p => { allExpanded[p.id] = true; });
+    setExpandedPages(allExpanded);
+  };
+  
+  const collapseAllPages = () => {
+    setAllCollapsedMode(true);
+    setExpandedPages({});
+  };
 
   const queryClient = useQueryClient();
   const urlParams = new URLSearchParams(window.location.search);
@@ -2318,14 +2363,51 @@ export default function FormBuilderPage() {
                         </div>
                       )}
 
+                      {/* Expand/Collapse All buttons */}
+                      {formData.pages.length > 1 && (
+                        <div className="flex items-center justify-end gap-2 mb-2">
+                          <Button 
+                            onClick={expandAllPages} 
+                            size="sm" 
+                            variant="ghost"
+                            className="h-7 text-xs"
+                            data-testid="button-expand-all-pages"
+                          >
+                            <ChevronDown className="w-3 h-3 mr-1" />
+                            Expand All
+                          </Button>
+                          <Button 
+                            onClick={collapseAllPages} 
+                            size="sm" 
+                            variant="ghost"
+                            className="h-7 text-xs"
+                            data-testid="button-collapse-all-pages"
+                          >
+                            <ChevronUp className="w-3 h-3 mr-1" />
+                            Collapse All
+                          </Button>
+                        </div>
+                      )}
+
                       {/* Fields grouped by page with columns */}
                       {formData.pages.map((page, pageIndex) => {
                         const columnCount = page.column_count || 1;
+                        const isExpanded = isPageExpanded(page.id);
+                        const pageFieldCount = formData.fields.filter(f => f.page_id === page.id).length;
                         
                         return (
                           <div key={page.id} className="border border-slate-200 rounded-lg overflow-hidden">
-                            <div className="bg-slate-100 px-4 py-2 flex items-center justify-between">
+                            <div 
+                              className="bg-slate-100 px-4 py-2 flex items-center justify-between cursor-pointer hover:bg-slate-150"
+                              onClick={() => togglePageExpanded(page.id)}
+                              data-testid={`page-header-${page.id}`}
+                            >
                               <h4 className="font-medium text-slate-700 flex items-center gap-2">
+                                {isExpanded ? (
+                                  <ChevronDown className="w-4 h-4 text-slate-500" />
+                                ) : (
+                                  <ChevronUp className="w-4 h-4 text-slate-500" />
+                                )}
                                 <span className="bg-blue-600 text-white text-xs px-2 py-0.5 rounded">
                                   Page {pageIndex + 1}
                                 </span>
@@ -2335,83 +2417,106 @@ export default function FormBuilderPage() {
                                     ({columnCount} columns)
                                   </span>
                                 )}
+                                <span className="text-xs text-slate-400">
+                                  {pageFieldCount} field{pageFieldCount !== 1 ? 's' : ''}
+                                </span>
                               </h4>
                               <Button 
-                                onClick={() => addField(page.id, 0)} 
+                                onClick={(e) => { e.stopPropagation(); addField(page.id, 0); }} 
                                 size="sm" 
                                 variant="ghost"
                                 className="h-7 text-xs"
+                                data-testid={`button-add-field-top-${page.id}`}
                               >
                                 <Plus className="w-3 h-3 mr-1" />
                                 Add Field
                               </Button>
                             </div>
                             
-                            {/* Column grid */}
-                            <div className={`grid gap-2 p-4 ${
-                              columnCount === 1 ? 'grid-cols-1' : 
-                              columnCount === 2 ? 'grid-cols-2' : 
-                              'grid-cols-3'
-                            }`}>
-                              {Array.from({ length: columnCount }).map((_, colIndex) => {
-                                const columnFields = formData.fields
-                                  .map((field, originalIndex) => ({ field, originalIndex }))
-                                  .filter(({ field }) => 
-                                    field.page_id === page.id && 
-                                    (field.column_index || 0) === colIndex
-                                  );
-                                
-                                return (
-                                  <Droppable 
-                                    key={`${page.id}::${colIndex}`} 
-                                    droppableId={`${page.id}::${colIndex}`}
-                                  >
-                                    {(provided, snapshot) => (
-                                      <div 
-                                        {...provided.droppableProps} 
-                                        ref={provided.innerRef} 
-                                        className={`space-y-3 min-h-[80px] p-2 rounded border-2 border-dashed ${
-                                          snapshot.isDraggingOver 
-                                            ? 'bg-blue-50 border-blue-300' 
-                                            : 'border-slate-200 bg-slate-50/50'
-                                        }`}
+                            {/* Collapsible content */}
+                            {isExpanded && (
+                              <>
+                                {/* Column grid */}
+                                <div className={`grid gap-2 p-4 ${
+                                  columnCount === 1 ? 'grid-cols-1' : 
+                                  columnCount === 2 ? 'grid-cols-2' : 
+                                  'grid-cols-3'
+                                }`}>
+                                  {Array.from({ length: columnCount }).map((_, colIndex) => {
+                                    const columnFields = formData.fields
+                                      .map((field, originalIndex) => ({ field, originalIndex }))
+                                      .filter(({ field }) => 
+                                        field.page_id === page.id && 
+                                        (field.column_index || 0) === colIndex
+                                      );
+                                    
+                                    return (
+                                      <Droppable 
+                                        key={`${page.id}::${colIndex}`} 
+                                        droppableId={`${page.id}::${colIndex}`}
                                       >
-                                        {columnCount > 1 && (
-                                          <div className="text-xs text-slate-400 text-center mb-2">
-                                            Column {colIndex + 1}
+                                        {(provided, snapshot) => (
+                                          <div 
+                                            {...provided.droppableProps} 
+                                            ref={provided.innerRef} 
+                                            className={`space-y-3 min-h-[80px] p-2 rounded border-2 border-dashed ${
+                                              snapshot.isDraggingOver 
+                                                ? 'bg-blue-50 border-blue-300' 
+                                                : 'border-slate-200 bg-slate-50/50'
+                                            }`}
+                                          >
+                                            {columnCount > 1 && (
+                                              <div className="text-xs text-slate-400 text-center mb-2">
+                                                Column {colIndex + 1}
+                                              </div>
+                                            )}
+                                            {columnFields.length === 0 ? (
+                                              <div className="text-center py-4 text-slate-400 text-xs">
+                                                Drag fields here
+                                              </div>
+                                            ) : (
+                                              columnFields.map(({ field, originalIndex }, index) => (
+                                                <FieldCard
+                                                  key={field.id}
+                                                  field={field}
+                                                  index={index}
+                                                  originalIndex={originalIndex}
+                                                  updateField={updateField}
+                                                  removeField={removeField}
+                                                  FIELD_TYPES={FIELD_TYPES}
+                                                  categories={categories}
+                                                  customFields={customFields}
+                                                  isApplicationForm={formData.is_application_form}
+                                                  applicationLevel={formData.application_level}
+                                                  uniquenessChecks={formData.uniqueness_checks}
+                                                  onUniquenessChange={handleUniquenessChange}
+                                                  prefillSource={formData.prefill_source || "none"}
+                                                />
+                                              ))
+                                            )}
+                                            {provided.placeholder}
                                           </div>
                                         )}
-                                        {columnFields.length === 0 ? (
-                                          <div className="text-center py-4 text-slate-400 text-xs">
-                                            Drag fields here
-                                          </div>
-                                        ) : (
-                                          columnFields.map(({ field, originalIndex }, index) => (
-                                            <FieldCard
-                                              key={field.id}
-                                              field={field}
-                                              index={index}
-                                              originalIndex={originalIndex}
-                                              updateField={updateField}
-                                              removeField={removeField}
-                                              FIELD_TYPES={FIELD_TYPES}
-                                              categories={categories}
-                                              customFields={customFields}
-                                              isApplicationForm={formData.is_application_form}
-                                              applicationLevel={formData.application_level}
-                                              uniquenessChecks={formData.uniqueness_checks}
-                                              onUniquenessChange={handleUniquenessChange}
-                                              prefillSource={formData.prefill_source || "none"}
-                                            />
-                                          ))
-                                        )}
-                                        {provided.placeholder}
-                                      </div>
-                                    )}
-                                  </Droppable>
-                                );
-                              })}
-                            </div>
+                                      </Droppable>
+                                    );
+                                  })}
+                                </div>
+                                
+                                {/* Bottom Add Field button */}
+                                <div className="px-4 pb-3 flex justify-center">
+                                  <Button 
+                                    onClick={() => addField(page.id)} 
+                                    size="sm" 
+                                    variant="outline"
+                                    className="h-8 text-xs"
+                                    data-testid={`button-add-field-bottom-${page.id}`}
+                                  >
+                                    <Plus className="w-3 h-3 mr-1" />
+                                    Add Field to Page
+                                  </Button>
+                                </div>
+                              </>
+                            )}
                           </div>
                         );
                       })}
@@ -2442,6 +2547,22 @@ export default function FormBuilderPage() {
                             />
                           ))}
                           {provided.placeholder}
+                          
+                          {/* Bottom Add Field button for flat list */}
+                          {formData.fields.length > 0 && (
+                            <div className="pt-2 flex justify-center">
+                              <Button 
+                                onClick={() => addField(null)} 
+                                size="sm" 
+                                variant="outline"
+                                className="h-8"
+                                data-testid="button-add-field-bottom"
+                              >
+                                <Plus className="w-4 h-4 mr-2" />
+                                Add Field
+                              </Button>
+                            </div>
+                          )}
                         </div>
                       )}
                     </Droppable>
