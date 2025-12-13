@@ -298,7 +298,16 @@ export default function WorkflowManagementPage() {
   const addAction = (type) => {
     const newAction = { type };
     if (type === 'send_email') {
-      newAction.config = { to: '', subject: '', body: '' };
+      newAction.config = { 
+        to: '', 
+        to_mode: 'manual',
+        cc: '',
+        cc_mode: 'manual',
+        bcc: '',
+        bcc_mode: 'manual',
+        subject: '', 
+        body: '' 
+      };
     } else if (type === 'update_field') {
       newAction.config = { field_id: '', field_type: 'core', value: '' };
     }
@@ -973,11 +982,20 @@ export default function WorkflowManagementPage() {
                                   onValueChange={(val) => {
                                     if (val === 'template') {
                                       updateAction(index, { 
-                                        config: { mode: 'template', template_id: null, to: action.config?.to || '' } 
+                                        config: { 
+                                          ...action.config,
+                                          mode: 'template', 
+                                          template_id: null
+                                        } 
                                       });
                                     } else {
                                       updateAction(index, { 
-                                        config: { mode: 'custom', to: action.config?.to || '', subject: '', body: '' } 
+                                        config: { 
+                                          ...action.config,
+                                          mode: 'custom', 
+                                          subject: action.config?.subject || '', 
+                                          body: action.config?.body || '' 
+                                        } 
                                       });
                                     }
                                   }}
@@ -1022,19 +1040,151 @@ export default function WorkflowManagementPage() {
                                 </div>
                               )}
 
+                              {/* To Field */}
                               <div className="space-y-2">
-                                <Label>To (Email Address or Placeholder)</Label>
-                                <Input
-                                  value={action.config?.to || ''}
-                                  onChange={(e) => updateAction(index, { 
-                                    config: { ...action.config, to: e.target.value } 
-                                  })}
-                                  placeholder="{{member.email}} or specific@email.com"
-                                  data-testid={`input-action-email-to-${index}`}
-                                />
-                                <p className="text-xs text-muted-foreground">
-                                  Use {'{{field_name}}'} for dynamic values
-                                </p>
+                                <Label>To</Label>
+                                <div className="flex gap-2">
+                                  <Select
+                                    value={action.config?.to_mode || 'manual'}
+                                    onValueChange={(val) => updateAction(index, { 
+                                      config: { ...action.config, to_mode: val, to: '' } 
+                                    })}
+                                  >
+                                    <SelectTrigger className="w-[140px]" data-testid={`select-to-mode-${index}`}>
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="manual">Enter Email</SelectItem>
+                                      <SelectItem value="field">Select Field</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                  {(action.config?.to_mode || 'manual') === 'manual' ? (
+                                    <Input
+                                      className="flex-1"
+                                      value={action.config?.to || ''}
+                                      onChange={(e) => updateAction(index, { 
+                                        config: { ...action.config, to: e.target.value } 
+                                      })}
+                                      placeholder="email@example.com or {{member.email}}"
+                                      data-testid={`input-action-email-to-${index}`}
+                                    />
+                                  ) : (
+                                    <Select
+                                      value={action.config?.to || '_none'}
+                                      onValueChange={(val) => updateAction(index, { 
+                                        config: { ...action.config, to: val === '_none' ? '' : val } 
+                                      })}
+                                    >
+                                      <SelectTrigger className="flex-1" data-testid={`select-to-field-${index}`}>
+                                        <SelectValue placeholder="Select email field" />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="_none">-- Select field --</SelectItem>
+                                        {availableFields.filter(f => f.type === 'email').map(f => (
+                                          <SelectItem key={f.id} value={`{{${f.id}}}`}>{f.label}</SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* CC Field */}
+                              <div className="space-y-2">
+                                <Label>CC (optional)</Label>
+                                <div className="flex gap-2">
+                                  <Select
+                                    value={action.config?.cc_mode || 'manual'}
+                                    onValueChange={(val) => updateAction(index, { 
+                                      config: { ...action.config, cc_mode: val, cc: '' } 
+                                    })}
+                                  >
+                                    <SelectTrigger className="w-[140px]" data-testid={`select-cc-mode-${index}`}>
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="manual">Enter Email</SelectItem>
+                                      <SelectItem value="field">Select Field</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                  {(action.config?.cc_mode || 'manual') === 'manual' ? (
+                                    <Input
+                                      className="flex-1"
+                                      value={action.config?.cc || ''}
+                                      onChange={(e) => updateAction(index, { 
+                                        config: { ...action.config, cc: e.target.value } 
+                                      })}
+                                      placeholder="cc@example.com"
+                                      data-testid={`input-action-email-cc-${index}`}
+                                    />
+                                  ) : (
+                                    <Select
+                                      value={action.config?.cc || '_none'}
+                                      onValueChange={(val) => updateAction(index, { 
+                                        config: { ...action.config, cc: val === '_none' ? '' : val } 
+                                      })}
+                                    >
+                                      <SelectTrigger className="flex-1" data-testid={`select-cc-field-${index}`}>
+                                        <SelectValue placeholder="Select email field" />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="_none">-- Select field --</SelectItem>
+                                        {availableFields.filter(f => f.type === 'email').map(f => (
+                                          <SelectItem key={f.id} value={`{{${f.id}}}`}>{f.label}</SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* BCC Field */}
+                              <div className="space-y-2">
+                                <Label>BCC (optional)</Label>
+                                <div className="flex gap-2">
+                                  <Select
+                                    value={action.config?.bcc_mode || 'manual'}
+                                    onValueChange={(val) => updateAction(index, { 
+                                      config: { ...action.config, bcc_mode: val, bcc: '' } 
+                                    })}
+                                  >
+                                    <SelectTrigger className="w-[140px]" data-testid={`select-bcc-mode-${index}`}>
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="manual">Enter Email</SelectItem>
+                                      <SelectItem value="field">Select Field</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                  {(action.config?.bcc_mode || 'manual') === 'manual' ? (
+                                    <Input
+                                      className="flex-1"
+                                      value={action.config?.bcc || ''}
+                                      onChange={(e) => updateAction(index, { 
+                                        config: { ...action.config, bcc: e.target.value } 
+                                      })}
+                                      placeholder="bcc@example.com"
+                                      data-testid={`input-action-email-bcc-${index}`}
+                                    />
+                                  ) : (
+                                    <Select
+                                      value={action.config?.bcc || '_none'}
+                                      onValueChange={(val) => updateAction(index, { 
+                                        config: { ...action.config, bcc: val === '_none' ? '' : val } 
+                                      })}
+                                    >
+                                      <SelectTrigger className="flex-1" data-testid={`select-bcc-field-${index}`}>
+                                        <SelectValue placeholder="Select email field" />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="_none">-- Select field --</SelectItem>
+                                        {availableFields.filter(f => f.type === 'email').map(f => (
+                                          <SelectItem key={f.id} value={`{{${f.id}}}`}>{f.label}</SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  )}
+                                </div>
                               </div>
 
                               {action.config?.mode !== 'template' && (
