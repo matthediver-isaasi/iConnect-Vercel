@@ -15,6 +15,7 @@ export default function FormViewPage() {
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
   const [formValues, setFormValues] = useState({});
   const [submitted, setSubmitted] = useState(false);
+  const [visibilityReady, setVisibilityReady] = useState(false);
 
   const queryClient = useQueryClient();
   const urlParams = new URLSearchParams(window.location.search);
@@ -225,7 +226,34 @@ export default function FormViewPage() {
     setFormValues({});
     setSubmitted(false);
     setPrefillApplied(false);
+    setVisibilityReady(false);
   }, [form?.id]);
+
+  // Mark visibility as ready after initial visibility computation
+  useEffect(() => {
+    if (form && !visibilityReady) {
+      // Use requestAnimationFrame to ensure visibility rules are computed before render
+      requestAnimationFrame(() => {
+        setVisibilityReady(true);
+      });
+    }
+  }, [form, visibilityReady]);
+
+  // Compute initial hidden fields (fields that have "show" rules should start hidden)
+  const initialHiddenFieldIds = useMemo(() => {
+    if (!form?.visibility_rules || form.visibility_rules.length === 0) {
+      return new Set();
+    }
+    
+    const hidden = new Set();
+    for (const rule of form.visibility_rules) {
+      if (rule.action === 'show' && rule.target_field_ids?.length) {
+        // Fields with "show" rules start hidden until condition is met
+        rule.target_field_ids.forEach(id => hidden.add(id));
+      }
+    }
+    return hidden;
+  }, [form?.visibility_rules]);
 
   // Evaluate visibility rules to determine which fields should be hidden
   const hiddenFieldIds = useMemo(() => {
@@ -318,9 +346,18 @@ export default function FormViewPage() {
     return hidden;
   }, [form?.visibility_rules, formValues]);
 
-  // Helper to filter visible fields
+  // Helper to filter visible fields - uses initial hidden state merged with computed state
+  // This prevents flash of content for fields that start hidden
   const filterVisibleFields = (fields) => {
-    return fields.filter(field => !hiddenFieldIds.has(field.id));
+    return fields.filter(field => {
+      // Field is hidden if it's in hiddenFieldIds OR (it's in initialHiddenFieldIds AND not explicitly shown yet)
+      const isInitiallyHidden = initialHiddenFieldIds.has(field.id);
+      const isComputedHidden = hiddenFieldIds.has(field.id);
+      
+      // If field has show rules (is initially hidden), use computed hidden state
+      // Otherwise just check computed hidden state
+      return !isComputedHidden;
+    });
   };
 
   if (isLoading) {
@@ -351,6 +388,16 @@ export default function FormViewPage() {
             <p className="text-slate-600">Please log in to access this form.</p>
           </CardContent>
         </Card>
+      </div>
+    );
+  }
+
+  // Wait for visibility rules to be computed before rendering form
+  // This prevents flash of content for fields that should start hidden
+  if (form.visibility_rules?.length > 0 && !visibilityReady) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
       </div>
     );
   }
