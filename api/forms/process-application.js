@@ -500,7 +500,14 @@ export default async function handler(req, res) {
           // Add job_title only if provided (it's a valid column)
           if (memberData.job_title) memberInsertData.job_title = memberData.job_title;
           // Add role_id if triggered from form conditional logic (null clears the role)
-          if (role_id !== undefined) memberInsertData.role_id = role_id;
+          if (role_id !== undefined) {
+            memberInsertData.role_id = role_id;
+            console.log('[AppProcessor] Adding role_id to member insert:', role_id);
+          } else {
+            console.log('[AppProcessor] role_id is undefined, not adding to member insert');
+          }
+
+          console.log('[AppProcessor] Final memberInsertData:', JSON.stringify(memberInsertData));
 
           const { data: newMember, error: memberError } = await supabase
             .from('member')
