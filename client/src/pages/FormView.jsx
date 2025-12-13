@@ -158,6 +158,7 @@ export default function FormViewPage() {
       // For application forms with auto_create_entity, create member/org entities
       if (form?.is_application_form && form?.auto_create_entity) {
         try {
+          console.log('[FormView] Processing application - roleActionTriggered:', roleActionTriggeredRef.current, 'triggeredRoleId:', triggeredRoleIdRef.current);
           const response = await fetch('/api/forms/process-application', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -171,7 +172,8 @@ export default function FormViewPage() {
               organization_entity_action: form.organization_entity_action || 'none',
               submission_id: submissionResult?.id,
               prefill_organization_id: form.prefill_source === 'organization' ? prefillOrgId : null,
-              role_id: triggeredRoleIdRef.current
+              // Only pass role_id if a set_role/clear_role action was explicitly triggered
+              ...(roleActionTriggeredRef.current ? { role_id: triggeredRoleIdRef.current } : {})
             })
           });
           if (response.ok) {
@@ -454,6 +456,8 @@ export default function FormViewPage() {
   const activeSetValueActionsRef = useRef(new Set());
   // Track the triggered role_id from set_role/clear_role actions
   const triggeredRoleIdRef = useRef(null);
+  // Track whether a role action was explicitly triggered (to differentiate from initial null)
+  const roleActionTriggeredRef = useRef(false);
   // Track which role actions were previously active (for transition detection)
   const previousRoleActionsRef = useRef(new Set());
   
@@ -462,6 +466,7 @@ export default function FormViewPage() {
     originalValuesRef.current = {};
     activeSetValueActionsRef.current = new Set();
     triggeredRoleIdRef.current = null;
+    roleActionTriggeredRef.current = false;
     previousRoleActionsRef.current = new Set();
   }, [form?.id]);
   
@@ -655,8 +660,12 @@ export default function FormViewPage() {
             if (!previousRoleActionsRef.current.has(actionKey)) {
               if (action.action_type === 'set_role' && action.role_id) {
                 triggeredRoleIdRef.current = action.role_id;
+                roleActionTriggeredRef.current = true;
+                console.log('[FormView] set_role action triggered, role_id:', action.role_id);
               } else if (action.action_type === 'clear_role') {
                 triggeredRoleIdRef.current = null;
+                roleActionTriggeredRef.current = true;
+                console.log('[FormView] clear_role action triggered');
               }
             }
           }

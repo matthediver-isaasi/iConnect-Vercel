@@ -119,6 +119,7 @@ export default async function handler(req, res) {
     const isMemberUpdateMode = memberAction === 'update';
     
     console.log('[AppProcessor] Entity actions - member:', memberAction, 'organization:', orgAction);
+    console.log('[AppProcessor] Received role_id:', role_id, 'type:', typeof role_id);
 
     // Idempotency check: if submission_id provided, check if already processed
     if (submission_id) {
