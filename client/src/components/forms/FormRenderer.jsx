@@ -33,7 +33,7 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
     staleTime: 5 * 60 * 1000 // Cache for 5 minutes
   });
 
-  // Fetch resource categories for category_multiselect field type (uses public endpoint)
+  // Fetch resource categories for category_multiselect and category_dropdown field types (uses public endpoint)
   const { data: categories = [], isLoading: categoriesLoading } = useQuery({
     queryKey: ['public-resource-categories-for-form'],
     queryFn: async () => {
@@ -43,7 +43,7 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
       }
       return response.json();
     },
-    enabled: field.type === 'category_multiselect',
+    enabled: field.type === 'category_multiselect' || field.type === 'category_dropdown',
     staleTime: 5 * 60 * 1000 // Cache for 5 minutes
   });
 
@@ -329,6 +329,51 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
               </div>
             ))}
           </div>
+        );
+
+      case 'category_dropdown':
+        if (categoriesLoading) {
+          return (
+            <div className="flex items-center gap-2 text-sm text-slate-500">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Loading options...
+            </div>
+          );
+        }
+        
+        // Find the selected category and get its subcategories as options
+        const selectedCategory = categories.find(cat => cat.id === field.category_id);
+        const subcategoryOptions = selectedCategory?.subcategories || [];
+        
+        if (!selectedCategory) {
+          return (
+            <p className="text-sm text-slate-500">
+              No category configured for this field.
+            </p>
+          );
+        }
+        
+        if (subcategoryOptions.length === 0) {
+          return (
+            <p className="text-sm text-slate-500">
+              No options available for "{selectedCategory.name}".
+            </p>
+          );
+        }
+        
+        return (
+          <Select value={value || ''} onValueChange={field.locked ? undefined : onChange} disabled={field.locked}>
+            <SelectTrigger data-testid={`select-category-dropdown-${field.id}`} className={field.locked ? 'bg-slate-100 cursor-not-allowed' : ''}>
+              <SelectValue placeholder={field.placeholder || 'Select an option'} />
+            </SelectTrigger>
+            <SelectContent>
+              {subcategoryOptions.map((option, index) => (
+                <SelectItem key={index} value={option} data-testid={`option-subcategory-${index}`}>
+                  {option}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         );
 
       case 'list':
