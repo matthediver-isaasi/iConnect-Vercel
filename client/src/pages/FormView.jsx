@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useLayoutEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -15,7 +15,6 @@ export default function FormViewPage() {
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
   const [formValues, setFormValues] = useState({});
   const [submitted, setSubmitted] = useState(false);
-  const [visibilityReady, setVisibilityReady] = useState(false);
 
   const queryClient = useQueryClient();
   const urlParams = new URLSearchParams(window.location.search);
@@ -226,15 +225,7 @@ export default function FormViewPage() {
     setFormValues({});
     setSubmitted(false);
     setPrefillApplied(false);
-    setVisibilityReady(false);
   }, [form?.id]);
-
-  // Mark visibility as ready synchronously before paint using useLayoutEffect
-  useLayoutEffect(() => {
-    if (form && !visibilityReady) {
-      setVisibilityReady(true);
-    }
-  }, [form, visibilityReady]);
 
   // Compute initial hidden fields (fields that have "show" rules should start hidden)
   const initialHiddenFieldIds = useMemo(() => {
@@ -253,12 +244,16 @@ export default function FormViewPage() {
   }, [form?.visibility_rules]);
 
   // Evaluate visibility rules to determine which fields should be hidden
+  // Key principle: Fields with "show" rules START HIDDEN and only become visible when condition is met
   const hiddenFieldIds = useMemo(() => {
     if (!form?.visibility_rules || form.visibility_rules.length === 0) {
       return new Set();
     }
 
-    // Track visibility state per field: { fieldId: { showRules: [], hideRules: [] } }
+    // Start with all "show" rule targets as hidden (explicit default state)
+    const hidden = new Set(initialHiddenFieldIds);
+    
+    // Track which fields should be shown/hidden based on rule evaluation
     const fieldVisibility = {};
     
     for (const rule of form.visibility_rules) {
@@ -319,47 +314,28 @@ export default function FormViewPage() {
       });
     }
     
-    // Determine final visibility for each field
-    const hidden = new Set();
-    
+    // Update hidden set based on evaluated rules
     for (const [fieldId, { showRules, hideRules }] of Object.entries(fieldVisibility)) {
-      // For show rules: field is visible if ANY show rule is satisfied (OR logic)
-      // For hide rules: field is hidden if ANY hide rule is satisfied (OR logic)
+      // For show rules: if ANY show rule is satisfied, remove from hidden set
+      const anyShowConditionMet = showRules.some(result => result === true);
+      if (anyShowConditionMet) {
+        hidden.delete(fieldId);
+      }
       
-      const hasShowRules = showRules.length > 0;
-      const hasHideRules = hideRules.length > 0;
-      
-      // If any hide rule is met, hide the field
-      const shouldHideFromHideRules = hideRules.some(result => result === true);
-      
-      // If there are show rules, field is hidden unless at least one show rule is met
-      const shouldHideFromShowRules = hasShowRules && !showRules.some(result => result === true);
-      
-      if (shouldHideFromHideRules || shouldHideFromShowRules) {
+      // For hide rules: if ANY hide rule is satisfied, add to hidden set
+      const anyHideConditionMet = hideRules.some(result => result === true);
+      if (anyHideConditionMet) {
         hidden.add(fieldId);
       }
     }
     
     return hidden;
-  }, [form?.visibility_rules, formValues]);
+  }, [form?.visibility_rules, formValues, initialHiddenFieldIds]);
 
-  // Helper to filter visible fields - uses initial hidden state merged with computed state
-  // This prevents flash of content for fields that start hidden
+  // Helper to filter visible fields
+  // hiddenFieldIds already includes fields with "show" rules as hidden by default
   const filterVisibleFields = (fields) => {
-    return fields.filter(field => {
-      // For fields with "show" rules: start hidden, only show when condition met
-      // For fields with "hide" rules: start visible, hide when condition met
-      const isInitiallyHidden = initialHiddenFieldIds.has(field.id);
-      const isComputedHidden = hiddenFieldIds.has(field.id);
-      
-      // If visibility hasn't been computed yet, use initial state
-      // This ensures fields with show rules start hidden
-      if (!visibilityReady && isInitiallyHidden) {
-        return false; // Hide field
-      }
-      
-      return !isComputedHidden;
-    });
+    return fields.filter(field => !hiddenFieldIds.has(field.id));
   };
 
   if (isLoading) {
@@ -501,9 +477,6 @@ export default function FormViewPage() {
 
   // Use memberRecord (full data) if available, otherwise fallback to memberInfo
   const memberData = memberRecord || memberInfo;
-  
-  // Suppress initial paint for forms with visibility rules until rules are evaluated
-  const shouldHideFormContent = !!(form?.visibility_rules?.length) && !visibilityReady;
 
   if (form.layout_type === 'card_swipe') {
     // Filter visible fields for card swipe layout
@@ -529,7 +502,7 @@ export default function FormViewPage() {
               ))}
             </div>
           </CardHeader>
-          <CardContent className="min-h-[300px]" style={{ visibility: shouldHideFormContent ? 'hidden' : 'visible' }}>
+          <CardContent className="min-h-[300px]">
             {currentField && (
               <FormRenderer
                 field={currentField}
@@ -664,7 +637,7 @@ export default function FormViewPage() {
               </div>
             )}
           </CardHeader>
-          <CardContent className="space-y-6" style={{ visibility: shouldHideFormContent ? 'hidden' : 'visible' }}>
+          <CardContent className="space-y-6">
             {/* Render fields in columns if page has column_count > 1 */}
             {(() => {
               const columnCount = currentPage?.column_count || 1;
