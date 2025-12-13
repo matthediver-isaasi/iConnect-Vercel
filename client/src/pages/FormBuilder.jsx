@@ -45,6 +45,7 @@ const STANDARD_FIELD_TYPES = [
 const PREPOPULATE_FIELD_TYPES = [
   { value: 'organisation_dropdown', label: 'Organisation Dropdown' },
   { value: 'category_multiselect', label: 'Category Multi-Select' },
+  { value: 'category_dropdown', label: 'Category Dropdown' },
 ];
 
 const AUTO_FIELD_TYPES = [
@@ -1017,6 +1018,40 @@ function FieldCard({
                           ? "No categories selected - all categories will be shown"
                           : `${(field.allowed_category_ids || []).length} category(ies) selected`}
                       </p>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {field.type === 'category_dropdown' && (
+                <div className="space-y-2">
+                  <Label className="text-xs">Select Category</Label>
+                  {categories.length === 0 ? (
+                    <div className="p-2 bg-slate-50 border border-slate-200 rounded text-xs text-slate-500">
+                      Loading categories...
+                    </div>
+                  ) : (
+                    <>
+                      <Select
+                        value={field.category_id || ''}
+                        onValueChange={(value) => updateField(originalIndex, { category_id: value })}
+                      >
+                        <SelectTrigger className="h-8 text-xs" data-testid={`select-category-${field.id}`}>
+                          <SelectValue placeholder="Choose a category..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {categories.map((category) => (
+                            <SelectItem key={category.id} value={category.id}>
+                              {category.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {field.category_id && (
+                        <p className="text-xs text-slate-500">
+                          The subcategories of "{categories.find(c => c.id === field.category_id)?.name}" will be shown as options.
+                        </p>
+                      )}
                     </>
                   )}
                 </div>
