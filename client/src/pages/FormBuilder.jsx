@@ -772,6 +772,14 @@ function FieldCard({
                     />
                     <Label htmlFor={`required-${field.id}`} className="text-xs">Required</Label>
                   </div>
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      id={`locked-${field.id}`}
+                      checked={field.locked || false}
+                      onCheckedChange={(checked) => updateField(originalIndex, { locked: checked })}
+                    />
+                    <Label htmlFor={`locked-${field.id}`} className="text-xs">Locked</Label>
+                  </div>
                   {field.type === 'select' && (
                     <div className="flex items-center gap-2">
                       <Switch

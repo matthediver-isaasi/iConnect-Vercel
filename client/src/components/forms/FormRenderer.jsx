@@ -109,6 +109,8 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
             onChange={(e) => onChange(e.target.value)}
             placeholder={field.placeholder || (field.type === 'url' ? 'https://example.com' : undefined)}
             required={field.required}
+            disabled={field.locked}
+            className={field.locked ? 'bg-slate-100 cursor-not-allowed' : ''}
           />
         );
 
@@ -119,6 +121,8 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
             onChange={(e) => onChange(e.target.value)}
             placeholder={field.placeholder}
             required={field.required}
+            disabled={field.locked}
+            className={field.locked ? 'bg-slate-100 cursor-not-allowed' : ''}
             rows={4}
           />
         );
@@ -131,6 +135,8 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
             value={value || ''}
             onChange={(e) => onChange(e.target.value)}
             required={field.required}
+            disabled={field.locked}
+            className={field.locked ? 'bg-slate-100 cursor-not-allowed' : ''}
           />
         );
 
@@ -140,6 +146,7 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
             <Select 
               value={showOtherInput ? 'other' : (value || '')} 
               onValueChange={(val) => {
+                if (field.locked) return;
                 if (val === 'other') {
                   setShowOtherInput(true);
                   onChange('');
@@ -149,8 +156,9 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
                   onChange(val);
                 }
               }}
+              disabled={field.locked}
             >
-              <SelectTrigger>
+              <SelectTrigger className={field.locked ? 'bg-slate-100 cursor-not-allowed' : ''}>
                 <SelectValue placeholder={field.placeholder || 'Select an option'} />
               </SelectTrigger>
               <SelectContent>
@@ -181,7 +189,7 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
 
       case 'radio':
         return (
-          <RadioGroup value={value || ''} onValueChange={onChange}>
+          <RadioGroup value={value || ''} onValueChange={field.locked ? undefined : onChange} disabled={field.locked}>
             {(field.options || []).map((option, index) => (
               <div key={index} className="flex items-center space-x-2">
                 <RadioGroupItem value={option} id={`${field.id}-${index}`} />
@@ -201,7 +209,9 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
                 <Checkbox
                   id={`${field.id}-${index}`}
                   checked={(value || []).includes(option)}
+                  disabled={field.locked}
                   onCheckedChange={(checked) => {
+                    if (field.locked) return;
                     const currentValues = value || [];
                     if (checked) {
                       onChange([...currentValues, option]);
@@ -229,6 +239,8 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
               }
             }}
             required={field.required}
+            disabled={field.locked}
+            className={field.locked ? 'bg-slate-100 cursor-not-allowed' : ''}
           />
         );
 
@@ -244,8 +256,8 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
         // Find current org name for display (value stores ID)
         const selectedOrg = organisations.find(org => org.id === value);
         return (
-          <Select value={value || ''} onValueChange={onChange}>
-            <SelectTrigger data-testid={`select-organisation-${field.id}`}>
+          <Select value={value || ''} onValueChange={field.locked ? undefined : onChange} disabled={field.locked}>
+            <SelectTrigger data-testid={`select-organisation-${field.id}`} className={field.locked ? 'bg-slate-100 cursor-not-allowed' : ''}>
               <SelectValue placeholder={field.placeholder || 'Select an organisation'}>
                 {selectedOrg?.name}
               </SelectValue>
@@ -290,7 +302,9 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
                 <Checkbox
                   id={`${field.id}-${category.id}`}
                   checked={(value || []).includes(category.name)}
+                  disabled={field.locked}
                   onCheckedChange={(checked) => {
+                    if (field.locked) return;
                     const currentValues = value || [];
                     if (checked) {
                       onChange([...currentValues, category.name]);
