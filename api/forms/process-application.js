@@ -433,11 +433,10 @@ export default async function handler(req, res) {
           if (memberData.email) memberUpdateData.email = memberData.email;
           if (memberData.first_name) memberUpdateData.first_name = memberData.first_name;
           if (memberData.last_name) memberUpdateData.last_name = memberData.last_name;
-          if (memberData.full_name) memberUpdateData.full_name = memberData.full_name;
           if (memberData.job_title) memberUpdateData.job_title = memberData.job_title;
           if (memberData.phone) memberUpdateData.phone = memberData.phone;
           
-          // Handle full_name parsing if provided
+          // Handle full_name parsing if provided (parse into first_name/last_name since member table doesn't have full_name column)
           if (memberData.full_name && !memberData.first_name && !memberData.last_name) {
             const nameParts = memberData.full_name.trim().split(/\s+/);
             memberUpdateData.first_name = nameParts[0] || '';
@@ -490,7 +489,6 @@ export default async function handler(req, res) {
             email: memberData.email,
             first_name: memberData.first_name || '',
             last_name: memberData.last_name || '',
-            full_name: memberData.full_name || `${memberData.first_name || ''} ${memberData.last_name || ''}`.trim(),
             job_title: memberData.job_title || null,
             phone: memberData.phone || null,
             organization_id: orgIdForNewMember,

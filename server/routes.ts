@@ -1377,7 +1377,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const updateData: Record<string, any> = {};
             if (memberData.first_name) updateData.first_name = memberData.first_name;
             if (memberData.last_name) updateData.last_name = memberData.last_name;
-            if (memberData.full_name) updateData.full_name = memberData.full_name;
+            // Parse full_name into first/last name if provided (member table doesn't have full_name column)
+            if (memberData.full_name && !memberData.first_name && !memberData.last_name) {
+              const nameParts = memberData.full_name.trim().split(/\s+/);
+              updateData.first_name = nameParts[0] || '';
+              updateData.last_name = nameParts.slice(1).join(' ') || '';
+            }
             if (memberData.job_title) updateData.job_title = memberData.job_title;
             if (memberData.phone) updateData.phone = memberData.phone;
             // Use createdOrganizationId if org was created/updated, otherwise use prefill_organization_id
@@ -1418,7 +1423,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
               email: memberData.email || `pending-${Date.now()}@example.com`,
               first_name: memberData.first_name || '',
               last_name: memberData.last_name || '',
-              full_name: memberData.full_name || `${memberData.first_name || ''} ${memberData.last_name || ''}`.trim(),
               job_title: memberData.job_title || null,
               phone: memberData.phone || null,
               organization_id: orgIdForNewMember,
