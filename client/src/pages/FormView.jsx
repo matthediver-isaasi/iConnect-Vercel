@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -229,13 +229,10 @@ export default function FormViewPage() {
     setVisibilityReady(false);
   }, [form?.id]);
 
-  // Mark visibility as ready after initial visibility computation
-  useEffect(() => {
+  // Mark visibility as ready synchronously before paint using useLayoutEffect
+  useLayoutEffect(() => {
     if (form && !visibilityReady) {
-      // Use requestAnimationFrame to ensure visibility rules are computed before render
-      requestAnimationFrame(() => {
-        setVisibilityReady(true);
-      });
+      setVisibilityReady(true);
     }
   }, [form, visibilityReady]);
 
@@ -350,12 +347,17 @@ export default function FormViewPage() {
   // This prevents flash of content for fields that start hidden
   const filterVisibleFields = (fields) => {
     return fields.filter(field => {
-      // Field is hidden if it's in hiddenFieldIds OR (it's in initialHiddenFieldIds AND not explicitly shown yet)
+      // For fields with "show" rules: start hidden, only show when condition met
+      // For fields with "hide" rules: start visible, hide when condition met
       const isInitiallyHidden = initialHiddenFieldIds.has(field.id);
       const isComputedHidden = hiddenFieldIds.has(field.id);
       
-      // If field has show rules (is initially hidden), use computed hidden state
-      // Otherwise just check computed hidden state
+      // If visibility hasn't been computed yet, use initial state
+      // This ensures fields with show rules start hidden
+      if (!visibilityReady && isInitiallyHidden) {
+        return false; // Hide field
+      }
+      
       return !isComputedHidden;
     });
   };
@@ -388,16 +390,6 @@ export default function FormViewPage() {
             <p className="text-slate-600">Please log in to access this form.</p>
           </CardContent>
         </Card>
-      </div>
-    );
-  }
-
-  // Wait for visibility rules to be computed before rendering form
-  // This prevents flash of content for fields that should start hidden
-  if (form.visibility_rules?.length > 0 && !visibilityReady) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
       </div>
     );
   }
