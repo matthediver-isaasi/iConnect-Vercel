@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Loader2, Plus, Trash2, GripVertical, Save, ArrowLeft, FileText, ChevronDown, ChevronUp, Edit2, X, Eye, EyeOff, Lock, Unlock } from "lucide-react";
+import { Loader2, Plus, Trash2, GripVertical, Save, ArrowLeft, FileText, ChevronDown, ChevronUp, Edit2, X, Eye, EyeOff, Lock, Unlock, UserCheck, UserMinus } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -434,7 +434,8 @@ function LogicRulesSection({
   visibilityRules = [], 
   onRulesChange,
   prefillSource = 'none',
-  customFields = []
+  customFields = [],
+  roles = []
 }) {
   // Normalize rules to new multi-action format (for backward compatibility)
   const normalizeRule = (rule) => {
@@ -487,21 +488,36 @@ function LogicRulesSection({
     if (!rule) return;
     
     const normalizedRule = normalizeRule(rule);
-    const newAction = actionType === 'set_value' 
-      ? {
-          id: `action_${Date.now()}`,
-          action_type: 'set_value',
-          target_field_id: '',
-          set_value_source: 'static',
-          set_value: '',
-          set_value_field_id: '',
-          set_value_prefill_field: ''
-        }
-      : {
-          id: `action_${Date.now()}`,
-          action_type: actionType, // 'show' or 'hide'
-          target_field_ids: []
-        };
+    let newAction;
+    
+    if (actionType === 'set_value') {
+      newAction = {
+        id: `action_${Date.now()}`,
+        action_type: 'set_value',
+        target_field_id: '',
+        set_value_source: 'static',
+        set_value: '',
+        set_value_field_id: '',
+        set_value_prefill_field: ''
+      };
+    } else if (actionType === 'set_role') {
+      newAction = {
+        id: `action_${Date.now()}`,
+        action_type: 'set_role',
+        role_id: ''
+      };
+    } else if (actionType === 'clear_role') {
+      newAction = {
+        id: `action_${Date.now()}`,
+        action_type: 'clear_role'
+      };
+    } else {
+      newAction = {
+        id: `action_${Date.now()}`,
+        action_type: actionType, // 'show', 'hide', 'disable', 'enable'
+        target_field_ids: []
+      };
+    }
     
     const updatedActions = [...(normalizedRule.actions || []), newAction];
     updateRule(ruleId, { actions: updatedActions });
@@ -956,6 +972,24 @@ function LogicRulesSection({
                       >
                         <Unlock className="w-3 h-3 mr-1" /> Enable
                       </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={() => addAction(rule.id, 'set_role')}
+                        data-testid={`button-add-setrole-action-${index}`}
+                      >
+                        <UserCheck className="w-3 h-3 mr-1" /> Set Role
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={() => addAction(rule.id, 'clear_role')}
+                        data-testid={`button-add-clearrole-action-${index}`}
+                      >
+                        <UserMinus className="w-3 h-3 mr-1" /> Clear Role
+                      </Button>
                     </div>
                   </div>
 
@@ -969,11 +1003,12 @@ function LogicRulesSection({
                         const isVisibilityAction = action.action_type === 'show' || action.action_type === 'hide';
                         const isDisabilityAction = action.action_type === 'disable' || action.action_type === 'enable';
                         const isFieldTargetAction = isVisibilityAction || isDisabilityAction;
+                        const isRoleAction = action.action_type === 'set_role' || action.action_type === 'clear_role';
                         
                         return (
                           <div 
                             key={action.id} 
-                            className={`p-3 rounded-lg border ${isVisibilityAction ? 'bg-white border-slate-200' : isDisabilityAction ? 'bg-orange-50 border-orange-200' : 'bg-blue-50 border-blue-200'}`}
+                            className={`p-3 rounded-lg border ${isVisibilityAction ? 'bg-white border-slate-200' : isDisabilityAction ? 'bg-orange-50 border-orange-200' : isRoleAction ? 'bg-purple-50 border-purple-200' : 'bg-blue-50 border-blue-200'}`}
                             data-testid={`action-row-${index}-${actionIndex}`}
                           >
                             <div className="flex items-center justify-between mb-2">
@@ -983,12 +1018,16 @@ function LogicRulesSection({
                                 {action.action_type === 'set_value' && <Edit2 className="w-3 h-3 text-blue-600" />}
                                 {action.action_type === 'disable' && <Lock className="w-3 h-3 text-orange-600" />}
                                 {action.action_type === 'enable' && <Unlock className="w-3 h-3 text-teal-600" />}
+                                {action.action_type === 'set_role' && <UserCheck className="w-3 h-3 text-purple-600" />}
+                                {action.action_type === 'clear_role' && <UserMinus className="w-3 h-3 text-gray-600" />}
                                 <span className="text-xs font-medium">
                                   {action.action_type === 'show' && 'Show Fields'}
                                   {action.action_type === 'hide' && 'Hide Fields'}
                                   {action.action_type === 'set_value' && 'Set Field Value'}
                                   {action.action_type === 'disable' && 'Disable Fields'}
                                   {action.action_type === 'enable' && 'Enable Fields'}
+                                  {action.action_type === 'set_role' && 'Set Member Role'}
+                                  {action.action_type === 'clear_role' && 'Clear Member Role'}
                                 </span>
                               </div>
                               <Button
@@ -1032,6 +1071,33 @@ function LogicRulesSection({
                                     })}
                                   </div>
                                 )}
+                              </div>
+                            ) : action.action_type === 'set_role' ? (
+                              <div className="space-y-2">
+                                <Label className="text-xs text-slate-600">Select Role</Label>
+                                {roles.length === 0 ? (
+                                  <p className="text-xs text-slate-400">No roles available. Create roles first.</p>
+                                ) : (
+                                  <Select
+                                    value={action.role_id || undefined}
+                                    onValueChange={(value) => updateAction(rule.id, action.id, { role_id: value })}
+                                  >
+                                    <SelectTrigger className="h-9" data-testid={`select-role-${index}-${actionIndex}`}>
+                                      <SelectValue placeholder="Select a role..." />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {roles.map(role => (
+                                        <SelectItem key={role.id} value={role.id}>
+                                          {role.name}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                )}
+                              </div>
+                            ) : action.action_type === 'clear_role' ? (
+                              <div className="text-xs text-slate-500">
+                                This action will remove any role assignment when the condition is met.
                               </div>
                             ) : (
                               <div className="space-y-3">
@@ -1719,6 +1785,18 @@ export default function FormBuilderPage() {
           sort: { display_order: 'asc' }
         });
         return fields || [];
+      } catch {
+        return [];
+      }
+    }
+  });
+
+  const { data: roles = [] } = useQuery({
+    queryKey: ['/api/entities/Role', 'all-for-form-actions'],
+    queryFn: async () => {
+      try {
+        const allRoles = await base44.entities.Role.list();
+        return allRoles || [];
       } catch {
         return [];
       }
@@ -2573,6 +2651,7 @@ export default function FormBuilderPage() {
                   visibilityRules={formData.visibility_rules}
                   prefillSource={formData.prefill_source || 'none'}
                   customFields={customFields}
+                  roles={roles}
                   onRulesChange={(rules) => {
                     const fieldsWithShowRules = new Set();
                     rules.forEach(rule => {
