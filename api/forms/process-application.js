@@ -429,12 +429,12 @@ export default async function handler(req, res) {
           createdMemberId = existingMember.id;
         } else if (memberAction === 'update' || memberAction === 'upsert') {
           // Update existing member
+          // Note: member table doesn't have phone column
           const memberUpdateData = {};
           if (memberData.email) memberUpdateData.email = memberData.email;
           if (memberData.first_name) memberUpdateData.first_name = memberData.first_name;
           if (memberData.last_name) memberUpdateData.last_name = memberData.last_name;
           if (memberData.job_title) memberUpdateData.job_title = memberData.job_title;
-          if (memberData.phone) memberUpdateData.phone = memberData.phone;
           
           // Handle full_name parsing if provided (parse into first_name/last_name since member table doesn't have full_name column)
           if (memberData.full_name && !memberData.first_name && !memberData.last_name) {
@@ -485,16 +485,16 @@ export default async function handler(req, res) {
           // Use createdOrganizationId if org was created/updated, otherwise use prefill_organization_id
           const orgIdForNewMember = createdOrganizationId || prefill_organization_id || null;
 
+          // Note: member table doesn't have phone or status columns
           const memberInsertData = {
             email: memberData.email,
             first_name: memberData.first_name || '',
             last_name: memberData.last_name || '',
-            job_title: memberData.job_title || null,
-            phone: memberData.phone || null,
             organization_id: orgIdForNewMember,
-            status: 'active',
-            source: 'application_form'
+            login_enabled: true
           };
+          // Add job_title only if provided (it's a valid column)
+          if (memberData.job_title) memberInsertData.job_title = memberData.job_title;
 
           const { data: newMember, error: memberError } = await supabase
             .from('member')

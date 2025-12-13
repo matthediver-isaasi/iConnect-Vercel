@@ -1374,6 +1374,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             createdMemberId = existingMember.id;
           } else if (memberAction === 'update' || memberAction === 'upsert') {
             // Update existing member
+            // Note: member table doesn't have phone column
             const updateData: Record<string, any> = {};
             if (memberData.first_name) updateData.first_name = memberData.first_name;
             if (memberData.last_name) updateData.last_name = memberData.last_name;
@@ -1384,7 +1385,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
               updateData.last_name = nameParts.slice(1).join(' ') || '';
             }
             if (memberData.job_title) updateData.job_title = memberData.job_title;
-            if (memberData.phone) updateData.phone = memberData.phone;
             // Use createdOrganizationId if org was created/updated, otherwise use prefill_organization_id
             const orgIdToLink = createdOrganizationId || prefill_organization_id;
             if (orgIdToLink) updateData.organization_id = orgIdToLink;
@@ -1419,17 +1419,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
             // Use createdOrganizationId if org was created/updated, otherwise use prefill_organization_id
             const orgIdForNewMember = createdOrganizationId || prefill_organization_id || null;
             
-            const memberInsertData = {
+            // Note: member table doesn't have phone or status columns
+            const memberInsertData: any = {
               email: memberData.email || `pending-${Date.now()}@example.com`,
               first_name: memberData.first_name || '',
               last_name: memberData.last_name || '',
-              job_title: memberData.job_title || null,
-              phone: memberData.phone || null,
               organization_id: orgIdForNewMember,
-              status: 'active',
-              created_at: new Date().toISOString(),
-              source: 'application_form'
+              login_enabled: true
             };
+            // Add job_title only if provided (it's a valid column)
+            if (memberData.job_title) memberInsertData.job_title = memberData.job_title;
 
             const { data: newMember, error: memberError } = await supabase
               .from('member')
