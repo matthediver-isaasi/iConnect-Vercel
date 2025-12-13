@@ -110,6 +110,7 @@ CREATE INDEX IF NOT EXISTS idx_tft_created_date ON training_fund_transaction(cre
 ALTER TABLE form ADD COLUMN IF NOT EXISTS auto_create_entity BOOLEAN DEFAULT FALSE;
 ALTER TABLE form ADD COLUMN IF NOT EXISTS create_entity_type TEXT DEFAULT 'member';
 ALTER TABLE form ADD COLUMN IF NOT EXISTS field_mappings JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE form ADD COLUMN IF NOT EXISTS entity_action TEXT DEFAULT 'create' CHECK (entity_action IN ('create', 'update'));
 ```
 
 ## Workflow Automation Tables

@@ -1209,6 +1209,7 @@ export default function FormBuilderPage() {
     application_level: "member",
     auto_create_entity: false,
     create_entity_type: "member", // Which entity to create: "member", "organization", or "both"
+    entity_action: "create", // "create" for new records, "update" for updating existing (when prefill is used)
     uniqueness_checks: [],
     field_mappings: [], // Submission field mappings with transformations
     submission_email_template_id: null,
@@ -1306,6 +1307,7 @@ export default function FormBuilderPage() {
         application_level: existingForm.application_level || "member",
         auto_create_entity: existingForm.auto_create_entity || false,
         create_entity_type: existingForm.create_entity_type || "member",
+        entity_action: existingForm.entity_action || "create",
         uniqueness_checks: existingForm.uniqueness_checks || [],
         field_mappings: existingForm.field_mappings || [],
         submission_email_template_id: existingForm.submission_email_template_id || null,
@@ -2008,6 +2010,43 @@ export default function FormBuilderPage() {
                         {formData.create_entity_type === "organization" && "A new organisation record will be created from the mapped fields"}
                         {formData.create_entity_type === "both" && "Both member and organisation records will be created and linked together"}
                       </p>
+                      
+                      <div className="mt-4 pt-3 border-t border-slate-100">
+                        <Label className="text-xs text-slate-600 mb-2 block">Record action:</Label>
+                        <div className="flex flex-wrap gap-4">
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="radio"
+                              id="action-create"
+                              name="entity_action"
+                              value="create"
+                              checked={formData.entity_action === "create"}
+                              onChange={() => setFormData({ ...formData, entity_action: "create" })}
+                              className="w-4 h-4 text-blue-600"
+                              data-testid="radio-action-create"
+                            />
+                            <Label htmlFor="action-create" className="text-sm cursor-pointer">Create new records</Label>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="radio"
+                              id="action-update"
+                              name="entity_action"
+                              value="update"
+                              checked={formData.entity_action === "update"}
+                              onChange={() => setFormData({ ...formData, entity_action: "update" })}
+                              className="w-4 h-4 text-blue-600"
+                              data-testid="radio-action-update"
+                            />
+                            <Label htmlFor="action-update" className="text-sm cursor-pointer">Update existing records</Label>
+                          </div>
+                        </div>
+                        <p className="text-xs text-slate-500 mt-2">
+                          {formData.entity_action === "create" 
+                            ? "New records will be created on submission. Use when collecting new applications."
+                            : "Existing records will be updated based on the pre-fill source. Use when form is pre-populated from existing member/organisation data."}
+                        </p>
+                      </div>
                     </div>
                   )}
                   
