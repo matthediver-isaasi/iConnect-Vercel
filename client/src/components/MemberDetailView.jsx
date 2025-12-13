@@ -40,12 +40,14 @@ export default function MemberDetailView({
   onBack, 
   memberCustomFields = [],
   organizations = [],
-  roles = []
+  roles = [],
+  isNew = false,
+  onCreated
 }) {
   const { isAdmin } = useMemberAccess();
   const { formatDate } = useDateFormat();
   const queryClient = useQueryClient();
-  const [isEditing, setIsEditing] = useState(false);
+  const [isEditing, setIsEditing] = useState(isNew);
   const [activeTab, setActiveTab] = useState('overview');
   const [formData, setFormData] = useState({
     full_name: '',
@@ -126,6 +128,22 @@ export default function MemberDetailView({
     }
   }, [memberValues]);
 
+  const createMutation = useMutation({
+    mutationFn: async (data) => {
+      return await base44.entities.Member.create(data);
+    },
+    onSuccess: (createdMember) => {
+      toast.success("Member created successfully");
+      queryClient.invalidateQueries({ queryKey: ['members-crm-list'] });
+      if (onCreated) {
+        onCreated(createdMember);
+      }
+    },
+    onError: (error) => {
+      toast.error("Failed to create member: " + (error.message || "Unknown error"));
+    }
+  });
+
   const updateMutation = useMutation({
     mutationFn: async (data) => {
       return await base44.entities.Member.update(member.id, data);
@@ -141,14 +159,52 @@ export default function MemberDetailView({
     }
   });
 
-  const handleSave = () => {
-    updateMutation.mutate({
-      ...formData,
-      roles: selectedRoles
-    });
+  const handleSave = async () => {
+    if (isNew) {
+      if (createMutation.isPending) return;
+      
+      if (!formData.email?.trim()) {
+        toast.error('Email is required');
+        return;
+      }
+      
+      createMutation.mutate({
+        ...formData,
+        roles: selectedRoles
+      }, {
+        onSuccess: async (createdMember) => {
+          const currentCustomFieldValues = { ...customFieldValues };
+          for (const [fieldId, value] of Object.entries(currentCustomFieldValues)) {
+            const storedValue = Array.isArray(value) ? JSON.stringify(value) : String(value ?? '');
+            if (storedValue && storedValue !== '[]') {
+              try {
+                await base44.entities.MemberPreferenceValue.create({
+                  member_id: createdMember.id,
+                  field_id: fieldId,
+                  value: storedValue
+                });
+              } catch (err) {
+                console.error('Failed to save custom field:', fieldId, err);
+              }
+            }
+          }
+          queryClient.invalidateQueries({ queryKey: ['all-member-preference-values-crm'] });
+        }
+      });
+    } else {
+      updateMutation.mutate({
+        ...formData,
+        roles: selectedRoles
+      });
+    }
   };
 
   const handleCancel = () => {
+    if (isNew) {
+      onBack?.();
+      return;
+    }
+    
     setFormData({
       full_name: member.full_name || '',
       email: member.email || '',
@@ -184,7 +240,7 @@ export default function MemberDetailView({
     return roleIds.map(id => roles.find(r => r.id === id)?.name || id);
   };
 
-  if (!member) return null;
+  if (!member && !isNew) return null;
 
   const org = getOrganization();
 
@@ -198,46 +254,63 @@ export default function MemberDetailView({
             </Button>
             <div className="flex items-center gap-3">
               <Avatar className="h-12 w-12">
-                <AvatarImage src={member.profile_photo} />
-                <AvatarFallback className="bg-blue-100 text-blue-700">
-                  {getInitials(member.full_name)}
-                </AvatarFallback>
+                {isNew ? (
+                  <AvatarFallback className="bg-green-100 text-green-700">
+                    <User className="w-6 h-6" />
+                  </AvatarFallback>
+                ) : (
+                  <>
+                    <AvatarImage src={member?.profile_photo} />
+                    <AvatarFallback className="bg-blue-100 text-blue-700">
+                      {getInitials(member?.full_name)}
+                    </AvatarFallback>
+                  </>
+                )}
               </Avatar>
               <div>
-                <h1 className="text-xl font-semibold text-slate-900">{member.full_name || 'Unknown Member'}</h1>
-                <p className="text-sm text-slate-500 flex items-center gap-2">
-                  {member.job_title && <span>{member.job_title}</span>}
-                  {member.job_title && org && <span>•</span>}
-                  {org && <span>{org.name}</span>}
-                </p>
+                <h1 className="text-xl font-semibold text-slate-900">
+                  {isNew ? 'Add New Member' : (member?.full_name || 'Unknown Member')}
+                </h1>
+                {!isNew && (
+                  <p className="text-sm text-slate-500 flex items-center gap-2">
+                    {member?.job_title && <span>{member.job_title}</span>}
+                    {member?.job_title && org && <span>•</span>}
+                    {org && <span>{org.name}</span>}
+                  </p>
+                )}
               </div>
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {member.disabled ? (
+            {!isNew && (member?.disabled ? (
               <Badge variant="secondary" className="bg-red-100 text-red-700">Disabled</Badge>
             ) : (
               <Badge variant="secondary" className="bg-green-100 text-green-700">Active</Badge>
-            )}
-            {isAdmin && !isEditing && (
+            ))}
+            {isAdmin && !isEditing && !isNew && (
               <Button variant="outline" size="sm" onClick={() => setIsEditing(true)} data-testid="button-edit-member">
                 <Pencil className="w-4 h-4 mr-1" />
                 Edit
               </Button>
             )}
-            {isEditing && (
+            {(isEditing || isNew) && (
               <>
                 <Button variant="ghost" size="sm" onClick={handleCancel} data-testid="button-cancel-edit-member">
                   <X className="w-4 h-4 mr-1" />
                   Cancel
                 </Button>
-                <Button size="sm" onClick={handleSave} disabled={updateMutation.isPending} data-testid="button-save-member">
-                  {updateMutation.isPending ? (
+                <Button 
+                  size="sm" 
+                  onClick={handleSave} 
+                  disabled={isNew ? createMutation.isPending : updateMutation.isPending} 
+                  data-testid="button-save-member"
+                >
+                  {(isNew ? createMutation.isPending : updateMutation.isPending) ? (
                     <Loader2 className="w-4 h-4 mr-1 animate-spin" />
                   ) : (
                     <Save className="w-4 h-4 mr-1" />
                   )}
-                  Save
+                  {isNew ? 'Create Member' : 'Save'}
                 </Button>
               </>
             )}
@@ -439,7 +512,7 @@ export default function MemberDetailView({
               </Card>
             </div>
 
-            {member.bio && (
+            {(isEditing || member?.bio) && (
               <Card>
                 <CardHeader>
                   <CardTitle className="text-lg">Bio</CardTitle>
@@ -465,9 +538,106 @@ export default function MemberDetailView({
                   <CardTitle className="text-lg">Custom Fields</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  {valuesLoading ? (
+                  {valuesLoading && !isNew ? (
                     <div className="flex items-center justify-center py-4">
                       <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
+                    </div>
+                  ) : isEditing ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {memberCustomFields.map(field => {
+                        const value = customFieldValues[field.id] ?? '';
+                        
+                        const handleCustomFieldChange = (fieldId, newValue) => {
+                          setCustomFieldValues(prev => ({
+                            ...prev,
+                            [fieldId]: newValue
+                          }));
+                        };
+                        
+                        if (field.field_type === 'dropdown' || field.field_type === 'picklist') {
+                          const options = field.options || [];
+                          return (
+                            <div key={field.id} className="space-y-2">
+                              <Label>{field.label}</Label>
+                              <Select
+                                value={value}
+                                onValueChange={(v) => handleCustomFieldChange(field.id, v)}
+                              >
+                                <SelectTrigger data-testid={`select-custom-field-${field.id}`}>
+                                  <SelectValue placeholder={`Select ${field.label}`} />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="">None</SelectItem>
+                                  {options.map(opt => (
+                                    <SelectItem key={opt} value={opt}>{opt}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          );
+                        } else if (field.field_type === 'boolean' || field.field_type === 'checkbox') {
+                          return (
+                            <div key={field.id} className="flex items-center gap-2 pt-6">
+                              <Checkbox
+                                id={`custom-field-${field.id}`}
+                                checked={value === 'true' || value === true}
+                                onCheckedChange={(checked) => handleCustomFieldChange(field.id, checked ? 'true' : 'false')}
+                                data-testid={`checkbox-custom-field-${field.id}`}
+                              />
+                              <Label htmlFor={`custom-field-${field.id}`}>{field.label}</Label>
+                            </div>
+                          );
+                        } else if (field.field_type === 'textarea' || field.field_type === 'long_text') {
+                          return (
+                            <div key={field.id} className="space-y-2 md:col-span-2">
+                              <Label>{field.label}</Label>
+                              <Textarea
+                                value={value}
+                                onChange={(e) => handleCustomFieldChange(field.id, e.target.value)}
+                                rows={3}
+                                data-testid={`textarea-custom-field-${field.id}`}
+                              />
+                            </div>
+                          );
+                        } else if (field.field_type === 'date') {
+                          return (
+                            <div key={field.id} className="space-y-2">
+                              <Label>{field.label}</Label>
+                              <Input
+                                type="date"
+                                value={value}
+                                onChange={(e) => handleCustomFieldChange(field.id, e.target.value)}
+                                data-testid={`input-custom-field-${field.id}`}
+                              />
+                            </div>
+                          );
+                        } else if (field.field_type === 'number') {
+                          return (
+                            <div key={field.id} className="space-y-2">
+                              <Label>{field.label}</Label>
+                              <Input
+                                type="number"
+                                value={value}
+                                onChange={(e) => handleCustomFieldChange(field.id, e.target.value)}
+                                data-testid={`input-custom-field-${field.id}`}
+                              />
+                            </div>
+                          );
+                        } else {
+                          return (
+                            <div key={field.id} className="space-y-2">
+                              <Label>{field.label}</Label>
+                              <Input
+                                type={field.field_type === 'email' ? 'email' : field.field_type === 'url' ? 'url' : 'text'}
+                                value={value}
+                                onChange={(e) => handleCustomFieldChange(field.id, e.target.value)}
+                                placeholder={field.placeholder || ''}
+                                data-testid={`input-custom-field-${field.id}`}
+                              />
+                            </div>
+                          );
+                        }
+                      })}
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -481,6 +651,8 @@ export default function MemberDetailView({
                           displayValue = <a href={`mailto:${value}`} className="text-blue-600 hover:underline">{value}</a>;
                         } else if (field.field_type === 'url' && value) {
                           displayValue = <a href={value} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline flex items-center gap-1">{value} <ExternalLink className="w-3 h-3" /></a>;
+                        } else if (field.field_type === 'boolean' || field.field_type === 'checkbox') {
+                          displayValue = value === 'true' || value === true ? 'Yes' : 'No';
                         } else {
                           displayValue = value || '-';
                         }

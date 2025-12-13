@@ -90,6 +90,7 @@ export default function MembersListPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(20);
   const [selectedMember, setSelectedMember] = useState(null);
+  const [isCreatingNew, setIsCreatingNew] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [columns, setColumns] = useState(() => loadLocalColumns() || DEFAULT_COLUMNS);
   const [draggedColumn, setDraggedColumn] = useState(null);
@@ -504,6 +505,23 @@ export default function MembersListPage() {
     );
   }
 
+  if (isCreatingNew) {
+    return (
+      <MemberDetailView
+        member={{}}
+        onBack={() => setIsCreatingNew(false)}
+        memberCustomFields={memberCustomFields}
+        organizations={organizations}
+        roles={roles}
+        isNew={true}
+        onCreated={(createdMember) => {
+          setIsCreatingNew(false);
+          setSelectedMember(createdMember);
+        }}
+      />
+    );
+  }
+
   if (selectedMember) {
     return (
       <MemberDetailView
@@ -830,6 +848,14 @@ export default function MembersListPage() {
                     </PopoverContent>
                   </Popover>
                 )}
+                <Button 
+                  onClick={() => setIsCreatingNew(true)}
+                  className="gap-1"
+                  data-testid="button-add-member"
+                >
+                  <Users className="w-4 h-4" />
+                  Add Member
+                </Button>
                 <div className="bg-slate-100 rounded-lg p-1 flex">
                   <Button
                     variant={viewMode === 'list' ? 'default' : 'ghost'}
