@@ -529,18 +529,20 @@ function FieldCard({
               <GripVertical className="w-5 h-5 text-slate-400" />
             </div>
             <div className="flex-1 space-y-3">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-3 gap-3">
                 <div className="space-y-1">
-                  <Label className="text-xs">Field Type</Label>
+                  <Label className="text-xs">Standard Fields</Label>
                   <Select
-                    value={field.type}
-                    onValueChange={(value) => updateField(originalIndex, { type: value })}
+                    value={getFieldTypeCategory(field.type) === 'standard' ? field.type : ''}
+                    onValueChange={(value) => {
+                      if (value) updateField(originalIndex, { type: value });
+                    }}
                   >
-                    <SelectTrigger className="h-9">
-                      <SelectValue />
+                    <SelectTrigger className="h-9" data-testid={`select-standard-type-${field.id}`}>
+                      <SelectValue placeholder="Select..." />
                     </SelectTrigger>
-                    <SelectContent>
-                      {FIELD_TYPES.map(type => (
+                    <SelectContent className="max-h-60 overflow-y-auto">
+                      {STANDARD_FIELD_TYPES.map(type => (
                         <SelectItem key={type.value} value={type.value}>
                           {type.label}
                         </SelectItem>
@@ -549,13 +551,53 @@ function FieldCard({
                   </Select>
                 </div>
                 <div className="space-y-1">
-                  <Label className="text-xs">Label</Label>
-                  <Input
-                    value={field.label}
-                    onChange={(e) => updateField(originalIndex, { label: e.target.value })}
-                    className="h-9"
-                  />
+                  <Label className="text-xs">Pre-populate Fields</Label>
+                  <Select
+                    value={getFieldTypeCategory(field.type) === 'prepopulate' ? field.type : ''}
+                    onValueChange={(value) => {
+                      if (value) updateField(originalIndex, { type: value });
+                    }}
+                  >
+                    <SelectTrigger className="h-9" data-testid={`select-prepopulate-type-${field.id}`}>
+                      <SelectValue placeholder="Select..." />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-60 overflow-y-auto">
+                      {PREPOPULATE_FIELD_TYPES.map(type => (
+                        <SelectItem key={type.value} value={type.value}>
+                          {type.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Auto-populate Fields</Label>
+                  <Select
+                    value={getFieldTypeCategory(field.type) === 'auto' ? field.type : ''}
+                    onValueChange={(value) => {
+                      if (value) updateField(originalIndex, { type: value });
+                    }}
+                  >
+                    <SelectTrigger className="h-9" data-testid={`select-auto-type-${field.id}`}>
+                      <SelectValue placeholder="Select..." />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-60 overflow-y-auto">
+                      {AUTO_FIELD_TYPES.map(type => (
+                        <SelectItem key={type.value} value={type.value}>
+                          {type.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Label</Label>
+                <Input
+                  value={field.label}
+                  onChange={(e) => updateField(originalIndex, { label: e.target.value })}
+                  className="h-9"
+                />
               </div>
 
               <div className="space-y-1">
