@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Loader2, Plus, Trash2, GripVertical, Save, ArrowLeft, FileText, ChevronDown, ChevronUp, Edit2, X, Eye, EyeOff } from "lucide-react";
+import { Loader2, Plus, Trash2, GripVertical, Save, ArrowLeft, FileText, ChevronDown, ChevronUp, Edit2, X, Eye, EyeOff, Lock, Unlock } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -938,6 +938,24 @@ function LogicRulesSection({
                       >
                         <Edit2 className="w-3 h-3 mr-1" /> Set Value
                       </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={() => addAction(rule.id, 'disable')}
+                        data-testid={`button-add-disable-action-${index}`}
+                      >
+                        <Lock className="w-3 h-3 mr-1" /> Disable
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={() => addAction(rule.id, 'enable')}
+                        data-testid={`button-add-enable-action-${index}`}
+                      >
+                        <Unlock className="w-3 h-3 mr-1" /> Enable
+                      </Button>
                     </div>
                   </div>
 
@@ -949,11 +967,13 @@ function LogicRulesSection({
                     <div className="space-y-2">
                       {actions.map((action, actionIndex) => {
                         const isVisibilityAction = action.action_type === 'show' || action.action_type === 'hide';
+                        const isDisabilityAction = action.action_type === 'disable' || action.action_type === 'enable';
+                        const isFieldTargetAction = isVisibilityAction || isDisabilityAction;
                         
                         return (
                           <div 
                             key={action.id} 
-                            className={`p-3 rounded-lg border ${isVisibilityAction ? 'bg-white border-slate-200' : 'bg-blue-50 border-blue-200'}`}
+                            className={`p-3 rounded-lg border ${isVisibilityAction ? 'bg-white border-slate-200' : isDisabilityAction ? 'bg-orange-50 border-orange-200' : 'bg-blue-50 border-blue-200'}`}
                             data-testid={`action-row-${index}-${actionIndex}`}
                           >
                             <div className="flex items-center justify-between mb-2">
@@ -961,10 +981,14 @@ function LogicRulesSection({
                                 {action.action_type === 'show' && <Eye className="w-3 h-3 text-green-600" />}
                                 {action.action_type === 'hide' && <EyeOff className="w-3 h-3 text-slate-600" />}
                                 {action.action_type === 'set_value' && <Edit2 className="w-3 h-3 text-blue-600" />}
+                                {action.action_type === 'disable' && <Lock className="w-3 h-3 text-orange-600" />}
+                                {action.action_type === 'enable' && <Unlock className="w-3 h-3 text-teal-600" />}
                                 <span className="text-xs font-medium">
                                   {action.action_type === 'show' && 'Show Fields'}
                                   {action.action_type === 'hide' && 'Hide Fields'}
                                   {action.action_type === 'set_value' && 'Set Field Value'}
+                                  {action.action_type === 'disable' && 'Disable Fields'}
+                                  {action.action_type === 'enable' && 'Enable Fields'}
                                 </span>
                               </div>
                               <Button
@@ -978,7 +1002,7 @@ function LogicRulesSection({
                               </Button>
                             </div>
 
-                            {isVisibilityAction ? (
+                            {isFieldTargetAction ? (
                               <div>
                                 <Label className="text-xs text-slate-600 mb-2 block">
                                   Target Fields ({(action.target_field_ids || []).length} selected)
@@ -989,6 +1013,9 @@ function LogicRulesSection({
                                   <div className="flex flex-wrap gap-2">
                                     {availableTargetFields.map(field => {
                                       const isSelected = (action.target_field_ids || []).includes(field.id);
+                                      const ActionIcon = isDisabilityAction 
+                                        ? (isSelected ? Lock : Unlock) 
+                                        : (isSelected ? Eye : EyeOff);
                                       return (
                                         <Button
                                           key={field.id}
@@ -998,7 +1025,7 @@ function LogicRulesSection({
                                           onClick={() => toggleTargetFieldInAction(rule.id, action.id, field.id)}
                                           data-testid={`button-action-target-${index}-${actionIndex}-${field.id}`}
                                         >
-                                          {isSelected ? <Eye className="w-3 h-3 mr-1" /> : <EyeOff className="w-3 h-3 mr-1" />}
+                                          <ActionIcon className="w-3 h-3 mr-1" />
                                           {field.label || field.type}
                                         </Button>
                                       );

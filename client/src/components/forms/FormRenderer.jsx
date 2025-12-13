@@ -15,9 +15,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-export default function FormRenderer({ field, value, onChange, memberInfo, organizationInfo }) {
+export default function FormRenderer({ field, value, onChange, memberInfo, organizationInfo, disabled = false }) {
   const [showOtherInput, setShowOtherInput] = useState(false);
   const [otherValue, setOtherValue] = useState('');
+  
+  // Combine field.locked with disabled prop - either makes the field non-editable
+  const isFieldDisabled = field.locked || disabled;
 
   // Fetch organisations for organisation_dropdown field type (uses public endpoint)
   const { data: organisations = [], isLoading: orgsLoading } = useQuery({
@@ -124,8 +127,8 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
             onChange={(e) => onChange(e.target.value)}
             placeholder={field.placeholder || (field.type === 'url' ? 'https://example.com' : undefined)}
             required={field.required}
-            disabled={field.locked}
-            className={field.locked ? 'bg-slate-100 cursor-not-allowed' : ''}
+            disabled={isFieldDisabled}
+            className={isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : ''}
           />
         );
 
@@ -136,8 +139,8 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
             onChange={(e) => onChange(e.target.value)}
             placeholder={field.placeholder}
             required={field.required}
-            disabled={field.locked}
-            className={field.locked ? 'bg-slate-100 cursor-not-allowed' : ''}
+            disabled={isFieldDisabled}
+            className={isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : ''}
             rows={4}
           />
         );
@@ -150,8 +153,8 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
             value={value || ''}
             onChange={(e) => onChange(e.target.value)}
             required={field.required}
-            disabled={field.locked}
-            className={field.locked ? 'bg-slate-100 cursor-not-allowed' : ''}
+            disabled={isFieldDisabled}
+            className={isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : ''}
           />
         );
 
@@ -161,7 +164,7 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
             <Select 
               value={showOtherInput ? 'other' : (value || '')} 
               onValueChange={(val) => {
-                if (field.locked) return;
+                if (isFieldDisabled) return;
                 if (val === 'other') {
                   setShowOtherInput(true);
                   onChange('');
@@ -171,9 +174,9 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
                   onChange(val);
                 }
               }}
-              disabled={field.locked}
+              disabled={isFieldDisabled}
             >
-              <SelectTrigger className={field.locked ? 'bg-slate-100 cursor-not-allowed' : ''}>
+              <SelectTrigger className={isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : ''}>
                 <SelectValue placeholder={field.placeholder || 'Select an option'} />
               </SelectTrigger>
               <SelectContent>
@@ -204,7 +207,7 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
 
       case 'radio':
         return (
-          <RadioGroup value={value || ''} onValueChange={field.locked ? undefined : onChange} disabled={field.locked}>
+          <RadioGroup value={value || ''} onValueChange={isFieldDisabled ? undefined : onChange} disabled={isFieldDisabled}>
             {(field.options || []).map((option, index) => (
               <div key={index} className="flex items-center space-x-2">
                 <RadioGroupItem value={option} id={`${field.id}-${index}`} />
@@ -224,9 +227,9 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
                 <Checkbox
                   id={`${field.id}-${index}`}
                   checked={(value || []).includes(option)}
-                  disabled={field.locked}
+                  disabled={isFieldDisabled}
                   onCheckedChange={(checked) => {
-                    if (field.locked) return;
+                    if (isFieldDisabled) return;
                     const currentValues = value || [];
                     if (checked) {
                       onChange([...currentValues, option]);
@@ -254,8 +257,8 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
               }
             }}
             required={field.required}
-            disabled={field.locked}
-            className={field.locked ? 'bg-slate-100 cursor-not-allowed' : ''}
+            disabled={isFieldDisabled}
+            className={isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : ''}
           />
         );
 
@@ -271,8 +274,8 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
         // Find current org name for display (value stores ID)
         const selectedOrg = organisations.find(org => org.id === value);
         return (
-          <Select value={value || ''} onValueChange={field.locked ? undefined : onChange} disabled={field.locked}>
-            <SelectTrigger data-testid={`select-organisation-${field.id}`} className={field.locked ? 'bg-slate-100 cursor-not-allowed' : ''}>
+          <Select value={value || ''} onValueChange={isFieldDisabled ? undefined : onChange} disabled={isFieldDisabled}>
+            <SelectTrigger data-testid={`select-organisation-${field.id}`} className={isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : ''}>
               <SelectValue placeholder={field.placeholder || 'Select an organisation'}>
                 {selectedOrg?.name}
               </SelectValue>
@@ -317,9 +320,9 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
                 <Checkbox
                   id={`${field.id}-${category.id}`}
                   checked={(value || []).includes(category.name)}
-                  disabled={field.locked}
+                  disabled={isFieldDisabled}
                   onCheckedChange={(checked) => {
-                    if (field.locked) return;
+                    if (isFieldDisabled) return;
                     const currentValues = value || [];
                     if (checked) {
                       onChange([...currentValues, category.name]);
@@ -376,8 +379,8 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
         }
         
         return (
-          <Select value={value || ''} onValueChange={field.locked ? undefined : onChange} disabled={field.locked}>
-            <SelectTrigger data-testid={`select-category-dropdown-${field.id}`} className={field.locked ? 'bg-slate-100 cursor-not-allowed' : ''}>
+          <Select value={value || ''} onValueChange={isFieldDisabled ? undefined : onChange} disabled={isFieldDisabled}>
+            <SelectTrigger data-testid={`select-category-dropdown-${field.id}`} className={isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : ''}>
               <SelectValue placeholder={field.placeholder || 'Select an option'} />
             </SelectTrigger>
             <SelectContent>
@@ -431,9 +434,9 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
                     <Checkbox
                       id={`${field.id}-${index}`}
                       checked={(value || []).includes(optValue)}
-                      disabled={field.locked}
+                      disabled={isFieldDisabled}
                       onCheckedChange={(checked) => {
-                        if (field.locked) return;
+                        if (isFieldDisabled) return;
                         const currentValues = value || [];
                         if (checked) {
                           onChange([...currentValues, optValue]);
@@ -455,7 +458,7 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
         
         if (customFieldDef.field_type === 'radio') {
           return (
-            <RadioGroup value={value || ''} onValueChange={field.locked ? undefined : onChange} disabled={field.locked}>
+            <RadioGroup value={value || ''} onValueChange={isFieldDisabled ? undefined : onChange} disabled={isFieldDisabled}>
               {customFieldOptions.map((option, index) => {
                 const optValue = option.value || option.label || option;
                 const optLabel = option.label || option.value || option;
@@ -464,7 +467,7 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
                     <RadioGroupItem 
                       value={optValue} 
                       id={`${field.id}-${index}`}
-                      disabled={field.locked}
+                      disabled={isFieldDisabled}
                       data-testid={`radio-custom-${field.id}-${index}`}
                     />
                     <Label htmlFor={`${field.id}-${index}`} className="font-normal cursor-pointer">
@@ -491,9 +494,9 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
                     <Checkbox
                       id={`${field.id}-${index}`}
                       checked={isChecked}
-                      disabled={field.locked}
+                      disabled={isFieldDisabled}
                       onCheckedChange={(checked) => {
-                        if (field.locked) return;
+                        if (isFieldDisabled) return;
                         if (checked) {
                           onChange([...selectedValues, optValue]);
                         } else {
@@ -514,8 +517,8 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
         
         // Default: dropdown/select
         return (
-          <Select value={value || ''} onValueChange={field.locked ? undefined : onChange} disabled={field.locked}>
-            <SelectTrigger data-testid={`select-custom-field-${field.id}`} className={field.locked ? 'bg-slate-100 cursor-not-allowed' : ''}>
+          <Select value={value || ''} onValueChange={isFieldDisabled ? undefined : onChange} disabled={isFieldDisabled}>
+            <SelectTrigger data-testid={`select-custom-field-${field.id}`} className={isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : ''}>
               <SelectValue placeholder={field.placeholder || 'Select an option'} />
             </SelectTrigger>
             <SelectContent>
@@ -541,17 +544,17 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
                 <Input
                   value={item}
                   onChange={(e) => {
-                    if (field.locked) return;
+                    if (isFieldDisabled) return;
                     const newValues = [...listValues];
                     newValues[index] = e.target.value;
                     onChange(newValues);
                   }}
                   placeholder={field.placeholder || 'Enter value...'}
-                  disabled={field.locked}
-                  className={field.locked ? 'bg-slate-100 cursor-not-allowed' : ''}
+                  disabled={isFieldDisabled}
+                  className={isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : ''}
                   data-testid={`input-list-item-${field.id}-${index}`}
                 />
-                {!field.locked && (
+                {!isFieldDisabled && (
                   <Button
                     type="button"
                     variant="ghost"
@@ -568,7 +571,7 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
                 )}
               </div>
             ))}
-            {!field.locked && (
+            {!isFieldDisabled && (
               <Button
                 type="button"
                 variant="outline"
@@ -581,7 +584,7 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
                 Add Item
               </Button>
             )}
-            {listValues.length === 0 && field.locked && (
+            {listValues.length === 0 && isFieldDisabled && (
               <p className="text-sm text-slate-500">No items added</p>
             )}
           </div>

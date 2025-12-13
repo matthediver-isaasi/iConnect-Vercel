@@ -368,6 +368,78 @@ export default function FormViewPage() {
     return fields.filter(field => !hiddenFieldIds.has(field.id));
   };
 
+  // Compute initial disabled fields from field.starts_disabled property
+  // Only fields with explicit starts_disabled = true start disabled
+  const initialDisabledFieldIds = useMemo(() => {
+    const disabled = new Set();
+    
+    // Only check field.starts_disabled - this is the sole source of truth
+    for (const field of (form?.fields || [])) {
+      if (field.starts_disabled) {
+        disabled.add(field.id);
+      }
+    }
+    
+    return disabled;
+  }, [form?.fields]);
+
+  // Evaluate disable/enable rules to determine which fields should be disabled
+  // Key principle: Fields start enabled by default. Disable rules add to disabled set, enable rules remove from it.
+  const disabledFieldIds = useMemo(() => {
+    // Start with fields that have starts_disabled = true
+    const disabled = new Set(initialDisabledFieldIds);
+    
+    if (!form?.visibility_rules || form.visibility_rules.length === 0) {
+      return disabled;
+    }
+    
+    // Track which fields should be enabled/disabled based on rule evaluation
+    const fieldDisability = {};
+    
+    for (const rule of form.visibility_rules) {
+      if (!rule.trigger_field_id) continue;
+      
+      const triggerValue = formValues[rule.trigger_field_id];
+      const conditionMet = evaluateCondition(triggerValue, rule.operator, rule.value);
+
+      // Handle new multi-action format
+      if (rule.actions && Array.isArray(rule.actions)) {
+        for (const action of rule.actions) {
+          if (action.action_type === 'enable' || action.action_type === 'disable') {
+            const targetIds = action.target_field_ids || [];
+            targetIds.forEach(fieldId => {
+              if (!fieldDisability[fieldId]) {
+                fieldDisability[fieldId] = { enableRules: [], disableRules: [] };
+              }
+              if (action.action_type === 'enable') {
+                fieldDisability[fieldId].enableRules.push(conditionMet);
+              } else if (action.action_type === 'disable') {
+                fieldDisability[fieldId].disableRules.push(conditionMet);
+              }
+            });
+          }
+        }
+      }
+    }
+    
+    // Update disabled set based on evaluated rules
+    for (const [fieldId, { enableRules, disableRules }] of Object.entries(fieldDisability)) {
+      // For enable rules: if ANY enable rule is satisfied, remove from disabled set
+      const anyEnableConditionMet = enableRules.some(result => result === true);
+      if (anyEnableConditionMet) {
+        disabled.delete(fieldId);
+      }
+      
+      // For disable rules: if ANY disable rule is satisfied, add to disabled set
+      const anyDisableConditionMet = disableRules.some(result => result === true);
+      if (anyDisableConditionMet) {
+        disabled.add(fieldId);
+      }
+    }
+    
+    return disabled;
+  }, [form?.visibility_rules, formValues, initialDisabledFieldIds]);
+
   // Process Set Value rules - when conditions are met, update target field values
   // When conditions become false, revert to original values (undo the action)
   
@@ -724,6 +796,7 @@ export default function FormViewPage() {
                 onChange={(value) => setFormValues({ ...formValues, [currentField.id]: value })}
                 memberInfo={memberData}
                 organizationInfo={organizationInfo}
+                disabled={disabledFieldIds.has(currentField.id)}
               />
             )}
           </CardContent>
@@ -874,6 +947,7 @@ export default function FormViewPage() {
                     onChange={(value) => setFormValues({ ...formValues, [field.id]: value })}
                     memberInfo={memberData}
                     organizationInfo={organizationInfo}
+                    disabled={disabledFieldIds.has(field.id)}
                   />
                 ));
               }
@@ -896,6 +970,7 @@ export default function FormViewPage() {
                           onChange={(value) => setFormValues({ ...formValues, [field.id]: value })}
                           memberInfo={memberData}
                           organizationInfo={organizationInfo}
+                          disabled={disabledFieldIds.has(field.id)}
                         />
                       ))}
                     </div>
@@ -917,6 +992,7 @@ export default function FormViewPage() {
                               onChange={(value) => setFormValues({ ...formValues, [field.id]: value })}
                               memberInfo={memberData}
                               organizationInfo={organizationInfo}
+                              disabled={disabledFieldIds.has(field.id)}
                             />
                           ))}
                         </div>
