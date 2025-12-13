@@ -424,19 +424,27 @@ const VISIBILITY_OPERATORS = [
   { value: 'is_empty', label: 'Is empty' },
 ];
 
+const RULE_TYPES = [
+  { value: 'visibility', label: 'Show/Hide Fields', icon: Eye, description: 'Control field visibility' },
+  { value: 'set_value', label: 'Set Field Value', icon: Edit2, description: 'Set a field value' },
+];
+
 function LogicRulesSection({ 
   fields, 
   visibilityRules = [], 
   onRulesChange 
 }) {
-  const addRule = () => {
+  const addRule = (ruleType = 'visibility') => {
     const newRule = {
       id: `rule_${Date.now()}`,
+      rule_type: ruleType,
       trigger_field_id: '',
       operator: 'equals',
       value: '',
-      action: 'show',
-      target_field_ids: []
+      action: ruleType === 'visibility' ? 'show' : 'set_value',
+      target_field_ids: [],
+      target_field_id: '',
+      set_value: ''
     };
     onRulesChange([...visibilityRules, newRule]);
   };
@@ -477,49 +485,184 @@ function LogicRulesSection({
     return [];
   };
 
+  const getTargetFieldOptions = (targetFieldId) => {
+    const field = fields.find(f => f.id === targetFieldId);
+    if (!field) return { type: 'text', options: [] };
+    
+    const hasOptions = ['select', 'radio', 'checkbox'].includes(field.type);
+    return {
+      type: field.type,
+      options: hasOptions ? (field.options || []) : []
+    };
+  };
+
+  const renderSetValueInput = (rule, index) => {
+    const targetInfo = getTargetFieldOptions(rule.target_field_id);
+    const targetField = fields.find(f => f.id === rule.target_field_id);
+    
+    if (!rule.target_field_id) {
+      return <p className="text-xs text-slate-400">Select a target field first</p>;
+    }
+
+    if (targetInfo.options.length > 0) {
+      if (targetInfo.type === 'checkbox') {
+        return (
+          <div className="space-y-2">
+            <Label className="text-xs text-slate-600">Select values to set:</Label>
+            <div className="flex flex-wrap gap-2">
+              {targetInfo.options.map((opt, optIdx) => {
+                const optValue = typeof opt === 'string' ? opt : (opt.value || opt);
+                const optLabel = typeof opt === 'string' ? opt : (opt.label || opt.value || opt);
+                const currentValues = Array.isArray(rule.set_value) ? rule.set_value : [];
+                const isSelected = currentValues.includes(optValue);
+                return (
+                  <Button
+                    key={optIdx}
+                    variant={isSelected ? "default" : "outline"}
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() => {
+                      const newValues = isSelected
+                        ? currentValues.filter(v => v !== optValue)
+                        : [...currentValues, optValue];
+                      updateRule(rule.id, { set_value: newValues });
+                    }}
+                    data-testid={`button-set-value-option-${index}-${optIdx}`}
+                  >
+                    {optLabel}
+                  </Button>
+                );
+              })}
+            </div>
+          </div>
+        );
+      } else {
+        return (
+          <Select
+            value={rule.set_value || undefined}
+            onValueChange={(value) => updateRule(rule.id, { set_value: value })}
+          >
+            <SelectTrigger className="h-9" data-testid={`select-set-value-${index}`}>
+              <SelectValue placeholder="Select value to set..." />
+            </SelectTrigger>
+            <SelectContent>
+              {targetInfo.options.map((opt, optIdx) => (
+                <SelectItem 
+                  key={optIdx} 
+                  value={typeof opt === 'string' ? opt : (opt.value || opt)}
+                >
+                  {typeof opt === 'string' ? opt : (opt.label || opt.value || opt)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        );
+      }
+    }
+
+    if (targetInfo.type === 'date') {
+      return (
+        <Input
+          type="date"
+          value={rule.set_value || ''}
+          onChange={(e) => updateRule(rule.id, { set_value: e.target.value })}
+          className="h-9"
+          data-testid={`input-set-value-date-${index}`}
+        />
+      );
+    }
+
+    if (targetInfo.type === 'number') {
+      return (
+        <Input
+          type="number"
+          value={rule.set_value || ''}
+          onChange={(e) => updateRule(rule.id, { set_value: e.target.value })}
+          placeholder="Enter number..."
+          className="h-9"
+          data-testid={`input-set-value-number-${index}`}
+        />
+      );
+    }
+
+    return (
+      <Input
+        value={rule.set_value || ''}
+        onChange={(e) => updateRule(rule.id, { set_value: e.target.value })}
+        placeholder="Enter value to set..."
+        className="h-9"
+        data-testid={`input-set-value-${index}`}
+      />
+    );
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-sm font-medium flex items-center gap-2">
-            <Eye className="w-4 h-4" />
-            Visibility Rules
+            <Settings2 className="w-4 h-4" />
+            Conditional Logic Rules
           </h3>
           <p className="text-xs text-slate-500 mt-1">
-            Show or hide fields based on user responses
+            Show/hide fields or set values based on user responses
           </p>
         </div>
-        <Button 
-          onClick={addRule} 
-          size="sm" 
-          variant="outline"
-          data-testid="button-add-visibility-rule"
-        >
-          <Plus className="w-4 h-4 mr-2" />
-          Add Rule
-        </Button>
+        <div className="flex gap-2">
+          <Button 
+            onClick={() => addRule('visibility')} 
+            size="sm" 
+            variant="outline"
+            data-testid="button-add-visibility-rule"
+          >
+            <Eye className="w-4 h-4 mr-2" />
+            Add Visibility Rule
+          </Button>
+          <Button 
+            onClick={() => addRule('set_value')} 
+            size="sm" 
+            variant="outline"
+            data-testid="button-add-set-value-rule"
+          >
+            <Edit2 className="w-4 h-4 mr-2" />
+            Add Set Value Rule
+          </Button>
+        </div>
       </div>
 
       {visibilityRules.length === 0 ? (
         <div className="text-center py-8 text-slate-400 border border-dashed border-slate-200 rounded-lg">
-          <Eye className="w-8 h-8 mx-auto mb-2 opacity-50" />
-          <p className="text-sm">No visibility rules defined</p>
-          <p className="text-xs mt-1">Add rules to conditionally show or hide form fields</p>
+          <Settings2 className="w-8 h-8 mx-auto mb-2 opacity-50" />
+          <p className="text-sm">No conditional logic rules defined</p>
+          <p className="text-xs mt-1">Add rules to show/hide fields or set values based on user responses</p>
         </div>
       ) : (
         <div className="space-y-3">
           {visibilityRules.map((rule, index) => {
+            const ruleType = rule.rule_type || 'visibility';
             const triggerField = fields.find(f => f.id === rule.trigger_field_id);
             const triggerOptions = getTriggerFieldOptions(rule.trigger_field_id);
             const needsValueInput = rule.operator !== 'is_empty' && rule.operator !== 'not_empty';
             const availableTargetFields = fields.filter(f => f.id !== rule.trigger_field_id);
+            const isVisibilityRule = ruleType === 'visibility';
             
             return (
               <div 
                 key={rule.id} 
-                className="p-4 bg-slate-50 border border-slate-200 rounded-lg space-y-3"
-                data-testid={`visibility-rule-row-${index}`}
+                className={`p-4 border rounded-lg space-y-3 ${isVisibilityRule ? 'bg-slate-50 border-slate-200' : 'bg-blue-50 border-blue-200'}`}
+                data-testid={`${ruleType}-rule-row-${index}`}
               >
+                <div className="flex items-center gap-2 mb-2">
+                  {isVisibilityRule ? (
+                    <Eye className="w-4 h-4 text-slate-600" />
+                  ) : (
+                    <Edit2 className="w-4 h-4 text-blue-600" />
+                  )}
+                  <span className="text-xs font-medium text-slate-600">
+                    {isVisibilityRule ? 'Visibility Rule' : 'Set Value Rule'}
+                  </span>
+                </div>
+
                 <div className="flex flex-wrap items-end gap-3">
                   <div className="space-y-1 min-w-[80px]">
                     <Label className="text-xs">When</Label>
@@ -592,29 +735,31 @@ function LogicRulesSection({
                     </div>
                   )}
 
-                  <div className="space-y-1 min-w-[80px]">
-                    <Label className="text-xs">Then</Label>
-                    <Select
-                      value={rule.action}
-                      onValueChange={(value) => updateRule(rule.id, { action: value })}
-                    >
-                      <SelectTrigger className="h-9" data-testid={`select-action-${index}`}>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="show">
-                          <span className="flex items-center gap-1">
-                            <Eye className="w-3 h-3" /> Show
-                          </span>
-                        </SelectItem>
-                        <SelectItem value="hide">
-                          <span className="flex items-center gap-1">
-                            <EyeOff className="w-3 h-3" /> Hide
-                          </span>
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+                  {isVisibilityRule && (
+                    <div className="space-y-1 min-w-[80px]">
+                      <Label className="text-xs">Then</Label>
+                      <Select
+                        value={rule.action}
+                        onValueChange={(value) => updateRule(rule.id, { action: value })}
+                      >
+                        <SelectTrigger className="h-9" data-testid={`select-action-${index}`}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="show">
+                            <span className="flex items-center gap-1">
+                              <Eye className="w-3 h-3" /> Show
+                            </span>
+                          </SelectItem>
+                          <SelectItem value="hide">
+                            <span className="flex items-center gap-1">
+                              <EyeOff className="w-3 h-3" /> Hide
+                            </span>
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
 
                   <div className="flex items-end pb-0.5">
                     <Button
@@ -629,33 +774,66 @@ function LogicRulesSection({
                   </div>
                 </div>
 
-                <div className="pt-2 border-t border-slate-200">
-                  <Label className="text-xs text-slate-600 mb-2 block">
-                    Target Fields ({rule.target_field_ids?.length || 0} selected)
-                  </Label>
-                  {availableTargetFields.length === 0 ? (
-                    <p className="text-xs text-slate-400">Add more fields to the form to select targets</p>
-                  ) : (
-                    <div className="flex flex-wrap gap-2">
-                      {availableTargetFields.map(field => {
-                        const isSelected = (rule.target_field_ids || []).includes(field.id);
-                        return (
-                          <Button
-                            key={field.id}
-                            variant={isSelected ? "default" : "outline"}
-                            size="sm"
-                            className="h-7 text-xs"
-                            onClick={() => toggleTargetField(rule.id, field.id)}
-                            data-testid={`button-target-field-${field.id}`}
-                          >
-                            {isSelected ? <Eye className="w-3 h-3 mr-1" /> : <EyeOff className="w-3 h-3 mr-1" />}
-                            {field.label || field.type}
-                          </Button>
-                        );
-                      })}
+                {isVisibilityRule ? (
+                  <div className="pt-2 border-t border-slate-200">
+                    <Label className="text-xs text-slate-600 mb-2 block">
+                      Target Fields ({rule.target_field_ids?.length || 0} selected)
+                    </Label>
+                    {availableTargetFields.length === 0 ? (
+                      <p className="text-xs text-slate-400">Add more fields to the form to select targets</p>
+                    ) : (
+                      <div className="flex flex-wrap gap-2">
+                        {availableTargetFields.map(field => {
+                          const isSelected = (rule.target_field_ids || []).includes(field.id);
+                          return (
+                            <Button
+                              key={field.id}
+                              variant={isSelected ? "default" : "outline"}
+                              size="sm"
+                              className="h-7 text-xs"
+                              onClick={() => toggleTargetField(rule.id, field.id)}
+                              data-testid={`button-target-field-${field.id}`}
+                            >
+                              {isSelected ? <Eye className="w-3 h-3 mr-1" /> : <EyeOff className="w-3 h-3 mr-1" />}
+                              {field.label || field.type}
+                            </Button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="pt-2 border-t border-blue-200 space-y-3">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <Label className="text-xs text-slate-600">Target Field</Label>
+                        <Select
+                          value={rule.target_field_id || undefined}
+                          onValueChange={(value) => {
+                            if (value) {
+                              updateRule(rule.id, { target_field_id: value, set_value: '' });
+                            }
+                          }}
+                        >
+                          <SelectTrigger className="h-9" data-testid={`select-target-field-${index}`}>
+                            <SelectValue placeholder="Select field to set..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {availableTargetFields.map(field => (
+                              <SelectItem key={field.id} value={field.id}>
+                                {field.label || field.type} ({field.type})
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs text-slate-600">Set To</Label>
+                        {renderSetValueInput(rule, index)}
+                      </div>
                     </div>
-                  )}
-                </div>
+                  </div>
+                )}
               </div>
             );
           })}
@@ -1215,7 +1393,7 @@ export default function FormBuilderPage() {
     submission_email_template_id: null,
     submission_email_recipient: '',
     prefill_source: "none", // "none", "member", or "organization" - enables pre-populating form from entity data
-    visibility_rules: [] // Conditional logic rules: [{id, trigger_field_id, operator, value, action, target_field_ids}]
+    visibility_rules: [] // Conditional logic rules: [{id, rule_type, trigger_field_id, operator, value, action, target_field_ids, target_field_id, set_value}]
   });
   
   // Track which form pages are expanded (for collapsible UI) - true = expanded, false = collapsed
@@ -1358,7 +1536,13 @@ export default function FormBuilderPage() {
         submission_email_template_id: existingForm.submission_email_template_id || null,
         submission_email_recipient: existingForm.submission_email_recipient || '',
         prefill_source: existingForm.prefill_source || "none",
-        visibility_rules: existingForm.visibility_rules || []
+        visibility_rules: (existingForm.visibility_rules || []).map(rule => ({
+          ...rule,
+          rule_type: rule.rule_type || 'visibility',
+          target_field_id: rule.target_field_id || '',
+          set_value: rule.set_value ?? '',
+          target_field_ids: rule.target_field_ids || []
+        }))
       });
     }
   }, [existingForm]);
