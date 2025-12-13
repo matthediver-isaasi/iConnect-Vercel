@@ -66,6 +66,8 @@ export default async function handler(req, res) {
       application_level,
       create_entity_type,
       entity_action,
+      member_entity_action,        // New: independent member action (none/create/update/upsert)
+      organization_entity_action,  // New: independent organization action (none/create/update/upsert)
       prefill_member_id,
       prefill_organization_id,
       submission_id
@@ -79,16 +81,43 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'fields array is required' });
     }
 
-    // Determine entity action mode: 'create' (default) or 'update'
-    const actionMode = entity_action || 'create';
-    const isUpdateMode = actionMode === 'update';
+    // Validate entity action values
+    const validActions = ['none', 'create', 'update', 'upsert'];
     
-    // Determine which entities to create/update
-    const entityType = create_entity_type || application_level || 'member';
-    const shouldProcessMember = entityType === 'member' || entityType === 'both';
-    const shouldProcessOrganization = entityType === 'organization' || entityType === 'both';
+    // Support new independent action fields with fallback to legacy fields
+    let memberAction = member_entity_action;
+    let orgAction = organization_entity_action;
     
-    console.log('[AppProcessor] Entity mode:', entityType, '| Action:', actionMode, '| Member:', shouldProcessMember, '| Org:', shouldProcessOrganization);
+    // Fallback to legacy fields if new ones aren't provided
+    if (!memberAction || !validActions.includes(memberAction)) {
+      // Legacy fallback
+      const legacyEntityType = create_entity_type || application_level || 'member';
+      const legacyActionMode = entity_action || 'create';
+      if (legacyEntityType === 'member' || legacyEntityType === 'both') {
+        memberAction = legacyActionMode === 'update' ? 'update' : 'create';
+      } else {
+        memberAction = 'none';
+      }
+    }
+    
+    if (!orgAction || !validActions.includes(orgAction)) {
+      // Legacy fallback
+      const legacyEntityType = create_entity_type || application_level || 'member';
+      const legacyActionMode = entity_action || 'create';
+      if (legacyEntityType === 'organization' || legacyEntityType === 'both') {
+        orgAction = legacyActionMode === 'update' ? 'update' : 'create';
+      } else {
+        orgAction = 'none';
+      }
+    }
+    
+    // Determine processing flags based on new action values
+    const shouldProcessMember = memberAction !== 'none';
+    const shouldProcessOrganization = orgAction !== 'none';
+    const isUpdateMode = orgAction === 'update'; // For org logic compatibility
+    const isMemberUpdateMode = memberAction === 'update';
+    
+    console.log('[AppProcessor] Entity actions - member:', memberAction, 'organization:', orgAction);
 
     // Idempotency check: if submission_id provided, check if already processed
     if (submission_id) {
@@ -243,60 +272,77 @@ export default async function handler(req, res) {
     let createdOrganizationId = null;
     let createdMemberId = null;
 
-    // Process organization if enabled (create or update)
+    // Process organization based on orgAction (none/create/update/upsert)
     if (shouldProcessOrganization) {
-      console.log('[AppProcessor] Org processing enabled. Mode:', actionMode, 'OrgData:', orgData, 'CustomFields:', orgCustomFields.length);
+      console.log('[AppProcessor] Org processing enabled. Action:', orgAction, 'OrgData:', orgData, 'PrefillOrgId:', prefill_organization_id);
       
-      if (isUpdateMode && prefill_organization_id) {
-        // UPDATE MODE: Update existing organization
-        createdOrganizationId = prefill_organization_id;
-        console.log('[AppProcessor] Update mode - updating organization:', createdOrganizationId);
-        
-        // Build update data (only include fields that have values)
-        const orgUpdateData = {};
-        if (orgData.name) orgUpdateData.name = orgData.name;
-        if (orgData.invoicing_email) orgUpdateData.invoicing_email = orgData.invoicing_email;
-        if (orgData.phone) orgUpdateData.phone = orgData.phone;
-        if (orgData.website_url) orgUpdateData.website_url = orgData.website_url;
-        if (orgData.invoicing_address) orgUpdateData.invoicing_address = orgData.invoicing_address;
-        
-        if (Object.keys(orgUpdateData).length > 0) {
-          const { error: orgUpdateError } = await supabase
-            .from('organization')
-            .update(orgUpdateData)
-            .eq('id', createdOrganizationId);
-          
-          if (orgUpdateError) {
-            console.error('[AppProcessor] Failed to update organization:', orgUpdateError);
-            return res.status(500).json({ error: `Failed to update organisation: ${orgUpdateError.message}` });
-          }
-          console.log('[AppProcessor] Updated organization with:', orgUpdateData);
-        }
-      } else {
-        // CREATE MODE: Create new organization
-        // Require organization name to be mapped
-        if (!orgData.name) {
-          console.error('[AppProcessor] Organization creation requested but no organization.name field mapped');
-          return res.status(400).json({ 
-            error: 'Organisation name is required. Please map a form field to "Organisation Name" in the Submission Settings.',
-            code: 'MISSING_ORG_NAME'
-          });
-        }
-        
-        // Check for existing organization by name
-        let existingOrg = null;
+      // Find existing organization: by prefill_organization_id first, then by name
+      let existingOrg = null;
+      
+      if (prefill_organization_id) {
         const { data: foundOrg } = await supabase
           .from('organization')
-          .select('id')
+          .select('*')
+          .eq('id', prefill_organization_id)
+          .single();
+        existingOrg = foundOrg;
+        console.log('[AppProcessor] Found org by prefill ID:', existingOrg?.id);
+      } else if (orgData.name) {
+        const { data: foundOrg } = await supabase
+          .from('organization')
+          .select('*')
           .ilike('name', orgData.name)
           .limit(1)
           .single();
         existingOrg = foundOrg;
-        
-        if (existingOrg) {
+        console.log('[AppProcessor] Found org by name:', existingOrg?.id);
+      }
+      
+      if (existingOrg) {
+        // Organization exists
+        if (orgAction === 'create') {
+          // Create mode but org exists - skip creation, use existing ID
+          console.log('[AppProcessor] Organization exists, skipping create (create mode):', existingOrg.id);
           createdOrganizationId = existingOrg.id;
-          console.log('[AppProcessor] Found existing organization:', createdOrganizationId);
-        } else {
+        } else if (orgAction === 'update' || orgAction === 'upsert') {
+          // Update existing organization
+          const orgUpdateData = {};
+          if (orgData.name) orgUpdateData.name = orgData.name;
+          if (orgData.invoicing_email) orgUpdateData.invoicing_email = orgData.invoicing_email;
+          if (orgData.phone) orgUpdateData.phone = orgData.phone;
+          if (orgData.website_url) orgUpdateData.website_url = orgData.website_url;
+          if (orgData.invoicing_address) orgUpdateData.invoicing_address = orgData.invoicing_address;
+          
+          if (Object.keys(orgUpdateData).length > 0) {
+            const { error: orgUpdateError } = await supabase
+              .from('organization')
+              .update(orgUpdateData)
+              .eq('id', existingOrg.id);
+            
+            if (orgUpdateError) {
+              console.error('[AppProcessor] Failed to update organization:', orgUpdateError);
+              return res.status(500).json({ error: `Failed to update organisation: ${orgUpdateError.message}` });
+            }
+            console.log('[AppProcessor] Updated organization:', existingOrg.id);
+          }
+          createdOrganizationId = existingOrg.id;
+        }
+      } else {
+        // Organization does not exist
+        if (orgAction === 'update') {
+          // Update mode but org doesn't exist - skip, but use prefill_organization_id if available
+          console.log('[AppProcessor] Organization not found, skipping update (update mode)');
+          createdOrganizationId = prefill_organization_id || null;
+        } else if (orgAction === 'create' || orgAction === 'upsert') {
+          // Create new organization - require name
+          if (!orgData.name) {
+            console.error('[AppProcessor] Organization creation requested but no organization.name field mapped');
+            return res.status(400).json({ 
+              error: 'Organisation name is required. Please map a form field to "Organisation Name" in the Submission Settings.',
+              code: 'MISSING_ORG_NAME'
+            });
+          }
+          
           const orgInsertData = {
             name: orgData.name,
             invoicing_email: orgData.invoicing_email || null,
@@ -349,73 +395,96 @@ export default async function handler(req, res) {
       }
     }
 
-    // Process member if enabled (create or update)
+    // Process member based on memberAction (none/create/update/upsert)
     if (shouldProcessMember) {
-      console.log('[AppProcessor] Member processing enabled. Mode:', actionMode, 'MemberData:', memberData, 'CustomFields:', memberCustomFields.length);
+      console.log('[AppProcessor] Member processing enabled. Action:', memberAction, 'MemberData:', memberData, 'PrefillMemberId:', prefill_member_id);
       
-      if (isUpdateMode && prefill_member_id) {
-        // UPDATE MODE: Update existing member
-        createdMemberId = prefill_member_id;
-        console.log('[AppProcessor] Update mode - updating member:', createdMemberId);
-        
-        // Build update data (only include fields that have values)
-        const memberUpdateData = {};
-        if (memberData.email) memberUpdateData.email = memberData.email;
-        if (memberData.first_name) memberUpdateData.first_name = memberData.first_name;
-        if (memberData.last_name) memberUpdateData.last_name = memberData.last_name;
-        if (memberData.full_name) memberUpdateData.full_name = memberData.full_name;
-        if (memberData.job_title) memberUpdateData.job_title = memberData.job_title;
-        if (memberData.phone) memberUpdateData.phone = memberData.phone;
-        
-        // Handle full_name parsing if provided
-        if (memberData.full_name && !memberData.first_name && !memberData.last_name) {
-          const nameParts = memberData.full_name.trim().split(/\s+/);
-          memberUpdateData.first_name = nameParts[0] || '';
-          memberUpdateData.last_name = nameParts.slice(1).join(' ') || '';
-        }
-        
-        if (Object.keys(memberUpdateData).length > 0) {
-          const { error: memberUpdateError } = await supabase
-            .from('member')
-            .update(memberUpdateData)
-            .eq('id', createdMemberId);
-          
-          if (memberUpdateError) {
-            console.error('[AppProcessor] Failed to update member:', memberUpdateError);
-            return res.status(500).json({ error: `Failed to update member: ${memberUpdateError.message}` });
-          }
-          console.log('[AppProcessor] Updated member with:', memberUpdateData);
-        }
-      } else {
-        // CREATE MODE: Create new member
-        // Require member email to be mapped
-        if (!memberData.email) {
-          console.error('[AppProcessor] Member creation requested but no member.email field mapped');
-          return res.status(400).json({ 
-            error: 'Member email is required. Please map a form field to "Member Email" in the Submission Settings.',
-            code: 'MISSING_MEMBER_EMAIL'
-          });
-        }
-        
-        // Check for existing member by email
-        let existingMember = null;
+      // Find existing member: by prefill_member_id first, then by email
+      let existingMember = null;
+      
+      if (prefill_member_id) {
         const { data: foundMember } = await supabase
           .from('member')
-          .select('id')
+          .select('*')
+          .eq('id', prefill_member_id)
+          .single();
+        existingMember = foundMember;
+        console.log('[AppProcessor] Found member by prefill ID:', existingMember?.id);
+      } else if (memberData.email) {
+        const { data: foundMember } = await supabase
+          .from('member')
+          .select('*')
           .ilike('email', memberData.email)
           .limit(1)
           .single();
         existingMember = foundMember;
-
-        if (existingMember) {
+        console.log('[AppProcessor] Found member by email:', existingMember?.id);
+      }
+      
+      if (existingMember) {
+        // Member exists
+        if (memberAction === 'create') {
+          // Create mode but member exists - skip creation, use existing ID
+          console.log('[AppProcessor] Member exists, skipping create (create mode):', existingMember.id);
           createdMemberId = existingMember.id;
-          console.log('[AppProcessor] Found existing member:', createdMemberId);
-        } else {
+        } else if (memberAction === 'update' || memberAction === 'upsert') {
+          // Update existing member
+          const memberUpdateData = {};
+          if (memberData.email) memberUpdateData.email = memberData.email;
+          if (memberData.first_name) memberUpdateData.first_name = memberData.first_name;
+          if (memberData.last_name) memberUpdateData.last_name = memberData.last_name;
+          if (memberData.full_name) memberUpdateData.full_name = memberData.full_name;
+          if (memberData.job_title) memberUpdateData.job_title = memberData.job_title;
+          if (memberData.phone) memberUpdateData.phone = memberData.phone;
+          
+          // Handle full_name parsing if provided
+          if (memberData.full_name && !memberData.first_name && !memberData.last_name) {
+            const nameParts = memberData.full_name.trim().split(/\s+/);
+            memberUpdateData.first_name = nameParts[0] || '';
+            memberUpdateData.last_name = nameParts.slice(1).join(' ') || '';
+          }
+          
+          // Use createdOrganizationId if org was created/updated, otherwise use prefill_organization_id
+          const orgIdToLink = createdOrganizationId || prefill_organization_id;
+          if (orgIdToLink) memberUpdateData.organization_id = orgIdToLink;
+          
+          if (Object.keys(memberUpdateData).length > 0) {
+            const { error: memberUpdateError } = await supabase
+              .from('member')
+              .update(memberUpdateData)
+              .eq('id', existingMember.id);
+            
+            if (memberUpdateError) {
+              console.error('[AppProcessor] Failed to update member:', memberUpdateError);
+              return res.status(500).json({ error: `Failed to update member: ${memberUpdateError.message}` });
+            }
+            console.log('[AppProcessor] Updated member:', existingMember.id);
+          }
+          createdMemberId = existingMember.id;
+        }
+      } else {
+        // Member does not exist
+        if (memberAction === 'update') {
+          // Update mode but member doesn't exist - skip
+          console.log('[AppProcessor] Member not found, skipping update (update mode)');
+        } else if (memberAction === 'create' || memberAction === 'upsert') {
+          // Create new member - require email
+          if (!memberData.email) {
+            console.error('[AppProcessor] Member creation requested but no member.email field mapped');
+            return res.status(400).json({ 
+              error: 'Member email is required. Please map a form field to "Member Email" in the Submission Settings.',
+              code: 'MISSING_MEMBER_EMAIL'
+            });
+          }
+          
           if (memberData.full_name && !memberData.first_name && !memberData.last_name) {
             const nameParts = memberData.full_name.trim().split(/\s+/);
             memberData.first_name = nameParts[0] || '';
             memberData.last_name = nameParts.slice(1).join(' ') || '';
           }
+          
+          // Use createdOrganizationId if org was created/updated, otherwise use prefill_organization_id
+          const orgIdForNewMember = createdOrganizationId || prefill_organization_id || null;
 
           const memberInsertData = {
             email: memberData.email,
@@ -424,7 +493,7 @@ export default async function handler(req, res) {
             full_name: memberData.full_name || `${memberData.first_name || ''} ${memberData.last_name || ''}`.trim(),
             job_title: memberData.job_title || null,
             phone: memberData.phone || null,
-            organization_id: createdOrganizationId,
+            organization_id: orgIdForNewMember,
             status: 'active',
             source: 'application_form'
           };
