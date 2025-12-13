@@ -1760,12 +1760,22 @@ export default function FormBuilderPage() {
           </Button>
         </div>
 
-        {/* Form Settings - Full Width at Top */}
-        <Card className="border-slate-200 mb-6">
-          <CardHeader className="pb-4">
-            <CardTitle className="text-lg">Form Settings</CardTitle>
-          </CardHeader>
-          <CardContent>
+        {/* Tabs for organizing form sections */}
+        <Tabs defaultValue="builder" className="w-full">
+          <TabsList className="grid w-full grid-cols-4 mb-6" data-testid="formbuilder-tabs">
+            <TabsTrigger value="builder" data-testid="tab-builder">Builder</TabsTrigger>
+            <TabsTrigger value="settings" data-testid="tab-settings">Form Settings</TabsTrigger>
+            <TabsTrigger value="submission" data-testid="tab-submission">Submission Settings</TabsTrigger>
+            <TabsTrigger value="logic" data-testid="tab-logic">Conditional Logic</TabsTrigger>
+          </TabsList>
+
+          {/* Form Settings Tab */}
+          <TabsContent value="settings">
+            <Card className="border-slate-200">
+              <CardHeader className="pb-4">
+                <CardTitle className="text-lg">Form Settings</CardTitle>
+              </CardHeader>
+              <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               {/* Row 1: Core Settings */}
               <div className="space-y-2">
@@ -1954,247 +1964,247 @@ export default function FormBuilderPage() {
                 )}
               </div>
             </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
 
-            {/* Application Form Settings */}
+        {/* Submission Settings Tab */}
+          <TabsContent value="submission">
+            {/* Application Form Settings - moved here */}
             {formData.is_application_form && (
-              <div className="mt-4 pt-4 border-t border-slate-100 space-y-4">
-                <div className="flex items-center gap-4">
-                  <Label className="text-sm font-medium">Application Level:</Label>
-                  <div className="flex gap-3">
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="radio"
-                        id="level-member"
-                        name="application_level"
-                        value="member"
-                        checked={formData.application_level === "member"}
-                        onChange={() => setFormData({ ...formData, application_level: "member" })}
-                        className="w-4 h-4 text-blue-600"
-                        data-testid="radio-level-member"
-                      />
-                      <Label htmlFor="level-member" className="text-sm cursor-pointer">Member Level</Label>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="radio"
-                        id="level-organization"
-                        name="application_level"
-                        value="organization"
-                        checked={formData.application_level === "organization"}
-                        onChange={() => setFormData({ ...formData, application_level: "organization" })}
-                        className="w-4 h-4 text-blue-600"
-                        data-testid="radio-level-organization"
-                      />
-                      <Label htmlFor="level-organization" className="text-sm cursor-pointer">Organisation Level</Label>
-                    </div>
-                  </div>
-                </div>
-                <p className="text-xs text-slate-500">
-                  {formData.application_level === "member" 
-                    ? "Uniqueness will be checked against the Member table" 
-                    : "Uniqueness will be checked against the Organisation table (email fields use domain-only matching)"}
-                </p>
-                
-                <div className="mt-4 pt-4 border-t border-slate-100 space-y-4">
-                  <div className="flex items-center gap-2">
-                    <Switch
-                      id="auto_create_entity"
-                      checked={formData.auto_create_entity || false}
-                      onCheckedChange={(checked) => setFormData({ ...formData, auto_create_entity: checked })}
-                      data-testid="switch-auto-create-entity"
-                    />
-                    <Label htmlFor="auto_create_entity" className="text-sm">Auto-create records on submission</Label>
-                  </div>
-                  
-                  {formData.auto_create_entity && (
-                    <div className="ml-6 space-y-3">
-                      <Label className="text-xs text-slate-600">Create which record type:</Label>
-                      <div className="flex flex-wrap gap-4">
+              <Card className="border-slate-200 mb-6">
+                <CardHeader className="pb-4">
+                  <CardTitle className="text-lg">Application Settings</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-4">
+                      <Label className="text-sm font-medium">Application Level:</Label>
+                      <div className="flex gap-3">
                         <div className="flex items-center gap-2">
                           <input
                             type="radio"
-                            id="create-member"
-                            name="create_entity_type"
+                            id="level-member-tab"
+                            name="application_level_tab"
                             value="member"
-                            checked={formData.create_entity_type === "member"}
-                            onChange={() => setFormData({ ...formData, create_entity_type: "member" })}
+                            checked={formData.application_level === "member"}
+                            onChange={() => setFormData({ ...formData, application_level: "member" })}
                             className="w-4 h-4 text-blue-600"
-                            data-testid="radio-create-member"
+                            data-testid="radio-level-member"
                           />
-                          <Label htmlFor="create-member" className="text-sm cursor-pointer">Member only</Label>
+                          <Label htmlFor="level-member-tab" className="text-sm cursor-pointer">Member Level</Label>
                         </div>
                         <div className="flex items-center gap-2">
                           <input
                             type="radio"
-                            id="create-organization"
-                            name="create_entity_type"
+                            id="level-organization-tab"
+                            name="application_level_tab"
                             value="organization"
-                            checked={formData.create_entity_type === "organization"}
-                            onChange={() => setFormData({ ...formData, create_entity_type: "organization" })}
+                            checked={formData.application_level === "organization"}
+                            onChange={() => setFormData({ ...formData, application_level: "organization" })}
                             className="w-4 h-4 text-blue-600"
-                            data-testid="radio-create-organization"
+                            data-testid="radio-level-organization"
                           />
-                          <Label htmlFor="create-organization" className="text-sm cursor-pointer">Organisation only</Label>
+                          <Label htmlFor="level-organization-tab" className="text-sm cursor-pointer">Organisation Level</Label>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="radio"
-                            id="create-both"
-                            name="create_entity_type"
-                            value="both"
-                            checked={formData.create_entity_type === "both"}
-                            onChange={() => setFormData({ ...formData, create_entity_type: "both" })}
-                            className="w-4 h-4 text-blue-600"
-                            data-testid="radio-create-both"
-                          />
-                          <Label htmlFor="create-both" className="text-sm cursor-pointer">Both Member &amp; Organisation</Label>
-                        </div>
-                      </div>
-                      <p className="text-xs text-slate-500">
-                        {formData.create_entity_type === "member" && "A new member record will be created from the mapped fields"}
-                        {formData.create_entity_type === "organization" && "A new organisation record will be created from the mapped fields"}
-                        {formData.create_entity_type === "both" && "Both member and organisation records will be created and linked together"}
-                      </p>
-                      
-                      <div className="mt-4 pt-3 border-t border-slate-100">
-                        <Label className="text-xs text-slate-600 mb-2 block">Record action:</Label>
-                        <div className="flex flex-wrap gap-4">
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="radio"
-                              id="action-create"
-                              name="entity_action"
-                              value="create"
-                              checked={formData.entity_action === "create"}
-                              onChange={() => setFormData({ ...formData, entity_action: "create" })}
-                              className="w-4 h-4 text-blue-600"
-                              data-testid="radio-action-create"
-                            />
-                            <Label htmlFor="action-create" className="text-sm cursor-pointer">Create new records</Label>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="radio"
-                              id="action-update"
-                              name="entity_action"
-                              value="update"
-                              checked={formData.entity_action === "update"}
-                              onChange={() => setFormData({ ...formData, entity_action: "update" })}
-                              className="w-4 h-4 text-blue-600"
-                              data-testid="radio-action-update"
-                            />
-                            <Label htmlFor="action-update" className="text-sm cursor-pointer">Update existing records</Label>
-                          </div>
-                        </div>
-                        <p className="text-xs text-slate-500 mt-2">
-                          {formData.entity_action === "create" 
-                            ? "New records will be created on submission. Use when collecting new applications."
-                            : "Existing records will be updated based on the pre-fill source. Use when form is pre-populated from existing member/organisation data."}
-                        </p>
                       </div>
                     </div>
-                  )}
-                  
-                  {!formData.auto_create_entity && (
-                    <p className="text-xs text-slate-500 ml-6">
-                      Submissions will require admin approval before creating records
+                    <p className="text-xs text-slate-500">
+                      {formData.application_level === "member" 
+                        ? "Uniqueness will be checked against the Member table" 
+                        : "Uniqueness will be checked against the Organisation table (email fields use domain-only matching)"}
                     </p>
-                  )}
-                </div>
-              </div>
+                    
+                    <div className="mt-4 pt-4 border-t border-slate-100 space-y-4">
+                      <div className="flex items-center gap-2">
+                        <Switch
+                          id="auto_create_entity_tab"
+                          checked={formData.auto_create_entity || false}
+                          onCheckedChange={(checked) => setFormData({ ...formData, auto_create_entity: checked })}
+                          data-testid="switch-auto-create-entity"
+                        />
+                        <Label htmlFor="auto_create_entity_tab" className="text-sm">Auto-create records on submission</Label>
+                      </div>
+                      
+                      {formData.auto_create_entity && (
+                        <div className="ml-6 space-y-3">
+                          <Label className="text-xs text-slate-600">Create which record type:</Label>
+                          <div className="flex flex-wrap gap-4">
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="radio"
+                                id="create-member-tab"
+                                name="create_entity_type_tab"
+                                value="member"
+                                checked={formData.create_entity_type === "member"}
+                                onChange={() => setFormData({ ...formData, create_entity_type: "member" })}
+                                className="w-4 h-4 text-blue-600"
+                                data-testid="radio-create-member"
+                              />
+                              <Label htmlFor="create-member-tab" className="text-sm cursor-pointer">Member only</Label>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="radio"
+                                id="create-organization-tab"
+                                name="create_entity_type_tab"
+                                value="organization"
+                                checked={formData.create_entity_type === "organization"}
+                                onChange={() => setFormData({ ...formData, create_entity_type: "organization" })}
+                                className="w-4 h-4 text-blue-600"
+                                data-testid="radio-create-organization"
+                              />
+                              <Label htmlFor="create-organization-tab" className="text-sm cursor-pointer">Organisation only</Label>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="radio"
+                                id="create-both-tab"
+                                name="create_entity_type_tab"
+                                value="both"
+                                checked={formData.create_entity_type === "both"}
+                                onChange={() => setFormData({ ...formData, create_entity_type: "both" })}
+                                className="w-4 h-4 text-blue-600"
+                                data-testid="radio-create-both"
+                              />
+                              <Label htmlFor="create-both-tab" className="text-sm cursor-pointer">Both Member &amp; Organisation</Label>
+                            </div>
+                          </div>
+                          <p className="text-xs text-slate-500">
+                            {formData.create_entity_type === "member" && "A new member record will be created from the mapped fields"}
+                            {formData.create_entity_type === "organization" && "A new organisation record will be created from the mapped fields"}
+                            {formData.create_entity_type === "both" && "Both member and organisation records will be created and linked together"}
+                          </p>
+                          
+                          <div className="mt-4 pt-3 border-t border-slate-100">
+                            <Label className="text-xs text-slate-600 mb-2 block">Record action:</Label>
+                            <div className="flex flex-wrap gap-4">
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="radio"
+                                  id="action-create-tab"
+                                  name="entity_action_tab"
+                                  value="create"
+                                  checked={formData.entity_action === "create"}
+                                  onChange={() => setFormData({ ...formData, entity_action: "create" })}
+                                  className="w-4 h-4 text-blue-600"
+                                  data-testid="radio-action-create"
+                                />
+                                <Label htmlFor="action-create-tab" className="text-sm cursor-pointer">Create new records</Label>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="radio"
+                                  id="action-update-tab"
+                                  name="entity_action_tab"
+                                  value="update"
+                                  checked={formData.entity_action === "update"}
+                                  onChange={() => setFormData({ ...formData, entity_action: "update" })}
+                                  className="w-4 h-4 text-blue-600"
+                                  data-testid="radio-action-update"
+                                />
+                                <Label htmlFor="action-update-tab" className="text-sm cursor-pointer">Update existing records</Label>
+                              </div>
+                            </div>
+                            <p className="text-xs text-slate-500 mt-2">
+                              {formData.entity_action === "create" 
+                                ? "New records will be created on submission. Use when collecting new applications."
+                                : "Existing records will be updated based on the pre-fill source. Use when form is pre-populated from existing member/organisation data."}
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                      
+                      {!formData.auto_create_entity && (
+                        <p className="text-xs text-slate-500 ml-6">
+                          Submissions will require admin approval before creating records
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
             )}
-          </CardContent>
-        </Card>
 
-        {/* Submission Settings Card - Field Mappings */}
-        <Card className="border-slate-200 mb-6">
-          <CardHeader className="pb-4">
-            <CardTitle className="text-lg flex items-center gap-2">
-              <Settings2 className="w-5 h-5" />
-              Submission Settings
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Accordion type="single" collapsible defaultValue="mappings">
-              <AccordionItem value="mappings" className="border-none">
-                <AccordionTrigger className="py-2 hover:no-underline" data-testid="accordion-field-mappings">
-                  <span className="text-sm font-medium">Field Mappings &amp; Transformations</span>
-                </AccordionTrigger>
-                <AccordionContent>
-                  <div className="pt-2">
-                    <FieldMappingSection
-                      fields={formData.fields}
-                      fieldMappings={formData.field_mappings}
-                      onMappingsChange={(mappings) => {
-                        console.log('[FormBuilder] onMappingsChange called with:', mappings);
-                        try {
-                          setFormData(prev => ({ ...prev, field_mappings: mappings }));
-                        } catch (error) {
-                          console.error('[FormBuilder] Error setting field_mappings:', error);
-                          toast.error(`Failed to update mappings: ${error.message}`);
-                        }
-                      }}
-                      applicationLevel={formData.application_level}
-                      customFields={customFields}
-                    />
-                  </div>
-                </AccordionContent>
-              </AccordionItem>
-            </Accordion>
-          </CardContent>
-        </Card>
+            {/* Field Mappings Card */}
+            <Card className="border-slate-200 mb-6">
+              <CardHeader className="pb-4">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Settings2 className="w-5 h-5" />
+                  Field Mappings
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <Accordion type="single" collapsible defaultValue="mappings">
+                  <AccordionItem value="mappings" className="border-none">
+                    <AccordionTrigger className="py-2 hover:no-underline" data-testid="accordion-field-mappings">
+                      <span className="text-sm font-medium">Field Mappings &amp; Transformations</span>
+                    </AccordionTrigger>
+                    <AccordionContent>
+                      <div className="pt-2">
+                        <FieldMappingSection
+                          fields={formData.fields}
+                          fieldMappings={formData.field_mappings}
+                          onMappingsChange={(mappings) => {
+                            console.log('[FormBuilder] onMappingsChange called with:', mappings);
+                            try {
+                              setFormData(prev => ({ ...prev, field_mappings: mappings }));
+                            } catch (error) {
+                              console.error('[FormBuilder] Error setting field_mappings:', error);
+                              toast.error(`Failed to update mappings: ${error.message}`);
+                            }
+                          }}
+                          applicationLevel={formData.application_level}
+                          customFields={customFields}
+                        />
+                      </div>
+                    </AccordionContent>
+                  </AccordionItem>
+                </Accordion>
+              </CardContent>
+            </Card>
+          </TabsContent>
 
-        {/* Conditional Logic Card */}
-        <Card className="border-slate-200 mb-6">
-          <CardHeader className="pb-4">
-            <CardTitle className="text-lg flex items-center gap-2">
-              <Eye className="w-5 h-5" />
-              Conditional Logic
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Accordion type="single" collapsible defaultValue="logic">
-              <AccordionItem value="logic" className="border-none">
-                <AccordionTrigger className="py-2 hover:no-underline" data-testid="accordion-visibility-rules">
-                  <span className="text-sm font-medium">Visibility Rules</span>
-                </AccordionTrigger>
-                <AccordionContent>
-                  <div className="pt-2">
-                    <LogicRulesSection
-                      fields={formData.fields}
-                      visibilityRules={formData.visibility_rules}
-                      onRulesChange={(rules) => {
-                        // Compute which fields should have starts_hidden based on show rules
-                        const fieldsWithShowRules = new Set();
-                        rules.forEach(rule => {
-                          if (rule.action === 'show' && rule.target_field_ids?.length) {
-                            rule.target_field_ids.forEach(id => fieldsWithShowRules.add(id));
-                          }
-                        });
-                        
-                        // Update fields with starts_hidden property
-                        setFormData(prev => {
-                          const updatedFields = prev.fields.map(field => ({
-                            ...field,
-                            starts_hidden: fieldsWithShowRules.has(field.id)
-                          }));
-                          return { 
-                            ...prev, 
-                            visibility_rules: rules,
-                            fields: updatedFields
-                          };
-                        });
-                      }}
-                    />
-                  </div>
-                </AccordionContent>
-              </AccordionItem>
-            </Accordion>
-          </CardContent>
-        </Card>
+          {/* Conditional Logic Tab */}
+          <TabsContent value="logic">
+            <Card className="border-slate-200">
+              <CardHeader className="pb-4">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Eye className="w-5 h-5" />
+                  Visibility Rules
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <LogicRulesSection
+                  fields={formData.fields}
+                  visibilityRules={formData.visibility_rules}
+                  onRulesChange={(rules) => {
+                    const fieldsWithShowRules = new Set();
+                    rules.forEach(rule => {
+                      if (rule.action === 'show' && rule.target_field_ids?.length) {
+                        rule.target_field_ids.forEach(id => fieldsWithShowRules.add(id));
+                      }
+                    });
+                    setFormData(prev => {
+                      const updatedFields = prev.fields.map(field => ({
+                        ...field,
+                        starts_hidden: fieldsWithShowRules.has(field.id)
+                      }));
+                      return { 
+                        ...prev, 
+                        visibility_rules: rules,
+                        fields: updatedFields
+                      };
+                    });
+                  }}
+                />
+              </CardContent>
+            </Card>
+          </TabsContent>
 
-        {/* Form Pages and Fields - Full Width Below */}
-        <div className="space-y-6">
+          {/* Builder Tab - Form Pages and Fields */}
+          <TabsContent value="builder">
+            <div className="space-y-6">
             {/* Pages Management - Only for Standard layout */}
             {formData.layout_type === 'standard' && (
               <Card className="border-slate-200">
@@ -2570,7 +2580,9 @@ export default function FormBuilderPage() {
                 )}
               </CardContent>
             </Card>
-        </div>
+            </div>
+          </TabsContent>
+        </Tabs>
       </div>
     </div>
   );
