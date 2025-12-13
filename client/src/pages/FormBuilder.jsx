@@ -436,22 +436,111 @@ function LogicRulesSection({
   prefillSource = 'none',
   customFields = []
 }) {
-  const addRule = (ruleType = 'visibility') => {
+  // Normalize rules to new multi-action format (for backward compatibility)
+  const normalizeRule = (rule) => {
+    // If rule already has actions array, it's in new format
+    if (rule.actions && Array.isArray(rule.actions)) {
+      return rule;
+    }
+    // Convert old format to new format
+    const actions = [];
+    if (rule.rule_type === 'set_value' || rule.action === 'set_value') {
+      actions.push({
+        id: `action_${Date.now()}_1`,
+        action_type: 'set_value',
+        target_field_id: rule.target_field_id || '',
+        set_value_source: rule.set_value_source || 'static',
+        set_value: rule.set_value || '',
+        set_value_field_id: rule.set_value_field_id || '',
+        set_value_prefill_field: rule.set_value_prefill_field || ''
+      });
+    } else {
+      // Visibility rule
+      actions.push({
+        id: `action_${Date.now()}_1`,
+        action_type: rule.action || 'show',
+        target_field_ids: rule.target_field_ids || []
+      });
+    }
+    return {
+      id: rule.id,
+      trigger_field_id: rule.trigger_field_id,
+      operator: rule.operator,
+      value: rule.value,
+      actions
+    };
+  };
+
+  const addRule = () => {
     const newRule = {
       id: `rule_${Date.now()}`,
-      rule_type: ruleType,
       trigger_field_id: '',
       operator: 'equals',
       value: '',
-      action: ruleType === 'visibility' ? 'show' : 'set_value',
-      target_field_ids: [],
-      target_field_id: '',
-      set_value_source: 'static', // 'static', 'field', or 'prefill'
-      set_value: '',
-      set_value_field_id: '', // ID of the form field to copy value from
-      set_value_prefill_field: '' // Core or custom field from prefill entity (format: "core.field_name" or "custom.field_id")
+      actions: [] // Start with empty actions, user adds them
     };
     onRulesChange([...visibilityRules, newRule]);
+  };
+
+  const addAction = (ruleId, actionType = 'show') => {
+    const rule = visibilityRules.find(r => r.id === ruleId);
+    if (!rule) return;
+    
+    const normalizedRule = normalizeRule(rule);
+    const newAction = actionType === 'set_value' 
+      ? {
+          id: `action_${Date.now()}`,
+          action_type: 'set_value',
+          target_field_id: '',
+          set_value_source: 'static',
+          set_value: '',
+          set_value_field_id: '',
+          set_value_prefill_field: ''
+        }
+      : {
+          id: `action_${Date.now()}`,
+          action_type: actionType, // 'show' or 'hide'
+          target_field_ids: []
+        };
+    
+    const updatedActions = [...(normalizedRule.actions || []), newAction];
+    updateRule(ruleId, { actions: updatedActions });
+  };
+
+  const updateAction = (ruleId, actionId, updates) => {
+    const rule = visibilityRules.find(r => r.id === ruleId);
+    if (!rule) return;
+    
+    const normalizedRule = normalizeRule(rule);
+    const updatedActions = (normalizedRule.actions || []).map(a => 
+      a.id === actionId ? { ...a, ...updates } : a
+    );
+    updateRule(ruleId, { actions: updatedActions });
+  };
+
+  const removeAction = (ruleId, actionId) => {
+    const rule = visibilityRules.find(r => r.id === ruleId);
+    if (!rule) return;
+    
+    const normalizedRule = normalizeRule(rule);
+    const updatedActions = (normalizedRule.actions || []).filter(a => a.id !== actionId);
+    updateRule(ruleId, { actions: updatedActions });
+  };
+
+  const toggleTargetFieldInAction = (ruleId, actionId, fieldId) => {
+    const rule = visibilityRules.find(r => r.id === ruleId);
+    if (!rule) return;
+    
+    const normalizedRule = normalizeRule(rule);
+    const action = (normalizedRule.actions || []).find(a => a.id === actionId);
+    if (!action) return;
+    
+    const currentTargets = action.target_field_ids || [];
+    const newTargets = currentTargets.includes(fieldId)
+      ? currentTargets.filter(id => id !== fieldId)
+      : [...currentTargets, fieldId];
+    
+    updateAction(ruleId, actionId, { target_field_ids: newTargets });
   };
   
   const getPrefillFields = () => {
@@ -477,6 +566,7 @@ function LogicRulesSection({
     onRulesChange(visibilityRules.filter(r => r.id !== ruleId));
   };
 
+  // Legacy function - kept for potential backward compatibility but no longer used
   const toggleTargetField = (ruleId, fieldId) => {
     const rule = visibilityRules.find(r => r.id === ruleId);
     if (!rule) return;
@@ -513,14 +603,14 @@ function LogicRulesSection({
     };
   };
 
-  const renderSetValueInput = (rule, index) => {
-    const targetInfo = getTargetFieldOptions(rule.target_field_id);
-    const sourceType = rule.set_value_source || 'static';
-    const availableSourceFields = fields.filter(f => f.id !== rule.target_field_id);
+  const renderSetValueInput = (ruleId, action, actionIndex) => {
+    const targetInfo = getTargetFieldOptions(action.target_field_id);
+    const sourceType = action.set_value_source || 'static';
+    const availableSourceFields = fields.filter(f => f.id !== action.target_field_id);
     const prefillFields = getPrefillFields();
     const hasPrefill = prefillSource !== 'none';
     
-    if (!rule.target_field_id) {
+    if (!action.target_field_id) {
       return <p className="text-xs text-slate-400">Select a target field first</p>;
     }
 
@@ -533,8 +623,8 @@ function LogicRulesSection({
               variant={sourceType === 'static' ? 'default' : 'outline'}
               size="sm"
               className="h-7 text-xs"
-              onClick={() => updateRule(rule.id, { set_value_source: 'static', set_value_field_id: '', set_value_prefill_field: '' })}
-              data-testid={`button-source-static-${index}`}
+              onClick={() => updateAction(ruleId, action.id, { set_value_source: 'static', set_value_field_id: '', set_value_prefill_field: '' })}
+              data-testid={`button-source-static-${actionIndex}`}
             >
               Enter Text
             </Button>
@@ -542,8 +632,8 @@ function LogicRulesSection({
               variant={sourceType === 'field' ? 'default' : 'outline'}
               size="sm"
               className="h-7 text-xs"
-              onClick={() => updateRule(rule.id, { set_value_source: 'field', set_value: '', set_value_prefill_field: '' })}
-              data-testid={`button-source-field-${index}`}
+              onClick={() => updateAction(ruleId, action.id, { set_value_source: 'field', set_value: '', set_value_prefill_field: '' })}
+              data-testid={`button-source-field-${actionIndex}`}
             >
               From Field
             </Button>
@@ -552,8 +642,8 @@ function LogicRulesSection({
                 variant={sourceType === 'prefill' ? 'default' : 'outline'}
                 size="sm"
                 className="h-7 text-xs"
-                onClick={() => updateRule(rule.id, { set_value_source: 'prefill', set_value: '', set_value_field_id: '' })}
-                data-testid={`button-source-prefill-${index}`}
+                onClick={() => updateAction(ruleId, action.id, { set_value_source: 'prefill', set_value: '', set_value_field_id: '' })}
+                data-testid={`button-source-prefill-${actionIndex}`}
               >
                 From Pre-fill Data
               </Button>
@@ -563,10 +653,10 @@ function LogicRulesSection({
 
         {sourceType === 'prefill' ? (
           <Select
-            value={rule.set_value_prefill_field || undefined}
-            onValueChange={(value) => updateRule(rule.id, { set_value_prefill_field: value })}
+            value={action.set_value_prefill_field || undefined}
+            onValueChange={(value) => updateAction(ruleId, action.id, { set_value_prefill_field: value })}
           >
-            <SelectTrigger className="h-9" data-testid={`select-prefill-field-${index}`}>
+            <SelectTrigger className="h-9" data-testid={`select-prefill-field-${actionIndex}`}>
               <SelectValue placeholder={`Select ${prefillSource} field...`} />
             </SelectTrigger>
             <SelectContent>
@@ -579,10 +669,10 @@ function LogicRulesSection({
           </Select>
         ) : sourceType === 'field' ? (
           <Select
-            value={rule.set_value_field_id || undefined}
-            onValueChange={(value) => updateRule(rule.id, { set_value_field_id: value })}
+            value={action.set_value_field_id || undefined}
+            onValueChange={(value) => updateAction(ruleId, action.id, { set_value_field_id: value })}
           >
-            <SelectTrigger className="h-9" data-testid={`select-source-field-${index}`}>
+            <SelectTrigger className="h-9" data-testid={`select-source-field-${actionIndex}`}>
               <SelectValue placeholder="Select field to copy value from..." />
             </SelectTrigger>
             <SelectContent>
@@ -603,7 +693,7 @@ function LogicRulesSection({
                     {targetInfo.options.map((opt, optIdx) => {
                       const optValue = typeof opt === 'string' ? opt : (opt.value || opt);
                       const optLabel = typeof opt === 'string' ? opt : (opt.label || opt.value || opt);
-                      const currentValues = Array.isArray(rule.set_value) ? rule.set_value : [];
+                      const currentValues = Array.isArray(action.set_value) ? action.set_value : [];
                       const isSelected = currentValues.includes(optValue);
                       return (
                         <Button
@@ -615,9 +705,9 @@ function LogicRulesSection({
                             const newValues = isSelected
                               ? currentValues.filter(v => v !== optValue)
                               : [...currentValues, optValue];
-                            updateRule(rule.id, { set_value: newValues });
+                            updateAction(ruleId, action.id, { set_value: newValues });
                           }}
-                          data-testid={`button-set-value-option-${index}-${optIdx}`}
+                          data-testid={`button-set-value-option-${actionIndex}-${optIdx}`}
                         >
                           {optLabel}
                         </Button>
@@ -627,10 +717,10 @@ function LogicRulesSection({
                 </div>
               ) : (
                 <Select
-                  value={rule.set_value || undefined}
-                  onValueChange={(value) => updateRule(rule.id, { set_value: value })}
+                  value={action.set_value || undefined}
+                  onValueChange={(value) => updateAction(ruleId, action.id, { set_value: value })}
                 >
-                  <SelectTrigger className="h-9" data-testid={`select-set-value-${index}`}>
+                  <SelectTrigger className="h-9" data-testid={`select-set-value-${actionIndex}`}>
                     <SelectValue placeholder="Select value to set..." />
                   </SelectTrigger>
                   <SelectContent>
@@ -648,27 +738,27 @@ function LogicRulesSection({
             ) : targetInfo.type === 'date' ? (
               <Input
                 type="date"
-                value={rule.set_value || ''}
-                onChange={(e) => updateRule(rule.id, { set_value: e.target.value })}
+                value={action.set_value || ''}
+                onChange={(e) => updateAction(ruleId, action.id, { set_value: e.target.value })}
                 className="h-9"
-                data-testid={`input-set-value-date-${index}`}
+                data-testid={`input-set-value-date-${actionIndex}`}
               />
             ) : targetInfo.type === 'number' ? (
               <Input
                 type="number"
-                value={rule.set_value || ''}
-                onChange={(e) => updateRule(rule.id, { set_value: e.target.value })}
+                value={action.set_value || ''}
+                onChange={(e) => updateAction(ruleId, action.id, { set_value: e.target.value })}
                 placeholder="Enter number..."
                 className="h-9"
-                data-testid={`input-set-value-number-${index}`}
+                data-testid={`input-set-value-number-${actionIndex}`}
               />
             ) : (
               <Input
-                value={rule.set_value || ''}
-                onChange={(e) => updateRule(rule.id, { set_value: e.target.value })}
+                value={action.set_value || ''}
+                onChange={(e) => updateAction(ruleId, action.id, { set_value: e.target.value })}
                 placeholder="Enter value to set..."
                 className="h-9"
-                data-testid={`input-set-value-${index}`}
+                data-testid={`input-set-value-${actionIndex}`}
               />
             )}
           </>
@@ -686,29 +776,18 @@ function LogicRulesSection({
             Conditional Logic Rules
           </h3>
           <p className="text-xs text-slate-500 mt-1">
-            Show/hide fields or set values based on user responses
+            Define conditions that trigger one or more actions (show/hide fields or set values)
           </p>
         </div>
-        <div className="flex gap-2">
-          <Button 
-            onClick={() => addRule('visibility')} 
-            size="sm" 
-            variant="outline"
-            data-testid="button-add-visibility-rule"
-          >
-            <Eye className="w-4 h-4 mr-2" />
-            Add Visibility Rule
-          </Button>
-          <Button 
-            onClick={() => addRule('set_value')} 
-            size="sm" 
-            variant="outline"
-            data-testid="button-add-set-value-rule"
-          >
-            <Edit2 className="w-4 h-4 mr-2" />
-            Add Set Value Rule
-          </Button>
-        </div>
+        <Button 
+          onClick={addRule} 
+          size="sm" 
+          variant="outline"
+          data-testid="button-add-rule"
+        >
+          <Plus className="w-4 h-4 mr-2" />
+          Add Rule
+        </Button>
       </div>
 
       {visibilityRules.length === 0 ? (
@@ -720,35 +799,33 @@ function LogicRulesSection({
       ) : (
         <div className="space-y-3">
           {visibilityRules.map((rule, index) => {
-            const ruleType = rule.rule_type || 'visibility';
-            const triggerField = fields.find(f => f.id === rule.trigger_field_id);
-            const triggerOptions = getTriggerFieldOptions(rule.trigger_field_id);
-            const needsValueInput = rule.operator !== 'is_empty' && rule.operator !== 'not_empty';
-            const availableTargetFields = fields.filter(f => f.id !== rule.trigger_field_id);
-            const isVisibilityRule = ruleType === 'visibility';
+            const normalizedRule = normalizeRule(rule);
+            const triggerField = fields.find(f => f.id === normalizedRule.trigger_field_id);
+            const triggerOptions = getTriggerFieldOptions(normalizedRule.trigger_field_id);
+            const needsValueInput = normalizedRule.operator !== 'is_empty' && normalizedRule.operator !== 'not_empty';
+            const availableTargetFields = fields.filter(f => f.id !== normalizedRule.trigger_field_id);
+            const actions = normalizedRule.actions || [];
             
             return (
               <div 
                 key={rule.id} 
-                className={`p-4 border rounded-lg space-y-3 ${isVisibilityRule ? 'bg-slate-50 border-slate-200' : 'bg-blue-50 border-blue-200'}`}
-                data-testid={`${ruleType}-rule-row-${index}`}
+                className="p-4 border rounded-lg space-y-3 bg-slate-50 border-slate-200"
+                data-testid={`rule-row-${index}`}
               >
+                {/* Trigger Condition Header */}
                 <div className="flex items-center gap-2 mb-2">
-                  {isVisibilityRule ? (
-                    <Eye className="w-4 h-4 text-slate-600" />
-                  ) : (
-                    <Edit2 className="w-4 h-4 text-blue-600" />
-                  )}
+                  <Settings2 className="w-4 h-4 text-slate-600" />
                   <span className="text-xs font-medium text-slate-600">
-                    {isVisibilityRule ? 'Visibility Rule' : 'Set Value Rule'}
+                    Rule #{index + 1} ({actions.length} action{actions.length !== 1 ? 's' : ''})
                   </span>
                 </div>
 
+                {/* Trigger Condition Row */}
                 <div className="flex flex-wrap items-end gap-3">
                   <div className="space-y-1 min-w-[80px]">
                     <Label className="text-xs">When</Label>
                     <Select
-                      value={rule.trigger_field_id || undefined}
+                      value={normalizedRule.trigger_field_id || undefined}
                       onValueChange={(value) => {
                         if (value) {
                           updateRule(rule.id, { trigger_field_id: value, value: '' });
@@ -771,7 +848,7 @@ function LogicRulesSection({
                   <div className="space-y-1 min-w-[120px]">
                     <Label className="text-xs">Condition</Label>
                     <Select
-                      value={rule.operator}
+                      value={normalizedRule.operator}
                       onValueChange={(value) => updateRule(rule.id, { operator: value })}
                     >
                       <SelectTrigger className="h-9" data-testid={`select-operator-${index}`}>
@@ -790,7 +867,7 @@ function LogicRulesSection({
                       <Label className="text-xs">Value</Label>
                       {triggerOptions.length > 0 ? (
                         <Select
-                          value={rule.value || undefined}
+                          value={normalizedRule.value || undefined}
                           onValueChange={(value) => updateRule(rule.id, { value })}
                         >
                           <SelectTrigger className="h-9" data-testid={`select-value-${index}`}>
@@ -806,39 +883,13 @@ function LogicRulesSection({
                         </Select>
                       ) : (
                         <Input
-                          value={rule.value || ''}
+                          value={normalizedRule.value || ''}
                           onChange={(e) => updateRule(rule.id, { value: e.target.value })}
                           placeholder="Enter value..."
                           className="h-9"
                           data-testid={`input-value-${index}`}
                         />
                       )}
-                    </div>
-                  )}
-
-                  {isVisibilityRule && (
-                    <div className="space-y-1 min-w-[80px]">
-                      <Label className="text-xs">Then</Label>
-                      <Select
-                        value={rule.action}
-                        onValueChange={(value) => updateRule(rule.id, { action: value })}
-                      >
-                        <SelectTrigger className="h-9" data-testid={`select-action-${index}`}>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="show">
-                            <span className="flex items-center gap-1">
-                              <Eye className="w-3 h-3" /> Show
-                            </span>
-                          </SelectItem>
-                          <SelectItem value="hide">
-                            <span className="flex items-center gap-1">
-                              <EyeOff className="w-3 h-3" /> Hide
-                            </span>
-                          </SelectItem>
-                        </SelectContent>
-                      </Select>
                     </div>
                   )}
 
@@ -855,66 +906,142 @@ function LogicRulesSection({
                   </div>
                 </div>
 
-                {isVisibilityRule ? (
-                  <div className="pt-2 border-t border-slate-200">
-                    <Label className="text-xs text-slate-600 mb-2 block">
-                      Target Fields ({rule.target_field_ids?.length || 0} selected)
-                    </Label>
-                    {availableTargetFields.length === 0 ? (
-                      <p className="text-xs text-slate-400">Add more fields to the form to select targets</p>
-                    ) : (
-                      <div className="flex flex-wrap gap-2">
-                        {availableTargetFields.map(field => {
-                          const isSelected = (rule.target_field_ids || []).includes(field.id);
-                          return (
-                            <Button
-                              key={field.id}
-                              variant={isSelected ? "default" : "outline"}
-                              size="sm"
-                              className="h-7 text-xs"
-                              onClick={() => toggleTargetField(rule.id, field.id)}
-                              data-testid={`button-target-field-${field.id}`}
-                            >
-                              {isSelected ? <Eye className="w-3 h-3 mr-1" /> : <EyeOff className="w-3 h-3 mr-1" />}
-                              {field.label || field.type}
-                            </Button>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="pt-2 border-t border-blue-200 space-y-3">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="space-y-1">
-                        <Label className="text-xs text-slate-600">Target Field</Label>
-                        <Select
-                          value={rule.target_field_id || undefined}
-                          onValueChange={(value) => {
-                            if (value) {
-                              updateRule(rule.id, { target_field_id: value, set_value: '' });
-                            }
-                          }}
-                        >
-                          <SelectTrigger className="h-9" data-testid={`select-target-field-${index}`}>
-                            <SelectValue placeholder="Select field to set..." />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {availableTargetFields.map(field => (
-                              <SelectItem key={field.id} value={field.id}>
-                                {field.label || field.type} ({field.type})
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs text-slate-600">Set To</Label>
-                        {renderSetValueInput(rule, index)}
-                      </div>
+                {/* Actions Section */}
+                <div className="pt-3 border-t border-slate-200 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs text-slate-600">Actions</Label>
+                    <div className="flex gap-1">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={() => addAction(rule.id, 'show')}
+                        data-testid={`button-add-show-action-${index}`}
+                      >
+                        <Eye className="w-3 h-3 mr-1" /> Show
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={() => addAction(rule.id, 'hide')}
+                        data-testid={`button-add-hide-action-${index}`}
+                      >
+                        <EyeOff className="w-3 h-3 mr-1" /> Hide
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={() => addAction(rule.id, 'set_value')}
+                        data-testid={`button-add-setvalue-action-${index}`}
+                      >
+                        <Edit2 className="w-3 h-3 mr-1" /> Set Value
+                      </Button>
                     </div>
                   </div>
-                )}
+
+                  {actions.length === 0 ? (
+                    <div className="text-center py-4 text-slate-400 border border-dashed border-slate-200 rounded-lg">
+                      <p className="text-xs">No actions defined. Add an action above.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {actions.map((action, actionIndex) => {
+                        const isVisibilityAction = action.action_type === 'show' || action.action_type === 'hide';
+                        
+                        return (
+                          <div 
+                            key={action.id} 
+                            className={`p-3 rounded-lg border ${isVisibilityAction ? 'bg-white border-slate-200' : 'bg-blue-50 border-blue-200'}`}
+                            data-testid={`action-row-${index}-${actionIndex}`}
+                          >
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="flex items-center gap-2">
+                                {action.action_type === 'show' && <Eye className="w-3 h-3 text-green-600" />}
+                                {action.action_type === 'hide' && <EyeOff className="w-3 h-3 text-slate-600" />}
+                                {action.action_type === 'set_value' && <Edit2 className="w-3 h-3 text-blue-600" />}
+                                <span className="text-xs font-medium">
+                                  {action.action_type === 'show' && 'Show Fields'}
+                                  {action.action_type === 'hide' && 'Hide Fields'}
+                                  {action.action_type === 'set_value' && 'Set Field Value'}
+                                </span>
+                              </div>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => removeAction(rule.id, action.id)}
+                                className="h-6 w-6 text-red-500 hover:text-red-600 hover:bg-red-50"
+                                data-testid={`button-delete-action-${index}-${actionIndex}`}
+                              >
+                                <X className="w-3 h-3" />
+                              </Button>
+                            </div>
+
+                            {isVisibilityAction ? (
+                              <div>
+                                <Label className="text-xs text-slate-600 mb-2 block">
+                                  Target Fields ({(action.target_field_ids || []).length} selected)
+                                </Label>
+                                {availableTargetFields.length === 0 ? (
+                                  <p className="text-xs text-slate-400">Add more fields to select targets</p>
+                                ) : (
+                                  <div className="flex flex-wrap gap-2">
+                                    {availableTargetFields.map(field => {
+                                      const isSelected = (action.target_field_ids || []).includes(field.id);
+                                      return (
+                                        <Button
+                                          key={field.id}
+                                          variant={isSelected ? "default" : "outline"}
+                                          size="sm"
+                                          className="h-7 text-xs"
+                                          onClick={() => toggleTargetFieldInAction(rule.id, action.id, field.id)}
+                                          data-testid={`button-action-target-${index}-${actionIndex}-${field.id}`}
+                                        >
+                                          {isSelected ? <Eye className="w-3 h-3 mr-1" /> : <EyeOff className="w-3 h-3 mr-1" />}
+                                          {field.label || field.type}
+                                        </Button>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="space-y-3">
+                                <div className="space-y-1">
+                                  <Label className="text-xs text-slate-600">Target Field</Label>
+                                  <Select
+                                    value={action.target_field_id || undefined}
+                                    onValueChange={(value) => {
+                                      if (value) {
+                                        updateAction(rule.id, action.id, { target_field_id: value, set_value: '' });
+                                      }
+                                    }}
+                                  >
+                                    <SelectTrigger className="h-9" data-testid={`select-action-target-${index}-${actionIndex}`}>
+                                      <SelectValue placeholder="Select field to set..." />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {availableTargetFields.map(field => (
+                                        <SelectItem key={field.id} value={field.id}>
+                                          {field.label || field.type} ({field.type})
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                                <div className="space-y-1">
+                                  <Label className="text-xs text-slate-600">Set To</Label>
+                                  {renderSetValueInput(rule.id, action, actionIndex)}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               </div>
             );
           })}

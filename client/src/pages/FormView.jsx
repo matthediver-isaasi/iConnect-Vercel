@@ -227,6 +227,37 @@ export default function FormViewPage() {
     setPrefillApplied(false);
   }, [form?.id]);
 
+  // Helper to evaluate a rule condition
+  const evaluateCondition = (triggerValue, operator, value) => {
+    switch (operator) {
+      case 'equals':
+        if (Array.isArray(triggerValue)) {
+          return triggerValue.includes(value);
+        }
+        return triggerValue === value;
+      case 'not_equals':
+        if (Array.isArray(triggerValue)) {
+          return !triggerValue.includes(value);
+        }
+        return triggerValue !== value;
+      case 'contains':
+        if (Array.isArray(triggerValue)) {
+          return triggerValue.includes(value);
+        } else if (typeof triggerValue === 'string') {
+          return triggerValue.includes(value);
+        }
+        return false;
+      case 'not_empty':
+        return triggerValue !== undefined && triggerValue !== null && triggerValue !== '' && 
+          (Array.isArray(triggerValue) ? triggerValue.length > 0 : true);
+      case 'is_empty':
+        return triggerValue === undefined || triggerValue === null || triggerValue === '' ||
+          (Array.isArray(triggerValue) && triggerValue.length === 0);
+      default:
+        return false;
+    }
+  };
+
   // Compute initial hidden fields from field.starts_hidden property
   // This property is set by FormBuilder when a 'show' rule targets the field
   // Fallback: Also check visibility_rules for legacy forms without starts_hidden
@@ -243,7 +274,16 @@ export default function FormViewPage() {
     // Fallback: For legacy forms, compute from visibility_rules
     if (hidden.size === 0 && form?.visibility_rules?.length > 0) {
       for (const rule of form.visibility_rules) {
-        if (rule.action === 'show' && rule.target_field_ids?.length) {
+        // Handle new multi-action format
+        if (rule.actions && Array.isArray(rule.actions)) {
+          for (const action of rule.actions) {
+            if (action.action_type === 'show' && action.target_field_ids?.length) {
+              action.target_field_ids.forEach(id => hidden.add(id));
+            }
+          }
+        }
+        // Handle legacy format
+        else if (rule.action === 'show' && rule.target_field_ids?.length) {
           rule.target_field_ids.forEach(id => hidden.add(id));
         }
       }
@@ -266,61 +306,42 @@ export default function FormViewPage() {
     const fieldVisibility = {};
     
     for (const rule of form.visibility_rules) {
-      if (!rule.trigger_field_id || !rule.target_field_ids?.length) continue;
+      if (!rule.trigger_field_id) continue;
       
       const triggerValue = formValues[rule.trigger_field_id];
-      let conditionMet = false;
-      
-      switch (rule.operator) {
-        case 'equals':
-          // Handle array values (checkbox/multi-select)
-          if (Array.isArray(triggerValue)) {
-            conditionMet = triggerValue.includes(rule.value);
-          } else {
-            conditionMet = triggerValue === rule.value;
-          }
-          break;
-        case 'not_equals':
-          if (Array.isArray(triggerValue)) {
-            conditionMet = !triggerValue.includes(rule.value);
-          } else {
-            conditionMet = triggerValue !== rule.value;
-          }
-          break;
-        case 'contains':
-          // Handle both string and array values
-          if (Array.isArray(triggerValue)) {
-            conditionMet = triggerValue.includes(rule.value);
-          } else if (typeof triggerValue === 'string') {
-            conditionMet = triggerValue.includes(rule.value);
-          } else {
-            conditionMet = false;
-          }
-          break;
-        case 'not_empty':
-          conditionMet = triggerValue !== undefined && triggerValue !== null && triggerValue !== '' && 
-            (Array.isArray(triggerValue) ? triggerValue.length > 0 : true);
-          break;
-        case 'is_empty':
-          conditionMet = triggerValue === undefined || triggerValue === null || triggerValue === '' ||
-            (Array.isArray(triggerValue) && triggerValue.length === 0);
-          break;
-        default:
-          conditionMet = false;
-      }
+      const conditionMet = evaluateCondition(triggerValue, rule.operator, rule.value);
 
-      // Track rule results per target field
-      rule.target_field_ids.forEach(fieldId => {
-        if (!fieldVisibility[fieldId]) {
-          fieldVisibility[fieldId] = { showRules: [], hideRules: [] };
+      // Handle new multi-action format
+      if (rule.actions && Array.isArray(rule.actions)) {
+        for (const action of rule.actions) {
+          if (action.action_type === 'show' || action.action_type === 'hide') {
+            const targetIds = action.target_field_ids || [];
+            targetIds.forEach(fieldId => {
+              if (!fieldVisibility[fieldId]) {
+                fieldVisibility[fieldId] = { showRules: [], hideRules: [] };
+              }
+              if (action.action_type === 'show') {
+                fieldVisibility[fieldId].showRules.push(conditionMet);
+              } else if (action.action_type === 'hide') {
+                fieldVisibility[fieldId].hideRules.push(conditionMet);
+              }
+            });
+          }
         }
-        
-        if (rule.action === 'show') {
-          fieldVisibility[fieldId].showRules.push(conditionMet);
-        } else if (rule.action === 'hide') {
-          fieldVisibility[fieldId].hideRules.push(conditionMet);
-        }
-      });
+      }
+      // Handle legacy format
+      else if (rule.target_field_ids?.length) {
+        rule.target_field_ids.forEach(fieldId => {
+          if (!fieldVisibility[fieldId]) {
+            fieldVisibility[fieldId] = { showRules: [], hideRules: [] };
+          }
+          if (rule.action === 'show') {
+            fieldVisibility[fieldId].showRules.push(conditionMet);
+          } else if (rule.action === 'hide') {
+            fieldVisibility[fieldId].hideRules.push(conditionMet);
+          }
+        });
+      }
     }
     
     // Update hidden set based on evaluated rules
@@ -351,87 +372,89 @@ export default function FormViewPage() {
   // Track which fields have been set by rules to avoid infinite loops
   const setValueAppliedRef = useRef({});
   
+  // Helper to process a set_value action
+  const processSetValueAction = (action, triggerValue, prefillEntity, updates) => {
+    if (!action.target_field_id) return;
+    
+    // Build a unique key for this action application
+    const actionKey = `${action.id}_${triggerValue}`;
+    if (setValueAppliedRef.current[actionKey]) return; // Already applied
+    
+    let valueToSet = null;
+    const sourceType = action.set_value_source || 'static';
+    
+    if (sourceType === 'static') {
+      valueToSet = action.set_value;
+    } else if (sourceType === 'field') {
+      valueToSet = formValues[action.set_value_field_id];
+    } else if (sourceType === 'prefill' && prefillEntity) {
+      const prefillField = action.set_value_prefill_field || '';
+      if (prefillField.startsWith('core.')) {
+        const coreFieldName = prefillField.replace('core.', '');
+        valueToSet = prefillEntity[coreFieldName];
+      } else if (prefillField.startsWith('custom.')) {
+        const customFieldId = prefillField.replace('custom.', '');
+        const cfv = prefillCustomFieldValues.find(v => v.field_id === customFieldId);
+        valueToSet = cfv?.value;
+      }
+    }
+    
+    if (valueToSet !== null && valueToSet !== undefined) {
+      updates[action.target_field_id] = valueToSet;
+      setValueAppliedRef.current[actionKey] = true;
+    }
+  };
+  
   useEffect(() => {
     if (!form?.visibility_rules || form.visibility_rules.length === 0) return;
-    
-    const setValueRules = form.visibility_rules.filter(r => r.rule_type === 'set_value');
-    if (setValueRules.length === 0) return;
     
     const prefillEntity = form.prefill_source === 'member' ? prefillMember : prefillOrg;
     const updates = {};
     
-    for (const rule of setValueRules) {
-      if (!rule.trigger_field_id || !rule.target_field_id) continue;
+    for (const rule of form.visibility_rules) {
+      if (!rule.trigger_field_id) continue;
       
       const triggerValue = formValues[rule.trigger_field_id];
-      let conditionMet = false;
-      
-      // Evaluate condition
-      switch (rule.operator) {
-        case 'equals':
-          if (Array.isArray(triggerValue)) {
-            conditionMet = triggerValue.includes(rule.value);
-          } else {
-            conditionMet = triggerValue === rule.value;
-          }
-          break;
-        case 'not_equals':
-          if (Array.isArray(triggerValue)) {
-            conditionMet = !triggerValue.includes(rule.value);
-          } else {
-            conditionMet = triggerValue !== rule.value;
-          }
-          break;
-        case 'contains':
-          if (Array.isArray(triggerValue)) {
-            conditionMet = triggerValue.includes(rule.value);
-          } else if (typeof triggerValue === 'string') {
-            conditionMet = triggerValue.includes(rule.value);
-          }
-          break;
-        case 'not_empty':
-          conditionMet = triggerValue !== undefined && triggerValue !== null && triggerValue !== '' && 
-            (Array.isArray(triggerValue) ? triggerValue.length > 0 : true);
-          break;
-        case 'is_empty':
-          conditionMet = triggerValue === undefined || triggerValue === null || triggerValue === '' ||
-            (Array.isArray(triggerValue) && triggerValue.length === 0);
-          break;
-        default:
-          conditionMet = false;
-      }
+      const conditionMet = evaluateCondition(triggerValue, rule.operator, rule.value);
       
       if (!conditionMet) continue;
       
-      // Build a unique key for this rule application
-      const ruleKey = `${rule.id}_${rule.trigger_field_id}_${triggerValue}`;
-      if (setValueAppliedRef.current[ruleKey]) continue; // Already applied for this condition
-      
-      // Determine the value to set based on source type
-      let valueToSet = null;
-      const sourceType = rule.set_value_source || 'static';
-      
-      if (sourceType === 'static') {
-        valueToSet = rule.set_value;
-      } else if (sourceType === 'field') {
-        // Copy value from another form field
-        valueToSet = formValues[rule.set_value_field_id];
-      } else if (sourceType === 'prefill' && prefillEntity) {
-        // Get value from prefill entity (member or organization)
-        const prefillField = rule.set_value_prefill_field || '';
-        if (prefillField.startsWith('core.')) {
-          const coreFieldName = prefillField.replace('core.', '');
-          valueToSet = prefillEntity[coreFieldName];
-        } else if (prefillField.startsWith('custom.')) {
-          const customFieldId = prefillField.replace('custom.', '');
-          const cfv = prefillCustomFieldValues.find(v => v.field_id === customFieldId);
-          valueToSet = cfv?.value;
+      // Handle new multi-action format
+      if (rule.actions && Array.isArray(rule.actions)) {
+        for (const action of rule.actions) {
+          if (action.action_type === 'set_value') {
+            processSetValueAction(action, triggerValue, prefillEntity, updates);
+          }
         }
       }
-      
-      if (valueToSet !== null && valueToSet !== undefined) {
-        updates[rule.target_field_id] = valueToSet;
-        setValueAppliedRef.current[ruleKey] = true;
+      // Handle legacy format (rule_type === 'set_value')
+      else if (rule.rule_type === 'set_value' && rule.target_field_id) {
+        const ruleKey = `${rule.id}_${rule.trigger_field_id}_${triggerValue}`;
+        if (setValueAppliedRef.current[ruleKey]) continue;
+        
+        let valueToSet = null;
+        const sourceType = rule.set_value_source || 'static';
+        
+        if (sourceType === 'static') {
+          valueToSet = rule.set_value;
+        } else if (sourceType === 'field') {
+          valueToSet = formValues[rule.set_value_field_id];
+        } else if (sourceType === 'prefill' && prefillEntity) {
+          const prefillField = rule.set_value_prefill_field || '';
+          if (prefillField.startsWith('core.')) {
+            const coreFieldName = prefillField.replace('core.', '');
+            valueToSet = prefillEntity[coreFieldName];
+          } else if (prefillField.startsWith('custom.')) {
+            const customFieldId = prefillField.replace('custom.', '');
+            const cfv = prefillCustomFieldValues.find(v => v.field_id === customFieldId);
+            valueToSet = cfv?.value;
+          }
+        }
+        
+        if (valueToSet !== null && valueToSet !== undefined) {
+          updates[rule.target_field_id] = valueToSet;
+          setValueAppliedRef.current[ruleKey] = true;
+        }
       }
     }
     
