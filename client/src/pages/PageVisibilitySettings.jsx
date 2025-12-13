@@ -48,6 +48,9 @@ const CONFIGURABLE_PAGES = [
   { id: "MyArticles", name: "My Articles", category: "Account", description: "Member's articles" },
   { id: "Support", name: "Support", category: "Account", description: "Support requests" },
   
+  // Forms
+  { id: "FormView", name: "Form View", category: "Forms", description: "Public/member form pages" },
+  
   // Dynamic CMS pages are handled separately via IEditPageSettings
 ];
 
@@ -67,6 +70,7 @@ const DEFAULT_VISIBILITY = {
   "OrganisationDirectory": "hybrid",
   "JobBoard": "hybrid",
   "JobDetails": "hybrid",
+  "FormView": "hybrid",
   // All others default to portal
 };
 
