@@ -2005,7 +2005,26 @@ export default function FormBuilderPage() {
                       fields={formData.fields}
                       visibilityRules={formData.visibility_rules}
                       onRulesChange={(rules) => {
-                        setFormData(prev => ({ ...prev, visibility_rules: rules }));
+                        // Compute which fields should have starts_hidden based on show rules
+                        const fieldsWithShowRules = new Set();
+                        rules.forEach(rule => {
+                          if (rule.action === 'show' && rule.target_field_ids?.length) {
+                            rule.target_field_ids.forEach(id => fieldsWithShowRules.add(id));
+                          }
+                        });
+                        
+                        // Update fields with starts_hidden property
+                        setFormData(prev => {
+                          const updatedFields = prev.fields.map(field => ({
+                            ...field,
+                            starts_hidden: fieldsWithShowRules.has(field.id)
+                          }));
+                          return { 
+                            ...prev, 
+                            visibility_rules: rules,
+                            fields: updatedFields
+                          };
+                        });
                       }}
                     />
                   </div>

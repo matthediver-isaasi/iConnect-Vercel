@@ -227,21 +227,30 @@ export default function FormViewPage() {
     setPrefillApplied(false);
   }, [form?.id]);
 
-  // Compute initial hidden fields (fields that have "show" rules should start hidden)
+  // Compute initial hidden fields from field.starts_hidden property
+  // This property is set by FormBuilder when a 'show' rule targets the field
+  // Fallback: Also check visibility_rules for legacy forms without starts_hidden
   const initialHiddenFieldIds = useMemo(() => {
-    if (!form?.visibility_rules || form.visibility_rules.length === 0) {
-      return new Set();
-    }
-    
     const hidden = new Set();
-    for (const rule of form.visibility_rules) {
-      if (rule.action === 'show' && rule.target_field_ids?.length) {
-        // Fields with "show" rules start hidden until condition is met
-        rule.target_field_ids.forEach(id => hidden.add(id));
+    
+    // First, check field.starts_hidden (newer forms)
+    for (const field of (form?.fields || [])) {
+      if (field.starts_hidden) {
+        hidden.add(field.id);
       }
     }
+    
+    // Fallback: For legacy forms, compute from visibility_rules
+    if (hidden.size === 0 && form?.visibility_rules?.length > 0) {
+      for (const rule of form.visibility_rules) {
+        if (rule.action === 'show' && rule.target_field_ids?.length) {
+          rule.target_field_ids.forEach(id => hidden.add(id));
+        }
+      }
+    }
+    
     return hidden;
-  }, [form?.visibility_rules]);
+  }, [form?.fields, form?.visibility_rules]);
 
   // Evaluate visibility rules to determine which fields should be hidden
   // Key principle: Fields with "show" rules START HIDDEN and only become visible when condition is met
