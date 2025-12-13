@@ -104,7 +104,20 @@ export default function FormViewPage() {
           const customFieldId = field.prefill_field.replace('custom:', '');
           // Find custom field value by field_id (member_id/organization_id already filtered in query)
           const cfv = prefillCustomFieldValues.find(v => v.field_id === customFieldId);
-          if (cfv) newValues[field.id] = cfv.value;
+          if (cfv && cfv.value !== undefined && cfv.value !== null) {
+            let parsedValue = cfv.value;
+            // For list fields, custom field values are stored as JSON strings - parse them
+            if (field.type === 'list') {
+              try {
+                const parsed = JSON.parse(cfv.value);
+                parsedValue = Array.isArray(parsed) ? parsed : [cfv.value];
+              } catch {
+                // If parsing fails, wrap single value in array
+                parsedValue = cfv.value ? [cfv.value] : [];
+              }
+            }
+            newValues[field.id] = parsedValue;
+          }
         } else {
           // Core field - get value from entity
           if (entity[field.prefill_field] !== undefined) {
