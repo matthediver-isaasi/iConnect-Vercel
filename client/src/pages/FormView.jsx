@@ -501,6 +501,9 @@ export default function FormViewPage() {
 
   // Use memberRecord (full data) if available, otherwise fallback to memberInfo
   const memberData = memberRecord || memberInfo;
+  
+  // Suppress initial paint for forms with visibility rules until rules are evaluated
+  const shouldHideFormContent = !!(form?.visibility_rules?.length) && !visibilityReady;
 
   if (form.layout_type === 'card_swipe') {
     // Filter visible fields for card swipe layout
@@ -526,7 +529,7 @@ export default function FormViewPage() {
               ))}
             </div>
           </CardHeader>
-          <CardContent className="min-h-[300px]">
+          <CardContent className="min-h-[300px]" style={{ visibility: shouldHideFormContent ? 'hidden' : 'visible' }}>
             {currentField && (
               <FormRenderer
                 field={currentField}
@@ -661,7 +664,7 @@ export default function FormViewPage() {
               </div>
             )}
           </CardHeader>
-          <CardContent className="space-y-6">
+          <CardContent className="space-y-6" style={{ visibility: shouldHideFormContent ? 'hidden' : 'visible' }}>
             {/* Render fields in columns if page has column_count > 1 */}
             {(() => {
               const columnCount = currentPage?.column_count || 1;
