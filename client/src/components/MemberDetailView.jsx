@@ -471,15 +471,15 @@ export default function MemberDetailView({
                     <div className="space-y-2">
                       <Label>Organisation</Label>
                       <Select 
-                        value={formData.organization_id} 
-                        onValueChange={(v) => setFormData(prev => ({ ...prev, organization_id: v }))}
+                        value={formData.organization_id || '__none__'} 
+                        onValueChange={(v) => setFormData(prev => ({ ...prev, organization_id: v === '__none__' ? '' : v }))}
                       >
                         <SelectTrigger data-testid="select-member-org">
                           <SelectValue placeholder="Select organisation" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="">No Organisation</SelectItem>
-                          {organizations.map(org => (
+                          <SelectItem value="__none__">No Organisation</SelectItem>
+                          {organizations.filter(org => org.id).map(org => (
                             <SelectItem key={org.id} value={org.id}>{org.name}</SelectItem>
                           ))}
                         </SelectContent>
@@ -563,15 +563,15 @@ export default function MemberDetailView({
                             <div key={field.id} className="space-y-2">
                               <Label>{field.label}</Label>
                               <Select
-                                value={value}
-                                onValueChange={(v) => handleCustomFieldChange(field.id, v)}
+                                value={value || '__none__'}
+                                onValueChange={(v) => handleCustomFieldChange(field.id, v === '__none__' ? '' : v)}
                               >
                                 <SelectTrigger data-testid={`select-custom-field-${field.id}`}>
                                   <SelectValue placeholder={`Select ${field.label}`} />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  <SelectItem value="">None</SelectItem>
-                                  {options.map(opt => (
+                                  <SelectItem value="__none__">None</SelectItem>
+                                  {options.filter(opt => opt).map(opt => (
                                     <SelectItem key={opt} value={opt}>{opt}</SelectItem>
                                   ))}
                                 </SelectContent>
