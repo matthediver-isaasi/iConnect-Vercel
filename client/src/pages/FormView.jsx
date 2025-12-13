@@ -369,40 +369,61 @@ export default function FormViewPage() {
   };
 
   // Process Set Value rules - when conditions are met, update target field values
-  // Track which fields have been set by rules to avoid infinite loops
-  const setValueAppliedRef = useRef({});
+  // When conditions become false, revert to original values (undo the action)
   
-  // Helper to process a set_value action
-  const processSetValueAction = (action, triggerValue, prefillEntity, updates) => {
-    if (!action.target_field_id) return;
-    
-    // Build a unique key for this action application
-    const actionKey = `${action.id}_${triggerValue}`;
-    if (setValueAppliedRef.current[actionKey]) return; // Already applied
-    
-    let valueToSet = null;
+  // Track original values BEFORE set_value rules modified them
+  const originalValuesRef = useRef({});
+  // Track which set_value actions are currently active (condition is true)
+  const activeSetValueActionsRef = useRef(new Set());
+  
+  // Reset set_value tracking when form changes
+  useEffect(() => {
+    originalValuesRef.current = {};
+    activeSetValueActionsRef.current = new Set();
+  }, [form?.id]);
+  
+  // Helper to compute the value for a set_value action
+  const computeSetValue = (action, prefillEntity) => {
     const sourceType = action.set_value_source || 'static';
     
     if (sourceType === 'static') {
-      valueToSet = action.set_value;
+      return action.set_value;
     } else if (sourceType === 'field') {
-      valueToSet = formValues[action.set_value_field_id];
+      return formValues[action.set_value_field_id];
     } else if (sourceType === 'prefill' && prefillEntity) {
       const prefillField = action.set_value_prefill_field || '';
       if (prefillField.startsWith('core.')) {
         const coreFieldName = prefillField.replace('core.', '');
-        valueToSet = prefillEntity[coreFieldName];
+        return prefillEntity[coreFieldName];
       } else if (prefillField.startsWith('custom.')) {
         const customFieldId = prefillField.replace('custom.', '');
         const cfv = prefillCustomFieldValues.find(v => v.field_id === customFieldId);
-        valueToSet = cfv?.value;
+        return cfv?.value;
       }
     }
+    return null;
+  };
+  
+  // Helper to compute the value for a legacy set_value rule
+  const computeLegacySetValue = (rule, prefillEntity) => {
+    const sourceType = rule.set_value_source || 'static';
     
-    if (valueToSet !== null && valueToSet !== undefined) {
-      updates[action.target_field_id] = valueToSet;
-      setValueAppliedRef.current[actionKey] = true;
+    if (sourceType === 'static') {
+      return rule.set_value;
+    } else if (sourceType === 'field') {
+      return formValues[rule.set_value_field_id];
+    } else if (sourceType === 'prefill' && prefillEntity) {
+      const prefillField = rule.set_value_prefill_field || '';
+      if (prefillField.startsWith('core.')) {
+        const coreFieldName = prefillField.replace('core.', '');
+        return prefillEntity[coreFieldName];
+      } else if (prefillField.startsWith('custom.')) {
+        const customFieldId = prefillField.replace('custom.', '');
+        const cfv = prefillCustomFieldValues.find(v => v.field_id === customFieldId);
+        return cfv?.value;
+      }
     }
+    return null;
   };
   
   useEffect(() => {
@@ -411,52 +432,119 @@ export default function FormViewPage() {
     const prefillEntity = form.prefill_source === 'member' ? prefillMember : prefillOrg;
     const updates = {};
     
+    // Track which actions are now active and which fields they target
+    const nowActiveActions = new Set();
+    const activeFieldTargets = new Map(); // fieldId -> Set of actionKeys targeting it
+    
+    // First pass: identify all active actions and build field->action mapping
     for (const rule of form.visibility_rules) {
       if (!rule.trigger_field_id) continue;
       
       const triggerValue = formValues[rule.trigger_field_id];
       const conditionMet = evaluateCondition(triggerValue, rule.operator, rule.value);
       
-      if (!conditionMet) continue;
-      
       // Handle new multi-action format
       if (rule.actions && Array.isArray(rule.actions)) {
         for (const action of rule.actions) {
-          if (action.action_type === 'set_value') {
-            processSetValueAction(action, triggerValue, prefillEntity, updates);
+          if (action.action_type === 'set_value' && action.target_field_id) {
+            const actionKey = action.id;
+            
+            if (conditionMet) {
+              nowActiveActions.add(actionKey);
+              
+              // Track which actions target this field
+              if (!activeFieldTargets.has(action.target_field_id)) {
+                activeFieldTargets.set(action.target_field_id, new Set());
+              }
+              activeFieldTargets.get(action.target_field_id).add(actionKey);
+              
+              // If this action wasn't active before, save original value and apply
+              if (!activeSetValueActionsRef.current.has(actionKey)) {
+                // Save original value if we haven't already
+                if (!(action.target_field_id in originalValuesRef.current)) {
+                  originalValuesRef.current[action.target_field_id] = formValues[action.target_field_id] ?? '';
+                }
+                
+                const valueToSet = computeSetValue(action, prefillEntity);
+                if (valueToSet !== null && valueToSet !== undefined) {
+                  updates[action.target_field_id] = valueToSet;
+                }
+              }
+            }
           }
         }
       }
       // Handle legacy format (rule_type === 'set_value')
       else if (rule.rule_type === 'set_value' && rule.target_field_id) {
-        const ruleKey = `${rule.id}_${rule.trigger_field_id}_${triggerValue}`;
-        if (setValueAppliedRef.current[ruleKey]) continue;
+        const ruleKey = `legacy_${rule.id}`;
         
-        let valueToSet = null;
-        const sourceType = rule.set_value_source || 'static';
-        
-        if (sourceType === 'static') {
-          valueToSet = rule.set_value;
-        } else if (sourceType === 'field') {
-          valueToSet = formValues[rule.set_value_field_id];
-        } else if (sourceType === 'prefill' && prefillEntity) {
-          const prefillField = rule.set_value_prefill_field || '';
-          if (prefillField.startsWith('core.')) {
-            const coreFieldName = prefillField.replace('core.', '');
-            valueToSet = prefillEntity[coreFieldName];
-          } else if (prefillField.startsWith('custom.')) {
-            const customFieldId = prefillField.replace('custom.', '');
-            const cfv = prefillCustomFieldValues.find(v => v.field_id === customFieldId);
-            valueToSet = cfv?.value;
+        if (conditionMet) {
+          nowActiveActions.add(ruleKey);
+          
+          // Track which actions target this field
+          if (!activeFieldTargets.has(rule.target_field_id)) {
+            activeFieldTargets.set(rule.target_field_id, new Set());
           }
-        }
-        
-        if (valueToSet !== null && valueToSet !== undefined) {
-          updates[rule.target_field_id] = valueToSet;
-          setValueAppliedRef.current[ruleKey] = true;
+          activeFieldTargets.get(rule.target_field_id).add(ruleKey);
+          
+          // If this rule wasn't active before, save original value and apply
+          if (!activeSetValueActionsRef.current.has(ruleKey)) {
+            // Save original value if we haven't already
+            if (!(rule.target_field_id in originalValuesRef.current)) {
+              originalValuesRef.current[rule.target_field_id] = formValues[rule.target_field_id] ?? '';
+            }
+            
+            const valueToSet = computeLegacySetValue(rule, prefillEntity);
+            if (valueToSet !== null && valueToSet !== undefined) {
+              updates[rule.target_field_id] = valueToSet;
+            }
+          }
         }
       }
     }
+    
+    // Find actions that were active but are now inactive - need to revert
+    // But only revert if NO other active action targets the same field
+    for (const actionKey of activeSetValueActionsRef.current) {
+      if (!nowActiveActions.has(actionKey)) {
+        // Find the target field for this action
+        for (const rule of form.visibility_rules) {
+          // Check new multi-action format
+          if (rule.actions && Array.isArray(rule.actions)) {
+            for (const action of rule.actions) {
+              if (action.id === actionKey && action.target_field_id) {
+                const targetFieldId = action.target_field_id;
+                // Only revert if no other active action targets this field
+                const activeActionsForField = activeFieldTargets.get(targetFieldId);
+                if (!activeActionsForField || activeActionsForField.size === 0) {
+                  // No active actions target this field, safe to revert
+                  if (targetFieldId in originalValuesRef.current) {
+                    updates[targetFieldId] = originalValuesRef.current[targetFieldId];
+                    delete originalValuesRef.current[targetFieldId];
+                  }
+                }
+              }
+            }
+          }
+          // Check legacy format
+          else if (`legacy_${rule.id}` === actionKey && rule.target_field_id) {
+            const targetFieldId = rule.target_field_id;
+            // Only revert if no other active action targets this field
+            const activeActionsForField = activeFieldTargets.get(targetFieldId);
+            if (!activeActionsForField || activeActionsForField.size === 0) {
+              // No active actions target this field, safe to revert
+              if (targetFieldId in originalValuesRef.current) {
+                updates[targetFieldId] = originalValuesRef.current[targetFieldId];
+                delete originalValuesRef.current[targetFieldId];
+              }
+            }
+          }
+        }
+      }
+    }
+    
+    // Update the active actions set
+    activeSetValueActionsRef.current = nowActiveActions;
     
     // Apply all updates at once to avoid multiple re-renders
     if (Object.keys(updates).length > 0) {
