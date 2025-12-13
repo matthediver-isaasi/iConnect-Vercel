@@ -419,31 +419,36 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
         }
         
         // Render based on custom field type
+        // Options are objects with {label, value} properties
         if (customFieldDef.field_type === 'checkbox') {
           return (
             <div className="space-y-2">
-              {customFieldOptions.map((option, index) => (
-                <div key={index} className="flex items-center space-x-2">
-                  <Checkbox
-                    id={`${field.id}-${index}`}
-                    checked={(value || []).includes(option)}
-                    disabled={field.locked}
-                    onCheckedChange={(checked) => {
-                      if (field.locked) return;
-                      const currentValues = value || [];
-                      if (checked) {
-                        onChange([...currentValues, option]);
-                      } else {
-                        onChange(currentValues.filter(v => v !== option));
-                      }
-                    }}
-                    data-testid={`checkbox-custom-${field.id}-${index}`}
-                  />
-                  <Label htmlFor={`${field.id}-${index}`} className="font-normal cursor-pointer">
-                    {option}
-                  </Label>
-                </div>
-              ))}
+              {customFieldOptions.map((option, index) => {
+                const optValue = option.value || option.label || option;
+                const optLabel = option.label || option.value || option;
+                return (
+                  <div key={index} className="flex items-center space-x-2">
+                    <Checkbox
+                      id={`${field.id}-${index}`}
+                      checked={(value || []).includes(optValue)}
+                      disabled={field.locked}
+                      onCheckedChange={(checked) => {
+                        if (field.locked) return;
+                        const currentValues = value || [];
+                        if (checked) {
+                          onChange([...currentValues, optValue]);
+                        } else {
+                          onChange(currentValues.filter(v => v !== optValue));
+                        }
+                      }}
+                      data-testid={`checkbox-custom-${field.id}-${index}`}
+                    />
+                    <Label htmlFor={`${field.id}-${index}`} className="font-normal cursor-pointer">
+                      {optLabel}
+                    </Label>
+                  </div>
+                );
+              })}
             </div>
           );
         }
@@ -451,19 +456,23 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
         if (customFieldDef.field_type === 'radio') {
           return (
             <RadioGroup value={value || ''} onValueChange={field.locked ? undefined : onChange} disabled={field.locked}>
-              {customFieldOptions.map((option, index) => (
-                <div key={index} className="flex items-center space-x-2">
-                  <RadioGroupItem 
-                    value={option} 
-                    id={`${field.id}-${index}`}
-                    disabled={field.locked}
-                    data-testid={`radio-custom-${field.id}-${index}`}
-                  />
-                  <Label htmlFor={`${field.id}-${index}`} className="font-normal cursor-pointer">
-                    {option}
-                  </Label>
-                </div>
-              ))}
+              {customFieldOptions.map((option, index) => {
+                const optValue = option.value || option.label || option;
+                const optLabel = option.label || option.value || option;
+                return (
+                  <div key={index} className="flex items-center space-x-2">
+                    <RadioGroupItem 
+                      value={optValue} 
+                      id={`${field.id}-${index}`}
+                      disabled={field.locked}
+                      data-testid={`radio-custom-${field.id}-${index}`}
+                    />
+                    <Label htmlFor={`${field.id}-${index}`} className="font-normal cursor-pointer">
+                      {optLabel}
+                    </Label>
+                  </div>
+                );
+              })}
             </RadioGroup>
           );
         }
@@ -475,11 +484,15 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
               <SelectValue placeholder={field.placeholder || 'Select an option'} />
             </SelectTrigger>
             <SelectContent>
-              {customFieldOptions.map((option, index) => (
-                <SelectItem key={index} value={option} data-testid={`option-custom-${field.id}-${index}`}>
-                  {option}
-                </SelectItem>
-              ))}
+              {customFieldOptions.map((option, index) => {
+                const optValue = option.value || option.label || option;
+                const optLabel = option.label || option.value || option;
+                return (
+                  <SelectItem key={index} value={optValue} data-testid={`option-custom-${field.id}-${index}`}>
+                    {optLabel}
+                  </SelectItem>
+                );
+              })}
             </SelectContent>
           </Select>
         );
