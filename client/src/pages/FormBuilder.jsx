@@ -26,7 +26,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 
-const FIELD_TYPES = [
+// Standard field types - basic input types
+const STANDARD_FIELD_TYPES = [
   { value: 'text', label: 'Text Input' },
   { value: 'email', label: 'Email' },
   { value: 'url', label: 'Website URL' },
@@ -34,19 +35,30 @@ const FIELD_TYPES = [
   { value: 'tel', label: 'Phone' },
   { value: 'textarea', label: 'Text Area' },
   { value: 'select', label: 'Dropdown' },
-  { value: 'organisation_dropdown', label: 'Organisation Dropdown' },
-  { value: 'category_multiselect', label: 'Category Multi-Select' },
   { value: 'radio', label: 'Radio Buttons' },
   { value: 'checkbox', label: 'Checkboxes' },
   { value: 'list', label: 'List (User-Defined Values)' },
   { value: 'date', label: 'Date' },
   { value: 'time', label: 'Time' },
   { value: 'file', label: 'File Upload' },
+];
+
+// Custom pre-populate field types - fields that pull from existing data
+const CUSTOM_PREPOPULATE_TYPES = [
+  { value: 'organisation_dropdown', label: 'Organisation Dropdown' },
+  { value: 'category_multiselect', label: 'Category Multi-Select' },
+];
+
+// Auto-populate field types - fields that auto-fill from user context
+const AUTO_POPULATE_TYPES = [
   { value: 'user_name', label: 'User Name (Auto)' },
   { value: 'user_email', label: 'User Email (Auto)' },
   { value: 'user_organization', label: 'User Organisation (Auto)' },
   { value: 'user_job_title', label: 'User Job Title (Auto)' },
 ];
+
+// Combined list for lookups
+const FIELD_TYPES = [...STANDARD_FIELD_TYPES, ...CUSTOM_PREPOPULATE_TYPES, ...AUTO_POPULATE_TYPES];
 
 const TRANSFORMATIONS = [
   { value: 'none', label: 'No transformation', description: 'Use value as-is' },
@@ -521,11 +533,30 @@ function FieldCard({
                     value={field.type}
                     onValueChange={(value) => updateField(originalIndex, { type: value })}
                   >
-                    <SelectTrigger className="h-9">
+                    <SelectTrigger className="h-9" data-testid={`select-field-type-${field.id}`}>
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent>
-                      {FIELD_TYPES.map(type => (
+                    <SelectContent className="max-h-[320px]">
+                      <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground bg-muted/50 sticky top-0">
+                        Standard Field Types
+                      </div>
+                      {STANDARD_FIELD_TYPES.map(type => (
+                        <SelectItem key={type.value} value={type.value}>
+                          {type.label}
+                        </SelectItem>
+                      ))}
+                      <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground bg-muted/50 sticky top-0 mt-1">
+                        Custom Pre-populate Types
+                      </div>
+                      {CUSTOM_PREPOPULATE_TYPES.map(type => (
+                        <SelectItem key={type.value} value={type.value}>
+                          {type.label}
+                        </SelectItem>
+                      ))}
+                      <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground bg-muted/50 sticky top-0 mt-1">
+                        Auto-populate Fields
+                      </div>
+                      {AUTO_POPULATE_TYPES.map(type => (
                         <SelectItem key={type.value} value={type.value}>
                           {type.label}
                         </SelectItem>
@@ -539,6 +570,7 @@ function FieldCard({
                     value={field.label}
                     onChange={(e) => updateField(originalIndex, { label: e.target.value })}
                     className="h-9"
+                    data-testid={`input-field-label-${field.id}`}
                   />
                 </div>
               </div>
