@@ -299,7 +299,8 @@ export default function MembersListPage() {
 
     if (roleFilter !== 'all') {
       result = result.filter(m => {
-        const memberRoles = m.roles || [];
+        // Support both legacy 'roles' array and new 'role_id' single value
+        const memberRoles = m.roles || (m.role_id ? [m.role_id] : []);
         return memberRoles.includes(roleFilter);
       });
     }
@@ -475,7 +476,9 @@ export default function MembersListPage() {
           <Badge variant="secondary" className="bg-green-100 text-green-700">Active</Badge>
         );
       case 'roles':
-        const memberRoles = member.roles || [];
+        // Support both legacy 'roles' array and new 'role_id' single value
+        const memberRoleId = member.role_id;
+        const memberRoles = member.roles || (memberRoleId ? [memberRoleId] : []);
         if (memberRoles.length === 0) return '-';
         return (
           <div className="flex flex-wrap gap-1">
