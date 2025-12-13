@@ -169,7 +169,8 @@ export default function FormViewPage() {
               application_level: form.application_level || 'member',
               member_entity_action: form.member_entity_action || 'none',
               organization_entity_action: form.organization_entity_action || 'none',
-              submission_id: submissionResult?.id
+              submission_id: submissionResult?.id,
+              prefill_organization_id: form.prefill_source === 'organization' ? prefillOrgId : null
             })
           });
           if (response.ok) {

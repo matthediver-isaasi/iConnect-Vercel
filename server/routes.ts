@@ -1115,7 +1115,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         application_level, // 'member' or 'organization' (legacy, for backward compatibility)
         member_entity_action = 'none',     // 'none', 'create', 'update', 'upsert'
         organization_entity_action = 'none', // 'none', 'create', 'update', 'upsert'
-        submission_id    // Optional: link back to FormSubmission record
+        submission_id,   // Optional: link back to FormSubmission record
+        prefill_organization_id  // Optional: organization ID from prefill source (for linking new members)
       } = req.body;
 
       if (!form_values || typeof form_values !== 'object') {
@@ -1379,7 +1380,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
             if (memberData.full_name) updateData.full_name = memberData.full_name;
             if (memberData.job_title) updateData.job_title = memberData.job_title;
             if (memberData.phone) updateData.phone = memberData.phone;
-            if (createdOrganizationId) updateData.organization_id = createdOrganizationId;
+            // Use createdOrganizationId if org was created/updated, otherwise use prefill_organization_id
+            const orgIdToLink = createdOrganizationId || prefill_organization_id;
+            if (orgIdToLink) updateData.organization_id = orgIdToLink;
             
             if (Object.keys(updateData).length > 0) {
               const { error: updateError } = await supabase
@@ -1408,6 +1411,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
               memberData.last_name = nameParts.slice(1).join(' ') || '';
             }
 
+            // Use createdOrganizationId if org was created/updated, otherwise use prefill_organization_id
+            const orgIdForNewMember = createdOrganizationId || prefill_organization_id || null;
+            
             const memberInsertData = {
               email: memberData.email || `pending-${Date.now()}@example.com`,
               first_name: memberData.first_name || '',
@@ -1415,7 +1421,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               full_name: memberData.full_name || `${memberData.first_name || ''} ${memberData.last_name || ''}`.trim(),
               job_title: memberData.job_title || null,
               phone: memberData.phone || null,
-              organization_id: createdOrganizationId,
+              organization_id: orgIdForNewMember,
               status: 'active',
               created_at: new Date().toISOString(),
               source: 'application_form'
