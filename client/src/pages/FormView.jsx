@@ -19,6 +19,8 @@ export default function FormViewPage() {
   const queryClient = useQueryClient();
   const urlParams = new URLSearchParams(window.location.search);
   const formSlug = urlParams.get('slug');
+  const prefillMemberId = urlParams.get('member_id');
+  const prefillOrgId = urlParams.get('organization_id');
 
   // Fetch full member record to get job_title
   const { data: memberRecord } = useQuery({
@@ -38,6 +40,95 @@ export default function FormViewPage() {
     },
     enabled: !!formSlug
   });
+
+  // Prefill: Fetch member entity when form has prefill_source = 'member'
+  const { data: prefillMember } = useQuery({
+    queryKey: ['prefill-member', prefillMemberId],
+    queryFn: async () => {
+      const allMembers = await base44.entities.Member.listAll();
+      return allMembers.find(m => m.id === prefillMemberId);
+    },
+    enabled: !!prefillMemberId && form?.prefill_source === 'member'
+  });
+
+  // Prefill: Fetch organization entity when form has prefill_source = 'organization'
+  const { data: prefillOrg } = useQuery({
+    queryKey: ['prefill-org', prefillOrgId],
+    queryFn: async () => {
+      const allOrgs = await base44.entities.Organization.listAll();
+      return allOrgs.find(o => o.id === prefillOrgId);
+    },
+    enabled: !!prefillOrgId && form?.prefill_source === 'organization'
+  });
+
+  // Prefill: Fetch custom field values for prefill entity (using correct entity type)
+  const { data: prefillCustomFieldValues = [] } = useQuery({
+    queryKey: ['prefill-custom-values', form?.prefill_source, prefillMemberId, prefillOrgId],
+    queryFn: async () => {
+      if (form?.prefill_source === 'member' && prefillMemberId) {
+        // Fetch member preference values filtered by member_id
+        const values = await base44.entities.MemberPreferenceValue.list({
+          filter: { member_id: prefillMemberId }
+        });
+        return values || [];
+      } else if (form?.prefill_source === 'organization' && prefillOrgId) {
+        // Fetch organization preference values filtered by organization_id
+        const values = await base44.entities.OrganizationPreferenceValue.list({
+          filter: { organization_id: prefillOrgId }
+        });
+        return values || [];
+      }
+      return [];
+    },
+    enabled: form?.prefill_source && form.prefill_source !== 'none' && 
+      ((form.prefill_source === 'member' && !!prefillMemberId) || 
+       (form.prefill_source === 'organization' && !!prefillOrgId))
+  });
+
+  // Track if prefill has been applied to prevent overwriting user edits
+  const [prefillApplied, setPrefillApplied] = useState(false);
+
+  // Prefill: Populate form values when prefill entity loads (one-time only)
+  useEffect(() => {
+    if (!form || !form.prefill_source || form.prefill_source === 'none') return;
+    if (prefillApplied) return; // Already applied prefill, don't overwrite user edits
+    
+    const entity = form.prefill_source === 'member' ? prefillMember : prefillOrg;
+    if (!entity) return;
+    
+    const newValues = {};
+    for (const field of (form.fields || [])) {
+      if (field.prefill_field) {
+        // Check if custom field (prefixed with 'custom:')
+        if (field.prefill_field.startsWith('custom:')) {
+          const customFieldId = field.prefill_field.replace('custom:', '');
+          // Find custom field value by field_id (member_id/organization_id already filtered in query)
+          const cfv = prefillCustomFieldValues.find(v => v.field_id === customFieldId);
+          if (cfv) newValues[field.id] = cfv.value;
+        } else {
+          // Core field - get value from entity
+          if (entity[field.prefill_field] !== undefined) {
+            newValues[field.id] = entity[field.prefill_field];
+          }
+        }
+      }
+    }
+    
+    if (Object.keys(newValues).length > 0) {
+      // Prefill values take precedence on initial load, but only fill empty fields
+      setFormValues(prev => {
+        const merged = { ...prev };
+        for (const [key, value] of Object.entries(newValues)) {
+          // Only prefill if the field is empty/null/undefined
+          if (!prev[key] || prev[key] === '' || prev[key] === null) {
+            merged[key] = value;
+          }
+        }
+        return merged;
+      });
+      setPrefillApplied(true);
+    }
+  }, [form, prefillMember, prefillOrg, prefillCustomFieldValues, prefillApplied]);
 
   const submitFormMutation = useMutation({
     mutationFn: async (submissionData) => {
@@ -120,6 +211,7 @@ export default function FormViewPage() {
     setCurrentStep(0);
     setFormValues({});
     setSubmitted(false);
+    setPrefillApplied(false);
   }, [form?.id]);
 
   if (isLoading) {

@@ -399,6 +399,24 @@ function FieldMappingSection({
   );
 }
 
+// Define prefill source fields
+const MEMBER_PREFILL_FIELDS = [
+  { value: 'email', label: 'Email' },
+  { value: 'first_name', label: 'First Name' },
+  { value: 'last_name', label: 'Last Name' },
+  { value: 'full_name', label: 'Full Name' },
+  { value: 'phone', label: 'Phone' },
+  { value: 'job_title', label: 'Job Title' },
+];
+
+const ORG_PREFILL_FIELDS = [
+  { value: 'name', label: 'Organisation Name' },
+  { value: 'invoicing_email', label: 'Invoicing Email' },
+  { value: 'phone', label: 'Phone' },
+  { value: 'invoicing_address', label: 'Invoicing Address' },
+  { value: 'website_url', label: 'Website URL' },
+];
+
 function FieldCard({ 
   field, 
   index, 
@@ -411,7 +429,8 @@ function FieldCard({
   isApplicationForm = false,
   applicationLevel = "member",
   uniquenessChecks = [],
-  onUniquenessChange
+  onUniquenessChange,
+  prefillSource = "none"
 }) {
   const isEmailType = field.type === 'email' || field.type === 'user_email';
   const isUrlType = field.type === 'url';
@@ -531,6 +550,48 @@ function FieldCard({
                   className="h-9"
                 />
               </div>
+
+              {/* Pre-fill Field Selection - When prefill is enabled */}
+              {prefillSource !== "none" && (
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg space-y-2">
+                  <Label className="text-xs font-medium text-blue-800">Pre-fill from {prefillSource === "member" ? "Member" : "Organisation"}</Label>
+                  <Select
+                    value={field.prefill_field || "_none"}
+                    onValueChange={(value) => updateField(originalIndex, { prefill_field: value === "_none" ? null : value })}
+                  >
+                    <SelectTrigger className="h-8 text-xs" data-testid={`select-prefill-field-${field.id}`}>
+                      <SelectValue placeholder="Select field to pre-fill from..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="_none">No pre-fill</SelectItem>
+                      <div className="px-2 py-1 text-xs font-medium text-slate-500 bg-slate-50">
+                        Core Fields
+                      </div>
+                      {(prefillSource === "member" ? MEMBER_PREFILL_FIELDS : ORG_PREFILL_FIELDS).map(f => (
+                        <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>
+                      ))}
+                      {customFields.filter(cf => 
+                        prefillSource === "member" 
+                          ? (!cf.entity_scope || cf.entity_scope === 'member')
+                          : cf.entity_scope === 'organization'
+                      ).length > 0 && (
+                        <>
+                          <div className="px-2 py-1 text-xs font-medium text-slate-500 bg-slate-50">
+                            Custom Fields
+                          </div>
+                          {customFields.filter(cf => 
+                            prefillSource === "member" 
+                              ? (!cf.entity_scope || cf.entity_scope === 'member')
+                              : cf.entity_scope === 'organization'
+                          ).map(cf => (
+                            <SelectItem key={`custom:${cf.id}`} value={`custom:${cf.id}`}>{cf.label}</SelectItem>
+                          ))}
+                        </>
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
 
               {/* Uniqueness Check - Only for Application Forms */}
               {isApplicationForm && (
@@ -761,7 +822,8 @@ export default function FormBuilderPage() {
     uniqueness_checks: [],
     field_mappings: [], // Submission field mappings with transformations
     submission_email_template_id: null,
-    submission_email_recipient: ''
+    submission_email_recipient: '',
+    prefill_source: "none" // "none", "member", or "organization" - enables pre-populating form from entity data
   });
 
   const queryClient = useQueryClient();
@@ -856,7 +918,8 @@ export default function FormBuilderPage() {
         uniqueness_checks: existingForm.uniqueness_checks || [],
         field_mappings: existingForm.field_mappings || [],
         submission_email_template_id: existingForm.submission_email_template_id || null,
-        submission_email_recipient: existingForm.submission_email_recipient || ''
+        submission_email_recipient: existingForm.submission_email_recipient || '',
+        prefill_source: existingForm.prefill_source || "none"
       });
     }
   }, [existingForm]);
@@ -1426,6 +1489,33 @@ export default function FormBuilderPage() {
               </div>
             </div>
 
+            {/* Pre-fill Settings */}
+            <div className="mt-4 pt-4 border-t border-slate-100 space-y-4">
+              <div className="flex items-center gap-4 flex-wrap">
+                <div className="space-y-1">
+                  <Label className="text-sm font-medium">Pre-fill Form From</Label>
+                  <Select
+                    value={formData.prefill_source || "none"}
+                    onValueChange={(value) => setFormData({ ...formData, prefill_source: value })}
+                  >
+                    <SelectTrigger className="w-[200px]" data-testid="select-prefill-source">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">None (No Pre-fill)</SelectItem>
+                      <SelectItem value="member">Member Data</SelectItem>
+                      <SelectItem value="organization">Organisation Data</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {formData.prefill_source !== "none" && (
+                  <p className="text-xs text-slate-500 self-end pb-2">
+                    Form URL will accept ?{formData.prefill_source === "member" ? "member_id" : "organization_id"}=xxx to pre-populate fields
+                  </p>
+                )}
+              </div>
+            </div>
+
             {/* Application Form Settings */}
             {formData.is_application_form && (
               <div className="mt-4 pt-4 border-t border-slate-100 space-y-4">
@@ -1738,6 +1828,7 @@ export default function FormBuilderPage() {
                                       applicationLevel={formData.application_level}
                                       uniquenessChecks={formData.uniqueness_checks}
                                       onUniquenessChange={handleUniquenessChange}
+                                      prefillSource={formData.prefill_source || "none"}
                                     />
                                   ))}
                                 {provided.placeholder}
@@ -1830,6 +1921,7 @@ export default function FormBuilderPage() {
                                               applicationLevel={formData.application_level}
                                               uniquenessChecks={formData.uniqueness_checks}
                                               onUniquenessChange={handleUniquenessChange}
+                                              prefillSource={formData.prefill_source || "none"}
                                             />
                                           ))
                                         )}
@@ -1866,6 +1958,7 @@ export default function FormBuilderPage() {
                               applicationLevel={formData.application_level}
                               uniquenessChecks={formData.uniqueness_checks}
                               onUniquenessChange={handleUniquenessChange}
+                              prefillSource={formData.prefill_source || "none"}
                             />
                           ))}
                           {provided.placeholder}
