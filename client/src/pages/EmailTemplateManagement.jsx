@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -33,10 +33,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2, Plus, Pencil, Trash2, Mail, Eye, Copy, Code } from "lucide-react";
+import { Loader2, Plus, Pencil, Trash2, Mail, Eye, Copy, Code, FileText } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
+import ReactQuill from 'react-quill';
+import 'react-quill/dist/quill.snow.css';
 
 const TEMPLATE_CATEGORIES = [
   { value: 'workflow', label: 'Workflow Automation' },
@@ -71,6 +73,27 @@ const emptyTemplate = {
   placeholders: [],
 };
 
+const quillModules = {
+  toolbar: [
+    [{ 'header': [1, 2, 3, false] }],
+    ['bold', 'italic', 'underline', 'strike'],
+    [{ 'color': [] }, { 'background': [] }],
+    [{ 'list': 'ordered' }, { 'list': 'bullet' }],
+    [{ 'align': [] }],
+    ['link'],
+    ['clean']
+  ],
+};
+
+const quillFormats = [
+  'header',
+  'bold', 'italic', 'underline', 'strike',
+  'color', 'background',
+  'list', 'bullet',
+  'align',
+  'link'
+];
+
 export default function EmailTemplateManagement() {
   const { isAdmin, isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
@@ -80,6 +103,8 @@ export default function EmailTemplateManagement() {
   const [selectedTemplate, setSelectedTemplate] = useState(null);
   const [formData, setFormData] = useState(emptyTemplate);
   const [activeTab, setActiveTab] = useState('all');
+  const [isCodeView, setIsCodeView] = useState(false);
+  const quillRef = useRef(null);
 
   const queryClient = useQueryClient();
 
@@ -187,6 +212,7 @@ export default function EmailTemplateManagement() {
     setEditorOpen(false);
     setFormData(emptyTemplate);
     setSelectedTemplate(null);
+    setIsCodeView(false);
   };
 
   const handleSave = () => {
@@ -450,7 +476,7 @@ export default function EmailTemplateManagement() {
               </div>
 
               <div className="space-y-2">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between flex-wrap gap-2">
                   <Label htmlFor="body">Email Body *</Label>
                   <div className="flex items-center gap-2">
                     <Select onValueChange={insertPlaceholder}>
@@ -466,19 +492,59 @@ export default function EmailTemplateManagement() {
                         ))}
                       </SelectContent>
                     </Select>
+                    <Button
+                      type="button"
+                      variant={isCodeView ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setIsCodeView(!isCodeView)}
+                      data-testid="button-toggle-code-view"
+                    >
+                      {isCodeView ? (
+                        <>
+                          <FileText className="w-4 h-4 mr-1" />
+                          Rich Text
+                        </>
+                      ) : (
+                        <>
+                          <Code className="w-4 h-4 mr-1" />
+                          Code View
+                        </>
+                      )}
+                    </Button>
                   </div>
                 </div>
-                <Textarea
-                  id="body"
-                  value={formData.body}
-                  onChange={(e) => setFormData(prev => ({ ...prev, body: e.target.value }))}
-                  placeholder="<p>Hello {{member.full_name}},</p><p>Welcome to our community!</p>"
-                  rows={12}
-                  className="font-mono text-sm"
-                  data-testid="textarea-body"
-                />
+                
+                {isCodeView ? (
+                  <Textarea
+                    id="body"
+                    value={formData.body}
+                    onChange={(e) => setFormData(prev => ({ ...prev, body: e.target.value }))}
+                    placeholder="<p>Hello {{member.full_name}},</p><p>Welcome to our community!</p>"
+                    rows={12}
+                    className="font-mono text-sm"
+                    data-testid="textarea-body-code"
+                  />
+                ) : (
+                  <div className="border rounded-md" style={{ minHeight: '300px' }}>
+                    <ReactQuill
+                      ref={quillRef}
+                      theme="snow"
+                      value={formData.body}
+                      onChange={(value) => setFormData(prev => ({ ...prev, body: value }))}
+                      modules={quillModules}
+                      formats={quillFormats}
+                      placeholder="Hello {{member.full_name}}, Welcome to our community!"
+                      style={{ height: '250px' }}
+                      data-testid="editor-body-rich"
+                    />
+                  </div>
+                )}
+                
                 <p className="text-xs text-muted-foreground">
-                  You can use HTML for formatting. Placeholders will be replaced with actual values.
+                  {isCodeView 
+                    ? "Edit HTML directly. Switch to Rich Text for visual editing." 
+                    : "Format your email visually. Switch to Code View to edit HTML directly."}
+                  {" "}Placeholders like {"{{member.full_name}}"} will be replaced with actual values.
                 </p>
               </div>
 
