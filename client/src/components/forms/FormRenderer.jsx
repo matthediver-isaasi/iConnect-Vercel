@@ -477,7 +477,42 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
           );
         }
         
-        // Default: dropdown/select/picklist
+        // Picklist: multi-select checkbox group
+        if (customFieldDef.field_type === 'picklist') {
+          const selectedValues = Array.isArray(value) ? value : [];
+          return (
+            <div className="space-y-2 p-3 bg-slate-50 rounded-lg border">
+              {customFieldOptions.map((option, index) => {
+                const optValue = option.value || option.label || option;
+                const optLabel = option.label || option.value || option;
+                const isChecked = selectedValues.includes(optValue);
+                return (
+                  <div key={index} className="flex items-center space-x-2">
+                    <Checkbox
+                      id={`${field.id}-${index}`}
+                      checked={isChecked}
+                      disabled={field.locked}
+                      onCheckedChange={(checked) => {
+                        if (field.locked) return;
+                        if (checked) {
+                          onChange([...selectedValues, optValue]);
+                        } else {
+                          onChange(selectedValues.filter(v => v !== optValue));
+                        }
+                      }}
+                      data-testid={`checkbox-picklist-${field.id}-${index}`}
+                    />
+                    <Label htmlFor={`${field.id}-${index}`} className="font-normal cursor-pointer">
+                      {optLabel}
+                    </Label>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        }
+        
+        // Default: dropdown/select
         return (
           <Select value={value || ''} onValueChange={field.locked ? undefined : onChange} disabled={field.locked}>
             <SelectTrigger data-testid={`select-custom-field-${field.id}`} className={field.locked ? 'bg-slate-100 cursor-not-allowed' : ''}>
