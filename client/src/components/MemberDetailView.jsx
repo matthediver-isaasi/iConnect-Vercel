@@ -117,7 +117,7 @@ export default function MemberDetailView({
         organization_id: member.organization_id || '',
         disabled: member.disabled || false
       });
-      setSelectedRoles(member.roles || []);
+      setSelectedRoles(member.roles || (member.role_id ? [member.role_id] : []));
     }
   }, [member]);
 
@@ -218,7 +218,7 @@ export default function MemberDetailView({
       organization_id: member.organization_id || '',
       disabled: member.disabled || false
     });
-    setSelectedRoles(member.roles || []);
+    setSelectedRoles(member.roles || (member.role_id ? [member.role_id] : []));
     setIsEditing(false);
   };
 
@@ -746,11 +746,11 @@ export default function MemberDetailView({
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    {(member.roles || []).length === 0 ? (
+                    {(member.roles || (member.role_id ? [member.role_id] : [])).length === 0 ? (
                       <p className="text-sm text-slate-500">No roles assigned</p>
                     ) : (
                       <div className="flex flex-wrap gap-2">
-                        {getRoleNames(member.roles || []).map((roleName, idx) => (
+                        {getRoleNames(member.roles || (member.role_id ? [member.role_id] : [])).map((roleName, idx) => (
                           <Badge key={idx} variant="secondary" className="text-sm">
                             {roleName}
                           </Badge>
