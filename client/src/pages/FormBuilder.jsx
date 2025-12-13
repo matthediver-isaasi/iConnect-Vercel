@@ -1621,8 +1621,8 @@ export default function FormBuilderPage() {
     is_application_form: false,
     application_level: "member",
     auto_create_entity: false,
-    create_entity_type: "member", // Which entity to create: "member", "organization", or "both"
-    entity_action: "create", // "create" for new records, "update" for updating existing (when prefill is used)
+    member_entity_action: "none", // "none", "create", "update", "upsert"
+    organization_entity_action: "none", // "none", "create", "update", "upsert"
     uniqueness_checks: [],
     field_mappings: [], // Submission field mappings with transformations
     submission_email_template_id: null,
@@ -1764,8 +1764,14 @@ export default function FormBuilderPage() {
         is_application_form: existingForm.is_application_form || false,
         application_level: existingForm.application_level || "member",
         auto_create_entity: existingForm.auto_create_entity || false,
-        create_entity_type: existingForm.create_entity_type || "member",
-        entity_action: existingForm.entity_action || "create",
+        member_entity_action: existingForm.member_entity_action || 
+          (existingForm.create_entity_type === "member" || existingForm.create_entity_type === "both" 
+            ? (existingForm.entity_action || "create") 
+            : "none"),
+        organization_entity_action: existingForm.organization_entity_action || 
+          (existingForm.create_entity_type === "organization" || existingForm.create_entity_type === "both" 
+            ? (existingForm.entity_action || "create") 
+            : "none"),
         uniqueness_checks: existingForm.uniqueness_checks || [],
         field_mappings: existingForm.field_mappings || [],
         submission_email_template_id: existingForm.submission_email_template_id || null,
@@ -2449,91 +2455,60 @@ export default function FormBuilderPage() {
                       </div>
                       
                       {formData.auto_create_entity && (
-                        <div className="ml-6 space-y-3">
-                          <Label className="text-xs text-slate-600">Create which record type:</Label>
-                          <div className="flex flex-wrap gap-4">
-                            <div className="flex items-center gap-2">
-                              <input
-                                type="radio"
-                                id="create-member-tab"
-                                name="create_entity_type_tab"
-                                value="member"
-                                checked={formData.create_entity_type === "member"}
-                                onChange={() => setFormData({ ...formData, create_entity_type: "member" })}
-                                className="w-4 h-4 text-blue-600"
-                                data-testid="radio-create-member"
-                              />
-                              <Label htmlFor="create-member-tab" className="text-sm cursor-pointer">Member only</Label>
+                        <div className="ml-6 space-y-4">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                              <Label className="text-sm font-medium">Member Record Action</Label>
+                              <Select
+                                value={formData.member_entity_action || "none"}
+                                onValueChange={(value) => setFormData({ ...formData, member_entity_action: value })}
+                              >
+                                <SelectTrigger data-testid="select-member-entity-action">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="none">Don't create/update</SelectItem>
+                                  <SelectItem value="create">Create new only</SelectItem>
+                                  <SelectItem value="update">Update existing only</SelectItem>
+                                  <SelectItem value="upsert">Upsert (create or update)</SelectItem>
+                                </SelectContent>
+                              </Select>
+                              <p className="text-xs text-slate-500">
+                                {formData.member_entity_action === "none" && "No member record will be created"}
+                                {formData.member_entity_action === "create" && "Create a new member (fail if exists)"}
+                                {formData.member_entity_action === "update" && "Update existing member (match by email)"}
+                                {formData.member_entity_action === "upsert" && "Create if not found, update if exists"}
+                              </p>
                             </div>
-                            <div className="flex items-center gap-2">
-                              <input
-                                type="radio"
-                                id="create-organization-tab"
-                                name="create_entity_type_tab"
-                                value="organization"
-                                checked={formData.create_entity_type === "organization"}
-                                onChange={() => setFormData({ ...formData, create_entity_type: "organization" })}
-                                className="w-4 h-4 text-blue-600"
-                                data-testid="radio-create-organization"
-                              />
-                              <Label htmlFor="create-organization-tab" className="text-sm cursor-pointer">Organisation only</Label>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <input
-                                type="radio"
-                                id="create-both-tab"
-                                name="create_entity_type_tab"
-                                value="both"
-                                checked={formData.create_entity_type === "both"}
-                                onChange={() => setFormData({ ...formData, create_entity_type: "both" })}
-                                className="w-4 h-4 text-blue-600"
-                                data-testid="radio-create-both"
-                              />
-                              <Label htmlFor="create-both-tab" className="text-sm cursor-pointer">Both Member &amp; Organisation</Label>
+                            
+                            <div className="space-y-2">
+                              <Label className="text-sm font-medium">Organisation Record Action</Label>
+                              <Select
+                                value={formData.organization_entity_action || "none"}
+                                onValueChange={(value) => setFormData({ ...formData, organization_entity_action: value })}
+                              >
+                                <SelectTrigger data-testid="select-organization-entity-action">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="none">Don't create/update</SelectItem>
+                                  <SelectItem value="create">Create new only</SelectItem>
+                                  <SelectItem value="update">Update existing only</SelectItem>
+                                  <SelectItem value="upsert">Upsert (create or update)</SelectItem>
+                                </SelectContent>
+                              </Select>
+                              <p className="text-xs text-slate-500">
+                                {formData.organization_entity_action === "none" && "No organisation record will be created"}
+                                {formData.organization_entity_action === "create" && "Create a new organisation (fail if exists)"}
+                                {formData.organization_entity_action === "update" && "Update existing org (match by name/domain)"}
+                                {formData.organization_entity_action === "upsert" && "Create if not found, update if exists"}
+                              </p>
                             </div>
                           </div>
-                          <p className="text-xs text-slate-500">
-                            {formData.create_entity_type === "member" && "A new member record will be created from the mapped fields"}
-                            {formData.create_entity_type === "organization" && "A new organisation record will be created from the mapped fields"}
-                            {formData.create_entity_type === "both" && "Both member and organisation records will be created and linked together"}
-                          </p>
                           
-                          <div className="mt-4 pt-3 border-t border-slate-100">
-                            <Label className="text-xs text-slate-600 mb-2 block">Record action:</Label>
-                            <div className="flex flex-wrap gap-4">
-                              <div className="flex items-center gap-2">
-                                <input
-                                  type="radio"
-                                  id="action-create-tab"
-                                  name="entity_action_tab"
-                                  value="create"
-                                  checked={formData.entity_action === "create"}
-                                  onChange={() => setFormData({ ...formData, entity_action: "create" })}
-                                  className="w-4 h-4 text-blue-600"
-                                  data-testid="radio-action-create"
-                                />
-                                <Label htmlFor="action-create-tab" className="text-sm cursor-pointer">Create new records</Label>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <input
-                                  type="radio"
-                                  id="action-update-tab"
-                                  name="entity_action_tab"
-                                  value="update"
-                                  checked={formData.entity_action === "update"}
-                                  onChange={() => setFormData({ ...formData, entity_action: "update" })}
-                                  className="w-4 h-4 text-blue-600"
-                                  data-testid="radio-action-update"
-                                />
-                                <Label htmlFor="action-update-tab" className="text-sm cursor-pointer">Update existing records</Label>
-                              </div>
-                            </div>
-                            <p className="text-xs text-slate-500 mt-2">
-                              {formData.entity_action === "create" 
-                                ? "New records will be created on submission. Use when collecting new applications."
-                                : "Existing records will be updated based on the pre-fill source. Use when form is pre-populated from existing member/organisation data."}
-                            </p>
-                          </div>
+                          <p className="text-xs text-slate-500 bg-slate-50 p-3 rounded-lg">
+                            Use Field Mappings below to specify which form fields populate each entity type.
+                          </p>
                         </div>
                       )}
                       
