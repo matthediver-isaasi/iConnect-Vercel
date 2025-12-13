@@ -26,7 +26,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 
-const FIELD_TYPES = [
+const STANDARD_FIELD_TYPES = [
   { value: 'text', label: 'Text Input' },
   { value: 'email', label: 'Email' },
   { value: 'url', label: 'Website URL' },
@@ -34,19 +34,34 @@ const FIELD_TYPES = [
   { value: 'tel', label: 'Phone' },
   { value: 'textarea', label: 'Text Area' },
   { value: 'select', label: 'Dropdown' },
-  { value: 'organisation_dropdown', label: 'Organisation Dropdown' },
-  { value: 'category_multiselect', label: 'Category Multi-Select' },
   { value: 'radio', label: 'Radio Buttons' },
   { value: 'checkbox', label: 'Checkboxes' },
   { value: 'list', label: 'List (User-Defined Values)' },
   { value: 'date', label: 'Date' },
   { value: 'time', label: 'Time' },
   { value: 'file', label: 'File Upload' },
+];
+
+const PREPOPULATE_FIELD_TYPES = [
+  { value: 'organisation_dropdown', label: 'Organisation Dropdown' },
+  { value: 'category_multiselect', label: 'Category Multi-Select' },
+];
+
+const AUTO_FIELD_TYPES = [
   { value: 'user_name', label: 'User Name (Auto)' },
   { value: 'user_email', label: 'User Email (Auto)' },
   { value: 'user_organization', label: 'User Organisation (Auto)' },
   { value: 'user_job_title', label: 'User Job Title (Auto)' },
 ];
+
+const FIELD_TYPES = [...STANDARD_FIELD_TYPES, ...PREPOPULATE_FIELD_TYPES, ...AUTO_FIELD_TYPES];
+
+const getFieldTypeCategory = (fieldType) => {
+  if (STANDARD_FIELD_TYPES.find(f => f.value === fieldType)) return 'standard';
+  if (PREPOPULATE_FIELD_TYPES.find(f => f.value === fieldType)) return 'prepopulate';
+  if (AUTO_FIELD_TYPES.find(f => f.value === fieldType)) return 'auto';
+  return 'standard';
+};
 
 const TRANSFORMATIONS = [
   { value: 'none', label: 'No transformation', description: 'Use value as-is' },
