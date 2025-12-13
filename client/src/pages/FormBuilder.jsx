@@ -432,7 +432,9 @@ const RULE_TYPES = [
 function LogicRulesSection({ 
   fields, 
   visibilityRules = [], 
-  onRulesChange 
+  onRulesChange,
+  prefillSource = 'none',
+  customFields = []
 }) {
   const addRule = (ruleType = 'visibility') => {
     const newRule = {
@@ -444,11 +446,24 @@ function LogicRulesSection({
       action: ruleType === 'visibility' ? 'show' : 'set_value',
       target_field_ids: [],
       target_field_id: '',
-      set_value_source: 'static', // 'static' or 'field'
+      set_value_source: 'static', // 'static', 'field', or 'prefill'
       set_value: '',
-      set_value_field_id: '' // ID of the field to copy value from
+      set_value_field_id: '', // ID of the form field to copy value from
+      set_value_prefill_field: '' // Core or custom field from prefill entity (format: "core.field_name" or "custom.field_id")
     };
     onRulesChange([...visibilityRules, newRule]);
+  };
+  
+  const getPrefillFields = () => {
+    if (prefillSource === 'none') return [];
+    
+    const coreFields = prefillSource === 'member' ? MEMBER_CORE_FIELDS : ORG_CORE_FIELDS;
+    const entityCustomFields = customFields.filter(cf => cf.entity_scope === (prefillSource === 'member' ? 'member' : 'organization'));
+    
+    return [
+      ...coreFields.map(f => ({ value: `core.${f.value}`, label: f.label, group: 'Core Fields' })),
+      ...entityCustomFields.map(f => ({ value: `custom.${f.id}`, label: f.label, group: 'Custom Fields' }))
+    ];
   };
 
   const updateRule = (ruleId, updates) => {
@@ -502,6 +517,8 @@ function LogicRulesSection({
     const targetInfo = getTargetFieldOptions(rule.target_field_id);
     const sourceType = rule.set_value_source || 'static';
     const availableSourceFields = fields.filter(f => f.id !== rule.target_field_id);
+    const prefillFields = getPrefillFields();
+    const hasPrefill = prefillSource !== 'none';
     
     if (!rule.target_field_id) {
       return <p className="text-xs text-slate-400">Select a target field first</p>;
@@ -509,14 +526,14 @@ function LogicRulesSection({
 
     return (
       <div className="space-y-3">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <Label className="text-xs text-slate-600 whitespace-nowrap">Value from:</Label>
-          <div className="flex gap-1">
+          <div className="flex gap-1 flex-wrap">
             <Button
               variant={sourceType === 'static' ? 'default' : 'outline'}
               size="sm"
               className="h-7 text-xs"
-              onClick={() => updateRule(rule.id, { set_value_source: 'static', set_value_field_id: '' })}
+              onClick={() => updateRule(rule.id, { set_value_source: 'static', set_value_field_id: '', set_value_prefill_field: '' })}
               data-testid={`button-source-static-${index}`}
             >
               Enter Text
@@ -525,15 +542,42 @@ function LogicRulesSection({
               variant={sourceType === 'field' ? 'default' : 'outline'}
               size="sm"
               className="h-7 text-xs"
-              onClick={() => updateRule(rule.id, { set_value_source: 'field', set_value: '' })}
+              onClick={() => updateRule(rule.id, { set_value_source: 'field', set_value: '', set_value_prefill_field: '' })}
               data-testid={`button-source-field-${index}`}
             >
               From Field
             </Button>
+            {hasPrefill && (
+              <Button
+                variant={sourceType === 'prefill' ? 'default' : 'outline'}
+                size="sm"
+                className="h-7 text-xs"
+                onClick={() => updateRule(rule.id, { set_value_source: 'prefill', set_value: '', set_value_field_id: '' })}
+                data-testid={`button-source-prefill-${index}`}
+              >
+                From Pre-fill Data
+              </Button>
+            )}
           </div>
         </div>
 
-        {sourceType === 'field' ? (
+        {sourceType === 'prefill' ? (
+          <Select
+            value={rule.set_value_prefill_field || undefined}
+            onValueChange={(value) => updateRule(rule.id, { set_value_prefill_field: value })}
+          >
+            <SelectTrigger className="h-9" data-testid={`select-prefill-field-${index}`}>
+              <SelectValue placeholder={`Select ${prefillSource} field...`} />
+            </SelectTrigger>
+            <SelectContent>
+              {prefillFields.map(field => (
+                <SelectItem key={field.value} value={field.value}>
+                  {field.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : sourceType === 'field' ? (
           <Select
             value={rule.set_value_field_id || undefined}
             onValueChange={(value) => updateRule(rule.id, { set_value_field_id: value })}
@@ -1430,7 +1474,7 @@ export default function FormBuilderPage() {
     submission_email_template_id: null,
     submission_email_recipient: '',
     prefill_source: "none", // "none", "member", or "organization" - enables pre-populating form from entity data
-    visibility_rules: [] // Conditional logic rules: [{id, rule_type, trigger_field_id, operator, value, action, target_field_ids, target_field_id, set_value_source, set_value, set_value_field_id}]
+    visibility_rules: [] // Conditional logic rules: [{id, rule_type, trigger_field_id, operator, value, action, target_field_ids, target_field_id, set_value_source, set_value, set_value_field_id, set_value_prefill_field}]
   });
   
   // Track which form pages are expanded (for collapsible UI) - true = expanded, false = collapsed
@@ -1580,6 +1624,7 @@ export default function FormBuilderPage() {
           set_value_source: rule.set_value_source || 'static',
           set_value: rule.set_value ?? '',
           set_value_field_id: rule.set_value_field_id || '',
+          set_value_prefill_field: rule.set_value_prefill_field || '',
           target_field_ids: rule.target_field_ids || []
         }))
       });
@@ -2401,6 +2446,8 @@ export default function FormBuilderPage() {
                 <LogicRulesSection
                   fields={formData.fields}
                   visibilityRules={formData.visibility_rules}
+                  prefillSource={formData.prefill_source || 'none'}
+                  customFields={customFields}
                   onRulesChange={(rules) => {
                     const fieldsWithShowRules = new Set();
                     rules.forEach(rule => {
