@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -227,6 +227,102 @@ export default function FormViewPage() {
     setPrefillApplied(false);
   }, [form?.id]);
 
+  // Evaluate visibility rules to determine which fields should be hidden
+  const hiddenFieldIds = useMemo(() => {
+    if (!form?.visibility_rules || form.visibility_rules.length === 0) {
+      return new Set();
+    }
+
+    // Track visibility state per field: { fieldId: { showRules: [], hideRules: [] } }
+    const fieldVisibility = {};
+    
+    for (const rule of form.visibility_rules) {
+      if (!rule.trigger_field_id || !rule.target_field_ids?.length) continue;
+      
+      const triggerValue = formValues[rule.trigger_field_id];
+      let conditionMet = false;
+      
+      switch (rule.operator) {
+        case 'equals':
+          // Handle array values (checkbox/multi-select)
+          if (Array.isArray(triggerValue)) {
+            conditionMet = triggerValue.includes(rule.value);
+          } else {
+            conditionMet = triggerValue === rule.value;
+          }
+          break;
+        case 'not_equals':
+          if (Array.isArray(triggerValue)) {
+            conditionMet = !triggerValue.includes(rule.value);
+          } else {
+            conditionMet = triggerValue !== rule.value;
+          }
+          break;
+        case 'contains':
+          // Handle both string and array values
+          if (Array.isArray(triggerValue)) {
+            conditionMet = triggerValue.includes(rule.value);
+          } else if (typeof triggerValue === 'string') {
+            conditionMet = triggerValue.includes(rule.value);
+          } else {
+            conditionMet = false;
+          }
+          break;
+        case 'not_empty':
+          conditionMet = triggerValue !== undefined && triggerValue !== null && triggerValue !== '' && 
+            (Array.isArray(triggerValue) ? triggerValue.length > 0 : true);
+          break;
+        case 'is_empty':
+          conditionMet = triggerValue === undefined || triggerValue === null || triggerValue === '' ||
+            (Array.isArray(triggerValue) && triggerValue.length === 0);
+          break;
+        default:
+          conditionMet = false;
+      }
+
+      // Track rule results per target field
+      rule.target_field_ids.forEach(fieldId => {
+        if (!fieldVisibility[fieldId]) {
+          fieldVisibility[fieldId] = { showRules: [], hideRules: [] };
+        }
+        
+        if (rule.action === 'show') {
+          fieldVisibility[fieldId].showRules.push(conditionMet);
+        } else if (rule.action === 'hide') {
+          fieldVisibility[fieldId].hideRules.push(conditionMet);
+        }
+      });
+    }
+    
+    // Determine final visibility for each field
+    const hidden = new Set();
+    
+    for (const [fieldId, { showRules, hideRules }] of Object.entries(fieldVisibility)) {
+      // For show rules: field is visible if ANY show rule is satisfied (OR logic)
+      // For hide rules: field is hidden if ANY hide rule is satisfied (OR logic)
+      
+      const hasShowRules = showRules.length > 0;
+      const hasHideRules = hideRules.length > 0;
+      
+      // If any hide rule is met, hide the field
+      const shouldHideFromHideRules = hideRules.some(result => result === true);
+      
+      // If there are show rules, field is hidden unless at least one show rule is met
+      const shouldHideFromShowRules = hasShowRules && !showRules.some(result => result === true);
+      
+      if (shouldHideFromHideRules || shouldHideFromShowRules) {
+        hidden.add(fieldId);
+      }
+    }
+    
+    return hidden;
+  }, [form?.visibility_rules, formValues]);
+
+  // Helper to filter visible fields
+  const filterVisibleFields = (fields) => {
+    return fields.filter(field => !hiddenFieldIds.has(field.id));
+  };
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
@@ -264,11 +360,14 @@ export default function FormViewPage() {
     const pages = form.pages || [];
     const hasPages = pages.length > 0 && form.layout_type === 'standard';
     
+    // Get visible fields only (skip hidden fields from validation)
+    const visibleFields = filterVisibleFields(form.fields);
+    
     if (hasPages) {
-      // Check each page's required fields
+      // Check each page's required fields (only visible ones)
       for (let i = 0; i < pages.length; i++) {
         const page = pages[i];
-        const pageFields = form.fields.filter(f => f.page_id === page.id);
+        const pageFields = visibleFields.filter(f => f.page_id === page.id);
         const missingFields = pageFields.filter(field => 
           field.required && (!formValues[field.id] || formValues[field.id].length === 0)
         );
@@ -279,8 +378,8 @@ export default function FormViewPage() {
         }
       }
       
-      // Also check unassigned fields (page_id is null)
-      const unassignedFields = form.fields.filter(f => !f.page_id);
+      // Also check unassigned fields (page_id is null) - only visible ones
+      const unassignedFields = visibleFields.filter(f => !f.page_id);
       const missingUnassigned = unassignedFields.filter(field => 
         field.required && (!formValues[field.id] || formValues[field.id].length === 0)
       );
@@ -290,8 +389,8 @@ export default function FormViewPage() {
         return;
       }
     } else {
-      // Standard validation for non-paginated forms
-      const missingFields = form.fields.filter(field => 
+      // Standard validation for non-paginated forms (only visible fields)
+      const missingFields = visibleFields.filter(field => 
         field.required && (!formValues[field.id] || formValues[field.id].length === 0)
       );
 
@@ -365,8 +464,10 @@ export default function FormViewPage() {
   const memberData = memberRecord || memberInfo;
 
   if (form.layout_type === 'card_swipe') {
-    const currentField = form.fields[currentStep];
-    const isLastStep = currentStep === form.fields.length - 1;
+    // Filter visible fields for card swipe layout
+    const visibleCardFields = filterVisibleFields(form.fields);
+    const currentField = visibleCardFields[currentStep];
+    const isLastStep = currentStep === visibleCardFields.length - 1;
     const canProceed = !currentField?.required || formValues[currentField?.id];
 
     return (
@@ -376,7 +477,7 @@ export default function FormViewPage() {
             <CardTitle>{form.name}</CardTitle>
             {form.description && <CardDescription className="whitespace-pre-line">{form.description}</CardDescription>}
             <div className="flex gap-1 mt-4">
-              {form.fields.map((_, index) => (
+              {visibleCardFields.map((_, index) => (
                 <div
                   key={index}
                   className={`h-1 flex-1 rounded ${
@@ -461,9 +562,9 @@ export default function FormViewPage() {
     return form.fields.filter(f => f.page_id === currentPage?.id);
   };
   
-  // Validate current page fields before proceeding
+  // Validate current page fields before proceeding (only visible fields)
   const validateCurrentPage = () => {
-    const pageFields = getCurrentPageFields();
+    const pageFields = filterVisibleFields(getCurrentPageFields());
     const missingFields = pageFields.filter(field => 
       field.required && (!formValues[field.id] || formValues[field.id].length === 0)
     );
@@ -488,7 +589,7 @@ export default function FormViewPage() {
   const isFirstPage = currentPageIndex === 0;
   const isLastPage = !hasPages || currentPageIndex === pages.length - 1;
   const currentPage = hasPages ? pages[currentPageIndex] : null;
-  const displayFields = getCurrentPageFields();
+  const displayFields = filterVisibleFields(getCurrentPageFields());
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
