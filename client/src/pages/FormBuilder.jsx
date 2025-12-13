@@ -444,7 +444,9 @@ function LogicRulesSection({
       action: ruleType === 'visibility' ? 'show' : 'set_value',
       target_field_ids: [],
       target_field_id: '',
-      set_value: ''
+      set_value_source: 'static', // 'static' or 'field'
+      set_value: '',
+      set_value_field_id: '' // ID of the field to copy value from
     };
     onRulesChange([...visibilityRules, newRule]);
   };
@@ -498,101 +500,136 @@ function LogicRulesSection({
 
   const renderSetValueInput = (rule, index) => {
     const targetInfo = getTargetFieldOptions(rule.target_field_id);
-    const targetField = fields.find(f => f.id === rule.target_field_id);
+    const sourceType = rule.set_value_source || 'static';
+    const availableSourceFields = fields.filter(f => f.id !== rule.target_field_id);
     
     if (!rule.target_field_id) {
       return <p className="text-xs text-slate-400">Select a target field first</p>;
     }
 
-    if (targetInfo.options.length > 0) {
-      if (targetInfo.type === 'checkbox') {
-        return (
-          <div className="space-y-2">
-            <Label className="text-xs text-slate-600">Select values to set:</Label>
-            <div className="flex flex-wrap gap-2">
-              {targetInfo.options.map((opt, optIdx) => {
-                const optValue = typeof opt === 'string' ? opt : (opt.value || opt);
-                const optLabel = typeof opt === 'string' ? opt : (opt.label || opt.value || opt);
-                const currentValues = Array.isArray(rule.set_value) ? rule.set_value : [];
-                const isSelected = currentValues.includes(optValue);
-                return (
-                  <Button
-                    key={optIdx}
-                    variant={isSelected ? "default" : "outline"}
-                    size="sm"
-                    className="h-7 text-xs"
-                    onClick={() => {
-                      const newValues = isSelected
-                        ? currentValues.filter(v => v !== optValue)
-                        : [...currentValues, optValue];
-                      updateRule(rule.id, { set_value: newValues });
-                    }}
-                    data-testid={`button-set-value-option-${index}-${optIdx}`}
-                  >
-                    {optLabel}
-                  </Button>
-                );
-              })}
-            </div>
+    return (
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          <Label className="text-xs text-slate-600 whitespace-nowrap">Value from:</Label>
+          <div className="flex gap-1">
+            <Button
+              variant={sourceType === 'static' ? 'default' : 'outline'}
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => updateRule(rule.id, { set_value_source: 'static', set_value_field_id: '' })}
+              data-testid={`button-source-static-${index}`}
+            >
+              Enter Text
+            </Button>
+            <Button
+              variant={sourceType === 'field' ? 'default' : 'outline'}
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => updateRule(rule.id, { set_value_source: 'field', set_value: '' })}
+              data-testid={`button-source-field-${index}`}
+            >
+              From Field
+            </Button>
           </div>
-        );
-      } else {
-        return (
+        </div>
+
+        {sourceType === 'field' ? (
           <Select
-            value={rule.set_value || undefined}
-            onValueChange={(value) => updateRule(rule.id, { set_value: value })}
+            value={rule.set_value_field_id || undefined}
+            onValueChange={(value) => updateRule(rule.id, { set_value_field_id: value })}
           >
-            <SelectTrigger className="h-9" data-testid={`select-set-value-${index}`}>
-              <SelectValue placeholder="Select value to set..." />
+            <SelectTrigger className="h-9" data-testid={`select-source-field-${index}`}>
+              <SelectValue placeholder="Select field to copy value from..." />
             </SelectTrigger>
             <SelectContent>
-              {targetInfo.options.map((opt, optIdx) => (
-                <SelectItem 
-                  key={optIdx} 
-                  value={typeof opt === 'string' ? opt : (opt.value || opt)}
-                >
-                  {typeof opt === 'string' ? opt : (opt.label || opt.value || opt)}
+              {availableSourceFields.map(field => (
+                <SelectItem key={field.id} value={field.id}>
+                  {field.label || field.type}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
-        );
-      }
-    }
-
-    if (targetInfo.type === 'date') {
-      return (
-        <Input
-          type="date"
-          value={rule.set_value || ''}
-          onChange={(e) => updateRule(rule.id, { set_value: e.target.value })}
-          className="h-9"
-          data-testid={`input-set-value-date-${index}`}
-        />
-      );
-    }
-
-    if (targetInfo.type === 'number') {
-      return (
-        <Input
-          type="number"
-          value={rule.set_value || ''}
-          onChange={(e) => updateRule(rule.id, { set_value: e.target.value })}
-          placeholder="Enter number..."
-          className="h-9"
-          data-testid={`input-set-value-number-${index}`}
-        />
-      );
-    }
-
-    return (
-      <Input
-        value={rule.set_value || ''}
-        onChange={(e) => updateRule(rule.id, { set_value: e.target.value })}
-        placeholder="Enter value to set..."
-        className="h-9"
-        data-testid={`input-set-value-${index}`}
-      />
+        ) : (
+          <>
+            {targetInfo.options.length > 0 ? (
+              targetInfo.type === 'checkbox' ? (
+                <div className="space-y-2">
+                  <Label className="text-xs text-slate-600">Select values to set:</Label>
+                  <div className="flex flex-wrap gap-2">
+                    {targetInfo.options.map((opt, optIdx) => {
+                      const optValue = typeof opt === 'string' ? opt : (opt.value || opt);
+                      const optLabel = typeof opt === 'string' ? opt : (opt.label || opt.value || opt);
+                      const currentValues = Array.isArray(rule.set_value) ? rule.set_value : [];
+                      const isSelected = currentValues.includes(optValue);
+                      return (
+                        <Button
+                          key={optIdx}
+                          variant={isSelected ? "default" : "outline"}
+                          size="sm"
+                          className="h-7 text-xs"
+                          onClick={() => {
+                            const newValues = isSelected
+                              ? currentValues.filter(v => v !== optValue)
+                              : [...currentValues, optValue];
+                            updateRule(rule.id, { set_value: newValues });
+                          }}
+                          data-testid={`button-set-value-option-${index}-${optIdx}`}
+                        >
+                          {optLabel}
+                        </Button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : (
+                <Select
+                  value={rule.set_value || undefined}
+                  onValueChange={(value) => updateRule(rule.id, { set_value: value })}
+                >
+                  <SelectTrigger className="h-9" data-testid={`select-set-value-${index}`}>
+                    <SelectValue placeholder="Select value to set..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {targetInfo.options.map((opt, optIdx) => (
+                      <SelectItem 
+                        key={optIdx} 
+                        value={typeof opt === 'string' ? opt : (opt.value || opt)}
+                      >
+                        {typeof opt === 'string' ? opt : (opt.label || opt.value || opt)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )
+            ) : targetInfo.type === 'date' ? (
+              <Input
+                type="date"
+                value={rule.set_value || ''}
+                onChange={(e) => updateRule(rule.id, { set_value: e.target.value })}
+                className="h-9"
+                data-testid={`input-set-value-date-${index}`}
+              />
+            ) : targetInfo.type === 'number' ? (
+              <Input
+                type="number"
+                value={rule.set_value || ''}
+                onChange={(e) => updateRule(rule.id, { set_value: e.target.value })}
+                placeholder="Enter number..."
+                className="h-9"
+                data-testid={`input-set-value-number-${index}`}
+              />
+            ) : (
+              <Input
+                value={rule.set_value || ''}
+                onChange={(e) => updateRule(rule.id, { set_value: e.target.value })}
+                placeholder="Enter value to set..."
+                className="h-9"
+                data-testid={`input-set-value-${index}`}
+              />
+            )}
+          </>
+        )}
+      </div>
     );
   };
 
@@ -1393,7 +1430,7 @@ export default function FormBuilderPage() {
     submission_email_template_id: null,
     submission_email_recipient: '',
     prefill_source: "none", // "none", "member", or "organization" - enables pre-populating form from entity data
-    visibility_rules: [] // Conditional logic rules: [{id, rule_type, trigger_field_id, operator, value, action, target_field_ids, target_field_id, set_value}]
+    visibility_rules: [] // Conditional logic rules: [{id, rule_type, trigger_field_id, operator, value, action, target_field_ids, target_field_id, set_value_source, set_value, set_value_field_id}]
   });
   
   // Track which form pages are expanded (for collapsible UI) - true = expanded, false = collapsed
@@ -1540,7 +1577,9 @@ export default function FormBuilderPage() {
           ...rule,
           rule_type: rule.rule_type || 'visibility',
           target_field_id: rule.target_field_id || '',
+          set_value_source: rule.set_value_source || 'static',
           set_value: rule.set_value ?? '',
+          set_value_field_id: rule.set_value_field_id || '',
           target_field_ids: rule.target_field_ids || []
         }))
       });
