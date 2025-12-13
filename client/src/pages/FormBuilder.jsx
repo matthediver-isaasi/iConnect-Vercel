@@ -1246,16 +1246,12 @@ function FieldCard({
                           {type.label}
                         </SelectItem>
                       ))}
-                      {customFields.filter(cf => 
-                        ['dropdown', 'picklist', 'radio', 'checkbox', 'select'].includes(cf.field_type)
-                      ).length > 0 && (
+                      {customFields.length > 0 && (
                         <>
                           <div className="px-2 py-1 text-xs font-medium text-slate-500 bg-slate-50 border-t">
                             Custom Fields
                           </div>
-                          {customFields.filter(cf => 
-                            ['dropdown', 'picklist', 'radio', 'checkbox', 'select'].includes(cf.field_type)
-                          ).map(cf => (
+                          {customFields.map(cf => (
                             <SelectItem key={`custom_field:${cf.id}`} value={`custom_field:${cf.id}`}>
                               {cf.label}
                             </SelectItem>
