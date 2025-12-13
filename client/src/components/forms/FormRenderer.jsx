@@ -47,6 +47,20 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
     staleTime: 5 * 60 * 1000 // Cache for 5 minutes
   });
 
+  // Fetch custom field definition for custom_field type (uses public endpoint)
+  const { data: customFieldDef, isLoading: customFieldLoading } = useQuery({
+    queryKey: ['public-custom-field', field.custom_field_id],
+    queryFn: async () => {
+      const response = await fetch(`/api/public/custom-field/${field.custom_field_id}`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch custom field');
+      }
+      return response.json();
+    },
+    enabled: field.type === 'custom_field' && !!field.custom_field_id,
+    staleTime: 5 * 60 * 1000 // Cache for 5 minutes
+  });
+
   // Auto-populate user fields
   useEffect(() => {
     if (!memberInfo) return;
@@ -369,6 +383,100 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
             <SelectContent>
               {subcategoryOptions.map((option, index) => (
                 <SelectItem key={index} value={option} data-testid={`option-subcategory-${index}`}>
+                  {option}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        );
+
+      case 'custom_field':
+        if (customFieldLoading) {
+          return (
+            <div className="flex items-center gap-2 text-sm text-slate-500">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Loading options...
+            </div>
+          );
+        }
+        
+        if (!customFieldDef) {
+          return (
+            <p className="text-sm text-slate-500">
+              Custom field not found.
+            </p>
+          );
+        }
+        
+        const customFieldOptions = customFieldDef.options || [];
+        
+        if (customFieldOptions.length === 0) {
+          return (
+            <p className="text-sm text-slate-500">
+              No options configured for this field.
+            </p>
+          );
+        }
+        
+        // Render based on custom field type
+        if (customFieldDef.field_type === 'checkbox') {
+          return (
+            <div className="space-y-2">
+              {customFieldOptions.map((option, index) => (
+                <div key={index} className="flex items-center space-x-2">
+                  <Checkbox
+                    id={`${field.id}-${index}`}
+                    checked={(value || []).includes(option)}
+                    disabled={field.locked}
+                    onCheckedChange={(checked) => {
+                      if (field.locked) return;
+                      const currentValues = value || [];
+                      if (checked) {
+                        onChange([...currentValues, option]);
+                      } else {
+                        onChange(currentValues.filter(v => v !== option));
+                      }
+                    }}
+                    data-testid={`checkbox-custom-${field.id}-${index}`}
+                  />
+                  <Label htmlFor={`${field.id}-${index}`} className="font-normal cursor-pointer">
+                    {option}
+                  </Label>
+                </div>
+              ))}
+            </div>
+          );
+        }
+        
+        if (customFieldDef.field_type === 'radio') {
+          return (
+            <RadioGroup value={value || ''} onValueChange={field.locked ? undefined : onChange} disabled={field.locked}>
+              {customFieldOptions.map((option, index) => (
+                <div key={index} className="flex items-center space-x-2">
+                  <RadioGroupItem 
+                    value={option} 
+                    id={`${field.id}-${index}`}
+                    disabled={field.locked}
+                    data-testid={`radio-custom-${field.id}-${index}`}
+                  />
+                  <Label htmlFor={`${field.id}-${index}`} className="font-normal cursor-pointer">
+                    {option}
+                  </Label>
+                </div>
+              ))}
+            </RadioGroup>
+          );
+        }
+        
+        // Default: dropdown/select/picklist
+        return (
+          <Select value={value || ''} onValueChange={field.locked ? undefined : onChange} disabled={field.locked}>
+            <SelectTrigger data-testid={`select-custom-field-${field.id}`} className={field.locked ? 'bg-slate-100 cursor-not-allowed' : ''}>
+              <SelectValue placeholder={field.placeholder || 'Select an option'} />
+            </SelectTrigger>
+            <SelectContent>
+              {customFieldOptions.map((option, index) => (
+                <SelectItem key={index} value={option} data-testid={`option-custom-${field.id}-${index}`}>
                   {option}
                 </SelectItem>
               ))}

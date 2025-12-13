@@ -517,6 +517,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Public endpoint for custom field definition (used by forms for custom_field type)
+  app.get('/api/public/custom-field/:id', async (req: Request, res: Response) => {
+    if (!supabase) {
+      return res.status(503).json({ error: 'Supabase not configured' });
+    }
+
+    try {
+      const { id } = req.params;
+      const { data, error } = await supabase
+        .from('preference_field')
+        .select('id, label, field_type, options, entity_scope')
+        .eq('id', id)
+        .eq('is_active', true)
+        .single();
+
+      if (error) {
+        console.error('Error fetching custom field:', error);
+        return res.status(404).json({ error: 'Custom field not found' });
+      }
+
+      res.json(data);
+    } catch (error) {
+      console.error('Public custom field fetch error:', error);
+      res.status(500).json({ error: 'Failed to fetch custom field' });
+    }
+  });
+
   // Public endpoint for page banners (used by PublicLayout for logged-out users)
   app.get('/api/public/banners', async (req: Request, res: Response) => {
     if (!supabase) {

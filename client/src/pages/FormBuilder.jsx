@@ -803,9 +803,25 @@ function FieldCard({
                 <div className="space-y-1">
                   <Label className="text-xs">Pre-populate Fields</Label>
                   <Select
-                    value={getFieldTypeCategory(field.type) === 'prepopulate' ? field.type : ''}
+                    value={
+                      field.type === 'custom_field' 
+                        ? `custom_field:${field.custom_field_id}` 
+                        : (getFieldTypeCategory(field.type) === 'prepopulate' ? field.type : '')
+                    }
                     onValueChange={(value) => {
-                      if (value) updateField(originalIndex, { type: value });
+                      if (value) {
+                        if (value.startsWith('custom_field:')) {
+                          const customFieldId = value.replace('custom_field:', '');
+                          const cf = customFields.find(c => c.id === customFieldId);
+                          updateField(originalIndex, { 
+                            type: 'custom_field', 
+                            custom_field_id: customFieldId,
+                            label: cf?.label || field.label
+                          });
+                        } else {
+                          updateField(originalIndex, { type: value, custom_field_id: null });
+                        }
+                      }
                     }}
                   >
                     <SelectTrigger className="h-9" data-testid={`select-prepopulate-type-${field.id}`}>
@@ -817,6 +833,22 @@ function FieldCard({
                           {type.label}
                         </SelectItem>
                       ))}
+                      {customFields.filter(cf => 
+                        ['dropdown', 'picklist', 'radio', 'checkbox', 'select'].includes(cf.field_type)
+                      ).length > 0 && (
+                        <>
+                          <div className="px-2 py-1 text-xs font-medium text-slate-500 bg-slate-50 border-t">
+                            Custom Fields
+                          </div>
+                          {customFields.filter(cf => 
+                            ['dropdown', 'picklist', 'radio', 'checkbox', 'select'].includes(cf.field_type)
+                          ).map(cf => (
+                            <SelectItem key={`custom_field:${cf.id}`} value={`custom_field:${cf.id}`}>
+                              {cf.label}
+                            </SelectItem>
+                          ))}
+                        </>
+                      )}
                     </SelectContent>
                   </Select>
                 </div>
