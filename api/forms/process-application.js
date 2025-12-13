@@ -474,7 +474,7 @@ export default async function handler(req, res) {
           if (!memberData.email) {
             console.error('[AppProcessor] Member creation requested but no member.email field mapped');
             return res.status(400).json({ 
-              error: 'Member email is required. Please map a form field to "Member Email" in the Submission Settings.',
+              error: 'Member email is required. Please map a form field to "Email" (target: member.email) in the Submission Settings.',
               code: 'MISSING_MEMBER_EMAIL'
             });
           }
