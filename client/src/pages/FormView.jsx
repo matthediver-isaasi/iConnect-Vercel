@@ -347,6 +347,100 @@ export default function FormViewPage() {
     return fields.filter(field => !hiddenFieldIds.has(field.id));
   };
 
+  // Process Set Value rules - when conditions are met, update target field values
+  // Track which fields have been set by rules to avoid infinite loops
+  const setValueAppliedRef = useRef({});
+  
+  useEffect(() => {
+    if (!form?.visibility_rules || form.visibility_rules.length === 0) return;
+    
+    const setValueRules = form.visibility_rules.filter(r => r.rule_type === 'set_value');
+    if (setValueRules.length === 0) return;
+    
+    const prefillEntity = form.prefill_source === 'member' ? prefillMember : prefillOrg;
+    const updates = {};
+    
+    for (const rule of setValueRules) {
+      if (!rule.trigger_field_id || !rule.target_field_id) continue;
+      
+      const triggerValue = formValues[rule.trigger_field_id];
+      let conditionMet = false;
+      
+      // Evaluate condition
+      switch (rule.operator) {
+        case 'equals':
+          if (Array.isArray(triggerValue)) {
+            conditionMet = triggerValue.includes(rule.value);
+          } else {
+            conditionMet = triggerValue === rule.value;
+          }
+          break;
+        case 'not_equals':
+          if (Array.isArray(triggerValue)) {
+            conditionMet = !triggerValue.includes(rule.value);
+          } else {
+            conditionMet = triggerValue !== rule.value;
+          }
+          break;
+        case 'contains':
+          if (Array.isArray(triggerValue)) {
+            conditionMet = triggerValue.includes(rule.value);
+          } else if (typeof triggerValue === 'string') {
+            conditionMet = triggerValue.includes(rule.value);
+          }
+          break;
+        case 'not_empty':
+          conditionMet = triggerValue !== undefined && triggerValue !== null && triggerValue !== '' && 
+            (Array.isArray(triggerValue) ? triggerValue.length > 0 : true);
+          break;
+        case 'is_empty':
+          conditionMet = triggerValue === undefined || triggerValue === null || triggerValue === '' ||
+            (Array.isArray(triggerValue) && triggerValue.length === 0);
+          break;
+        default:
+          conditionMet = false;
+      }
+      
+      if (!conditionMet) continue;
+      
+      // Build a unique key for this rule application
+      const ruleKey = `${rule.id}_${rule.trigger_field_id}_${triggerValue}`;
+      if (setValueAppliedRef.current[ruleKey]) continue; // Already applied for this condition
+      
+      // Determine the value to set based on source type
+      let valueToSet = null;
+      const sourceType = rule.set_value_source || 'static';
+      
+      if (sourceType === 'static') {
+        valueToSet = rule.set_value;
+      } else if (sourceType === 'field') {
+        // Copy value from another form field
+        valueToSet = formValues[rule.set_value_field_id];
+      } else if (sourceType === 'prefill' && prefillEntity) {
+        // Get value from prefill entity (member or organization)
+        const prefillField = rule.set_value_prefill_field || '';
+        if (prefillField.startsWith('core.')) {
+          const coreFieldName = prefillField.replace('core.', '');
+          valueToSet = prefillEntity[coreFieldName];
+        } else if (prefillField.startsWith('custom.')) {
+          const customFieldId = prefillField.replace('custom.', '');
+          const cfv = prefillCustomFieldValues.find(v => v.field_id === customFieldId);
+          valueToSet = cfv?.value;
+        }
+      }
+      
+      if (valueToSet !== null && valueToSet !== undefined) {
+        updates[rule.target_field_id] = valueToSet;
+        setValueAppliedRef.current[ruleKey] = true;
+      }
+    }
+    
+    // Apply all updates at once to avoid multiple re-renders
+    if (Object.keys(updates).length > 0) {
+      setFormValues(prev => ({ ...prev, ...updates }));
+    }
+  }, [form?.visibility_rules, formValues, prefillMember, prefillOrg, prefillCustomFieldValues, form?.prefill_source]);
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
