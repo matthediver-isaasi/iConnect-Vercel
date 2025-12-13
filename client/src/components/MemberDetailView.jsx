@@ -42,7 +42,8 @@ export default function MemberDetailView({
   organizations = [],
   roles = [],
   isNew = false,
-  onCreated
+  onCreated,
+  defaultOrganizationId = ''
 }) {
   const { isAdmin } = useMemberAccess();
   const { formatDate } = useDateFormat();
@@ -56,7 +57,7 @@ export default function MemberDetailView({
     job_title: '',
     bio: '',
     linkedin_url: '',
-    organization_id: '',
+    organization_id: defaultOrganizationId,
     disabled: false
   });
   const [customFieldValues, setCustomFieldValues] = useState({});
@@ -103,7 +104,9 @@ export default function MemberDetailView({
   });
 
   useEffect(() => {
-    if (member) {
+    // Only populate form from member data when editing an existing member (has id)
+    // Skip this for new member creation to preserve defaultOrganizationId
+    if (member?.id) {
       setFormData({
         full_name: member.full_name || '',
         email: member.email || '',

@@ -32,13 +32,15 @@ import {
   ClipboardList,
   Wallet,
   FileText,
-  LayoutGrid
+  LayoutGrid,
+  Plus
 } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useOrgDetailLayout, mergeLayoutWithCustomFields, CORE_FIELDS } from "@/hooks/useOrgDetailLayout";
 import { useDateFormat } from "@/hooks/useDateFormat";
 import OrgDetailLayoutEditor from "@/components/OrgDetailLayoutEditor";
+import MemberDetailView from "@/components/MemberDetailView";
 
 // --- List Field Editor Component for Organisations ---
 function ListFieldEditorOrg({ fieldId, values = [], onChange, placeholder, disabled = false }) {
@@ -132,6 +134,7 @@ export default function OrganisationDetailView({
   const [isEditing, setIsEditing] = useState(isNew);
   const [activeTab, setActiveTab] = useState('overview');
   const [showLayoutEditor, setShowLayoutEditor] = useState(false);
+  const [isCreatingMember, setIsCreatingMember] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
     phone: '',
@@ -190,6 +193,46 @@ export default function OrganisationDetailView({
           new Date(b.created_date || 0) - new Date(a.created_date || 0)
         );
         return allBookings.slice(0, 20); // Limit to 20 most recent
+      } catch {
+        return [];
+      }
+    }
+  });
+
+  // Queries for MemberDetailView when creating new member
+  const { data: memberCustomFields = [] } = useQuery({
+    queryKey: ['member-custom-fields-for-org'],
+    enabled: isCreatingMember,
+    queryFn: async () => {
+      try {
+        const fields = await base44.entities.MemberPreferenceField.list();
+        return fields || [];
+      } catch {
+        return [];
+      }
+    }
+  });
+
+  const { data: allOrganizations = [] } = useQuery({
+    queryKey: ['organizations-for-member-create'],
+    enabled: isCreatingMember,
+    queryFn: async () => {
+      try {
+        const orgs = await base44.entities.Organization.list();
+        return orgs || [];
+      } catch {
+        return [];
+      }
+    }
+  });
+
+  const { data: roles = [] } = useQuery({
+    queryKey: ['roles-for-member-create'],
+    enabled: isCreatingMember,
+    queryFn: async () => {
+      try {
+        const rolesList = await base44.entities.Role.list();
+        return rolesList || [];
       } catch {
         return [];
       }
@@ -674,6 +717,27 @@ export default function OrganisationDetailView({
     );
   };
 
+  // Render MemberDetailView when creating a new member for this organisation
+  if (isCreatingMember) {
+    return (
+      <MemberDetailView
+        member={{}}
+        onBack={() => setIsCreatingMember(false)}
+        memberCustomFields={memberCustomFields}
+        organizations={allOrganizations}
+        roles={roles}
+        isNew={true}
+        defaultOrganizationId={organization?.id || ''}
+        onCreated={(createdMember) => {
+          setIsCreatingMember(false);
+          // Refresh the org members list
+          queryClient.invalidateQueries({ queryKey: ['org-detail-members', organization?.id] });
+          toast.success(`Member "${createdMember.full_name || createdMember.email}" added to organisation`);
+        }}
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-50">
       <header className="bg-white border-b border-slate-200 sticky top-0 z-10">
@@ -848,10 +912,21 @@ export default function OrganisationDetailView({
         {activeTab === 'members' && (
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Users className="w-5 h-5 text-blue-600" />
-                Organisation Members ({orgMembers.length})
-              </CardTitle>
+              <div className="flex items-center justify-between gap-2">
+                <CardTitle className="flex items-center gap-2">
+                  <Users className="w-5 h-5 text-blue-600" />
+                  Organisation Members ({orgMembers.length})
+                </CardTitle>
+                {isAdmin && (
+                  <Button 
+                    onClick={() => setIsCreatingMember(true)}
+                    data-testid="button-add-org-member"
+                  >
+                    <Plus className="w-4 h-4 mr-2" />
+                    Add Member
+                  </Button>
+                )}
+              </div>
             </CardHeader>
             <CardContent>
               {membersLoading ? (
