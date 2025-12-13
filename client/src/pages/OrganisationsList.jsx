@@ -85,6 +85,7 @@ export default function OrganisationsListPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(20);
   const [selectedOrg, setSelectedOrg] = useState(null);
+  const [isCreatingNew, setIsCreatingNew] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [columns, setColumns] = useState(() => loadLocalColumns() || DEFAULT_COLUMNS);
   const [draggedColumn, setDraggedColumn] = useState(null);
@@ -419,6 +420,22 @@ export default function OrganisationsListPage() {
     );
   }
 
+  if (isCreatingNew) {
+    return (
+      <OrganisationDetailView 
+        organization={{}}
+        onBack={() => setIsCreatingNew(false)}
+        orgCustomFields={orgCustomFields}
+        memberCount={0}
+        isNew={true}
+        onCreated={(createdOrg) => {
+          setIsCreatingNew(false);
+          setSelectedOrg(createdOrg);
+        }}
+      />
+    );
+  }
+
   if (selectedOrg) {
     return (
       <OrganisationDetailView 
@@ -650,6 +667,14 @@ export default function OrganisationsListPage() {
               </div>
 
               <div className="flex items-center gap-2">
+                <Button 
+                  onClick={() => setIsCreatingNew(true)}
+                  className="gap-1"
+                  data-testid="button-add-organisation"
+                >
+                  <Building2 className="w-4 h-4" />
+                  Add Organisation
+                </Button>
                 {viewMode === 'list' && (
                   <Popover>
                     <PopoverTrigger asChild>

@@ -122,12 +122,14 @@ export default function OrganisationDetailView({
   organization, 
   onBack, 
   orgCustomFields = [],
-  memberCount = 0 
+  memberCount = 0,
+  isNew = false,
+  onCreated 
 }) {
   const { isAdmin } = useMemberAccess();
   const { formatDate } = useDateFormat();
   const queryClient = useQueryClient();
-  const [isEditing, setIsEditing] = useState(false);
+  const [isEditing, setIsEditing] = useState(isNew);
   const [activeTab, setActiveTab] = useState('overview');
   const [showLayoutEditor, setShowLayoutEditor] = useState(false);
   const [formData, setFormData] = useState({
@@ -232,6 +234,22 @@ export default function OrganisationDetailView({
     }
   }, [orgValues, orgCustomFields]);
 
+  const createOrgMutation = useMutation({
+    mutationFn: async (newOrg) => {
+      return await base44.entities.Organization.create(newOrg);
+    },
+    onSuccess: (createdOrg) => {
+      queryClient.invalidateQueries({ queryKey: ['organizations-crm-list'] });
+      toast.success('Organisation created successfully');
+      if (onCreated) {
+        onCreated(createdOrg);
+      }
+    },
+    onError: (error) => {
+      toast.error('Failed to create organisation: ' + error.message);
+    }
+  });
+
   const updateOrgMutation = useMutation({
     mutationFn: async (updates) => {
       return await base44.entities.Organization.update(organization.id, updates);
@@ -267,35 +285,77 @@ export default function OrganisationDetailView({
     }
   });
 
-  const handleSave = () => {
-    updateOrgMutation.mutate(formData);
-    
-    // Capture current values at save time to avoid stale closure issues
-    const currentCustomFieldValues = { ...customFieldValues };
-    const currentOrgValues = [...orgValues];
-    
-    console.log('[handleSave] customFieldValues:', currentCustomFieldValues);
-    console.log('[handleSave] orgValues:', currentOrgValues.map(v => ({ field_id: v.field_id, value: v.value })));
-    
-    Object.entries(currentCustomFieldValues).forEach(([fieldId, value]) => {
-      const existingVal = currentOrgValues.find(v => v.field_id === fieldId);
-      const storedValue = Array.isArray(value) ? JSON.stringify(value) : String(value || '');
-      const existingStored = existingVal?.value || '';
+  const handleSave = async () => {
+    if (isNew) {
+      // Prevent duplicate submissions
+      if (createOrgMutation.isPending) return;
       
-      console.log('[handleSave] Field:', fieldId, 'newValue:', storedValue, 'existingValue:', existingStored, 'changed:', storedValue !== existingStored);
-      
-      if (storedValue !== existingStored) {
-        // Pass existingRecordId directly to avoid closure issues with orgValues
-        updateCustomFieldMutation.mutate({ 
-          fieldId, 
-          value,
-          existingRecordId: existingVal?.id 
-        });
+      // Create mode: create org first, then save custom fields
+      if (!formData.name?.trim()) {
+        toast.error('Organisation name is required');
+        return;
       }
-    });
+      
+      createOrgMutation.mutate(formData, {
+        onSuccess: async (createdOrg) => {
+          // Save custom field values for the newly created org
+          const currentCustomFieldValues = { ...customFieldValues };
+          for (const [fieldId, value] of Object.entries(currentCustomFieldValues)) {
+            // Use ?? to preserve falsy values like 0 or false
+            const storedValue = Array.isArray(value) ? JSON.stringify(value) : String(value ?? '');
+            // Only skip truly empty strings or empty arrays
+            if (storedValue && storedValue !== '[]') {
+              try {
+                await base44.entities.OrganizationPreferenceValue.create({
+                  organization_id: createdOrg.id,
+                  field_id: fieldId,
+                  value: storedValue
+                });
+              } catch (err) {
+                console.error('Failed to save custom field:', fieldId, err);
+              }
+            }
+          }
+          queryClient.invalidateQueries({ queryKey: ['all-org-preference-values-crm'] });
+        }
+      });
+    } else {
+      // Update mode: existing behaviour
+      updateOrgMutation.mutate(formData);
+      
+      // Capture current values at save time to avoid stale closure issues
+      const currentCustomFieldValues = { ...customFieldValues };
+      const currentOrgValues = [...orgValues];
+      
+      console.log('[handleSave] customFieldValues:', currentCustomFieldValues);
+      console.log('[handleSave] orgValues:', currentOrgValues.map(v => ({ field_id: v.field_id, value: v.value })));
+      
+      Object.entries(currentCustomFieldValues).forEach(([fieldId, value]) => {
+        const existingVal = currentOrgValues.find(v => v.field_id === fieldId);
+        // Use ?? to preserve falsy values like 0 or false
+        const storedValue = Array.isArray(value) ? JSON.stringify(value) : String(value ?? '');
+        const existingStored = existingVal?.value || '';
+        
+        console.log('[handleSave] Field:', fieldId, 'newValue:', storedValue, 'existingValue:', existingStored, 'changed:', storedValue !== existingStored);
+        
+        if (storedValue !== existingStored) {
+          updateCustomFieldMutation.mutate({ 
+            fieldId, 
+            value,
+            existingRecordId: existingVal?.id 
+          });
+        }
+      });
+    }
   };
 
   const handleCancel = () => {
+    if (isNew) {
+      // Cancel creating a new org - go back
+      onBack?.();
+      return;
+    }
+    
     setFormData({
       name: organization.name || '',
       phone: organization.phone || '',
@@ -624,7 +684,11 @@ export default function OrganisationDetailView({
                 <ArrowLeft className="w-5 h-5" />
               </Button>
               <div className="flex items-center gap-4">
-                {organization.logo_url ? (
+                {isNew ? (
+                  <div className="w-14 h-14 rounded-lg bg-green-100 flex items-center justify-center">
+                    <Building2 className="w-7 h-7 text-green-600" />
+                  </div>
+                ) : organization?.logo_url ? (
                   <img src={organization.logo_url} alt={organization.name} className="w-14 h-14 rounded-lg object-contain bg-slate-100" />
                 ) : (
                   <div className="w-14 h-14 rounded-lg bg-blue-100 flex items-center justify-center">
@@ -632,20 +696,24 @@ export default function OrganisationDetailView({
                   </div>
                 )}
                 <div>
-                  <h1 className="text-xl font-semibold text-slate-900">{organization.name}</h1>
-                  <div className="flex items-center gap-2 mt-1">
-                    <span className="text-sm text-slate-500 flex items-center gap-1">
-                      <Users className="w-4 h-4" />
-                      {memberCount} members
-                    </span>
-                  </div>
+                  <h1 className="text-xl font-semibold text-slate-900">
+                    {isNew ? 'Add New Organisation' : (organization?.name || 'Organisation')}
+                  </h1>
+                  {!isNew && (
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="text-sm text-slate-500 flex items-center gap-1">
+                        <Users className="w-4 h-4" />
+                        {memberCount} members
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
             
             {isAdmin && (
               <div className="flex items-center gap-2">
-                {isEditing ? (
+                {isEditing || isNew ? (
                   <>
                     <Button variant="outline" onClick={handleCancel} data-testid="button-cancel-edit">
                       <X className="w-4 h-4 mr-2" />
@@ -653,15 +721,15 @@ export default function OrganisationDetailView({
                     </Button>
                     <Button 
                       onClick={handleSave} 
-                      disabled={updateOrgMutation.isPending}
+                      disabled={isNew ? createOrgMutation.isPending : updateOrgMutation.isPending}
                       data-testid="button-save-org"
                     >
-                      {updateOrgMutation.isPending ? (
+                      {(isNew ? createOrgMutation.isPending : updateOrgMutation.isPending) ? (
                         <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                       ) : (
                         <Save className="w-4 h-4 mr-2" />
                       )}
-                      Save Changes
+                      {isNew ? 'Create Organisation' : 'Save Changes'}
                     </Button>
                   </>
                 ) : (
@@ -681,19 +749,21 @@ export default function OrganisationDetailView({
           </div>
         </div>
         
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="px-6">
-          <TabsList className="bg-transparent border-b-0">
-            <TabsTrigger value="overview" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none" data-testid="tab-overview">
-              Overview
-            </TabsTrigger>
-            <TabsTrigger value="members" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none" data-testid="tab-members">
-              Members
-            </TabsTrigger>
-            <TabsTrigger value="activity" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none" data-testid="tab-activity">
-              Activity
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
+        {!isNew && (
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="px-6">
+            <TabsList className="bg-transparent border-b-0">
+              <TabsTrigger value="overview" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none" data-testid="tab-overview">
+                Overview
+              </TabsTrigger>
+              <TabsTrigger value="members" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none" data-testid="tab-members">
+                Members
+              </TabsTrigger>
+              <TabsTrigger value="activity" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none" data-testid="tab-activity">
+                Activity
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+        )}
       </header>
 
       {showLayoutEditor && (
@@ -710,66 +780,68 @@ export default function OrganisationDetailView({
       )}
 
       <main className="p-6">
-        {activeTab === 'overview' && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2 space-y-6">
+        {(activeTab === 'overview' || isNew) && (
+          <div className={isNew ? "max-w-4xl mx-auto space-y-6" : "grid grid-cols-1 lg:grid-cols-3 gap-6"}>
+            <div className={isNew ? "space-y-6" : "lg:col-span-2 space-y-6"}>
               {effectiveLayout.cards.map(card => renderLayoutCard(card))}
             </div>
 
-            <div className="space-y-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <Wallet className="w-4 h-4 text-green-600" />
-                    Training Fund
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-center py-4">
-                    <p className="text-3xl font-bold text-green-600">
-                      £{(formData.training_fund_balance || 0).toFixed(2)}
-                    </p>
-                    <p className="text-sm text-slate-500 mt-1">Available Balance</p>
-                  </div>
-                </CardContent>
-              </Card>
+            {!isNew && (
+              <div className="space-y-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Wallet className="w-4 h-4 text-green-600" />
+                      Training Fund
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-center py-4">
+                      <p className="text-3xl font-bold text-green-600">
+                        £{(formData.training_fund_balance || 0).toFixed(2)}
+                      </p>
+                      <p className="text-sm text-slate-500 mt-1">Available Balance</p>
+                    </div>
+                  </CardContent>
+                </Card>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <Users className="w-4 h-4 text-blue-600" />
-                    Team Overview
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-500">Total Members</span>
-                      <span className="font-medium">{orgMembers.length}</span>
-                    </div>
-                    <Separator />
-                    <div className="space-y-2">
-                      {orgMembers.slice(0, 5).map(member => (
-                        <div key={member.id} className="flex items-center gap-2 text-sm">
-                          <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center">
-                            <User className="w-4 h-4 text-slate-400" />
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Users className="w-4 h-4 text-blue-600" />
+                      Team Overview
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-500">Total Members</span>
+                        <span className="font-medium">{orgMembers.length}</span>
+                      </div>
+                      <Separator />
+                      <div className="space-y-2">
+                        {orgMembers.slice(0, 5).map(member => (
+                          <div key={member.id} className="flex items-center gap-2 text-sm">
+                            <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center">
+                              <User className="w-4 h-4 text-slate-400" />
+                            </div>
+                            <div>
+                              <p className="font-medium text-slate-700">{member.full_name || member.email}</p>
+                              <p className="text-xs text-slate-400">{member.job_title || 'Member'}</p>
+                            </div>
                           </div>
-                          <div>
-                            <p className="font-medium text-slate-700">{member.full_name || member.email}</p>
-                            <p className="text-xs text-slate-400">{member.job_title || 'Member'}</p>
-                          </div>
-                        </div>
-                      ))}
-                      {orgMembers.length > 5 && (
-                        <p className="text-xs text-slate-400 text-center pt-2">
-                          +{orgMembers.length - 5} more members
-                        </p>
-                      )}
+                        ))}
+                        {orgMembers.length > 5 && (
+                          <p className="text-xs text-slate-400 text-center pt-2">
+                            +{orgMembers.length - 5} more members
+                          </p>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
           </div>
         )}
 
