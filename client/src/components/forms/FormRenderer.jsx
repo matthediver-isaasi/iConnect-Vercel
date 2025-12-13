@@ -5,7 +5,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Loader2, Plus, X } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -327,6 +328,61 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
                 </div>
               </div>
             ))}
+          </div>
+        );
+
+      case 'list':
+        const listValues = Array.isArray(value) ? value : [];
+        return (
+          <div className="space-y-2">
+            {listValues.map((item, index) => (
+              <div key={index} className="flex items-center gap-2">
+                <Input
+                  value={item}
+                  onChange={(e) => {
+                    if (field.locked) return;
+                    const newValues = [...listValues];
+                    newValues[index] = e.target.value;
+                    onChange(newValues);
+                  }}
+                  placeholder={field.placeholder || 'Enter value...'}
+                  disabled={field.locked}
+                  className={field.locked ? 'bg-slate-100 cursor-not-allowed' : ''}
+                  data-testid={`input-list-item-${field.id}-${index}`}
+                />
+                {!field.locked && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => {
+                      const newValues = listValues.filter((_, i) => i !== index);
+                      onChange(newValues);
+                    }}
+                    className="h-9 w-9 text-red-600 hover:text-red-700 hover:bg-red-50"
+                    data-testid={`button-remove-list-item-${field.id}-${index}`}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                )}
+              </div>
+            ))}
+            {!field.locked && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => onChange([...listValues, ''])}
+                className="gap-1"
+                data-testid={`button-add-list-item-${field.id}`}
+              >
+                <Plus className="h-4 w-4" />
+                Add Item
+              </Button>
+            )}
+            {listValues.length === 0 && field.locked && (
+              <p className="text-sm text-slate-500">No items added</p>
+            )}
           </div>
         );
 

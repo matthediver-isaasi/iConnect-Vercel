@@ -38,6 +38,7 @@ const FIELD_TYPES = [
   { value: 'category_multiselect', label: 'Category Multi-Select' },
   { value: 'radio', label: 'Radio Buttons' },
   { value: 'checkbox', label: 'Checkboxes' },
+  { value: 'list', label: 'List (User-Defined Values)' },
   { value: 'date', label: 'Date' },
   { value: 'time', label: 'Time' },
   { value: 'file', label: 'File Upload' },
