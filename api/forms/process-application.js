@@ -70,7 +70,8 @@ export default async function handler(req, res) {
       organization_entity_action,  // New: independent organization action (none/create/update/upsert)
       prefill_member_id,
       prefill_organization_id,
-      submission_id
+      submission_id,
+      role_id                      // Role ID from form conditional logic (set_role action)
     } = req.body;
 
     if (!form_values || typeof form_values !== 'object') {
@@ -435,6 +436,8 @@ export default async function handler(req, res) {
           if (memberData.first_name) memberUpdateData.first_name = memberData.first_name;
           if (memberData.last_name) memberUpdateData.last_name = memberData.last_name;
           if (memberData.job_title) memberUpdateData.job_title = memberData.job_title;
+          // Add role_id if triggered from form conditional logic (null clears the role)
+          if (role_id !== undefined) memberUpdateData.role_id = role_id;
           
           // Handle full_name parsing if provided (parse into first_name/last_name since member table doesn't have full_name column)
           if (memberData.full_name && !memberData.first_name && !memberData.last_name) {
@@ -495,6 +498,8 @@ export default async function handler(req, res) {
           };
           // Add job_title only if provided (it's a valid column)
           if (memberData.job_title) memberInsertData.job_title = memberData.job_title;
+          // Add role_id if triggered from form conditional logic (null clears the role)
+          if (role_id !== undefined) memberInsertData.role_id = role_id;
 
           const { data: newMember, error: memberError } = await supabase
             .from('member')

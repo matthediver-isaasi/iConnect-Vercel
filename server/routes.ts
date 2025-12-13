@@ -1116,7 +1116,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         member_entity_action = 'none',     // 'none', 'create', 'update', 'upsert'
         organization_entity_action = 'none', // 'none', 'create', 'update', 'upsert'
         submission_id,   // Optional: link back to FormSubmission record
-        prefill_organization_id  // Optional: organization ID from prefill source (for linking new members)
+        prefill_organization_id,  // Optional: organization ID from prefill source (for linking new members)
+        role_id          // Optional: role ID from form conditional logic (set_role action)
       } = req.body;
 
       if (!form_values || typeof form_values !== 'object') {
@@ -1385,6 +1386,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
               updateData.last_name = nameParts.slice(1).join(' ') || '';
             }
             if (memberData.job_title) updateData.job_title = memberData.job_title;
+            // Add role_id if triggered from form conditional logic (null clears the role)
+            if (role_id !== undefined) updateData.role_id = role_id;
             // Use createdOrganizationId if org was created/updated, otherwise use prefill_organization_id
             const orgIdToLink = createdOrganizationId || prefill_organization_id;
             if (orgIdToLink) updateData.organization_id = orgIdToLink;
@@ -1429,6 +1432,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             };
             // Add job_title only if provided (it's a valid column)
             if (memberData.job_title) memberInsertData.job_title = memberData.job_title;
+            // Add role_id if triggered from form conditional logic (null clears the role)
+            if (role_id !== undefined) memberInsertData.role_id = role_id;
 
             const { data: newMember, error: memberError } = await supabase
               .from('member')

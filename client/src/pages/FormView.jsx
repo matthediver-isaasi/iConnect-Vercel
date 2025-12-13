@@ -170,7 +170,8 @@ export default function FormViewPage() {
               member_entity_action: form.member_entity_action || 'none',
               organization_entity_action: form.organization_entity_action || 'none',
               submission_id: submissionResult?.id,
-              prefill_organization_id: form.prefill_source === 'organization' ? prefillOrgId : null
+              prefill_organization_id: form.prefill_source === 'organization' ? prefillOrgId : null,
+              role_id: triggeredRoleIdRef.current
             })
           });
           if (response.ok) {
@@ -451,11 +452,17 @@ export default function FormViewPage() {
   const originalValuesRef = useRef({});
   // Track which set_value actions are currently active (condition is true)
   const activeSetValueActionsRef = useRef(new Set());
+  // Track the triggered role_id from set_role/clear_role actions
+  const triggeredRoleIdRef = useRef(null);
+  // Track which role actions were previously active (for transition detection)
+  const previousRoleActionsRef = useRef(new Set());
   
-  // Reset set_value tracking when form changes
+  // Reset set_value and role tracking when form changes
   useEffect(() => {
     originalValuesRef.current = {};
     activeSetValueActionsRef.current = new Set();
+    triggeredRoleIdRef.current = null;
+    previousRoleActionsRef.current = new Set();
   }, [form?.id]);
   
   // Helper to compute the value for a set_value action
@@ -626,6 +633,39 @@ export default function FormViewPage() {
     if (Object.keys(updates).length > 0) {
       setFormValues(prev => ({ ...prev, ...updates }));
     }
+    
+    // Process set_role and clear_role actions with transition detection
+    // Only update role when an action transitions from inactive to active
+    const nowActiveRoleActions = new Set();
+    
+    for (const rule of form.visibility_rules) {
+      if (!rule.trigger_field_id) continue;
+      
+      const triggerValue = formValues[rule.trigger_field_id];
+      const conditionMet = evaluateCondition(triggerValue, rule.operator, rule.value);
+      
+      if (conditionMet && rule.actions && Array.isArray(rule.actions)) {
+        rule.actions.forEach((action, actionIndex) => {
+          if (action.action_type === 'set_role' || action.action_type === 'clear_role') {
+            // Use action.id if available, otherwise fallback to composite key
+            const actionKey = action.id || `${rule.id}:role:${actionIndex}`;
+            nowActiveRoleActions.add(actionKey);
+            
+            // Only apply if this action just became active (transition detection)
+            if (!previousRoleActionsRef.current.has(actionKey)) {
+              if (action.action_type === 'set_role' && action.role_id) {
+                triggeredRoleIdRef.current = action.role_id;
+              } else if (action.action_type === 'clear_role') {
+                triggeredRoleIdRef.current = null;
+              }
+            }
+          }
+        });
+      }
+    }
+    
+    // Update previous state for next render
+    previousRoleActionsRef.current = nowActiveRoleActions;
   }, [form?.visibility_rules, formValues, prefillMember, prefillOrg, prefillCustomFieldValues, form?.prefill_source]);
 
   if (isLoading) {
