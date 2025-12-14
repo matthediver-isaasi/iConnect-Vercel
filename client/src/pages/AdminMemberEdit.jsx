@@ -76,7 +76,6 @@ export default function AdminMemberEdit() {
   const [jobTitle, setJobTitle] = useState("");
   const [biography, setBiography] = useState("");
   const [profilePhotoUrl, setProfilePhotoUrl] = useState("");
-  const [linkedinUrl, setLinkedinUrl] = useState("");
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const [hasUnsavedProfile, setHasUnsavedProfile] = useState(false);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
@@ -340,7 +339,6 @@ export default function AdminMemberEdit() {
     setJobTitle(memberRecord.job_title || "");
     setBiography(memberRecord.biography || "");
     setProfilePhotoUrl(memberRecord.profile_photo_url || "");
-    setLinkedinUrl(memberRecord.linkedin_url || "");
     setShowInDirectory(memberRecord.show_in_directory !== false);
   }, [memberRecord]);
 
@@ -477,7 +475,6 @@ export default function AdminMemberEdit() {
       job_title: jobTitle,
       biography,
       profile_photo_url: profilePhotoUrl,
-      linkedin_url: linkedinUrl,
       show_in_directory: showInDirectory,
     });
   };
@@ -525,10 +522,9 @@ export default function AdminMemberEdit() {
       jobTitle !== (memberRecord.job_title || "") ||
       biography !== (memberRecord.biography || "") ||
       profilePhotoUrl !== (memberRecord.profile_photo_url || "") ||
-      linkedinUrl !== (memberRecord.linkedin_url || "") ||
       showInDirectory !== (memberRecord.show_in_directory !== false);
     setHasUnsavedProfile(changed);
-  }, [firstName, lastName, jobTitle, biography, profilePhotoUrl, linkedinUrl, showInDirectory, memberRecord]);
+  }, [firstName, lastName, jobTitle, biography, profilePhotoUrl, showInDirectory, memberRecord]);
 
   useEffect(() => {
     if (!organizationInfo) return;
@@ -804,18 +800,6 @@ export default function AdminMemberEdit() {
                 onChange={(e) => setJobTitle(e.target.value)}
                 placeholder="e.g., Careers Adviser"
                 data-testid="input-job-title"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="linkedinUrl">LinkedIn Profile URL</Label>
-              <Input
-                id="linkedinUrl"
-                type="url"
-                value={linkedinUrl}
-                onChange={(e) => setLinkedinUrl(e.target.value)}
-                placeholder="https://www.linkedin.com/in/profile"
-                data-testid="input-linkedin"
               />
             </div>
 
