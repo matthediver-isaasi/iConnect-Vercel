@@ -31,6 +31,7 @@ import {
   Building2,
   Mail,
   Phone,
+  Smartphone,
   Briefcase,
   Save
 } from "lucide-react";
@@ -45,6 +46,7 @@ const DEFAULT_COLUMNS = [
   { id: 'organization', label: 'Organisation', visible: true, locked: false },
   { id: 'job_title', label: 'Job Title', visible: true, locked: false },
   { id: 'phone', label: 'Phone', visible: false, locked: false },
+  { id: 'mobile', label: 'Mobile', visible: false, locked: false },
   { id: 'status', label: 'Status', visible: true, locked: false },
   { id: 'roles', label: 'Roles', visible: false, locked: false }
 ];
@@ -473,6 +475,8 @@ export default function MembersListPage() {
         return member.job_title || '-';
       case 'phone':
         return member.phone || '-';
+      case 'mobile':
+        return member.mobile || '-';
       case 'status':
         return member.disabled ? (
           <Badge variant="secondary" className="bg-red-100 text-red-700">Disabled</Badge>
@@ -977,6 +981,12 @@ export default function MembersListPage() {
                             <p className="text-xs text-slate-500 flex items-center gap-1">
                               <Phone className="w-3 h-3" />
                               {member.phone}
+                            </p>
+                          )}
+                          {member.mobile && (
+                            <p className="text-xs text-slate-500 flex items-center gap-1">
+                              <Smartphone className="w-3 h-3" />
+                              {member.mobile}
                             </p>
                           )}
                         </div>
