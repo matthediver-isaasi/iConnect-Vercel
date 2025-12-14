@@ -116,12 +116,19 @@ export default async function handler(req, res) {
         .eq('member_id', memberId);
 
       if (fetchError) {
-        console.error('[Member Categories] Fetch current error:', fetchError);
-        return res.status(500).json({ error: 'Failed to fetch current selections' });
+        console.error('[Member Categories] Fetch current error:', JSON.stringify(fetchError));
+        return res.status(500).json({ 
+          error: 'Failed to fetch current selections', 
+          details: fetchError.message,
+          code: fetchError.code 
+        });
       }
+      
+      // Empty result is valid - treat as empty array
+      const existing = currentSelections || [];
 
       const currentKeys = new Set(
-        (currentSelections || []).map(s => `${s.resource_category_id}|${s.subcategory_name || ''}`)
+        existing.map(s => `${s.resource_category_id}|${s.subcategory_name || ''}`)
       );
       const newKeys = new Set(
         finalSelections.map(s => `${s.category_id}|${s.subcategory_name || ''}`)
@@ -131,7 +138,7 @@ export default async function handler(req, res) {
         !currentKeys.has(`${s.category_id}|${s.subcategory_name || ''}`)
       );
       
-      const toRemove = (currentSelections || []).filter(s => 
+      const toRemove = existing.filter(s => 
         !newKeys.has(`${s.resource_category_id}|${s.subcategory_name || ''}`)
       );
 
