@@ -471,6 +471,24 @@ export default function PreferencesPage() {
     },
   });
 
+  // --- Member's resource category selections (from database) ---
+  const { data: memberResourceCategories = [], isLoading: memberResourceCategoriesLoading } = useQuery({
+    queryKey: ["memberResourceCategories", memberRecord?.id],
+    enabled: !!memberRecord?.id,
+    queryFn: async () => {
+      if (!memberRecord?.id) return [];
+      const { data, error } = await supabase
+        .from("member_resource_category")
+        .select("id, resource_category_id, subcategory_name, created_at")
+        .eq("member_id", memberRecord.id);
+      if (error) {
+        console.error("[Preferences] Failed to load member categories:", error);
+        return [];
+      }
+      return data || [];
+    },
+  });
+
   // --- Preference fields (custom additional info fields) - member scope only ---
   const { data: preferenceFields = [], isLoading: preferenceFieldsLoading } = useQuery({
     queryKey: ["/api/entities/PreferenceField", "member"],
@@ -681,15 +699,12 @@ export default function PreferencesPage() {
   }, [memberRecord]);
 
 
-  // --- Load preferences from localStorage ---
+  // --- Load expandedCategories from localStorage (UI state only, always load) ---
   useEffect(() => {
     const storedPrefs = localStorage.getItem('agcas_resource_preferences');
     if (storedPrefs) {
       try {
         const prefs = JSON.parse(storedPrefs);
-        if (prefs.selectedSubcategories) {
-          setSelectedSubcategories(prefs.selectedSubcategories);
-        }
         if (prefs.expandedCategories) {
           setExpandedCategories(prefs.expandedCategories);
         }
@@ -698,6 +713,37 @@ export default function PreferencesPage() {
       }
     }
   }, []);
+
+  // --- Load category preferences from database (member_resource_category table) ---
+  useEffect(() => {
+    if (memberResourceCategoriesLoading) return;
+    
+    if (memberResourceCategories.length > 0) {
+      // Convert database records to the format used by the UI:
+      // Each record has resource_category_id and subcategory_name
+      // The UI uses format: "categoryId" for category-only or "categoryId|subcategoryName" for subcategory
+      const selections = memberResourceCategories.map(record => {
+        if (record.subcategory_name) {
+          return `${record.resource_category_id}|${record.subcategory_name}`;
+        }
+        return record.resource_category_id;
+      });
+      setSelectedSubcategories(selections);
+    } else {
+      // No database records - check localStorage for legacy selectedSubcategories (migration path)
+      const storedPrefs = localStorage.getItem('agcas_resource_preferences');
+      if (storedPrefs) {
+        try {
+          const prefs = JSON.parse(storedPrefs);
+          if (prefs.selectedSubcategories) {
+            setSelectedSubcategories(prefs.selectedSubcategories);
+          }
+        } catch {
+          // Ignore parse errors
+        }
+      }
+    }
+  }, [memberResourceCategories, memberResourceCategoriesLoading]);
 
   // --- Load additional info values from memberPreferenceValues ---
   useEffect(() => {
@@ -731,15 +777,85 @@ export default function PreferencesPage() {
   // --- Mutations ---
   const savePreferencesMutation = useMutation({
     mutationFn: async (preferences) => {
-      localStorage.setItem('agcas_resource_preferences', JSON.stringify(preferences));
+      if (!memberRecord?.id) throw new Error("No member record");
+      
+      // Convert UI format to API format
+      // UI format: "categoryId" or "categoryId|subcategoryName"
+      // API format: { category_id, subcategory_name }
+      const selections = preferences.selectedSubcategories.map(item => {
+        if (item.includes('|')) {
+          const [categoryId, subcategoryName] = item.split('|');
+          return { category_id: categoryId, subcategory_name: subcategoryName };
+        }
+        return { category_id: item, subcategory_name: null };
+      });
+      
+      // Save to database via Supabase directly using diff-based approach
+      // Get current selections
+      const { data: currentSelections, error: fetchError } = await supabase
+        .from('member_resource_category')
+        .select('id, resource_category_id, subcategory_name')
+        .eq('member_id', memberRecord.id);
+      
+      if (fetchError) throw fetchError;
+      
+      const existing = currentSelections || [];
+      
+      // Calculate what to add and remove
+      const currentKeys = new Set(
+        existing.map(s => `${s.resource_category_id}|${s.subcategory_name || ''}`)
+      );
+      const newKeys = new Set(
+        selections.map(s => `${s.category_id}|${s.subcategory_name || ''}`)
+      );
+      
+      const toAdd = selections.filter(s => 
+        !currentKeys.has(`${s.category_id}|${s.subcategory_name || ''}`)
+      );
+      
+      const toRemove = existing.filter(s => 
+        !newKeys.has(`${s.resource_category_id}|${s.subcategory_name || ''}`)
+      );
+      
+      // Remove unselected
+      if (toRemove.length > 0) {
+        const removeIds = toRemove.map(s => s.id);
+        const { error: deleteError } = await supabase
+          .from('member_resource_category')
+          .delete()
+          .in('id', removeIds);
+        
+        if (deleteError) throw deleteError;
+      }
+      
+      // Add new selections
+      if (toAdd.length > 0) {
+        const insertData = toAdd.map(sel => ({
+          member_id: memberRecord.id,
+          resource_category_id: sel.category_id,
+          subcategory_name: sel.subcategory_name
+        }));
+        
+        const { error: insertError } = await supabase
+          .from('member_resource_category')
+          .insert(insertData);
+        
+        if (insertError) throw insertError;
+      }
+      
+      // Also save expandedCategories to localStorage (UI state only)
+      localStorage.setItem('agcas_resource_preferences', JSON.stringify({ expandedCategories: preferences.expandedCategories }));
+      
       return preferences;
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["memberResourceCategories", memberRecord?.id] });
       toast.success("Preferences saved successfully");
       setHasUnsavedChanges(false);
       setIsSaving(false);
     },
-    onError: () => {
+    onError: (error) => {
+      console.error("[Preferences] Failed to save:", error);
       toast.error("Failed to save preferences");
       setIsSaving(false);
     },
