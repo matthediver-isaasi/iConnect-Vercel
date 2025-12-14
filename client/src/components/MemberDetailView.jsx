@@ -1029,59 +1029,148 @@ export default function MemberDetailView({
                   </div>
                 ) : resourceCategories.length === 0 ? (
                   <p className="text-sm text-slate-500 text-center py-8">No categories available</p>
-                ) : (
-                  <div className="space-y-3">
-                    <p className="text-sm text-slate-600 mb-4">
-                      Select the categories that interest this member. These preferences help personalize content recommendations.
-                    </p>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                      {resourceCategories.map(category => {
-                        const isSelected = selectedSubcategories.includes(category.id);
-                        return (
-                          <div 
-                            key={category.id} 
-                            className={`border rounded-lg p-3 cursor-pointer transition-colors ${
-                              isSelected 
-                                ? 'border-blue-500 bg-blue-50' 
-                                : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
-                            }`}
-                            onClick={() => toggleSubcategory(category.id)}
-                            data-testid={`category-card-${category.id}`}
-                          >
-                            <div className="flex items-start gap-3">
-                              <Checkbox
-                                id={`cat-${category.id}`}
-                                checked={isSelected}
-                                onCheckedChange={() => toggleSubcategory(category.id)}
-                                data-testid={`checkbox-category-${category.id}`}
-                              />
-                              <div className="flex-1 min-w-0">
-                                <Label 
-                                  htmlFor={`cat-${category.id}`} 
-                                  className="font-medium text-sm cursor-pointer text-slate-900"
-                                >
-                                  {category.name}
-                                </Label>
-                                {category.description && (
-                                  <p className="text-xs text-slate-500 mt-1 line-clamp-2">
-                                    {category.description}
-                                  </p>
-                                )}
+                ) : (() => {
+                  // Separate parent categories (headers) from subcategories (selectable)
+                  const parentCategories = resourceCategories.filter(c => !c.parent_category_id);
+                  const subcategories = resourceCategories.filter(c => c.parent_category_id);
+                  
+                  // If no hierarchy exists (all are top-level), display as flat list
+                  if (subcategories.length === 0) {
+                    return (
+                      <div className="space-y-3">
+                        <p className="text-sm text-slate-600 mb-4">
+                          Select the categories that interest this member. These preferences help personalize content recommendations.
+                        </p>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                          {parentCategories.map(category => {
+                            const isSelected = selectedSubcategories.includes(category.id);
+                            return (
+                              <div 
+                                key={category.id} 
+                                className={`border rounded-lg p-3 cursor-pointer transition-colors ${
+                                  isSelected 
+                                    ? 'border-blue-500 bg-blue-50' 
+                                    : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
+                                }`}
+                                onClick={() => toggleSubcategory(category.id)}
+                                data-testid={`category-card-${category.id}`}
+                              >
+                                <div className="flex items-start gap-3">
+                                  <Checkbox
+                                    id={`cat-${category.id}`}
+                                    checked={isSelected}
+                                    onCheckedChange={() => toggleSubcategory(category.id)}
+                                    data-testid={`checkbox-category-${category.id}`}
+                                  />
+                                  <div className="flex-1 min-w-0">
+                                    <Label 
+                                      htmlFor={`cat-${category.id}`} 
+                                      className="font-medium text-sm cursor-pointer text-slate-900"
+                                    >
+                                      {category.name}
+                                    </Label>
+                                    {category.description && (
+                                      <p className="text-xs text-slate-500 mt-1 line-clamp-2">
+                                        {category.description}
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
                               </div>
+                            );
+                          })}
+                        </div>
+                        {selectedSubcategories.length > 0 && (
+                          <div className="mt-4 pt-4 border-t border-slate-200">
+                            <p className="text-sm text-slate-600">
+                              <span className="font-medium">{selectedSubcategories.length}</span> {selectedSubcategories.length === 1 ? 'category' : 'categories'} selected
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  }
+                  
+                  // Hierarchical display: parent categories as headers, subcategories as selectable
+                  return (
+                    <div className="space-y-6">
+                      <p className="text-sm text-slate-600">
+                        Select the subcategories that interest this member. These preferences help personalize content recommendations.
+                      </p>
+                      {parentCategories.map(parent => {
+                        const children = subcategories.filter(sub => sub.parent_category_id === parent.id);
+                        if (children.length === 0) return null;
+                        
+                        const selectedCount = children.filter(c => selectedSubcategories.includes(c.id)).length;
+                        
+                        return (
+                          <div key={parent.id} className="space-y-3">
+                            <div className="flex items-center justify-between">
+                              <h3 className="font-semibold text-slate-900 flex items-center gap-2">
+                                <FolderTree className="w-4 h-4 text-slate-500" />
+                                {parent.name}
+                              </h3>
+                              {selectedCount > 0 && (
+                                <Badge variant="secondary" className="text-xs">
+                                  {selectedCount} selected
+                                </Badge>
+                              )}
+                            </div>
+                            {parent.description && (
+                              <p className="text-xs text-slate-500 -mt-1">{parent.description}</p>
+                            )}
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                              {children.map(subcategory => {
+                                const isSelected = selectedSubcategories.includes(subcategory.id);
+                                return (
+                                  <div 
+                                    key={subcategory.id} 
+                                    className={`border rounded-lg p-3 cursor-pointer transition-colors ${
+                                      isSelected 
+                                        ? 'border-blue-500 bg-blue-50' 
+                                        : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
+                                    }`}
+                                    onClick={() => toggleSubcategory(subcategory.id)}
+                                    data-testid={`subcategory-card-${subcategory.id}`}
+                                  >
+                                    <div className="flex items-start gap-3">
+                                      <Checkbox
+                                        id={`subcat-${subcategory.id}`}
+                                        checked={isSelected}
+                                        onCheckedChange={() => toggleSubcategory(subcategory.id)}
+                                        data-testid={`checkbox-subcategory-${subcategory.id}`}
+                                      />
+                                      <div className="flex-1 min-w-0">
+                                        <Label 
+                                          htmlFor={`subcat-${subcategory.id}`} 
+                                          className="font-medium text-sm cursor-pointer text-slate-900"
+                                        >
+                                          {subcategory.name}
+                                        </Label>
+                                        {subcategory.description && (
+                                          <p className="text-xs text-slate-500 mt-1 line-clamp-2">
+                                            {subcategory.description}
+                                          </p>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
                             </div>
                           </div>
                         );
                       })}
+                      {selectedSubcategories.length > 0 && (
+                        <div className="mt-4 pt-4 border-t border-slate-200">
+                          <p className="text-sm text-slate-600">
+                            <span className="font-medium">{selectedSubcategories.length}</span> {selectedSubcategories.length === 1 ? 'subcategory' : 'subcategories'} selected
+                          </p>
+                        </div>
+                      )}
                     </div>
-                    {selectedSubcategories.length > 0 && (
-                      <div className="mt-4 pt-4 border-t border-slate-200">
-                        <p className="text-sm text-slate-600">
-                          <span className="font-medium">{selectedSubcategories.length}</span> {selectedSubcategories.length === 1 ? 'category' : 'categories'} selected
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                )}
+                  );
+                })()}
               </CardContent>
             </Card>
           </TabsContent>

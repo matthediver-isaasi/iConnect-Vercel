@@ -466,9 +466,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Validate all IDs are valid UUID strings and dedupe
       const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-      const uniqueCategoryIds = [...new Set(category_ids)].filter((id): id is string => 
+      const validUuids = [...new Set(category_ids)].filter((id): id is string => 
         typeof id === 'string' && uuidRegex.test(id)
       );
+
+      // Validate that all provided IDs are subcategories (have parent_category_id set)
+      // This ensures we only store leaf-level category selections, not parent headers
+      let uniqueCategoryIds: string[] = validUuids;
+      if (validUuids.length > 0) {
+        const { data: validCategories, error: catError } = await supabase
+          .from('resource_category')
+          .select('id, parent_category_id')
+          .in('id', validUuids);
+
+        if (catError) {
+          console.error('[Member Categories] Category validation error:', catError);
+          return res.status(500).json({ error: 'Failed to validate categories' });
+        }
+
+        // Filter to only include subcategories (those with parent_category_id set)
+        // If all categories are top-level (no hierarchy), allow them
+        const subcategories = (validCategories || []).filter(c => c.parent_category_id);
+        const topLevelOnly = subcategories.length === 0 && (validCategories || []).length > 0;
+        
+        if (topLevelOnly) {
+          // All categories are top-level, allow storing them (flat structure)
+          uniqueCategoryIds = (validCategories || []).map(c => c.id);
+        } else {
+          // Only store subcategories (reject parent category IDs)
+          uniqueCategoryIds = subcategories.map(c => c.id);
+          
+          const rejectedCount = validUuids.length - uniqueCategoryIds.length;
+          if (rejectedCount > 0) {
+            console.log(`[Member Categories] Filtered out ${rejectedCount} parent category IDs`);
+          }
+        }
+      }
 
       // Verify member exists
       const { data: member, error: memberError } = await supabase
