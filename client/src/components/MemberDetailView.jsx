@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -75,6 +76,8 @@ export default function MemberDetailView({
   };
   const [customFieldValues, setCustomFieldValues] = useState({});
   const [selectedRoles, setSelectedRoles] = useState([]);
+  const [selectedSubcategories, setSelectedSubcategories] = useState([]);
+  const [isSavingCategories, setIsSavingCategories] = useState(false);
 
   const { data: memberValues = [], isLoading: valuesLoading } = useQuery({
     queryKey: ['member-detail-preference-values', member?.id],
@@ -177,6 +180,41 @@ export default function MemberDetailView({
     }
   }, [memberValues]);
 
+  // Load selected subcategories from memberValues when data is ready
+  // This effect runs whenever memberValues or resourceCategories change
+  useEffect(() => {
+    if (resourceCategories.length === 0) return;
+    
+    // Build set of all valid subcategory names
+    const allSubcategoryNames = new Set();
+    resourceCategories.forEach(cat => {
+      if (cat.subcategories && Array.isArray(cat.subcategories)) {
+        cat.subcategories.forEach(sub => {
+          const subName = typeof sub === 'string' ? sub : (sub.name || sub.id);
+          allSubcategoryNames.add(subName);
+        });
+      }
+    });
+
+    // Find subcategories stored in memberValues
+    const storedSubcats = [];
+    memberValues.forEach(pv => {
+      try {
+        const parsed = JSON.parse(pv.value);
+        if (Array.isArray(parsed)) {
+          parsed.forEach(val => {
+            if (allSubcategoryNames.has(val)) {
+              storedSubcats.push(val);
+            }
+          });
+        }
+      } catch {}
+    });
+    
+    // Always set state to reflect current server state
+    setSelectedSubcategories(storedSubcats);
+  }, [memberValues, resourceCategories]);
+
   const createMutation = useMutation({
     mutationFn: async (data) => {
       return await base44.entities.Member.create(data);
@@ -277,6 +315,95 @@ export default function MemberDetailView({
         ? prev.filter(r => r !== roleId)
         : [...prev, roleId]
     );
+  };
+
+  const toggleSubcategory = (subcategory) => {
+    setSelectedSubcategories(prev => 
+      prev.includes(subcategory)
+        ? prev.filter(s => s !== subcategory)
+        : [...prev, subcategory]
+    );
+  };
+
+  const handleSaveCategories = async () => {
+    if (!member?.id) return;
+    
+    // Guard against saving while data is still loading
+    if (prefFieldsLoading || categoriesLoading) {
+      toast.error("Please wait for data to load");
+      return;
+    }
+    
+    setIsSavingCategories(true);
+    try {
+      const storedValue = JSON.stringify(selectedSubcategories);
+      
+      // Build a set of all valid subcategory names from resourceCategories
+      const allSubcategoryNames = new Set();
+      resourceCategories.forEach(cat => {
+        if (cat.subcategories && Array.isArray(cat.subcategories)) {
+          cat.subcategories.forEach(sub => {
+            const subName = typeof sub === 'string' ? sub : (sub.name || sub.id);
+            allSubcategoryNames.add(subName);
+          });
+        }
+      });
+      
+      // Find a valid PreferenceField for categories
+      const categoryField = preferenceFields.find(f => 
+        f.label?.toLowerCase().includes('category') || 
+        f.label?.toLowerCase().includes('interest') ||
+        f.field_type === 'resource_categories'
+      );
+      
+      // Find existing memberValue that contains category data
+      let existingCategoryValue = null;
+      
+      // First try to find by matching field_id to categoryField
+      if (categoryField) {
+        existingCategoryValue = memberValues.find(pv => pv.field_id === categoryField.id);
+      }
+      
+      // If not found by field_id, try to find by examining array values
+      if (!existingCategoryValue) {
+        for (const pv of memberValues) {
+          try {
+            const parsed = JSON.parse(pv.value);
+            if (Array.isArray(parsed) && parsed.some(val => allSubcategoryNames.has(val))) {
+              existingCategoryValue = pv;
+              break;
+            }
+          } catch {}
+        }
+      }
+      
+      if (existingCategoryValue) {
+        // Update existing record (even if empty array to clear selections)
+        await base44.entities.MemberPreferenceValue.update(existingCategoryValue.id, {
+          value: storedValue
+        });
+      } else if (selectedSubcategories.length > 0) {
+        // For new records, require a valid PreferenceField to maintain data model integrity
+        if (!categoryField) {
+          toast.error("No category preference field is configured. Please contact an administrator to set up a preference field for categories.");
+          return;
+        }
+        
+        await base44.entities.MemberPreferenceValue.create({
+          member_id: member.id,
+          field_id: categoryField.id,
+          value: storedValue
+        });
+      }
+      
+      queryClient.invalidateQueries({ queryKey: ['member-detail-preference-values', member.id] });
+      toast.success("Category preferences saved");
+    } catch (error) {
+      toast.error("Failed to save category preferences");
+      console.error(error);
+    } finally {
+      setIsSavingCategories(false);
+    }
   };
 
   const getInitials = (name) => {
@@ -933,126 +1060,99 @@ export default function MemberDetailView({
 
           <TabsContent value="categories" className="space-y-6">
             <Card>
-              <CardHeader>
+              <CardHeader className="flex flex-row items-center justify-between gap-4">
                 <CardTitle className="text-lg flex items-center gap-2">
                   <FolderTree className="w-5 h-5 text-blue-600" />
                   Category Preferences
                 </CardTitle>
+                {!isNew && member?.id && (
+                  <Button 
+                    size="sm" 
+                    onClick={handleSaveCategories} 
+                    disabled={isSavingCategories || categoriesLoading || prefFieldsLoading}
+                    data-testid="button-save-categories"
+                  >
+                    {isSavingCategories ? (
+                      <Loader2 className="w-4 h-4 animate-spin mr-1" />
+                    ) : (
+                      <Save className="w-4 h-4 mr-1" />
+                    )}
+                    Save Categories
+                  </Button>
+                )}
               </CardHeader>
               <CardContent>
-                {(categoriesLoading || prefFieldsLoading) ? (
-                  <div className="flex items-center justify-center py-8">
-                    <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
+                {(categoriesLoading || prefFieldsLoading || valuesLoading) ? (
+                  <div className="space-y-3">
+                    {[1, 2, 3].map(i => (
+                      <div key={i} className="border border-slate-200 rounded-lg p-3 animate-pulse">
+                        <div className="flex items-center gap-2">
+                          <div className="w-4 h-4 bg-slate-200 rounded" />
+                          <div className="h-4 bg-slate-200 rounded w-32" />
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                ) : (() => {
-                  // Build a set of all valid subcategory names and category names/IDs
-                  const allSubcategoryNames = new Set();
-                  const allCategoryIds = new Set();
-                  const subcategoryToParent = {};
-                  
-                  resourceCategories.forEach(cat => {
-                    allCategoryIds.add(cat.id);
-                    allCategoryIds.add(cat.name);
-                    if (cat.subcategories && Array.isArray(cat.subcategories)) {
-                      cat.subcategories.forEach(sub => {
-                        const subName = typeof sub === 'string' ? sub : (sub.name || sub.id);
-                        allSubcategoryNames.add(subName);
-                        subcategoryToParent[subName] = cat;
-                      });
-                    }
-                  });
+                ) : resourceCategories.length === 0 ? (
+                  <p className="text-sm text-slate-500 text-center py-8">No categories available</p>
+                ) : (
+                  <Accordion type="multiple" className="space-y-2">
+                    {resourceCategories.map(category => {
+                      const hasSubcategories = category.subcategories && category.subcategories.length > 0;
+                      if (!hasSubcategories) return null;
+                      
+                      // Normalize subcategories to string names
+                      const normalizedSubcats = category.subcategories.map(sub => 
+                        typeof sub === 'string' ? sub : (sub.name || sub.id || String(sub))
+                      );
+                      const sortedSubcats = [...normalizedSubcats].sort((a, b) => 
+                        a.localeCompare(b, undefined, { sensitivity: 'base' })
+                      );
+                      const selectedCount = sortedSubcats.filter(sub => selectedSubcategories.includes(sub)).length;
 
-                  // Filter memberValues to find those with category/subcategory data
-                  const categoryPrefs = memberValues.filter(pv => {
-                    try {
-                      const parsed = JSON.parse(pv.value);
-                      if (Array.isArray(parsed) && parsed.length > 0) {
-                        // Check if any value matches a subcategory name, category ID, or category name
-                        return parsed.some(val => 
-                          allSubcategoryNames.has(val) || allCategoryIds.has(val)
-                        );
-                      }
-                    } catch {}
-                    return false;
-                  });
-
-                  if (categoryPrefs.length === 0) {
-                    return (
-                      <p className="text-sm text-slate-500 text-center py-8">No category preferences set</p>
-                    );
-                  }
-
-                  return (
-                    <div className="space-y-4">
-                      {categoryPrefs.map(pv => {
-                        const field = preferenceFields.find(f => f.id === pv.field_id);
-                        let selectedValues = [];
-                        try {
-                          selectedValues = JSON.parse(pv.value);
-                          if (!Array.isArray(selectedValues)) selectedValues = [];
-                        } catch {
-                          selectedValues = [];
-                        }
-
-                        // Group by parent category
-                        const groupedByParent = {};
-                        selectedValues.forEach(val => {
-                          const parentCat = subcategoryToParent[val];
-                          if (parentCat) {
-                            const parentName = parentCat.name;
-                            if (!groupedByParent[parentName]) {
-                              groupedByParent[parentName] = [];
-                            }
-                            groupedByParent[parentName].push(val);
-                          } else if (allCategoryIds.has(val)) {
-                            // It's a category ID or name, find the category
-                            const cat = resourceCategories.find(c => c.id === val || c.name === val);
-                            if (cat) {
-                              if (!groupedByParent['__root__']) {
-                                groupedByParent['__root__'] = [];
-                              }
-                              groupedByParent['__root__'].push(cat.name);
-                            }
-                          } else {
-                            // Unknown value, show as-is
-                            if (!groupedByParent['Other']) {
-                              groupedByParent['Other'] = [];
-                            }
-                            groupedByParent['Other'].push(val);
-                          }
-                        });
-
-                        return (
-                          <div key={pv.id} className="space-y-2">
-                            {field && (
-                              <h4 className="font-medium text-sm text-slate-700">{field.label}</h4>
-                            )}
-                            {Object.entries(groupedByParent).length === 0 ? (
-                              <p className="text-sm text-slate-500">No categories selected</p>
-                            ) : (
-                              <div className="space-y-3">
-                                {Object.entries(groupedByParent).map(([parentName, subcats]) => (
-                                  <div key={parentName} className="space-y-1">
-                                    {parentName !== '__root__' && (
-                                      <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">{parentName}</p>
-                                    )}
-                                    <div className="flex flex-wrap gap-2">
-                                      {subcats.map((subcat, idx) => (
-                                        <Badge key={idx} variant="secondary" className="text-xs">
-                                          {subcat}
-                                        </Badge>
-                                      ))}
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  );
-                })()}
+                      return (
+                        <AccordionItem 
+                          key={category.id} 
+                          value={category.id}
+                          className="border border-slate-200 rounded-lg px-0"
+                          data-testid={`accordion-category-${category.id}`}
+                        >
+                          <AccordionTrigger className="px-3 py-3 hover:no-underline hover:bg-slate-50 rounded-t-lg">
+                            <div className="flex items-center gap-2">
+                              <FolderTree className="w-4 h-4 text-blue-600" />
+                              <span className="font-medium text-sm text-slate-900">{category.name}</span>
+                              {selectedCount > 0 && (
+                                <Badge variant="secondary" className="text-xs bg-blue-100 text-blue-700">
+                                  {selectedCount} selected
+                                </Badge>
+                              )}
+                            </div>
+                          </AccordionTrigger>
+                          <AccordionContent className="px-3 pb-3 bg-slate-50 rounded-b-lg">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 pt-2">
+                              {sortedSubcats.map((subcatName, idx) => (
+                                <div key={`${category.id}-${idx}`} className="flex items-center gap-2">
+                                  <Checkbox
+                                    id={`subcat-${category.id}-${idx}`}
+                                    checked={selectedSubcategories.includes(subcatName)}
+                                    onCheckedChange={() => toggleSubcategory(subcatName)}
+                                    data-testid={`checkbox-subcat-${category.id}-${idx}`}
+                                  />
+                                  <Label 
+                                    htmlFor={`subcat-${category.id}-${idx}`} 
+                                    className="text-sm cursor-pointer text-slate-700"
+                                  >
+                                    {subcatName}
+                                  </Label>
+                                </div>
+                              ))}
+                            </div>
+                          </AccordionContent>
+                        </AccordionItem>
+                      );
+                    })}
+                  </Accordion>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
