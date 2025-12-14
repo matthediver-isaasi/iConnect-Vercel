@@ -159,7 +159,7 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
             required={field.required}
             disabled={isFieldDisabled}
             className={isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : ''}
-            rows={4}
+            rows={5}
           />
         );
 

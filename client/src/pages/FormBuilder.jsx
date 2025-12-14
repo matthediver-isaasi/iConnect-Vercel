@@ -27,12 +27,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 
 const STANDARD_FIELD_TYPES = [
-  { value: 'text', label: 'Text Input' },
+  { value: 'text', label: 'Text (Single Line)' },
+  { value: 'textarea', label: 'Multi-line Text' },
   { value: 'email', label: 'Email' },
   { value: 'url', label: 'Website URL' },
   { value: 'number', label: 'Number' },
   { value: 'tel', label: 'Phone' },
-  { value: 'textarea', label: 'Text Area' },
   { value: 'select', label: 'Dropdown' },
   { value: 'radio', label: 'Radio Buttons' },
   { value: 'checkbox', label: 'Checkboxes' },
