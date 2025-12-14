@@ -88,6 +88,7 @@ const MEMBER_CORE_FIELDS = [
   { value: 'mobile', label: 'Mobile' },
   { value: 'landline', label: 'Landline' },
   { value: 'job_title', label: 'Job Title' },
+  { value: 'organization_id', label: 'Organisation' },
 ];
 
 const ORG_CORE_FIELDS = [
