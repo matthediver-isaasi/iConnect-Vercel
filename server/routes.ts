@@ -1764,6 +1764,120 @@ export async function registerRoutes(app: Express): Promise<Server> {
               });
             }
           }
+
+          // Handle category_multiselect field values - save to member_resource_category table
+          const categoryFields = fields.filter((f: any) => f.type === 'category_multiselect');
+          if (categoryFields.length > 0) {
+            // Get all resource categories to map subcategory names to category IDs
+            const { data: resourceCategories } = await supabase
+              .from('resource_category')
+              .select('id, name, subcategories')
+              .eq('is_active', true);
+            
+            // Parse subcategories that might be stored as JSON strings and normalize
+            const categoryMap = new Map((resourceCategories || []).map((c: any) => {
+              let subcats = c.subcategories || [];
+              // Handle case where subcategories is stored as JSON string
+              if (typeof subcats === 'string') {
+                try {
+                  subcats = JSON.parse(subcats);
+                } catch {
+                  subcats = [];
+                }
+              }
+              // Ensure it's an array and trim all values
+              if (!Array.isArray(subcats)) subcats = [];
+              subcats = subcats.map((s: any) => String(s).trim()).filter(Boolean);
+              return [c.id, subcats];
+            }));
+            
+            // Build set of category IDs affected by the form fields
+            const formCategoryIds = new Set<string>();
+            for (const field of categoryFields) {
+              const allowedCatIds = field.allowed_category_ids?.length > 0 
+                ? field.allowed_category_ids 
+                : Array.from(categoryMap.keys());
+              allowedCatIds.forEach((id: string) => formCategoryIds.add(id));
+            }
+            
+            // Build list of category selections from all category_multiselect fields
+            const categorySelections: Array<{category_id: string, subcategory_name: string | null}> = [];
+            
+            for (const field of categoryFields) {
+              const selectedValues = form_values[field.id];
+              if (!Array.isArray(selectedValues) || selectedValues.length === 0) continue;
+              
+              // Get allowed categories for this field (or all if not specified)
+              const allowedCategoryIds = field.allowed_category_ids?.length > 0 
+                ? field.allowed_category_ids 
+                : Array.from(categoryMap.keys());
+              
+              // Map selected subcategory names to their parent category IDs
+              for (const subcatName of selectedValues) {
+                const normalizedSubcat = String(subcatName).trim();
+                // Find which category this subcategory belongs to
+                for (const catId of allowedCategoryIds) {
+                  const subcats = categoryMap.get(catId);
+                  if (subcats && subcats.includes(normalizedSubcat)) {
+                    categorySelections.push({
+                      category_id: catId,
+                      subcategory_name: normalizedSubcat
+                    });
+                    break;
+                  }
+                }
+              }
+            }
+            
+            // Get current selections for diff-based update (always do this, even for empty submissions)
+            const { data: currentSelections } = await supabase
+              .from('member_resource_category')
+              .select('id, resource_category_id, subcategory_name')
+              .eq('member_id', createdMemberId);
+            
+            const existing = currentSelections || [];
+            const currentKeys = new Set(
+              existing.map((s: any) => `${s.resource_category_id}|${s.subcategory_name || ''}`)
+            );
+            const newKeys = new Set(
+              categorySelections.map(s => `${s.category_id}|${s.subcategory_name || ''}`)
+            );
+            
+            // Find selections to add
+            const toAdd = categorySelections.filter(s => 
+              !currentKeys.has(`${s.category_id}|${s.subcategory_name || ''}`)
+            );
+            
+            // Find selections to remove (only remove if in the same categories as the form fields)
+            const toRemove = existing.filter((s: any) => 
+              formCategoryIds.has(s.resource_category_id) && 
+              !newKeys.has(`${s.resource_category_id}|${s.subcategory_name || ''}`)
+            );
+            
+            // Remove old selections (including when form submits empty to clear selections)
+            if (toRemove.length > 0) {
+              const removeIds = toRemove.map((s: any) => s.id);
+              await supabase
+                .from('member_resource_category')
+                .delete()
+                .in('id', removeIds);
+              console.log(`[AppProcessor] Removed ${toRemove.length} category selections`);
+            }
+            
+            // Add new selections
+            if (toAdd.length > 0) {
+              const insertData = toAdd.map(sel => ({
+                member_id: createdMemberId,
+                resource_category_id: sel.category_id,
+                subcategory_name: sel.subcategory_name
+              }));
+              
+              await supabase
+                .from('member_resource_category')
+                .insert(insertData);
+              console.log(`[AppProcessor] Added ${toAdd.length} category selections`);
+            }
+          }
         }
       }
 
