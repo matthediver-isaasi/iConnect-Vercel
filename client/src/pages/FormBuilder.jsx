@@ -1511,6 +1511,20 @@ function FieldCard({
                 </div>
               )}
 
+              {field.type === 'email' && (
+                <div className="flex items-center justify-between p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                  <div>
+                    <Label className="text-xs font-medium">Restrict to Organisation Domain</Label>
+                    <p className="text-xs text-slate-500 mt-0.5">Email must match organisation's verified domains</p>
+                  </div>
+                  <Switch
+                    checked={field.validate_org_domain === true}
+                    onCheckedChange={(checked) => updateField(originalIndex, { validate_org_domain: checked })}
+                    data-testid={`switch-validate-org-domain-${field.id}`}
+                  />
+                </div>
+              )}
+
               {field.type === 'category_multiselect' && (
                 <div className="space-y-2">
                   <Label className="text-xs">Select Categories to Include</Label>

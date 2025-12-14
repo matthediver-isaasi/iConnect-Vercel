@@ -19,9 +19,55 @@ import {
 export default function FormRenderer({ field, value, onChange, memberInfo, organizationInfo, disabled = false }) {
   const [showOtherInput, setShowOtherInput] = useState(false);
   const [otherValue, setOtherValue] = useState('');
+  const [domainError, setDomainError] = useState('');
   
   // Combine field.locked with disabled prop - either makes the field non-editable
   const isFieldDisabled = field.locked || disabled;
+
+  // Domain validation helper for email fields
+  const validateEmailDomain = (email) => {
+    if (!field.validate_org_domain || !email || !organizationInfo) {
+      setDomainError('');
+      return;
+    }
+    
+    // Extract domain from email
+    const emailParts = email.split('@');
+    if (emailParts.length !== 2) {
+      setDomainError('');
+      return;
+    }
+    const emailDomain = emailParts[1]?.toLowerCase();
+    if (!emailDomain) {
+      setDomainError('');
+      return;
+    }
+    
+    // Get all allowed domains from organization
+    const allowedDomains = [];
+    if (organizationInfo.domain) {
+      allowedDomains.push(organizationInfo.domain.toLowerCase());
+    }
+    if (organizationInfo.additional_verified_domains && Array.isArray(organizationInfo.additional_verified_domains)) {
+      organizationInfo.additional_verified_domains.forEach(d => {
+        if (d) allowedDomains.push(d.toLowerCase());
+      });
+    }
+    
+    // If no domains configured, skip validation
+    if (allowedDomains.length === 0) {
+      setDomainError('');
+      return;
+    }
+    
+    // Check if email domain matches any allowed domain
+    if (!allowedDomains.includes(emailDomain)) {
+      const domainList = allowedDomains.join(', ');
+      setDomainError(`Email domain must be one of: ${domainList}`);
+    } else {
+      setDomainError('');
+    }
+  };
 
   // Fetch organisations for organisation_dropdown field type (uses public endpoint)
   const { data: organisations = [], isLoading: orgsLoading } = useQuery({
@@ -101,6 +147,13 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
     }
   }, []);
 
+  // Revalidate email domain when dependencies change
+  useEffect(() => {
+    if (field.type === 'email') {
+      validateEmailDomain(value);
+    }
+  }, [field.validate_org_domain, organizationInfo?.domain, organizationInfo?.additional_verified_domains, value, field.type]);
+
   const renderField = () => {
     // Handle auto-populated user fields
     if (['user_name', 'user_email', 'user_organization', 'user_job_title'].includes(field.type)) {
@@ -117,7 +170,6 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
 
     switch (field.type) {
       case 'text':
-      case 'email':
       case 'url':
         return (
           <Input
@@ -129,6 +181,31 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
             disabled={isFieldDisabled}
             className={isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : ''}
           />
+        );
+
+      case 'email':
+        return (
+          <div className="space-y-1">
+            <Input
+              type="email"
+              value={value || ''}
+              onChange={(e) => {
+                onChange(e.target.value);
+                validateEmailDomain(e.target.value);
+              }}
+              onBlur={(e) => validateEmailDomain(e.target.value)}
+              placeholder={field.placeholder}
+              required={field.required}
+              disabled={isFieldDisabled}
+              className={`${isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : ''} ${domainError ? 'border-amber-500' : ''}`}
+              data-testid={`input-email-${field.id}`}
+            />
+            {domainError && (
+              <p className="text-xs text-amber-600" data-testid={`error-domain-${field.id}`}>
+                {domainError}
+              </p>
+            )}
+          </div>
         );
 
       case 'tel':
