@@ -1,7 +1,6 @@
 # Overview
-<!-- Last updated: 2024-12-11 CRM branch -->
 
-This project is a membership management platform built with React (Vite) and Express.js. It manages members, organizations, events, bookings, program tickets, resources, and blog posts, along with administrative functions. The platform is migrating from Base44 to Replit, requiring 100% visual and functional parity. It integrates with Supabase for data, Zoho CRM for contact management, Zoho Backstage for events, Stripe for payments, and Xero for invoicing.
+This project is a comprehensive membership management platform built with React (Vite) and Express.js. It facilitates the management of members, organizations, events, bookings, program tickets, resources, and blog posts, alongside essential administrative functions. The platform aims for 100% visual and functional parity with its predecessor (Base44) while leveraging modern technologies. Its core purpose is to streamline membership operations, event management, and content delivery for organizations, integrating with various external services for CRM, payments, and accounting to provide a robust, all-in-one solution.
 
 # User Preferences
 
@@ -11,193 +10,38 @@ Preferred communication style: Simple, everyday language.
 
 ## Frontend Architecture
 
-**Technology Stack:** React 18 (TypeScript/JSX), Vite, TanStack Query, shadcn/ui (Radix UI), Tailwind CSS.
-**Design System:** Uses a customized "new-york" style from shadcn/ui, requiring pixel-perfect visual and functional parity with the Base44 version.
-**Routing:** Client-side routing with all routes falling through to `index.html` for SPA behavior, except `/api/*` routes which go to the backend.
+The frontend utilizes React 18 with TypeScript/JSX, Vite for tooling, TanStack Query for data management, shadcn/ui (Radix UI) for UI components, and Tailwind CSS for styling. It implements client-side routing, falling back to `index.html` for SPA behavior. The design system is a customized "new-york" style from shadcn/ui, focused on achieving pixel-perfect visual and functional parity.
 
 ## Backend Architecture
 
-**Server Framework:** Express.js with separate development and production entry points.
-**Database Layer:** PostgreSQL via Neon serverless, using Drizzle ORM.
-**API Design Pattern:** Generic entity CRUD API mirroring the Base44 SDK for common operations (GET, POST, PATCH, DELETE).
-**Authentication:** Password-based authentication with server-side session management using `express-session`, including endpoints for login, logout, password management, and user session retrieval (`/api/auth/me`).
-**Admin Security Model:** Role-based access control for admin-only operations, verifying permissions via session and `verifyPermission()` helper. Frontend uses `useServerAdminAuth` for permission checks.
-**Function Handlers:** Server-side functions for specific operations like magic link generation, Stripe payments, bookings, and event synchronization.
+The backend is built with Express.js, featuring separate development and production entry points. It uses PostgreSQL (Neon serverless) with Drizzle ORM. The API design follows a generic entity CRUD pattern, mirroring the Base44 SDK. Authentication is password-based with server-side session management (`express-session`), including login, logout, password management, and user session retrieval. An admin security model implements role-based access control using `verifyPermission()` and `useServerAdminAuth` on the frontend. Server-side functions handle specific operations such as magic link generation, Stripe payments, bookings, and event synchronization.
 
 ## Data Model
 
-**Core Entities:** Member, Organization, Role, TeamMember, supporting various relationships.
-**Role Segmentation:** Roles can be segmented by an organisation custom field (e.g., "Organisation Type"). When enabled via the role_segmentation_field_id system setting, default roles filter by organisation's preference value matching the role's segment_values array. This allows different organisation types to receive different default roles on member creation/login.
-**Events & Bookings:** Manages Event (synced from Zoho Backstage or one-off), Booking, Program, and ProgramTicketTransaction. One-off events support direct pricing and role-based ticket classes with options for public visibility, BOGO, and bulk discounts. Events include `summary` and rich-text `description` fields. Guest checkout is supported for public tickets, capturing guest information and processing Stripe payments.
-**Content Management:** Includes BlogPost, Resource, NewsPost, and a dynamic page builder (IEditPage/IEditPageElement).
-**Typography System:** Pre-defined typography styles can be applied to elements in the page builder, with responsive mobile sizing and manual font settings.
-**Forms System:** Custom forms with `card_swipe` (step-by-step) and `standard` layouts, supporting multi-page pagination and multi-column field arrangement. Integrates with public endpoints for organization and resource category selections. **Uniqueness Validation:** Application forms support enhanced uniqueness validation with configurable target fields (member.email, member.full_name, member.phone, organization.name, organization.invoicing_email, organization.phone, organization.website_url) and comparison modes (equals, equals_lowercase, contains, starts_with, ends_with, domain_equals). Backend validates target fields against whitelists and ensures domain_equals is only used with email columns. **Field Mappings:** Forms store a `field_mappings` array defining source_field_id → target_type (core/custom) → target_entity (member/organization) → target_field mappings with optional transformations (trim, uppercase, lowercase, titlecase, extract_domain, extract_username, first_word, last_word, remove_spaces, numbers_only). The ApplicationProcessor applies these transformations when creating entities from form submissions. Legacy `core_field_mapping` and `custom_field_id` on fields are supported as fallback. **Entity Creation Control:** The `create_entity_type` setting ("member", "organization", or "both") controls which entities are auto-created on submission when `auto_create_entity` is enabled. **Conditional Role Actions:** Forms support `set_role` and `clear_role` action types in visibility_rules. When a rule condition is met and transitions from inactive to active, set_role assigns a specific role_id to the created/updated member, while clear_role nullifies it. Uses transition detection with composite action keys (`${rule.id}:role:${actionIndex}`) to ensure only newly triggered actions update the role. The role_id is passed to `/api/forms/process-application` and applied to member inserts/updates.
-**Speakers:** Manages speaker profiles for event assignments.
-**Card Deck:** A content management feature for displaying curated card collections on dynamic pages, with admin management and styling controls.
-**Configuration:** Manages navigation, menus, page banners, onboarding tours, and system settings.
-**Communications:** Manages communication categories and member preferences for opt-in/opt-out.
-**Custom Fields:** Supports custom preference fields for members and organizations, defining field definitions and storing values.
-**Organization Fields:** Includes default contact fields (phone, invoicing_email, invoicing_address, website_url) and custom fields displayed on the `/myorganisation` page.
-**Training Funds:** Organization training_fund_balance field tracks available funds. TrainingFundTransaction entity records all balance adjustments with type (add/deduct/booking_usage), amounts, before/after balances, and audit trail (created_by, created_date). Managed via TrainingFundManagement admin page.
-**Vouchers:** Discrete voucher codes with organization_id, code, value, expires_at, status (active/used/expired). Managed via VoucherManagement admin page.
-**Workflows:** Automation rules triggered by field changes on organizations or members. Each workflow defines: entity_type (organization/member), trigger_type (field_change/record_create/record_update), trigger_config (field, operator, value), conditions (optional AND/OR field comparisons), and actions (send_email, update_field). WorkflowLog tracks execution history with status (success/partial/failed). Managed via /WorkflowManagement admin page with a 4-step builder UI (Basics → Trigger → Conditions → Actions). **Trigger Mode:** Workflows support `trigger_mode` field with values `every_time` (default) or `once_per_record`. When set to `once_per_record`, the workflow only executes the first time the trigger condition is met for each entity, preventing duplicate emails or actions if the same field value is set multiple times.
+The data model encompasses core entities like Member, Organization, Role, and TeamMember. It supports role segmentation based on organization custom fields, allowing dynamic role assignment. Events and bookings are managed through Event, Booking, Program, and ProgramTicketTransaction entities, supporting both Zoho Backstage synced and one-off events, guest checkout, and various pricing models. Content management includes BlogPost, Resource, NewsPost, and a dynamic page builder with a predefined typography system. A custom forms system supports `card_swipe` and `standard` layouts, multi-page pagination, multi-column field arrangements, and advanced uniqueness validation with configurable field mappings and entity creation control. Workflows provide automation rules triggered by field changes or record creation/updates, with configurable conditions and actions (e.g., send email, update field), and support for `every_time` or `once_per_record` trigger modes. Additional features include Speaker profiles, a Card Deck content feature, comprehensive configuration for navigation and settings, communication preferences management, custom fields for members and organizations, training funds management with detailed transaction logging, and discrete voucher codes.
 
 ## Deployment Architecture
 
-**Development:** Express.js with Vite middleware.
-**Production:** Vercel serverless functions for API endpoints and static frontend assets.
-**CRM Sync Architecture:** One-way data flow from Zoho CRM to the application, triggered on member login or manually by administrators.
-**Data Freshness & Caching:** Utilizes TanStack Query for data caching and Supabase Realtime Subscriptions for live updates on specific tables.
+Development uses Express.js with Vite middleware. Production deployment leverages Vercel serverless functions for API endpoints and static frontend assets. Data synchronization from Zoho CRM to the application is one-way, triggered by member login or administrator actions. Data freshness is maintained using TanStack Query for caching and Supabase Realtime Subscriptions for live updates.
 
 ## Runtime Page Provisioning (CMS Feature)
 
-Enables administrators to create and manage pages/routes at runtime using a `/:slug` catch-all route for dynamic IEdit pages. Supports draft/published statuses and public/member access control.
+The platform includes a CMS feature enabling administrators to create and manage dynamic pages and routes at runtime using a `/:slug` catch-all route, with support for draft/published statuses and public/member access controls.
 
 ## My Organisation Page
 
-A dedicated page (`/myorganisation`) displaying organization details, including default contact information and custom fields, with access controlled via Role Management.
+A dedicated page `/myorganisation` displays organization details, contact information, and custom fields, with access controlled via Role Management.
 
 ## Organisations CRM List (/organisations)
 
-A CRM-style admin page for managing organisations with:
-- **Left sidebar filters:** Search, status dropdown, and custom field filters (for filterable dropdown/picklist fields)
-- **View toggle:** Switch between list (table) and card grid layouts
-- **Pagination:** Navigate through large organisation lists
-- **Detail view:** Click any organisation to open a CRM-style profile with:
-  - Overview tab: Core details, contact info, custom fields (editable by admins)
-  - Members tab: List of organisation members
-  - Activity tab: Recent booking activity
-  - Training fund balance display
-- **Access control:** Admin-only, respects `page_OrganisationsList` and `page_OrganisationDirectory` feature exclusions
+An admin-only CRM-style page for managing organizations, featuring search, status/custom field filters, list/card grid views, pagination, and a detailed profile view for each organization (overview, members, activity, training fund balance). Access is controlled by `page_OrganisationsList` and `page_OrganisationDirectory` feature exclusions.
 
 # External Dependencies
 
-**Supabase:** Primary database for application data (PostgreSQL), used for CRUD operations and realtime subscriptions.
-**Zoho CRM:** Used for contact and account synchronization, leveraging OAuth and webhooks.
-**Zoho Backstage:** Integrates for event management and ticket sales with bi-directional sync.
-**Stripe:** Handles all payment processing via server-side API.
-**Xero:** Used for invoice generation with OAuth authentication.
+**Supabase:** Primary database (PostgreSQL) for application data, including CRUD and realtime subscriptions.
+**Zoho CRM:** Used for contact and account synchronization.
+**Zoho Backstage:** Integrates for event management and ticket sales.
+**Stripe:** Handles all payment processing.
+**Xero:** Used for invoice generation.
 **File Storage:** Handled by Supabase Storage or a Base44 integration layer.
 **Email Delivery:** Used for magic links and notifications via an integration layer.
-
-# Pending Database Migrations
-
-The following SQL must be run in Supabase SQL Editor to enable new features:
-
-## TrainingFundTransaction Table (for Training Fund adjustment history)
-
-```sql
-CREATE TABLE IF NOT EXISTS training_fund_transaction (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  organization_id TEXT,
-  type TEXT CHECK (type IN ('add', 'deduct', 'booking_usage')),
-  amount NUMERIC,
-  balance_before NUMERIC,
-  balance_after NUMERIC,
-  reason TEXT,
-  booking_id TEXT,
-  created_by TEXT,
-  created_date TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_tft_organization_id ON training_fund_transaction(organization_id);
-CREATE INDEX IF NOT EXISTS idx_tft_created_date ON training_fund_transaction(created_date DESC);
-```
-
-## Form Table - Application Form Columns
-
-```sql
-ALTER TABLE form ADD COLUMN IF NOT EXISTS auto_create_entity BOOLEAN DEFAULT FALSE;
-ALTER TABLE form ADD COLUMN IF NOT EXISTS create_entity_type TEXT DEFAULT 'member';
-ALTER TABLE form ADD COLUMN IF NOT EXISTS field_mappings JSONB DEFAULT '[]'::jsonb;
-ALTER TABLE form ADD COLUMN IF NOT EXISTS entity_action TEXT DEFAULT 'create' CHECK (entity_action IN ('create', 'update'));
-```
-
-## Workflow Automation Tables
-
-```sql
-CREATE TABLE IF NOT EXISTS workflow (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  name TEXT NOT NULL,
-  description TEXT,
-  entity_type TEXT NOT NULL CHECK (entity_type IN ('organization', 'member')),
-  trigger_type TEXT NOT NULL CHECK (trigger_type IN ('field_change', 'record_create', 'record_update')),
-  trigger_config JSONB,
-  conditions JSONB DEFAULT '[]'::jsonb,
-  actions JSONB DEFAULT '[]'::jsonb,
-  is_active BOOLEAN DEFAULT TRUE,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW(),
-  created_by TEXT
-);
-
-CREATE TABLE IF NOT EXISTS workflow_log (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  workflow_id UUID NOT NULL REFERENCES workflow(id) ON DELETE CASCADE,
-  entity_type TEXT NOT NULL,
-  entity_id TEXT NOT NULL,
-  trigger_data JSONB,
-  actions_executed JSONB,
-  status TEXT NOT NULL CHECK (status IN ('success', 'partial', 'failed')),
-  error_message TEXT,
-  executed_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_workflow_entity_type ON workflow(entity_type);
-CREATE INDEX IF NOT EXISTS idx_workflow_is_active ON workflow(is_active);
-CREATE INDEX IF NOT EXISTS idx_workflow_log_workflow_id ON workflow_log(workflow_id);
-CREATE INDEX IF NOT EXISTS idx_workflow_log_executed_at ON workflow_log(executed_at DESC);
-```
-
-## Workflow trigger_mode Column (for once-per-record execution)
-
-```sql
-ALTER TABLE workflow ADD COLUMN IF NOT EXISTS trigger_mode TEXT DEFAULT 'every_time' CHECK (trigger_mode IN ('every_time', 'once_per_record'));
-
--- Index for efficient lookup of existing logs per entity
-CREATE INDEX IF NOT EXISTS idx_workflow_log_entity ON workflow_log(workflow_id, entity_type, entity_id);
-```
-
-## Email Templates Table
-
-```sql
-CREATE TABLE IF NOT EXISTS email_template (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  name TEXT NOT NULL,
-  description TEXT,
-  subject TEXT NOT NULL,
-  body TEXT NOT NULL,
-  from_name TEXT,
-  from_email TEXT,
-  reply_to TEXT,
-  category TEXT,
-  placeholders JSONB DEFAULT '[]'::jsonb,
-  is_active BOOLEAN DEFAULT TRUE,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW(),
-  created_by TEXT
-);
-
-CREATE INDEX IF NOT EXISTS idx_email_template_category ON email_template(category);
-CREATE INDEX IF NOT EXISTS idx_email_template_is_active ON email_template(is_active);
-```
-
-## Form Table - Email Template on Submission
-
-```sql
-ALTER TABLE form ADD COLUMN IF NOT EXISTS submission_email_template_id UUID REFERENCES email_template(id);
-ALTER TABLE form ADD COLUMN IF NOT EXISTS submission_email_recipient TEXT;
-```
-
-## Member Table - created_on Column
-
-```sql
-ALTER TABLE member ADD COLUMN IF NOT EXISTS created_on TIMESTAMPTZ DEFAULT NOW();
-```
-
-## Member Table - Mobile and Landline Columns
-
-```sql
-ALTER TABLE member ADD COLUMN IF NOT EXISTS mobile TEXT;
-ALTER TABLE member ADD COLUMN IF NOT EXISTS landline TEXT;
-```

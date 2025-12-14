@@ -553,80 +553,48 @@ export default async function handler(req, res) {
         }
       }
 
-      // Save category_multiselect field values as member preferences (auto-map - always find appropriate preference field)
+      // Save category_multiselect field values to member_resource_category join table
+      // This is the proper many-to-many relationship between members and resource categories
       if (createdMemberId && fields && Array.isArray(fields)) {
         for (const field of fields) {
           if (field.type === 'category_multiselect' || field.type === 'resource_categories') {
             const selections = form_values[field.id];
             const hasSelections = selections && Array.isArray(selections) && selections.length > 0;
             
-            // Always auto-find the member-scoped category preference field (ignore any stale preference_field_id on the form field)
-            const categoryPrefField = (preferenceFields || []).find(pf => 
-              (!pf.entity_scope || pf.entity_scope === 'member') && (
-                pf.field_type === 'resource_categories' ||
-                pf.field_type === 'category_multiselect' ||
-                pf.label?.toLowerCase().includes('category') ||
-                pf.label?.toLowerCase().includes('interest') ||
-                pf.label?.toLowerCase().includes('focus')
-              )
-            );
+            console.log('[AppProcessor] Processing category selections for member:', createdMemberId, 'field:', field.id, 'selections:', selections);
             
-            if (!categoryPrefField) {
-              console.log('[AppProcessor] No member-scoped category preference field found, skipping category save for field:', field.id);
-              continue;
-            }
+            // First, delete existing category selections for this member
+            // (form submission replaces all previous selections)
+            const { error: deleteError } = await supabase
+              .from('member_resource_category')
+              .delete()
+              .eq('member_id', createdMemberId);
             
-            const targetFieldId = categoryPrefField.id;
-            console.log('[AppProcessor] Auto-mapped category field to member preference:', targetFieldId, categoryPrefField.label);
-            
-            console.log('[AppProcessor] Processing category preference:', targetFieldId, 'selections:', selections);
-            
-            // Check for existing preference using maybeSingle to avoid error on no rows
-            const { data: existingPref, error: lookupError } = await supabase
-              .from('member_preference_value')
-              .select('id')
-              .eq('member_id', createdMemberId)
-              .eq('field_id', targetFieldId)
-              .maybeSingle();
-            
-            if (lookupError) {
-              console.error('[AppProcessor] Error looking up existing preference:', lookupError);
-              return res.status(500).json({ error: `Failed to lookup preference: ${lookupError.message}` });
+            if (deleteError) {
+              console.error('[AppProcessor] Error clearing existing category selections:', deleteError);
+              // Don't fail - this might be a new table that doesn't exist yet
             }
             
             if (hasSelections) {
-              const storedValue = JSON.stringify(selections);
+              // Insert new category selections
+              const categoryInserts = selections.map(categoryId => ({
+                member_id: createdMemberId,
+                resource_category_id: categoryId
+              }));
               
-              if (existingPref) {
-                const { error: updateError } = await supabase.from('member_preference_value')
-                  .update({ value: storedValue })
-                  .eq('id', existingPref.id);
-                if (updateError) {
-                  console.error('[AppProcessor] Error updating preference:', updateError);
-                  return res.status(500).json({ error: `Failed to update preference: ${updateError.message}` });
-                }
+              const { error: insertError } = await supabase
+                .from('member_resource_category')
+                .insert(categoryInserts);
+              
+              if (insertError) {
+                console.error('[AppProcessor] Error saving category selections:', insertError);
+                // Log but don't fail the entire submission
+                console.log('[AppProcessor] Category selection save failed - table may not exist yet. Run migration: scripts/create-member-resource-category.sql');
               } else {
-                const { error: insertError } = await supabase.from('member_preference_value').insert({
-                  member_id: createdMemberId,
-                  field_id: targetFieldId,
-                  value: storedValue
-                });
-                if (insertError) {
-                  console.error('[AppProcessor] Error inserting preference:', insertError);
-                  return res.status(500).json({ error: `Failed to save preference: ${insertError.message}` });
-                }
+                console.log('[AppProcessor] Saved', selections.length, 'category selections for member:', createdMemberId);
               }
-            } else if (existingPref) {
-              // User cleared all selections - delete the existing preference
-              const { error: deleteError } = await supabase.from('member_preference_value')
-                .delete()
-                .eq('id', existingPref.id);
-              if (deleteError) {
-                console.error('[AppProcessor] Error deleting preference:', deleteError);
-                return res.status(500).json({ error: `Failed to clear preference: ${deleteError.message}` });
-              } else {
-                console.log('[AppProcessor] Deleted empty category preference:', targetFieldId);
-              }
+            } else {
+              console.log('[AppProcessor] No category selections to save for member:', createdMemberId);
             }
           }
         }

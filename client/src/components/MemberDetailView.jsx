@@ -132,6 +132,23 @@ export default function MemberDetailView({
     }
   });
 
+  // Fetch member's category selections from the dedicated backend endpoint
+  const { data: memberCategorySelections = [], isLoading: selectionsLoading } = useQuery({
+    queryKey: ['member-resource-categories', member?.id],
+    enabled: !!member?.id && activeTab === 'categories',
+    queryFn: async () => {
+      try {
+        const response = await fetch(`/api/members/${member.id}/categories`, {
+          credentials: 'include'
+        });
+        if (!response.ok) return [];
+        return await response.json();
+      } catch {
+        return [];
+      }
+    }
+  });
+
   const { data: preferenceFields = [], isLoading: prefFieldsLoading } = useQuery({
     queryKey: ['category-preference-fields'],
     enabled: activeTab === 'categories',
@@ -177,40 +194,15 @@ export default function MemberDetailView({
     }
   }, [memberValues]);
 
-  // Load selected subcategories from memberValues when data is ready
-  // This effect runs whenever memberValues or resourceCategories change
+  // Load selected categories from member_resource_category join table
+  // This effect runs whenever memberCategorySelections or resourceCategories change
   useEffect(() => {
-    if (resourceCategories.length === 0) return;
+    if (resourceCategories.length === 0 || selectionsLoading) return;
     
-    // Build set of all valid subcategory names
-    const allSubcategoryNames = new Set();
-    resourceCategories.forEach(cat => {
-      if (cat.subcategories && Array.isArray(cat.subcategories)) {
-        cat.subcategories.forEach(sub => {
-          const subName = typeof sub === 'string' ? sub : (sub.name || sub.id);
-          allSubcategoryNames.add(subName);
-        });
-      }
-    });
-
-    // Find subcategories stored in memberValues
-    const storedSubcats = [];
-    memberValues.forEach(pv => {
-      try {
-        const parsed = JSON.parse(pv.value);
-        if (Array.isArray(parsed)) {
-          parsed.forEach(val => {
-            if (allSubcategoryNames.has(val)) {
-              storedSubcats.push(val);
-            }
-          });
-        }
-      } catch {}
-    });
-    
-    // Always set state to reflect current server state
-    setSelectedSubcategories(storedSubcats);
-  }, [memberValues, resourceCategories]);
+    // Get selected category IDs from the join table
+    const selectedCategoryIds = memberCategorySelections.map(sel => sel.resource_category_id);
+    setSelectedSubcategories(selectedCategoryIds);
+  }, [memberCategorySelections, resourceCategories, selectionsLoading]);
 
   const createMutation = useMutation({
     mutationFn: async (data) => {
@@ -325,77 +317,30 @@ export default function MemberDetailView({
     if (!member?.id) return;
     
     // Guard against saving while data is still loading
-    if (prefFieldsLoading || categoriesLoading) {
+    if (categoriesLoading || selectionsLoading) {
       toast.error("Please wait for data to load");
       return;
     }
     
     setIsSavingCategories(true);
     try {
-      const storedValue = JSON.stringify(selectedSubcategories);
-      
-      // Build a set of all valid subcategory names from resourceCategories
-      const allSubcategoryNames = new Set();
-      resourceCategories.forEach(cat => {
-        if (cat.subcategories && Array.isArray(cat.subcategories)) {
-          cat.subcategories.forEach(sub => {
-            const subName = typeof sub === 'string' ? sub : (sub.name || sub.id);
-            allSubcategoryNames.add(subName);
-          });
-        }
+      // Use atomic backend endpoint to replace all category selections
+      const response = await fetch(`/api/members/${member.id}/categories`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ category_ids: selectedSubcategories })
       });
       
-      // Find a valid PreferenceField for categories
-      const categoryField = preferenceFields.find(f => 
-        f.label?.toLowerCase().includes('category') || 
-        f.label?.toLowerCase().includes('interest') ||
-        f.field_type === 'resource_categories'
-      );
-      
-      // Find existing memberValue that contains category data
-      let existingCategoryValue = null;
-      
-      // First try to find by matching field_id to categoryField
-      if (categoryField) {
-        existingCategoryValue = memberValues.find(pv => pv.field_id === categoryField.id);
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to save categories');
       }
       
-      // If not found by field_id, try to find by examining array values
-      if (!existingCategoryValue) {
-        for (const pv of memberValues) {
-          try {
-            const parsed = JSON.parse(pv.value);
-            if (Array.isArray(parsed) && parsed.some(val => allSubcategoryNames.has(val))) {
-              existingCategoryValue = pv;
-              break;
-            }
-          } catch {}
-        }
-      }
-      
-      if (existingCategoryValue) {
-        // Update existing record (even if empty array to clear selections)
-        await base44.entities.MemberPreferenceValue.update(existingCategoryValue.id, {
-          value: storedValue
-        });
-      } else if (selectedSubcategories.length > 0) {
-        // For new records, require a valid PreferenceField to maintain data model integrity
-        if (!categoryField) {
-          toast.error("No category preference field is configured. Please contact an administrator to set up a preference field for categories.");
-          return;
-        }
-        
-        await base44.entities.MemberPreferenceValue.create({
-          member_id: member.id,
-          field_id: categoryField.id,
-          value: storedValue
-        });
-      }
-      
-      queryClient.invalidateQueries({ queryKey: ['member-detail-preference-values', member.id] });
+      queryClient.invalidateQueries({ queryKey: ['member-resource-categories', member.id] });
       toast.success("Category preferences saved");
     } catch (error) {
-      toast.error("Failed to save category preferences");
+      toast.error("Failed to save category preferences: " + (error.message || 'Unknown error'));
       console.error(error);
     } finally {
       setIsSavingCategories(false);
@@ -1058,7 +1003,7 @@ export default function MemberDetailView({
                   <Button 
                     size="sm" 
                     onClick={handleSaveCategories} 
-                    disabled={isSavingCategories || categoriesLoading || prefFieldsLoading}
+                    disabled={isSavingCategories || categoriesLoading || selectionsLoading}
                     data-testid="button-save-categories"
                   >
                     {isSavingCategories ? (
@@ -1071,7 +1016,7 @@ export default function MemberDetailView({
                 )}
               </CardHeader>
               <CardContent>
-                {(categoriesLoading || prefFieldsLoading || valuesLoading) ? (
+                {(categoriesLoading || selectionsLoading) ? (
                   <div className="space-y-3">
                     {[1, 2, 3].map(i => (
                       <div key={i} className="border border-slate-200 rounded-lg p-3 animate-pulse">
@@ -1085,62 +1030,57 @@ export default function MemberDetailView({
                 ) : resourceCategories.length === 0 ? (
                   <p className="text-sm text-slate-500 text-center py-8">No categories available</p>
                 ) : (
-                  <Accordion type="multiple" className="space-y-2">
-                    {resourceCategories.map(category => {
-                      const hasSubcategories = category.subcategories && category.subcategories.length > 0;
-                      if (!hasSubcategories) return null;
-                      
-                      // Normalize subcategories to string names
-                      const normalizedSubcats = category.subcategories.map(sub => 
-                        typeof sub === 'string' ? sub : (sub.name || sub.id || String(sub))
-                      );
-                      const sortedSubcats = [...normalizedSubcats].sort((a, b) => 
-                        a.localeCompare(b, undefined, { sensitivity: 'base' })
-                      );
-                      const selectedCount = sortedSubcats.filter(sub => selectedSubcategories.includes(sub)).length;
-
-                      return (
-                        <AccordionItem 
-                          key={category.id} 
-                          value={category.id}
-                          className="border border-slate-200 rounded-lg px-0"
-                          data-testid={`accordion-category-${category.id}`}
-                        >
-                          <AccordionTrigger className="px-3 py-3 hover:no-underline hover:bg-slate-50 rounded-t-lg">
-                            <div className="flex items-center gap-2">
-                              <FolderTree className="w-4 h-4 text-blue-600" />
-                              <span className="font-medium text-sm text-slate-900">{category.name}</span>
-                              {selectedCount > 0 && (
-                                <Badge variant="secondary" className="text-xs bg-blue-100 text-blue-700">
-                                  {selectedCount} selected
-                                </Badge>
-                              )}
+                  <div className="space-y-3">
+                    <p className="text-sm text-slate-600 mb-4">
+                      Select the categories that interest this member. These preferences help personalize content recommendations.
+                    </p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                      {resourceCategories.map(category => {
+                        const isSelected = selectedSubcategories.includes(category.id);
+                        return (
+                          <div 
+                            key={category.id} 
+                            className={`border rounded-lg p-3 cursor-pointer transition-colors ${
+                              isSelected 
+                                ? 'border-blue-500 bg-blue-50' 
+                                : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
+                            }`}
+                            onClick={() => toggleSubcategory(category.id)}
+                            data-testid={`category-card-${category.id}`}
+                          >
+                            <div className="flex items-start gap-3">
+                              <Checkbox
+                                id={`cat-${category.id}`}
+                                checked={isSelected}
+                                onCheckedChange={() => toggleSubcategory(category.id)}
+                                data-testid={`checkbox-category-${category.id}`}
+                              />
+                              <div className="flex-1 min-w-0">
+                                <Label 
+                                  htmlFor={`cat-${category.id}`} 
+                                  className="font-medium text-sm cursor-pointer text-slate-900"
+                                >
+                                  {category.name}
+                                </Label>
+                                {category.description && (
+                                  <p className="text-xs text-slate-500 mt-1 line-clamp-2">
+                                    {category.description}
+                                  </p>
+                                )}
+                              </div>
                             </div>
-                          </AccordionTrigger>
-                          <AccordionContent className="px-3 pb-3 bg-slate-50 rounded-b-lg">
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 pt-2">
-                              {sortedSubcats.map((subcatName, idx) => (
-                                <div key={`${category.id}-${idx}`} className="flex items-center gap-2">
-                                  <Checkbox
-                                    id={`subcat-${category.id}-${idx}`}
-                                    checked={selectedSubcategories.includes(subcatName)}
-                                    onCheckedChange={() => toggleSubcategory(subcatName)}
-                                    data-testid={`checkbox-subcat-${category.id}-${idx}`}
-                                  />
-                                  <Label 
-                                    htmlFor={`subcat-${category.id}-${idx}`} 
-                                    className="text-sm cursor-pointer text-slate-700"
-                                  >
-                                    {subcatName}
-                                  </Label>
-                                </div>
-                              ))}
-                            </div>
-                          </AccordionContent>
-                        </AccordionItem>
-                      );
-                    })}
-                  </Accordion>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {selectedSubcategories.length > 0 && (
+                      <div className="mt-4 pt-4 border-t border-slate-200">
+                        <p className="text-sm text-slate-600">
+                          <span className="font-medium">{selectedSubcategories.length}</span> {selectedSubcategories.length === 1 ? 'category' : 'categories'} selected
+                        </p>
+                      </div>
+                    )}
+                  </div>
                 )}
               </CardContent>
             </Card>

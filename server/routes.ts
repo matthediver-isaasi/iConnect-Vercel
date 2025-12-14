@@ -90,6 +90,7 @@ const entityToTable: Record<string, string> = {
   'TrainingFundTransaction': 'training_fund_transaction',
   'Workflow': 'workflow',
   'WorkflowLog': 'workflow_log',
+  'MemberResourceCategory': 'member_resource_category',
 };
 
 // Extend session type
@@ -438,6 +439,128 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('Entity delete error:', error);
       res.status(500).json({ error: 'Failed to delete entity' });
+    }
+  });
+
+  // ============ Member Category Selections (atomic replace) ============
+  
+  // Replace member's category selections atomically
+  app.post('/api/members/:memberId/categories', async (req: Request, res: Response) => {
+    if (!supabase) {
+      return res.status(503).json({ error: 'Supabase not configured' });
+    }
+
+    try {
+      const { memberId } = req.params;
+      const { category_ids } = req.body;
+
+      // Validate inputs before any mutations
+      if (!memberId) {
+        return res.status(400).json({ error: 'Member ID is required' });
+      }
+
+      // Validate category_ids is an array
+      if (!category_ids || !Array.isArray(category_ids)) {
+        return res.status(400).json({ error: 'category_ids must be an array' });
+      }
+
+      // Validate all IDs are valid UUID strings and dedupe
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      const uniqueCategoryIds = [...new Set(category_ids)].filter((id): id is string => 
+        typeof id === 'string' && uuidRegex.test(id)
+      );
+
+      // Verify member exists
+      const { data: member, error: memberError } = await supabase
+        .from('member')
+        .select('id')
+        .eq('id', memberId)
+        .single();
+
+      if (memberError || !member) {
+        return res.status(404).json({ error: 'Member not found' });
+      }
+
+      // Atomic replace: Insert first (with upsert), then delete orphans
+      // This ensures we never lose data if insert fails
+      if (uniqueCategoryIds.length > 0) {
+        const insertData = uniqueCategoryIds.map((categoryId: string) => ({
+          member_id: memberId,
+          resource_category_id: categoryId
+        }));
+
+        // Use upsert to handle any existing records gracefully
+        const { error: upsertError } = await supabase
+          .from('member_resource_category')
+          .upsert(insertData, { 
+            onConflict: 'member_id,resource_category_id',
+            ignoreDuplicates: true 
+          });
+
+        if (upsertError) {
+          console.error('[Member Categories] Upsert error:', upsertError);
+          return res.status(500).json({ error: 'Failed to save category selections' });
+        }
+
+        // Now delete any categories that are NOT in the new list
+        const { error: deleteError } = await supabase
+          .from('member_resource_category')
+          .delete()
+          .eq('member_id', memberId)
+          .not('resource_category_id', 'in', `(${uniqueCategoryIds.join(',')})`);
+
+        if (deleteError) {
+          console.error('[Member Categories] Delete orphans error:', deleteError);
+          // Non-fatal - the main selections were saved
+        }
+      } else {
+        // If no categories selected, delete all
+        const { error: deleteError } = await supabase
+          .from('member_resource_category')
+          .delete()
+          .eq('member_id', memberId);
+
+        if (deleteError) {
+          console.error('[Member Categories] Delete all error:', deleteError);
+          return res.status(500).json({ error: 'Failed to clear category selections' });
+        }
+      }
+
+      console.log(`[Member Categories] Saved ${uniqueCategoryIds.length} categories for member ${memberId}`);
+      res.json({ success: true, count: uniqueCategoryIds.length });
+    } catch (error) {
+      console.error('[Member Categories] Error:', error);
+      res.status(500).json({ error: 'Failed to update member categories' });
+    }
+  });
+
+  // Get member's category selections
+  app.get('/api/members/:memberId/categories', async (req: Request, res: Response) => {
+    if (!supabase) {
+      return res.status(503).json({ error: 'Supabase not configured' });
+    }
+
+    try {
+      const { memberId } = req.params;
+
+      if (!memberId) {
+        return res.status(400).json({ error: 'Member ID is required' });
+      }
+
+      const { data, error } = await supabase
+        .from('member_resource_category')
+        .select('id, resource_category_id, created_at')
+        .eq('member_id', memberId);
+
+      if (error) {
+        console.error('[Member Categories] Fetch error:', error);
+        return res.status(500).json({ error: 'Failed to fetch categories' });
+      }
+
+      res.json(data || []);
+    } catch (error) {
+      console.error('[Member Categories] Error:', error);
+      res.status(500).json({ error: 'Failed to fetch member categories' });
     }
   });
 
@@ -1323,45 +1446,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }
           }
           
-          // Process preference_field_id (used by category_multiselect and category_dropdown)
-          // Always auto-map category_multiselect fields to find valid preference field (ignore stale preference_field_id)
-          let targetPrefFieldId = (field.type === 'category_multiselect' || field.type === 'resource_categories') 
-            ? null  // Force auto-mapping for category fields
-            : field.preference_field_id;
-          
-          // Auto-find system category preference field for category fields (must be member-scoped)
-          if (!targetPrefFieldId && (field.type === 'category_multiselect' || field.type === 'resource_categories')) {
-            const categoryPrefField = preferenceFields.find((pf: any) => 
-              (!pf.entity_scope || pf.entity_scope === 'member') && (
-                pf.field_type === 'resource_categories' ||
-                pf.field_type === 'category_multiselect' ||
-                pf.label?.toLowerCase().includes('category') ||
-                pf.label?.toLowerCase().includes('interest') ||
-                pf.label?.toLowerCase().includes('focus')
-              )
-            );
-            if (categoryPrefField) {
-              targetPrefFieldId = categoryPrefField.id;
-              console.log('[AppProcessor] Auto-mapped category field to member preference:', targetPrefFieldId, categoryPrefField.label);
-            }
-          }
-          
-          if (targetPrefFieldId) {
-            const preferenceField = prefFieldMap.get(targetPrefFieldId);
-            if (preferenceField) {
-              let storedValue = value;
-              if (Array.isArray(value)) {
-                storedValue = JSON.stringify(value);
-              } else if (typeof value === 'object') {
-                storedValue = JSON.stringify(value);
-              } else {
-                storedValue = String(value);
-              }
+          // Category multiselect fields are handled separately via member_resource_category join table
+          // Skip preference_field_id processing for category fields - they're saved after member creation
+          if (field.type !== 'category_multiselect' && field.type !== 'resource_categories') {
+            // Process preference_field_id for non-category fields only
+            const targetPrefFieldId = field.preference_field_id;
+            
+            if (targetPrefFieldId) {
+              const preferenceField = prefFieldMap.get(targetPrefFieldId);
+              if (preferenceField) {
+                let storedValue = value;
+                if (Array.isArray(value)) {
+                  storedValue = JSON.stringify(value);
+                } else if (typeof value === 'object') {
+                  storedValue = JSON.stringify(value);
+                } else {
+                  storedValue = String(value);
+                }
 
-              if (preferenceField.entity_scope === 'organization') {
-                orgCustomFields.push({ field_id: preferenceField.id, value: storedValue });
-              } else {
-                memberCustomFields.push({ field_id: preferenceField.id, value: storedValue });
+                if (preferenceField.entity_scope === 'organization') {
+                  orgCustomFields.push({ field_id: preferenceField.id, value: storedValue });
+                } else {
+                  memberCustomFields.push({ field_id: preferenceField.id, value: storedValue });
+                }
               }
             }
           }
