@@ -553,36 +553,31 @@ export default async function handler(req, res) {
         }
       }
 
-      // Save category_multiselect field values as member preferences (auto-map without requiring preference_field_id)
+      // Save category_multiselect field values as member preferences (auto-map - always find appropriate preference field)
       if (createdMemberId && fields && Array.isArray(fields)) {
         for (const field of fields) {
           if (field.type === 'category_multiselect' || field.type === 'resource_categories') {
             const selections = form_values[field.id];
             const hasSelections = selections && Array.isArray(selections) && selections.length > 0;
             
-            // Determine the preference field ID - use configured one or auto-find system category field
-            let targetFieldId = field.preference_field_id;
+            // Always auto-find the member-scoped category preference field (ignore any stale preference_field_id on the form field)
+            const categoryPrefField = (preferenceFields || []).find(pf => 
+              (!pf.entity_scope || pf.entity_scope === 'member') && (
+                pf.field_type === 'resource_categories' ||
+                pf.field_type === 'category_multiselect' ||
+                pf.label?.toLowerCase().includes('category') ||
+                pf.label?.toLowerCase().includes('interest') ||
+                pf.label?.toLowerCase().includes('focus')
+              )
+            );
             
-            if (!targetFieldId) {
-              // Auto-find a system preference field for categories (must be member-scoped)
-              const categoryPrefField = (preferenceFields || []).find(pf => 
-                (!pf.entity_scope || pf.entity_scope === 'member') && (
-                  pf.field_type === 'resource_categories' ||
-                  pf.field_type === 'category_multiselect' ||
-                  pf.label?.toLowerCase().includes('category') ||
-                  pf.label?.toLowerCase().includes('interest') ||
-                  pf.label?.toLowerCase().includes('focus')
-                )
-              );
-              
-              if (categoryPrefField) {
-                targetFieldId = categoryPrefField.id;
-                console.log('[AppProcessor] Auto-mapped category field to member preference:', targetFieldId, categoryPrefField.label);
-              } else {
-                console.log('[AppProcessor] No member-scoped category preference field found, skipping category save');
-                continue;
-              }
+            if (!categoryPrefField) {
+              console.log('[AppProcessor] No member-scoped category preference field found, skipping category save for field:', field.id);
+              continue;
             }
+            
+            const targetFieldId = categoryPrefField.id;
+            console.log('[AppProcessor] Auto-mapped category field to member preference:', targetFieldId, categoryPrefField.label);
             
             console.log('[AppProcessor] Processing category preference:', targetFieldId, 'selections:', selections);
             

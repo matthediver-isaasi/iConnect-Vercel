@@ -1324,10 +1324,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
           
           // Process preference_field_id (used by category_multiselect and category_dropdown)
-          // Also auto-map category_multiselect fields without preference_field_id
-          let targetPrefFieldId = field.preference_field_id;
+          // Always auto-map category_multiselect fields to find valid preference field (ignore stale preference_field_id)
+          let targetPrefFieldId = (field.type === 'category_multiselect' || field.type === 'resource_categories') 
+            ? null  // Force auto-mapping for category fields
+            : field.preference_field_id;
           
-          // Auto-find system category preference field if this is a category field without explicit mapping (must be member-scoped)
+          // Auto-find system category preference field for category fields (must be member-scoped)
           if (!targetPrefFieldId && (field.type === 'category_multiselect' || field.type === 'resource_categories')) {
             const categoryPrefField = preferenceFields.find((pf: any) => 
               (!pf.entity_scope || pf.entity_scope === 'member') && (
