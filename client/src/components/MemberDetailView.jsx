@@ -665,9 +665,13 @@ export default function MemberDetailView({
                                 </SelectTrigger>
                                 <SelectContent>
                                   <SelectItem value="__none__">None</SelectItem>
-                                  {options.filter(opt => opt).map(opt => (
-                                    <SelectItem key={opt} value={opt}>{opt}</SelectItem>
-                                  ))}
+                                  {options.filter(opt => opt).map((opt, idx) => {
+                                    const optValue = typeof opt === 'object' ? opt.value : opt;
+                                    const optLabel = typeof opt === 'object' ? (opt.label || opt.value) : opt;
+                                    return (
+                                      <SelectItem key={optValue || idx} value={optValue}>{optLabel}</SelectItem>
+                                    );
+                                  })}
                                 </SelectContent>
                               </Select>
                             </div>
@@ -750,8 +754,17 @@ export default function MemberDetailView({
                           displayValue = <a href={value} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline flex items-center gap-1">{value} <ExternalLink className="w-3 h-3" /></a>;
                         } else if (field.field_type === 'boolean' || field.field_type === 'checkbox') {
                           displayValue = value === 'true' || value === true ? 'Yes' : 'No';
+                        } else if ((field.field_type === 'dropdown' || field.field_type === 'picklist') && value) {
+                          // For dropdowns, find the label from options if value is stored
+                          const options = field.options || [];
+                          const matchedOpt = options.find(opt => 
+                            (typeof opt === 'object' ? opt.value : opt) === value
+                          );
+                          displayValue = matchedOpt 
+                            ? (typeof matchedOpt === 'object' ? matchedOpt.label || matchedOpt.value : matchedOpt)
+                            : value;
                         } else {
-                          displayValue = value || '-';
+                          displayValue = typeof value === 'object' ? JSON.stringify(value) : (value || '-');
                         }
                         
                         return (

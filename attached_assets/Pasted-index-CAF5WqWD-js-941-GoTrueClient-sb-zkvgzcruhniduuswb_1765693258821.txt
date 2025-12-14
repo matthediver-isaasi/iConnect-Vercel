@@ -1,0 +1,84 @@
+index-CAF5WqWD.js:941 GoTrueClient@sb-zkvgzcruhniduuswbfyh-auth-token:1 (2.84.0) 2025-12-14T06:20:15.519Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+xx @ index-CAF5WqWD.js:941
+index-CAF5WqWD.js:941 GoTrueClient@sb-zkvgzcruhniduuswbfyh-auth-token:2 (2.84.0) 2025-12-14T06:20:15.523Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+xx @ index-CAF5WqWD.js:941
+index-CAF5WqWD.js:1134 [usePendingPurchaseOrders] memberInfo: Object
+index-CAF5WqWD.js:1134 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CAF5WqWD.js:1134 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CAF5WqWD.js:1134 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-CAF5WqWD.js:1134 [usePendingPurchaseOrders] Query running, memberInfo.id: 48b25075-51da-437f-af20-17836a892bfe
+index-CAF5WqWD.js:1134 [usePendingPurchaseOrders] memberInfo: Object
+index-CAF5WqWD.js:1134 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CAF5WqWD.js:1134 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CAF5WqWD.js:1134 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-CAF5WqWD.js:1134 [usePendingPurchaseOrders] memberInfo: Object
+index-CAF5WqWD.js:1134 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CAF5WqWD.js:1134 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CAF5WqWD.js:1134 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-CAF5WqWD.js:1134 [usePendingPurchaseOrders] memberInfo: Object
+index-CAF5WqWD.js:1134 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CAF5WqWD.js:1134 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CAF5WqWD.js:1134 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-CAF5WqWD.js:1134 [usePendingPurchaseOrders] memberInfo: Object
+index-CAF5WqWD.js:1134 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CAF5WqWD.js:1134 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CAF5WqWD.js:1134 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-CAF5WqWD.js:1134 [usePendingPurchaseOrders] memberInfo: Object
+index-CAF5WqWD.js:1134 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CAF5WqWD.js:1134 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CAF5WqWD.js:1134 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-CAF5WqWD.js:1134 [usePendingPurchaseOrders] memberInfo: Object
+index-CAF5WqWD.js:1134 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CAF5WqWD.js:1134 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CAF5WqWD.js:1134 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-CAF5WqWD.js:1134 [usePendingPurchaseOrders] memberInfo: Object
+index-CAF5WqWD.js:1134 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CAF5WqWD.js:1134 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CAF5WqWD.js:1134 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-CAF5WqWD.js:1134 [usePendingPurchaseOrders] Fetched bookings count: 4
+index-CAF5WqWD.js:1134 [usePendingPurchaseOrders] Pending PO bookings: 3
+index-CAF5WqWD.js:1134 [usePendingPurchaseOrders] memberInfo: Object
+index-CAF5WqWD.js:1134 [usePendingPurchaseOrders] hasPendingPOs: true count: 3 isLoading: false
+index-CAF5WqWD.js:1134 [Layout] hasPendingPOs: true count: 3 isLoading: false
+index-CAF5WqWD.js:1134 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-CAF5WqWD.js:1134 [usePendingPurchaseOrders] memberInfo: Object
+index-CAF5WqWD.js:1134 [usePendingPurchaseOrders] hasPendingPOs: true count: 3 isLoading: false
+index-CAF5WqWD.js:1134 [Layout] hasPendingPOs: true count: 3 isLoading: false
+index-CAF5WqWD.js:1134 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-CAF5WqWD.js:1134 [usePendingPurchaseOrders] memberInfo: Object
+index-CAF5WqWD.js:1134 [usePendingPurchaseOrders] hasPendingPOs: true count: 3 isLoading: false
+index-CAF5WqWD.js:1134 [Layout] hasPendingPOs: true count: 3 isLoading: false
+index-CAF5WqWD.js:1134 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-CAF5WqWD.js:1134 [Layout] Server session found: mat@isaasi.co.uk
+index-CAF5WqWD.js:1134 [usePendingPurchaseOrders] memberInfo: Object
+index-CAF5WqWD.js:1134 [usePendingPurchaseOrders] hasPendingPOs: true count: 3 isLoading: false
+index-CAF5WqWD.js:1134 [Layout] hasPendingPOs: true count: 3 isLoading: false
+index-CAF5WqWD.js:1134 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-CAF5WqWD.js:1134 [usePendingPurchaseOrders] memberInfo: Object
+index-CAF5WqWD.js:1134 [usePendingPurchaseOrders] hasPendingPOs: true count: 3 isLoading: false
+index-CAF5WqWD.js:1134 [Layout] hasPendingPOs: true count: 3 isLoading: false
+index-CAF5WqWD.js:1134 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-CAF5WqWD.js:40 Error: Minified React error #31; visit https://reactjs.org/docs/error-decoder.html?invariant=31&args[]=object%20with%20keys%20%7Blabel%2C%20value%7D for the full message or use the non-minified dev environment for full errors and additional helpful warnings.
+    at zg (index-CAF5WqWD.js:38:6327)
+    at f (index-CAF5WqWD.js:38:11385)
+    at Sr (index-CAF5WqWD.js:40:1475)
+    at aD (index-CAF5WqWD.js:40:45767)
+    at eD (index-CAF5WqWD.js:40:39790)
+    at MG (index-CAF5WqWD.js:40:39718)
+    at $b (index-CAF5WqWD.js:40:39570)
+    at Gw (index-CAF5WqWD.js:40:35934)
+    at A3 (index-CAF5WqWD.js:40:36738)
+    at Cd (index-CAF5WqWD.js:38:3279)
+Rw @ index-CAF5WqWD.js:40
+index-CAF5WqWD.js:40 Error: Minified React error #31; visit https://reactjs.org/docs/error-decoder.html?invariant=31&args[]=object%20with%20keys%20%7Blabel%2C%20value%7D for the full message or use the non-minified dev environment for full errors and additional helpful warnings.
+    at zg (index-CAF5WqWD.js:38:6327)
+    at f (index-CAF5WqWD.js:38:11385)
+    at Sr (index-CAF5WqWD.js:40:1475)
+    at aD (index-CAF5WqWD.js:40:45767)
+    at eD (index-CAF5WqWD.js:40:39790)
+    at MG (index-CAF5WqWD.js:40:39718)
+    at $b (index-CAF5WqWD.js:40:39570)
+    at Gw (index-CAF5WqWD.js:40:35934)
+    at A3 (index-CAF5WqWD.js:40:36738)
+    at Cd (index-CAF5WqWD.js:38:3279)
+Rw @ index-CAF5WqWD.js:40
