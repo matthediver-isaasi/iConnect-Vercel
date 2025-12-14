@@ -26,22 +26,31 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
 
   // Domain validation helper for email fields
   const validateEmailDomain = (email) => {
-    if (!field.validate_org_domain || !email || !organizationInfo) {
+    // Early exit if validation not enabled
+    if (!field.validate_org_domain) {
+      setDomainError('');
+      return;
+    }
+    
+    // Check if user has an organization
+    if (!organizationInfo) {
+      setDomainError('Domain validation requires an organisation. Please ensure you are logged in and associated with an organisation.');
+      return;
+    }
+    
+    // Skip if no email entered yet
+    if (!email) {
       setDomainError('');
       return;
     }
     
     // Extract domain from email
     const emailParts = email.split('@');
-    if (emailParts.length !== 2) {
+    if (emailParts.length !== 2 || !emailParts[1]) {
       setDomainError('');
       return;
     }
-    const emailDomain = emailParts[1]?.toLowerCase();
-    if (!emailDomain) {
-      setDomainError('');
-      return;
-    }
+    const emailDomain = emailParts[1].toLowerCase();
     
     // Get all allowed domains from organization
     const allowedDomains = [];
@@ -54,9 +63,9 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
       });
     }
     
-    // If no domains configured, skip validation
+    // If no domains configured on org, show warning
     if (allowedDomains.length === 0) {
-      setDomainError('');
+      setDomainError('No allowed domains configured for your organisation.');
       return;
     }
     
