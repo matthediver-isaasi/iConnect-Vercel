@@ -780,7 +780,10 @@ export default function MemberDetailView({
               </Card>
             )}
 
-            {memberCustomFields.filter(f => !f.field_type?.startsWith('category')).length > 0 && (
+            {memberCustomFields.filter(f => {
+              const ft = f.field_type || '';
+              return !ft.startsWith('category') && ft !== 'resource_categories' && ft !== 'multiselect';
+            }).length > 0 && (
               <Card>
                 <CardHeader>
                   <CardTitle className="text-lg">Custom Fields</CardTitle>
@@ -792,7 +795,10 @@ export default function MemberDetailView({
                     </div>
                   ) : isEditing ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {memberCustomFields.filter(f => !f.field_type?.startsWith('category')).map(field => {
+                      {memberCustomFields.filter(f => {
+                        const ft = f.field_type || '';
+                        return !ft.startsWith('category') && ft !== 'resource_categories' && ft !== 'multiselect';
+                      }).map(field => {
                         const value = customFieldValues[field.id] ?? '';
                         
                         const handleCustomFieldChange = (fieldId, newValue) => {
@@ -893,7 +899,10 @@ export default function MemberDetailView({
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {memberCustomFields.filter(f => !f.field_type?.startsWith('category')).map(field => {
+                      {memberCustomFields.filter(f => {
+                        const ft = f.field_type || '';
+                        return !ft.startsWith('category') && ft !== 'resource_categories' && ft !== 'multiselect';
+                      }).map(field => {
                         const value = customFieldValues[field.id];
                         let displayValue;
                         
