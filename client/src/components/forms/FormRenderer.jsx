@@ -306,10 +306,25 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
           ? categories.filter(cat => field.allowed_category_ids.includes(cat.id))
           : categories;
         
-        if (filteredCategories.length === 0) {
+        // Extract all subcategory options from the filtered categories
+        // Each category has a subcategories array of strings
+        const allSubcategoryOptions = [];
+        filteredCategories.forEach(category => {
+          if (category.subcategories && Array.isArray(category.subcategories)) {
+            category.subcategories.forEach(subcat => {
+              allSubcategoryOptions.push({
+                categoryId: category.id,
+                categoryName: category.name,
+                subcategory: subcat
+              });
+            });
+          }
+        });
+        
+        if (allSubcategoryOptions.length === 0) {
           return (
             <p className="text-sm text-slate-500">
-              No categories available. Please add categories in Category Management.
+              No options available. Please add subcategories in Category Management.
             </p>
           );
         }
@@ -318,15 +333,6 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
         const selectedValues = Array.isArray(value) ? value : [];
         const minSelections = field.min_selections;
         const maxSelections = field.max_selections;
-        
-        // Debug logging - check browser console to see what values are passed
-        console.log('[FormRenderer] category_multiselect field:', field.id, {
-          min_selections: field.min_selections,
-          max_selections: field.max_selections,
-          hasMinRaw: field.min_selections,
-          hasMaxRaw: field.max_selections,
-          fieldKeys: Object.keys(field)
-        });
         const hasMin = minSelections != null && minSelections > 0;
         const hasMax = maxSelections != null && maxSelections > 0;
         const isMaxReached = hasMax && selectedValues.length >= maxSelections;
@@ -345,41 +351,53 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
           helpText = `Please select up to ${maxSelections} option${maxSelections > 1 ? 's' : ''}`;
         }
         
+        // Group subcategories by category for display
+        const groupedByCategory = filteredCategories.map(category => ({
+          ...category,
+          options: allSubcategoryOptions.filter(opt => opt.categoryId === category.id)
+        })).filter(cat => cat.options.length > 0);
+        
         return (
-          <div className="space-y-2">
-            {filteredCategories.map((category) => {
-              const isChecked = selectedValues.includes(category.name);
-              const isOptionDisabled = isFieldDisabled || (isMaxReached && !isChecked);
-              return (
-                <div key={category.id} className="flex items-start space-x-2">
-                  <Checkbox
-                    id={`${field.id}-${category.id}`}
-                    checked={isChecked}
-                    disabled={isOptionDisabled}
-                    onCheckedChange={(checked) => {
-                      if (isOptionDisabled) return;
-                      if (checked) {
-                        onChange([...selectedValues, category.name]);
-                      } else {
-                        onChange(selectedValues.filter(v => v !== category.name));
-                      }
-                    }}
-                    data-testid={`checkbox-category-${category.id}`}
-                  />
-                  <div className="grid gap-0.5 leading-none">
-                    <Label 
-                      htmlFor={`${field.id}-${category.id}`} 
-                      className={`font-normal cursor-pointer ${isOptionDisabled && !isChecked ? 'text-slate-400' : ''}`}
-                    >
-                      {category.name}
-                    </Label>
-                    {category.description && (
-                      <p className="text-xs text-slate-500">{category.description}</p>
-                    )}
-                  </div>
+          <div className="space-y-4">
+            {groupedByCategory.map((category) => (
+              <div key={category.id} className="space-y-2">
+                {/* Category header - only show if multiple categories */}
+                {groupedByCategory.length > 1 && (
+                  <p className="text-sm font-medium text-slate-700">{category.name}</p>
+                )}
+                {/* Subcategory options */}
+                <div className="space-y-2 pl-0">
+                  {category.options.map((opt, optIndex) => {
+                    const isChecked = selectedValues.includes(opt.subcategory);
+                    const isOptionDisabled = isFieldDisabled || (isMaxReached && !isChecked);
+                    return (
+                      <div key={`${category.id}-${optIndex}`} className="flex items-start space-x-2">
+                        <Checkbox
+                          id={`${field.id}-${category.id}-${optIndex}`}
+                          checked={isChecked}
+                          disabled={isOptionDisabled}
+                          onCheckedChange={(checked) => {
+                            if (isOptionDisabled) return;
+                            if (checked) {
+                              onChange([...selectedValues, opt.subcategory]);
+                            } else {
+                              onChange(selectedValues.filter(v => v !== opt.subcategory));
+                            }
+                          }}
+                          data-testid={`checkbox-subcategory-${category.id}-${optIndex}`}
+                        />
+                        <Label 
+                          htmlFor={`${field.id}-${category.id}-${optIndex}`} 
+                          className={`font-normal cursor-pointer ${isOptionDisabled && !isChecked ? 'text-slate-400' : ''}`}
+                        >
+                          {opt.subcategory}
+                        </Label>
+                      </div>
+                    );
+                  })}
                 </div>
-              );
-            })}
+              </div>
+            ))}
             {helpText && (
               <p className="text-xs text-slate-500 pt-2 border-t border-slate-200 mt-2">
                 {helpText} ({selectedValues.length} selected)
