@@ -2118,6 +2118,20 @@ export default function PreferencesPage() {
                           />
                         )}
                         
+                        {field.field_type === 'boolean' && (
+                          <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg border">
+                            <Switch
+                              id={`field-${field.id}`}
+                              checked={fieldValue === 'true' || fieldValue === true}
+                              onCheckedChange={(checked) => handleAdditionalInfoChange(field.id, checked ? 'true' : 'false')}
+                              data-testid={`switch-field-${field.id}`}
+                            />
+                            <Label htmlFor={`field-${field.id}`} className="cursor-pointer text-sm text-slate-700">
+                              {fieldValue === 'true' || fieldValue === true ? 'Yes' : 'No'}
+                            </Label>
+                          </div>
+                        )}
+                        
                         {field.field_type === 'dropdown' && field.options && (
                           <Select 
                             value={fieldValue} 
