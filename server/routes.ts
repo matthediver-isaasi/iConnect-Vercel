@@ -1324,8 +1324,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
           
           // Process preference_field_id (used by category_multiselect and category_dropdown)
-          if (field.preference_field_id) {
-            const preferenceField = prefFieldMap.get(field.preference_field_id);
+          // Also auto-map category_multiselect fields without preference_field_id
+          let targetPrefFieldId = field.preference_field_id;
+          
+          // Auto-find system category preference field if this is a category field without explicit mapping (must be member-scoped)
+          if (!targetPrefFieldId && (field.type === 'category_multiselect' || field.type === 'resource_categories')) {
+            const categoryPrefField = preferenceFields.find((pf: any) => 
+              (!pf.entity_scope || pf.entity_scope === 'member') && (
+                pf.field_type === 'resource_categories' ||
+                pf.field_type === 'category_multiselect' ||
+                pf.label?.toLowerCase().includes('category') ||
+                pf.label?.toLowerCase().includes('interest') ||
+                pf.label?.toLowerCase().includes('focus')
+              )
+            );
+            if (categoryPrefField) {
+              targetPrefFieldId = categoryPrefField.id;
+              console.log('[AppProcessor] Auto-mapped category field to member preference:', targetPrefFieldId, categoryPrefField.label);
+            }
+          }
+          
+          if (targetPrefFieldId) {
+            const preferenceField = prefFieldMap.get(targetPrefFieldId);
             if (preferenceField) {
               let storedValue = value;
               if (Array.isArray(value)) {

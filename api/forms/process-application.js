@@ -553,21 +553,45 @@ export default async function handler(req, res) {
         }
       }
 
-      // Save category_multiselect field values as member preferences
+      // Save category_multiselect field values as member preferences (auto-map without requiring preference_field_id)
       if (createdMemberId && fields && Array.isArray(fields)) {
         for (const field of fields) {
-          if (field.type === 'category_multiselect' && field.preference_field_id) {
+          if (field.type === 'category_multiselect' || field.type === 'resource_categories') {
             const selections = form_values[field.id];
             const hasSelections = selections && Array.isArray(selections) && selections.length > 0;
             
-            console.log('[AppProcessor] Processing category_multiselect preference:', field.preference_field_id, 'selections:', selections);
+            // Determine the preference field ID - use configured one or auto-find system category field
+            let targetFieldId = field.preference_field_id;
+            
+            if (!targetFieldId) {
+              // Auto-find a system preference field for categories (must be member-scoped)
+              const categoryPrefField = (preferenceFields || []).find(pf => 
+                (!pf.entity_scope || pf.entity_scope === 'member') && (
+                  pf.field_type === 'resource_categories' ||
+                  pf.field_type === 'category_multiselect' ||
+                  pf.label?.toLowerCase().includes('category') ||
+                  pf.label?.toLowerCase().includes('interest') ||
+                  pf.label?.toLowerCase().includes('focus')
+                )
+              );
+              
+              if (categoryPrefField) {
+                targetFieldId = categoryPrefField.id;
+                console.log('[AppProcessor] Auto-mapped category field to member preference:', targetFieldId, categoryPrefField.label);
+              } else {
+                console.log('[AppProcessor] No member-scoped category preference field found, skipping category save');
+                continue;
+              }
+            }
+            
+            console.log('[AppProcessor] Processing category preference:', targetFieldId, 'selections:', selections);
             
             // Check for existing preference using maybeSingle to avoid error on no rows
             const { data: existingPref, error: lookupError } = await supabase
               .from('member_preference_value')
               .select('id')
               .eq('member_id', createdMemberId)
-              .eq('field_id', field.preference_field_id)
+              .eq('field_id', targetFieldId)
               .maybeSingle();
             
             if (lookupError) {
@@ -589,7 +613,7 @@ export default async function handler(req, res) {
               } else {
                 const { error: insertError } = await supabase.from('member_preference_value').insert({
                   member_id: createdMemberId,
-                  field_id: field.preference_field_id,
+                  field_id: targetFieldId,
                   value: storedValue
                 });
                 if (insertError) {
@@ -606,7 +630,7 @@ export default async function handler(req, res) {
                 console.error('[AppProcessor] Error deleting preference:', deleteError);
                 return res.status(500).json({ error: `Failed to clear preference: ${deleteError.message}` });
               } else {
-                console.log('[AppProcessor] Deleted empty category_multiselect preference:', field.preference_field_id);
+                console.log('[AppProcessor] Deleted empty category preference:', targetFieldId);
               }
             }
           }

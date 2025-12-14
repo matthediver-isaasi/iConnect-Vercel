@@ -1609,30 +1609,19 @@ function FieldCard({
                       </div>
 
                       <div className="pt-3 border-t border-slate-200 mt-3">
-                        <Label className="text-xs font-medium text-slate-700">Save Selections to Member Preference</Label>
-                        <p className="text-xs text-slate-500 mt-1 mb-2">
-                          Map selected categories to a member preference field for persistence
-                        </p>
-                        <Select
-                          value={field.preference_field_id ? String(field.preference_field_id) : '__none__'}
-                          onValueChange={(value) => updateField(originalIndex, { 
-                            preference_field_id: value === '__none__' ? null : value 
-                          })}
-                        >
-                          <SelectTrigger className="h-9" data-testid={`select-preference-field-${field.id}`}>
-                            <SelectValue placeholder="Select preference field..." />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="__none__">No mapping (don't save to preferences)</SelectItem>
-                            {customFields
-                              .filter(cf => cf.entity_scope === 'member')
-                              .map(cf => (
-                                <SelectItem key={cf.id} value={String(cf.id)}>
-                                  {cf.label}
-                                </SelectItem>
-                              ))}
-                          </SelectContent>
-                        </Select>
+                        <div className="flex items-start gap-2 p-2 bg-blue-50 border border-blue-200 rounded-md">
+                          <div className="text-blue-600 mt-0.5">
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                          </div>
+                          <div>
+                            <p className="text-xs font-medium text-blue-800">Auto-saved to Member Preferences</p>
+                            <p className="text-xs text-blue-600 mt-0.5">
+                              Category selections are automatically saved to the member's preferences. No manual mapping required.
+                            </p>
+                          </div>
+                        </div>
                       </div>
                     </>
                   )}
