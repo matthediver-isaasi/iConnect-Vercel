@@ -479,22 +479,64 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     try {
-      const { data, error } = await supabase
+      // Fetch organisation basic info
+      const { data: org, error: orgError } = await supabase
         .from('organization')
-        .select('id, name, domain, additional_verified_domains')
+        .select('id, name')
         .eq('id', id)
         .single();
 
-      if (error) {
-        console.error('Error fetching organisation domains:', error);
-        return res.status(500).json({ error: error.message });
+      if (orgError) {
+        console.error('Error fetching organisation:', orgError);
+        return res.status(500).json({ error: orgError.message });
       }
 
-      if (!data) {
+      if (!org) {
         return res.status(404).json({ error: 'Organisation not found' });
       }
 
-      res.json(data);
+      // Find the verified_domains custom field definition
+      const { data: fieldDef, error: fieldError } = await supabase
+        .from('preference_field')
+        .select('id')
+        .eq('name', 'verified_domains')
+        .eq('entity_scope', 'organization')
+        .eq('is_active', true)
+        .single();
+
+      let verifiedDomains: string[] = [];
+
+      if (fieldDef && !fieldError) {
+        // Fetch the organization's custom field value
+        const { data: fieldValue, error: valueError } = await supabase
+          .from('organization_preference_value')
+          .select('value')
+          .eq('organization_id', id)
+          .eq('field_id', fieldDef.id)
+          .single();
+
+        if (fieldValue && !valueError && fieldValue.value) {
+          const val = fieldValue.value;
+          // Handle different storage formats: native array (jsonb), JSON string, or comma-separated string
+          if (Array.isArray(val)) {
+            verifiedDomains = val.filter(Boolean);
+          } else if (typeof val === 'string') {
+            try {
+              const parsed = JSON.parse(val);
+              verifiedDomains = Array.isArray(parsed) ? parsed.filter(Boolean) : [parsed].filter(Boolean);
+            } catch {
+              // If not JSON, treat as comma-separated or single value
+              verifiedDomains = val.split(',').map((d: string) => d.trim()).filter(Boolean);
+            }
+          }
+        }
+      }
+
+      res.json({
+        id: org.id,
+        name: org.name,
+        verified_domains: verifiedDomains
+      });
     } catch (error) {
       console.error('Public organisation domains fetch error:', error);
       res.status(500).json({ error: 'Failed to fetch organisation domains' });

@@ -52,13 +52,10 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
     }
     const emailDomain = emailParts[1].toLowerCase();
     
-    // Get all allowed domains from organization
+    // Get allowed domains from organization's verified_domains custom field
     const allowedDomains = [];
-    if (organizationInfo.domain) {
-      allowedDomains.push(organizationInfo.domain.toLowerCase());
-    }
-    if (organizationInfo.additional_verified_domains && Array.isArray(organizationInfo.additional_verified_domains)) {
-      organizationInfo.additional_verified_domains.forEach(d => {
+    if (organizationInfo.verified_domains && Array.isArray(organizationInfo.verified_domains)) {
+      organizationInfo.verified_domains.forEach(d => {
         if (d) allowedDomains.push(d.toLowerCase());
       });
     }
@@ -161,7 +158,7 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
     if (field.type === 'email') {
       validateEmailDomain(value);
     }
-  }, [field.validate_org_domain, organizationInfo?.domain, organizationInfo?.additional_verified_domains, value, field.type]);
+  }, [field.validate_org_domain, organizationInfo?.verified_domains, value, field.type]);
 
   const renderField = () => {
     // Handle auto-populated user fields
