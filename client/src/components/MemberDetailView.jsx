@@ -745,6 +745,23 @@ export default function MemberDetailView({
           </TabsContent>
 
           <TabsContent value="activity" className="space-y-6">
+            {!isNew && member.created_on && (
+              <Card>
+                <CardContent className="py-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-lg bg-purple-100 flex items-center justify-center">
+                      <CalendarDays className="w-5 h-5 text-purple-600" />
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-500">Member Since</p>
+                      <p className="font-medium text-sm" data-testid="text-member-created-date">
+                        {formatDate(member.created_on)}
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
             <Card>
               <CardHeader>
                 <CardTitle className="text-lg flex items-center gap-2">
