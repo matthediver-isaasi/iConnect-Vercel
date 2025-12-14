@@ -2164,7 +2164,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // This prevents privilege escalation via role_id changes or other sensitive fields
       const allowedFields = [
         'first_name', 'last_name', 'job_title', 'biography',
-        'profile_photo_url', 'linkedin_url', 'show_in_directory',
+        'profile_photo_url', 'show_in_directory',
         'twitter_url', 'phone_number', 'pronouns', 'location_summary'
       ];
 
