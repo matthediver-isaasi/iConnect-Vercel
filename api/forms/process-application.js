@@ -437,6 +437,8 @@ export default async function handler(req, res) {
           if (memberData.first_name) memberUpdateData.first_name = memberData.first_name;
           if (memberData.last_name) memberUpdateData.last_name = memberData.last_name;
           if (memberData.job_title) memberUpdateData.job_title = memberData.job_title;
+          if (memberData.mobile) memberUpdateData.mobile = memberData.mobile;
+          if (memberData.landline) memberUpdateData.landline = memberData.landline;
           // Add role_id if triggered from form conditional logic (null clears the role)
           if (role_id !== undefined) memberUpdateData.role_id = role_id;
           
@@ -499,6 +501,9 @@ export default async function handler(req, res) {
           };
           // Add job_title only if provided (it's a valid column)
           if (memberData.job_title) memberInsertData.job_title = memberData.job_title;
+          // Add mobile and landline if provided
+          if (memberData.mobile) memberInsertData.mobile = memberData.mobile;
+          if (memberData.landline) memberInsertData.landline = memberData.landline;
           // Add role_id if triggered from form conditional logic (null clears the role)
           if (role_id !== undefined) {
             memberInsertData.role_id = role_id;
