@@ -9,6 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
@@ -30,7 +31,8 @@ import {
   Shield,
   ClipboardList,
   Linkedin,
-  Globe
+  Globe,
+  LogIn
 } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -60,7 +62,8 @@ export default function MemberDetailView({
     bio: '',
     linkedin_url: '',
     organization_id: defaultOrganizationId,
-    disabled: false
+    disabled: false,
+    login_enabled: true
   });
 
   const getMemberName = (m) => {
@@ -122,7 +125,8 @@ export default function MemberDetailView({
         bio: member.bio || '',
         linkedin_url: member.linkedin_url || '',
         organization_id: member.organization_id || '',
-        disabled: member.disabled || false
+        disabled: member.disabled || false,
+        login_enabled: member.login_enabled !== false
       });
       setSelectedRoles(member.roles || (member.role_id ? [member.role_id] : []));
     }
@@ -224,7 +228,8 @@ export default function MemberDetailView({
       bio: member.bio || '',
       linkedin_url: member.linkedin_url || '',
       organization_id: member.organization_id || '',
-      disabled: member.disabled || false
+      disabled: member.disabled || false,
+      login_enabled: member.login_enabled !== false
     });
     setSelectedRoles(member.roles || (member.role_id ? [member.role_id] : []));
     setIsEditing(false);
@@ -574,6 +579,25 @@ export default function MemberDetailView({
                               })()}
                             </div>
                           </div>
+                        </div>
+                        <Separator />
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-3">
+                            <LogIn className="w-4 h-4 text-slate-400" />
+                            <div>
+                              <p className="text-xs text-slate-500">Login Enabled</p>
+                              <p className="text-sm font-medium">
+                                {isEditing ? (formData.login_enabled ? 'Yes' : 'No') : (member.login_enabled !== false ? 'Yes' : 'No')}
+                              </p>
+                            </div>
+                          </div>
+                          {isEditing && (
+                            <Switch
+                              checked={formData.login_enabled}
+                              onCheckedChange={(checked) => setFormData(prev => ({ ...prev, login_enabled: checked }))}
+                              data-testid="switch-login-enabled"
+                            />
+                          )}
                         </div>
                       </>
                     )}
