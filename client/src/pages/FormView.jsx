@@ -354,12 +354,12 @@ export default function FormViewPage() {
   // Evaluate visibility rules to determine which fields should be hidden
   // Key principle: Fields with "show" rules START HIDDEN and only become visible when condition is met
   const hiddenFieldIds = useMemo(() => {
-    if (!form?.visibility_rules || form.visibility_rules.length === 0) {
-      return new Set();
-    }
-
-    // Start with all "show" rule targets as hidden (explicit default state)
+    // Start with fields that have starts_hidden = true (regardless of visibility rules)
     const hidden = new Set(initialHiddenFieldIds);
+    
+    if (!form?.visibility_rules || form.visibility_rules.length === 0) {
+      return hidden;
+    }
     
     // Track which fields should be shown/hidden based on rule evaluation
     const fieldVisibility = {};
