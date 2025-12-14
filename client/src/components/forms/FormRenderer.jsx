@@ -318,6 +318,15 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
         const selectedValues = Array.isArray(value) ? value : [];
         const minSelections = field.min_selections;
         const maxSelections = field.max_selections;
+        
+        // Debug logging - check browser console to see what values are passed
+        console.log('[FormRenderer] category_multiselect field:', field.id, {
+          min_selections: field.min_selections,
+          max_selections: field.max_selections,
+          hasMinRaw: field.min_selections,
+          hasMaxRaw: field.max_selections,
+          fieldKeys: Object.keys(field)
+        });
         const hasMin = minSelections != null && minSelections > 0;
         const hasMax = maxSelections != null && maxSelections > 0;
         const isMaxReached = hasMax && selectedValues.length >= maxSelections;
