@@ -685,10 +685,15 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
 
   return (
     <div className="space-y-2">
-      <Label htmlFor={field.id}>
-        {field.label}
-        {field.required && <span className="text-red-500 ml-1">*</span>}
-      </Label>
+      <div>
+        <Label htmlFor={field.id}>
+          {field.label}
+          {field.required && <span className="text-red-500 ml-1">*</span>}
+        </Label>
+        {field.description && (
+          <p className="text-sm text-slate-500 mt-1">{field.description}</p>
+        )}
+      </div>
       {renderField()}
     </div>
   );

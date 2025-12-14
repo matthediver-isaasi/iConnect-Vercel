@@ -1370,6 +1370,17 @@ function FieldCard({
                 />
               </div>
 
+              <div className="space-y-1">
+                <Label className="text-xs">Description (Optional)</Label>
+                <Textarea
+                  value={field.description || ''}
+                  onChange={(e) => updateField(originalIndex, { description: e.target.value })}
+                  placeholder="Help text displayed below the field label"
+                  className="text-sm min-h-[60px]"
+                  rows={2}
+                />
+              </div>
+
               {/* Pre-fill Field Selection - When prefill is enabled */}
               {prefillSource !== "none" && (
                 <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg space-y-2">
