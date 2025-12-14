@@ -1529,6 +1529,43 @@ function FieldCard({
                           ? "No categories selected - all categories will be shown"
                           : `${(field.allowed_category_ids || []).length} category(ies) selected`}
                       </p>
+                      
+                      <div className="pt-3 border-t border-slate-200 mt-3">
+                        <Label className="text-xs font-medium text-slate-700">Selection Limits (Optional)</Label>
+                        <div className="grid grid-cols-2 gap-2 mt-2">
+                          <div className="space-y-1">
+                            <Label className="text-xs text-slate-500">Minimum</Label>
+                            <Input
+                              type="number"
+                              min="0"
+                              value={field.min_selections ?? ''}
+                              onChange={(e) => updateField(originalIndex, { 
+                                min_selections: e.target.value ? parseInt(e.target.value, 10) : null 
+                              })}
+                              placeholder="No min"
+                              className="h-8 text-xs"
+                              data-testid={`input-min-selections-${field.id}`}
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs text-slate-500">Maximum</Label>
+                            <Input
+                              type="number"
+                              min="0"
+                              value={field.max_selections ?? ''}
+                              onChange={(e) => updateField(originalIndex, { 
+                                max_selections: e.target.value ? parseInt(e.target.value, 10) : null 
+                              })}
+                              placeholder="No max"
+                              className="h-8 text-xs"
+                              data-testid={`input-max-selections-${field.id}`}
+                            />
+                          </div>
+                        </div>
+                        <p className="text-xs text-slate-500 mt-1">
+                          Leave blank for no limits
+                        </p>
+                      </div>
                     </>
                   )}
                 </div>
