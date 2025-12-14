@@ -64,7 +64,6 @@ export default function MemberDetailView({
     landline: '',
     job_title: '',
     bio: '',
-    linkedin_url: '',
     organization_id: defaultOrganizationId,
     disabled: false,
     login_enabled: true
@@ -129,7 +128,6 @@ export default function MemberDetailView({
         landline: member.landline || '',
         job_title: member.job_title || '',
         bio: member.bio || '',
-        linkedin_url: member.linkedin_url || '',
         organization_id: member.organization_id || '',
         disabled: member.disabled || false,
         login_enabled: member.login_enabled !== false
@@ -234,7 +232,6 @@ export default function MemberDetailView({
       landline: member.landline || '',
       job_title: member.job_title || '',
       bio: member.bio || '',
-      linkedin_url: member.linkedin_url || '',
       organization_id: member.organization_id || '',
       disabled: member.disabled || false,
       login_enabled: member.login_enabled !== false
@@ -428,15 +425,6 @@ export default function MemberDetailView({
                           data-testid="input-member-job-title"
                         />
                       </div>
-                      <div className="space-y-2">
-                        <Label>LinkedIn URL</Label>
-                        <Input
-                          value={formData.linkedin_url}
-                          onChange={(e) => setFormData(prev => ({ ...prev, linkedin_url: e.target.value }))}
-                          placeholder="https://linkedin.com/in/..."
-                          data-testid="input-member-linkedin"
-                        />
-                      </div>
                       <div className="flex items-center gap-2">
                         <Checkbox
                           id="disabled"
@@ -504,25 +492,6 @@ export default function MemberDetailView({
                           <p className="text-sm">{member.job_title || '-'}</p>
                         </div>
                       </div>
-                      {member.linkedin_url && (
-                        <>
-                          <Separator />
-                          <div className="flex items-center gap-3 py-2">
-                            <Linkedin className="w-4 h-4 text-slate-400" />
-                            <div>
-                              <p className="text-xs text-slate-500">LinkedIn</p>
-                              <a 
-                                href={member.linkedin_url} 
-                                target="_blank" 
-                                rel="noopener noreferrer"
-                                className="text-sm text-blue-600 hover:underline flex items-center gap-1"
-                              >
-                                View Profile <ExternalLink className="w-3 h-3" />
-                              </a>
-                            </div>
-                          </div>
-                        </>
-                      )}
                     </>
                   )}
                 </CardContent>
