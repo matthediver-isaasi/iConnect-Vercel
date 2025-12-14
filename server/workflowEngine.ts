@@ -129,7 +129,7 @@ async function getFieldValue(
       .from(tableName)
       .select('value')
       .eq(foreignKey, entityId)
-      .eq('preference_field_id', fieldId)
+      .eq('field_id', fieldId)  // Note: DB column is 'field_id' (not preference_field_id)
       .single();
     
     return data?.value;
@@ -212,7 +212,7 @@ async function executeUpdateFieldAction(
         .from(tableName)
         .select('id')
         .eq(foreignKey, entityId)
-        .eq('preference_field_id', config.field_id)
+        .eq('field_id', config.field_id)  // Note: DB column is 'field_id' (not preference_field_id)
         .single();
 
       if (existing) {
@@ -226,7 +226,7 @@ async function executeUpdateFieldAction(
           .from(tableName)
           .insert({
             [foreignKey]: entityId,
-            preference_field_id: config.field_id,
+            field_id: config.field_id,  // Note: DB column is 'field_id' (not preference_field_id)
             value: newValue
           });
         if (error) throw error;
