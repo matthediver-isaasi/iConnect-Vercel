@@ -98,6 +98,20 @@ export default function FormViewPage() {
     
     const newValues = {};
     for (const field of (form.fields || [])) {
+      // Special handling for organisation_dropdown: always use the entity's ID
+      // This field type expects an organisation ID, not a field value
+      if (field.type === 'organisation_dropdown') {
+        // For organisation prefill source, use the prefill org's ID directly
+        if (form.prefill_source === 'organization' && prefillOrgId) {
+          newValues[field.id] = prefillOrgId;
+        }
+        // For member prefill source, use the member's organization_id if available
+        else if (form.prefill_source === 'member' && entity.organization_id) {
+          newValues[field.id] = entity.organization_id;
+        }
+        continue; // Skip normal prefill_field handling for this field type
+      }
+      
       if (field.prefill_field) {
         // Check if custom field (prefixed with 'custom:')
         if (field.prefill_field.startsWith('custom:')) {
