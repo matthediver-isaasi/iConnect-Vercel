@@ -481,6 +481,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: 'Member not found' });
       }
 
+      // Fetch current selections to determine what to delete
+      const { data: currentSelections } = await supabase
+        .from('member_resource_category')
+        .select('id, resource_category_id')
+        .eq('member_id', memberId);
+
       // Atomic replace: Insert first (with upsert), then delete orphans
       // This ensures we never lose data if insert fails
       if (uniqueCategoryIds.length > 0) {
@@ -502,16 +508,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(500).json({ error: 'Failed to save category selections' });
         }
 
-        // Now delete any categories that are NOT in the new list
-        const { error: deleteError } = await supabase
-          .from('member_resource_category')
-          .delete()
-          .eq('member_id', memberId)
-          .not('resource_category_id', 'in', `(${uniqueCategoryIds.join(',')})`);
+        // Delete orphans: categories that exist but are NOT in the new list
+        const orphanIds = (currentSelections || [])
+          .filter(sel => !uniqueCategoryIds.includes(sel.resource_category_id))
+          .map(sel => sel.id);
 
-        if (deleteError) {
-          console.error('[Member Categories] Delete orphans error:', deleteError);
-          // Non-fatal - the main selections were saved
+        if (orphanIds.length > 0) {
+          const { error: deleteError } = await supabase
+            .from('member_resource_category')
+            .delete()
+            .in('id', orphanIds);
+
+          if (deleteError) {
+            console.error('[Member Categories] Delete orphans error:', deleteError);
+            // Non-fatal - the main selections were saved
+          }
         }
       } else {
         // If no categories selected, delete all
