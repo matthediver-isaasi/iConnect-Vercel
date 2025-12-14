@@ -467,6 +467,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Public endpoint for organisation domain info (used for email domain validation in forms)
+  app.get('/api/public/organisation/:id/domains', async (req: Request, res: Response) => {
+    if (!supabase) {
+      return res.status(503).json({ error: 'Supabase not configured' });
+    }
+
+    const { id } = req.params;
+    if (!id) {
+      return res.status(400).json({ error: 'Organisation ID is required' });
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('organization')
+        .select('id, name, domain, additional_verified_domains')
+        .eq('id', id)
+        .single();
+
+      if (error) {
+        console.error('Error fetching organisation domains:', error);
+        return res.status(500).json({ error: error.message });
+      }
+
+      if (!data) {
+        return res.status(404).json({ error: 'Organisation not found' });
+      }
+
+      res.json(data);
+    } catch (error) {
+      console.error('Public organisation domains fetch error:', error);
+      res.status(500).json({ error: 'Failed to fetch organisation domains' });
+    }
+  });
+
   // Public endpoint for communication categories (used by forms for category multi-select)
   app.get('/api/public/categories', async (req: Request, res: Response) => {
     if (!supabase) {

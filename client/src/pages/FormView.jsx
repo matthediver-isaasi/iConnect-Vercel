@@ -79,14 +79,18 @@ export default function FormViewPage() {
     return null;
   }, [orgDropdownField, formValues, prefillOrgId]);
 
-  // Fetch the selected organization for domain validation (separate from prefillOrg)
+  // Fetch the selected organization for domain validation (uses public endpoint for unauthenticated access)
   const { data: selectedOrg } = useQuery({
     queryKey: ['selected-org-for-validation', selectedOrgId],
     queryFn: async () => {
-      const allOrgs = await base44.entities.Organization.listAll();
-      return allOrgs.find(o => o.id === selectedOrgId);
+      const response = await fetch(`/api/public/organisation/${selectedOrgId}/domains`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch organisation domains');
+      }
+      return response.json();
     },
-    enabled: !!selectedOrgId
+    enabled: !!selectedOrgId,
+    staleTime: 5 * 60 * 1000 // Cache for 5 minutes
   });
 
   // Compute effective organization for email domain validation
