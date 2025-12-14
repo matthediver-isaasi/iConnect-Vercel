@@ -2737,14 +2737,25 @@ export default function FormBuilderPage() {
                   onRulesChange={(rules) => {
                     const fieldsWithShowRules = new Set();
                     rules.forEach(rule => {
-                      if (rule.action === 'show' && rule.target_field_ids?.length) {
+                      // Handle new multi-action format
+                      if (rule.actions && Array.isArray(rule.actions)) {
+                        for (const action of rule.actions) {
+                          if (action.action_type === 'show' && action.target_field_ids?.length) {
+                            action.target_field_ids.forEach(id => fieldsWithShowRules.add(id));
+                          }
+                        }
+                      }
+                      // Handle legacy format
+                      else if (rule.action === 'show' && rule.target_field_ids?.length) {
                         rule.target_field_ids.forEach(id => fieldsWithShowRules.add(id));
                       }
                     });
                     setFormData(prev => {
                       const updatedFields = prev.fields.map(field => ({
                         ...field,
-                        starts_hidden: fieldsWithShowRules.has(field.id)
+                        // If field is targeted by a show rule, mark it as starts_hidden
+                        // Otherwise preserve the existing starts_hidden value (manual toggle)
+                        starts_hidden: fieldsWithShowRules.has(field.id) || field.starts_hidden
                       }));
                       return { 
                         ...prev, 
