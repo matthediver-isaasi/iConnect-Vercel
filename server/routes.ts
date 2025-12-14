@@ -527,7 +527,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { id } = req.params;
       const { data, error } = await supabase
         .from('preference_field')
-        .select('id, label, field_type, options, entity_scope')
+        .select('id, label, field_type, options, entity_scope, min_selections, max_selections')
         .eq('id', id)
         .eq('is_active', true)
         .single();
