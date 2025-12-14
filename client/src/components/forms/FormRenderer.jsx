@@ -483,20 +483,42 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
         // Picklist: multi-select checkbox group
         if (customFieldDef.field_type === 'picklist') {
           const selectedValues = Array.isArray(value) ? value : [];
+          const minSelections = customFieldDef.min_selections;
+          const maxSelections = customFieldDef.max_selections;
+          const hasMin = minSelections != null && minSelections > 0;
+          const hasMax = maxSelections != null && maxSelections > 0;
+          const isMaxReached = hasMax && selectedValues.length >= maxSelections;
+          
+          // Build help text
+          let helpText = '';
+          if (hasMin && hasMax) {
+            if (minSelections === maxSelections) {
+              helpText = `Please select exactly ${minSelections} option${minSelections > 1 ? 's' : ''}`;
+            } else {
+              helpText = `Please select between ${minSelections} and ${maxSelections} options`;
+            }
+          } else if (hasMin) {
+            helpText = `Please select at least ${minSelections} option${minSelections > 1 ? 's' : ''}`;
+          } else if (hasMax) {
+            helpText = `Please select up to ${maxSelections} option${maxSelections > 1 ? 's' : ''}`;
+          }
+          
           return (
             <div className="space-y-2 p-3 bg-slate-50 rounded-lg border">
               {customFieldOptions.map((option, index) => {
                 const optValue = option.value || option.label || option;
                 const optLabel = option.label || option.value || option;
                 const isChecked = selectedValues.includes(optValue);
+                // Disable unselected options when max is reached
+                const isOptionDisabled = isFieldDisabled || (isMaxReached && !isChecked);
                 return (
                   <div key={index} className="flex items-center space-x-2">
                     <Checkbox
                       id={`${field.id}-${index}`}
                       checked={isChecked}
-                      disabled={isFieldDisabled}
+                      disabled={isOptionDisabled}
                       onCheckedChange={(checked) => {
-                        if (isFieldDisabled) return;
+                        if (isOptionDisabled) return;
                         if (checked) {
                           onChange([...selectedValues, optValue]);
                         } else {
@@ -505,12 +527,20 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
                       }}
                       data-testid={`checkbox-picklist-${field.id}-${index}`}
                     />
-                    <Label htmlFor={`${field.id}-${index}`} className="font-normal cursor-pointer">
+                    <Label 
+                      htmlFor={`${field.id}-${index}`} 
+                      className={`font-normal cursor-pointer ${isOptionDisabled && !isChecked ? 'text-slate-400' : ''}`}
+                    >
                       {optLabel}
                     </Label>
                   </div>
                 );
               })}
+              {helpText && (
+                <p className="text-xs text-slate-500 pt-2 border-t border-slate-200 mt-2">
+                  {helpText} ({selectedValues.length} selected)
+                </p>
+              )}
             </div>
           );
         }
