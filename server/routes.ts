@@ -1322,6 +1322,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
               }
             }
           }
+          
+          // Process preference_field_id (used by category_multiselect and category_dropdown)
+          if (field.preference_field_id) {
+            const preferenceField = prefFieldMap.get(field.preference_field_id);
+            if (preferenceField) {
+              let storedValue = value;
+              if (Array.isArray(value)) {
+                storedValue = JSON.stringify(value);
+              } else if (typeof value === 'object') {
+                storedValue = JSON.stringify(value);
+              } else {
+                storedValue = String(value);
+              }
+
+              if (preferenceField.entity_scope === 'organization') {
+                orgCustomFields.push({ field_id: preferenceField.id, value: storedValue });
+              } else {
+                memberCustomFields.push({ field_id: preferenceField.id, value: storedValue });
+              }
+            }
+          }
         }
       }
 
