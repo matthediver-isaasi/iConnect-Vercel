@@ -61,6 +61,40 @@ export default function FormViewPage() {
     enabled: !!prefillOrgId && form?.prefill_source === 'organization'
   });
 
+  // Find the organisation_dropdown field (if any) to determine selected org for domain validation
+  const orgDropdownField = useMemo(() => {
+    return (form?.fields || []).find(f => f.type === 'organisation_dropdown');
+  }, [form?.fields]);
+
+  // Get the selected org ID from either URL prefill or form dropdown selection
+  const selectedOrgId = useMemo(() => {
+    // First priority: org selected in the organisation_dropdown field
+    if (orgDropdownField && formValues[orgDropdownField.id]) {
+      return formValues[orgDropdownField.id];
+    }
+    // Second priority: prefilled org from URL (for organization prefill source)
+    if (prefillOrgId) {
+      return prefillOrgId;
+    }
+    return null;
+  }, [orgDropdownField, formValues, prefillOrgId]);
+
+  // Fetch the selected organization for domain validation (separate from prefillOrg)
+  const { data: selectedOrg } = useQuery({
+    queryKey: ['selected-org-for-validation', selectedOrgId],
+    queryFn: async () => {
+      const allOrgs = await base44.entities.Organization.listAll();
+      return allOrgs.find(o => o.id === selectedOrgId);
+    },
+    enabled: !!selectedOrgId
+  });
+
+  // Compute effective organization for email domain validation
+  // Priority: selected org from form > prefill org > logged-in user's org
+  const effectiveOrganizationInfo = useMemo(() => {
+    return selectedOrg || prefillOrg || organizationInfo;
+  }, [selectedOrg, prefillOrg, organizationInfo]);
+
   // Prefill: Fetch custom field values for prefill entity (using correct entity type)
   const { data: prefillCustomFieldValues = [] } = useQuery({
     queryKey: ['prefill-custom-values', form?.prefill_source, prefillMemberId, prefillOrgId],
@@ -862,7 +896,7 @@ export default function FormViewPage() {
                 value={formValues[currentField.id]}
                 onChange={(value) => setFormValues({ ...formValues, [currentField.id]: value })}
                 memberInfo={memberData}
-                organizationInfo={organizationInfo}
+                organizationInfo={effectiveOrganizationInfo}
                 disabled={disabledFieldIds.has(currentField.id)}
               />
             )}
@@ -1013,7 +1047,7 @@ export default function FormViewPage() {
                     value={formValues[field.id]}
                     onChange={(value) => setFormValues({ ...formValues, [field.id]: value })}
                     memberInfo={memberData}
-                    organizationInfo={organizationInfo}
+                    organizationInfo={effectiveOrganizationInfo}
                     disabled={disabledFieldIds.has(field.id)}
                   />
                 ));
@@ -1036,7 +1070,7 @@ export default function FormViewPage() {
                           value={formValues[field.id]}
                           onChange={(value) => setFormValues({ ...formValues, [field.id]: value })}
                           memberInfo={memberData}
-                          organizationInfo={organizationInfo}
+                          organizationInfo={effectiveOrganizationInfo}
                           disabled={disabledFieldIds.has(field.id)}
                         />
                       ))}
@@ -1058,7 +1092,7 @@ export default function FormViewPage() {
                               value={formValues[field.id]}
                               onChange={(value) => setFormValues({ ...formValues, [field.id]: value })}
                               memberInfo={memberData}
-                              organizationInfo={organizationInfo}
+                              organizationInfo={effectiveOrganizationInfo}
                               disabled={disabledFieldIds.has(field.id)}
                             />
                           ))}
