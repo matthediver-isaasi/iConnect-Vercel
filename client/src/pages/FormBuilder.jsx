@@ -36,6 +36,7 @@ const STANDARD_FIELD_TYPES = [
   { value: 'select', label: 'Dropdown' },
   { value: 'radio', label: 'Radio Buttons' },
   { value: 'checkbox', label: 'Checkboxes' },
+  { value: 'boolean', label: 'Boolean (Toggle)' },
   { value: 'list', label: 'List (User-Defined Values)' },
   { value: 'date', label: 'Date' },
   { value: 'time', label: 'Time' },

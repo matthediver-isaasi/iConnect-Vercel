@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { Loader2, Plus, X } from "lucide-react";
 import {
   Select,
@@ -173,6 +174,25 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
             disabled={isFieldDisabled}
             className={isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : ''}
           />
+        );
+
+      case 'boolean':
+        return (
+          <div className="flex items-center space-x-3">
+            <Switch
+              id={field.id}
+              checked={value === true || value === 'true'}
+              onCheckedChange={(checked) => onChange(checked)}
+              disabled={isFieldDisabled}
+              data-testid={`switch-boolean-${field.id}`}
+            />
+            <Label 
+              htmlFor={field.id} 
+              className={`font-normal cursor-pointer ${isFieldDisabled ? 'text-slate-400' : ''}`}
+            >
+              {(value === true || value === 'true') ? 'Yes' : 'No'}
+            </Label>
+          </div>
         );
 
       case 'select':
