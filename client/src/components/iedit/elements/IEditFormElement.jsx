@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 import DOMPurify from 'dompurify';
@@ -200,6 +200,31 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     },
     enabled: !!formSlug
   });
+
+  // Initialize boolean fields with their default values when form loads
+  // This ensures untouched boolean fields are included in the submission
+  useEffect(() => {
+    if (!form?.fields) return;
+    
+    const booleanDefaults = {};
+    for (const field of form.fields) {
+      if (field.type === 'boolean') {
+        booleanDefaults[field.id] = field.default_value === true ? true : false;
+      }
+    }
+    
+    if (Object.keys(booleanDefaults).length > 0) {
+      setFormValues(prev => {
+        const merged = { ...prev };
+        for (const [fieldId, defaultVal] of Object.entries(booleanDefaults)) {
+          if (merged[fieldId] === undefined) {
+            merged[fieldId] = defaultVal;
+          }
+        }
+        return merged;
+      });
+    }
+  }, [form?.fields]);
 
   const submitFormMutation = useMutation({
     mutationFn: async (data) => {

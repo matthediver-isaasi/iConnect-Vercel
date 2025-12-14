@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import FormRenderer from "../forms/FormRenderer";
@@ -189,6 +189,31 @@ export default function FloaterDisplay({ location = "portal", memberInfo, organi
       console.error("Failed to process floater click:", error);
     }
   };
+
+  // Initialize boolean fields with their default values when form is selected
+  // This ensures untouched boolean fields are included in the submission
+  useEffect(() => {
+    if (!selectedForm?.fields) return;
+    
+    const booleanDefaults = {};
+    for (const field of selectedForm.fields) {
+      if (field.type === 'boolean') {
+        booleanDefaults[field.id] = field.default_value === true ? true : false;
+      }
+    }
+    
+    if (Object.keys(booleanDefaults).length > 0) {
+      setFormValues(prev => {
+        const merged = { ...prev };
+        for (const [fieldId, defaultVal] of Object.entries(booleanDefaults)) {
+          if (merged[fieldId] === undefined) {
+            merged[fieldId] = defaultVal;
+          }
+        }
+        return merged;
+      });
+    }
+  }, [selectedForm?.fields]);
 
   const handleFormSubmit = async (e) => {
     e.preventDefault();

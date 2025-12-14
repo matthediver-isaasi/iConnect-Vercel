@@ -125,10 +125,43 @@ export default function FormViewPage() {
 
   // Track if prefill has been applied to prevent overwriting user edits
   const [prefillApplied, setPrefillApplied] = useState(false);
+  
+  // Track if boolean defaults have been initialized for this form
+  const [defaultsInitialized, setDefaultsInitialized] = useState(false);
+  
+  // Reset page navigation state when form changes
+  useEffect(() => {
+    setCurrentPageIndex(0);
+    setCurrentStep(0);
+    setSubmitted(false);
+    setPrefillApplied(false);
+    setDefaultsInitialized(false);
+    setFormValues({});
+  }, [form?.id]);
+  
+  // Initialize boolean fields with their default values
+  // This runs after reset and sets the flag to allow prefill to proceed
+  useEffect(() => {
+    if (!form?.fields || defaultsInitialized) return;
+    
+    const booleanDefaults = {};
+    for (const field of form.fields) {
+      if (field.type === 'boolean') {
+        booleanDefaults[field.id] = field.default_value === true ? true : false;
+      }
+    }
+    
+    if (Object.keys(booleanDefaults).length > 0) {
+      setFormValues(prev => ({ ...prev, ...booleanDefaults }));
+    }
+    setDefaultsInitialized(true);
+  }, [form?.fields, defaultsInitialized]);
 
   // Prefill: Populate form values when prefill entity loads (one-time only)
+  // Must wait for defaultsInitialized to ensure boolean defaults are set first
   useEffect(() => {
     if (!form || !form.prefill_source || form.prefill_source === 'none') return;
+    if (!defaultsInitialized) return; // Wait for boolean defaults to be set first
     if (prefillApplied) return; // Already applied prefill, don't overwrite user edits
     
     const entity = form.prefill_source === 'member' ? prefillMember : prefillOrg;
@@ -180,12 +213,20 @@ export default function FormViewPage() {
     }
     
     if (Object.keys(newValues).length > 0) {
-      // Prefill values take precedence on initial load, but only fill empty fields
+      // Prefill values take precedence on initial load
       setFormValues(prev => {
         const merged = { ...prev };
         for (const [key, value] of Object.entries(newValues)) {
-          // Only prefill if the field is empty/null/undefined
-          if (!prev[key] || prev[key] === '' || prev[key] === null) {
+          // Find the corresponding field to check its type
+          const field = form.fields?.find(f => f.id === key);
+          
+          // For boolean fields, always allow prefill to override defaults
+          // This ensures prefilled false values aren't blocked by default true
+          if (field?.type === 'boolean') {
+            merged[key] = value;
+          }
+          // For non-boolean fields, only prefill if empty/null/undefined
+          else if (prev[key] === undefined || prev[key] === '' || prev[key] === null) {
             merged[key] = value;
           }
         }
@@ -193,7 +234,7 @@ export default function FormViewPage() {
       });
       setPrefillApplied(true);
     }
-  }, [form, prefillMember, prefillOrg, prefillCustomFieldValues, prefillApplied]);
+  }, [form, prefillMember, prefillOrg, prefillCustomFieldValues, prefillApplied, defaultsInitialized]);
 
   const submitFormMutation = useMutation({
     mutationFn: async (submissionData) => {
@@ -276,15 +317,6 @@ export default function FormViewPage() {
       toast.error('Failed to submit form');
     }
   });
-
-  // Reset page navigation state when form changes
-  useEffect(() => {
-    setCurrentPageIndex(0);
-    setCurrentStep(0);
-    setFormValues({});
-    setSubmitted(false);
-    setPrefillApplied(false);
-  }, [form?.id]);
 
   // Helper to evaluate a rule condition
   const evaluateCondition = (triggerValue, operator, value) => {
