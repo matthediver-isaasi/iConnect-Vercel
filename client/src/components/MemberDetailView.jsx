@@ -131,7 +131,7 @@ export default function MemberDetailView({
     }
   });
 
-  const { data: preferenceFields = [] } = useQuery({
+  const { data: preferenceFields = [], isLoading: prefFieldsLoading } = useQuery({
     queryKey: ['category-preference-fields'],
     enabled: activeTab === 'categories',
     queryFn: async () => {
@@ -139,7 +139,7 @@ export default function MemberDetailView({
         const fields = await base44.entities.PreferenceField.list({
           filter: { is_active: true }
         });
-        return (fields || []).filter(f => f.field_type === 'category_multiselect');
+        return fields || [];
       } catch {
         return [];
       }
@@ -940,14 +940,40 @@ export default function MemberDetailView({
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                {categoriesLoading ? (
+                {(categoriesLoading || prefFieldsLoading) ? (
                   <div className="flex items-center justify-center py-8">
                     <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
                   </div>
                 ) : (() => {
+                  // Build a set of all valid subcategory names and category names/IDs
+                  const allSubcategoryNames = new Set();
+                  const allCategoryIds = new Set();
+                  const subcategoryToParent = {};
+                  
+                  resourceCategories.forEach(cat => {
+                    allCategoryIds.add(cat.id);
+                    allCategoryIds.add(cat.name);
+                    if (cat.subcategories && Array.isArray(cat.subcategories)) {
+                      cat.subcategories.forEach(sub => {
+                        const subName = typeof sub === 'string' ? sub : (sub.name || sub.id);
+                        allSubcategoryNames.add(subName);
+                        subcategoryToParent[subName] = cat;
+                      });
+                    }
+                  });
+
+                  // Filter memberValues to find those with category/subcategory data
                   const categoryPrefs = memberValues.filter(pv => {
-                    const field = preferenceFields.find(f => f.id === pv.field_id);
-                    return field?.field_type === 'category_multiselect';
+                    try {
+                      const parsed = JSON.parse(pv.value);
+                      if (Array.isArray(parsed) && parsed.length > 0) {
+                        // Check if any value matches a subcategory name, category ID, or category name
+                        return parsed.some(val => 
+                          allSubcategoryNames.has(val) || allCategoryIds.has(val)
+                        );
+                      }
+                    } catch {}
+                    return false;
                   });
 
                   if (categoryPrefs.length === 0) {
@@ -956,41 +982,43 @@ export default function MemberDetailView({
                     );
                   }
 
-                  const categoryMap = {};
-                  resourceCategories.forEach(cat => {
-                    categoryMap[cat.id] = cat;
-                    if (cat.subcategories) {
-                      cat.subcategories.forEach(sub => {
-                        categoryMap[sub.id || sub] = { name: typeof sub === 'object' ? sub.name : sub, parent: cat };
-                      });
-                    }
-                  });
-
                   return (
                     <div className="space-y-4">
                       {categoryPrefs.map(pv => {
                         const field = preferenceFields.find(f => f.id === pv.field_id);
-                        let selectedIds = [];
+                        let selectedValues = [];
                         try {
-                          selectedIds = JSON.parse(pv.value);
+                          selectedValues = JSON.parse(pv.value);
+                          if (!Array.isArray(selectedValues)) selectedValues = [];
                         } catch {
-                          selectedIds = [];
+                          selectedValues = [];
                         }
 
+                        // Group by parent category
                         const groupedByParent = {};
-                        selectedIds.forEach(id => {
-                          const cat = categoryMap[id];
-                          if (cat?.parent) {
-                            const parentName = cat.parent.name;
+                        selectedValues.forEach(val => {
+                          const parentCat = subcategoryToParent[val];
+                          if (parentCat) {
+                            const parentName = parentCat.name;
                             if (!groupedByParent[parentName]) {
                               groupedByParent[parentName] = [];
                             }
-                            groupedByParent[parentName].push(cat.name);
-                          } else if (cat) {
-                            if (!groupedByParent['__root__']) {
-                              groupedByParent['__root__'] = [];
+                            groupedByParent[parentName].push(val);
+                          } else if (allCategoryIds.has(val)) {
+                            // It's a category ID or name, find the category
+                            const cat = resourceCategories.find(c => c.id === val || c.name === val);
+                            if (cat) {
+                              if (!groupedByParent['__root__']) {
+                                groupedByParent['__root__'] = [];
+                              }
+                              groupedByParent['__root__'].push(cat.name);
                             }
-                            groupedByParent['__root__'].push(cat.name);
+                          } else {
+                            // Unknown value, show as-is
+                            if (!groupedByParent['Other']) {
+                              groupedByParent['Other'] = [];
+                            }
+                            groupedByParent['Other'].push(val);
                           }
                         });
 
