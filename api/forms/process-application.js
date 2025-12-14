@@ -547,6 +547,66 @@ export default async function handler(req, res) {
           });
         }
       }
+
+      // Save category_multiselect field values as member preferences
+      if (createdMemberId && fields && Array.isArray(fields)) {
+        for (const field of fields) {
+          if (field.type === 'category_multiselect' && field.preference_field_id) {
+            const selections = form_values[field.id];
+            const hasSelections = selections && Array.isArray(selections) && selections.length > 0;
+            
+            console.log('[AppProcessor] Processing category_multiselect preference:', field.preference_field_id, 'selections:', selections);
+            
+            // Check for existing preference using maybeSingle to avoid error on no rows
+            const { data: existingPref, error: lookupError } = await supabase
+              .from('member_preference_value')
+              .select('id')
+              .eq('member_id', createdMemberId)
+              .eq('field_id', field.preference_field_id)
+              .maybeSingle();
+            
+            if (lookupError) {
+              console.error('[AppProcessor] Error looking up existing preference:', lookupError);
+              return res.status(500).json({ error: `Failed to lookup preference: ${lookupError.message}` });
+            }
+            
+            if (hasSelections) {
+              const storedValue = JSON.stringify(selections);
+              
+              if (existingPref) {
+                const { error: updateError } = await supabase.from('member_preference_value')
+                  .update({ value: storedValue })
+                  .eq('id', existingPref.id);
+                if (updateError) {
+                  console.error('[AppProcessor] Error updating preference:', updateError);
+                  return res.status(500).json({ error: `Failed to update preference: ${updateError.message}` });
+                }
+              } else {
+                const { error: insertError } = await supabase.from('member_preference_value').insert({
+                  member_id: createdMemberId,
+                  field_id: field.preference_field_id,
+                  value: storedValue
+                });
+                if (insertError) {
+                  console.error('[AppProcessor] Error inserting preference:', insertError);
+                  return res.status(500).json({ error: `Failed to save preference: ${insertError.message}` });
+                }
+              }
+            } else if (existingPref) {
+              // User cleared all selections - delete the existing preference
+              const { error: deleteError } = await supabase.from('member_preference_value')
+                .delete()
+                .eq('id', existingPref.id);
+              if (deleteError) {
+                console.error('[AppProcessor] Error deleting preference:', deleteError);
+                return res.status(500).json({ error: `Failed to clear preference: ${deleteError.message}` });
+              } else {
+                console.log('[AppProcessor] Deleted empty category_multiselect preference:', field.preference_field_id);
+              }
+            }
+          }
+        }
+      }
     }
 
     if (submission_id && (createdMemberId || createdOrganizationId)) {
