@@ -446,7 +446,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Stores member selections as (category_id, subcategory_name) pairs
   // Subcategories are string values from the parent category's subcategories array
   
-  // Replace member's category selections atomically
+  // Update member's category selections (diff-based: only add/remove what changed)
   app.post('/api/members/:memberId/categories', async (req: Request, res: Response) => {
     if (!supabase) {
       return res.status(503).json({ error: 'Supabase not configured' });
@@ -455,28 +455,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { memberId } = req.params;
       const { selections } = req.body;
-      // selections: Array of { category_id: string, subcategory_name: string }
 
-      // Validate inputs before any mutations
       if (!memberId) {
         return res.status(400).json({ error: 'Member ID is required' });
       }
 
-      // Validate selections is an array
       if (!selections || !Array.isArray(selections)) {
         return res.status(400).json({ error: 'selections must be an array of {category_id, subcategory_name}' });
       }
 
-      // Validate and dedupe selections
-      // Supports both subcategory selections {category_id, subcategory_name} 
-      // and flat category selections {category_id} (no subcategory_name or empty)
+      const { data: member, error: memberError } = await supabase
+        .from('member')
+        .select('id')
+        .eq('id', memberId)
+        .single();
+
+      if (memberError || !member) {
+        return res.status(404).json({ error: 'Member not found' });
+      }
+
       const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
       const validSelections: Array<{ category_id: string; subcategory_name: string | null }> = [];
       const seenKeys = new Set<string>();
 
       for (const sel of selections) {
         if (sel && typeof sel.category_id === 'string' && uuidRegex.test(sel.category_id)) {
-          // subcategory_name can be a string or null/empty for flat categories
           const subcatName = typeof sel.subcategory_name === 'string' && sel.subcategory_name.trim().length > 0
             ? sel.subcategory_name.trim()
             : null;
@@ -491,20 +494,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      // Verify member exists
-      const { data: member, error: memberError } = await supabase
-        .from('member')
-        .select('id')
-        .eq('id', memberId)
-        .single();
-
-      if (memberError || !member) {
-        return res.status(404).json({ error: 'Member not found' });
-      }
-
-      // Validate that all category IDs exist
-      if (validSelections.length > 0) {
-        const categoryIds = [...new Set(validSelections.map(s => s.category_id))];
+      const categoryIds = [...new Set(validSelections.map(s => s.category_id))];
+      
+      let finalSelections: Array<{ category_id: string; subcategory_name: string | null }> = [];
+      if (categoryIds.length > 0) {
         const { data: existingCategories, error: catError } = await supabase
           .from('resource_category')
           .select('id, subcategories')
@@ -515,73 +508,78 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(500).json({ error: 'Failed to validate categories' });
         }
 
-        // Filter selections to only include valid category + subcategory combinations
-        // For flat categories (no subcategories array), allow null subcategory_name
-        // For hierarchical categories, subcategory_name must exist in the array
         const categoryMap = new Map((existingCategories || []).map(c => [c.id, c.subcategories || []]));
-        const finalSelections = validSelections.filter(sel => {
+        finalSelections = validSelections.filter(sel => {
           const subcats = categoryMap.get(sel.category_id);
-          if (subcats === undefined) return false; // Category doesn't exist
+          if (subcats === undefined) return false;
           
-          // Flat category (no subcategories): allow null subcategory_name
           if (subcats.length === 0) {
             return sel.subcategory_name === null;
           }
           
-          // Hierarchical category: subcategory_name must be in the array
           return sel.subcategory_name !== null && subcats.includes(sel.subcategory_name);
         });
+      }
 
-        if (finalSelections.length !== validSelections.length) {
-          console.log(`[Member Categories] Filtered out ${validSelections.length - finalSelections.length} invalid subcategory selections`);
-        }
+      const { data: currentSelections, error: fetchError } = await supabase
+        .from('member_resource_category')
+        .select('id, resource_category_id, subcategory_name')
+        .eq('member_id', memberId);
 
-        // Delete all existing selections for this member
+      if (fetchError) {
+        console.error('[Member Categories] Fetch current error:', fetchError);
+        return res.status(500).json({ error: 'Failed to fetch current selections' });
+      }
+
+      const currentKeys = new Set(
+        (currentSelections || []).map(s => `${s.resource_category_id}|${s.subcategory_name || ''}`)
+      );
+      const newKeys = new Set(
+        finalSelections.map(s => `${s.category_id}|${s.subcategory_name || ''}`)
+      );
+
+      const toAdd = finalSelections.filter(s => 
+        !currentKeys.has(`${s.category_id}|${s.subcategory_name || ''}`)
+      );
+      
+      const toRemove = (currentSelections || []).filter(s => 
+        !newKeys.has(`${s.resource_category_id}|${s.subcategory_name || ''}`)
+      );
+
+      if (toRemove.length > 0) {
+        const removeIds = toRemove.map(s => s.id);
         const { error: deleteError } = await supabase
           .from('member_resource_category')
           .delete()
-          .eq('member_id', memberId);
+          .in('id', removeIds);
 
         if (deleteError) {
           console.error('[Member Categories] Delete error:', deleteError);
-          return res.status(500).json({ error: 'Failed to clear existing selections' });
+          return res.status(500).json({ error: 'Failed to remove unselected categories' });
         }
-
-        // Insert new selections
-        if (finalSelections.length > 0) {
-          const insertData = finalSelections.map(sel => ({
-            member_id: memberId,
-            resource_category_id: sel.category_id,
-            subcategory_name: sel.subcategory_name
-          }));
-
-          const { error: insertError } = await supabase
-            .from('member_resource_category')
-            .insert(insertData);
-
-          if (insertError) {
-            console.error('[Member Categories] Insert error:', insertError);
-            return res.status(500).json({ error: 'Failed to save category selections' });
-          }
-        }
-
-        console.log(`[Member Categories] Saved ${finalSelections.length} subcategory selections for member ${memberId}`);
-        res.json({ success: true, count: finalSelections.length });
-      } else {
-        // No selections - delete all
-        const { error: deleteError } = await supabase
-          .from('member_resource_category')
-          .delete()
-          .eq('member_id', memberId);
-
-        if (deleteError) {
-          console.error('[Member Categories] Delete all error:', deleteError);
-          return res.status(500).json({ error: 'Failed to clear category selections' });
-        }
-
-        console.log(`[Member Categories] Cleared all selections for member ${memberId}`);
-        res.json({ success: true, count: 0 });
+        console.log(`[Member Categories] Removed ${toRemove.length} selections`);
       }
+
+      if (toAdd.length > 0) {
+        const insertData = toAdd.map(sel => ({
+          member_id: memberId,
+          resource_category_id: sel.category_id,
+          subcategory_name: sel.subcategory_name
+        }));
+
+        const { error: insertError } = await supabase
+          .from('member_resource_category')
+          .insert(insertData);
+
+        if (insertError) {
+          console.error('[Member Categories] Insert error:', insertError);
+          return res.status(500).json({ error: 'Failed to add new category selections' });
+        }
+        console.log(`[Member Categories] Added ${toAdd.length} selections`);
+      }
+
+      console.log(`[Member Categories] Updated member ${memberId}: +${toAdd.length} -${toRemove.length}, total: ${finalSelections.length}`);
+      res.json({ success: true, count: finalSelections.length, added: toAdd.length, removed: toRemove.length });
     } catch (error) {
       console.error('[Member Categories] Error:', error);
       res.status(500).json({ error: 'Failed to update member categories' });

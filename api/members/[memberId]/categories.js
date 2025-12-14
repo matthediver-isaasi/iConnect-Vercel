@@ -1,4 +1,3 @@
-import { getSessionMember } from '../../_lib/session.js';
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -54,6 +53,16 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'selections must be an array of {category_id, subcategory_name}' });
       }
 
+      const { data: member, error: memberError } = await supabase
+        .from('member')
+        .select('id')
+        .eq('id', memberId)
+        .single();
+
+      if (memberError || !member) {
+        return res.status(404).json({ error: 'Member not found' });
+      }
+
       const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
       const validSelections = [];
       const seenKeys = new Set();
@@ -74,18 +83,10 @@ export default async function handler(req, res) {
         }
       }
 
-      const { data: member, error: memberError } = await supabase
-        .from('member')
-        .select('id')
-        .eq('id', memberId)
-        .single();
-
-      if (memberError || !member) {
-        return res.status(404).json({ error: 'Member not found' });
-      }
-
-      if (validSelections.length > 0) {
-        const categoryIds = [...new Set(validSelections.map(s => s.category_id))];
+      const categoryIds = [...new Set(validSelections.map(s => s.category_id))];
+      
+      let finalSelections = [];
+      if (categoryIds.length > 0) {
         const { data: existingCategories, error: catError } = await supabase
           .from('resource_category')
           .select('id, subcategories')
@@ -97,7 +98,7 @@ export default async function handler(req, res) {
         }
 
         const categoryMap = new Map((existingCategories || []).map(c => [c.id, c.subcategories || []]));
-        const finalSelections = validSelections.filter(sel => {
+        finalSelections = validSelections.filter(sel => {
           const subcats = categoryMap.get(sel.category_id);
           if (subcats === undefined) return false;
           
@@ -107,54 +108,67 @@ export default async function handler(req, res) {
           
           return sel.subcategory_name !== null && subcats.includes(sel.subcategory_name);
         });
+      }
 
-        if (finalSelections.length !== validSelections.length) {
-          console.log(`[Member Categories] Filtered out ${validSelections.length - finalSelections.length} invalid subcategory selections`);
-        }
+      const { data: currentSelections, error: fetchError } = await supabase
+        .from('member_resource_category')
+        .select('id, resource_category_id, subcategory_name')
+        .eq('member_id', memberId);
 
+      if (fetchError) {
+        console.error('[Member Categories] Fetch current error:', fetchError);
+        return res.status(500).json({ error: 'Failed to fetch current selections' });
+      }
+
+      const currentKeys = new Set(
+        (currentSelections || []).map(s => `${s.resource_category_id}|${s.subcategory_name || ''}`)
+      );
+      const newKeys = new Set(
+        finalSelections.map(s => `${s.category_id}|${s.subcategory_name || ''}`)
+      );
+
+      const toAdd = finalSelections.filter(s => 
+        !currentKeys.has(`${s.category_id}|${s.subcategory_name || ''}`)
+      );
+      
+      const toRemove = (currentSelections || []).filter(s => 
+        !newKeys.has(`${s.resource_category_id}|${s.subcategory_name || ''}`)
+      );
+
+      if (toRemove.length > 0) {
+        const removeIds = toRemove.map(s => s.id);
         const { error: deleteError } = await supabase
           .from('member_resource_category')
           .delete()
-          .eq('member_id', memberId);
+          .in('id', removeIds);
 
         if (deleteError) {
           console.error('[Member Categories] Delete error:', deleteError);
-          return res.status(500).json({ error: 'Failed to clear existing selections' });
+          return res.status(500).json({ error: 'Failed to remove unselected categories' });
         }
-
-        if (finalSelections.length > 0) {
-          const insertData = finalSelections.map(sel => ({
-            member_id: memberId,
-            resource_category_id: sel.category_id,
-            subcategory_name: sel.subcategory_name
-          }));
-
-          const { error: insertError } = await supabase
-            .from('member_resource_category')
-            .insert(insertData);
-
-          if (insertError) {
-            console.error('[Member Categories] Insert error:', insertError);
-            return res.status(500).json({ error: 'Failed to save category selections' });
-          }
-        }
-
-        console.log(`[Member Categories] Saved ${finalSelections.length} subcategory selections for member ${memberId}`);
-        return res.json({ success: true, count: finalSelections.length });
-      } else {
-        const { error: deleteError } = await supabase
-          .from('member_resource_category')
-          .delete()
-          .eq('member_id', memberId);
-
-        if (deleteError) {
-          console.error('[Member Categories] Delete all error:', deleteError);
-          return res.status(500).json({ error: 'Failed to clear category selections' });
-        }
-
-        console.log(`[Member Categories] Cleared all selections for member ${memberId}`);
-        return res.json({ success: true, count: 0 });
+        console.log(`[Member Categories] Removed ${toRemove.length} selections`);
       }
+
+      if (toAdd.length > 0) {
+        const insertData = toAdd.map(sel => ({
+          member_id: memberId,
+          resource_category_id: sel.category_id,
+          subcategory_name: sel.subcategory_name
+        }));
+
+        const { error: insertError } = await supabase
+          .from('member_resource_category')
+          .insert(insertData);
+
+        if (insertError) {
+          console.error('[Member Categories] Insert error:', insertError);
+          return res.status(500).json({ error: 'Failed to add new category selections' });
+        }
+        console.log(`[Member Categories] Added ${toAdd.length} selections`);
+      }
+
+      console.log(`[Member Categories] Updated member ${memberId}: +${toAdd.length} -${toRemove.length}, total: ${finalSelections.length}`);
+      return res.json({ success: true, count: finalSelections.length, added: toAdd.length, removed: toRemove.length });
     } catch (error) {
       console.error('[Member Categories] Error:', error);
       return res.status(500).json({ error: 'Failed to update member categories' });
