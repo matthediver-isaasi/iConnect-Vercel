@@ -39,6 +39,7 @@ import {
   ClipboardList,
   Download,
   Award,
+  FolderTree,
 } from "lucide-react";
 import { format } from "date-fns";
 import ResourceFilter from "../components/resources/ResourceFilter";
@@ -1157,6 +1158,27 @@ export default function PreferencesPage() {
     });
   };
 
+  // Check if a subcategory is selected (format: "categoryId|subcategoryName" or just "categoryId" for flat categories)
+  const isSubcategorySelected = (categoryId, subcategoryName) => {
+    if (subcategoryName === null) {
+      // Flat category - check for just the category ID
+      return selectedSubcategories.includes(categoryId);
+    }
+    // Subcategory - check for "categoryId|subcategoryName"
+    return selectedSubcategories.includes(`${categoryId}|${subcategoryName}`);
+  };
+
+  // Toggle a subcategory selection
+  const toggleSubcategory = (categoryId, subcategoryName) => {
+    const key = subcategoryName === null ? categoryId : `${categoryId}|${subcategoryName}`;
+    setSelectedSubcategories(prev => {
+      const exists = prev.includes(key);
+      const newSelection = exists ? prev.filter(s => s !== key) : [...prev, key];
+      setHasUnsavedChanges(true);
+      return newSelection;
+    });
+  };
+
   // --- Track profile / org changes ---
   useEffect(() => {
     if (!memberRecord) return;
@@ -1963,104 +1985,182 @@ export default function PreferencesPage() {
         );
 
       case 'resource_interests':
+        // Separate categories with subcategories from flat categories
+        const categoriesWithSubcats = categories.filter(c => 
+          c.subcategories && Array.isArray(c.subcategories) && c.subcategories.length > 0
+        );
+        const flatCategories = categories.filter(c => 
+          !c.subcategories || !Array.isArray(c.subcategories) || c.subcategories.length === 0
+        );
+        
         return (
           <Card key="resource_interests" className="border-slate-200 shadow-sm">
-          <CardHeader>
-            <CardTitle>Resource Interests</CardTitle>
-            <CardDescription>
-              Select topics you're interested in to personalize your experience
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="grid md:grid-cols-2 gap-6">
+            <CardHeader className="flex flex-row items-center justify-between gap-2">
               <div>
-                <h3 className="text-sm font-semibold text-slate-900 mb-4">
-                  Browse Topics
-                </h3>
-                <div className="border border-slate-200 rounded-lg bg-slate-50 p-4 max-h-[600px] overflow-y-auto">
-                  <ResourceFilter
-                    categories={filteredCategories}
-                    selectedSubcategories={selectedSubcategories}
-                    onSubcategoryToggle={handleSubcategoryToggle}
-                    searchQuery={searchQuery}
-                    onSearchChange={setSearchQuery}
-                    onClearSearch={() => setSearchQuery("")}
-                    onCategoryToggle={handleCategoryExpand}
-                    expandedCategories={expandedCategories}
-                  />
-                </div>
+                <CardTitle className="flex items-center gap-2">
+                  <FolderTree className="w-5 h-5 text-blue-600" />
+                  Resource Interests
+                </CardTitle>
+                <CardDescription>
+                  Select the categories that interest you to personalize your experience
+                </CardDescription>
               </div>
-
-              <div>
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-sm font-semibold text-slate-900">
-                    Your Interests
-                  </h3>
-                  {selectedSubcategories.length > 0 && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={handleResetFilters}
-                      className="text-blue-600 hover:text-blue-700"
-                    >
-                      Clear All
-                    </Button>
-                  )}
-                </div>
-
-                {selectedSubcategories.length === 0 ? (
-                  <div className="border border-dashed border-slate-300 rounded-lg p-8 text-center">
-                    <p className="text-slate-500 text-sm">
-                      No interests selected yet. Browse topics on the left to
-                      get started.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="border border-slate-200 rounded-lg bg-white p-4 space-y-2 max-h-[600px] overflow-y-auto">
-                    {selectedSubcategories.map((subcategory) => (
-                      <div
-                        key={subcategory}
-                        className="flex items-center justify-between p-2 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors"
-                      >
-                        <span className="text-sm text-slate-900">
-                          {subcategory}
-                        </span>
-                        <button
-                          onClick={() => handleSubcategoryToggle(subcategory)}
-                          className="text-slate-500 hover:text-slate-700"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {hasUnsavedChanges && (
-              <div className="flex justify-end pt-4 border-t border-slate-200">
+              {hasUnsavedChanges && (
                 <Button
                   onClick={handleSavePreferences}
                   disabled={isSaving}
-                  className="bg-blue-600 hover:bg-blue-700"
+                  data-testid="button-save-preferences"
                 >
                   {isSaving ? (
-                    <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Saving...
-                    </>
+                    <Loader2 className="w-4 h-4 animate-spin mr-1" />
                   ) : (
-                    <>
-                      <Save className="w-4 h-4 mr-2" />
-                      Save Preferences
-                    </>
+                    <Save className="w-4 h-4 mr-1" />
                   )}
+                  Save
                 </Button>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+              )}
+            </CardHeader>
+            <CardContent>
+              {(categoriesLoading || memberResourceCategoriesLoading) ? (
+                <div className="space-y-3">
+                  {[1, 2, 3].map(i => (
+                    <div key={i} className="border border-slate-200 rounded-lg p-3 animate-pulse">
+                      <div className="flex items-center gap-2">
+                        <div className="w-4 h-4 bg-slate-200 rounded" />
+                        <div className="h-4 bg-slate-200 rounded w-32" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : categories.length === 0 ? (
+                <p className="text-sm text-slate-500 text-center py-8">No categories available</p>
+              ) : (
+                <div className="space-y-6">
+                  <p className="text-sm text-slate-600">
+                    Select the categories that interest you. These preferences help personalize content recommendations.
+                  </p>
+                  
+                  {/* Flat categories (no subcategories) - display as selectable grid */}
+                  {flatCategories.length > 0 && (
+                    <div className="space-y-3">
+                      <h3 className="font-semibold text-slate-900 flex items-center gap-2">
+                        <FolderTree className="w-4 h-4 text-slate-500" />
+                        Categories
+                      </h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                        {flatCategories.map(category => {
+                          const isSelected = isSubcategorySelected(category.id, null);
+                          return (
+                            <div 
+                              key={category.id} 
+                              className={`border rounded-lg p-3 cursor-pointer transition-colors ${
+                                isSelected 
+                                  ? 'border-blue-500 bg-blue-50' 
+                                  : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
+                              }`}
+                              onClick={() => toggleSubcategory(category.id, null)}
+                              data-testid={`category-card-${category.id}`}
+                            >
+                              <div className="flex items-start gap-3">
+                                <Checkbox
+                                  id={`pref-cat-${category.id}`}
+                                  checked={isSelected}
+                                  onCheckedChange={() => toggleSubcategory(category.id, null)}
+                                  data-testid={`checkbox-category-${category.id}`}
+                                />
+                                <div className="flex-1 min-w-0">
+                                  <Label 
+                                    htmlFor={`pref-cat-${category.id}`} 
+                                    className="font-medium text-sm cursor-pointer text-slate-900"
+                                  >
+                                    {category.name}
+                                  </Label>
+                                  {category.description && (
+                                    <p className="text-xs text-slate-500 mt-1 line-clamp-2">
+                                      {category.description}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Categories with subcategories - display as headers with selectable children */}
+                  {categoriesWithSubcats.map(category => {
+                    const selectedCount = (category.subcategories || []).filter(subName => 
+                      isSubcategorySelected(category.id, subName)
+                    ).length;
+                    
+                    return (
+                      <div key={category.id} className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <h3 className="font-semibold text-slate-900 flex items-center gap-2">
+                            <FolderTree className="w-4 h-4 text-slate-500" />
+                            {category.name}
+                          </h3>
+                          {selectedCount > 0 && (
+                            <Badge variant="secondary" className="text-xs">
+                              {selectedCount} selected
+                            </Badge>
+                          )}
+                        </div>
+                        {category.description && (
+                          <p className="text-xs text-slate-500 -mt-1">{category.description}</p>
+                        )}
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                          {(category.subcategories || []).map((subcatName, idx) => {
+                            const isSelected = isSubcategorySelected(category.id, subcatName);
+                            const uniqueKey = `${category.id}-${subcatName}`;
+                            return (
+                              <div 
+                                key={uniqueKey} 
+                                className={`border rounded-lg p-3 cursor-pointer transition-colors ${
+                                  isSelected 
+                                    ? 'border-blue-500 bg-blue-50' 
+                                    : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
+                                }`}
+                                onClick={() => toggleSubcategory(category.id, subcatName)}
+                                data-testid={`subcategory-card-${category.id}-${idx}`}
+                              >
+                                <div className="flex items-start gap-3">
+                                  <Checkbox
+                                    id={`pref-subcat-${uniqueKey}`}
+                                    checked={isSelected}
+                                    onCheckedChange={() => toggleSubcategory(category.id, subcatName)}
+                                    data-testid={`checkbox-subcategory-${category.id}-${idx}`}
+                                  />
+                                  <div className="flex-1 min-w-0">
+                                    <Label 
+                                      htmlFor={`pref-subcat-${uniqueKey}`} 
+                                      className="font-medium text-sm cursor-pointer text-slate-900"
+                                    >
+                                      {subcatName}
+                                    </Label>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                  
+                  {selectedSubcategories.length > 0 && (
+                    <div className="mt-4 pt-4 border-t border-slate-200">
+                      <p className="text-sm text-slate-600">
+                        <span className="font-medium">{selectedSubcategories.length}</span> {selectedSubcategories.length === 1 ? 'item' : 'items'} selected
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
         );
 
       case 'communications':
