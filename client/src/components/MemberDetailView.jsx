@@ -34,7 +34,8 @@ import {
   ClipboardList,
   Linkedin,
   Globe,
-  LogIn
+  LogIn,
+  FolderTree
 } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -112,6 +113,36 @@ export default function MemberDetailView({
     enabled: activeTab === 'activity' && memberBookings.length > 0,
     queryFn: async () => {
       return await base44.entities.Event.list();
+    }
+  });
+
+  const { data: resourceCategories = [], isLoading: categoriesLoading } = useQuery({
+    queryKey: ['resource-categories-for-member-detail'],
+    enabled: activeTab === 'categories',
+    queryFn: async () => {
+      try {
+        const categories = await base44.entities.ResourceCategory.list({
+          filter: { is_active: true }
+        });
+        return categories || [];
+      } catch {
+        return [];
+      }
+    }
+  });
+
+  const { data: preferenceFields = [] } = useQuery({
+    queryKey: ['category-preference-fields'],
+    enabled: activeTab === 'categories',
+    queryFn: async () => {
+      try {
+        const fields = await base44.entities.PreferenceField.list({
+          filter: { is_active: true }
+        });
+        return (fields || []).filter(f => f.field_type === 'category_multiselect');
+      } catch {
+        return [];
+      }
     }
   });
 
@@ -353,6 +384,10 @@ export default function MemberDetailView({
             <TabsTrigger value="roles" className="gap-1" data-testid="tab-member-roles">
               <Shield className="w-4 h-4" />
               Roles
+            </TabsTrigger>
+            <TabsTrigger value="categories" className="gap-1" data-testid="tab-member-categories">
+              <FolderTree className="w-4 h-4" />
+              Categories
             </TabsTrigger>
           </TabsList>
 
@@ -892,6 +927,104 @@ export default function MemberDetailView({
                     )}
                   </div>
                 )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="categories" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <FolderTree className="w-5 h-5 text-blue-600" />
+                  Category Preferences
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {categoriesLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
+                  </div>
+                ) : (() => {
+                  const categoryPrefs = memberValues.filter(pv => {
+                    const field = preferenceFields.find(f => f.id === pv.field_id);
+                    return field?.field_type === 'category_multiselect';
+                  });
+
+                  if (categoryPrefs.length === 0) {
+                    return (
+                      <p className="text-sm text-slate-500 text-center py-8">No category preferences set</p>
+                    );
+                  }
+
+                  const categoryMap = {};
+                  resourceCategories.forEach(cat => {
+                    categoryMap[cat.id] = cat;
+                    if (cat.subcategories) {
+                      cat.subcategories.forEach(sub => {
+                        categoryMap[sub.id || sub] = { name: typeof sub === 'object' ? sub.name : sub, parent: cat };
+                      });
+                    }
+                  });
+
+                  return (
+                    <div className="space-y-4">
+                      {categoryPrefs.map(pv => {
+                        const field = preferenceFields.find(f => f.id === pv.field_id);
+                        let selectedIds = [];
+                        try {
+                          selectedIds = JSON.parse(pv.value);
+                        } catch {
+                          selectedIds = [];
+                        }
+
+                        const groupedByParent = {};
+                        selectedIds.forEach(id => {
+                          const cat = categoryMap[id];
+                          if (cat?.parent) {
+                            const parentName = cat.parent.name;
+                            if (!groupedByParent[parentName]) {
+                              groupedByParent[parentName] = [];
+                            }
+                            groupedByParent[parentName].push(cat.name);
+                          } else if (cat) {
+                            if (!groupedByParent['__root__']) {
+                              groupedByParent['__root__'] = [];
+                            }
+                            groupedByParent['__root__'].push(cat.name);
+                          }
+                        });
+
+                        return (
+                          <div key={pv.id} className="space-y-2">
+                            {field && (
+                              <h4 className="font-medium text-sm text-slate-700">{field.label}</h4>
+                            )}
+                            {Object.entries(groupedByParent).length === 0 ? (
+                              <p className="text-sm text-slate-500">No categories selected</p>
+                            ) : (
+                              <div className="space-y-3">
+                                {Object.entries(groupedByParent).map(([parentName, subcats]) => (
+                                  <div key={parentName} className="space-y-1">
+                                    {parentName !== '__root__' && (
+                                      <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">{parentName}</p>
+                                    )}
+                                    <div className="flex flex-wrap gap-2">
+                                      {subcats.map((subcat, idx) => (
+                                        <Badge key={idx} variant="secondary" className="text-xs">
+                                          {subcat}
+                                        </Badge>
+                                      ))}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
               </CardContent>
             </Card>
           </TabsContent>
