@@ -194,3 +194,10 @@ ALTER TABLE form ADD COLUMN IF NOT EXISTS submission_email_recipient TEXT;
 ```sql
 ALTER TABLE member ADD COLUMN IF NOT EXISTS created_on TIMESTAMPTZ DEFAULT NOW();
 ```
+
+## Member Table - Mobile and Landline Columns
+
+```sql
+ALTER TABLE member ADD COLUMN IF NOT EXISTS mobile TEXT;
+ALTER TABLE member ADD COLUMN IF NOT EXISTS landline TEXT;
+```

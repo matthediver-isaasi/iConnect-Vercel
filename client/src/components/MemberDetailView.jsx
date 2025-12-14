@@ -19,7 +19,9 @@ import {
   ArrowLeft, 
   Building2, 
   Mail, 
-  Phone, 
+  Phone,
+  Smartphone,
+  PhoneCall, 
   Briefcase,
   Pencil, 
   Save, 
@@ -58,6 +60,8 @@ export default function MemberDetailView({
     last_name: '',
     email: '',
     phone: '',
+    mobile: '',
+    landline: '',
     job_title: '',
     bio: '',
     linkedin_url: '',
@@ -121,6 +125,8 @@ export default function MemberDetailView({
         last_name: member.last_name || '',
         email: member.email || '',
         phone: member.phone || '',
+        mobile: member.mobile || '',
+        landline: member.landline || '',
         job_title: member.job_title || '',
         bio: member.bio || '',
         linkedin_url: member.linkedin_url || '',
@@ -224,6 +230,8 @@ export default function MemberDetailView({
       last_name: member.last_name || '',
       email: member.email || '',
       phone: member.phone || '',
+      mobile: member.mobile || '',
+      landline: member.landline || '',
       job_title: member.job_title || '',
       bio: member.bio || '',
       linkedin_url: member.linkedin_url || '',
@@ -397,6 +405,22 @@ export default function MemberDetailView({
                         />
                       </div>
                       <div className="space-y-2">
+                        <Label>Mobile</Label>
+                        <Input
+                          value={formData.mobile}
+                          onChange={(e) => setFormData(prev => ({ ...prev, mobile: e.target.value }))}
+                          data-testid="input-member-mobile"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Landline</Label>
+                        <Input
+                          value={formData.landline}
+                          onChange={(e) => setFormData(prev => ({ ...prev, landline: e.target.value }))}
+                          data-testid="input-member-landline"
+                        />
+                      </div>
+                      <div className="space-y-2">
                         <Label>Job Title</Label>
                         <Input
                           value={formData.job_title}
@@ -454,6 +478,22 @@ export default function MemberDetailView({
                         <div>
                           <p className="text-xs text-slate-500">Phone</p>
                           <p className="text-sm">{member.phone || '-'}</p>
+                        </div>
+                      </div>
+                      <Separator />
+                      <div className="flex items-center gap-3 py-2">
+                        <Smartphone className="w-4 h-4 text-slate-400" />
+                        <div>
+                          <p className="text-xs text-slate-500">Mobile</p>
+                          <p className="text-sm">{member.mobile || '-'}</p>
+                        </div>
+                      </div>
+                      <Separator />
+                      <div className="flex items-center gap-3 py-2">
+                        <PhoneCall className="w-4 h-4 text-slate-400" />
+                        <div>
+                          <p className="text-xs text-slate-500">Landline</p>
+                          <p className="text-sm">{member.landline || '-'}</p>
                         </div>
                       </div>
                       <Separator />

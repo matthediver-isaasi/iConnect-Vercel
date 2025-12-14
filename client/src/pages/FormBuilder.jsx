@@ -85,6 +85,8 @@ const MEMBER_CORE_FIELDS = [
   { value: 'last_name', label: 'Last Name' },
   { value: 'full_name', label: 'Full Name' },
   { value: 'phone', label: 'Phone' },
+  { value: 'mobile', label: 'Mobile' },
+  { value: 'landline', label: 'Landline' },
   { value: 'job_title', label: 'Job Title' },
 ];
 
@@ -109,6 +111,8 @@ const UNIQUENESS_TARGET_FIELDS = {
     { value: 'member.email', label: 'Member Email', isEmail: true },
     { value: 'member.full_name', label: 'Member Full Name', isEmail: false },
     { value: 'member.phone', label: 'Member Phone', isEmail: false },
+    { value: 'member.mobile', label: 'Member Mobile', isEmail: false },
+    { value: 'member.landline', label: 'Member Landline', isEmail: false },
   ],
   organization: [
     { value: 'organization.name', label: 'Organisation Name', isEmail: false },
