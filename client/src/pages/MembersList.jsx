@@ -278,7 +278,7 @@ export default function MembersListPage() {
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
       result = result.filter(m => 
-        m.full_name?.toLowerCase().includes(query) ||
+        getMemberName(m).toLowerCase().includes(query) ||
         m.email?.toLowerCase().includes(query) ||
         m.phone?.toLowerCase().includes(query) ||
         m.job_title?.toLowerCase().includes(query)
@@ -437,6 +437,10 @@ export default function MembersListPage() {
     customFieldsMergedRef.current = false;
   };
 
+  const getMemberName = (member) => {
+    return [member?.first_name, member?.last_name].filter(Boolean).join(' ') || '';
+  };
+
   const getInitials = (name) => {
     if (!name) return '?';
     return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
@@ -454,10 +458,10 @@ export default function MembersListPage() {
             <Avatar className="h-8 w-8">
               <AvatarImage src={member.profile_photo} />
               <AvatarFallback className="bg-blue-100 text-blue-700 text-xs">
-                {getInitials(member.full_name)}
+                {getInitials(getMemberName(member))}
               </AvatarFallback>
             </Avatar>
-            <span className="font-medium text-slate-900">{member.full_name || 'Unknown'}</span>
+            <span className="font-medium text-slate-900">{getMemberName(member) || 'Unknown'}</span>
           </div>
         );
       case 'email':
@@ -938,11 +942,11 @@ export default function MembersListPage() {
                           <Avatar className="h-12 w-12">
                             <AvatarImage src={member.profile_photo} />
                             <AvatarFallback className="bg-blue-100 text-blue-700">
-                              {getInitials(member.full_name)}
+                              {getInitials(getMemberName(member))}
                             </AvatarFallback>
                           </Avatar>
                           <div className="flex-1 min-w-0">
-                            <h3 className="font-medium text-slate-900 truncate">{member.full_name || 'Unknown'}</h3>
+                            <h3 className="font-medium text-slate-900 truncate">{getMemberName(member) || 'Unknown'}</h3>
                             {member.job_title && (
                               <p className="text-sm text-slate-500 truncate flex items-center gap-1">
                                 <Briefcase className="w-3 h-3" />

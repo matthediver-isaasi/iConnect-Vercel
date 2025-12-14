@@ -51,7 +51,8 @@ export default function MemberDetailView({
   const [isEditing, setIsEditing] = useState(isNew);
   const [activeTab, setActiveTab] = useState('overview');
   const [formData, setFormData] = useState({
-    full_name: '',
+    first_name: '',
+    last_name: '',
     email: '',
     phone: '',
     job_title: '',
@@ -60,6 +61,10 @@ export default function MemberDetailView({
     organization_id: defaultOrganizationId,
     disabled: false
   });
+
+  const getMemberName = (m) => {
+    return [m?.first_name, m?.last_name].filter(Boolean).join(' ') || '';
+  };
   const [customFieldValues, setCustomFieldValues] = useState({});
   const [selectedRoles, setSelectedRoles] = useState([]);
 
@@ -108,7 +113,8 @@ export default function MemberDetailView({
     // Skip this for new member creation to preserve defaultOrganizationId
     if (member?.id) {
       setFormData({
-        full_name: member.full_name || '',
+        first_name: member.first_name || '',
+        last_name: member.last_name || '',
         email: member.email || '',
         phone: member.phone || '',
         job_title: member.job_title || '',
@@ -209,7 +215,8 @@ export default function MemberDetailView({
     }
     
     setFormData({
-      full_name: member.full_name || '',
+      first_name: member.first_name || '',
+      last_name: member.last_name || '',
       email: member.email || '',
       phone: member.phone || '',
       job_title: member.job_title || '',
@@ -265,14 +272,14 @@ export default function MemberDetailView({
                   <>
                     <AvatarImage src={member?.profile_photo} />
                     <AvatarFallback className="bg-blue-100 text-blue-700">
-                      {getInitials(member?.full_name)}
+                      {getInitials(getMemberName(member))}
                     </AvatarFallback>
                   </>
                 )}
               </Avatar>
               <div>
                 <h1 className="text-xl font-semibold text-slate-900">
-                  {isNew ? 'Add New Member' : (member?.full_name || 'Unknown Member')}
+                  {isNew ? 'Add New Member' : (getMemberName(member) || 'Unknown Member')}
                 </h1>
                 {!isNew && (
                   <p className="text-sm text-slate-500 flex items-center gap-2">
@@ -351,11 +358,19 @@ export default function MemberDetailView({
                   {isEditing ? (
                     <>
                       <div className="space-y-2">
-                        <Label>Full Name</Label>
+                        <Label>First Name</Label>
                         <Input
-                          value={formData.full_name}
-                          onChange={(e) => setFormData(prev => ({ ...prev, full_name: e.target.value }))}
-                          data-testid="input-member-name"
+                          value={formData.first_name}
+                          onChange={(e) => setFormData(prev => ({ ...prev, first_name: e.target.value }))}
+                          data-testid="input-member-first-name"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Last Name</Label>
+                        <Input
+                          value={formData.last_name}
+                          onChange={(e) => setFormData(prev => ({ ...prev, last_name: e.target.value }))}
+                          data-testid="input-member-last-name"
                         />
                       </div>
                       <div className="space-y-2">
@@ -407,8 +422,16 @@ export default function MemberDetailView({
                       <div className="flex items-center gap-3 py-2">
                         <User className="w-4 h-4 text-slate-400" />
                         <div>
-                          <p className="text-xs text-slate-500">Full Name</p>
-                          <p className="text-sm font-medium">{member.full_name || '-'}</p>
+                          <p className="text-xs text-slate-500">First Name</p>
+                          <p className="text-sm font-medium">{member.first_name || '-'}</p>
+                        </div>
+                      </div>
+                      <Separator />
+                      <div className="flex items-center gap-3 py-2">
+                        <User className="w-4 h-4 text-slate-400" />
+                        <div>
+                          <p className="text-xs text-slate-500">Last Name</p>
+                          <p className="text-sm font-medium">{member.last_name || '-'}</p>
                         </div>
                       </div>
                       <Separator />
