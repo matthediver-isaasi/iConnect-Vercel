@@ -1473,7 +1473,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
             createdMemberId = existingMember.id;
           } else if (memberAction === 'update' || memberAction === 'upsert') {
             // Update existing member
-            // Note: member table doesn't have phone column
             const updateData: Record<string, any> = {};
             if (memberData.first_name) updateData.first_name = memberData.first_name;
             if (memberData.last_name) updateData.last_name = memberData.last_name;
@@ -1484,6 +1483,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
               updateData.last_name = nameParts.slice(1).join(' ') || '';
             }
             if (memberData.job_title) updateData.job_title = memberData.job_title;
+            if (memberData.mobile) updateData.mobile = memberData.mobile;
+            if (memberData.landline) updateData.landline = memberData.landline;
             // Add role_id if triggered from form conditional logic (null clears the role)
             if (role_id !== undefined) updateData.role_id = role_id;
             // Use createdOrganizationId if org was created/updated, otherwise use prefill_organization_id
@@ -1520,7 +1521,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
             // Use createdOrganizationId if org was created/updated, otherwise use prefill_organization_id
             const orgIdForNewMember = createdOrganizationId || prefill_organization_id || null;
             
-            // Note: member table doesn't have phone or status columns
             const memberInsertData: any = {
               email: memberData.email || `pending-${Date.now()}@example.com`,
               first_name: memberData.first_name || '',
@@ -1529,8 +1529,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
               login_enabled: true,
               created_on: new Date().toISOString()
             };
-            // Add job_title only if provided (it's a valid column)
+            // Add optional fields if provided
             if (memberData.job_title) memberInsertData.job_title = memberData.job_title;
+            if (memberData.mobile) memberInsertData.mobile = memberData.mobile;
+            if (memberData.landline) memberInsertData.landline = memberData.landline;
             // Add role_id if triggered from form conditional logic (null clears the role)
             if (role_id !== undefined) {
               memberInsertData.role_id = role_id;
