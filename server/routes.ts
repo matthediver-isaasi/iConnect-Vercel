@@ -1766,7 +1766,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
 
           // Handle category_multiselect field values - save to member_resource_category table
-          const categoryFields = fields.filter((f: any) => f.type === 'category_multiselect');
+          const categoryFields = fields.filter((f: any) => f.type === 'category_multiselect' || f.type === 'resource_categories');
           if (categoryFields.length > 0) {
             // Get all resource categories to map subcategory names to category IDs
             const { data: resourceCategories } = await supabase

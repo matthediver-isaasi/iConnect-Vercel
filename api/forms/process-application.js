@@ -553,50 +553,118 @@ export default async function handler(req, res) {
         }
       }
 
-      // Save category_multiselect field values to member_resource_category join table
-      // This is the proper many-to-many relationship between members and resource categories
-      if (createdMemberId && fields && Array.isArray(fields)) {
-        for (const field of fields) {
-          if (field.type === 'category_multiselect' || field.type === 'resource_categories') {
-            const selections = form_values[field.id];
-            const hasSelections = selections && Array.isArray(selections) && selections.length > 0;
-            
-            console.log('[AppProcessor] Processing category selections for member:', createdMemberId, 'field:', field.id, 'selections:', selections);
-            
-            // First, delete existing category selections for this member
-            // (form submission replaces all previous selections)
-            const { error: deleteError } = await supabase
-              .from('member_resource_category')
-              .delete()
-              .eq('member_id', createdMemberId);
-            
-            if (deleteError) {
-              console.error('[AppProcessor] Error clearing existing category selections:', deleteError);
-              // Don't fail - this might be a new table that doesn't exist yet
-            }
-            
-            if (hasSelections) {
-              // Insert new category selections
-              const categoryInserts = selections.map(categoryId => ({
-                member_id: createdMemberId,
-                resource_category_id: categoryId
-              }));
-              
-              const { error: insertError } = await supabase
-                .from('member_resource_category')
-                .insert(categoryInserts);
-              
-              if (insertError) {
-                console.error('[AppProcessor] Error saving category selections:', insertError);
-                // Log but don't fail the entire submission
-                console.log('[AppProcessor] Category selection save failed - table may not exist yet. Run migration: scripts/create-member-resource-category.sql');
-              } else {
-                console.log('[AppProcessor] Saved', selections.length, 'category selections for member:', createdMemberId);
-              }
-            } else {
-              console.log('[AppProcessor] No category selections to save for member:', createdMemberId);
+      // Handle category_multiselect field values - save to member_resource_category table
+      // Uses diff-based approach: only add/remove what changed
+      const categoryFields = fields.filter(f => f.type === 'category_multiselect' || f.type === 'resource_categories');
+      if (createdMemberId && categoryFields.length > 0) {
+        // Get all resource categories to map subcategory names to category IDs
+        const { data: resourceCategories } = await supabase
+          .from('resource_category')
+          .select('id, name, subcategories')
+          .eq('is_active', true);
+        
+        // Parse subcategories that might be stored as JSON strings and normalize
+        const categoryMap = new Map((resourceCategories || []).map(c => {
+          let subcats = c.subcategories || [];
+          // Handle case where subcategories is stored as JSON string
+          if (typeof subcats === 'string') {
+            try {
+              subcats = JSON.parse(subcats);
+            } catch {
+              subcats = [];
             }
           }
+          // Ensure it's an array and trim all values
+          if (!Array.isArray(subcats)) subcats = [];
+          subcats = subcats.map(s => String(s).trim()).filter(Boolean);
+          return [c.id, subcats];
+        }));
+        
+        // Build set of category IDs affected by the form fields
+        const formCategoryIds = new Set();
+        for (const field of categoryFields) {
+          const allowedCatIds = field.allowed_category_ids?.length > 0 
+            ? field.allowed_category_ids 
+            : Array.from(categoryMap.keys());
+          allowedCatIds.forEach(id => formCategoryIds.add(id));
+        }
+        
+        // Build list of category selections from all category_multiselect fields
+        const categorySelections = [];
+        
+        for (const field of categoryFields) {
+          const selectedValues = form_values[field.id];
+          if (!Array.isArray(selectedValues) || selectedValues.length === 0) continue;
+          
+          // Get allowed categories for this field (or all if not specified)
+          const allowedCategoryIds = field.allowed_category_ids?.length > 0 
+            ? field.allowed_category_ids 
+            : Array.from(categoryMap.keys());
+          
+          // Map selected subcategory names to their parent category IDs
+          for (const subcatName of selectedValues) {
+            const normalizedSubcat = String(subcatName).trim();
+            // Find which category this subcategory belongs to
+            for (const catId of allowedCategoryIds) {
+              const subcats = categoryMap.get(catId);
+              if (subcats && subcats.includes(normalizedSubcat)) {
+                categorySelections.push({
+                  category_id: catId,
+                  subcategory_name: normalizedSubcat
+                });
+                break;
+              }
+            }
+          }
+        }
+        
+        // Get current selections for diff-based update (always do this, even for empty submissions)
+        const { data: currentSelections } = await supabase
+          .from('member_resource_category')
+          .select('id, resource_category_id, subcategory_name')
+          .eq('member_id', createdMemberId);
+        
+        const existing = currentSelections || [];
+        const currentKeys = new Set(
+          existing.map(s => `${s.resource_category_id}|${s.subcategory_name || ''}`)
+        );
+        const newKeys = new Set(
+          categorySelections.map(s => `${s.category_id}|${s.subcategory_name || ''}`)
+        );
+        
+        // Find selections to add
+        const toAdd = categorySelections.filter(s => 
+          !currentKeys.has(`${s.category_id}|${s.subcategory_name || ''}`)
+        );
+        
+        // Find selections to remove (only remove if in the same categories as the form fields)
+        const toRemove = existing.filter(s => 
+          formCategoryIds.has(s.resource_category_id) && 
+          !newKeys.has(`${s.resource_category_id}|${s.subcategory_name || ''}`)
+        );
+        
+        // Remove old selections (including when form submits empty to clear selections)
+        if (toRemove.length > 0) {
+          const removeIds = toRemove.map(s => s.id);
+          await supabase
+            .from('member_resource_category')
+            .delete()
+            .in('id', removeIds);
+          console.log(`[AppProcessor] Removed ${toRemove.length} category selections`);
+        }
+        
+        // Add new selections
+        if (toAdd.length > 0) {
+          const insertData = toAdd.map(sel => ({
+            member_id: createdMemberId,
+            resource_category_id: sel.category_id,
+            subcategory_name: sel.subcategory_name
+          }));
+          
+          await supabase
+            .from('member_resource_category')
+            .insert(insertData);
+          console.log(`[AppProcessor] Added ${toAdd.length} category selections`);
         }
       }
     }
