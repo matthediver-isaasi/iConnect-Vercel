@@ -130,6 +130,8 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
   const [newOptionValue, setNewOptionValue] = useState('');
   const [newOptionLabel, setNewOptionLabel] = useState('');
   const [fieldFilterable, setFieldFilterable] = useState(false);
+  const [minSelections, setMinSelections] = useState('');
+  const [maxSelections, setMaxSelections] = useState('');
 
   const { data: preferenceFields = [], isLoading } = useQuery({
     queryKey: ['/api/entities/PreferenceField', entityScope],
@@ -235,6 +237,8 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
     setNewOptionValue('');
     setNewOptionLabel('');
     setFieldFilterable(false);
+    setMinSelections('');
+    setMaxSelections('');
   };
 
   const handleOpenCreateDialog = () => {
@@ -250,6 +254,8 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
     setFieldRequired(field.is_required || false);
     setFieldOptions(field.options || []);
     setFieldFilterable(field.is_filterable || false);
+    setMinSelections(field.min_selections != null ? String(field.min_selections) : '');
+    setMaxSelections(field.max_selections != null ? String(field.max_selections) : '');
     setIsDialogOpen(true);
   };
 
@@ -286,7 +292,9 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
       display_order: editingField ? editingField.display_order : preferenceFields.length,
       is_active: true,
       entity_scope: entityScope,
-      is_filterable: (fieldType === 'picklist' || fieldType === 'dropdown') ? fieldFilterable : false
+      is_filterable: (fieldType === 'picklist' || fieldType === 'dropdown') ? fieldFilterable : false,
+      min_selections: fieldType === 'picklist' && minSelections ? parseInt(minSelections, 10) : null,
+      max_selections: fieldType === 'picklist' && maxSelections ? parseInt(maxSelections, 10) : null
     };
 
     if (editingField) {
@@ -567,6 +575,41 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
                 data-testid="switch-field-required"
               />
             </div>
+
+            {fieldType === 'picklist' && (
+              <div className="p-3 bg-blue-50 rounded-lg border border-blue-200 space-y-3">
+                <Label className="text-sm font-medium text-blue-800">Selection Limits (Optional)</Label>
+                <p className="text-xs text-blue-600 -mt-1">
+                  Set minimum and/or maximum number of options users can select
+                </p>
+                <div className="flex gap-4">
+                  <div className="flex-1 space-y-1">
+                    <Label htmlFor="minSelections" className="text-xs">Minimum</Label>
+                    <Input
+                      id="minSelections"
+                      type="number"
+                      min="0"
+                      value={minSelections}
+                      onChange={(e) => setMinSelections(e.target.value)}
+                      placeholder="No min"
+                      data-testid="input-min-selections"
+                    />
+                  </div>
+                  <div className="flex-1 space-y-1">
+                    <Label htmlFor="maxSelections" className="text-xs">Maximum</Label>
+                    <Input
+                      id="maxSelections"
+                      type="number"
+                      min="1"
+                      value={maxSelections}
+                      onChange={(e) => setMaxSelections(e.target.value)}
+                      placeholder="No max"
+                      data-testid="input-max-selections"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
 
             {(fieldType === 'picklist' || fieldType === 'dropdown') && (
               <div className="flex items-center justify-between p-3 bg-purple-50 rounded-lg border border-purple-200">
