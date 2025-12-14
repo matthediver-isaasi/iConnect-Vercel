@@ -177,11 +177,14 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
         );
 
       case 'boolean':
+        const booleanValue = value !== undefined && value !== null 
+          ? (value === true || value === 'true')
+          : (field.default_value === true);
         return (
           <div className="flex items-center space-x-3">
             <Switch
               id={field.id}
-              checked={value === true || value === 'true'}
+              checked={booleanValue}
               onCheckedChange={(checked) => onChange(checked)}
               disabled={isFieldDisabled}
               data-testid={`switch-boolean-${field.id}`}
@@ -190,7 +193,7 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
               htmlFor={field.id} 
               className={`font-normal cursor-pointer ${isFieldDisabled ? 'text-slate-400' : ''}`}
             >
-              {(value === true || value === 'true') ? 'Yes' : 'No'}
+              {booleanValue ? 'Yes' : 'No'}
             </Label>
           </div>
         );

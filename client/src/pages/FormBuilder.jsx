@@ -1497,6 +1497,20 @@ function FieldCard({
                 </div>
               )}
 
+              {field.type === 'boolean' && (
+                <div className="flex items-center justify-between p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                  <div>
+                    <Label className="text-xs font-medium">Default Value</Label>
+                    <p className="text-xs text-slate-500 mt-0.5">Initial state when form loads</p>
+                  </div>
+                  <Switch
+                    checked={field.default_value === true}
+                    onCheckedChange={(checked) => updateField(originalIndex, { default_value: checked })}
+                    data-testid={`switch-default-value-${field.id}`}
+                  />
+                </div>
+              )}
+
               {field.type === 'category_multiselect' && (
                 <div className="space-y-2">
                   <Label className="text-xs">Select Categories to Include</Label>
