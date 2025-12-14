@@ -26,6 +26,7 @@ import {
   Loader2,
   ExternalLink,
   Calendar,
+  CalendarDays,
   Shield,
   ClipboardList,
   Linkedin,
@@ -482,60 +483,106 @@ export default function MemberDetailView({
                 </CardContent>
               </Card>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <Building2 className="w-5 h-5 text-blue-600" />
-                    Organisation
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {isEditing ? (
-                    <div className="space-y-2">
-                      <Label>Organisation</Label>
-                      <Select 
-                        value={formData.organization_id || '__none__'} 
-                        onValueChange={(v) => setFormData(prev => ({ ...prev, organization_id: v === '__none__' ? '' : v }))}
-                      >
-                        <SelectTrigger data-testid="select-member-org">
-                          <SelectValue placeholder="Select organisation" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="__none__">No Organisation</SelectItem>
-                          {organizations.filter(org => org.id).map(org => (
-                            <SelectItem key={org.id} value={org.id}>{org.name}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  ) : org ? (
-                    <div className="flex items-start gap-3">
-                      <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center">
-                        <Building2 className="w-5 h-5 text-blue-600" />
+              <div className="space-y-6">
+                <Card>
+                  <CardHeader className="py-3">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Building2 className="w-4 h-4 text-blue-600" />
+                      Organisation
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="py-3">
+                    {isEditing ? (
+                      <div className="space-y-2">
+                        <Label>Organisation</Label>
+                        <Select 
+                          value={formData.organization_id || '__none__'} 
+                          onValueChange={(v) => setFormData(prev => ({ ...prev, organization_id: v === '__none__' ? '' : v }))}
+                        >
+                          <SelectTrigger data-testid="select-member-org">
+                            <SelectValue placeholder="Select organisation" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__none__">No Organisation</SelectItem>
+                            {organizations.filter(org => org.id).map(org => (
+                              <SelectItem key={org.id} value={org.id}>{org.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
-                      <div>
-                        <p className="font-medium text-slate-900">{org.name}</p>
-                        {org.website_url && (
-                          <a 
-                            href={org.website_url} 
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                            className="text-sm text-blue-600 hover:underline flex items-center gap-1"
-                          >
-                            <Globe className="w-3 h-3" />
-                            {org.website_url}
-                          </a>
-                        )}
-                        <Badge variant="secondary" className="mt-2">
-                          {org.status || 'active'}
-                        </Badge>
+                    ) : org ? (
+                      <div className="flex items-start gap-3">
+                        <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
+                          <Building2 className="w-4 h-4 text-blue-600" />
+                        </div>
+                        <div>
+                          <p className="font-medium text-slate-900 text-sm">{org.name}</p>
+                          {org.website_url && (
+                            <a 
+                              href={org.website_url} 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              className="text-xs text-blue-600 hover:underline flex items-center gap-1"
+                            >
+                              <Globe className="w-3 h-3" />
+                              {org.website_url}
+                            </a>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  ) : (
-                    <p className="text-sm text-slate-500">No organisation assigned</p>
-                  )}
-                </CardContent>
-              </Card>
+                    ) : (
+                      <p className="text-sm text-slate-500">No organisation assigned</p>
+                    )}
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader className="py-3">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Shield className="w-4 h-4 text-purple-600" />
+                      Membership
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="py-3 space-y-3">
+                    {!isNew && (
+                      <>
+                        <div className="flex items-center gap-3">
+                          <CalendarDays className="w-4 h-4 text-slate-400" />
+                          <div>
+                            <p className="text-xs text-slate-500">Member Since</p>
+                            <p className="text-sm font-medium">
+                              {member.created_on ? formatDate(member.created_on) : '-'}
+                            </p>
+                          </div>
+                        </div>
+                        <Separator />
+                        <div className="flex items-center gap-3">
+                          <Shield className="w-4 h-4 text-slate-400" />
+                          <div>
+                            <p className="text-xs text-slate-500">Role</p>
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              {(() => {
+                                const memberRoles = member.roles || (member.role_id ? [member.role_id] : []);
+                                if (memberRoles.length === 0) {
+                                  return <span className="text-sm text-slate-500">No role assigned</span>;
+                                }
+                                return getRoleNames(memberRoles).map((roleName, idx) => (
+                                  <Badge key={idx} variant="secondary" className="text-xs">
+                                    {roleName}
+                                  </Badge>
+                                ));
+                              })()}
+                            </div>
+                          </div>
+                        </div>
+                      </>
+                    )}
+                    {isNew && (
+                      <p className="text-sm text-slate-500">Membership details will be shown after creation</p>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
             </div>
 
             {(isEditing || member?.bio) && (

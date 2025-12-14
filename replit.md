@@ -188,3 +188,9 @@ CREATE INDEX IF NOT EXISTS idx_email_template_is_active ON email_template(is_act
 ALTER TABLE form ADD COLUMN IF NOT EXISTS submission_email_template_id UUID REFERENCES email_template(id);
 ALTER TABLE form ADD COLUMN IF NOT EXISTS submission_email_recipient TEXT;
 ```
+
+## Member Table - created_on Column
+
+```sql
+ALTER TABLE member ADD COLUMN IF NOT EXISTS created_on TIMESTAMPTZ DEFAULT NOW();
+```

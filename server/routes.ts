@@ -1429,7 +1429,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
               first_name: memberData.first_name || '',
               last_name: memberData.last_name || '',
               organization_id: orgIdForNewMember,
-              login_enabled: true
+              login_enabled: true,
+              created_on: new Date().toISOString()
             };
             // Add job_title only if provided (it's a valid column)
             if (memberData.job_title) memberInsertData.job_title = memberData.job_title;
