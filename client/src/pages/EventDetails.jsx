@@ -1311,10 +1311,12 @@ export default function EventDetailsPage() {
                         </Label>
                         <Input
                           id="guest-phone"
-                          type="tel"
+                          type="text"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
                           placeholder="Optional"
                           value={guestInfo.phone}
-                          onChange={(e) => setGuestInfo({...guestInfo, phone: e.target.value})}
+                          onChange={(e) => setGuestInfo({...guestInfo, phone: e.target.value.replace(/[^0-9]/g, '')})}
                           disabled={isGuestFormDisabled}
                           className={isGuestFormDisabled ? "bg-slate-100 cursor-not-allowed" : ""}
                           data-testid="input-guest-phone"
