@@ -72,6 +72,15 @@ const STATUS_OPTIONS = [
   { value: 'disabled', label: 'Disabled' }
 ];
 
+const getMemberName = (member) => {
+  return [member?.first_name, member?.last_name].filter(Boolean).join(' ') || '';
+};
+
+const getInitials = (name) => {
+  if (!name) return '?';
+  return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+};
+
 export default function MembersListPage() {
   const { isAdmin, isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
   const queryClient = useQueryClient();
@@ -434,15 +443,6 @@ export default function MembersListPage() {
     setColumns(DEFAULT_COLUMNS);
     saveLocalColumns(DEFAULT_COLUMNS);
     customFieldsMergedRef.current = false;
-  };
-
-  const getMemberName = (member) => {
-    return [member?.first_name, member?.last_name].filter(Boolean).join(' ') || '';
-  };
-
-  const getInitials = (name) => {
-    if (!name) return '?';
-    return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
   };
 
   const getCellValue = (member, col) => {
