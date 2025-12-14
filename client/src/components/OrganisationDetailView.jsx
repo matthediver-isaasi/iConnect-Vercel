@@ -42,6 +42,10 @@ import { useDateFormat } from "@/hooks/useDateFormat";
 import OrgDetailLayoutEditor from "@/components/OrgDetailLayoutEditor";
 import MemberDetailView from "@/components/MemberDetailView";
 
+const getMemberName = (m) => {
+  return [m?.first_name, m?.last_name].filter(Boolean).join(' ') || m?.full_name || '';
+};
+
 // --- List Field Editor Component for Organisations ---
 function ListFieldEditorOrg({ fieldId, values = [], onChange, placeholder, disabled = false }) {
   const [inputValue, setInputValue] = useState('');
@@ -732,7 +736,7 @@ export default function OrganisationDetailView({
           setIsCreatingMember(false);
           // Refresh the org members list
           queryClient.invalidateQueries({ queryKey: ['org-detail-members', organization?.id] });
-          toast.success(`Member "${createdMember.full_name || createdMember.email}" added to organisation`);
+          toast.success(`Member "${getMemberName(createdMember) || createdMember.email}" added to organisation`);
         }}
       />
     );
@@ -890,7 +894,7 @@ export default function OrganisationDetailView({
                               <User className="w-4 h-4 text-slate-400" />
                             </div>
                             <div>
-                              <p className="font-medium text-slate-700">{member.full_name || member.email}</p>
+                              <p className="font-medium text-slate-700">{getMemberName(member) || member.email}</p>
                               <p className="text-xs text-slate-400">{member.job_title || 'Member'}</p>
                             </div>
                           </div>
@@ -962,7 +966,7 @@ export default function OrganisationDetailView({
                                 className="font-medium text-blue-600 hover:text-blue-800 hover:underline"
                                 data-testid={`link-member-${member.id}`}
                               >
-                                {member.full_name || '-'}
+                                {getMemberName(member) || '-'}
                               </a>
                             </div>
                           </td>
