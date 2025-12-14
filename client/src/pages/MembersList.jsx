@@ -30,7 +30,6 @@ import {
   Columns3,
   Building2,
   Mail,
-  Phone,
   Smartphone,
   Briefcase,
   Save
@@ -45,7 +44,6 @@ const DEFAULT_COLUMNS = [
   { id: 'email', label: 'Email', visible: true, locked: false },
   { id: 'organization', label: 'Organisation', visible: true, locked: false },
   { id: 'job_title', label: 'Job Title', visible: true, locked: false },
-  { id: 'phone', label: 'Phone', visible: false, locked: false },
   { id: 'mobile', label: 'Mobile', visible: false, locked: false },
   { id: 'status', label: 'Status', visible: true, locked: false },
   { id: 'roles', label: 'Roles', visible: false, locked: false }
@@ -85,7 +83,6 @@ export default function MembersListPage() {
   const [orgFilter, setOrgFilter] = useState('all');
   const [roleFilter, setRoleFilter] = useState('all');
   const [coreFieldFilters, setCoreFieldFilters] = useState({
-    phone: '',
     job_title: ''
   });
   const [customFieldFilters, setCustomFieldFilters] = useState({});
@@ -282,7 +279,7 @@ export default function MembersListPage() {
       result = result.filter(m => 
         getMemberName(m).toLowerCase().includes(query) ||
         m.email?.toLowerCase().includes(query) ||
-        m.phone?.toLowerCase().includes(query) ||
+        m.mobile?.toLowerCase().includes(query) ||
         m.job_title?.toLowerCase().includes(query)
       );
     }
@@ -358,7 +355,7 @@ export default function MembersListPage() {
     setStatusFilter('all');
     setOrgFilter('all');
     setRoleFilter('all');
-    setCoreFieldFilters({ phone: '', job_title: '' });
+    setCoreFieldFilters({ job_title: '' });
     setCustomFieldFilters({});
     setCurrentPage(1);
   };
@@ -473,8 +470,6 @@ export default function MembersListPage() {
         return org?.name || '-';
       case 'job_title':
         return member.job_title || '-';
-      case 'phone':
-        return member.phone || '-';
       case 'mobile':
         return member.mobile || '-';
       case 'status':

@@ -20,7 +20,6 @@ import {
   ArrowLeft, 
   Building2, 
   Mail, 
-  Phone,
   Smartphone,
   PhoneCall, 
   Briefcase,
@@ -61,7 +60,6 @@ export default function MemberDetailView({
     first_name: '',
     last_name: '',
     email: '',
-    phone: '',
     mobile: '',
     landline: '',
     job_title: '',
@@ -157,7 +155,6 @@ export default function MemberDetailView({
         first_name: member.first_name || '',
         last_name: member.last_name || '',
         email: member.email || '',
-        phone: member.phone || '',
         mobile: member.mobile || '',
         landline: member.landline || '',
         job_title: member.job_title || '',
@@ -296,7 +293,6 @@ export default function MemberDetailView({
       first_name: member.first_name || '',
       last_name: member.last_name || '',
       email: member.email || '',
-      phone: member.phone || '',
       mobile: member.mobile || '',
       landline: member.landline || '',
       job_title: member.job_title || '',
@@ -556,14 +552,6 @@ export default function MemberDetailView({
                         />
                       </div>
                       <div className="space-y-2">
-                        <Label>Phone</Label>
-                        <Input
-                          value={formData.phone}
-                          onChange={(e) => setFormData(prev => ({ ...prev, phone: e.target.value }))}
-                          data-testid="input-member-phone"
-                        />
-                      </div>
-                      <div className="space-y-2">
                         <Label>Mobile</Label>
                         <Input
                           value={formData.mobile}
@@ -620,14 +608,6 @@ export default function MemberDetailView({
                         <div>
                           <p className="text-xs text-slate-500">Email</p>
                           <p className="text-sm">{member.email || '-'}</p>
-                        </div>
-                      </div>
-                      <Separator />
-                      <div className="flex items-center gap-3 py-2">
-                        <Phone className="w-4 h-4 text-slate-400" />
-                        <div>
-                          <p className="text-xs text-slate-500">Phone</p>
-                          <p className="text-sm">{member.phone || '-'}</p>
                         </div>
                       </div>
                       <Separator />
@@ -800,7 +780,7 @@ export default function MemberDetailView({
               </Card>
             )}
 
-            {memberCustomFields.length > 0 && (
+            {memberCustomFields.filter(f => !f.field_type?.startsWith('category')).length > 0 && (
               <Card>
                 <CardHeader>
                   <CardTitle className="text-lg">Custom Fields</CardTitle>
@@ -812,7 +792,7 @@ export default function MemberDetailView({
                     </div>
                   ) : isEditing ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {memberCustomFields.map(field => {
+                      {memberCustomFields.filter(f => !f.field_type?.startsWith('category')).map(field => {
                         const value = customFieldValues[field.id] ?? '';
                         
                         const handleCustomFieldChange = (fieldId, newValue) => {
@@ -913,7 +893,7 @@ export default function MemberDetailView({
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {memberCustomFields.map(field => {
+                      {memberCustomFields.filter(f => !f.field_type?.startsWith('category')).map(field => {
                         const value = customFieldValues[field.id];
                         let displayValue;
                         
