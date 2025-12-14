@@ -118,14 +118,31 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
       case 'text':
       case 'email':
       case 'url':
-      case 'tel':
-      case 'number':
         return (
           <Input
             type={field.type}
             value={value || ''}
             onChange={(e) => onChange(e.target.value)}
             placeholder={field.placeholder || (field.type === 'url' ? 'https://example.com' : undefined)}
+            required={field.required}
+            disabled={isFieldDisabled}
+            className={isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : ''}
+          />
+        );
+
+      case 'tel':
+      case 'number':
+        return (
+          <Input
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            value={value || ''}
+            onChange={(e) => {
+              const numericValue = e.target.value.replace(/[^0-9]/g, '');
+              onChange(numericValue);
+            }}
+            placeholder={field.placeholder}
             required={field.required}
             disabled={isFieldDisabled}
             className={isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : ''}
