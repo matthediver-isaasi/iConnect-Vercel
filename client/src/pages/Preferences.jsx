@@ -471,21 +471,25 @@ export default function PreferencesPage() {
     },
   });
 
-  // --- Member's resource category selections (from database) ---
+  // --- Member's resource category selections (from database via API) ---
   const { data: memberResourceCategories = [], isLoading: memberResourceCategoriesLoading } = useQuery({
     queryKey: ["memberResourceCategories", memberRecord?.id],
     enabled: !!memberRecord?.id,
     queryFn: async () => {
       if (!memberRecord?.id) return [];
-      const { data, error } = await supabase
-        .from("member_resource_category")
-        .select("id, resource_category_id, subcategory_name, created_at")
-        .eq("member_id", memberRecord.id);
-      if (error) {
+      try {
+        // Use API endpoint instead of direct Supabase to bypass RLS
+        const response = await fetch(`/api/members/${memberRecord.id}/categories`);
+        if (!response.ok) {
+          console.error("[Preferences] Failed to load member categories:", response.status);
+          return [];
+        }
+        const data = await response.json();
+        return data || [];
+      } catch (error) {
         console.error("[Preferences] Failed to load member categories:", error);
         return [];
       }
-      return data || [];
     },
   });
 
@@ -790,57 +794,16 @@ export default function PreferencesPage() {
         return { category_id: item, subcategory_name: null };
       });
       
-      // Save to database via Supabase directly using diff-based approach
-      // Get current selections
-      const { data: currentSelections, error: fetchError } = await supabase
-        .from('member_resource_category')
-        .select('id, resource_category_id, subcategory_name')
-        .eq('member_id', memberRecord.id);
+      // Save to database via API endpoint (handles diff-based updates server-side)
+      const response = await fetch(`/api/members/${memberRecord.id}/categories`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ selections }),
+      });
       
-      if (fetchError) throw fetchError;
-      
-      const existing = currentSelections || [];
-      
-      // Calculate what to add and remove
-      const currentKeys = new Set(
-        existing.map(s => `${s.resource_category_id}|${s.subcategory_name || ''}`)
-      );
-      const newKeys = new Set(
-        selections.map(s => `${s.category_id}|${s.subcategory_name || ''}`)
-      );
-      
-      const toAdd = selections.filter(s => 
-        !currentKeys.has(`${s.category_id}|${s.subcategory_name || ''}`)
-      );
-      
-      const toRemove = existing.filter(s => 
-        !newKeys.has(`${s.resource_category_id}|${s.subcategory_name || ''}`)
-      );
-      
-      // Remove unselected
-      if (toRemove.length > 0) {
-        const removeIds = toRemove.map(s => s.id);
-        const { error: deleteError } = await supabase
-          .from('member_resource_category')
-          .delete()
-          .in('id', removeIds);
-        
-        if (deleteError) throw deleteError;
-      }
-      
-      // Add new selections
-      if (toAdd.length > 0) {
-        const insertData = toAdd.map(sel => ({
-          member_id: memberRecord.id,
-          resource_category_id: sel.category_id,
-          subcategory_name: sel.subcategory_name
-        }));
-        
-        const { error: insertError } = await supabase
-          .from('member_resource_category')
-          .insert(insertData);
-        
-        if (insertError) throw insertError;
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to save preferences');
       }
       
       // Also save expandedCategories to localStorage (UI state only)
