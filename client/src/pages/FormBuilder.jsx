@@ -2277,11 +2277,16 @@ export default function FormBuilderPage() {
     }
     console.log('[FormBuilder] All mappings validated successfully');
 
-    // Validate organization name mapping when org creation is enabled
+    // Validate field mappings when entity creation/update is enabled
     if (formData.is_application_form && formData.auto_create_entity) {
-      const createType = formData.create_entity_type || 'member';
-      console.log('[FormBuilder] Entity creation validation - createType:', createType);
-      const needsOrgName = createType === 'organization' || createType === 'both';
+      // Check member_entity_action and organization_entity_action (new fields)
+      const memberAction = formData.member_entity_action || 'none';
+      const orgAction = formData.organization_entity_action || 'none';
+      
+      console.log('[FormBuilder] Entity creation validation - memberAction:', memberAction, 'orgAction:', orgAction);
+      
+      // Check if organization name mapping is needed (when org action is not 'none')
+      const needsOrgName = orgAction !== 'none';
       
       if (needsOrgName) {
         const hasOrgNameMapping = (formData.field_mappings || []).some(
@@ -2296,7 +2301,8 @@ export default function FormBuilderPage() {
         }
       }
       
-      const needsMemberEmail = createType === 'member' || createType === 'both';
+      // Check if member email mapping is needed (when member action is not 'none')
+      const needsMemberEmail = memberAction !== 'none';
       if (needsMemberEmail) {
         const hasMemberEmailMapping = (formData.field_mappings || []).some(
           m => m.target_entity === 'member' && m.target_field === 'email'
