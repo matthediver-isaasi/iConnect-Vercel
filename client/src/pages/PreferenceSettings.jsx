@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
+import { supabase } from "@/api/supabaseClient";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -9,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { GripVertical, Settings, Loader2, Building2, User, BarChart3, FolderHeart, Save, RotateCcw, Eye, EyeOff, Shield, Mail, ClipboardList, ExternalLink, ChevronDown, ChevronUp } from "lucide-react";
+import { GripVertical, Settings, Loader2, Building2, User, BarChart3, FolderHeart, Save, RotateCcw, Eye, EyeOff, Shield, Mail, ClipboardList, ExternalLink, ChevronDown, ChevronUp, FolderTree } from "lucide-react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -34,6 +35,9 @@ export default function PreferenceSettingsPage() {
   const [showFieldVisibility, setShowFieldVisibility] = useState(false);
   const [hiddenFieldIds, setHiddenFieldIds] = useState([]);
   const [fieldVisibilityChanged, setFieldVisibilityChanged] = useState(false);
+  const [showResourceVisibility, setShowResourceVisibility] = useState(false);
+  const [hiddenResourceCategoryIds, setHiddenResourceCategoryIds] = useState([]);
+  const [resourceVisibilityChanged, setResourceVisibilityChanged] = useState(false);
   const queryClient = useQueryClient();
 
   useEffect(() => {
@@ -121,6 +125,45 @@ export default function PreferenceSettingsPage() {
       }
     }
   }, [hiddenFieldsSetting]);
+
+  // Fetch resource categories for visibility configuration
+  const { data: resourceCategories = [], isLoading: categoriesLoading } = useQuery({
+    queryKey: ['resource-categories-for-visibility'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('resource_category')
+        .select('*')
+        .eq('is_active', true)
+        .order('display_order', { ascending: true });
+      if (error) throw error;
+      return data || [];
+    }
+  });
+
+  // Fetch hidden resource category IDs setting
+  const { data: hiddenResourceCategoriesSetting } = useQuery({
+    queryKey: ['preferences-hidden-resource-categories-record'],
+    queryFn: async () => {
+      const allSettings = await base44.entities.SystemSettings.list();
+      const found = allSettings.find(s => s.setting_key === 'preferences_hidden_resource_categories');
+      return found || null;
+    },
+    staleTime: 0
+  });
+
+  // Initialize hidden resource category IDs from saved setting
+  useEffect(() => {
+    if (hiddenResourceCategoriesSetting?.setting_value) {
+      try {
+        const parsed = JSON.parse(hiddenResourceCategoriesSetting.setting_value);
+        if (Array.isArray(parsed)) {
+          setHiddenResourceCategoryIds(parsed);
+        }
+      } catch {
+        setHiddenResourceCategoryIds([]);
+      }
+    }
+  }, [hiddenResourceCategoriesSetting]);
 
   useEffect(() => {
     if (savedOrder && Array.isArray(savedOrder)) {
@@ -226,6 +269,48 @@ export default function PreferenceSettingsPage() {
 
   const handleSaveFieldVisibility = () => {
     updateHiddenFieldsMutation.mutate(hiddenFieldIds);
+  };
+
+  // Mutation to save hidden resource category IDs
+  const updateHiddenResourceCategoriesMutation = useMutation({
+    mutationFn: async (categoryIds) => {
+      const value = JSON.stringify(categoryIds);
+      if (hiddenResourceCategoriesSetting) {
+        return await base44.entities.SystemSettings.update(hiddenResourceCategoriesSetting.id, {
+          setting_value: value
+        });
+      } else {
+        return await base44.entities.SystemSettings.create({
+          setting_key: 'preferences_hidden_resource_categories',
+          setting_value: value,
+          description: 'List of resource category IDs hidden from the Preferences page'
+        });
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['preferences-hidden-resource-categories-record'] });
+      setResourceVisibilityChanged(false);
+      toast.success('Resource category visibility saved');
+    },
+    onError: (error) => {
+      console.error('Failed to save resource category visibility:', error);
+      toast.error('Failed to save resource category visibility: ' + error.message);
+    }
+  });
+
+  const handleToggleResourceCategoryVisibility = (categoryId) => {
+    setHiddenResourceCategoryIds(prev => {
+      if (prev.includes(categoryId)) {
+        return prev.filter(id => id !== categoryId);
+      } else {
+        return [...prev, categoryId];
+      }
+    });
+    setResourceVisibilityChanged(true);
+  };
+
+  const handleSaveResourceCategoryVisibility = () => {
+    updateHiddenResourceCategoriesMutation.mutate(hiddenResourceCategoryIds);
   };
 
   const handleDragEnd = (result) => {
@@ -513,6 +598,109 @@ export default function PreferenceSettingsPage() {
                           <Save className="w-4 h-4" />
                         )}
                         Save Field Visibility
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          )}
+        </Card>
+
+        {/* Resource Category Visibility on Preferences Page */}
+        <Card className="mt-6">
+          <CardHeader 
+            className="cursor-pointer" 
+            onClick={() => setShowResourceVisibility(!showResourceVisibility)}
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <FolderTree className="w-5 h-5 text-blue-600" />
+                  Resource Category Visibility (Preferences Page)
+                </CardTitle>
+                <CardDescription>
+                  Control which resource categories appear in the Resource Interests section on the Preferences page
+                </CardDescription>
+              </div>
+              <Button variant="ghost" size="icon">
+                {showResourceVisibility ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+              </Button>
+            </div>
+          </CardHeader>
+          {showResourceVisibility && (
+            <CardContent>
+              {categoriesLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+                </div>
+              ) : resourceCategories.length === 0 ? (
+                <p className="text-sm text-slate-500 py-4">
+                  No resource categories have been created yet.
+                </p>
+              ) : (
+                <div className="space-y-4">
+                  <p className="text-sm text-slate-600">
+                    Toggle which resource categories members can see and select on their Preferences page:
+                  </p>
+                  <div className="space-y-2">
+                    {resourceCategories.map(category => {
+                      const isVisible = !hiddenResourceCategoryIds.includes(category.id);
+                      return (
+                        <div 
+                          key={category.id}
+                          className={`flex items-center justify-between p-3 rounded-lg border transition-colors ${
+                            isVisible ? 'bg-white border-slate-200' : 'bg-slate-50 border-slate-200 opacity-60'
+                          }`}
+                        >
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className={`font-medium ${isVisible ? 'text-slate-900' : 'text-slate-500'}`}>
+                                {category.name}
+                              </span>
+                              {category.subcategories?.length > 0 && (
+                                <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded">
+                                  {category.subcategories.length} subcategories
+                                </span>
+                              )}
+                              {!isVisible && (
+                                <span className="text-xs text-orange-600 bg-orange-50 px-2 py-0.5 rounded flex items-center gap-1">
+                                  <EyeOff className="w-3 h-3" />
+                                  Hidden
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Label htmlFor={`category-vis-${category.id}`} className="text-sm text-slate-600 cursor-pointer">
+                              {isVisible ? <Eye className="w-4 h-4 text-green-600" /> : <EyeOff className="w-4 h-4 text-slate-400" />}
+                            </Label>
+                            <Switch
+                              id={`category-vis-${category.id}`}
+                              checked={isVisible}
+                              onCheckedChange={() => handleToggleResourceCategoryVisibility(category.id)}
+                              data-testid={`switch-category-visibility-${category.id}`}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  
+                  {resourceVisibilityChanged && (
+                    <div className="flex justify-end pt-4 border-t">
+                      <Button
+                        onClick={handleSaveResourceCategoryVisibility}
+                        disabled={updateHiddenResourceCategoriesMutation.isPending}
+                        className="gap-2 bg-blue-600 hover:bg-blue-700"
+                        data-testid="button-save-resource-visibility"
+                      >
+                        {updateHiddenResourceCategoriesMutation.isPending ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Save className="w-4 h-4" />
+                        )}
+                        Save Category Visibility
                       </Button>
                     </div>
                   )}

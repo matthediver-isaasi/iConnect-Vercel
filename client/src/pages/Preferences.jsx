@@ -545,6 +545,31 @@ export default function PreferencesPage() {
     return allPreferenceFields.filter(field => !hiddenFieldIds.includes(field.id));
   }, [allPreferenceFields, hiddenFieldIds]);
 
+  // --- Fetch hidden resource category IDs for Preferences page ---
+  const { data: hiddenResourceCategoryIds = [] } = useQuery({
+    queryKey: ['preferences-hidden-resource-categories'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('system_settings')
+        .select('setting_value')
+        .eq('setting_key', 'preferences_hidden_resource_categories')
+        .limit(1);
+      if (error || !data?.[0]?.setting_value) return [];
+      try {
+        const parsed = JSON.parse(data[0].setting_value);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    },
+  });
+
+  // Filter out hidden resource categories
+  const visibleCategories = useMemo(() => {
+    if (!categories.length) return [];
+    return categories.filter(category => !hiddenResourceCategoryIds.includes(category.id));
+  }, [categories, hiddenResourceCategoryIds]);
+
   // --- Member's preference values ---
   const { data: memberPreferenceValues = [] } = useQuery({
     queryKey: ["/api/entities/MemberPreferenceValue", memberRecord?.id],
@@ -2010,11 +2035,11 @@ export default function PreferencesPage() {
         );
 
       case 'resource_interests':
-        // Separate categories with subcategories from flat categories
-        const categoriesWithSubcats = categories.filter(c => 
+        // Separate categories with subcategories from flat categories (using filtered visibleCategories)
+        const categoriesWithSubcats = visibleCategories.filter(c => 
           c.subcategories && Array.isArray(c.subcategories) && c.subcategories.length > 0
         );
-        const flatCategories = categories.filter(c => 
+        const flatCategories = visibleCategories.filter(c => 
           !c.subcategories || !Array.isArray(c.subcategories) || c.subcategories.length === 0
         );
         
@@ -2057,7 +2082,7 @@ export default function PreferencesPage() {
                     </div>
                   ))}
                 </div>
-              ) : categories.length === 0 ? (
+              ) : visibleCategories.length === 0 ? (
                 <p className="text-sm text-slate-500 text-center py-8">No categories available</p>
               ) : (
                 <div className="space-y-6">
