@@ -63,6 +63,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   const formSlug = content.form_slug;
   const [formValues, setFormValues] = useState({});
   const [currentStep, setCurrentStep] = useState(0);
+  const [currentPageIndex, setCurrentPageIndex] = useState(0);
   const [submitted, setSubmitted] = useState(false);
   const [isValidating, setIsValidating] = useState(false);
   const [validationErrors, setValidationErrors] = useState([]);
@@ -425,6 +426,48 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     return disabled;
   }, [form?.visibility_rules, formValues, initialDisabledFieldIds]);
 
+  // Page navigation helpers for standard layout with pages
+  const pages = form?.pages || [];
+  const hasPages = pages.length > 0 && form?.layout_type === 'standard';
+
+  const getCurrentPageFields = () => {
+    if (!hasPages) {
+      return form?.fields || [];
+    }
+    const currentPage = pages[currentPageIndex];
+    if (currentPageIndex === 0) {
+      return (form?.fields || []).filter(f => f.page_id === currentPage?.id || !f.page_id);
+    }
+    return (form?.fields || []).filter(f => f.page_id === currentPage?.id);
+  };
+
+  const validateCurrentPage = () => {
+    const pageFields = filterVisibleFields(getCurrentPageFields());
+    const missingFields = pageFields.filter(field => 
+      field.required && (!formValues[field.id] || formValues[field.id].length === 0)
+    );
+    if (missingFields.length > 0) {
+      toast.error(`Please fill in required fields: ${missingFields.map(f => f.label).join(', ')}`);
+      return false;
+    }
+    return true;
+  };
+
+  const goToNextPage = () => {
+    if (validateCurrentPage()) {
+      setCurrentPageIndex(prev => Math.min(prev + 1, pages.length - 1));
+    }
+  };
+
+  const goToPreviousPage = () => {
+    setCurrentPageIndex(prev => Math.max(prev - 1, 0));
+  };
+
+  const isFirstPage = currentPageIndex === 0;
+  const isLastPage = !hasPages || currentPageIndex === pages.length - 1;
+  const currentPage = hasPages ? pages[currentPageIndex] : null;
+  const displayFields = filterVisibleFields(getCurrentPageFields());
+
   const submitFormMutation = useMutation({
     mutationFn: async (data) => {
       return base44.entities.FormSubmission.create(data);
@@ -778,21 +821,47 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
       >
         {renderHeaderSection()}
         <Card className="iedit-form-styled !rounded-none" style={{ ...formFieldStyles, ...getCardStyle() }}>
-          {(show_form_title || show_form_description) && (
-            <CardHeader>
-              {show_form_title && <CardTitle>{form.name}</CardTitle>}
-              {show_form_description && form.description && (
-                <CardDescription className="whitespace-pre-line">{form.description}</CardDescription>
-              )}
-            </CardHeader>
-          )}
+          <CardHeader>
+            {show_form_title && <CardTitle>{form.name}</CardTitle>}
+            {show_form_description && form.description && (
+              <CardDescription className="whitespace-pre-line">{form.description}</CardDescription>
+            )}
+            {hasPages && (
+              <div className="mt-4">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-slate-600">
+                    {currentPage?.title || `Page ${currentPageIndex + 1}`}
+                  </span>
+                  <span className="text-sm text-slate-500">
+                    {currentPageIndex + 1} of {pages.length}
+                  </span>
+                </div>
+                <div className="flex gap-1">
+                  {pages.map((_, index) => (
+                    <div
+                      key={index}
+                      className={`h-1.5 flex-1 rounded-full transition-colors ${
+                        index <= currentPageIndex ? 'bg-blue-600' : 'bg-slate-200'
+                      }`}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+          </CardHeader>
           <CardContent className="space-y-6">
             {(() => {
-              const pages = form.pages || [];
-              const hasPages = pages.length > 0 && form.layout_type === 'standard';
+              const columnCount = currentPage?.column_count || 1;
               
-              if (!hasPages) {
-                return filterVisibleFields(form.fields).map(field => (
+              const unassignedFields = currentPageIndex === 0 
+                ? displayFields.filter(f => !f.page_id) 
+                : [];
+              const pageAssignedFields = displayFields.filter(f => 
+                f.page_id === currentPage?.id
+              );
+              
+              if (columnCount === 1 || !hasPages) {
+                return displayFields.map(field => (
                   <FormRenderer
                     key={field.id}
                     field={field}
@@ -805,7 +874,9 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                 ));
               }
               
-              const unassignedFields = filterVisibleFields(form.fields.filter(f => !f.page_id));
+              const gridClass = columnCount === 2 
+                ? 'grid grid-cols-1 md:grid-cols-2 gap-4' 
+                : 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4';
               
               return (
                 <>
@@ -824,58 +895,29 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                       ))}
                     </div>
                   )}
-                  {pages.map((page, pageIndex) => {
-                    const pageFields = filterVisibleFields(form.fields.filter(f => f.page_id === page.id));
-                    const columnCount = page.column_count || 1;
-                    
-                    return (
-                      <div key={page.id} className="space-y-4">
-                        {pages.length > 1 && (
-                          <h4 className="font-medium text-slate-700 border-b pb-2">
-                            {page.title || `Section ${pageIndex + 1}`}
-                          </h4>
-                        )}
-                        {columnCount === 1 ? (
-                          <div className="space-y-4">
-                            {pageFields.map(field => (
-                              <FormRenderer
-                                key={field.id}
-                                field={field}
-                                value={formValues[field.id]}
-                                onChange={(value) => setFormValues({ ...formValues, [field.id]: value })}
-                                memberInfo={memberInfo}
-                                organizationInfo={organizationInfo}
-                                disabled={disabledFieldIds.has(field.id)}
-                              />
-                            ))}
-                          </div>
-                        ) : (
-                          <div className={`grid gap-4 ${
-                            columnCount === 2 ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3'
-                          }`}>
-                            {Array.from({ length: columnCount }).map((_, colIndex) => {
-                              const columnFields = pageFields.filter(f => (f.column_index || 0) === colIndex);
-                              return (
-                                <div key={colIndex} className="space-y-4">
-                                  {columnFields.map(field => (
-                                    <FormRenderer
-                                      key={field.id}
-                                      field={field}
-                                      value={formValues[field.id]}
-                                      onChange={(value) => setFormValues({ ...formValues, [field.id]: value })}
-                                      memberInfo={memberInfo}
-                                      organizationInfo={organizationInfo}
-                                      disabled={disabledFieldIds.has(field.id)}
-                                    />
-                                  ))}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
+                  <div className={gridClass}>
+                    {Array.from({ length: columnCount }).map((_, colIndex) => {
+                      const columnFields = pageAssignedFields.filter(f => 
+                        (f.column_index || 0) === colIndex
+                      );
+                      
+                      return (
+                        <div key={colIndex} className="space-y-4">
+                          {columnFields.map(field => (
+                            <FormRenderer
+                              key={field.id}
+                              field={field}
+                              value={formValues[field.id]}
+                              onChange={(value) => setFormValues({ ...formValues, [field.id]: value })}
+                              memberInfo={memberInfo}
+                              organizationInfo={organizationInfo}
+                              disabled={disabledFieldIds.has(field.id)}
+                            />
+                          ))}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </>
               );
             })()}
@@ -894,21 +936,44 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                 </div>
               </div>
             )}
-            <div className="flex justify-end pt-4">
-              <Button 
-                onClick={handleSubmit}
-                disabled={isSubmitting}
-                className="bg-blue-600 hover:bg-blue-700"
-              >
-                {isSubmitting ? (
-                  <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Submitting...
-                  </>
-                ) : (
-                  form.submit_button_text || 'Submit'
-                )}
-              </Button>
+            <div className="flex justify-between pt-4">
+              {hasPages && !isFirstPage ? (
+                <Button
+                  variant="outline"
+                  onClick={goToPreviousPage}
+                  data-testid="button-previous-page"
+                >
+                  <ChevronLeft className="w-4 h-4 mr-2" />
+                  Previous
+                </Button>
+              ) : (
+                <div />
+              )}
+              {isLastPage ? (
+                <Button 
+                  onClick={handleSubmit}
+                  disabled={isSubmitting}
+                  className="bg-blue-600 hover:bg-blue-700"
+                  data-testid="button-submit-form"
+                >
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Submitting...
+                    </>
+                  ) : (
+                    form.submit_button_text || 'Submit'
+                  )}
+                </Button>
+              ) : (
+                <Button
+                  onClick={goToNextPage}
+                  data-testid="button-next-page"
+                >
+                  Next
+                  <ChevronRight className="w-4 h-4 ml-2" />
+                </Button>
+              )}
             </div>
           </CardContent>
         </Card>
