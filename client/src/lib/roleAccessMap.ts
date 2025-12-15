@@ -157,6 +157,10 @@ export const ROLE_ACCESS_MAP: Module[] = [
       {
         id: "membership.member-groups-guests",
         label: "Member Group Guest Management"
+      },
+      {
+        id: "membership.awards",
+        label: "Award Management"
       }
     ]
   },
@@ -208,10 +212,6 @@ export const ROLE_ACCESS_MAP: Module[] = [
       {
         id: "content.files",
         label: "File Repository"
-      },
-      {
-        id: "content.awards",
-        label: "Award Management"
       }
     ]
   },
@@ -541,7 +541,7 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_admin_DiscountCodeManagement": "events.discount-codes",
   "page_admin_EventSettings": "events.event-settings",
   "page_admin_TicketSalesAnalytics": "events.ticket-analytics",
-  "page_admin_AwardManagement": "content.awards",
+  "page_admin_AwardManagement": "membership.awards",
   "page_admin_CategoryManagement": "content.categories",
   "page_admin_ResourceSettings": "content.resource-settings",
   "page_admin_ResourcesSection": "content",
@@ -629,7 +629,7 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_DiscountCodeManagement": "events.discount-codes",
   "page_EventSettings": "events.event-settings",
   "page_TicketSalesAnalytics": "events.ticket-analytics",
-  "page_AwardManagement": "content.awards",
+  "page_AwardManagement": "membership.awards",
   "page_JobPostingManagement": "jobs.job-management",
   "page_JobBoardSettings": "jobs.job-settings",
   "page_PageBannerManagement": "site-builder.banners",
