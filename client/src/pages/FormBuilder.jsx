@@ -47,6 +47,7 @@ const PREPOPULATE_FIELD_TYPES = [
   { value: 'organisation_dropdown', label: 'Organisation Dropdown' },
   { value: 'category_multiselect', label: 'Category Multi-Select' },
   { value: 'category_dropdown', label: 'Category Dropdown' },
+  { value: 'communication_preferences', label: 'Communication Preferences' },
 ];
 
 const AUTO_FIELD_TYPES = [

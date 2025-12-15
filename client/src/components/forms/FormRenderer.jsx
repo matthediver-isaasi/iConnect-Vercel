@@ -16,6 +16,81 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
+function CommunicationPreferencesField({ field, value, onChange, disabled }) {
+  const { data: categories = [], isLoading } = useQuery({
+    queryKey: ['public-communication-categories'],
+    queryFn: async () => {
+      const response = await fetch('/api/public/communication-categories');
+      if (!response.ok) {
+        throw new Error('Failed to fetch communication categories');
+      }
+      return response.json();
+    },
+    staleTime: 5 * 60 * 1000
+  });
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center gap-2 text-sm text-slate-500">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        Loading communication preferences...
+      </div>
+    );
+  }
+
+  if (categories.length === 0) {
+    return (
+      <p className="text-sm text-slate-500">
+        No communication preferences available.
+      </p>
+    );
+  }
+
+  const currentPrefs = value || {};
+
+  const handleToggle = (categoryId, isSubscribed) => {
+    onChange({
+      ...currentPrefs,
+      [categoryId]: isSubscribed
+    });
+  };
+
+  return (
+    <div className="space-y-3">
+      {categories.map((category) => {
+        const isSubscribed = currentPrefs[category.id] !== false;
+        return (
+          <div 
+            key={category.id} 
+            className="flex items-start gap-3 p-3 bg-slate-50 rounded-lg border border-slate-200"
+            data-testid={`comm-pref-category-${category.id}`}
+          >
+            <Checkbox
+              id={`comm-pref-${category.id}`}
+              checked={isSubscribed}
+              disabled={disabled}
+              onCheckedChange={(checked) => handleToggle(category.id, checked)}
+              className="mt-0.5"
+              data-testid={`checkbox-comm-pref-${category.id}`}
+            />
+            <div className="flex-1">
+              <Label 
+                htmlFor={`comm-pref-${category.id}`} 
+                className="font-medium cursor-pointer"
+              >
+                {category.name}
+              </Label>
+              {category.description && (
+                <p className="text-xs text-slate-500 mt-0.5">{category.description}</p>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function FormRenderer({ field, value, onChange, memberInfo, organizationInfo, disabled = false }) {
   const [showOtherInput, setShowOtherInput] = useState(false);
   const [otherValue, setOtherValue] = useState('');
@@ -744,6 +819,16 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
               })}
             </SelectContent>
           </Select>
+        );
+
+      case 'communication_preferences':
+        return (
+          <CommunicationPreferencesField
+            field={field}
+            value={value}
+            onChange={onChange}
+            disabled={isFieldDisabled}
+          />
         );
 
       case 'list':
