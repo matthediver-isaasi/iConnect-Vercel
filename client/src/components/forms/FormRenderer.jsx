@@ -429,29 +429,63 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
         );
 
       case 'checkbox':
+        const checkboxSelectedValues = Array.isArray(value) ? value : [];
+        const checkboxMinSelections = field.min_selections;
+        const checkboxMaxSelections = field.max_selections;
+        const checkboxHasMin = checkboxMinSelections != null && checkboxMinSelections > 0;
+        const checkboxHasMax = checkboxMaxSelections != null && checkboxMaxSelections > 0;
+        const checkboxIsMaxReached = checkboxHasMax && checkboxSelectedValues.length >= checkboxMaxSelections;
+        
+        // Build help text
+        let checkboxHelpText = '';
+        if (checkboxHasMin && checkboxHasMax) {
+          if (checkboxMinSelections === checkboxMaxSelections) {
+            checkboxHelpText = `Please select exactly ${checkboxMinSelections} option${checkboxMinSelections > 1 ? 's' : ''}`;
+          } else {
+            checkboxHelpText = `Please select between ${checkboxMinSelections} and ${checkboxMaxSelections} options`;
+          }
+        } else if (checkboxHasMin) {
+          checkboxHelpText = `Please select at least ${checkboxMinSelections} option${checkboxMinSelections > 1 ? 's' : ''}`;
+        } else if (checkboxHasMax) {
+          checkboxHelpText = `Please select up to ${checkboxMaxSelections} option${checkboxMaxSelections > 1 ? 's' : ''}`;
+        }
+        
         return (
           <div className="space-y-2">
-            {(field.options || []).map((option, index) => (
-              <div key={index} className="flex items-center space-x-2">
-                <Checkbox
-                  id={`${field.id}-${index}`}
-                  checked={(value || []).includes(option)}
-                  disabled={isFieldDisabled}
-                  onCheckedChange={(checked) => {
-                    if (isFieldDisabled) return;
-                    const currentValues = value || [];
-                    if (checked) {
-                      onChange([...currentValues, option]);
-                    } else {
-                      onChange(currentValues.filter(v => v !== option));
-                    }
-                  }}
-                />
-                <Label htmlFor={`${field.id}-${index}`} className="font-normal">
-                  {option}
-                </Label>
-              </div>
-            ))}
+            {(checkboxHasMin || checkboxHasMax) && (
+              <p className="text-xs text-slate-500">
+                {checkboxHelpText} ({checkboxSelectedValues.length} selected)
+              </p>
+            )}
+            <div className="space-y-2 p-3 bg-slate-50 rounded-lg border">
+              {(field.options || []).map((option, index) => {
+                const isChecked = checkboxSelectedValues.includes(option);
+                const isOptionDisabled = isFieldDisabled || (checkboxIsMaxReached && !isChecked);
+                return (
+                  <div key={index} className="flex items-center space-x-2">
+                    <Checkbox
+                      id={`${field.id}-${index}`}
+                      checked={isChecked}
+                      disabled={isOptionDisabled}
+                      onCheckedChange={(checked) => {
+                        if (isOptionDisabled) return;
+                        if (checked) {
+                          onChange([...checkboxSelectedValues, option]);
+                        } else {
+                          onChange(checkboxSelectedValues.filter(v => v !== option));
+                        }
+                      }}
+                    />
+                    <Label 
+                      htmlFor={`${field.id}-${index}`} 
+                      className={`font-normal cursor-pointer ${isOptionDisabled && !isChecked ? 'text-slate-400' : ''}`}
+                    >
+                      {option}
+                    </Label>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         );
 
