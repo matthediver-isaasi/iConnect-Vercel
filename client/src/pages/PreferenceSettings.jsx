@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { GripVertical, Settings, Loader2, Building2, User, BarChart3, FolderHeart, Save, RotateCcw, Eye, EyeOff, Shield, Mail, ClipboardList, ExternalLink } from "lucide-react";
+import { GripVertical, Settings, Loader2, Building2, User, BarChart3, FolderHeart, Save, RotateCcw, Eye, EyeOff, Shield, Mail, ClipboardList, ExternalLink, ChevronDown, ChevronUp } from "lucide-react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -31,6 +31,9 @@ export default function PreferenceSettingsPage() {
   const [accessChecked, setAccessChecked] = useState(false);
   const [sections, setSections] = useState(DEFAULT_SECTION_ORDER);
   const [hasChanges, setHasChanges] = useState(false);
+  const [showFieldVisibility, setShowFieldVisibility] = useState(false);
+  const [hiddenFieldIds, setHiddenFieldIds] = useState([]);
+  const [fieldVisibilityChanged, setFieldVisibilityChanged] = useState(false);
   const queryClient = useQueryClient();
 
   useEffect(() => {
@@ -69,6 +72,55 @@ export default function PreferenceSettingsPage() {
     },
     staleTime: 0
   });
+
+  // Fetch member custom fields for visibility configuration
+  const { data: memberCustomFields = [], isLoading: fieldsLoading } = useQuery({
+    queryKey: ['member-custom-fields-for-visibility'],
+    queryFn: async () => {
+      try {
+        const fields = await base44.entities.PreferenceField.list({
+          filter: { entity_scope: 'member', is_active: true },
+          sort: { display_order: 'asc' }
+        });
+        return fields || [];
+      } catch {
+        try {
+          const allFields = await base44.entities.PreferenceField.list({
+            filter: { is_active: true },
+            sort: { display_order: 'asc' }
+          });
+          return (allFields || []).filter(f => !f.entity_scope || f.entity_scope === 'member');
+        } catch {
+          return [];
+        }
+      }
+    }
+  });
+
+  // Fetch hidden field IDs setting
+  const { data: hiddenFieldsSetting } = useQuery({
+    queryKey: ['preferences-hidden-custom-fields-record'],
+    queryFn: async () => {
+      const allSettings = await base44.entities.SystemSettings.list();
+      const found = allSettings.find(s => s.setting_key === 'preferences_hidden_custom_fields');
+      return found || null;
+    },
+    staleTime: 0
+  });
+
+  // Initialize hidden field IDs from saved setting
+  useEffect(() => {
+    if (hiddenFieldsSetting?.setting_value) {
+      try {
+        const parsed = JSON.parse(hiddenFieldsSetting.setting_value);
+        if (Array.isArray(parsed)) {
+          setHiddenFieldIds(parsed);
+        }
+      } catch {
+        setHiddenFieldIds([]);
+      }
+    }
+  }, [hiddenFieldsSetting]);
 
   useEffect(() => {
     if (savedOrder && Array.isArray(savedOrder)) {
@@ -133,6 +185,48 @@ export default function PreferenceSettingsPage() {
       toast.error('Failed to save section order: ' + error.message);
     }
   });
+
+  // Mutation to save hidden field IDs
+  const updateHiddenFieldsMutation = useMutation({
+    mutationFn: async (fieldIds) => {
+      const value = JSON.stringify(fieldIds);
+      if (hiddenFieldsSetting) {
+        return await base44.entities.SystemSettings.update(hiddenFieldsSetting.id, {
+          setting_value: value
+        });
+      } else {
+        return await base44.entities.SystemSettings.create({
+          setting_key: 'preferences_hidden_custom_fields',
+          setting_value: value,
+          description: 'List of custom field IDs hidden from the Preferences page'
+        });
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['preferences-hidden-custom-fields-record'] });
+      setFieldVisibilityChanged(false);
+      toast.success('Custom field visibility saved');
+    },
+    onError: (error) => {
+      console.error('Failed to save field visibility:', error);
+      toast.error('Failed to save field visibility: ' + error.message);
+    }
+  });
+
+  const handleToggleFieldVisibility = (fieldId) => {
+    setHiddenFieldIds(prev => {
+      if (prev.includes(fieldId)) {
+        return prev.filter(id => id !== fieldId);
+      } else {
+        return [...prev, fieldId];
+      }
+    });
+    setFieldVisibilityChanged(true);
+  };
+
+  const handleSaveFieldVisibility = () => {
+    updateHiddenFieldsMutation.mutate(hiddenFieldIds);
+  };
 
   const handleDragEnd = (result) => {
     if (!result.destination) return;
@@ -322,6 +416,110 @@ export default function PreferenceSettingsPage() {
               </Link>
             </div>
           </CardHeader>
+        </Card>
+
+        {/* Custom Field Visibility on Preferences Page */}
+        <Card className="mt-6">
+          <CardHeader 
+            className="cursor-pointer" 
+            onClick={() => setShowFieldVisibility(!showFieldVisibility)}
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <User className="w-5 h-5 text-blue-600" />
+                  Custom Field Visibility (Preferences Page)
+                </CardTitle>
+                <CardDescription>
+                  Control which member custom fields appear on the Preferences page
+                </CardDescription>
+              </div>
+              <Button variant="ghost" size="icon">
+                {showFieldVisibility ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+              </Button>
+            </div>
+          </CardHeader>
+          {showFieldVisibility && (
+            <CardContent>
+              {fieldsLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+                </div>
+              ) : memberCustomFields.length === 0 ? (
+                <p className="text-sm text-slate-500 py-4">
+                  No member custom fields have been created yet. 
+                  <Link to="/CustomFieldsAdmin" className="text-blue-600 hover:underline ml-1">
+                    Create some first
+                  </Link>.
+                </p>
+              ) : (
+                <div className="space-y-4">
+                  <p className="text-sm text-slate-600">
+                    Toggle which custom fields members can see and edit on their Preferences page:
+                  </p>
+                  <div className="space-y-2">
+                    {memberCustomFields.map(field => {
+                      const isVisible = !hiddenFieldIds.includes(field.id);
+                      return (
+                        <div 
+                          key={field.id}
+                          className={`flex items-center justify-between p-3 rounded-lg border transition-colors ${
+                            isVisible ? 'bg-white border-slate-200' : 'bg-slate-50 border-slate-200 opacity-60'
+                          }`}
+                        >
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className={`font-medium ${isVisible ? 'text-slate-900' : 'text-slate-500'}`}>
+                                {field.label || field.field_name}
+                              </span>
+                              <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded">
+                                {field.field_type}
+                              </span>
+                              {!isVisible && (
+                                <span className="text-xs text-orange-600 bg-orange-50 px-2 py-0.5 rounded flex items-center gap-1">
+                                  <EyeOff className="w-3 h-3" />
+                                  Hidden
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Label htmlFor={`field-vis-${field.id}`} className="text-sm text-slate-600 cursor-pointer">
+                              {isVisible ? <Eye className="w-4 h-4 text-green-600" /> : <EyeOff className="w-4 h-4 text-slate-400" />}
+                            </Label>
+                            <Switch
+                              id={`field-vis-${field.id}`}
+                              checked={isVisible}
+                              onCheckedChange={() => handleToggleFieldVisibility(field.id)}
+                              data-testid={`switch-field-visibility-${field.id}`}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  
+                  {fieldVisibilityChanged && (
+                    <div className="flex justify-end pt-4 border-t">
+                      <Button
+                        onClick={handleSaveFieldVisibility}
+                        disabled={updateHiddenFieldsMutation.isPending}
+                        className="gap-2 bg-blue-600 hover:bg-blue-700"
+                        data-testid="button-save-field-visibility"
+                      >
+                        {updateHiddenFieldsMutation.isPending ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Save className="w-4 h-4" />
+                        )}
+                        Save Field Visibility
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          )}
         </Card>
       </div>
     </div>

@@ -495,7 +495,7 @@ export default function PreferencesPage() {
   });
 
   // --- Preference fields (custom additional info fields) - member scope only ---
-  const { data: preferenceFields = [], isLoading: preferenceFieldsLoading } = useQuery({
+  const { data: allPreferenceFields = [], isLoading: preferenceFieldsLoading } = useQuery({
     queryKey: ["/api/entities/PreferenceField", "member"],
     queryFn: async () => {
       try {
@@ -519,6 +519,31 @@ export default function PreferencesPage() {
       }
     },
   });
+
+  // --- Fetch hidden custom field IDs for Preferences page ---
+  const { data: hiddenFieldIds = [] } = useQuery({
+    queryKey: ['preferences-hidden-custom-fields'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('system_settings')
+        .select('setting_value')
+        .eq('setting_key', 'preferences_hidden_custom_fields')
+        .limit(1);
+      if (error || !data?.[0]?.setting_value) return [];
+      try {
+        const parsed = JSON.parse(data[0].setting_value);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    },
+  });
+
+  // Filter out hidden fields from preference fields
+  const preferenceFields = useMemo(() => {
+    if (!allPreferenceFields.length) return [];
+    return allPreferenceFields.filter(field => !hiddenFieldIds.includes(field.id));
+  }, [allPreferenceFields, hiddenFieldIds]);
 
   // --- Member's preference values ---
   const { data: memberPreferenceValues = [] } = useQuery({
