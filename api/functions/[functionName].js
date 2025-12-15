@@ -1925,13 +1925,13 @@ const functionHandlers = {
               AccountCode: xeroAccountCode
             };
             
-            // Add tracking for Project if internal_reference is set on the event
+            // Add tracking for Projects if internal_reference is set on the event
             if (event.internal_reference) {
               lineItem.Tracking = [{
-                Name: 'Project',
+                Name: 'Projects',
                 Option: event.internal_reference
               }];
-              xeroDebug.trackingAdded = { Name: 'Project', Option: event.internal_reference };
+              xeroDebug.trackingAdded = { Name: 'Projects', Option: event.internal_reference };
             }
             
             // Create invoice with quantity 1 and total amount
