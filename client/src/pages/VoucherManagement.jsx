@@ -8,7 +8,9 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Ticket, Plus, Pencil, Trash2, Search, ChevronLeft, ChevronRight, Building2, Calendar, EyeOff, Eye, AlertCircle } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Ticket, Plus, Pencil, Trash2, Search, ChevronLeft, ChevronRight, Building2, Calendar, EyeOff, Eye, AlertCircle, Check, ChevronsUpDown } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { createPageUrl } from "@/utils";
@@ -30,6 +32,7 @@ export default function VoucherManagementPage() {
   const [showDialog, setShowDialog] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [voucherToDelete, setVoucherToDelete] = useState(null);
+  const [orgSearchOpen, setOrgSearchOpen] = useState(false);
   
   const queryClient = useQueryClient();
 
@@ -56,6 +59,13 @@ export default function VoucherManagementPage() {
     staleTime: 0,
     refetchOnMount: true,
   });
+
+  // Sort organizations alphabetically for better UX
+  const sortedOrganizations = useMemo(() => {
+    return [...organizations].sort((a, b) => 
+      (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' })
+    );
+  }, [organizations]);
 
   const filteredVouchers = useMemo(() => {
     let filtered = vouchers;
@@ -276,7 +286,7 @@ export default function VoucherManagementPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Organisations</SelectItem>
-                    {organizations.map(org => (
+                    {sortedOrganizations.map(org => (
                       <SelectItem key={org.id} value={org.id}>{org.name}</SelectItem>
                     ))}
                   </SelectContent>
@@ -492,19 +502,50 @@ export default function VoucherManagementPage() {
               <div className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="organization">Organisation *</Label>
-                  <Select
-                    value={editingVoucher.organization_id}
-                    onValueChange={(value) => setEditingVoucher({ ...editingVoucher, organization_id: value })}
-                  >
-                    <SelectTrigger data-testid="select-voucher-org">
-                      <SelectValue placeholder="Select organisation..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {organizations.map(org => (
-                        <SelectItem key={org.id} value={org.id}>{org.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Popover open={orgSearchOpen} onOpenChange={setOrgSearchOpen}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        role="combobox"
+                        aria-expanded={orgSearchOpen}
+                        className="w-full justify-between font-normal"
+                        data-testid="select-voucher-org"
+                      >
+                        {editingVoucher.organization_id
+                          ? organizations.find(o => o.id === editingVoucher.organization_id)?.name || "Select organisation..."
+                          : "Select organisation..."}
+                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[400px] p-0" align="start">
+                      <Command>
+                        <CommandInput placeholder="Search organisations..." />
+                        <CommandList>
+                          <CommandEmpty>No organisation found.</CommandEmpty>
+                          <CommandGroup>
+                            {sortedOrganizations.map(org => (
+                              <CommandItem
+                                key={org.id}
+                                value={org.name}
+                                onSelect={() => {
+                                  setEditingVoucher({ ...editingVoucher, organization_id: org.id });
+                                  setOrgSearchOpen(false);
+                                }}
+                                data-testid={`org-option-${org.id}`}
+                              >
+                                <Check
+                                  className={`mr-2 h-4 w-4 ${
+                                    editingVoucher.organization_id === org.id ? "opacity-100" : "opacity-0"
+                                  }`}
+                                />
+                                {org.name}
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
