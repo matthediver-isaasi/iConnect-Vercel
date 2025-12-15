@@ -48,6 +48,11 @@ export default function AdminSetupPage() {
   const [dateDisplayFormat, setDateDisplayFormat] = useState("dd MMM yyyy");
   const [dateFormatSaving, setDateFormatSaving] = useState(false);
   
+  // Email settings state
+  const [welcomeEmailFromAddress, setWelcomeEmailFromAddress] = useState("");
+  const [welcomeEmailFromName, setWelcomeEmailFromName] = useState("");
+  const [emailSettingsSaving, setEmailSettingsSaving] = useState(false);
+  
   const DATE_FORMAT_OPTIONS = [
     { value: 'dd/MM/yyyy', label: 'DD/MM/YYYY (31/12/2024)' },
     { value: 'MM/dd/yyyy', label: 'MM/DD/YYYY (12/31/2024)' },
@@ -107,6 +112,11 @@ export default function AdminSetupPage() {
       if (logoHeightSetting?.setting_value) setLogoHeight(logoHeightSetting.setting_value);
       if (logoLinkSetting?.setting_value) setLogoLink(logoLinkSetting.setting_value);
       if (dateFormatSetting?.setting_value) setDateDisplayFormat(dateFormatSetting.setting_value);
+      
+      const welcomeEmailFromSetting = systemSettings.find(s => s.setting_key === 'welcome_email_from_address');
+      const welcomeEmailNameSetting = systemSettings.find(s => s.setting_key === 'welcome_email_from_name');
+      if (welcomeEmailFromSetting?.setting_value) setWelcomeEmailFromAddress(welcomeEmailFromSetting.setting_value);
+      if (welcomeEmailNameSetting?.setting_value) setWelcomeEmailFromName(welcomeEmailNameSetting.setting_value);
     }
   }, [systemSettings]);
 
@@ -196,6 +206,38 @@ export default function AdminSetupPage() {
       toast.error('Failed to save date format');
     } finally {
       setDateFormatSaving(false);
+    }
+  };
+
+  // Save email settings
+  const handleSaveEmailSettings = async () => {
+    setEmailSettingsSaving(true);
+    try {
+      const settingsToSave = [
+        { key: 'welcome_email_from_address', value: welcomeEmailFromAddress },
+        { key: 'welcome_email_from_name', value: welcomeEmailFromName }
+      ];
+
+      for (const setting of settingsToSave) {
+        const existing = systemSettings.find(s => s.setting_key === setting.key);
+        if (existing) {
+          await base44.entities.SystemSettings.update(existing.id, { setting_value: setting.value });
+        } else {
+          await base44.entities.SystemSettings.create({ 
+            setting_key: setting.key, 
+            setting_value: setting.value 
+          });
+        }
+      }
+
+      queryClient.invalidateQueries({ queryKey: ['system-settings-logo'] });
+      queryClient.invalidateQueries({ queryKey: ['system-settings'] });
+      toast.success('Email settings saved successfully');
+    } catch (error) {
+      console.error('Save email settings error:', error);
+      toast.error('Failed to save email settings');
+    } finally {
+      setEmailSettingsSaving(false);
     }
   };
 
@@ -1212,6 +1254,75 @@ export default function AdminSetupPage() {
             </CardContent>
           </Card>
         )}
+
+        {/* Email Settings */}
+        <Card className="shadow-xl border-slate-200 mb-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Shield className="w-5 h-5" />
+              Email Settings
+            </CardTitle>
+            <CardDescription>
+              Configure the from address used for system emails like welcome emails and password resets.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="welcome_email_from_name">From Name</Label>
+                <Input
+                  id="welcome_email_from_name"
+                  value={welcomeEmailFromName}
+                  onChange={(e) => setWelcomeEmailFromName(e.target.value)}
+                  placeholder="e.g. ICONN Portal"
+                  data-testid="input-welcome-email-from-name"
+                />
+                <p className="text-xs text-slate-500">
+                  The name that appears in the "From" field of emails
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="welcome_email_from_address">From Email Address</Label>
+                <Input
+                  id="welcome_email_from_address"
+                  type="email"
+                  value={welcomeEmailFromAddress}
+                  onChange={(e) => setWelcomeEmailFromAddress(e.target.value)}
+                  placeholder="e.g. noreply@mail.iconn.app"
+                  data-testid="input-welcome-email-from-address"
+                />
+                <p className="text-xs text-slate-500">
+                  Must be a verified sender address in your Mailgun domain
+                </p>
+              </div>
+            </div>
+
+            <Button
+              onClick={handleSaveEmailSettings}
+              disabled={emailSettingsSaving}
+              data-testid="button-save-email-settings"
+            >
+              {emailSettingsSaving ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="w-4 h-4 mr-2" />
+                  Save Email Settings
+                </>
+              )}
+            </Button>
+
+            <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+              <p className="text-xs text-blue-800">
+                <strong>Note:</strong> These settings are used for welcome emails sent to new members created via application forms. 
+                If left blank, the system default from address will be used.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Data Maintenance */}
         <Card className="shadow-xl border-slate-200 mb-6">

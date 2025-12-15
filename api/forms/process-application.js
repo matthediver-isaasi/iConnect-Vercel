@@ -558,15 +558,19 @@ export default async function handler(req, res) {
             } else {
               console.log('[AppProcessor] Created temporary credentials for member:', createdMemberId);
               
-              // Get system settings for app name and login URL
-              const { data: systemSettings } = await supabase
+              // Get system settings for app name, login URL, and email from address
+              const { data: allSettings } = await supabase
                 .from('system_settings')
-                .select('value')
-                .eq('key', 'app_name')
-                .single();
+                .select('setting_key, setting_value')
+                .in('setting_key', ['app_name', 'welcome_email_from_address', 'welcome_email_from_name']);
               
-              const appName = systemSettings?.value || 'ICONN';
+              const settingsMap = {};
+              (allSettings || []).forEach(s => { settingsMap[s.setting_key] = s.setting_value; });
+              
+              const appName = settingsMap['app_name'] || 'ICONN';
               const loginUrl = process.env.APP_URL || 'https://iconn.app';
+              const fromAddress = settingsMap['welcome_email_from_address'] || process.env.MAILGUN_FROM_EMAIL || 'noreply@mail.iconn.app';
+              const fromName = settingsMap['welcome_email_from_name'] || appName;
               
               // Send welcome email with temporary password
               const emailHtml = `
@@ -592,7 +596,8 @@ export default async function handler(req, res) {
               const emailResult = await sendEmail({
                 to: memberData.email,
                 subject: `Welcome to ${appName} - Your Login Details`,
-                html: emailHtml
+                html: emailHtml,
+                from: `${fromName} <${fromAddress}>`
               });
               
               if (emailResult.success) {
