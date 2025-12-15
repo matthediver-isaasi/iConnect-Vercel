@@ -170,7 +170,8 @@ export default function PostJobPage() {
     application_value: '',
     contact_name: '',
     attachment_urls: [],
-    attachment_names: []
+    attachment_names: [],
+    posting_organization_id: null // For posting on behalf of another organisation
   });
 
   // Rich text editor configuration
@@ -299,7 +300,8 @@ export default function PostJobPage() {
     setFormData((prev) => ({
       ...prev,
       company_name: org.name || '',
-      company_logo_url: org.logo_url || ''
+      company_logo_url: org.logo_url || '',
+      posting_organization_id: org.id
     }));
     setOrgSearchOpen(false);
     setOrgSearchQuery('');
@@ -311,7 +313,8 @@ export default function PostJobPage() {
     setFormData((prev) => ({
       ...prev,
       company_name: organizationInfo?.name || '',
-      company_logo_url: organizationInfo?.logo_url || ''
+      company_logo_url: organizationInfo?.logo_url || '',
+      posting_organization_id: null
     }));
   };
 
