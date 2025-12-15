@@ -1,35 +1,62 @@
 
-import React from "react";
+import React, { useMemo } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Wallet, Ticket, Calendar, AlertCircle } from "lucide-react";
 import { format, differenceInDays } from "date-fns";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 
 export default function BalancesPage({ hasBanner }) {
   const { memberInfo, organizationInfo } = useMemberAccess();
-  const { data: vouchers = [], isLoading } = useQuery({
+  
+  // Fetch all vouchers (both active and expired)
+  const { data: allVouchers = [], isLoading } = useQuery({
     queryKey: ['vouchers', organizationInfo?.id],
     queryFn: async () => {
       if (!organizationInfo?.id) return [];
-      const allVouchers = await base44.entities.Voucher.filter({
+      const vouchers = await base44.entities.Voucher.filter({
         organization_id: organizationInfo.id,
         status: 'active'
       });
-      // Filter out expired vouchers and sort by expiry date (soonest first)
-      const now = new Date();
-      return allVouchers
-        .filter(v => !v.expires_at || new Date(v.expires_at) > now)
-        .sort((a, b) => 
-          new Date(a.expires_at).getTime() - new Date(b.expires_at).getTime()
-        );
+      return vouchers;
     },
     enabled: !!organizationInfo?.id,
     staleTime: 0,
     refetchOnMount: true,
   });
+
+  // Separate active and expired vouchers
+  const { activeVouchers, expiredVouchers } = useMemo(() => {
+    const now = new Date();
+    const active = [];
+    const expired = [];
+    
+    for (const v of allVouchers) {
+      if (!v.expires_at || new Date(v.expires_at) > now) {
+        active.push(v);
+      } else {
+        expired.push(v);
+      }
+    }
+    
+    // Sort active by expiry date (soonest first)
+    active.sort((a, b) => 
+      new Date(a.expires_at).getTime() - new Date(b.expires_at).getTime()
+    );
+    
+    // Sort expired by expiry date (most recently expired first)
+    expired.sort((a, b) => 
+      new Date(b.expires_at).getTime() - new Date(a.expires_at).getTime()
+    );
+    
+    return { activeVouchers: active, expiredVouchers: expired };
+  }, [allVouchers]);
+
+  // Use activeVouchers for balance calculations
+  const vouchers = activeVouchers;
 
   if (!memberInfo || !organizationInfo) {
     return (
@@ -169,88 +196,143 @@ export default function BalancesPage({ hasBanner }) {
           </CardContent>
         </Card>
 
-        {/* Vouchers List */}
+        {/* Vouchers List with Tabs */}
         <Card className="border-slate-200 shadow-sm">
           <CardHeader className="border-b border-slate-200">
-            <CardTitle className="text-xl">Active Vouchers</CardTitle>
+            <CardTitle className="text-xl">Vouchers</CardTitle>
           </CardHeader>
           <CardContent className="pt-6">
             {isLoading ? (
               <div className="text-center py-8 text-slate-600">Loading vouchers...</div>
-            ) : vouchers.length === 0 ? (
-              <div className="text-center py-8">
-                <Ticket className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-                <p className="text-slate-600">No active vouchers</p>
-                <p className="text-sm text-slate-500 mt-1">
-                  Vouchers will appear here when allocated to your organization
-                </p>
-              </div>
             ) : (
-              <div className="grid md:grid-cols-2 gap-4">
-                {vouchers.map((voucher) => {
-                  const expiryDate = new Date(voucher.expires_at);
-                  const daysUntilExpiry = differenceInDays(expiryDate, new Date());
-                  const isExpiringSoon = daysUntilExpiry <= 30 && daysUntilExpiry >= 0;
-                  const isExpired = daysUntilExpiry < 0;
-                  
-                  return (
-                    <Card 
-                      key={voucher.id}
-                      className={`border-2 ${
-                        isExpired ? 'border-red-200 bg-red-50' :
-                        isExpiringSoon ? 'border-amber-200 bg-amber-50' : 
-                        'border-blue-200 bg-blue-50'
-                      }`}
-                    >
-                      <CardContent className="p-4">
-                        <div className="flex items-start justify-between mb-3">
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2 mb-1">
-                              <Ticket className={`w-4 h-4 ${
-                                isExpired ? 'text-red-600' :
-                                isExpiringSoon ? 'text-amber-600' : 
-                                'text-blue-600'
-                              }`} />
-                              <h3 className="font-semibold text-slate-900">{voucher.code}</h3>
-                            </div>
-                            {voucher.description && (
-                              <p className="text-sm text-slate-600 mb-2">{voucher.description}</p>
-                            )}
-                          </div>
-                          <Badge className="bg-green-100 text-green-700 font-semibold shrink-0 ml-2">
-                            £{voucher.value.toFixed(2)}
-                          </Badge>
-                        </div>
+              <Tabs defaultValue="active" className="w-full">
+                <TabsList className="mb-4">
+                  <TabsTrigger value="active" data-testid="tab-active-vouchers">
+                    Active ({activeVouchers.length})
+                  </TabsTrigger>
+                  <TabsTrigger value="expired" data-testid="tab-expired-vouchers">
+                    Expired ({expiredVouchers.length})
+                  </TabsTrigger>
+                </TabsList>
+                
+                <TabsContent value="active">
+                  {activeVouchers.length === 0 ? (
+                    <div className="text-center py-8">
+                      <Ticket className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                      <p className="text-slate-600">No active vouchers</p>
+                      <p className="text-sm text-slate-500 mt-1">
+                        Vouchers will appear here when allocated to your organization
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="grid md:grid-cols-2 gap-4">
+                      {activeVouchers.map((voucher) => {
+                        const expiryDate = new Date(voucher.expires_at);
+                        const daysUntilExpiry = differenceInDays(expiryDate, new Date());
+                        const isExpiringSoon = daysUntilExpiry <= 30 && daysUntilExpiry >= 0;
                         
-                        <div className="flex items-center gap-2 text-xs">
-                          <Calendar className={`w-3 h-3 ${
-                            isExpired ? 'text-red-600' :
-                            isExpiringSoon ? 'text-amber-600' : 
-                            'text-slate-400'
-                          }`} />
-                          <span className={
-                            isExpired ? 'text-red-600 font-medium' :
-                            isExpiringSoon ? 'text-amber-600 font-medium' : 
-                            'text-slate-500'
-                          }>
-                            {isExpired ? 'Expired' : 'Expires'} {format(expiryDate, 'MMM d, yyyy')}
-                            {isExpiringSoon && !isExpired && ` (${daysUntilExpiry} days)`}
-                          </span>
-                        </div>
+                        return (
+                          <Card 
+                            key={voucher.id}
+                            className={`border-2 ${
+                              isExpiringSoon ? 'border-amber-200 bg-amber-50' : 
+                              'border-blue-200 bg-blue-50'
+                            }`}
+                          >
+                            <CardContent className="p-4">
+                              <div className="flex items-start justify-between mb-3">
+                                <div className="flex-1">
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <Ticket className={`w-4 h-4 ${
+                                      isExpiringSoon ? 'text-amber-600' : 'text-blue-600'
+                                    }`} />
+                                    <h3 className="font-semibold text-slate-900">{voucher.code}</h3>
+                                  </div>
+                                  {voucher.description && (
+                                    <p className="text-sm text-slate-600 mb-2">{voucher.description}</p>
+                                  )}
+                                </div>
+                                <Badge className="bg-green-100 text-green-700 font-semibold shrink-0 ml-2">
+                                  £{voucher.value.toFixed(2)}
+                                </Badge>
+                              </div>
+                              
+                              <div className="flex items-center gap-2 text-xs">
+                                <Calendar className={`w-3 h-3 ${
+                                  isExpiringSoon ? 'text-amber-600' : 'text-slate-400'
+                                }`} />
+                                <span className={
+                                  isExpiringSoon ? 'text-amber-600 font-medium' : 'text-slate-500'
+                                }>
+                                  Expires {format(expiryDate, 'MMM d, yyyy')}
+                                  {isExpiringSoon && ` (${daysUntilExpiry} days)`}
+                                </span>
+                              </div>
 
-                        {isExpiringSoon && !isExpired && (
-                          <div className="flex items-start gap-2 mt-3 p-2 bg-amber-100 rounded-lg">
-                            <AlertCircle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
-                            <p className="text-xs text-amber-800">
-                              This voucher expires soon. Use it before it becomes invalid.
-                            </p>
-                          </div>
-                        )}
-                      </CardContent>
-                    </Card>
-                  );
-                })}
-              </div>
+                              {isExpiringSoon && (
+                                <div className="flex items-start gap-2 mt-3 p-2 bg-amber-100 rounded-lg">
+                                  <AlertCircle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+                                  <p className="text-xs text-amber-800">
+                                    This voucher expires soon. Use it before it becomes invalid.
+                                  </p>
+                                </div>
+                              )}
+                            </CardContent>
+                          </Card>
+                        );
+                      })}
+                    </div>
+                  )}
+                </TabsContent>
+                
+                <TabsContent value="expired">
+                  {expiredVouchers.length === 0 ? (
+                    <div className="text-center py-8">
+                      <Ticket className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                      <p className="text-slate-600">No expired vouchers</p>
+                    </div>
+                  ) : (
+                    <div className="grid md:grid-cols-2 gap-4">
+                      {expiredVouchers.map((voucher) => {
+                        const expiryDate = new Date(voucher.expires_at);
+                        const daysSinceExpiry = differenceInDays(new Date(), expiryDate);
+                        
+                        return (
+                          <Card 
+                            key={voucher.id}
+                            className="border-2 border-red-200 bg-red-50 opacity-75"
+                          >
+                            <CardContent className="p-4">
+                              <div className="flex items-start justify-between mb-3">
+                                <div className="flex-1">
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <Ticket className="w-4 h-4 text-red-600" />
+                                    <h3 className="font-semibold text-slate-900">{voucher.code}</h3>
+                                  </div>
+                                  {voucher.description && (
+                                    <p className="text-sm text-slate-600 mb-2">{voucher.description}</p>
+                                  )}
+                                </div>
+                                <Badge className="bg-red-100 text-red-700 font-semibold shrink-0 ml-2 line-through">
+                                  £{voucher.value.toFixed(2)}
+                                </Badge>
+                              </div>
+                              
+                              <div className="flex items-center gap-2 text-xs">
+                                <Calendar className="w-3 h-3 text-red-600" />
+                                <span className="text-red-600 font-medium">
+                                  Expired {format(expiryDate, 'MMM d, yyyy')}
+                                  {daysSinceExpiry > 0 && ` (${daysSinceExpiry} days ago)`}
+                                </span>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        );
+                      })}
+                    </div>
+                  )}
+                </TabsContent>
+              </Tabs>
             )}
           </CardContent>
         </Card>
