@@ -2451,33 +2451,55 @@ export default function PreferencesPage() {
                           </Select>
                         )}
                         
-                        {field.field_type === 'picklist' && field.options && (
-                          <div className="space-y-2 p-3 bg-slate-50 rounded-lg border">
-                            {field.options.map((option) => {
-                              const selectedValues = Array.isArray(fieldValue) ? fieldValue : [];
-                              const isChecked = selectedValues.includes(option.value);
-                              
-                              return (
-                                <div key={option.value} className="flex items-center space-x-2">
-                                  <Checkbox
-                                    id={`field-${field.id}-${option.value}`}
-                                    checked={isChecked}
-                                    onCheckedChange={(checked) => 
-                                      handlePicklistToggle(field.id, option.value, checked)
-                                    }
-                                    data-testid={`checkbox-field-${field.id}-${option.value}`}
-                                  />
-                                  <label 
-                                    htmlFor={`field-${field.id}-${option.value}`}
-                                    className="text-sm text-slate-700 cursor-pointer"
-                                  >
-                                    {option.label}
-                                  </label>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
+                        {field.field_type === 'picklist' && field.options && (() => {
+                          const selectedValues = Array.isArray(fieldValue) ? fieldValue : [];
+                          const selectedCount = selectedValues.length;
+                          const maxSelections = field.max_selections;
+                          const minSelections = field.min_selections;
+                          const isAtMax = maxSelections != null && selectedCount >= maxSelections;
+                          
+                          return (
+                            <div className="space-y-2">
+                              {(minSelections != null || maxSelections != null) && (
+                                <p className="text-xs text-slate-500">
+                                  {minSelections != null && maxSelections != null 
+                                    ? `Select between ${minSelections} and ${maxSelections} options`
+                                    : minSelections != null 
+                                      ? `Select at least ${minSelections} option${minSelections > 1 ? 's' : ''}`
+                                      : `Select up to ${maxSelections} option${maxSelections > 1 ? 's' : ''}`
+                                  }
+                                  {' '}({selectedCount} selected)
+                                </p>
+                              )}
+                              <div className="space-y-2 p-3 bg-slate-50 rounded-lg border">
+                                {field.options.map((option) => {
+                                  const isChecked = selectedValues.includes(option.value);
+                                  const isDisabled = !isChecked && isAtMax;
+                                  
+                                  return (
+                                    <div key={option.value} className="flex items-center space-x-2">
+                                      <Checkbox
+                                        id={`field-${field.id}-${option.value}`}
+                                        checked={isChecked}
+                                        disabled={isDisabled}
+                                        onCheckedChange={(checked) => 
+                                          handlePicklistToggle(field.id, option.value, checked)
+                                        }
+                                        data-testid={`checkbox-field-${field.id}-${option.value}`}
+                                      />
+                                      <label 
+                                        htmlFor={`field-${field.id}-${option.value}`}
+                                        className={`text-sm cursor-pointer ${isDisabled ? 'text-slate-400' : 'text-slate-700'}`}
+                                      >
+                                        {option.label}
+                                      </label>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })()}
 
                         {field.field_type === 'list' && (
                           <ListFieldEditor
