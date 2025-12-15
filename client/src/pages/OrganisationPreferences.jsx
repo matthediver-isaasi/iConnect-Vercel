@@ -72,7 +72,15 @@ export default function OrganisationPreferencesPage() {
       if (!response.ok) {
         throw new Error('Failed to fetch permissions');
       }
-      return response.json();
+      const data = await response.json();
+      // Transform array format [{ field_key, permission }] to object format { field_key: permission }
+      const permissionMap = {};
+      if (Array.isArray(data)) {
+        data.forEach(p => {
+          permissionMap[p.field_key] = p.permission;
+        });
+      }
+      return permissionMap;
     },
     enabled: !!selectedRoleId && accessChecked,
   });
@@ -91,11 +99,17 @@ export default function OrganisationPreferencesPage() {
 
   const updatePermissionsMutation = useMutation({
     mutationFn: async (permissionsData) => {
+      // Transform object format { field_key: permission } to array format [{ field_key, permission }]
+      const permissionsArray = Object.entries(permissionsData).map(([field_key, permission]) => ({
+        field_key,
+        permission
+      }));
+      
       const response = await fetch(`/api/roles/${selectedRoleId}/organization-field-permissions`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify(permissionsData)
+        body: JSON.stringify(permissionsArray)
       });
       if (!response.ok) {
         const error = await response.json();
