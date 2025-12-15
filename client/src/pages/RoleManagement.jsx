@@ -561,14 +561,53 @@ export default function RoleManagementPage() {
                   )}
 
                   <div className="space-y-2 mb-4">
-                    <div className="text-xs font-medium text-slate-500 uppercase">Restrictions</div>
-                    {role.excluded_features && role.excluded_features.length > 0 ? (
-                      <div className="text-sm text-slate-700">
-                        {role.excluded_features.length} feature{role.excluded_features.length > 1 ? 's' : ''} restricted
-                      </div>
-                    ) : (
-                      <div className="text-sm text-green-600">Full access</div>
-                    )}
+                    <div className="text-xs font-medium text-slate-500 uppercase">Access Level</div>
+                    {(() => {
+                      const excluded = role.excluded_features || [];
+                      let fullAccess = 0;
+                      let partial = 0;
+                      let blocked = 0;
+                      
+                      ROLE_ACCESS_MAP.forEach(module => {
+                        const state = getModuleExclusionState(excluded, module.id);
+                        if (state === 'none') fullAccess++;
+                        else if (state === 'some') partial++;
+                        else blocked++;
+                      });
+                      
+                      if (blocked === 0 && partial === 0) {
+                        return <div className="text-sm text-green-600 flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-green-500"></span>
+                          Full access to all modules
+                        </div>;
+                      } else if (blocked === ROLE_ACCESS_MAP.length) {
+                        return <div className="text-sm text-red-600 flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-red-500"></span>
+                          No module access
+                        </div>;
+                      } else {
+                        return <div className="flex gap-3 text-xs">
+                          {fullAccess > 0 && (
+                            <span className="flex items-center gap-1 text-green-600">
+                              <span className="w-2 h-2 rounded-full bg-green-500"></span>
+                              {fullAccess} full
+                            </span>
+                          )}
+                          {partial > 0 && (
+                            <span className="flex items-center gap-1 text-amber-600">
+                              <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                              {partial} partial
+                            </span>
+                          )}
+                          {blocked > 0 && (
+                            <span className="flex items-center gap-1 text-red-600">
+                              <span className="w-2 h-2 rounded-full bg-red-500"></span>
+                              {blocked} blocked
+                            </span>
+                          )}
+                        </div>;
+                      }
+                    })()}
                   </div>
 
                   <div className="flex gap-2">
