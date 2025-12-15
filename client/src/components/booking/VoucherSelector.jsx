@@ -22,9 +22,13 @@ export default function VoucherSelector({ organizationId, selectedVouchers, onVo
       
       console.log('[VoucherSelector] All vouchers fetched:', allVouchers.length);
       
-      // Filter for this organization and active status ONLY - no sorting here
+      // Filter for this organization, active status, and not expired - no sorting here
+      const now = new Date();
       const activeVouchers = allVouchers.filter(v => 
-        v.organization_id === organizationId && v.status === 'active'
+        v.organization_id === organizationId && 
+        v.status === 'active' &&
+        // Exclude expired vouchers
+        (!v.expires_at || new Date(v.expires_at) > now)
       );
       
       console.log('[VoucherSelector] Active vouchers for this org:', activeVouchers.length);

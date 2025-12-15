@@ -173,10 +173,13 @@ export default function PaymentOptions({
       if (!organizationInfo?.id) return [];
       // Fetch from Voucher entity (not ProgramTicketTransaction)
       const allVouchers = await base44.entities.Voucher.list();
+      const now = new Date();
       return allVouchers.filter(v => 
         v.organization_id === organizationInfo.id && 
         v.status === 'active' &&
-        (v.value || 0) > 0
+        (v.value || 0) > 0 &&
+        // Exclude expired vouchers
+        (!v.expires_at || new Date(v.expires_at) > now)
       );
     },
     enabled: isOneOffEvent && !!organizationInfo?.id
