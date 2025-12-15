@@ -22,6 +22,9 @@ export default function MemberDirectoryPage() {
   // Check if user can see the "Show disabled accounts" toggle
   const canShowDisabledAccounts = !isFeatureExcluded('element_ShowDisabledAccounts');
   
+  // Check if user can view other members' biographies
+  const canViewMemberBiography = !isFeatureExcluded('view_member_biography');
+  
   const [searchQuery, setSearchQuery] = useState("");
   const [showDisabled, setShowDisabled] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
@@ -809,7 +812,7 @@ export default function MemberDirectoryPage() {
                 ) : null;
               })()}
 
-              {displaySettings?.show_bio_in_popup && viewingMember.biography && (
+              {displaySettings?.show_bio_in_popup && viewingMember.biography && canViewMemberBiography && (
                 <div className="space-y-2">
                   <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wide">About</h3>
                   <p className={`text-slate-700 leading-relaxed ${!bioExpanded ? 'line-clamp-4' : ''}`}>

@@ -135,6 +135,10 @@ const AVAILABLE_FEATURES = [
   { id: "element_NewsTickerBar", label: "News Ticker Bar", category: "UI Elements" },
   { id: "element_ShowDisabledAccounts", label: "Show Disabled Accounts Toggle (Member Directory)", category: "UI Elements" },
   
+  // Profile Fields
+  { id: "edit_professional_biography", label: "Edit Professional Biography", category: "Profile Fields" },
+  { id: "view_member_biography", label: "View Other Members' Biographies", category: "Profile Fields" },
+  
   // Payment Options
   { id: "payment_training_vouchers", label: "Use Training Vouchers for Purchases", category: "Payment Options" },
   { id: "payment_training_fund", label: "Use Training Fund for Purchases", category: "Payment Options" },

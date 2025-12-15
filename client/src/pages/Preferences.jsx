@@ -46,6 +46,7 @@ import ResourceFilter from "../components/resources/ResourceFilter";
 import { toast } from "sonner";
 import { Switch } from "@/components/ui/switch";
 import { useLayoutContext } from "@/contexts/LayoutContext";
+import { useMemberAccess } from "@/hooks/useMemberAccess";
 
 // --- List Field Editor Component ---
 function ListFieldEditor({ fieldId, values = [], onChange, placeholder, disabled = false }) {
@@ -238,9 +239,8 @@ export default function PreferencesPage() {
     },
   });
 
-  // Helper to mimic old isFeatureExcluded prop:
-  const isFeatureExcluded = (featureKey) =>
-    !!memberRecord?.member_excluded_features?.includes(featureKey);
+  // Use useMemberAccess hook to check both role-level and member-level feature exclusions
+  const { isFeatureExcluded } = useMemberAccess();
 
   // crude "is team member" flag – adjust if you later add a real column
   const isTeamMember =
