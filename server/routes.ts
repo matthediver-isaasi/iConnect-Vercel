@@ -91,6 +91,7 @@ const entityToTable: Record<string, string> = {
   'Workflow': 'workflow',
   'WorkflowLog': 'workflow_log',
   'MemberResourceCategory': 'member_resource_category',
+  'RoleOrganizationFieldPermission': 'role_organization_field_permission',
 };
 
 // Extend session type
@@ -2980,6 +2981,174 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('[Admin Comm Pref] Error:', error);
       res.status(500).json({ error: 'Failed to update communication preference' });
+    }
+  });
+
+  // ============ Role Organization Field Permissions ============
+  
+  // Get all field permissions for a role
+  app.get('/api/roles/:roleId/organization-field-permissions', async (req: Request, res: Response) => {
+    const { isAdmin, error } = await verifyAdminSession(req);
+    
+    if (error) {
+      return res.status(401).json({ error });
+    }
+    
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    if (!supabase) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+
+    try {
+      const { roleId } = req.params;
+
+      const { data: permissions, error: fetchError } = await supabase
+        .from('role_organization_field_permission')
+        .select('*')
+        .eq('role_id', roleId);
+
+      if (fetchError) {
+        console.error('[Get Role Field Permissions] Error:', fetchError);
+        return res.status(500).json({ error: fetchError.message });
+      }
+
+      // Convert to a map for easier frontend usage
+      const permissionMap: Record<string, string> = {};
+      (permissions || []).forEach((p: any) => {
+        permissionMap[p.field_key] = p.permission;
+      });
+
+      res.json(permissionMap);
+    } catch (error) {
+      console.error('[Get Role Field Permissions] Error:', error);
+      res.status(500).json({ error: 'Failed to get field permissions' });
+    }
+  });
+
+  // Update field permissions for a role (batch update)
+  app.put('/api/roles/:roleId/organization-field-permissions', async (req: Request, res: Response) => {
+    const { isAdmin, error } = await verifyAdminSession(req);
+    
+    if (error) {
+      return res.status(401).json({ error });
+    }
+    
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    if (!supabase) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+
+    try {
+      const { roleId } = req.params;
+      const permissions = req.body; // { field_key: permission, ... }
+
+      if (typeof permissions !== 'object' || permissions === null) {
+        return res.status(400).json({ error: 'Request body must be an object mapping field_key to permission' });
+      }
+
+      // Validate permission values
+      const validPermissions = ['hidden', 'read', 'read_write'];
+      for (const [fieldKey, permission] of Object.entries(permissions)) {
+        if (!validPermissions.includes(permission as string)) {
+          return res.status(400).json({ 
+            error: `Invalid permission '${permission}' for field '${fieldKey}'. Must be one of: ${validPermissions.join(', ')}` 
+          });
+        }
+      }
+
+      // Delete all existing permissions for this role
+      const { error: deleteError } = await supabase
+        .from('role_organization_field_permission')
+        .delete()
+        .eq('role_id', roleId);
+
+      if (deleteError) {
+        console.error('[Delete Role Field Permissions] Error:', deleteError);
+        return res.status(500).json({ error: deleteError.message });
+      }
+
+      // Insert new permissions (only those that aren't 'read_write' as that's the default)
+      const permissionsToInsert = Object.entries(permissions)
+        .filter(([_, permission]) => permission !== 'read_write')
+        .map(([fieldKey, permission]) => ({
+          role_id: roleId,
+          field_key: fieldKey,
+          permission: permission
+        }));
+
+      if (permissionsToInsert.length > 0) {
+        const { error: insertError } = await supabase
+          .from('role_organization_field_permission')
+          .insert(permissionsToInsert);
+
+        if (insertError) {
+          console.error('[Insert Role Field Permissions] Error:', insertError);
+          return res.status(500).json({ error: insertError.message });
+        }
+      }
+
+      res.json({ success: true, count: permissionsToInsert.length });
+    } catch (error) {
+      console.error('[Update Role Field Permissions] Error:', error);
+      res.status(500).json({ error: 'Failed to update field permissions' });
+    }
+  });
+
+  // Get field permissions for the current member's role (for MyOrganisation page)
+  app.get('/api/my-organization-field-permissions', async (req: Request, res: Response) => {
+    if (!supabase) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+
+    try {
+      const memberEmail = req.session?.memberEmail;
+      if (!memberEmail) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+
+      // Get member's role
+      const { data: member, error: memberError } = await supabase
+        .from('member')
+        .select('role_id')
+        .eq('email', memberEmail)
+        .single();
+
+      if (memberError || !member) {
+        console.error('[Get My Field Permissions] Member error:', memberError);
+        return res.status(404).json({ error: 'Member not found' });
+      }
+
+      if (!member.role_id) {
+        // No role assigned, return empty (default to read_write for all)
+        return res.json({});
+      }
+
+      const { data: permissions, error: fetchError } = await supabase
+        .from('role_organization_field_permission')
+        .select('*')
+        .eq('role_id', member.role_id);
+
+      if (fetchError) {
+        console.error('[Get My Field Permissions] Error:', fetchError);
+        return res.status(500).json({ error: fetchError.message });
+      }
+
+      // Convert to a map for easier frontend usage
+      const permissionMap: Record<string, string> = {};
+      (permissions || []).forEach((p: any) => {
+        permissionMap[p.field_key] = p.permission;
+      });
+
+      res.json(permissionMap);
+    } catch (error) {
+      console.error('[Get My Field Permissions] Error:', error);
+      res.status(500).json({ error: 'Failed to get field permissions' });
     }
   });
 

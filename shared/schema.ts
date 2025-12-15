@@ -62,3 +62,18 @@ export const insertWorkflowLogSchema = createInsertSchema(workflowLog).omit({
 
 export type InsertWorkflowLog = z.infer<typeof insertWorkflowLogSchema>;
 export type WorkflowLog = typeof workflowLog.$inferSelect;
+
+// Role-based organization field permissions
+export const roleOrganizationFieldPermission = pgTable("role_organization_field_permission", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  role_id: varchar("role_id").notNull(), // References role.id
+  field_key: text("field_key").notNull(), // Core field name or custom field UUID
+  permission: text("permission").notNull(), // 'hidden', 'read', 'read_write'
+});
+
+export const insertRoleOrganizationFieldPermissionSchema = createInsertSchema(roleOrganizationFieldPermission).omit({
+  id: true,
+});
+
+export type InsertRoleOrganizationFieldPermission = z.infer<typeof insertRoleOrganizationFieldPermissionSchema>;
+export type RoleOrganizationFieldPermission = typeof roleOrganizationFieldPermission.$inferSelect;
