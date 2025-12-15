@@ -151,7 +151,10 @@ const AVAILABLE_FEATURES = [
   
   // Admin Capabilities (special permissions for managing other members)
   { id: "admin_can_edit_members", label: "Edit Other Members' Details", category: "Admin Capabilities" },
-  { id: "admin_can_manage_communications", label: "Manage Communications", category: "Admin Capabilities" }
+  { id: "admin_can_manage_communications", label: "Manage Communications", category: "Admin Capabilities" },
+  
+  // Job Board Features
+  { id: "feature_PostJobOnBehalfOfOrg", label: "Post Jobs on Behalf of Other Organisations", category: "Job Board Features" }
   ];
 
 export default function RoleManagementPage() {

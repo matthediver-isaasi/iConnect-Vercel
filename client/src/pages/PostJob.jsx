@@ -10,13 +10,15 @@ import 'react-quill/dist/quill.snow.css';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, Briefcase, CheckCircle, ArrowRight, Mail, ExternalLink, Upload, X, FileText, Image as ImageIcon, FileCheck, CreditCard, AlertCircle, ArrowLeft } from "lucide-react";
+import { Loader2, Briefcase, CheckCircle, ArrowRight, Mail, ExternalLink, Upload, X, FileText, Image as ImageIcon, FileCheck, CreditCard, AlertCircle, ArrowLeft, Building2, Search } from "lucide-react";
 import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { toast } from "sonner";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 // Load Stripe outside component to avoid recreating on every render
 let stripePromise = null;
@@ -112,7 +114,7 @@ function StripePaymentForm({ clientSecret, onSuccess, onCancel, amount }) {
 }
 
 export default function PostJobPage() {
-  const { memberInfo, organizationInfo } = useMemberAccess();
+  const { memberInfo, organizationInfo, isFeatureExcluded } = useMemberAccess();
 
   const [step, setStep] = useState('email'); // 'email', 'form', 'submitting'
   const [email, setEmail] = useState('');
@@ -130,6 +132,29 @@ export default function PostJobPage() {
   const [paymentAmount, setPaymentAmount] = useState(50.00);
   const [showErrorDialog, setShowErrorDialog] = useState(false);
   const [submissionError, setSubmissionError] = useState({ title: '', message: '', details: [] });
+  
+  // Organisation search state
+  const [selectedOrganization, setSelectedOrganization] = useState(null);
+  const [orgSearchOpen, setOrgSearchOpen] = useState(false);
+  const [orgSearchQuery, setOrgSearchQuery] = useState('');
+  
+  // Check if user can post on behalf of other organisations
+  const canPostOnBehalfOfOrg = isLoggedIn && !isFeatureExcluded('feature_PostJobOnBehalfOfOrg');
+  
+  // Fetch organisations for search (only if user has permission)
+  const { data: allOrganizations = [] } = useQuery({
+    queryKey: ['organizations-for-job-posting'],
+    queryFn: () => base44.entities.Organization.list(),
+    enabled: canPostOnBehalfOfOrg,
+  });
+  
+  // Filter organizations based on search query
+  const filteredOrganizations = useMemo(() => {
+    if (!orgSearchQuery) return allOrganizations.slice(0, 50); // Show first 50 by default
+    return allOrganizations.filter(org => 
+      org.name?.toLowerCase().includes(orgSearchQuery.toLowerCase())
+    ).slice(0, 50);
+  }, [allOrganizations, orgSearchQuery]);
 
   const [formData, setFormData] = useState({
     title: '',
@@ -268,6 +293,28 @@ export default function PostJobPage() {
     }
   }, [jobPostingPrice]);
 
+  // Handle organization selection
+  const handleOrganizationSelect = (org) => {
+    setSelectedOrganization(org);
+    setFormData((prev) => ({
+      ...prev,
+      company_name: org.name || '',
+      company_logo_url: org.logo_url || ''
+    }));
+    setOrgSearchOpen(false);
+    setOrgSearchQuery('');
+  };
+  
+  // Reset to user's own organization
+  const handleResetToOwnOrg = () => {
+    setSelectedOrganization(null);
+    setFormData((prev) => ({
+      ...prev,
+      company_name: organizationInfo?.name || '',
+      company_logo_url: organizationInfo?.logo_url || ''
+    }));
+  };
+
   // Initialize from props (portal mode) or sessionStorage (public mode)
   useEffect(() => {
     if (memberInfo) {
@@ -285,6 +332,8 @@ export default function PostJobPage() {
         job_type: jobTypeSettings[0] || '',
         hours: hoursSettings[0] || ''
       }));
+      // Reset selected organization when member info changes
+      setSelectedOrganization(null);
     } else {
       // Public mode - check sessionStorage
       const member = sessionStorage.getItem('agcas_member');
@@ -679,6 +728,111 @@ export default function PostJobPage() {
 
               </div>
 
+              {/* Organisation Selection - for users with permission to post on behalf of other orgs */}
+              {canPostOnBehalfOfOrg && (
+                <div className="space-y-3 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                  <div className="flex items-center gap-2">
+                    <Building2 className="w-5 h-5 text-blue-600" />
+                    <h3 className="font-semibold text-blue-900">Post on Behalf of Organisation</h3>
+                  </div>
+                  <p className="text-sm text-blue-700">
+                    You can post this job on behalf of another organisation. Search and select an organisation below, or leave as your own.
+                  </p>
+                  
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Popover open={orgSearchOpen} onOpenChange={setOrgSearchOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          role="combobox"
+                          aria-expanded={orgSearchOpen}
+                          className="justify-between min-w-[280px] bg-white"
+                          data-testid="button-org-search"
+                        >
+                          <span className="truncate">
+                            {selectedOrganization ? selectedOrganization.name : "Search for an organisation..."}
+                          </span>
+                          <Search className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[350px] p-0" align="start">
+                        <Command>
+                          <CommandInput 
+                            placeholder="Type to search organisations..." 
+                            value={orgSearchQuery}
+                            onValueChange={setOrgSearchQuery}
+                            data-testid="input-org-search"
+                          />
+                          <CommandList>
+                            <CommandEmpty>No organisation found.</CommandEmpty>
+                            <CommandGroup>
+                              {filteredOrganizations.map((org) => (
+                                <CommandItem
+                                  key={org.id}
+                                  value={org.name}
+                                  onSelect={() => handleOrganizationSelect(org)}
+                                  className="cursor-pointer"
+                                  data-testid={`org-option-${org.id}`}
+                                >
+                                  <div className="flex items-center gap-3">
+                                    {org.logo_url ? (
+                                      <img 
+                                        src={org.logo_url} 
+                                        alt="" 
+                                        className="w-8 h-8 rounded object-contain bg-slate-100"
+                                      />
+                                    ) : (
+                                      <div className="w-8 h-8 rounded bg-slate-200 flex items-center justify-center">
+                                        <Building2 className="w-4 h-4 text-slate-500" />
+                                      </div>
+                                    )}
+                                    <span className="truncate">{org.name}</span>
+                                  </div>
+                                </CommandItem>
+                              ))}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
+                    
+                    {selectedOrganization && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleResetToOwnOrg}
+                        className="text-blue-600 hover:text-blue-700"
+                        data-testid="button-reset-org"
+                      >
+                        <X className="w-4 h-4 mr-1" />
+                        Reset to my organisation
+                      </Button>
+                    )}
+                  </div>
+                  
+                  {selectedOrganization && (
+                    <div className="flex items-center gap-3 p-3 bg-white rounded-lg border border-blue-200">
+                      {selectedOrganization.logo_url ? (
+                        <img 
+                          src={selectedOrganization.logo_url} 
+                          alt="" 
+                          className="w-12 h-12 rounded object-contain bg-slate-100"
+                        />
+                      ) : (
+                        <div className="w-12 h-12 rounded bg-slate-200 flex items-center justify-center">
+                          <Building2 className="w-6 h-6 text-slate-500" />
+                        </div>
+                      )}
+                      <div>
+                        <p className="font-medium text-slate-900">{selectedOrganization.name}</p>
+                        <p className="text-xs text-slate-500">Posting on behalf of this organisation</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="space-y-2">
                 <Label htmlFor="company_name">Company/Organisation *</Label>
                 <Input
@@ -686,13 +840,18 @@ export default function PostJobPage() {
                   placeholder="e.g., University of Example"
                   value={formData.company_name}
                   onChange={(e) => setFormData({ ...formData, company_name: e.target.value })}
-                  disabled={isLoggedIn && organizationInfo}
-                  className={isLoggedIn && organizationInfo ? 'bg-slate-100 cursor-not-allowed' : ''}
+                  disabled={isLoggedIn && (organizationInfo || selectedOrganization)}
+                  className={isLoggedIn && (organizationInfo || selectedOrganization) ? 'bg-slate-100 cursor-not-allowed' : ''}
                   required />
 
-                {isLoggedIn && organizationInfo &&
+                {isLoggedIn && organizationInfo && !selectedOrganization &&
                 <p className="text-xs text-slate-500">
                     Your organisation details are automatically filled from your member profile
+                  </p>
+                }
+                {selectedOrganization &&
+                <p className="text-xs text-blue-600">
+                    Using selected organisation's details
                   </p>
                 }
               </div>
