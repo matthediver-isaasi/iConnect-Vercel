@@ -29,6 +29,17 @@ function CommunicationPreferencesField({ field, value, onChange, disabled }) {
     staleTime: 5 * 60 * 1000
   });
 
+  // Initialize all categories to subscribed (true) when categories load
+  useEffect(() => {
+    if (categories.length > 0 && (!value || Object.keys(value).length === 0)) {
+      const initialPrefs = {};
+      categories.forEach(cat => {
+        initialPrefs[cat.id] = true;
+      });
+      onChange(initialPrefs);
+    }
+  }, [categories]);
+
   if (isLoading) {
     return (
       <div className="flex items-center gap-2 text-sm text-slate-500">

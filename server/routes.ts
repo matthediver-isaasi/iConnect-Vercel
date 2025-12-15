@@ -790,6 +790,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Public endpoint for communication categories (used by forms for communication preferences field)
+  app.get('/api/public/communication-categories', async (req: Request, res: Response) => {
+    if (!supabase) {
+      return res.status(503).json({ error: 'Supabase not configured' });
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('communication_category')
+        .select('id, name, description')
+        .eq('is_active', true)
+        .order('display_order', { ascending: true });
+
+      if (error) {
+        console.error('Error fetching communication categories:', error);
+        return res.status(500).json({ error: error.message });
+      }
+
+      res.json(data || []);
+    } catch (error) {
+      console.error('Public communication categories fetch error:', error);
+      res.status(500).json({ error: 'Failed to fetch communication categories' });
+    }
+  });
+
   // Public endpoint for resource categories (used by forms for search/content category multi-select)
   app.get('/api/public/resource-categories', async (req: Request, res: Response) => {
     if (!supabase) {
@@ -1923,6 +1948,83 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 .from('member_resource_category')
                 .insert(insertData);
               console.log(`[AppProcessor] Added ${toAdd.length} category selections`);
+            }
+          }
+
+          // Handle communication_preferences field values - save to member_communication_preference table
+          const commPrefFields = fields.filter((f: any) => f.type === 'communication_preferences');
+          if (commPrefFields.length > 0) {
+            console.log(`[AppProcessor] Processing ${commPrefFields.length} communication preference fields`);
+            
+            // Fetch all active communication categories to ensure all are saved
+            const { data: allCommCategories } = await supabase
+              .from('communication_category')
+              .select('id')
+              .eq('is_active', true);
+            
+            const allCategoryIds = new Set((allCommCategories || []).map((c: any) => c.id));
+            
+            // Collect all communication preference selections from form values
+            const commPrefSelections: Array<{category_id: string, is_subscribed: boolean}> = [];
+            const processedCategoryIds = new Set<string>();
+            
+            for (const field of commPrefFields) {
+              const prefValues = form_values[field.id];
+              if (prefValues && typeof prefValues === 'object') {
+                // prefValues is an object: { categoryId: boolean }
+                for (const [categoryId, isSubscribed] of Object.entries(prefValues)) {
+                  if (!processedCategoryIds.has(categoryId)) {
+                    commPrefSelections.push({
+                      category_id: categoryId,
+                      is_subscribed: isSubscribed !== false
+                    });
+                    processedCategoryIds.add(categoryId);
+                  }
+                }
+              }
+            }
+            
+            // Add any missing categories with default subscribed=true
+            for (const categoryId of allCategoryIds) {
+              if (!processedCategoryIds.has(categoryId)) {
+                commPrefSelections.push({
+                  category_id: categoryId,
+                  is_subscribed: true
+                });
+              }
+            }
+            
+            if (commPrefSelections.length > 0) {
+              console.log(`[AppProcessor] Saving ${commPrefSelections.length} communication preferences for member:`, createdMemberId);
+              
+              // Upsert each communication preference
+              for (const pref of commPrefSelections) {
+                // Check if preference already exists
+                const { data: existingPref } = await supabase
+                  .from('member_communication_preference')
+                  .select('id')
+                  .eq('member_id', createdMemberId)
+                  .eq('category_id', pref.category_id)
+                  .single();
+                
+                if (existingPref) {
+                  // Update existing preference
+                  await supabase
+                    .from('member_communication_preference')
+                    .update({ is_subscribed: pref.is_subscribed })
+                    .eq('id', existingPref.id);
+                } else {
+                  // Insert new preference
+                  await supabase
+                    .from('member_communication_preference')
+                    .insert({
+                      member_id: createdMemberId,
+                      category_id: pref.category_id,
+                      is_subscribed: pref.is_subscribed
+                    });
+                }
+              }
+              console.log(`[AppProcessor] Saved communication preferences for member:`, createdMemberId);
             }
           }
         }
