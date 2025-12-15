@@ -34,7 +34,7 @@ export default function SpeakerManagementPage() {
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin || isFeatureExcluded('page_admin_SpeakerManagement')) {
+      if (!isAdmin || isFeatureExcluded('page_SpeakerManagement')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
