@@ -419,9 +419,11 @@ export default function RoleManagementPage() {
     }
   };
 
-  const toggleResourceVisibility = (resourceId, exclude) => {
+  const toggleResourceAccess = (resourceId, hasAccess) => {
     const excluded = editingRole.excluded_features || [];
-    const newExcluded = toggleResourceExclusion(excluded, resourceId, exclude);
+    // When hasAccess=true, we remove from exclusions (exclude=false)
+    // When hasAccess=false, we add to exclusions (exclude=true)
+    const newExcluded = toggleResourceExclusion(excluded, resourceId, !hasAccess);
     setEditingRole({ ...editingRole, excluded_features: newExcluded });
   };
 
@@ -904,12 +906,12 @@ export default function RoleManagementPage() {
                               )}
                               {moduleExclusionState === 'all' && (
                                 <Badge variant="outline" className="text-xs bg-red-50 text-red-700 border-red-200">
-                                  Hidden
+                                  Blocked
                                 </Badge>
                               )}
                               <Switch
-                                checked={moduleExclusionState === 'all'}
-                                onCheckedChange={(checked) => toggleResourceVisibility(module.id, checked)}
+                                checked={moduleExclusionState === 'none'}
+                                onCheckedChange={(checked) => toggleResourceAccess(module.id, checked)}
                                 data-testid={`switch-module-${module.id}`}
                               />
                             </div>
@@ -951,8 +953,8 @@ export default function RoleManagementPage() {
                                           </Badge>
                                         )}
                                         <Switch
-                                          checked={isResourceExcluded(editingRole.excluded_features, page.id)}
-                                          onCheckedChange={(checked) => toggleResourceVisibility(page.id, checked)}
+                                          checked={!isResourceExcluded(editingRole.excluded_features, page.id)}
+                                          onCheckedChange={(checked) => toggleResourceAccess(page.id, checked)}
                                           disabled={isPageDisabled}
                                           className="scale-90"
                                           data-testid={`switch-page-${page.id}`}
@@ -972,8 +974,8 @@ export default function RoleManagementPage() {
                                             >
                                               <span className="text-xs text-slate-600 flex-1">{feature.label}</span>
                                               <Switch
-                                                checked={isResourceExcluded(editingRole.excluded_features, feature.id)}
-                                                onCheckedChange={(checked) => toggleResourceVisibility(feature.id, checked)}
+                                                checked={!isResourceExcluded(editingRole.excluded_features, feature.id)}
+                                                onCheckedChange={(checked) => toggleResourceAccess(feature.id, checked)}
                                                 disabled={isFeatureDisabled}
                                                 className="scale-75"
                                                 data-testid={`switch-feature-${feature.id}`}
