@@ -147,6 +147,9 @@ async function uploadImageToSupabase(file, bucket, folderPrefix = "") {
   return publicData.publicUrl;
 }
 
+// LinkedIn preference field UUID from the database
+const LINKEDIN_PREFERENCE_FIELD_ID = "6d2fd088-8995-44ef-a955-c21c8b390544";
+
 export default function PreferencesPage() {
   // Get hasBanner from layout context (since props don't work through React Router)
   const { hasBanner } = useLayoutContext();
@@ -753,11 +756,20 @@ export default function PreferencesPage() {
     setJobTitle(memberRecord.job_title || "");
     setMobile(memberRecord.mobile || "");
     setLandline(memberRecord.landline || "");
-    setLinkedIn(memberRecord.linkedin_url || "");
     setBiography(memberRecord.biography || "");
     setProfilePhotoUrl(memberRecord.profile_photo_url || "");
     setShowInDirectory(memberRecord.show_in_directory !== false);
   }, [memberRecord]);
+
+  // --- Load LinkedIn from preference field value ---
+  useEffect(() => {
+    if (memberPreferenceValues.length > 0) {
+      const linkedInPref = memberPreferenceValues.find(pv => pv.field_id === LINKEDIN_PREFERENCE_FIELD_ID);
+      if (linkedInPref) {
+        setLinkedIn(linkedInPref.value || "");
+      }
+    }
+  }, [memberPreferenceValues]);
 
 
   // --- Load expandedCategories from localStorage (UI state only, always load) ---
@@ -911,6 +923,7 @@ export default function PreferencesPage() {
       }
       queryClient.invalidateQueries({ queryKey: ["memberRecord"] });
       queryClient.invalidateQueries({ queryKey: ["all-members-directory"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/entities/MemberPreferenceValue", memberRecord?.id] });
       toast.success("Profile updated successfully");
       setHasUnsavedProfile(false);
       setIsSavingProfile(false);
@@ -1042,7 +1055,7 @@ export default function PreferencesPage() {
   };
 
 
-  const handleSaveProfile = () => {
+  const handleSaveProfile = async () => {
     const wordCount = biography
       .trim()
       .split(/\s+/)
@@ -1053,13 +1066,34 @@ export default function PreferencesPage() {
     }
 
     setIsSavingProfile(true);
+    
+    // Save LinkedIn to preference field (separate from member table)
+    try {
+      if (memberRecord?.id) {
+        const existingLinkedInPref = memberPreferenceValues.find(pv => pv.field_id === LINKEDIN_PREFERENCE_FIELD_ID);
+        if (existingLinkedInPref) {
+          await base44.entities.MemberPreferenceValue.update(existingLinkedInPref.id, {
+            value: linkedIn,
+            updated_at: new Date().toISOString()
+          });
+        } else if (linkedIn) {
+          await base44.entities.MemberPreferenceValue.create({
+            member_id: memberRecord.id,
+            field_id: LINKEDIN_PREFERENCE_FIELD_ID,
+            value: linkedIn
+          });
+        }
+      }
+    } catch (error) {
+      console.error("Failed to save LinkedIn preference:", error);
+    }
+    
     updateProfileMutation.mutate({
       first_name: firstName,
       last_name: lastName,
       job_title: jobTitle,
       mobile,
       landline,
-      linkedin_url: linkedIn,
       biography,
       profile_photo_url: profilePhotoUrl,
       show_in_directory: showInDirectory,
@@ -1241,13 +1275,17 @@ export default function PreferencesPage() {
   // --- Track profile / org changes ---
   useEffect(() => {
     if (!memberRecord) return;
+    // Get LinkedIn value from preference field
+    const linkedInPref = memberPreferenceValues.find(pv => pv.field_id === LINKEDIN_PREFERENCE_FIELD_ID);
+    const savedLinkedIn = linkedInPref?.value || "";
+    
     const changed =
       firstName !== (memberRecord.first_name || "") ||
       lastName !== (memberRecord.last_name || "") ||
       jobTitle !== (memberRecord.job_title || "") ||
       mobile !== (memberRecord.mobile || "") ||
       landline !== (memberRecord.landline || "") ||
-      linkedIn !== (memberRecord.linkedin_url || "") ||
+      linkedIn !== savedLinkedIn ||
       biography !== (memberRecord.biography || "") ||
       profilePhotoUrl !== (memberRecord.profile_photo_url || "") ||
       showInDirectory !== (memberRecord.show_in_directory !== false);
@@ -1263,6 +1301,7 @@ export default function PreferencesPage() {
     profilePhotoUrl,
     showInDirectory,
     memberRecord,
+    memberPreferenceValues,
   ]);
 
 
