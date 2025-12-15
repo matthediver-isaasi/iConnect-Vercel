@@ -226,6 +226,205 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     }
   }, [form?.fields]);
 
+  // Helper to evaluate a rule condition
+  const evaluateCondition = (triggerValue, operator, value) => {
+    switch (operator) {
+      case 'equals':
+        if (Array.isArray(triggerValue)) {
+          return triggerValue.includes(value);
+        }
+        return triggerValue === value;
+      case 'not_equals':
+        if (Array.isArray(triggerValue)) {
+          return !triggerValue.includes(value);
+        }
+        return triggerValue !== value;
+      case 'contains':
+        if (Array.isArray(triggerValue)) {
+          return triggerValue.includes(value);
+        } else if (typeof triggerValue === 'string') {
+          return triggerValue.includes(value);
+        }
+        return false;
+      case 'not_empty':
+        return triggerValue !== undefined && triggerValue !== null && triggerValue !== '' && 
+          (Array.isArray(triggerValue) ? triggerValue.length > 0 : true);
+      case 'is_empty':
+        return triggerValue === undefined || triggerValue === null || triggerValue === '' ||
+          (Array.isArray(triggerValue) && triggerValue.length === 0);
+      default:
+        return false;
+    }
+  };
+
+  // Compute initial hidden fields from field.starts_hidden property
+  // Also check visibility_rules for legacy forms without starts_hidden
+  const initialHiddenFieldIds = useMemo(() => {
+    const hidden = new Set();
+    
+    // First, check field.starts_hidden (newer forms)
+    for (const field of (form?.fields || [])) {
+      if (field.starts_hidden) {
+        hidden.add(field.id);
+      }
+    }
+    
+    // Also check legacy visibility_rules (always, not just as fallback)
+    if (form?.visibility_rules?.length > 0) {
+      for (const rule of form.visibility_rules) {
+        // Handle new multi-action format
+        if (rule.actions && Array.isArray(rule.actions)) {
+          for (const action of rule.actions) {
+            if (action.action_type === 'show' && action.target_field_ids?.length) {
+              action.target_field_ids.forEach(id => hidden.add(id));
+            }
+          }
+        }
+        // Handle legacy format
+        else if (rule.action === 'show' && rule.target_field_ids?.length) {
+          rule.target_field_ids.forEach(id => hidden.add(id));
+        }
+      }
+    }
+    
+    return hidden;
+  }, [form?.fields, form?.visibility_rules]);
+
+  // Evaluate visibility rules to determine which fields should be hidden
+  const hiddenFieldIds = useMemo(() => {
+    const hidden = new Set(initialHiddenFieldIds);
+    
+    if (!form?.visibility_rules || form.visibility_rules.length === 0) {
+      return hidden;
+    }
+    
+    const fieldVisibility = {};
+    
+    for (const rule of form.visibility_rules) {
+      if (!rule.trigger_field_id) continue;
+      
+      const triggerValue = formValues[rule.trigger_field_id];
+      const conditionMet = evaluateCondition(triggerValue, rule.operator, rule.value);
+
+      // Handle new multi-action format
+      if (rule.actions && Array.isArray(rule.actions)) {
+        for (const action of rule.actions) {
+          if (action.action_type === 'show' || action.action_type === 'hide') {
+            const targetIds = action.target_field_ids || [];
+            targetIds.forEach(fieldId => {
+              if (!fieldVisibility[fieldId]) {
+                fieldVisibility[fieldId] = { showRules: [], hideRules: [] };
+              }
+              if (action.action_type === 'show') {
+                fieldVisibility[fieldId].showRules.push(conditionMet);
+              } else if (action.action_type === 'hide') {
+                fieldVisibility[fieldId].hideRules.push(conditionMet);
+              }
+            });
+          }
+        }
+      }
+      // Handle legacy format
+      else if (rule.target_field_ids?.length) {
+        rule.target_field_ids.forEach(fieldId => {
+          if (!fieldVisibility[fieldId]) {
+            fieldVisibility[fieldId] = { showRules: [], hideRules: [] };
+          }
+          if (rule.action === 'show') {
+            fieldVisibility[fieldId].showRules.push(conditionMet);
+          } else if (rule.action === 'hide') {
+            fieldVisibility[fieldId].hideRules.push(conditionMet);
+          }
+        });
+      }
+    }
+    
+    // Update hidden set based on evaluated rules
+    for (const [fieldId, { showRules, hideRules }] of Object.entries(fieldVisibility)) {
+      const anyShowConditionMet = showRules.some(result => result === true);
+      if (anyShowConditionMet) {
+        hidden.delete(fieldId);
+      }
+      
+      const anyHideConditionMet = hideRules.some(result => result === true);
+      if (anyHideConditionMet) {
+        hidden.add(fieldId);
+      }
+    }
+    
+    return hidden;
+  }, [form?.visibility_rules, formValues, initialHiddenFieldIds]);
+
+  // Helper to filter visible fields
+  const filterVisibleFields = (fields) => {
+    return fields.filter(field => !hiddenFieldIds.has(field.id));
+  };
+
+  // Compute initial disabled fields from field.starts_disabled property
+  const initialDisabledFieldIds = useMemo(() => {
+    const disabled = new Set();
+    
+    for (const field of (form?.fields || [])) {
+      if (field.starts_disabled) {
+        disabled.add(field.id);
+      }
+    }
+    
+    return disabled;
+  }, [form?.fields]);
+
+  // Evaluate disable/enable rules to determine which fields should be disabled
+  const disabledFieldIds = useMemo(() => {
+    const disabled = new Set(initialDisabledFieldIds);
+    
+    if (!form?.visibility_rules || form.visibility_rules.length === 0) {
+      return disabled;
+    }
+    
+    const fieldDisability = {};
+    
+    for (const rule of form.visibility_rules) {
+      if (!rule.trigger_field_id) continue;
+      
+      const triggerValue = formValues[rule.trigger_field_id];
+      const conditionMet = evaluateCondition(triggerValue, rule.operator, rule.value);
+
+      // Handle new multi-action format
+      if (rule.actions && Array.isArray(rule.actions)) {
+        for (const action of rule.actions) {
+          if (action.action_type === 'enable' || action.action_type === 'disable') {
+            const targetIds = action.target_field_ids || [];
+            targetIds.forEach(fieldId => {
+              if (!fieldDisability[fieldId]) {
+                fieldDisability[fieldId] = { enableRules: [], disableRules: [] };
+              }
+              if (action.action_type === 'enable') {
+                fieldDisability[fieldId].enableRules.push(conditionMet);
+              } else if (action.action_type === 'disable') {
+                fieldDisability[fieldId].disableRules.push(conditionMet);
+              }
+            });
+          }
+        }
+      }
+    }
+    
+    // Update disabled set based on evaluated rules
+    for (const [fieldId, { enableRules, disableRules }] of Object.entries(fieldDisability)) {
+      const anyEnableConditionMet = enableRules.some(result => result === true);
+      if (anyEnableConditionMet) {
+        disabled.delete(fieldId);
+      }
+      
+      const anyDisableConditionMet = disableRules.some(result => result === true);
+      if (anyDisableConditionMet) {
+        disabled.add(fieldId);
+      }
+    }
+    
+    return disabled;
+  }, [form?.visibility_rules, formValues, initialDisabledFieldIds]);
+
   const submitFormMutation = useMutation({
     mutationFn: async (data) => {
       return base44.entities.FormSubmission.create(data);
@@ -441,8 +640,9 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   }
 
   if (form.layout_type === 'card_swipe') {
-    const currentField = form.fields[currentStep];
-    const isLastStep = currentStep === form.fields.length - 1;
+    const visibleFields = filterVisibleFields(form.fields);
+    const currentField = visibleFields[currentStep];
+    const isLastStep = currentStep === visibleFields.length - 1;
     const canProceed = !currentField?.required || formValues[currentField?.id];
 
     return (
@@ -469,7 +669,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                   <CardDescription className="whitespace-pre-line">{form.description}</CardDescription>
                 )}
                 <div className="flex gap-1 mt-4">
-                  {form.fields.map((_, index) => (
+                  {visibleFields.map((_, index) => (
                     <div
                       key={index}
                       className={`h-1 flex-1 rounded ${
@@ -483,7 +683,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
             {!show_form_title && !show_form_description && (
               <div className="px-6 pt-6">
                 <div className="flex gap-1">
-                  {form.fields.map((_, index) => (
+                  {visibleFields.map((_, index) => (
                     <div
                       key={index}
                       className={`h-1 flex-1 rounded ${
@@ -502,6 +702,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                   onChange={(value) => setFormValues({ ...formValues, [currentField.id]: value })}
                   memberInfo={memberInfo}
                   organizationInfo={organizationInfo}
+                  disabled={disabledFieldIds.has(currentField.id)}
                 />
               )}
               {validationErrors.length > 0 && (
@@ -591,7 +792,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
               const hasPages = pages.length > 0 && form.layout_type === 'standard';
               
               if (!hasPages) {
-                return form.fields && form.fields.map(field => (
+                return filterVisibleFields(form.fields).map(field => (
                   <FormRenderer
                     key={field.id}
                     field={field}
@@ -599,11 +800,12 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                     onChange={(value) => setFormValues({ ...formValues, [field.id]: value })}
                     memberInfo={memberInfo}
                     organizationInfo={organizationInfo}
+                    disabled={disabledFieldIds.has(field.id)}
                   />
                 ));
               }
               
-              const unassignedFields = form.fields.filter(f => !f.page_id);
+              const unassignedFields = filterVisibleFields(form.fields.filter(f => !f.page_id));
               
               return (
                 <>
@@ -617,12 +819,13 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                           onChange={(value) => setFormValues({ ...formValues, [field.id]: value })}
                           memberInfo={memberInfo}
                           organizationInfo={organizationInfo}
+                          disabled={disabledFieldIds.has(field.id)}
                         />
                       ))}
                     </div>
                   )}
                   {pages.map((page, pageIndex) => {
-                    const pageFields = form.fields.filter(f => f.page_id === page.id);
+                    const pageFields = filterVisibleFields(form.fields.filter(f => f.page_id === page.id));
                     const columnCount = page.column_count || 1;
                     
                     return (
@@ -642,6 +845,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                                 onChange={(value) => setFormValues({ ...formValues, [field.id]: value })}
                                 memberInfo={memberInfo}
                                 organizationInfo={organizationInfo}
+                                disabled={disabledFieldIds.has(field.id)}
                               />
                             ))}
                           </div>
@@ -661,6 +865,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                                       onChange={(value) => setFormValues({ ...formValues, [field.id]: value })}
                                       memberInfo={memberInfo}
                                       organizationInfo={organizationInfo}
+                                      disabled={disabledFieldIds.has(field.id)}
                                     />
                                   ))}
                                 </div>
