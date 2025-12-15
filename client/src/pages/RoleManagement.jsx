@@ -109,6 +109,7 @@ const AVAILABLE_FEATURES = [
   { id: "page_admin_PortalMenuManagement", label: "Portal Menu Management", category: "Admin Navigation" },
   { id: "page_admin_TourManagement", label: "Tour Management", category: "Admin Navigation" },
   { id: "page_admin_MemberGroupManagement", label: "Member Groups", category: "Admin Navigation" },
+  { id: "page_admin_ZoomWebinarProvisioning", label: "Zoom Webinar Provisioning", category: "Admin Navigation" },
   
   // Standalone Pages (not in navigation menus)
   { id: "page_Dashboard", label: "Dashboard Page", category: "Standalone Pages" },

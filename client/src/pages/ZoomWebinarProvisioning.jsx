@@ -198,7 +198,7 @@ export default function ZoomWebinarProvisioning() {
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin || isFeatureExcluded('page_ZoomWebinarProvisioning')) {
+      if (!isAdmin || isFeatureExcluded('page_admin_ZoomWebinarProvisioning')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
