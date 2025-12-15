@@ -36,6 +36,26 @@ A dedicated page `/myorganisation` displays organization details, contact inform
 
 An admin-only CRM-style page for managing organizations, featuring search, status/custom field filters, list/card grid views, pagination, and a detailed profile view for each organization (overview, members, activity, training fund balance). Access is controlled by `page_OrganisationsList` and `page_OrganisationDirectory` feature exclusions.
 
+## Role Management System (December 2025 Update)
+
+The role management system uses a hierarchical Module→Page→Feature structure for controlling visibility:
+
+**Key Files:**
+- `client/src/lib/roleAccessMap.ts` - Defines 11 modules (Events, Commerce, Membership, Content, Jobs, Site Builder, Forms, Support, Communication, Admin Toolkit, System Settings) with dot-notation IDs (e.g., "events.browse-events", "commerce.buy-tickets")
+- `client/src/lib/roleVisibility.ts` - Helper functions for hierarchical exclusion checking
+- `client/src/pages/RoleManagement.jsx` - Admin UI with collapsible module/page/feature tree
+
+**How it works:**
+1. Roles store `excluded_features` array with hierarchical IDs
+2. Blocking a module (e.g., "events") hides all its pages and features
+3. Blocking a page (e.g., "events.bookings") hides that page and its features
+4. Blocking a feature (e.g., "events.bookings.add-colleagues") hides just that feature
+5. Legacy IDs (e.g., "page_Events") are automatically mapped to new IDs via LEGACY_TO_NEW_MAPPING
+
+**Toggle behavior:**
+- Enabling a page within an excluded module: module exclusion removed, all OTHER pages individually excluded
+- Enabling a feature within an excluded page: page exclusion removed, all OTHER features individually excluded
+
 # External Dependencies
 
 **Supabase:** Primary database (PostgreSQL) for application data, including CRUD and realtime subscriptions.
