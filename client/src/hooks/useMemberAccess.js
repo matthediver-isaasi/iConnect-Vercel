@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '../api/base44Client';
+import { isResourceExcluded } from '../lib/roleVisibility';
 
 export function useMemberAccess() {
   const queryClient = useQueryClient();
@@ -48,7 +49,8 @@ export function useMemberAccess() {
     if (!memberInfo || !featureId) return false;
     const roleExclusions = memberRole?.excluded_features || [];
     const memberExclusions = memberInfo.member_excluded_features || [];
-    return roleExclusions.includes(featureId) || memberExclusions.includes(featureId);
+    const allExclusions = [...roleExclusions, ...memberExclusions];
+    return isResourceExcluded(allExclusions, featureId);
   }, [memberInfo, memberRole]);
 
   const reloadMemberInfo = useCallback(async () => {

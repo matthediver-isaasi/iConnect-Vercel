@@ -12,12 +12,15 @@ import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Shield, Plus, Pencil, Trash2, AlertCircle, Mail, Upload, X, Loader2, Award, Settings, Building2 } from "lucide-react";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Shield, Plus, Pencil, Trash2, AlertCircle, Mail, Upload, X, Loader2, Award, Settings, Building2, ChevronRight, ChevronDown, Calendar, CreditCard, Users, FileText, Briefcase, Layout, ClipboardList, HelpCircle, MailIcon, Cog } from "lucide-react";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { PAGE_NAMES } from "./pageRegistry.js";
 import { useNavigate } from "react-router-dom";
+import { ROLE_ACCESS_MAP, migrateLegacyExcludedFeatures } from "@/lib/roleAccessMap";
+import { isResourceExcluded, getModuleExclusionState, getPageExclusionState, toggleResourceExclusion } from "@/lib/roleVisibility";
 
 // Helper: upload to Supabase Storage and return public URL
 async function uploadImageToSupabase(file, bucket, folderPrefix = "") {
@@ -40,122 +43,19 @@ async function uploadImageToSupabase(file, bucket, folderPrefix = "") {
   return publicData.publicUrl;
 }
 
-// List of all available feature IDs in the system
-// Note: Feature IDs now include section prefixes (page_user_* or page_admin_*) to match PortalMenu structure
-const AVAILABLE_FEATURES = [
-  // User Navigation Items
-  { id: "page_user_BuyProgramTickets", label: "Buy Tickets", category: "User Navigation" },
-  { id: "page_user_Events", label: "Browse Events", category: "User Navigation" },
-  { id: "page_user_Bookings", label: "Bookings", category: "User Navigation" },
-  { id: "page_user_MyTickets", label: "My Tickets", category: "User Navigation" },
-  { id: "page_user_Balances", label: "Balances", category: "User Navigation" },
-  { id: "page_user_History", label: "History", category: "User Navigation" },
-  { id: "page_user_Team", label: "Team", category: "User Navigation" },
-  { id: "page_user_MemberDirectory", label: "Member Directory", category: "User Navigation" },
-  { id: "page_user_OrganisationDirectory", label: "Organisation Directory", category: "User Navigation" },
-  { id: "page_user_MyOrganisation", label: "My Organisation", category: "User Navigation" },
-  { id: "page_user_Resources", label: "Resources", category: "User Navigation" },
-  { id: "page_user_ArticlesSection", label: "Articles Section (Parent)", category: "User Navigation" },
-  { id: "page_user_MyArticles", label: "My Articles", category: "User Navigation" },
-  { id: "page_user_Articles", label: "Articles", category: "User Navigation" },
-  { id: "page_user_News", label: "News", category: "User Navigation" },
-  { id: "page_user_MyJobPostings", label: "My Job Postings", category: "User Navigation" },
-  { id: "page_user_Preferences", label: "Preferences", category: "User Navigation" },
-  { id: "page_user_Support", label: "Support", category: "User Navigation" },
-  
-  // Admin Navigation Items
-  { id: "page_admin_NewsSection", label: "News Section (Parent)", category: "Admin Navigation" },
-  { id: "page_admin_MyNews", label: "News Management", category: "Admin Navigation" },
-  { id: "page_admin_NewsSettings", label: "News Settings", category: "Admin Navigation" },
-  { id: "page_admin_ArticlesSection", label: "Articles Section (Parent)", category: "Admin Navigation" },
-  { id: "page_admin_ArticleManagement", label: "All Articles", category: "Admin Navigation" },
-  { id: "page_admin_ArticlesSettings", label: "Articles Settings", category: "Admin Navigation" },
-  { id: "page_admin_RoleManagement", label: "Role Management", category: "Admin Navigation" },
-  { id: "page_admin_MemberRoleAssignment", label: "Assign Member Roles", category: "Admin Navigation" },
-  { id: "page_admin_TeamMemberManagement", label: "Team Members", category: "Admin Navigation" },
-  { id: "page_admin_MemberHandleManagement", label: "Member Handle Management", category: "Admin Navigation" },
-  { id: "page_admin_MemberDirectorySettings", label: "Member Directory Settings", category: "Admin Navigation" },
-  { id: "page_admin_DiscountCodeManagement", label: "Discount Codes", category: "Admin Navigation" },
-  { id: "page_admin_EventSettings", label: "Event Settings", category: "Admin Navigation" },
-  { id: "page_admin_TicketSalesAnalytics", label: "Ticket Sales Analytics", category: "Admin Navigation" },
-  { id: "page_admin_AwardManagement", label: "Award Management", category: "Admin Navigation" },
-  { id: "page_admin_CategoryManagement", label: "Category Management", category: "Admin Navigation" },
-  { id: "page_admin_ResourceSettings", label: "Category Setup", category: "Admin Navigation" },
-  { id: "page_admin_ResourcesSection", label: "Resource Management Section (Parent)", category: "Admin Navigation" },
-  { id: "page_admin_ResourceManagement", label: "Resources", category: "Admin Navigation" },
-  { id: "page_admin_TagManagement", label: "Tags", category: "Admin Navigation" },
-  { id: "page_admin_FileManagement", label: "File Repository", category: "Admin Navigation" },
-  { id: "page_admin_JobBoardSection", label: "Job Board Section (Parent)", category: "Admin Navigation" },
-  { id: "page_admin_JobPostingManagement", label: "Job Postings", category: "Admin Navigation" },
-  { id: "page_admin_JobBoardSettings", label: "Job Board Settings", category: "Admin Navigation" },
-  { id: "page_admin_PageBuilder", label: "Page Builder Section (Parent)", category: "Admin Navigation" },
-  { id: "page_admin_IEditPageManagement", label: "Pages", category: "Admin Navigation" },
-  { id: "page_admin_IEditTemplateManagement", label: "Element Templates", category: "Admin Navigation" },
-  { id: "page_admin_PageBannerManagement", label: "Page Banners", category: "Admin Navigation" },
-  { id: "page_admin_NavigationManagement", label: "Navigation Items", category: "Admin Navigation" },
-  { id: "page_admin_ButtonElements", label: "Buttons", category: "Admin Navigation" },
-  { id: "page_admin_ButtonStyleManagement", label: "Button Styles", category: "Admin Navigation" },
-  { id: "page_admin_WallOfFameManagement", label: "Wall of Fame", category: "Admin Navigation" },
-  { id: "page_admin_InstalledFonts", label: "Installed Fonts", category: "Admin Navigation" },
-  { id: "page_admin_FormsSection", label: "Forms Section (Parent)", category: "Admin Navigation" },
-  { id: "page_admin_FormManagement", label: "Form Management", category: "Admin Navigation" },
-  { id: "page_admin_FormSubmissions", label: "View Submissions", category: "Admin Navigation" },
-  { id: "page_admin_FloaterManagement", label: "Floater Management", category: "Admin Navigation" },
-  { id: "page_admin_TeamInviteSettings", label: "Team Invite Settings", category: "Admin Navigation" },
-  { id: "page_admin_DataExport", label: "Data Export", category: "Admin Navigation" },
-  { id: "page_admin_SiteMap", label: "Site Map", category: "Admin Navigation" },
-  { id: "page_admin_SupportManagement", label: "Support Management", category: "Admin Navigation" },
-  { id: "page_admin_PortalNavigationManagement", label: "Portal Navigation (Legacy)", category: "Admin Navigation" },
-  { id: "page_admin_PortalMenuManagement", label: "Portal Menu Management", category: "Admin Navigation" },
-  { id: "page_admin_TourManagement", label: "Tour Management", category: "Admin Navigation" },
-  { id: "page_admin_MemberGroupManagement", label: "Member Groups", category: "Admin Navigation" },
-  { id: "page_admin_ZoomWebinarProvisioning", label: "Zoom Webinar Provisioning", category: "Admin Navigation" },
-  { id: "page_admin_SpeakerManagement", label: "Speaker Management", category: "Admin Navigation" },
-  
-  // Standalone Pages (not in navigation menus)
-  { id: "page_Dashboard", label: "Dashboard Page", category: "Standalone Pages" },
-  { id: "page_EventDetails", label: "Event Details Page", category: "Standalone Pages" },
-  { id: "page_ArticleEditor", label: "Article Editor Page", category: "Standalone Pages" },
-  { id: "page_ArticleView", label: "Article View Page", category: "Standalone Pages" },
-  { id: "page_NewsEditor", label: "News Editor Page", category: "Standalone Pages" },
-  { id: "page_NewsView", label: "News View Page", category: "Standalone Pages" },
-  { id: "page_IEditPageEditor", label: "Page Builder Editor", category: "Standalone Pages" },
-  { id: "page_GuestWriterManagement", label: "Guest Writer Management", category: "Standalone Pages" },
-  { id: "page_OrganisationDirectorySettings", label: "Organisation Directory Settings", category: "Standalone Pages" },
-  { id: "page_admin_OrganisationPreferences", label: "Organisation Preferences", category: "Admin Navigation" },
-  
-  // UI Elements
-  { id: "element_EventDescription", label: "Event Description Element", category: "UI Elements" },
-  { id: "element_EventsPageDescription", label: "Events Page Description", category: "UI Elements" },
-  { id: "element_EventsSearch", label: "Events Page Search & Filters", category: "UI Elements" },
-  { id: "element_SelfRegistration", label: "Self Registration for Events", category: "UI Elements" },
-  { id: "element_AddColleaguesToEvents", label: "Add Colleagues to Events", category: "UI Elements" },
-  { id: "element_PurchaseButton", label: "Purchase Button", category: "UI Elements" },
-  { id: "element_AvailableSeatsDisplay", label: "Event Available Seats Display", category: "UI Elements" },
-  { id: "element_FloatersDisplay", label: "Floater Elements Display", category: "UI Elements" },
-  { id: "element_NewsTickerBar", label: "News Ticker Bar", category: "UI Elements" },
-  { id: "element_ShowDisabledAccounts", label: "Show Disabled Accounts Toggle (Member Directory)", category: "UI Elements" },
-  
-  // Profile Fields
-  { id: "edit_professional_biography", label: "Edit Professional Biography", category: "Profile Fields" },
-  { id: "view_member_biography", label: "View Other Members' Biographies", category: "Profile Fields" },
-  
-  // Payment Options
-  { id: "payment_training_vouchers", label: "Use Training Vouchers for Purchases", category: "Payment Options" },
-  { id: "payment_training_fund", label: "Use Training Fund for Purchases", category: "Payment Options" },
-  
-  // Content Actions
-  { id: "action_news_edit", label: "Edit News Articles", category: "Content Actions" },
-  { id: "action_news_delete", label: "Delete News Articles", category: "Content Actions" },
-  { id: "action_org_logo_edit", label: "Edit Organisation Logos", category: "Content Actions" },
-  
-  // Admin Capabilities (special permissions for managing other members)
-  { id: "admin_can_edit_members", label: "Edit Other Members' Details", category: "Admin Capabilities" },
-  { id: "admin_can_manage_communications", label: "Manage Communications", category: "Admin Capabilities" },
-  
-  // Job Board Features
-  { id: "feature_PostJobOnBehalfOfOrg", label: "Post Jobs on Behalf of Other Organisations", category: "Job Board Features" }
-  ];
+const MODULE_ICONS = {
+  "events": Calendar,
+  "commerce": CreditCard,
+  "membership": Users,
+  "content": FileText,
+  "jobs": Briefcase,
+  "site-builder": Layout,
+  "forms": ClipboardList,
+  "support": HelpCircle,
+  "communication": MailIcon,
+  "admin": Shield,
+  "system": Cog
+};
 
 export default function RoleManagementPage() {
   const { isAdmin, isFeatureExcluded, isAccessReady } = useMemberAccess();
@@ -519,23 +419,22 @@ export default function RoleManagementPage() {
     }
   };
 
-  const toggleFeature = (featureId) => {
+  const toggleResourceVisibility = (resourceId, exclude) => {
     const excluded = editingRole.excluded_features || [];
-    const newExcluded = excluded.includes(featureId)
-      ? excluded.filter(id => id !== featureId)
-      : [...excluded, featureId];
-
+    const newExcluded = toggleResourceExclusion(excluded, resourceId, exclude);
     setEditingRole({ ...editingRole, excluded_features: newExcluded });
   };
 
-  // Group features by category
-  const featuresByCategory = AVAILABLE_FEATURES.reduce((acc, feature) => {
-    if (!acc[feature.category]) {
-      acc[feature.category] = [];
-    }
-    acc[feature.category].push(feature);
-    return acc;
-  }, {});
+  const [expandedModules, setExpandedModules] = useState({});
+  const [expandedPages, setExpandedPages] = useState({});
+
+  const toggleModuleExpanded = (moduleId) => {
+    setExpandedModules(prev => ({ ...prev, [moduleId]: !prev[moduleId] }));
+  };
+
+  const togglePageExpanded = (pageId) => {
+    setExpandedPages(prev => ({ ...prev, [pageId]: !prev[pageId] }));
+  };
 
   // Show loading state while determining access
   if (!accessChecked) {
@@ -967,34 +866,132 @@ export default function RoleManagementPage() {
 
                 <div className="space-y-4">
                   <div>
-                    <Label className="text-base">Feature Restrictions</Label>
+                    <Label className="text-base">Visibility Restrictions</Label>
                     <p className="text-sm text-slate-500 mt-1 mb-4">
-                      Select features that members with this role should NOT have access to
+                      Control which modules, pages, and features this role can access. 
+                      <span className="text-amber-600 font-medium"> Toggled items will be HIDDEN</span> from members with this role.
                     </p>
                   </div>
 
-                  {Object.entries(featuresByCategory).map(([category, features]) => (
-                    <div key={category} className="space-y-2">
-                      <h4 className="text-sm font-semibold text-slate-700">{category}</h4>
-                      <div className="space-y-2 pl-4">
-                        {features.map((feature) => (
-                          <div
-                            key={feature.id}
-                            className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg hover:bg-slate-100 transition-colors"
-                          >
-                            <Switch
-                              id={feature.id}
-                              checked={(editingRole.excluded_features || []).includes(feature.id)}
-                              onCheckedChange={() => toggleFeature(feature.id)}
-                            />
-                            <Label htmlFor={feature.id} className="flex-1 cursor-pointer">
-                              {feature.label}
-                            </Label>
+                  <div className="space-y-2 border rounded-lg p-3 bg-slate-50/50">
+                    {ROLE_ACCESS_MAP.map((module) => {
+                      const ModuleIcon = MODULE_ICONS[module.id] || Shield;
+                      const moduleExclusionState = getModuleExclusionState(editingRole.excluded_features || [], module.id);
+                      const isModuleExpanded = expandedModules[module.id];
+                      
+                      return (
+                        <div key={module.id} className="border rounded-lg bg-white overflow-hidden">
+                          <div className="flex items-center gap-2 p-3 bg-slate-100/50">
+                            <button
+                              type="button"
+                              onClick={() => toggleModuleExpanded(module.id)}
+                              className="p-1 hover:bg-slate-200 rounded transition-colors"
+                              data-testid={`button-expand-module-${module.id}`}
+                            >
+                              {isModuleExpanded ? (
+                                <ChevronDown className="w-4 h-4 text-slate-500" />
+                              ) : (
+                                <ChevronRight className="w-4 h-4 text-slate-500" />
+                              )}
+                            </button>
+                            <ModuleIcon className="w-4 h-4 text-blue-600" />
+                            <span className="font-medium text-slate-800 flex-1">{module.label}</span>
+                            <div className="flex items-center gap-2">
+                              {moduleExclusionState === 'some' && (
+                                <Badge variant="outline" className="text-xs bg-amber-50 text-amber-700 border-amber-200">
+                                  Partial
+                                </Badge>
+                              )}
+                              {moduleExclusionState === 'all' && (
+                                <Badge variant="outline" className="text-xs bg-red-50 text-red-700 border-red-200">
+                                  Hidden
+                                </Badge>
+                              )}
+                              <Switch
+                                checked={moduleExclusionState === 'all'}
+                                onCheckedChange={(checked) => toggleResourceVisibility(module.id, checked)}
+                                data-testid={`switch-module-${module.id}`}
+                              />
+                            </div>
                           </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
+
+                          {isModuleExpanded && (
+                            <div className="p-2 pl-8 space-y-1 border-t bg-slate-50/30">
+                              {module.pages.map((page) => {
+                                const pageExclusionState = getPageExclusionState(editingRole.excluded_features || [], page.id);
+                                const isPageDisabled = (editingRole.excluded_features || []).includes(module.id);
+                                const hasFeatures = page.features && page.features.length > 0;
+                                const isPageExpanded = expandedPages[page.id];
+                                
+                                return (
+                                  <div key={page.id} className={`rounded-md ${isPageDisabled ? 'opacity-50' : ''}`}>
+                                    <div className="flex items-center gap-2 p-2 hover:bg-slate-100 rounded-md transition-colors">
+                                      {hasFeatures ? (
+                                        <button
+                                          type="button"
+                                          onClick={() => togglePageExpanded(page.id)}
+                                          className="p-0.5 hover:bg-slate-200 rounded transition-colors"
+                                          disabled={isPageDisabled}
+                                          data-testid={`button-expand-page-${page.id}`}
+                                        >
+                                          {isPageExpanded ? (
+                                            <ChevronDown className="w-3 h-3 text-slate-400" />
+                                          ) : (
+                                            <ChevronRight className="w-3 h-3 text-slate-400" />
+                                          )}
+                                        </button>
+                                      ) : (
+                                        <div className="w-4" />
+                                      )}
+                                      <span className="text-sm text-slate-700 flex-1">{page.label}</span>
+                                      <div className="flex items-center gap-2">
+                                        {pageExclusionState === 'some' && !isPageDisabled && (
+                                          <Badge variant="outline" className="text-xs bg-amber-50 text-amber-600 border-amber-200">
+                                            Partial
+                                          </Badge>
+                                        )}
+                                        <Switch
+                                          checked={isResourceExcluded(editingRole.excluded_features, page.id)}
+                                          onCheckedChange={(checked) => toggleResourceVisibility(page.id, checked)}
+                                          disabled={isPageDisabled}
+                                          className="scale-90"
+                                          data-testid={`switch-page-${page.id}`}
+                                        />
+                                      </div>
+                                    </div>
+
+                                    {hasFeatures && isPageExpanded && !isPageDisabled && (
+                                      <div className="pl-6 py-1 space-y-1">
+                                        {page.features.map((feature) => {
+                                          const isFeatureDisabled = isResourceExcluded(editingRole.excluded_features, page.id);
+                                          
+                                          return (
+                                            <div
+                                              key={feature.id}
+                                              className={`flex items-center gap-2 p-2 pl-4 hover:bg-slate-100 rounded-md transition-colors ${isFeatureDisabled ? 'opacity-50' : ''}`}
+                                            >
+                                              <span className="text-xs text-slate-600 flex-1">{feature.label}</span>
+                                              <Switch
+                                                checked={isResourceExcluded(editingRole.excluded_features, feature.id)}
+                                                onCheckedChange={(checked) => toggleResourceVisibility(feature.id, checked)}
+                                                disabled={isFeatureDisabled}
+                                                className="scale-75"
+                                                data-testid={`switch-feature-${feature.id}`}
+                                              />
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
             )}

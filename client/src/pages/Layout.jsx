@@ -5,6 +5,7 @@ import { createPageUrl } from "@/utils";
 import { Calendar, User, CreditCard, LogOut, Ticket, Wallet, Shield, Users, Settings, Sparkles, ShoppingCart, History, BarChart3, Briefcase, FileEdit, Image, FileText, AtSign, FolderTree, Square, Trophy, BookOpen, Mail, MousePointer2, Building, Download, HelpCircle, Menu, ChevronRight, Video, Bell } from "lucide-react";
 import { useLayoutContext } from "@/contexts/LayoutContext";
 import { useArticleUrl } from "@/contexts/ArticleUrlContext";
+import { isResourceExcluded } from "@/lib/roleVisibility";
 import {
   Sidebar,
   SidebarContent,
@@ -732,6 +733,7 @@ useEffect(() => {
   };
 
   // Helper function to check if a feature is excluded for the current member
+  // Uses the new hierarchical role visibility system
   const isFeatureExcluded = (featureId) => {
     if (!memberInfo || !featureId) return false;
     
@@ -740,7 +742,8 @@ useEffect(() => {
     const memberExclusions = memberInfo.member_excluded_features || [];
     const allExclusions = [...new Set([...roleExclusions, ...memberExclusions])];
     
-    return allExclusions.includes(featureId);
+    // Use the new hierarchical checking that handles legacy IDs and module/page/feature hierarchy
+    return isResourceExcluded(allExclusions, featureId);
   };
 
   // Mapping of page names to their correct feature IDs
@@ -882,13 +885,15 @@ useEffect(() => {
   }, [memberRole, setContextIsAdmin]);
 
   // Update context with isFeatureExcluded function when memberInfo or memberRole changes
+  // Uses the new hierarchical role visibility system
   useEffect(() => {
     const isFeatureExcludedFn = (featureId) => {
       if (!memberInfo || !featureId) return false;
       const roleExclusions = memberRole?.excluded_features || [];
       const memberExclusions = memberInfo.member_excluded_features || [];
       const allExclusions = [...new Set([...roleExclusions, ...memberExclusions])];
-      return allExclusions.includes(featureId);
+      // Use the new hierarchical checking that handles legacy IDs and module/page/feature hierarchy
+      return isResourceExcluded(allExclusions, featureId);
     };
     setContextIsFeatureExcluded(isFeatureExcludedFn);
   }, [memberInfo, memberRole, setContextIsFeatureExcluded]);

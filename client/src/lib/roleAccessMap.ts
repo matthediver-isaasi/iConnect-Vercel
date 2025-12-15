@@ -1,0 +1,729 @@
+export interface Feature {
+  id: string;
+  label: string;
+}
+
+export interface Page {
+  id: string;
+  label: string;
+  features?: Feature[];
+}
+
+export interface Module {
+  id: string;
+  label: string;
+  icon?: string;
+  pages: Page[];
+}
+
+export const ROLE_ACCESS_MAP: Module[] = [
+  {
+    id: "events",
+    label: "Events",
+    icon: "Calendar",
+    pages: [
+      {
+        id: "events.browse-events",
+        label: "Browse Events",
+        features: [
+          { id: "events.browse-events.search-filters", label: "Search & Filters" },
+          { id: "events.browse-events.page-description", label: "Page Description" }
+        ]
+      },
+      {
+        id: "events.event-details",
+        label: "Event Details",
+        features: [
+          { id: "events.event-details.description", label: "Event Description" },
+          { id: "events.event-details.self-registration", label: "Self Registration" },
+          { id: "events.event-details.add-colleagues", label: "Add Colleagues to Events" },
+          { id: "events.event-details.purchase-button", label: "Purchase Button" },
+          { id: "events.event-details.available-seats", label: "Available Seats Display" }
+        ]
+      },
+      {
+        id: "events.bookings",
+        label: "Bookings"
+      },
+      {
+        id: "events.my-tickets",
+        label: "My Tickets"
+      },
+      {
+        id: "events.event-settings",
+        label: "Event Settings"
+      },
+      {
+        id: "events.ticket-analytics",
+        label: "Ticket Sales Analytics"
+      },
+      {
+        id: "events.discount-codes",
+        label: "Discount Codes"
+      },
+      {
+        id: "events.speakers",
+        label: "Speaker Management"
+      },
+      {
+        id: "events.zoom-webinars",
+        label: "Zoom Webinar Provisioning"
+      }
+    ]
+  },
+  {
+    id: "commerce",
+    label: "Commerce & Finance",
+    icon: "CreditCard",
+    pages: [
+      {
+        id: "commerce.buy-tickets",
+        label: "Buy Tickets",
+        features: [
+          { id: "commerce.buy-tickets.use-vouchers", label: "Use Training Vouchers" },
+          { id: "commerce.buy-tickets.use-training-fund", label: "Use Training Fund" }
+        ]
+      },
+      {
+        id: "commerce.balances",
+        label: "Balances"
+      },
+      {
+        id: "commerce.history",
+        label: "Transaction History"
+      },
+      {
+        id: "commerce.voucher-management",
+        label: "Voucher Management"
+      },
+      {
+        id: "commerce.training-fund-management",
+        label: "Training Fund Management"
+      }
+    ]
+  },
+  {
+    id: "membership",
+    label: "Membership & Directory",
+    icon: "Users",
+    pages: [
+      {
+        id: "membership.member-directory",
+        label: "Member Directory",
+        features: [
+          { id: "membership.member-directory.show-disabled", label: "Show Disabled Accounts Toggle" },
+          { id: "membership.member-directory.view-biography", label: "View Member Biographies" }
+        ]
+      },
+      {
+        id: "membership.organisation-directory",
+        label: "Organisation Directory",
+        features: [
+          { id: "membership.organisation-directory.edit-logo", label: "Edit Organisation Logos" }
+        ]
+      },
+      {
+        id: "membership.my-organisation",
+        label: "My Organisation"
+      },
+      {
+        id: "membership.team",
+        label: "Team"
+      },
+      {
+        id: "membership.member-groups",
+        label: "Member Groups"
+      },
+      {
+        id: "membership.member-directory-settings",
+        label: "Member Directory Settings"
+      },
+      {
+        id: "membership.organisation-directory-settings",
+        label: "Organisation Directory Settings"
+      },
+      {
+        id: "membership.organisation-preferences",
+        label: "Organisation Preferences"
+      },
+      {
+        id: "membership.members-list",
+        label: "Members List (CRM)"
+      },
+      {
+        id: "membership.organisations-list",
+        label: "Organisations List (CRM)"
+      },
+      {
+        id: "membership.member-groups-guests",
+        label: "Member Group Guest Management"
+      }
+    ]
+  },
+  {
+    id: "content",
+    label: "Content Publishing",
+    icon: "FileText",
+    pages: [
+      {
+        id: "content.articles",
+        label: "Articles",
+        features: [
+          { id: "content.articles.edit", label: "Edit Articles" },
+          { id: "content.articles.delete", label: "Delete Articles" }
+        ]
+      },
+      {
+        id: "content.my-articles",
+        label: "My Articles"
+      },
+      {
+        id: "content.article-editor",
+        label: "Article Editor"
+      },
+      {
+        id: "content.article-management",
+        label: "Article Management"
+      },
+      {
+        id: "content.articles-settings",
+        label: "Articles Settings"
+      },
+      {
+        id: "content.guest-writers",
+        label: "Guest Writer Management"
+      },
+      {
+        id: "content.news",
+        label: "News",
+        features: [
+          { id: "content.news.edit", label: "Edit News" },
+          { id: "content.news.delete", label: "Delete News" }
+        ]
+      },
+      {
+        id: "content.news-management",
+        label: "News Management"
+      },
+      {
+        id: "content.news-settings",
+        label: "News Settings"
+      },
+      {
+        id: "content.news-editor",
+        label: "News Editor"
+      },
+      {
+        id: "content.resources",
+        label: "Resources"
+      },
+      {
+        id: "content.resource-management",
+        label: "Resource Management"
+      },
+      {
+        id: "content.resource-settings",
+        label: "Resource Settings"
+      },
+      {
+        id: "content.tags",
+        label: "Tag Management"
+      },
+      {
+        id: "content.categories",
+        label: "Category Management"
+      },
+      {
+        id: "content.files",
+        label: "File Repository"
+      },
+      {
+        id: "content.awards",
+        label: "Award Management"
+      }
+    ]
+  },
+  {
+    id: "jobs",
+    label: "Job Board",
+    icon: "Briefcase",
+    pages: [
+      {
+        id: "jobs.my-postings",
+        label: "My Job Postings",
+        features: [
+          { id: "jobs.my-postings.post-for-others", label: "Post Jobs for Other Organisations" }
+        ]
+      },
+      {
+        id: "jobs.job-management",
+        label: "Job Posting Management"
+      },
+      {
+        id: "jobs.job-settings",
+        label: "Job Board Settings"
+      }
+    ]
+  },
+  {
+    id: "site-builder",
+    label: "Site Builder",
+    icon: "Layout",
+    pages: [
+      {
+        id: "site-builder.pages",
+        label: "Page Management"
+      },
+      {
+        id: "site-builder.page-editor",
+        label: "Page Editor"
+      },
+      {
+        id: "site-builder.templates",
+        label: "Element Templates"
+      },
+      {
+        id: "site-builder.banners",
+        label: "Page Banners"
+      },
+      {
+        id: "site-builder.navigation",
+        label: "Navigation Items"
+      },
+      {
+        id: "site-builder.buttons",
+        label: "Buttons"
+      },
+      {
+        id: "site-builder.button-styles",
+        label: "Button Styles"
+      },
+      {
+        id: "site-builder.wall-of-fame",
+        label: "Wall of Fame"
+      },
+      {
+        id: "site-builder.fonts",
+        label: "Installed Fonts"
+      },
+      {
+        id: "site-builder.floaters",
+        label: "Floater Management",
+        features: [
+          { id: "site-builder.floaters.display", label: "Floater Display" }
+        ]
+      },
+      {
+        id: "site-builder.card-decks",
+        label: "Card Deck Management"
+      },
+      {
+        id: "site-builder.border-radius",
+        label: "Border Radius Settings"
+      }
+    ]
+  },
+  {
+    id: "forms",
+    label: "Forms",
+    icon: "ClipboardList",
+    pages: [
+      {
+        id: "forms.form-management",
+        label: "Form Management"
+      },
+      {
+        id: "forms.form-builder",
+        label: "Form Builder"
+      },
+      {
+        id: "forms.submissions",
+        label: "View Submissions"
+      }
+    ]
+  },
+  {
+    id: "support",
+    label: "Support",
+    icon: "HelpCircle",
+    pages: [
+      {
+        id: "support.help",
+        label: "Support Page"
+      },
+      {
+        id: "support.management",
+        label: "Support Management"
+      }
+    ]
+  },
+  {
+    id: "communication",
+    label: "Communication",
+    icon: "Mail",
+    pages: [
+      {
+        id: "communication.email-templates",
+        label: "Email Templates"
+      },
+      {
+        id: "communication.workflows",
+        label: "Workflow Management"
+      },
+      {
+        id: "communication.preferences",
+        label: "User Preferences",
+        features: [
+          { id: "communication.preferences.edit-biography", label: "Edit Professional Biography" }
+        ]
+      },
+      {
+        id: "communication.preference-settings",
+        label: "Preference Settings"
+      }
+    ]
+  },
+  {
+    id: "admin",
+    label: "Admin Toolkit",
+    icon: "Shield",
+    pages: [
+      {
+        id: "admin.role-management",
+        label: "Role Management"
+      },
+      {
+        id: "admin.member-role-assignment",
+        label: "Assign Member Roles",
+        features: [
+          { id: "admin.member-role-assignment.edit-members", label: "Edit Other Members Details" }
+        ]
+      },
+      {
+        id: "admin.team-member-management",
+        label: "Team Member Management"
+      },
+      {
+        id: "admin.member-handle-management",
+        label: "Member Handle Management"
+      },
+      {
+        id: "admin.custom-fields",
+        label: "Custom Fields"
+      },
+      {
+        id: "admin.data-export",
+        label: "Data Export"
+      },
+      {
+        id: "admin.dynamic-directories",
+        label: "Dynamic Directory Management"
+      }
+    ]
+  },
+  {
+    id: "system",
+    label: "System Settings",
+    icon: "Settings",
+    pages: [
+      {
+        id: "system.portal-navigation",
+        label: "Portal Navigation"
+      },
+      {
+        id: "system.portal-menu",
+        label: "Portal Menu Management"
+      },
+      {
+        id: "system.tours",
+        label: "Tour Management"
+      },
+      {
+        id: "system.page-visibility",
+        label: "Page Visibility Settings"
+      },
+      {
+        id: "system.team-invite",
+        label: "Team Invite Settings"
+      },
+      {
+        id: "system.team-settings",
+        label: "Team Settings"
+      },
+      {
+        id: "system.site-map",
+        label: "Site Map"
+      },
+      {
+        id: "system.dashboard",
+        label: "Dashboard"
+      },
+      {
+        id: "system.news-ticker",
+        label: "News Ticker Bar",
+        features: [
+          { id: "system.news-ticker.display", label: "Show News Ticker" }
+        ]
+      }
+    ]
+  }
+];
+
+export function getAllResourceIds(): string[] {
+  const ids: string[] = [];
+  for (const module of ROLE_ACCESS_MAP) {
+    ids.push(module.id);
+    for (const page of module.pages) {
+      ids.push(page.id);
+      if (page.features) {
+        for (const feature of page.features) {
+          ids.push(feature.id);
+        }
+      }
+    }
+  }
+  return ids;
+}
+
+export function getModuleForResource(resourceId: string): string | null {
+  const parts = resourceId.split('.');
+  if (parts.length > 0) {
+    return parts[0];
+  }
+  return null;
+}
+
+export function getPageForResource(resourceId: string): string | null {
+  const parts = resourceId.split('.');
+  if (parts.length >= 2) {
+    return `${parts[0]}.${parts[1]}`;
+  }
+  return null;
+}
+
+export function isModuleId(resourceId: string): boolean {
+  return !resourceId.includes('.');
+}
+
+export function isPageId(resourceId: string): boolean {
+  const parts = resourceId.split('.');
+  return parts.length === 2;
+}
+
+export function isFeatureId(resourceId: string): boolean {
+  const parts = resourceId.split('.');
+  return parts.length === 3;
+}
+
+export function getResourceLabel(resourceId: string): string | null {
+  for (const module of ROLE_ACCESS_MAP) {
+    if (module.id === resourceId) {
+      return module.label;
+    }
+    for (const page of module.pages) {
+      if (page.id === resourceId) {
+        return page.label;
+      }
+      if (page.features) {
+        for (const feature of page.features) {
+          if (feature.id === resourceId) {
+            return feature.label;
+          }
+        }
+      }
+    }
+  }
+  return null;
+}
+
+export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
+  "page_user_BuyProgramTickets": "commerce.buy-tickets",
+  "page_user_Events": "events.browse-events",
+  "page_user_Bookings": "events.bookings",
+  "page_user_MyTickets": "events.my-tickets",
+  "page_user_Balances": "commerce.balances",
+  "page_user_History": "commerce.history",
+  "page_user_Team": "membership.team",
+  "page_user_MemberDirectory": "membership.member-directory",
+  "page_user_OrganisationDirectory": "membership.organisation-directory",
+  "page_user_MyOrganisation": "membership.my-organisation",
+  "page_user_Resources": "content.resources",
+  "page_user_ArticlesSection": "content",
+  "page_user_MyArticles": "content.my-articles",
+  "page_user_Articles": "content.articles",
+  "page_user_News": "content.news",
+  "page_user_MyJobPostings": "jobs.my-postings",
+  "page_user_Preferences": "communication.preferences",
+  "page_user_Support": "support.help",
+  "page_admin_NewsSection": "content",
+  "page_admin_MyNews": "content.news-management",
+  "page_admin_NewsSettings": "content.news-settings",
+  "page_admin_ArticlesSection": "content",
+  "page_admin_ArticleManagement": "content.article-management",
+  "page_admin_ArticlesSettings": "content.articles-settings",
+  "page_admin_RoleManagement": "admin.role-management",
+  "page_admin_MemberRoleAssignment": "admin.member-role-assignment",
+  "page_admin_TeamMemberManagement": "admin.team-member-management",
+  "page_admin_MemberHandleManagement": "admin.member-handle-management",
+  "page_admin_MemberDirectorySettings": "membership.member-directory-settings",
+  "page_admin_DiscountCodeManagement": "events.discount-codes",
+  "page_admin_EventSettings": "events.event-settings",
+  "page_admin_TicketSalesAnalytics": "events.ticket-analytics",
+  "page_admin_AwardManagement": "content.awards",
+  "page_admin_CategoryManagement": "content.categories",
+  "page_admin_ResourceSettings": "content.resource-settings",
+  "page_admin_ResourcesSection": "content",
+  "page_admin_ResourceManagement": "content.resource-management",
+  "page_admin_TagManagement": "content.tags",
+  "page_admin_FileManagement": "content.files",
+  "page_admin_JobBoardSection": "jobs",
+  "page_admin_JobPostingManagement": "jobs.job-management",
+  "page_admin_JobBoardSettings": "jobs.job-settings",
+  "page_admin_PageBuilder": "site-builder",
+  "page_admin_IEditPageManagement": "site-builder.pages",
+  "page_admin_IEditTemplateManagement": "site-builder.templates",
+  "page_admin_PageBannerManagement": "site-builder.banners",
+  "page_admin_NavigationManagement": "site-builder.navigation",
+  "page_admin_ButtonElements": "site-builder.buttons",
+  "page_admin_ButtonStyleManagement": "site-builder.button-styles",
+  "page_admin_WallOfFameManagement": "site-builder.wall-of-fame",
+  "page_admin_InstalledFonts": "site-builder.fonts",
+  "page_admin_FormsSection": "forms",
+  "page_admin_FormManagement": "forms.form-management",
+  "page_admin_FormSubmissions": "forms.submissions",
+  "page_admin_FloaterManagement": "site-builder.floaters",
+  "page_admin_TeamInviteSettings": "system.team-invite",
+  "page_admin_DataExport": "admin.data-export",
+  "page_admin_SiteMap": "system.site-map",
+  "page_admin_SupportManagement": "support.management",
+  "page_admin_PortalNavigationManagement": "system.portal-navigation",
+  "page_admin_PortalMenuManagement": "system.portal-menu",
+  "page_admin_TourManagement": "system.tours",
+  "page_admin_MemberGroupManagement": "membership.member-groups",
+  "page_admin_ZoomWebinarProvisioning": "events.zoom-webinars",
+  "page_admin_SpeakerManagement": "events.speakers",
+  "page_admin_OrganisationPreferences": "membership.organisation-preferences",
+  "page_Dashboard": "system.dashboard",
+  "page_EventDetails": "events.event-details",
+  "page_ArticleEditor": "content.article-editor",
+  "page_ArticleView": "content.articles",
+  "page_NewsEditor": "content.news-editor",
+  "page_NewsView": "content.news",
+  "page_IEditPageEditor": "site-builder.page-editor",
+  "page_GuestWriterManagement": "content.guest-writers",
+  "page_OrganisationDirectorySettings": "membership.organisation-directory-settings",
+  "element_EventDescription": "events.event-details.description",
+  "element_EventsPageDescription": "events.browse-events.page-description",
+  "element_EventsSearch": "events.browse-events.search-filters",
+  "element_SelfRegistration": "events.event-details.self-registration",
+  "element_AddColleaguesToEvents": "events.event-details.add-colleagues",
+  "element_PurchaseButton": "events.event-details.purchase-button",
+  "element_AvailableSeatsDisplay": "events.event-details.available-seats",
+  "element_FloatersDisplay": "site-builder.floaters.display",
+  "element_NewsTickerBar": "system.news-ticker.display",
+  "element_ShowDisabledAccounts": "membership.member-directory.show-disabled",
+  "edit_professional_biography": "communication.preferences.edit-biography",
+  "view_member_biography": "membership.member-directory.view-biography",
+  "payment_training_vouchers": "commerce.buy-tickets.use-vouchers",
+  "payment_training_fund": "commerce.buy-tickets.use-training-fund",
+  "action_news_edit": "content.news.edit",
+  "action_news_delete": "content.news.delete",
+  "action_org_logo_edit": "membership.organisation-directory.edit-logo",
+  "admin_can_edit_members": "admin.member-role-assignment.edit-members",
+  "admin_can_manage_communications": "communication",
+  "feature_PostJobOnBehalfOfOrg": "jobs.my-postings.post-for-others",
+  "page_Events": "events.browse-events",
+  "page_Bookings": "events.bookings",
+  "page_MyTickets": "events.my-tickets",
+  "page_BuyProgramTickets": "commerce.buy-tickets",
+  "page_Balances": "commerce.balances",
+  "page_History": "commerce.history",
+  "page_Team": "membership.team",
+  "page_MemberDirectory": "membership.member-directory",
+  "page_OrganisationDirectory": "membership.organisation-directory",
+  "page_MyOrganisation": "membership.my-organisation",
+  "page_Resources": "content.resources",
+  "page_MyArticles": "content.my-articles",
+  "page_Articles": "content.articles",
+  "page_ArticlesSection": "content",
+  "page_MyJobPostings": "jobs.my-postings",
+  "page_Preferences": "communication.preferences",
+  "page_Support": "support.help",
+  "page_RoleManagement": "admin.role-management",
+  "page_MemberRoleAssignment": "admin.member-role-assignment",
+  "page_TeamMemberManagement": "admin.team-member-management",
+  "page_MemberHandleManagement": "admin.member-handle-management",
+  "page_MemberDirectorySettings": "membership.member-directory-settings",
+  "page_DiscountCodeManagement": "events.discount-codes",
+  "page_EventSettings": "events.event-settings",
+  "page_TicketSalesAnalytics": "events.ticket-analytics",
+  "page_AwardManagement": "content.awards",
+  "page_JobPostingManagement": "jobs.job-management",
+  "page_JobBoardSettings": "jobs.job-settings",
+  "page_PageBannerManagement": "site-builder.banners",
+  "page_ButtonStyleManagement": "site-builder.button-styles",
+  "page_WallOfFameManagement": "site-builder.wall-of-fame",
+  "page_InstalledFonts": "site-builder.fonts",
+  "page_FormManagement": "forms.form-management",
+  "page_FormSubmissions": "forms.submissions",
+  "page_FloaterManagement": "site-builder.floaters",
+  "page_TeamInviteSettings": "system.team-invite",
+  "page_TourManagement": "system.tours",
+  "page_ZoomWebinarProvisioning": "events.zoom-webinars",
+  "page_SpeakerManagement": "events.speakers",
+  "page_ArticleManagement": "content.article-management",
+  "page_ArticlesSettings": "content.articles-settings",
+  "page_VoucherManagement": "commerce.voucher-management",
+  "page_TrainingFundManagement": "commerce.training-fund-management",
+  "page_MembersList": "membership.members-list",
+  "page_OrganisationsList": "membership.organisations-list",
+  "page_BorderRadiusSettings": "site-builder.border-radius",
+  "page_TeamSettings": "system.team-settings",
+  "page_PreferenceSettings": "communication.preference-settings",
+  "page_FormBuilder": "forms.form-builder",
+  "page_CustomFieldsAdmin": "admin.custom-fields",
+  "page_EmailTemplateManagement": "communication.email-templates",
+  "page_DynamicDirectoryManagement": "admin.dynamic-directories",
+  "page_MemberGroupGuestManagement": "membership.member-groups-guests",
+  "page_PageVisibilitySettings": "system.page-visibility",
+  "page_NewsAdmin": "content",
+  "page_MyNews": "content.news-management",
+  "page_NewsSettings": "content.news-settings",
+  "page_ArticlesAdmin": "content",
+  "page_CategoryManagement": "content.categories",
+  "page_FormsAdmin": "forms",
+  "page_ResourcesAdmin": "content",
+  "page_ResourceSettings": "content.resource-settings",
+  "page_ResourceManagement": "content.resource-management",
+  "page_TagManagement": "content.tags",
+  "page_FileManagement": "content.files",
+  "page_JobBoardAdmin": "jobs",
+  "page_PageBuilder": "site-builder",
+  "page_IEditPageManagement": "site-builder.pages",
+  "page_IEditTemplateManagement": "site-builder.templates",
+  "page_NavigationManagement": "site-builder.navigation",
+  "page_ButtonElements": "site-builder.buttons",
+  "page_DataExport": "admin.data-export",
+  "page_SiteMap": "system.site-map",
+  "page_PortalNavigationManagement": "system.portal-navigation",
+  "action_article_edit": "content.articles.edit",
+  "action_article_delete": "content.articles.delete",
+  "page_SupportManagement": "support.management"
+};
+
+export function migrateLegacyFeatureId(legacyId: string): string {
+  return LEGACY_TO_NEW_MAPPING[legacyId] || legacyId;
+}
+
+export function migrateLegacyExcludedFeatures(legacyFeatures: string[]): string[] {
+  if (!legacyFeatures || !Array.isArray(legacyFeatures)) return [];
+  
+  const newFeatures = new Set<string>();
+  for (const legacy of legacyFeatures) {
+    const mapped = LEGACY_TO_NEW_MAPPING[legacy];
+    if (mapped) {
+      newFeatures.add(mapped);
+    }
+  }
+  return Array.from(newFeatures);
+}
