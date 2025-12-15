@@ -1,5 +1,6 @@
 import { getSessionMember } from '../../../_lib/session.js';
 import { createClient } from '@supabase/supabase-js';
+import { isResourceExcluded } from '../../../_lib/roleVisibility.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -38,7 +39,7 @@ async function verifyPermission(req, permissionId) {
     }
 
     const excludedFeatures = role.excluded_features || [];
-    const hasPermission = !excludedFeatures.includes(permissionId);
+    const hasPermission = !isResourceExcluded(excludedFeatures, permissionId);
 
     return { hasPermission, memberId: sessionMember.id };
   } catch (error) {

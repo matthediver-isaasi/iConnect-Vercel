@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import Stripe from 'stripe';
 import crypto from 'crypto';
 import { getSession, getSessionMember } from '../_lib/session.js';
+import { isResourceExcluded } from '../_lib/roleVisibility.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -3183,7 +3184,7 @@ const functionHandlers = {
             const excludedFeatures = Array.isArray(role.excluded_features) 
               ? role.excluded_features 
               : [];
-            has_job_posting_access = !excludedFeatures.includes('page_PostJob');
+            has_job_posting_access = !isResourceExcluded(excludedFeatures, 'page_PostJob');
           }
         }
 

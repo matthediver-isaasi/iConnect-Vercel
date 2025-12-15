@@ -1,5 +1,6 @@
 import { getSessionMember } from '../_lib/session.js';
 import { createClient } from '@supabase/supabase-js';
+import { isResourceExcluded } from '../_lib/roleVisibility.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -48,9 +49,9 @@ export default async function handler(req, res) {
         canEditMembers = true;
         canManageCommunications = true;
       } else {
-        // Check if permissions are NOT in excluded_features (meaning they have access)
-        canEditMembers = !excludedFeatures.includes('admin_can_edit_members');
-        canManageCommunications = !excludedFeatures.includes('admin_can_manage_communications');
+        // Check if permissions are NOT excluded (hierarchical check)
+        canEditMembers = !isResourceExcluded(excludedFeatures, 'admin_can_edit_members');
+        canManageCommunications = !isResourceExcluded(excludedFeatures, 'admin_can_manage_communications');
       }
     }
 
