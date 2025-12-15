@@ -1245,6 +1245,9 @@ export default function PreferencesPage() {
       firstName !== (memberRecord.first_name || "") ||
       lastName !== (memberRecord.last_name || "") ||
       jobTitle !== (memberRecord.job_title || "") ||
+      mobile !== (memberRecord.mobile || "") ||
+      landline !== (memberRecord.landline || "") ||
+      linkedIn !== (memberRecord.linkedin_url || "") ||
       biography !== (memberRecord.biography || "") ||
       profilePhotoUrl !== (memberRecord.profile_photo_url || "") ||
       showInDirectory !== (memberRecord.show_in_directory !== false);
@@ -1253,6 +1256,9 @@ export default function PreferencesPage() {
     firstName,
     lastName,
     jobTitle,
+    mobile,
+    landline,
+    linkedIn,
     biography,
     profilePhotoUrl,
     showInDirectory,
