@@ -29,18 +29,18 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 
 export default function SpeakerManagementPage() {
-  const { isAdmin, isAccessReady } = useMemberAccess();
+  const { isAdmin, isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin) {
+      if (!isAdmin || isFeatureExcluded('page_admin_SpeakerManagement')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady]);
+  }, [isAdmin, isAccessReady, isFeatureExcluded]);
 
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [editingSpeaker, setEditingSpeaker] = useState(null);
