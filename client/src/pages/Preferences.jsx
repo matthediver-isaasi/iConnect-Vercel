@@ -162,6 +162,9 @@ export default function PreferencesPage() {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [jobTitle, setJobTitle] = useState("");
+  const [mobile, setMobile] = useState("");
+  const [landline, setLandline] = useState("");
+  const [linkedIn, setLinkedIn] = useState("");
   const [biography, setBiography] = useState("");
   const [profilePhotoUrl, setProfilePhotoUrl] = useState("");
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
@@ -748,6 +751,9 @@ export default function PreferencesPage() {
     setFirstName(memberRecord.first_name || "");
     setLastName(memberRecord.last_name || "");
     setJobTitle(memberRecord.job_title || "");
+    setMobile(memberRecord.mobile || "");
+    setLandline(memberRecord.landline || "");
+    setLinkedIn(memberRecord.linkedin_url || "");
     setBiography(memberRecord.biography || "");
     setProfilePhotoUrl(memberRecord.profile_photo_url || "");
     setShowInDirectory(memberRecord.show_in_directory !== false);
@@ -1051,6 +1057,9 @@ export default function PreferencesPage() {
       first_name: firstName,
       last_name: lastName,
       job_title: jobTitle,
+      mobile,
+      landline,
+      linkedin_url: linkedIn,
       biography,
       profile_photo_url: profilePhotoUrl,
       show_in_directory: showInDirectory,
@@ -1385,6 +1394,40 @@ export default function PreferencesPage() {
                   value={jobTitle}
                   onChange={(e) => setJobTitle(e.target.value)}
                   placeholder="e.g., Careers Adviser"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="mobile">Mobile</Label>
+                  <Input
+                    id="mobile"
+                    value={mobile}
+                    onChange={(e) => setMobile(e.target.value)}
+                    placeholder="Enter your mobile number"
+                    data-testid="input-mobile"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="landline">Landline</Label>
+                  <Input
+                    id="landline"
+                    value={landline}
+                    onChange={(e) => setLandline(e.target.value)}
+                    placeholder="Enter your landline number"
+                    data-testid="input-landline"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="linkedIn">LinkedIn</Label>
+                <Input
+                  id="linkedIn"
+                  value={linkedIn}
+                  onChange={(e) => setLinkedIn(e.target.value)}
+                  placeholder="https://linkedin.com/in/your-profile"
+                  data-testid="input-linkedin"
                 />
               </div>
 
