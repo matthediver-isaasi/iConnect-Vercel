@@ -415,7 +415,7 @@ const adminNavigationItems = [
     title: "Zoom Webinars",
     url: createPageUrl("ZoomWebinarProvisioning"),
     icon: Video,
-    featureId: "page_ZoomWebinarProvisioning"
+    featureId: "page_admin_ZoomWebinarProvisioning"
   },
   ];
 
