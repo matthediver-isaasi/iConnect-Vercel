@@ -1917,17 +1917,29 @@ const functionHandlers = {
             // Determine reference: PO number or "TBC" if supply later was selected
             const invoiceReference = poToFollow ? 'TBC' : (purchaseOrderNumber || 'TBC');
             
+            // Build line item with optional tracking for Project
+            const lineItem = {
+              Description: lineDescription,
+              Quantity: 1,
+              UnitAmount: validatedRemainingBalance,
+              AccountCode: xeroAccountCode
+            };
+            
+            // Add tracking for Project if internal_reference is set on the event
+            if (event.internal_reference) {
+              lineItem.Tracking = [{
+                Name: 'Project',
+                Option: event.internal_reference
+              }];
+              xeroDebug.trackingAdded = { Name: 'Project', Option: event.internal_reference };
+            }
+            
             // Create invoice with quantity 1 and total amount
             const invoicePayload = {
               Type: 'ACCREC',
               Contact: { ContactID: contactId },
               DueDate: dueDateString,
-              LineItems: [{
-                Description: lineDescription,
-                Quantity: 1,
-                UnitAmount: validatedRemainingBalance,
-                AccountCode: xeroAccountCode
-              }],
+              LineItems: [lineItem],
               Reference: invoiceReference,
               Status: 'AUTHORISED'
             };
