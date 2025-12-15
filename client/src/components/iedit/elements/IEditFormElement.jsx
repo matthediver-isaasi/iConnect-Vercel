@@ -522,6 +522,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
               organization_entity_action: form.organization_entity_action || 'none',
               create_entity_type: form.create_entity_type || 'member',
               submission_id: submissionResult?.id,
+              prefill_organization_id: effectiveOrganizationInfo?.id || null,
               role_id: form.default_member_role_id || null
             })
           });
