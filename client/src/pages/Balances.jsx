@@ -18,10 +18,13 @@ export default function BalancesPage({ hasBanner }) {
         organization_id: organizationInfo.id,
         status: 'active'
       });
-      // Sort by expiry date (soonest first)
-      return allVouchers.sort((a, b) => 
-        new Date(a.expires_at).getTime() - new Date(b.expires_at).getTime()
-      );
+      // Filter out expired vouchers and sort by expiry date (soonest first)
+      const now = new Date();
+      return allVouchers
+        .filter(v => !v.expires_at || new Date(v.expires_at) > now)
+        .sort((a, b) => 
+          new Date(a.expires_at).getTime() - new Date(b.expires_at).getTime()
+        );
     },
     enabled: !!organizationInfo?.id,
     staleTime: 0,
