@@ -613,9 +613,13 @@ export default function MyOrganisationPage() {
                   </Button>
                 </>
               ) : (
-                (canEditField('logo_url') || canEditField('description') || canEditField('phone') || 
-                 canEditField('website_url') || canEditField('invoicing_email') || canEditField('invoicing_address') ||
-                 orgCustomFields.some(f => canEditField(f.id))) && (
+                ((isFieldVisible('logo_url') && canEditField('logo_url')) || 
+                 (isFieldVisible('description') && canEditField('description')) || 
+                 (isFieldVisible('phone') && canEditField('phone')) || 
+                 (isFieldVisible('website_url') && canEditField('website_url')) || 
+                 (isFieldVisible('invoicing_email') && canEditField('invoicing_email')) || 
+                 (isFieldVisible('invoicing_address') && canEditField('invoicing_address')) ||
+                 orgCustomFields.some(f => isFieldVisible(f.id) && canEditField(f.id))) && (
                   <Button
                     onClick={() => setIsEditing(true)}
                     data-testid="button-edit-organisation"

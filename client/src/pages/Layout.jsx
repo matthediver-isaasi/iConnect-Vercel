@@ -191,6 +191,12 @@ const adminNavigationItems = [
     featureId: "page_RoleManagement"
   },
   {
+    title: "Organisation Preferences",
+    url: createPageUrl("OrganisationPreferences"),
+    icon: Building,
+    featureId: "page_admin_OrganisationPreferences"
+  },
+  {
     title: "Assign Member Roles",
     url: createPageUrl("MemberRoleAssignment"),
     icon: Users,
