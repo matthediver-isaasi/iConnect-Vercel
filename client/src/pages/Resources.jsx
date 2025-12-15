@@ -56,6 +56,21 @@ export default function ResourcesPage() {
     enabled: !!memberInfo
   });
 
+  // Fetch member's saved category preferences from database (member_resource_category table)
+  const { data: memberCategoryPreferences = [], isLoading: memberCategoriesLoading } = useQuery({
+    queryKey: ['member-resource-categories', memberInfo?.id],
+    queryFn: async () => {
+      if (!memberInfo?.id) return [];
+      const response = await fetch(`/api/members/${memberInfo.id}/categories`);
+      if (!response.ok) {
+        console.error('[Resources] Failed to fetch member category preferences');
+        return [];
+      }
+      return response.json();
+    },
+    enabled: !!memberInfo?.id
+  });
+
   // Unified resource fetching - handles both authenticated and unauthenticated users
   const { data: resources = [], isLoading: resourcesLoading } = useQuery({
     queryKey: ['resources', isAuthenticated, memberRole?.id, isAdmin],
@@ -168,14 +183,39 @@ export default function ResourcesPage() {
   // Get hide empty subcategories setting
   const hideEmptySubcategories = resourceSettings?.hide_empty_subcategories === true;
 
-  // Load saved preferences once
+  // Load saved category preferences from database (member_resource_category table)
+  // Priority: Database-backed category preferences > legacy UI preferences
   React.useEffect(() => {
-    if (currentUser?.preferences?.resources && !hasLoadedPreferences) {
-      const savedSubcategories = currentUser.preferences.resources.selectedSubcategories || [];
-      setSelectedSubcategories(savedSubcategories);
+    if (hasLoadedPreferences) return;
+    
+    // Wait for member category query to resolve if member is authenticated
+    if (memberInfo?.id && memberCategoriesLoading) return;
+    
+    // First priority: Use database-backed category preferences (member_resource_category table)
+    if (memberCategoryPreferences.length > 0) {
+      const savedSubcategories = memberCategoryPreferences
+        .filter(record => record.subcategory_name)
+        .map(record => record.subcategory_name);
+      
+      if (savedSubcategories.length > 0) {
+        setSelectedSubcategories(savedSubcategories);
+        setHasLoadedPreferences(true);
+        return;
+      }
+    }
+    
+    // Fallback: Use legacy UI preferences from currentUser.preferences.resources
+    if (currentUser?.preferences?.resources?.selectedSubcategories?.length > 0) {
+      setSelectedSubcategories(currentUser.preferences.resources.selectedSubcategories);
+      setHasLoadedPreferences(true);
+      return;
+    }
+    
+    // Mark as loaded if we've checked all sources
+    if (memberInfo?.id && !memberCategoriesLoading) {
       setHasLoadedPreferences(true);
     }
-  }, [currentUser, hasLoadedPreferences]);
+  }, [memberCategoryPreferences, memberCategoriesLoading, memberInfo?.id, currentUser, hasLoadedPreferences]);
 
   // Save preferences mutation
   const savePreferencesMutation = useMutation({
