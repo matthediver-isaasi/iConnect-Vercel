@@ -171,10 +171,10 @@ export default function PaymentOptions({
     queryKey: ['vouchers', organizationInfo?.id],
     queryFn: async () => {
       if (!organizationInfo?.id) return [];
-      const allVouchers = await base44.entities.ProgramTicketTransaction.list();
+      // Fetch from Voucher entity (not ProgramTicketTransaction)
+      const allVouchers = await base44.entities.Voucher.list();
       return allVouchers.filter(v => 
         v.organization_id === organizationInfo.id && 
-        v.transaction_type === 'voucher' && 
         v.status === 'active' &&
         (v.value || 0) > 0
       );
