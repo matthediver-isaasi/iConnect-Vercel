@@ -192,6 +192,24 @@ export default async function handler(req, res) {
 
     } else if (req.method === 'DELETE') {
       // Handle cascade deletion for entities with foreign key relationships
+      
+      // Check if Role has members assigned before deletion
+      if (entity === 'Role') {
+        const { count: memberCount, error: countError } = await supabase
+          .from('member')
+          .select('*', { count: 'exact', head: true })
+          .eq('role_id', id);
+
+        if (countError) {
+          console.error('[Role Delete] Error counting members:', countError);
+        } else if (memberCount && memberCount > 0) {
+          console.log(`[Role Delete] Cannot delete role ${id}: ${memberCount} members assigned`);
+          return res.status(400).json({ 
+            error: `Cannot delete this role because ${memberCount} member${memberCount > 1 ? 's are' : ' is'} currently assigned to it. Please reassign these members to a different role first.`
+          });
+        }
+      }
+
       if (entity === 'Event') {
         // First delete any bookings associated with this event
         const { error: bookingDeleteError } = await supabase
