@@ -169,61 +169,33 @@ export const ROLE_ACCESS_MAP: Module[] = [
         id: "content.articles",
         label: "Articles",
         features: [
+          { id: "content.my-articles", label: "My Articles" },
+          { id: "content.article-editor", label: "Article Editor" },
+          { id: "content.article-management", label: "Article Management" },
+          { id: "content.articles-settings", label: "Articles Settings" },
+          { id: "content.guest-writers", label: "Guest Writer Management" },
           { id: "content.articles.edit", label: "Edit Articles" },
           { id: "content.articles.delete", label: "Delete Articles" }
         ]
       },
       {
-        id: "content.my-articles",
-        label: "My Articles"
-      },
-      {
-        id: "content.article-editor",
-        label: "Article Editor"
-      },
-      {
-        id: "content.article-management",
-        label: "Article Management"
-      },
-      {
-        id: "content.articles-settings",
-        label: "Articles Settings"
-      },
-      {
-        id: "content.guest-writers",
-        label: "Guest Writer Management"
-      },
-      {
         id: "content.news",
         label: "News",
         features: [
+          { id: "content.news-management", label: "News Management" },
+          { id: "content.news-settings", label: "News Settings" },
+          { id: "content.news-editor", label: "News Editor" },
           { id: "content.news.edit", label: "Edit News" },
           { id: "content.news.delete", label: "Delete News" }
         ]
       },
       {
-        id: "content.news-management",
-        label: "News Management"
-      },
-      {
-        id: "content.news-settings",
-        label: "News Settings"
-      },
-      {
-        id: "content.news-editor",
-        label: "News Editor"
-      },
-      {
         id: "content.resources",
-        label: "Resources"
-      },
-      {
-        id: "content.resource-management",
-        label: "Resource Management"
-      },
-      {
-        id: "content.resource-settings",
-        label: "Resource Settings"
+        label: "Resources",
+        features: [
+          { id: "content.resource-management", label: "Resource Management" },
+          { id: "content.resource-settings", label: "Resource Settings" }
+        ]
       },
       {
         id: "content.tags",
