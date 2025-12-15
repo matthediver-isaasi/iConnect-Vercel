@@ -613,13 +613,17 @@ export default function MyOrganisationPage() {
                   </Button>
                 </>
               ) : (
-                <Button
-                  onClick={() => setIsEditing(true)}
-                  data-testid="button-edit-organisation"
-                >
-                  <Pencil className="w-4 h-4 mr-2" />
-                  Edit Details
-                </Button>
+                (canEditField('logo_url') || canEditField('description') || canEditField('phone') || 
+                 canEditField('website_url') || canEditField('invoicing_email') || canEditField('invoicing_address') ||
+                 orgCustomFields.some(f => canEditField(f.id))) && (
+                  <Button
+                    onClick={() => setIsEditing(true)}
+                    data-testid="button-edit-organisation"
+                  >
+                    <Pencil className="w-4 h-4 mr-2" />
+                    Edit Details
+                  </Button>
+                )
               )}
             </div>
           )}
@@ -635,42 +639,44 @@ export default function MyOrganisationPage() {
             <Card className="border-slate-200">
               <CardContent className="p-6">
                 <div className="flex items-start gap-6">
-                  <div className="relative flex-shrink-0">
-                    <div className="w-24 h-24 rounded-lg overflow-hidden bg-slate-100 flex items-center justify-center">
-                      {isUploadingLogo ? (
-                        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
-                      ) : organization.logo_url ? (
-                        <img
-                          src={organization.logo_url}
-                          alt={organization.name}
-                          className="w-full h-full object-contain"
-                        />
-                      ) : (
-                        <Building2 className="w-12 h-12 text-slate-400" />
+                  {isFieldVisible('logo_url') && (
+                    <div className="relative flex-shrink-0">
+                      <div className="w-24 h-24 rounded-lg overflow-hidden bg-slate-100 flex items-center justify-center">
+                        {isUploadingLogo ? (
+                          <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+                        ) : organization.logo_url ? (
+                          <img
+                            src={organization.logo_url}
+                            alt={organization.name}
+                            className="w-full h-full object-contain"
+                          />
+                        ) : (
+                          <Building2 className="w-12 h-12 text-slate-400" />
+                        )}
+                      </div>
+                      {isEditing && canEditField('logo_url') && (
+                        <>
+                          <input
+                            ref={logoInputRef}
+                            type="file"
+                            accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
+                            className="hidden"
+                            onChange={handleLogoUpload}
+                            data-testid="input-logo-upload"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => logoInputRef.current?.click()}
+                            disabled={isUploadingLogo}
+                            className="absolute -bottom-1 -right-1 w-8 h-8 bg-blue-600 hover:bg-blue-700 text-white rounded-full flex items-center justify-center shadow-md transition-colors"
+                            data-testid="button-change-logo"
+                          >
+                            <Camera className="w-4 h-4" />
+                          </button>
+                        </>
                       )}
                     </div>
-                    {isEditing && (
-                      <>
-                        <input
-                          ref={logoInputRef}
-                          type="file"
-                          accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
-                          className="hidden"
-                          onChange={handleLogoUpload}
-                          data-testid="input-logo-upload"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => logoInputRef.current?.click()}
-                          disabled={isUploadingLogo}
-                          className="absolute -bottom-1 -right-1 w-8 h-8 bg-blue-600 hover:bg-blue-700 text-white rounded-full flex items-center justify-center shadow-md transition-colors"
-                          data-testid="button-change-logo"
-                        >
-                          <Camera className="w-4 h-4" />
-                        </button>
-                      </>
-                    )}
-                  </div>
+                  )}
                   <div className="flex-1">
                     <h2 className="text-2xl font-bold text-slate-900 mb-2" data-testid="text-organisation-name">
                       {organization.name}
@@ -701,23 +707,25 @@ export default function MyOrganisationPage() {
                   </div>
                 </div>
 
-                {isEditing ? (
-                  <div className="mt-4 pt-4 border-t border-slate-200">
-                    <Label htmlFor="description" className="text-sm font-medium text-slate-700">Description</Label>
-                    <Textarea
-                      id="description"
-                      value={formData.description}
-                      onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-                      placeholder="Enter organisation description"
-                      rows={3}
-                      className="mt-1"
-                      data-testid="textarea-description"
-                    />
-                  </div>
-                ) : organization.description && (
-                  <div className="mt-4 pt-4 border-t border-slate-200">
-                    <p className="text-slate-600">{organization.description}</p>
-                  </div>
+                {isFieldVisible('description') && (
+                  isEditing && canEditField('description') ? (
+                    <div className="mt-4 pt-4 border-t border-slate-200">
+                      <Label htmlFor="description" className="text-sm font-medium text-slate-700">Description</Label>
+                      <Textarea
+                        id="description"
+                        value={formData.description}
+                        onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
+                        placeholder="Enter organisation description"
+                        rows={3}
+                        className="mt-1"
+                        data-testid="textarea-description"
+                      />
+                    </div>
+                  ) : organization.description && (
+                    <div className="mt-4 pt-4 border-t border-slate-200">
+                      <p className="text-slate-600">{organization.description}</p>
+                    </div>
+                  )
                 )}
 
                 {organization.additional_verified_domains?.length > 0 && (
@@ -744,137 +752,149 @@ export default function MyOrganisationPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                {isEditing ? (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="phone" className="flex items-center gap-2">
-                        <Phone className="w-4 h-4 text-slate-500" />
-                        Phone Number
-                      </Label>
-                      <Input
-                        id="phone"
-                        value={formData.phone}
-                        onChange={(e) => setFormData(prev => ({ ...prev, phone: e.target.value }))}
-                        placeholder="Enter phone number"
-                        data-testid="input-phone"
-                      />
-                    </div>
-                    
-                    <div className="space-y-2">
-                      <Label htmlFor="website_url" className="flex items-center gap-2">
-                        <Globe className="w-4 h-4 text-slate-500" />
-                        Website
-                      </Label>
-                      <Input
-                        id="website_url"
-                        value={formData.website_url}
-                        onChange={(e) => setFormData(prev => ({ ...prev, website_url: e.target.value }))}
-                        placeholder="https://example.com"
-                        data-testid="input-website"
-                      />
-                    </div>
-                    
-                    <div className="space-y-2">
-                      <Label htmlFor="invoicing_email" className="flex items-center gap-2">
-                        <Mail className="w-4 h-4 text-slate-500" />
-                        Invoicing Email
-                      </Label>
-                      <Input
-                        id="invoicing_email"
-                        type="email"
-                        value={formData.invoicing_email}
-                        onChange={(e) => setFormData(prev => ({ ...prev, invoicing_email: e.target.value }))}
-                        placeholder="invoicing@example.com"
-                        data-testid="input-invoicing-email"
-                      />
-                    </div>
-                    
-                    <div className="space-y-2">
-                      <Label htmlFor="invoicing_address" className="flex items-center gap-2">
-                        <MapPin className="w-4 h-4 text-slate-500" />
-                        Invoicing Address
-                      </Label>
-                      <Textarea
-                        id="invoicing_address"
-                        value={formData.invoicing_address}
-                        onChange={(e) => setFormData(prev => ({ ...prev, invoicing_address: e.target.value }))}
-                        placeholder="Enter invoicing address"
-                        rows={3}
-                        data-testid="textarea-invoicing-address"
-                      />
-                    </div>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* Phone Number */}
-                    <div className="flex items-start gap-3 p-3 bg-slate-50 rounded-lg">
-                      <Phone className="w-5 h-5 text-slate-500 mt-0.5" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Phone Number</p>
-                        <p className="text-sm font-medium text-slate-900" data-testid="text-phone">
-                          {organization.phone || <span className="text-slate-400 italic font-normal">Not set</span>}
-                        </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Phone Number */}
+                  {isFieldVisible('phone') && (
+                    isEditing && canEditField('phone') ? (
+                      <div className="space-y-2">
+                        <Label htmlFor="phone" className="flex items-center gap-2">
+                          <Phone className="w-4 h-4 text-slate-500" />
+                          Phone Number
+                        </Label>
+                        <Input
+                          id="phone"
+                          value={formData.phone}
+                          onChange={(e) => setFormData(prev => ({ ...prev, phone: e.target.value }))}
+                          placeholder="Enter phone number"
+                          data-testid="input-phone"
+                        />
                       </div>
-                    </div>
+                    ) : (
+                      <div className="flex items-start gap-3 p-3 bg-slate-50 rounded-lg">
+                        <Phone className="w-5 h-5 text-slate-500 mt-0.5" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Phone Number</p>
+                          <p className="text-sm font-medium text-slate-900" data-testid="text-phone">
+                            {organization.phone || <span className="text-slate-400 italic font-normal">Not set</span>}
+                          </p>
+                        </div>
+                      </div>
+                    )
+                  )}
 
-                    {/* Website */}
-                    <div className="flex items-start gap-3 p-3 bg-slate-50 rounded-lg">
-                      <Globe className="w-5 h-5 text-slate-500 mt-0.5" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Website</p>
-                        {organization.website_url ? (
-                          <a 
-                            href={organization.website_url.startsWith('http') ? organization.website_url : `https://${organization.website_url}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-sm font-medium text-blue-600 hover:text-blue-700 flex items-center gap-1"
-                            data-testid="link-website"
-                          >
-                            {organization.website_url}
-                            <ExternalLink className="w-3 h-3" />
-                          </a>
-                        ) : (
-                          <p className="text-sm text-slate-400 italic" data-testid="text-website-empty">Not set</p>
-                        )}
+                  {/* Website */}
+                  {isFieldVisible('website_url') && (
+                    isEditing && canEditField('website_url') ? (
+                      <div className="space-y-2">
+                        <Label htmlFor="website_url" className="flex items-center gap-2">
+                          <Globe className="w-4 h-4 text-slate-500" />
+                          Website
+                        </Label>
+                        <Input
+                          id="website_url"
+                          value={formData.website_url}
+                          onChange={(e) => setFormData(prev => ({ ...prev, website_url: e.target.value }))}
+                          placeholder="https://example.com"
+                          data-testid="input-website"
+                        />
                       </div>
-                    </div>
+                    ) : (
+                      <div className="flex items-start gap-3 p-3 bg-slate-50 rounded-lg">
+                        <Globe className="w-5 h-5 text-slate-500 mt-0.5" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Website</p>
+                          {organization.website_url ? (
+                            <a 
+                              href={organization.website_url.startsWith('http') ? organization.website_url : `https://${organization.website_url}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-sm font-medium text-blue-600 hover:text-blue-700 flex items-center gap-1"
+                              data-testid="link-website"
+                            >
+                              {organization.website_url}
+                              <ExternalLink className="w-3 h-3" />
+                            </a>
+                          ) : (
+                            <p className="text-sm text-slate-400 italic" data-testid="text-website-empty">Not set</p>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  )}
 
-                    {/* Invoicing Email */}
-                    <div className="flex items-start gap-3 p-3 bg-slate-50 rounded-lg">
-                      <Mail className="w-5 h-5 text-slate-500 mt-0.5" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Invoicing Email</p>
-                        {organization.invoicing_email ? (
-                          <a 
-                            href={`mailto:${organization.invoicing_email}`}
-                            className="text-sm font-medium text-blue-600 hover:text-blue-700"
-                            data-testid="link-invoicing-email"
-                          >
-                            {organization.invoicing_email}
-                          </a>
-                        ) : (
-                          <p className="text-sm text-slate-400 italic" data-testid="text-invoicing-email-empty">Not set</p>
-                        )}
+                  {/* Invoicing Email */}
+                  {isFieldVisible('invoicing_email') && (
+                    isEditing && canEditField('invoicing_email') ? (
+                      <div className="space-y-2">
+                        <Label htmlFor="invoicing_email" className="flex items-center gap-2">
+                          <Mail className="w-4 h-4 text-slate-500" />
+                          Invoicing Email
+                        </Label>
+                        <Input
+                          id="invoicing_email"
+                          type="email"
+                          value={formData.invoicing_email}
+                          onChange={(e) => setFormData(prev => ({ ...prev, invoicing_email: e.target.value }))}
+                          placeholder="invoicing@example.com"
+                          data-testid="input-invoicing-email"
+                        />
                       </div>
-                    </div>
+                    ) : (
+                      <div className="flex items-start gap-3 p-3 bg-slate-50 rounded-lg">
+                        <Mail className="w-5 h-5 text-slate-500 mt-0.5" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Invoicing Email</p>
+                          {organization.invoicing_email ? (
+                            <a 
+                              href={`mailto:${organization.invoicing_email}`}
+                              className="text-sm font-medium text-blue-600 hover:text-blue-700"
+                              data-testid="link-invoicing-email"
+                            >
+                              {organization.invoicing_email}
+                            </a>
+                          ) : (
+                            <p className="text-sm text-slate-400 italic" data-testid="text-invoicing-email-empty">Not set</p>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  )}
 
-                    {/* Invoicing Address */}
-                    <div className="flex items-start gap-3 p-3 bg-slate-50 rounded-lg">
-                      <MapPin className="w-5 h-5 text-slate-500 mt-0.5" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Invoicing Address</p>
-                        <p className="text-sm font-medium text-slate-900 whitespace-pre-line" data-testid="text-invoicing-address">
-                          {organization.invoicing_address || <span className="text-slate-400 italic font-normal">Not set</span>}
-                        </p>
+                  {/* Invoicing Address */}
+                  {isFieldVisible('invoicing_address') && (
+                    isEditing && canEditField('invoicing_address') ? (
+                      <div className="space-y-2">
+                        <Label htmlFor="invoicing_address" className="flex items-center gap-2">
+                          <MapPin className="w-4 h-4 text-slate-500" />
+                          Invoicing Address
+                        </Label>
+                        <Textarea
+                          id="invoicing_address"
+                          value={formData.invoicing_address}
+                          onChange={(e) => setFormData(prev => ({ ...prev, invoicing_address: e.target.value }))}
+                          placeholder="Enter invoicing address"
+                          rows={3}
+                          data-testid="textarea-invoicing-address"
+                        />
                       </div>
-                    </div>
-                  </div>
-                )}
+                    ) : (
+                      <div className="flex items-start gap-3 p-3 bg-slate-50 rounded-lg">
+                        <MapPin className="w-5 h-5 text-slate-500 mt-0.5" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Invoicing Address</p>
+                          <p className="text-sm font-medium text-slate-900 whitespace-pre-line" data-testid="text-invoicing-address">
+                            {organization.invoicing_address || <span className="text-slate-400 italic font-normal">Not set</span>}
+                          </p>
+                        </div>
+                      </div>
+                    )
+                  )}
+                </div>
               </CardContent>
             </Card>
 
             {/* Custom Fields Section */}
-            {orgCustomFields.length > 0 && (
+            {orgCustomFields.filter(f => isFieldVisible(f.id)).length > 0 && (
               <Card className="border-slate-200">
                 <CardHeader>
                   <CardTitle className="text-lg flex items-center gap-2">
@@ -887,26 +907,26 @@ export default function MyOrganisationPage() {
                     <div className="flex items-center justify-center py-4">
                       <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
                     </div>
-                  ) : isEditing ? (
-                    <div className="space-y-4">
-                      {orgCustomFields.map((field) => (
-                        <div key={field.id} className="space-y-2">
-                          <Label htmlFor={`field-${field.id}`} className="text-sm font-medium text-slate-700">
-                            {field.label}
-                            {field.required && <span className="text-red-500 ml-1">*</span>}
-                          </Label>
-                          {field.description && (
-                            <p className="text-xs text-slate-500">{field.description}</p>
-                          )}
-                          {renderCustomFieldInput(field)}
-                        </div>
-                      ))}
-                    </div>
                   ) : (
-                    <div className="space-y-3">
-                      {orgCustomFields.map((field) => {
+                    <div className="space-y-4">
+                      {orgCustomFields.filter(f => isFieldVisible(f.id)).map((field) => {
                         const valueRecord = orgValues.find(v => v.field_id === field.id);
                         const displayValue = getCustomFieldDisplayValue(field, valueRecord);
+                        
+                        if (isEditing && canEditField(field.id)) {
+                          return (
+                            <div key={field.id} className="space-y-2">
+                              <Label htmlFor={`field-${field.id}`} className="text-sm font-medium text-slate-700">
+                                {field.label}
+                                {field.required && <span className="text-red-500 ml-1">*</span>}
+                              </Label>
+                              {field.description && (
+                                <p className="text-xs text-slate-500">{field.description}</p>
+                              )}
+                              {renderCustomFieldInput(field)}
+                            </div>
+                          );
+                        }
                         
                         return (
                           <div key={field.id} className="flex justify-between items-start gap-4 p-3 bg-slate-50 rounded-lg">
