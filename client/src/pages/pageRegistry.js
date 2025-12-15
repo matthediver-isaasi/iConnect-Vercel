@@ -105,4 +105,5 @@ export const PAGE_NAMES = [
   "DynamicDirectoryView",
   "EmailTemplateManagement",
   "WorkflowManagement",
+  "OrganisationPreferences",
 ];

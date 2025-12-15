@@ -122,6 +122,7 @@ const AVAILABLE_FEATURES = [
   { id: "page_IEditPageEditor", label: "Page Builder Editor", category: "Standalone Pages" },
   { id: "page_GuestWriterManagement", label: "Guest Writer Management", category: "Standalone Pages" },
   { id: "page_OrganisationDirectorySettings", label: "Organisation Directory Settings", category: "Standalone Pages" },
+  { id: "page_admin_OrganisationPreferences", label: "Organisation Preferences", category: "Admin Navigation" },
   
   // UI Elements
   { id: "element_EventDescription", label: "Event Description Element", category: "UI Elements" },

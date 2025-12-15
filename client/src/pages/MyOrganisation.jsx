@@ -105,6 +105,34 @@ export default function MyOrganisationPage() {
     }
   });
 
+  const { data: fieldPermissions = {} } = useQuery({
+    queryKey: ['my-organization-field-permissions'],
+    enabled: accessChecked,
+    queryFn: async () => {
+      try {
+        const response = await fetch('/api/my-organization-field-permissions', {
+          credentials: 'include'
+        });
+        if (!response.ok) return {};
+        return response.json();
+      } catch {
+        return {};
+      }
+    }
+  });
+
+  const getFieldPermission = (fieldKey) => {
+    return fieldPermissions[fieldKey] || 'read_write';
+  };
+
+  const canEditField = (fieldKey) => {
+    return getFieldPermission(fieldKey) === 'read_write';
+  };
+
+  const isFieldVisible = (fieldKey) => {
+    return getFieldPermission(fieldKey) !== 'hidden';
+  };
+
   useEffect(() => {
     if (organization) {
       setFormData({
