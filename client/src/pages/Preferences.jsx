@@ -1493,20 +1493,17 @@ export default function PreferencesPage() {
                 />
               </div>
 
-              {memberRecord?.created_at && (
-                <div className="flex items-center gap-2 p-4 bg-slate-50 rounded-lg border border-slate-200">
-                  <CalendarDays className="w-5 h-5 text-slate-500" />
-                  <div>
-                    <p className="text-sm text-slate-600">Member since</p>
-                    <p className="text-sm font-semibold text-slate-900">
-                      {format(
-                        new Date(memberRecord.created_at),
-                        "dd MMMM yyyy"
-                      )}
-                    </p>
-                  </div>
+              <div className="flex items-center gap-2 p-4 bg-slate-50 rounded-lg border border-slate-200">
+                <CalendarDays className="w-5 h-5 text-slate-500" />
+                <div>
+                  <p className="text-sm text-slate-600">Member since</p>
+                  <p className="text-sm font-semibold text-slate-900">
+                    {memberRecord?.created_at 
+                      ? format(new Date(memberRecord.created_at), "dd MMMM yyyy")
+                      : "Unknown"}
+                  </p>
                 </div>
-              )}
+              </div>
 
               {hasUnsavedProfile && (
                 <div className="flex justify-end pt-4">
