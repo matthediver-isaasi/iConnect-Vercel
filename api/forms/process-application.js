@@ -1,4 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
+import bcrypt from 'bcryptjs';
+import { sendEmail } from '../_lib/emailService.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -527,6 +529,82 @@ export default async function handler(req, res) {
 
           createdMemberId = newMember.id;
           console.log('[AppProcessor] Created member:', createdMemberId);
+          
+          // Generate temporary password and send welcome email
+          try {
+            // Generate a random 12-character temporary password
+            const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+            let tempPassword = '';
+            for (let i = 0; i < 12; i++) {
+              tempPassword += chars.charAt(Math.floor(Math.random() * chars.length));
+            }
+            
+            // Hash the password
+            const passwordHash = await bcrypt.hash(tempPassword, 12);
+            
+            // Store in member_credentials table
+            const { error: credError } = await supabase
+              .from('member_credentials')
+              .insert({
+                member_id: createdMemberId,
+                email: memberData.email.toLowerCase(),
+                password_hash: passwordHash,
+                is_temp_password: true,
+                password_set_at: new Date().toISOString()
+              });
+            
+            if (credError) {
+              console.error('[AppProcessor] Failed to create credentials:', credError);
+            } else {
+              console.log('[AppProcessor] Created temporary credentials for member:', createdMemberId);
+              
+              // Get system settings for app name and login URL
+              const { data: systemSettings } = await supabase
+                .from('system_settings')
+                .select('value')
+                .eq('key', 'app_name')
+                .single();
+              
+              const appName = systemSettings?.value || 'ICONN';
+              const loginUrl = process.env.APP_URL || 'https://iconn.app';
+              
+              // Send welcome email with temporary password
+              const emailHtml = `
+                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                  <h2>Welcome to ${appName}!</h2>
+                  <p>Your account has been created. Here are your login details:</p>
+                  <div style="background-color: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0;">
+                    <p><strong>Email:</strong> ${memberData.email}</p>
+                    <p><strong>Temporary Password:</strong> <code style="background-color: #e0e0e0; padding: 4px 8px; border-radius: 4px;">${tempPassword}</code></p>
+                  </div>
+                  <p>Please log in and change your password as soon as possible.</p>
+                  <p style="margin-top: 20px;">
+                    <a href="${loginUrl}/login" style="background-color: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
+                      Log In Now
+                    </a>
+                  </p>
+                  <p style="margin-top: 30px; color: #666; font-size: 14px;">
+                    If you did not request this account, please ignore this email.
+                  </p>
+                </div>
+              `;
+              
+              const emailResult = await sendEmail({
+                to: memberData.email,
+                subject: `Welcome to ${appName} - Your Login Details`,
+                html: emailHtml
+              });
+              
+              if (emailResult.success) {
+                console.log('[AppProcessor] Welcome email sent to:', memberData.email);
+              } else {
+                console.error('[AppProcessor] Failed to send welcome email:', emailResult.error);
+              }
+            }
+          } catch (credEmailError) {
+            console.error('[AppProcessor] Error creating credentials/sending email:', credEmailError);
+            // Don't fail the whole process if email fails
+          }
         }
       }
 
