@@ -49,7 +49,7 @@ export default function MyArticlesPage() {
   const { data: articles = [], isLoading: articlesLoading } = useQuery({
     queryKey: ['my-articles', memberInfo?.id],
     queryFn: async () => {
-      const allArticles = await base44.entities.BlogPost.list('-created_at');
+      const allArticles = await base44.entities.BlogPost.list('-created_date');
       const currentMemberId = String(memberInfo?.id || '');
       
       // Debug logging to help diagnose filtering issue
