@@ -436,7 +436,9 @@ export default function RoleManagementPage() {
       toast.success('Role deleted successfully');
     },
     onError: (error) => {
-      toast.error('Failed to delete role: ' + error.message);
+      setShowDeleteConfirm(false);
+      setRoleToDelete(null);
+      toast.error(error.message || 'Failed to delete role');
     }
   });
 
