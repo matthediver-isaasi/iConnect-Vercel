@@ -1784,6 +1784,7 @@ export default function FormBuilderPage() {
     auto_create_entity: false,
     member_entity_action: "none", // "none", "create", "update", "upsert"
     organization_entity_action: "none", // "none", "create", "update", "upsert"
+    default_member_role_id: null, // Role to assign when creating a new member
     uniqueness_checks: [],
     field_mappings: [], // Submission field mappings with transformations
     submission_email_template_id: null,
@@ -1945,6 +1946,7 @@ export default function FormBuilderPage() {
           (existingForm.create_entity_type === "organization" || existingForm.create_entity_type === "both" 
             ? (existingForm.entity_action || "create") 
             : "none"),
+        default_member_role_id: existingForm.default_member_role_id || null,
         uniqueness_checks: existingForm.uniqueness_checks || [],
         field_mappings: existingForm.field_mappings || [],
         submission_email_template_id: existingForm.submission_email_template_id || null,
@@ -2652,6 +2654,31 @@ export default function FormBuilderPage() {
                                 {formData.member_entity_action === "update" && "Update existing member (match by email)"}
                                 {formData.member_entity_action === "upsert" && "Create if not found, update if exists"}
                               </p>
+                              
+                              {(formData.member_entity_action === "create" || formData.member_entity_action === "upsert") && (
+                                <div className="mt-3 pt-3 border-t border-slate-100">
+                                  <Label className="text-sm font-medium">Assign Role on Creation</Label>
+                                  <Select
+                                    value={formData.default_member_role_id || "none"}
+                                    onValueChange={(value) => setFormData({ ...formData, default_member_role_id: value === "none" ? null : value })}
+                                  >
+                                    <SelectTrigger className="mt-1" data-testid="select-default-member-role">
+                                      <SelectValue placeholder="No role assigned" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="none">No role assigned</SelectItem>
+                                      {roles.map(role => (
+                                        <SelectItem key={role.id} value={role.id}>
+                                          {role.name}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                  <p className="text-xs text-slate-500 mt-1">
+                                    New members will be assigned this role automatically
+                                  </p>
+                                </div>
+                              )}
                             </div>
                             
                             <div className="space-y-2">

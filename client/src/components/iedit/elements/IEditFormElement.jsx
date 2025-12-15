@@ -518,8 +518,11 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
               fields: form.fields,
               field_mappings: form.field_mappings || [],
               application_level: form.application_level || 'member',
+              member_entity_action: form.member_entity_action || 'none',
+              organization_entity_action: form.organization_entity_action || 'none',
               create_entity_type: form.create_entity_type || 'member',
-              submission_id: submissionResult?.id
+              submission_id: submissionResult?.id,
+              role_id: form.default_member_role_id || null
             })
           });
           if (response.ok) {

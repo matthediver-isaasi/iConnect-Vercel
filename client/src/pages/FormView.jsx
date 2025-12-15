@@ -265,8 +265,8 @@ export default function FormViewPage() {
               organization_entity_action: form.organization_entity_action || 'none',
               submission_id: submissionResult?.id,
               prefill_organization_id: form.prefill_source === 'organization' ? prefillOrgId : null,
-              // Only pass role_id if a set_role/clear_role action was explicitly triggered
-              ...(roleActionTriggeredRef.current ? { role_id: triggeredRoleIdRef.current } : {})
+              // Pass role_id: use triggered role from visibility rules, or fallback to form's default role
+              role_id: roleActionTriggeredRef.current ? triggeredRoleIdRef.current : (form.default_member_role_id || null)
             })
           });
           if (response.ok) {
