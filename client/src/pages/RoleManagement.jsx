@@ -535,9 +535,6 @@ export default function RoleManagementPage() {
                         {role.is_default && (
                           <Badge className="bg-green-100 text-green-700">Default Role</Badge>
                         )}
-                        {role.is_admin && (
-                          <Badge className="bg-amber-100 text-amber-700">Administrator</Badge>
-                        )}
                         {role.show_tours && (
                           <Badge className="bg-purple-100 text-purple-700">Tours Enabled</Badge>
                         )}
@@ -822,20 +819,6 @@ export default function RoleManagementPage() {
                       )}
                     </div>
                   )}
-
-                  <div className="flex items-center gap-3 p-4 bg-amber-50 rounded-lg border border-amber-200">
-                    <Switch
-                      id="is-admin"
-                      checked={editingRole.is_admin || false}
-                      onCheckedChange={(checked) => setEditingRole({ ...editingRole, is_admin: checked })}
-                    />
-                    <div className="flex-1">
-                      <Label htmlFor="is-admin" className="cursor-pointer font-medium text-amber-900">Administrator Role</Label>
-                      <p className="text-xs text-amber-700 mt-1">
-                        Grant full admin access to manage roles and members
-                      </p>
-                    </div>
-                  </div>
 
                   <div className="flex items-center gap-3 p-4 bg-purple-50 rounded-lg border border-purple-200">
                     <Switch
