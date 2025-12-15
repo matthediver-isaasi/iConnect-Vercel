@@ -868,11 +868,24 @@ export default function RoleManagementPage() {
 
                 <div className="space-y-4">
                   <div>
-                    <Label className="text-base">Visibility Restrictions</Label>
-                    <p className="text-sm text-slate-500 mt-1 mb-4">
-                      Control which modules, pages, and features this role can access. 
-                      <span className="text-amber-600 font-medium"> Toggled items will be HIDDEN</span> from members with this role.
+                    <Label className="text-base">Access Control</Label>
+                    <p className="text-sm text-slate-500 mt-1 mb-2">
+                      Control which modules, pages, and features this role can access.
                     </p>
+                    <div className="flex items-center gap-4 text-xs text-slate-600 mb-4">
+                      <span className="flex items-center gap-1.5">
+                        <span className="w-3 h-3 rounded-full bg-green-500"></span>
+                        Full Access
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        <span className="w-3 h-3 rounded-full bg-amber-500"></span>
+                        Partial Access
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        <span className="w-3 h-3 rounded-full bg-red-500"></span>
+                        Blocked
+                      </span>
+                    </div>
                   </div>
 
                   <div className="space-y-2 border rounded-lg p-3 bg-slate-50/50">
@@ -899,6 +912,11 @@ export default function RoleManagementPage() {
                             <ModuleIcon className="w-4 h-4 text-blue-600" />
                             <span className="font-medium text-slate-800 flex-1">{module.label}</span>
                             <div className="flex items-center gap-2">
+                              {moduleExclusionState === 'none' && (
+                                <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200">
+                                  Full Access
+                                </Badge>
+                              )}
                               {moduleExclusionState === 'some' && (
                                 <Badge variant="outline" className="text-xs bg-amber-50 text-amber-700 border-amber-200">
                                   Partial
@@ -910,8 +928,15 @@ export default function RoleManagementPage() {
                                 </Badge>
                               )}
                               <Switch
-                                checked={moduleExclusionState === 'none'}
+                                checked={moduleExclusionState !== 'all'}
                                 onCheckedChange={(checked) => toggleResourceAccess(module.id, checked)}
+                                className={
+                                  moduleExclusionState === 'none' 
+                                    ? '[&[data-state=checked]]:bg-green-500' 
+                                    : moduleExclusionState === 'some'
+                                    ? '[&[data-state=checked]]:bg-amber-500'
+                                    : ''
+                                }
                                 data-testid={`switch-module-${module.id}`}
                               />
                             </div>
@@ -947,16 +972,32 @@ export default function RoleManagementPage() {
                                       )}
                                       <span className="text-sm text-slate-700 flex-1">{page.label}</span>
                                       <div className="flex items-center gap-2">
+                                        {pageExclusionState === 'none' && !isPageDisabled && (
+                                          <Badge variant="outline" className="text-xs bg-green-50 text-green-600 border-green-200">
+                                            Full
+                                          </Badge>
+                                        )}
                                         {pageExclusionState === 'some' && !isPageDisabled && (
                                           <Badge variant="outline" className="text-xs bg-amber-50 text-amber-600 border-amber-200">
                                             Partial
                                           </Badge>
                                         )}
+                                        {pageExclusionState === 'all' && !isPageDisabled && (
+                                          <Badge variant="outline" className="text-xs bg-red-50 text-red-600 border-red-200">
+                                            Blocked
+                                          </Badge>
+                                        )}
                                         <Switch
-                                          checked={!isResourceExcluded(editingRole.excluded_features, page.id)}
+                                          checked={pageExclusionState !== 'all'}
                                           onCheckedChange={(checked) => toggleResourceAccess(page.id, checked)}
                                           disabled={isPageDisabled}
-                                          className="scale-90"
+                                          className={`scale-90 ${
+                                            pageExclusionState === 'none' 
+                                              ? '[&[data-state=checked]]:bg-green-500' 
+                                              : pageExclusionState === 'some'
+                                              ? '[&[data-state=checked]]:bg-amber-500'
+                                              : ''
+                                          }`}
                                           data-testid={`switch-page-${page.id}`}
                                         />
                                       </div>
@@ -977,7 +1018,11 @@ export default function RoleManagementPage() {
                                                 checked={!isResourceExcluded(editingRole.excluded_features, feature.id)}
                                                 onCheckedChange={(checked) => toggleResourceAccess(feature.id, checked)}
                                                 disabled={isFeatureDisabled}
-                                                className="scale-75"
+                                                className={`scale-75 ${
+                                                  !isResourceExcluded(editingRole.excluded_features, feature.id)
+                                                    ? '[&[data-state=checked]]:bg-green-500'
+                                                    : ''
+                                                }`}
                                                 data-testid={`switch-feature-${feature.id}`}
                                               />
                                             </div>
