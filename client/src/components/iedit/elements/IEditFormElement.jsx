@@ -202,6 +202,39 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     enabled: !!formSlug
   });
 
+  // Find the organisation_dropdown field (if any) to determine selected org for domain validation
+  const orgDropdownField = useMemo(() => {
+    return (form?.fields || []).find(f => f.type === 'organisation_dropdown');
+  }, [form?.fields]);
+
+  // Get the selected org ID from the organisation_dropdown field selection
+  const selectedOrgId = useMemo(() => {
+    if (orgDropdownField && formValues[orgDropdownField.id]) {
+      return formValues[orgDropdownField.id];
+    }
+    return null;
+  }, [orgDropdownField, formValues]);
+
+  // Fetch the selected organization for domain validation (uses public endpoint for unauthenticated access)
+  const { data: selectedOrg } = useQuery({
+    queryKey: ['selected-org-for-validation', selectedOrgId],
+    queryFn: async () => {
+      const response = await fetch(`/api/public/organisation/${selectedOrgId}/domains`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch organisation domains');
+      }
+      return response.json();
+    },
+    enabled: !!selectedOrgId,
+    staleTime: 5 * 60 * 1000
+  });
+
+  // Compute effective organization for email domain validation
+  // Priority: selected org from form dropdown > passed organizationInfo
+  const effectiveOrganizationInfo = useMemo(() => {
+    return selectedOrg || organizationInfo;
+  }, [selectedOrg, organizationInfo]);
+
   // Initialize boolean fields with their default values when form loads
   // This ensures untouched boolean fields are included in the submission
   useEffect(() => {
@@ -744,7 +777,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                   value={formValues[currentField.id]}
                   onChange={(value) => setFormValues({ ...formValues, [currentField.id]: value })}
                   memberInfo={memberInfo}
-                  organizationInfo={organizationInfo}
+                  organizationInfo={effectiveOrganizationInfo}
                   disabled={disabledFieldIds.has(currentField.id)}
                 />
               )}
@@ -868,7 +901,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                     value={formValues[field.id]}
                     onChange={(value) => setFormValues({ ...formValues, [field.id]: value })}
                     memberInfo={memberInfo}
-                    organizationInfo={organizationInfo}
+                    organizationInfo={effectiveOrganizationInfo}
                     disabled={disabledFieldIds.has(field.id)}
                   />
                 ));
@@ -889,7 +922,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                           value={formValues[field.id]}
                           onChange={(value) => setFormValues({ ...formValues, [field.id]: value })}
                           memberInfo={memberInfo}
-                          organizationInfo={organizationInfo}
+                          organizationInfo={effectiveOrganizationInfo}
                           disabled={disabledFieldIds.has(field.id)}
                         />
                       ))}
@@ -910,7 +943,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                               value={formValues[field.id]}
                               onChange={(value) => setFormValues({ ...formValues, [field.id]: value })}
                               memberInfo={memberInfo}
-                              organizationInfo={organizationInfo}
+                              organizationInfo={effectiveOrganizationInfo}
                               disabled={disabledFieldIds.has(field.id)}
                             />
                           ))}
