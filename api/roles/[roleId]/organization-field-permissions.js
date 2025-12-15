@@ -59,7 +59,7 @@ export default async function handler(req, res) {
     }
 
     if (req.method === 'PUT') {
-      const { permissions } = req.body;
+      const permissions = Array.isArray(req.body) ? req.body : req.body?.permissions;
 
       if (!Array.isArray(permissions)) {
         return res.status(400).json({ error: 'Permissions must be an array' });
