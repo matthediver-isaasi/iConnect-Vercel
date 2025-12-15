@@ -1173,6 +1173,30 @@ useEffect(() => {
              lower.includes('article') || lower.includes('blog');
     };
     
+    // Helper to get or generate feature_id for a menu item
+    // This ensures filtering works even if feature_id wasn't set in the database
+    const getFeatureId = (item, itemSection) => {
+      // If feature_id is already set, use it
+      if (item.feature_id) {
+        return item.feature_id;
+      }
+      // Generate feature_id from URL or title
+      if (item.url) {
+        // For admin section, use page_admin_* pattern; for user, use page_* pattern
+        return itemSection === 'admin' 
+          ? `page_admin_${item.url}` 
+          : `page_${item.url}`;
+      }
+      // For parent menus without URL, use title
+      if (item.title) {
+        const titleKey = item.title.replace(/\s+/g, '');
+        return itemSection === 'admin'
+          ? `page_admin_${titleKey}`
+          : `page_${titleKey}`;
+      }
+      return null;
+    };
+    
     return topLevelItems.sort((a, b) => a.display_order - b.display_order).map(parent => {
       // Find children - look in ALL items, not just section-filtered ones
       const children = dynamicNavItems.filter(child => 
@@ -1187,12 +1211,12 @@ useEffect(() => {
         return {
           title: parent.title,
           icon: IconComponent,
-          featureId: parent.feature_id,
+          featureId: getFeatureId(parent, section),
           isDynamicArticleSection: isArticleSection,
           subItems: children.sort((a, b) => a.display_order - b.display_order).map(child => ({
             title: child.title,
             url: child.url ? createPageUrl(child.url) : '',
-            featureId: child.feature_id,
+            featureId: getFeatureId(child, section),
             isDynamicMyArticles: child.url?.toLowerCase() === 'myarticles',
             isDynamicArticles: child.url?.toLowerCase() === 'articles'
           }))
@@ -1202,7 +1226,7 @@ useEffect(() => {
           title: parent.title,
           url: parent.url ? createPageUrl(parent.url) : '',
           icon: IconComponent,
-          featureId: parent.feature_id,
+          featureId: getFeatureId(parent, section),
           isDynamicArticles: parent.url?.toLowerCase() === 'articles',
           isDynamicMyArticles: parent.url?.toLowerCase() === 'myarticles'
         };
