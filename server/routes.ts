@@ -410,7 +410,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Handle cascade deletion for entities with foreign key relationships
       
-      // Check if Role has members assigned before deletion
+      // Check if Role has members assigned - if so, reassign them to default role before deletion
       if (entity === 'Role') {
         const { count: memberCount, error: countError } = await supabase
           .from('member')
@@ -420,10 +420,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (countError) {
           console.error('[Role Delete] Error counting members:', countError);
         } else if (memberCount && memberCount > 0) {
-          console.log(`[Role Delete] Cannot delete role ${id}: ${memberCount} members assigned`);
-          return res.status(400).json({ 
-            error: `Cannot delete this role because ${memberCount} member${memberCount > 1 ? 's are' : ' is'} currently assigned to it. Please reassign these members to a different role first.`
-          });
+          console.log(`[Role Delete] Role ${id} has ${memberCount} members assigned, will reassign to default role`);
+          
+          // Find the default role
+          const { data: allRoles, error: rolesError } = await supabase
+            .from('role')
+            .select('id, name, is_default');
+          
+          if (rolesError) {
+            console.error('[Role Delete] Error fetching roles:', rolesError);
+            return res.status(500).json({ error: 'Failed to fetch roles for reassignment' });
+          }
+          
+          const defaultRole = allRoles?.find((r: any) => r.is_default === true && r.id !== id);
+          
+          if (!defaultRole) {
+            console.error('[Role Delete] No default role found for reassignment');
+            return res.status(400).json({ 
+              error: 'Cannot delete this role: no default role available for member reassignment. Please mark another role as default first.'
+            });
+          }
+          
+          // Reassign all members from this role to the default role
+          const { error: reassignError } = await supabase
+            .from('member')
+            .update({ role_id: defaultRole.id })
+            .eq('role_id', id);
+          
+          if (reassignError) {
+            console.error('[Role Delete] Error reassigning members:', reassignError);
+            return res.status(500).json({ error: 'Failed to reassign members to default role' });
+          }
+          
+          console.log(`[Role Delete] Reassigned ${memberCount} members from role ${id} to default role ${defaultRole.name} (${defaultRole.id})`);
         }
       }
 

@@ -1094,14 +1094,14 @@ export default function RoleManagementPage() {
               <DialogTitle>Delete Role</DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
-              <div className="flex items-start gap-3 p-4 bg-red-50 rounded-lg">
-                <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+              <div className="flex items-start gap-3 p-4 bg-amber-50 rounded-lg">
+                <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-sm text-red-900 font-medium">
+                  <p className="text-sm text-amber-900 font-medium">
                     Are you sure you want to delete "{roleToDelete?.name}"?
                   </p>
-                  <p className="text-xs text-red-700 mt-1">
-                    Members assigned to this role will lose their role assignment.
+                  <p className="text-xs text-amber-700 mt-1">
+                    Any members currently assigned to this role will be automatically reassigned to the default role.
                   </p>
                 </div>
               </div>
