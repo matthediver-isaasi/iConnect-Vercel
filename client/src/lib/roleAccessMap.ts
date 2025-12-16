@@ -163,10 +163,6 @@ export const ROLE_ACCESS_MAP: Module[] = [
         label: "Organisation Directory Settings"
       },
       {
-        id: "membership.organisation-preferences",
-        label: "Organisation Preferences"
-      },
-      {
         id: "membership.members-list",
         label: "Members List (CRM)"
       },
@@ -192,6 +188,10 @@ export const ROLE_ACCESS_MAP: Module[] = [
       {
         id: "organisation.my-organisation",
         label: "My Organisation"
+      },
+      {
+        id: "organisation.field-permissions",
+        label: "Organisation Field Permissions"
       }
     ]
   },
@@ -609,7 +609,7 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_admin_MemberGroupManagement": "membership.member-groups",
   "page_admin_ZoomWebinarProvisioning": "events.zoom-webinars",
   "page_admin_SpeakerManagement": "events.speakers",
-  "page_admin_OrganisationPreferences": "membership.organisation-preferences",
+  "page_admin_OrganisationPreferences": "organisation.field-permissions",
   "page_Dashboard": "system.dashboard",
   "page_EventDetails": "events.event-details",
   "page_ArticleEditor": "content.article-editor",
@@ -719,7 +719,8 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_AboutMe": "user.about-me",
   "page_Preferences_new": "user.about-me",
   "communication.preferences": "user.about-me",
-  "membership.my-organisation": "organisation.my-organisation"
+  "membership.my-organisation": "organisation.my-organisation",
+  "membership.organisation-preferences": "organisation.field-permissions"
 };
 
 export function migrateLegacyFeatureId(legacyId: string): string {
