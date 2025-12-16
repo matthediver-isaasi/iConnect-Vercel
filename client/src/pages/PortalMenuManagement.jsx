@@ -92,7 +92,7 @@ const builtInPages = [
   { value: "PortalNavigationManagement", label: "Portal Navigation Management" },
   { value: "PostJob", label: "Post Job" },
   { value: "PreferenceSettings", label: "Preference Settings" },
-  { value: "Preferences", label: "Preferences" },
+  { value: "About-me", label: "About Me" },
   { value: "PublicAbout", label: "Public - About" },
   { value: "PublicArticles", label: "Public - Articles" },
   { value: "PublicContact", label: "Public - Contact" },
