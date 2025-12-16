@@ -104,6 +104,7 @@ const builtInPages = [
   { value: "NewsView", label: "News View" },
   { value: "OrganisationDirectory", label: "Organisation Directory" },
   { value: "OrganisationDirectorySettings", label: "Organisation Directory Settings" },
+  { value: "OrganisationPreferences", label: "Organisation Field Permissions" },
   { value: "PageBannerManagement", label: "Page Banners" },
   { value: "PageVisibilitySettings", label: "Page Visibility Settings" },
   { value: "PortalMenuManagement", label: "Portal Menu Management" },
