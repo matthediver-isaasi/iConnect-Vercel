@@ -67,6 +67,12 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   const [submitted, setSubmitted] = useState(false);
   const [isValidating, setIsValidating] = useState(false);
   const [validationErrors, setValidationErrors] = useState([]);
+  const [fieldValidity, setFieldValidity] = useState({}); // Track format validity for each field
+
+  // Handler for field validity changes from FormRenderer
+  const handleValidityChange = (fieldId, isValid) => {
+    setFieldValidity(prev => ({ ...prev, [fieldId]: isValid }));
+  };
 
   const {
     anchor,
@@ -761,7 +767,13 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     const visibleFields = filterVisibleFields(form.fields);
     const currentField = visibleFields[currentStep];
     const isLastStep = currentStep === visibleFields.length - 1;
-    const canProceed = !currentField?.required || formValues[currentField?.id];
+    
+    // Check if field has a value (for required check)
+    const hasValue = formValues[currentField?.id];
+    // Check if field passes format validation (default to true if not tracked)
+    const isFormatValid = fieldValidity[currentField?.id] !== false;
+    // Can proceed if: (not required OR has value) AND format is valid
+    const canProceed = (!currentField?.required || hasValue) && isFormatValid;
 
     return (
       <div id={anchor || undefined} style={containerStyle}>
@@ -821,7 +833,13 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                   memberInfo={memberInfo}
                   organizationInfo={effectiveOrganizationInfo}
                   disabled={disabledFieldIds.has(currentField.id)}
+                  onValidityChange={handleValidityChange}
                 />
+              )}
+              {!canProceed && !isFormatValid && (
+                <p className="text-sm text-amber-600 text-center mt-4">
+                  Please fix the format error above to continue
+                </p>
               )}
               {validationErrors.length > 0 && (
                 <div className="bg-red-50 border border-red-200 rounded-lg p-4 mt-6">
@@ -945,6 +963,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                     memberInfo={memberInfo}
                     organizationInfo={effectiveOrganizationInfo}
                     disabled={disabledFieldIds.has(field.id)}
+                    onValidityChange={handleValidityChange}
                   />
                 ));
               }
@@ -966,6 +985,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                           memberInfo={memberInfo}
                           organizationInfo={effectiveOrganizationInfo}
                           disabled={disabledFieldIds.has(field.id)}
+                          onValidityChange={handleValidityChange}
                         />
                       ))}
                     </div>
@@ -987,6 +1007,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                               memberInfo={memberInfo}
                               organizationInfo={effectiveOrganizationInfo}
                               disabled={disabledFieldIds.has(field.id)}
+                              onValidityChange={handleValidityChange}
                             />
                           ))}
                         </div>

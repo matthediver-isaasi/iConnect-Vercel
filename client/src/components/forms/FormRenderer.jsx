@@ -102,7 +102,7 @@ function CommunicationPreferencesField({ field, value, onChange, disabled }) {
   );
 }
 
-export default function FormRenderer({ field, value, onChange, memberInfo, organizationInfo, disabled = false }) {
+export default function FormRenderer({ field, value, onChange, memberInfo, organizationInfo, disabled = false, onValidityChange }) {
   const [showOtherInput, setShowOtherInput] = useState(false);
   const [otherValue, setOtherValue] = useState('');
   const [domainError, setDomainError] = useState('');
@@ -116,15 +116,18 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
   const validateEmailFormat = (email) => {
     if (!email) {
       setEmailFormatError('');
+      onValidityChange?.(field.id, true);
       return true;
     }
     // Basic email pattern: something@something.something
     const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailPattern.test(email)) {
       setEmailFormatError('Please enter a valid email address');
+      onValidityChange?.(field.id, false);
       return false;
     }
     setEmailFormatError('');
+    onValidityChange?.(field.id, true);
     return true;
   };
 
@@ -132,15 +135,18 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
   const validateUrlFormat = (url) => {
     if (!url) {
       setUrlFormatError('');
+      onValidityChange?.(field.id, true);
       return true;
     }
     // Basic URL pattern: protocol://domain or just domain.tld
     const urlPattern = /^(https?:\/\/)?([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(\/.*)?$/;
     if (!urlPattern.test(url)) {
       setUrlFormatError('Please enter a valid web address (e.g., https://example.com)');
+      onValidityChange?.(field.id, false);
       return false;
     }
     setUrlFormatError('');
+    onValidityChange?.(field.id, true);
     return true;
   };
 

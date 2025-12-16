@@ -15,6 +15,12 @@ export default function FormViewPage() {
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
   const [formValues, setFormValues] = useState({});
   const [submitted, setSubmitted] = useState(false);
+  const [fieldValidity, setFieldValidity] = useState({}); // Track format validity for each field
+
+  // Handler for field validity changes from FormRenderer
+  const handleValidityChange = (fieldId, isValid) => {
+    setFieldValidity(prev => ({ ...prev, [fieldId]: isValid }));
+  };
 
   const queryClient = useQueryClient();
   const urlParams = new URLSearchParams(window.location.search);
@@ -944,7 +950,13 @@ export default function FormViewPage() {
     const visibleCardFields = filterVisibleFields(form.fields);
     const currentField = visibleCardFields[currentStep];
     const isLastStep = currentStep === visibleCardFields.length - 1;
-    const canProceed = !currentField?.required || formValues[currentField?.id];
+    
+    // Check if field has a value (for required check)
+    const hasValue = formValues[currentField?.id];
+    // Check if field passes format validation (default to true if not tracked)
+    const isFormatValid = fieldValidity[currentField?.id] !== false;
+    // Can proceed if: (not required OR has value) AND format is valid
+    const canProceed = (!currentField?.required || hasValue) && isFormatValid;
 
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
@@ -972,13 +984,16 @@ export default function FormViewPage() {
                 memberInfo={memberData}
                 organizationInfo={effectiveOrganizationInfo}
                 disabled={disabledFieldIds.has(currentField.id)}
+                onValidityChange={handleValidityChange}
               />
             )}
           </CardContent>
           <div className="p-6 pt-0 flex flex-col gap-2">
-            {!canProceed && currentField?.required && (
+            {!canProceed && (
               <p className="text-sm text-amber-600 text-center">
-                Please complete the required field above to continue
+                {!isFormatValid 
+                  ? 'Please fix the format error above to continue'
+                  : 'Please complete the required field above to continue'}
               </p>
             )}
             <div className="flex justify-between">
@@ -1123,6 +1138,7 @@ export default function FormViewPage() {
                     memberInfo={memberData}
                     organizationInfo={effectiveOrganizationInfo}
                     disabled={disabledFieldIds.has(field.id)}
+                    onValidityChange={handleValidityChange}
                   />
                 ));
               }
@@ -1146,6 +1162,7 @@ export default function FormViewPage() {
                           memberInfo={memberData}
                           organizationInfo={effectiveOrganizationInfo}
                           disabled={disabledFieldIds.has(field.id)}
+                          onValidityChange={handleValidityChange}
                         />
                       ))}
                     </div>
@@ -1168,6 +1185,7 @@ export default function FormViewPage() {
                               memberInfo={memberData}
                               organizationInfo={effectiveOrganizationInfo}
                               disabled={disabledFieldIds.has(field.id)}
+                              onValidityChange={handleValidityChange}
                             />
                           ))}
                         </div>
