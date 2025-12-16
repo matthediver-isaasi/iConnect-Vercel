@@ -683,7 +683,12 @@ export default function PreferencesPage() {
     { id: 'password_security', visible: true },
     { id: 'communications', visible: true },
     { id: 'additional_info', visible: true },
-    { id: 'engagement', visible: true },
+    { id: 'engagement_stats', visible: true },
+    { id: 'engagement_awards', visible: true },
+    { id: 'groups', visible: true },
+    { id: 'membership_badges', visible: true },
+    { id: 'awards', visible: true },
+    { id: 'professional_biography', visible: true },
     { id: 'resource_interests', visible: true }
   ];
   
@@ -1708,410 +1713,436 @@ export default function PreferencesPage() {
           </Card>
         );
 
-      case 'engagement':
-        if (!canEditBiography) return null;
+      case 'engagement_stats':
+        if (isFeatureExcluded('user.about-me.engagement-stats')) return null;
         return (
-          <Card key="engagement" className="border-slate-200 shadow-sm">
+          <Card key="engagement_stats" className="border-slate-200 shadow-sm">
             <CardHeader>
-              <CardTitle>Engagement</CardTitle>
+              <CardTitle className="flex items-center gap-2">
+                <Calendar className="w-5 h-5 text-blue-600" />
+                Engagement Stats
+              </CardTitle>
               <CardDescription>
                 Your activity and contributions to the community
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-6">
-              {/* Stats */}
-              {!isFeatureExcluded('user.about-me.engagement-stats') && (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg p-4 border border-blue-200">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center">
-                        <Calendar className="w-5 h-5 text-white" />
-                      </div>
-                      <div>
-                        <p className="text-2xl font-bold text-blue-900">
-                          {statsLoading
-                            ? "-"
-                            : engagementStats?.eventsAttended || 0}
-                        </p>
-                        <p className="text-xs text-blue-700">Events Attended</p>
-                      </div>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg p-4 border border-blue-200">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center">
+                      <Calendar className="w-5 h-5 text-white" />
                     </div>
-                  </div>
-
-                  <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-lg p-4 border border-purple-200">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-full bg-purple-600 flex items-center justify-center">
-                        <FileText className="w-5 h-5 text-white" />
-                      </div>
-                      <div>
-                        <p className="text-2xl font-bold text-purple-900">
-                          {statsLoading
-                            ? "-"
-                            : engagementStats?.articlesWritten || 0}
-                        </p>
-                        <p className="text-xs text-purple-700">
-                          Articles Published
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-lg p-4 border border-green-200">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-full bg-green-600 flex items-center justify-center">
-                        <Briefcase className="w-5 h-5 text-white" />
-                      </div>
-                      <div>
-                        <p className="text-2xl font-bold text-green-900">
-                          {statsLoading
-                            ? "-"
-                            : engagementStats?.jobsPosted || 0}
-                        </p>
-                        <p className="text-xs text-green-700">Jobs Posted</p>
-                      </div>
+                    <div>
+                      <p className="text-2xl font-bold text-blue-900">
+                        {statsLoading
+                          ? "-"
+                          : engagementStats?.eventsAttended || 0}
+                      </p>
+                      <p className="text-xs text-blue-700">Events Attended</p>
                     </div>
                   </div>
                 </div>
-              )}
 
-              {/* Engagement Awards */}
-              {!isFeatureExcluded('user.about-me.engagement-awards') && earnedEngagementAwards.length > 0 && (
-                <div className="pt-4 border-t border-slate-200">
-                  <div className="flex items-center gap-2 mb-4">
-                    <Trophy className="w-5 h-5 text-rose-600" />
-                    <h3 className="text-sm font-semibold text-slate-900">
-                      Engagement Awards
-                    </h3>
-                    <Badge variant="secondary">
-                      {earnedEngagementAwards.length}
-                    </Badge>
+                <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-lg p-4 border border-purple-200">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-purple-600 flex items-center justify-center">
+                      <FileText className="w-5 h-5 text-white" />
+                    </div>
+                    <div>
+                      <p className="text-2xl font-bold text-purple-900">
+                        {statsLoading
+                          ? "-"
+                          : engagementStats?.articlesWritten || 0}
+                      </p>
+                      <p className="text-xs text-purple-700">
+                        Articles Published
+                      </p>
+                    </div>
                   </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-                    {earnedEngagementAwards.map((award, idx) => {
-                      const classification = award.classification_id
-                        ? awardClassifications.find(
-                            (c) => c.id === award.classification_id
-                          )
-                        : null;
-                      return (
-                        <div
-                          key={`engagement-${award.id}-${idx}`}
-                          className="flex flex-col items-center p-3 bg-gradient-to-br from-rose-50 to-rose-100 rounded-lg border border-rose-200 hover:shadow-md transition-shadow relative"
+                </div>
+
+                <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-lg p-4 border border-green-200">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-green-600 flex items-center justify-center">
+                      <Briefcase className="w-5 h-5 text-white" />
+                    </div>
+                    <div>
+                      <p className="text-2xl font-bold text-green-900">
+                        {statsLoading
+                          ? "-"
+                          : engagementStats?.jobsPosted || 0}
+                      </p>
+                      <p className="text-xs text-green-700">Jobs Posted</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        );
+
+      case 'engagement_awards':
+        if (isFeatureExcluded('user.about-me.engagement-awards') || earnedEngagementAwards.length === 0) return null;
+        return (
+          <Card key="engagement_awards" className="border-slate-200 shadow-sm">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Trophy className="w-5 h-5 text-rose-600" />
+                Engagement Awards
+                <Badge variant="secondary">{earnedEngagementAwards.length}</Badge>
+              </CardTitle>
+              <CardDescription>
+                Awards earned through your engagement activities
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                {earnedEngagementAwards.map((award, idx) => {
+                  const classification = award.classification_id
+                    ? awardClassifications.find(
+                        (c) => c.id === award.classification_id
+                      )
+                    : null;
+                  return (
+                    <div
+                      key={`engagement-${award.id}-${idx}`}
+                      className="flex flex-col items-center p-3 bg-gradient-to-br from-rose-50 to-rose-100 rounded-lg border border-rose-200 hover:shadow-md transition-shadow relative"
+                    >
+                      {classification && (
+                        <Badge
+                          variant="secondary"
+                          className="absolute top-1 right-1 text-[10px] px-1.5 py-0.5"
                         >
-                          {classification && (
-                            <Badge
-                              variant="secondary"
-                              className="absolute top-1 right-1 text-[10px] px-1.5 py-0.5"
-                            >
-                              {classification.name}
-                            </Badge>
-                          )}
-                          {award.image_url ? (
-                            <img
-                              src={award.image_url}
-                              alt={award.name}
-                              className="w-12 h-12 object-contain mb-2"
-                            />
-                          ) : (
-                            <div className="w-12 h-12 bg-gradient-to-br from-rose-400 to-rose-600 rounded-full flex items-center justify-center mb-2">
-                              <Trophy className="w-6 h-6 text-white" />
-                            </div>
-                          )}
-                          <p className="text-xs font-semibold text-center text-slate-900 line-clamp-2">
-                            {award.name}
-                          </p>
-                          {award.sublevel && (
-                            <Badge
-                              variant="outline"
-                              className="mt-1 text-[10px] px-1.5 py-0.5 border-rose-300 text-rose-700"
-                            >
-                              {award.sublevel.name}
-                            </Badge>
-                          )}
-                          {award.description && (
-                            <p className="text-[10px] text-slate-500 text-center mt-1 line-clamp-2">
-                              {award.description}
-                            </p>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {/* Groups */}
-              {!isFeatureExcluded('user.about-me.groups') && groupAssignments.length > 0 && (
-                <div className="pt-4 border-t border-slate-200">
-                  <div className="flex items-center gap-2 mb-4">
-                    <Users className="w-5 h-5 text-blue-600" />
-                    <h3 className="text-sm font-semibold text-slate-900">
-                      Groups
-                    </h3>
-                    <Badge variant="secondary">
-                      {groupAssignments.length}
-                    </Badge>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {groupAssignments.map((assignment) => {
-                      const group = memberGroups.find(
-                        (g) => g.id === assignment.group_id
-                      );
-                      if (!group) return null;
-                      return (
-                        <div
-                          key={assignment.id}
-                          className="flex items-start gap-3 p-3 bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg border border-blue-200"
-                        >
-                          <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center flex-shrink-0">
-                            <Users className="w-5 h-5 text-white" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-semibold text-slate-900 truncate">
-                              {group.name}
-                            </p>
-                            <p className="text-xs text-blue-700 font-medium">
-                              {assignment.group_role}
-                            </p>
-                            {group.description && (
-                              <p className="text-xs text-slate-600 mt-1 line-clamp-2">
-                                {group.description}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {/* Role Badges */}
-              {!isFeatureExcluded('user.about-me.membership-badges') && rolesWithBadges.length > 0 && (
-                <div className="pt-4 border-t border-slate-200">
-                  <div className="flex items-center gap-2 mb-4">
-                    <Award className="w-5 h-5 text-indigo-600" />
-                    <h3 className="text-sm font-semibold text-slate-900">
-                      Membership Badges
-                    </h3>
-                    <Badge variant="secondary">
-                      {rolesWithBadges.length}
-                    </Badge>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                    {rolesWithBadges.map((role) => (
-                      <div
-                        key={`badge-${role.id}`}
-                        className="flex flex-col items-center p-4 bg-gradient-to-br from-indigo-50 to-indigo-100 rounded-lg border border-indigo-200 hover:shadow-md transition-shadow"
-                        data-testid={`role-badge-${role.id}`}
-                      >
+                          {classification.name}
+                        </Badge>
+                      )}
+                      {award.image_url ? (
                         <img
-                          src={role.badge_image_url}
-                          alt={`${role.name} badge`}
-                          className="w-24 h-24 object-contain mb-3"
+                          src={award.image_url}
+                          alt={award.name}
+                          className="w-12 h-12 object-contain mb-2"
                         />
-                        <p className="text-sm font-semibold text-center text-slate-900 mb-1">
-                          {role.name}
-                        </p>
-                        {role.description && (
-                          <p className="text-xs text-slate-600 text-center mb-3 line-clamp-2">
-                            {role.description}
-                          </p>
-                        )}
-                        <Button
+                      ) : (
+                        <div className="w-12 h-12 bg-gradient-to-br from-rose-400 to-rose-600 rounded-full flex items-center justify-center mb-2">
+                          <Trophy className="w-6 h-6 text-white" />
+                        </div>
+                      )}
+                      <p className="text-xs font-semibold text-center text-slate-900 line-clamp-2">
+                        {award.name}
+                      </p>
+                      {award.sublevel && (
+                        <Badge
                           variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            // Download the badge image
-                            const link = document.createElement('a');
-                            link.href = role.badge_image_url;
-                            link.download = `${role.name.replace(/\s+/g, '-').toLowerCase()}-badge.png`;
-                            link.target = '_blank';
-                            document.body.appendChild(link);
-                            link.click();
-                            document.body.removeChild(link);
-                            toast.success("Badge download started");
-                          }}
-                          className="text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50"
-                          data-testid={`download-badge-${role.id}`}
+                          className="mt-1 text-[10px] px-1.5 py-0.5 border-rose-300 text-rose-700"
                         >
-                          <Download className="w-4 h-4 mr-1" />
-                          Download Badge
-                        </Button>
+                          {award.sublevel.name}
+                        </Badge>
+                      )}
+                      {award.description && (
+                        <p className="text-[10px] text-slate-500 text-center mt-1 line-clamp-2">
+                          {award.description}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+        );
+
+      case 'groups':
+        if (isFeatureExcluded('user.about-me.groups') || groupAssignments.length === 0) return null;
+        return (
+          <Card key="groups" className="border-slate-200 shadow-sm">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Users className="w-5 h-5 text-blue-600" />
+                Groups
+                <Badge variant="secondary">{groupAssignments.length}</Badge>
+              </CardTitle>
+              <CardDescription>
+                Groups you are a member of
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {groupAssignments.map((assignment) => {
+                  const group = memberGroups.find(
+                    (g) => g.id === assignment.group_id
+                  );
+                  if (!group) return null;
+                  return (
+                    <div
+                      key={assignment.id}
+                      className="flex items-start gap-3 p-3 bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg border border-blue-200"
+                    >
+                      <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center flex-shrink-0">
+                        <Users className="w-5 h-5 text-white" />
                       </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Awards */}
-              {!isFeatureExcluded('user.about-me.awards') && (earnedOnlineAwards.length > 0 ||
-                earnedOfflineAwards.length > 0) && (
-                <div className="pt-4 border-t border-slate-200">
-                  <div className="flex items-center gap-2 mb-4">
-                    <Trophy className="w-5 h-5 text-amber-600" />
-                    <h3 className="text-sm font-semibold text-slate-900">
-                      Awards
-                    </h3>
-                    <Badge variant="secondary">
-                      {earnedOnlineAwards.length + earnedOfflineAwards.length}
-                    </Badge>
-                  </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-                    {earnedOnlineAwards.map((award) => {
-                      const classification = award.classification_id
-                        ? awardClassifications.find(
-                            (c) => c.id === award.classification_id
-                          )
-                        : null;
-                      return (
-                        <div
-                          key={`online-${award.id}`}
-                          className="flex flex-col items-center p-3 bg-gradient-to-br from-amber-50 to-amber-100 rounded-lg border border-amber-200 hover:shadow-md transition-shadow relative"
-                        >
-                          {classification && (
-                            <Badge
-                              variant="secondary"
-                              className="absolute top-1 right-1 text-[10px] px-1.5 py-0.5"
-                            >
-                              {classification.name}
-                            </Badge>
-                          )}
-                          {award.image_url ? (
-                            <img
-                              src={award.image_url}
-                              alt={award.name}
-                              className="w-12 h-12 object-contain mb-2"
-                            />
-                          ) : (
-                            <div className="w-12 h-12 bg-gradient-to-br from-amber-400 to-amber-600 rounded-full flex items-center justify-center mb-2">
-                              <Trophy className="w-6 h-6 text-white" />
-                            </div>
-                          )}
-                          <p className="text-xs font-semibold text-center text-slate-900 line-clamp-2">
-                            {award.name}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-slate-900 truncate">
+                          {group.name}
+                        </p>
+                        <p className="text-xs text-blue-700 font-medium">
+                          {assignment.group_role}
+                        </p>
+                        {group.description && (
+                          <p className="text-xs text-slate-600 mt-1 line-clamp-2">
+                            {group.description}
                           </p>
-                          {award.description && (
-                            <p className="text-xs text-slate-600 text-center mt-1 line-clamp-2">
-                              {award.description}
-                            </p>
-                          )}
-                        </div>
-                      );
-                    })}
-                    {earnedOfflineAwards.map((award, idx) => {
-                      const classification = award.classification_id
-                        ? awardClassifications.find(
-                            (c) => c.id === award.classification_id
-                          )
-                        : null;
-                      return (
-                        <div
-                          key={`offline-${award.id}-${idx}`}
-                          className="flex flex-col items-center p-3 bg-gradient-to-br from-purple-50 to-purple-100 rounded-lg border border-purple-200 hover:shadow-md transition-shadow relative"
-                        >
-                          {classification && (
-                            <Badge
-                              variant="secondary"
-                              className="absolute top-1 right-1 text-[10px] px-1.5 py-0.5"
-                            >
-                              {classification.name}
-                            </Badge>
-                          )}
-                          {award.sublevel?.image_url ? (
-                            <img
-                              src={award.sublevel.image_url}
-                              alt={award.sublevel.name}
-                              className="w-12 h-12 object-contain mb-2"
-                            />
-                          ) : award.image_url ? (
-                            <img
-                              src={award.image_url}
-                              alt={award.name}
-                              className="w-12 h-12 object-contain mb-2"
-                            />
-                          ) : (
-                            <div className="w-12 h-12 bg-gradient-to-br from-purple-400 to-purple-600 rounded-full flex items-center justify-center mb-2">
-                              <Trophy className="w-6 h-6 text-white" />
-                            </div>
-                          )}
-                          <p className="text-xs font-semibold text-center text-slate-900 line-clamp-2">
-                            {award.name}
-                          </p>
-                          {award.sublevel && (
-                            <Badge className="mt-1 bg-purple-600 text-white text-[10px]">
-                              {award.sublevel.name}
-                            </Badge>
-                          )}
-                          {award.period_text && (
-                            <p className="text-xs text-purple-700 text-center mt-1 font-medium">
-                              {award.period_text}
-                            </p>
-                          )}
-                          {award.description && (
-                            <p className="text-xs text-slate-600 text-center mt-1 line-clamp-2">
-                              {award.description}
-                            </p>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {/* Biography */}
-              {!isFeatureExcluded('user.about-me.professional-biography') && (
-                <>
-                  <div className="space-y-2 pt-4 border-t border-slate-200">
-                    <div className="flex items-center justify-between">
-                      <Label htmlFor="biography">Professional Biography</Label>
-                      <span
-                        className={`text-xs ${
-                          getBiographyWordCount() > 500
-                            ? "text-red-600 font-semibold"
-                            : "text-slate-500"
-                        }`}
-                      >
-                        {getBiographyWordCount()} / 500 words
-                      </span>
-                    </div>
-                    <Textarea
-                      id="biography"
-                      value={biography}
-                      onChange={(e) => setBiography(e.target.value)}
-                      placeholder="Share your professional background, expertise, and experience (max 500 words)"
-                      className="min-h-[200px]"
-                    />
-                    <p className="text-xs text-slate-500">
-                      This biography will be displayed on your published articles
-                    </p>
-                  </div>
-
-                  {hasUnsavedProfile && (
-                    <div className="flex justify-end pt-4">
-                      <Button
-                        onClick={handleSaveProfile}
-                        disabled={
-                          isSavingProfile || getBiographyWordCount() > 500
-                        }
-                        className="bg-blue-600 hover:bg-blue-700"
-                      >
-                        {isSavingProfile ? (
-                          <>
-                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                            Saving...
-                          </>
-                        ) : (
-                          <>
-                            <Save className="w-4 h-4 mr-2" />
-                            Save Biography
-                          </>
                         )}
-                      </Button>
+                      </div>
                     </div>
-                  )}
-                </>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+        );
+
+      case 'membership_badges':
+        if (isFeatureExcluded('user.about-me.membership-badges') || rolesWithBadges.length === 0) return null;
+        return (
+          <Card key="membership_badges" className="border-slate-200 shadow-sm">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Award className="w-5 h-5 text-indigo-600" />
+                Membership Badges
+                <Badge variant="secondary">{rolesWithBadges.length}</Badge>
+              </CardTitle>
+              <CardDescription>
+                Your membership badges that you can download and share
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                {rolesWithBadges.map((role) => (
+                  <div
+                    key={`badge-${role.id}`}
+                    className="flex flex-col items-center p-4 bg-gradient-to-br from-indigo-50 to-indigo-100 rounded-lg border border-indigo-200 hover:shadow-md transition-shadow"
+                    data-testid={`role-badge-${role.id}`}
+                  >
+                    <img
+                      src={role.badge_image_url}
+                      alt={`${role.name} badge`}
+                      className="w-24 h-24 object-contain mb-3"
+                    />
+                    <p className="text-sm font-semibold text-center text-slate-900 mb-1">
+                      {role.name}
+                    </p>
+                    {role.description && (
+                      <p className="text-xs text-slate-600 text-center mb-3 line-clamp-2">
+                        {role.description}
+                      </p>
+                    )}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        const link = document.createElement('a');
+                        link.href = role.badge_image_url;
+                        link.download = `${role.name.replace(/\s+/g, '-').toLowerCase()}-badge.png`;
+                        link.target = '_blank';
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                        toast.success("Badge download started");
+                      }}
+                      className="text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50"
+                      data-testid={`download-badge-${role.id}`}
+                    >
+                      <Download className="w-4 h-4 mr-1" />
+                      Download Badge
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        );
+
+      case 'awards':
+        if (isFeatureExcluded('user.about-me.awards') || (earnedOnlineAwards.length === 0 && earnedOfflineAwards.length === 0)) return null;
+        return (
+          <Card key="awards" className="border-slate-200 shadow-sm">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Trophy className="w-5 h-5 text-amber-600" />
+                Awards
+                <Badge variant="secondary">{earnedOnlineAwards.length + earnedOfflineAwards.length}</Badge>
+              </CardTitle>
+              <CardDescription>
+                Awards you have earned
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                {earnedOnlineAwards.map((award) => {
+                  const classification = award.classification_id
+                    ? awardClassifications.find(
+                        (c) => c.id === award.classification_id
+                      )
+                    : null;
+                  return (
+                    <div
+                      key={`online-${award.id}`}
+                      className="flex flex-col items-center p-3 bg-gradient-to-br from-amber-50 to-amber-100 rounded-lg border border-amber-200 hover:shadow-md transition-shadow relative"
+                    >
+                      {classification && (
+                        <Badge
+                          variant="secondary"
+                          className="absolute top-1 right-1 text-[10px] px-1.5 py-0.5"
+                        >
+                          {classification.name}
+                        </Badge>
+                      )}
+                      {award.image_url ? (
+                        <img
+                          src={award.image_url}
+                          alt={award.name}
+                          className="w-12 h-12 object-contain mb-2"
+                        />
+                      ) : (
+                        <div className="w-12 h-12 bg-gradient-to-br from-amber-400 to-amber-600 rounded-full flex items-center justify-center mb-2">
+                          <Trophy className="w-6 h-6 text-white" />
+                        </div>
+                      )}
+                      <p className="text-xs font-semibold text-center text-slate-900 line-clamp-2">
+                        {award.name}
+                      </p>
+                      {award.description && (
+                        <p className="text-xs text-slate-600 text-center mt-1 line-clamp-2">
+                          {award.description}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
+                {earnedOfflineAwards.map((award, idx) => {
+                  const classification = award.classification_id
+                    ? awardClassifications.find(
+                        (c) => c.id === award.classification_id
+                      )
+                    : null;
+                  return (
+                    <div
+                      key={`offline-${award.id}-${idx}`}
+                      className="flex flex-col items-center p-3 bg-gradient-to-br from-purple-50 to-purple-100 rounded-lg border border-purple-200 hover:shadow-md transition-shadow relative"
+                    >
+                      {classification && (
+                        <Badge
+                          variant="secondary"
+                          className="absolute top-1 right-1 text-[10px] px-1.5 py-0.5"
+                        >
+                          {classification.name}
+                        </Badge>
+                      )}
+                      {award.sublevel?.image_url ? (
+                        <img
+                          src={award.sublevel.image_url}
+                          alt={award.sublevel.name}
+                          className="w-12 h-12 object-contain mb-2"
+                        />
+                      ) : award.image_url ? (
+                        <img
+                          src={award.image_url}
+                          alt={award.name}
+                          className="w-12 h-12 object-contain mb-2"
+                        />
+                      ) : (
+                        <div className="w-12 h-12 bg-gradient-to-br from-purple-400 to-purple-600 rounded-full flex items-center justify-center mb-2">
+                          <Trophy className="w-6 h-6 text-white" />
+                        </div>
+                      )}
+                      <p className="text-xs font-semibold text-center text-slate-900 line-clamp-2">
+                        {award.name}
+                      </p>
+                      {award.sublevel && (
+                        <Badge className="mt-1 bg-purple-600 text-white text-[10px]">
+                          {award.sublevel.name}
+                        </Badge>
+                      )}
+                      {award.period_text && (
+                        <p className="text-xs text-purple-700 text-center mt-1 font-medium">
+                          {award.period_text}
+                        </p>
+                      )}
+                      {award.description && (
+                        <p className="text-xs text-slate-600 text-center mt-1 line-clamp-2">
+                          {award.description}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+        );
+
+      case 'professional_biography':
+        if (isFeatureExcluded('user.about-me.professional-biography')) return null;
+        return (
+          <Card key="professional_biography" className="border-slate-200 shadow-sm">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <FileText className="w-5 h-5 text-blue-600" />
+                Professional Biography
+              </CardTitle>
+              <CardDescription>
+                Share your professional background and expertise
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="biography">Your Biography</Label>
+                  <span
+                    className={`text-xs ${
+                      getBiographyWordCount() > 500
+                        ? "text-red-600 font-semibold"
+                        : "text-slate-500"
+                    }`}
+                  >
+                    {getBiographyWordCount()} / 500 words
+                  </span>
+                </div>
+                <Textarea
+                  id="biography"
+                  value={biography}
+                  onChange={(e) => setBiography(e.target.value)}
+                  placeholder="Share your professional background, expertise, and experience (max 500 words)"
+                  className="min-h-[200px]"
+                />
+                <p className="text-xs text-slate-500">
+                  This biography will be displayed on your published articles
+                </p>
+              </div>
+
+              {hasUnsavedProfile && (
+                <div className="flex justify-end pt-4 border-t border-slate-200">
+                  <Button
+                    onClick={handleSaveProfile}
+                    disabled={
+                      isSavingProfile || getBiographyWordCount() > 500
+                    }
+                    className="bg-blue-600 hover:bg-blue-700"
+                  >
+                    {isSavingProfile ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <Save className="w-4 h-4 mr-2" />
+                        Save Biography
+                      </>
+                    )}
+                  </Button>
+                </div>
               )}
             </CardContent>
           </Card>
