@@ -5,20 +5,26 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Building2, Shield, Save, Eye, EyeOff, Pencil } from "lucide-react";
+import { Loader2, Building2, Shield, Save, Eye, EyeOff, Pencil, GripVertical } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
+import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 
-const CORE_ORG_FIELDS = [
-  { key: 'name', label: 'Organisation Name', description: 'The name of the organisation' },
-  { key: 'description', label: 'Description', description: 'Organisation description/about' },
+const HEADER_FIELDS = [
+  { key: 'name', label: 'Organisation Name', description: 'The name of the organisation (shown in header)' },
+  { key: 'description', label: 'Description', description: 'Organisation description/about (shown in header)' },
+  { key: 'logo_url', label: 'Logo', description: 'Organisation logo image (shown in header)' },
+];
+
+const CONTACT_FIELDS = [
   { key: 'phone', label: 'Phone Number', description: 'Contact phone number' },
   { key: 'website_url', label: 'Website', description: 'Organisation website URL' },
   { key: 'invoicing_email', label: 'Invoicing Email', description: 'Email for invoicing purposes' },
   { key: 'invoicing_address', label: 'Invoicing Address', description: 'Address for invoicing' },
-  { key: 'logo_url', label: 'Logo', description: 'Organisation logo image' },
 ];
+
+const ALL_CORE_FIELDS = [...HEADER_FIELDS, ...CONTACT_FIELDS];
 
 const PERMISSION_OPTIONS = [
   { value: 'read_write', label: 'Read & Write', icon: Pencil, color: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100' },
@@ -32,6 +38,8 @@ export default function OrganisationPreferencesPage() {
   const [selectedRoleId, setSelectedRoleId] = useState(null);
   const [permissions, setPermissions] = useState({});
   const [hasChanges, setHasChanges] = useState(false);
+  const [orderedContactFields, setOrderedContactFields] = useState(CONTACT_FIELDS);
+  const [orderedCustomFields, setOrderedCustomFields] = useState([]);
   const queryClient = useQueryClient();
 
   useEffect(() => {
@@ -62,7 +70,53 @@ export default function OrganisationPreferencesPage() {
     enabled: accessChecked,
   });
 
-  const { data: rolePermissions = {}, isLoading: permissionsLoading, refetch: refetchPermissions } = useQuery({
+  const { data: fieldOrderSettings } = useQuery({
+    queryKey: ['org-field-order-settings'],
+    queryFn: async () => {
+      const settings = await base44.entities.SystemSettings.list({
+        filter: { key: 'organization_field_order' }
+      });
+      if (settings && settings.length > 0) {
+        try {
+          return JSON.parse(settings[0].value);
+        } catch {
+          return null;
+        }
+      }
+      return null;
+    },
+    enabled: accessChecked,
+  });
+
+  useEffect(() => {
+    if (fieldOrderSettings?.contactFieldOrder) {
+      const orderedKeys = fieldOrderSettings.contactFieldOrder;
+      const reordered = orderedKeys
+        .map(key => CONTACT_FIELDS.find(f => f.key === key))
+        .filter(Boolean);
+      const remaining = CONTACT_FIELDS.filter(f => !orderedKeys.includes(f.key));
+      setOrderedContactFields([...reordered, ...remaining]);
+    } else {
+      setOrderedContactFields(CONTACT_FIELDS);
+    }
+  }, [fieldOrderSettings]);
+
+  useEffect(() => {
+    if (orgCustomFields.length > 0) {
+      if (fieldOrderSettings?.customFieldOrder) {
+        const orderedIds = fieldOrderSettings.customFieldOrder;
+        const reordered = orderedIds
+          .map(id => orgCustomFields.find(f => f.id === id))
+          .filter(Boolean);
+        const remaining = orgCustomFields.filter(f => !orderedIds.includes(f.id));
+        setOrderedCustomFields([...reordered, ...remaining]);
+      } else {
+        setOrderedCustomFields([...orgCustomFields].sort((a, b) => (a.display_order || 0) - (b.display_order || 0)));
+      }
+    }
+  }, [orgCustomFields, fieldOrderSettings]);
+
+  const { data: rolePermissions = {}, isLoading: permissionsLoading } = useQuery({
     queryKey: ['role-org-field-permissions', selectedRoleId],
     queryFn: async () => {
       if (!selectedRoleId) return {};
@@ -73,7 +127,6 @@ export default function OrganisationPreferencesPage() {
         throw new Error('Failed to fetch permissions');
       }
       const data = await response.json();
-      // Transform array format [{ field_key, permission }] to object format { field_key: permission }
       const permissionMap = {};
       if (Array.isArray(data)) {
         data.forEach(p => {
@@ -87,7 +140,7 @@ export default function OrganisationPreferencesPage() {
 
   useEffect(() => {
     if (selectedRoleId && rolePermissions) {
-      const allFields = [...CORE_ORG_FIELDS.map(f => f.key), ...orgCustomFields.map(f => f.id)];
+      const allFields = [...ALL_CORE_FIELDS.map(f => f.key), ...orderedCustomFields.map(f => f.id)];
       const initialPermissions = {};
       allFields.forEach(fieldKey => {
         initialPermissions[fieldKey] = rolePermissions[fieldKey] || 'read_write';
@@ -95,11 +148,33 @@ export default function OrganisationPreferencesPage() {
       setPermissions(initialPermissions);
       setHasChanges(false);
     }
-  }, [selectedRoleId, rolePermissions, orgCustomFields]);
+  }, [selectedRoleId, rolePermissions, orderedCustomFields]);
+
+  const saveOrderMutation = useMutation({
+    mutationFn: async ({ contactFieldOrder, customFieldOrder }) => {
+      const settings = await base44.entities.SystemSettings.list({
+        filter: { key: 'organization_field_order' }
+      });
+      
+      const orderData = JSON.stringify({ contactFieldOrder, customFieldOrder });
+      
+      if (settings && settings.length > 0) {
+        await base44.entities.SystemSettings.update(settings[0].id, { value: orderData });
+      } else {
+        await base44.entities.SystemSettings.create({
+          key: 'organization_field_order',
+          value: orderData,
+          description: 'Field display order for My Organisation page'
+        });
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['org-field-order-settings'] });
+    }
+  });
 
   const updatePermissionsMutation = useMutation({
     mutationFn: async (permissionsData) => {
-      // Transform object format { field_key: permission } to array format [{ field_key, permission }]
       const permissionsArray = Object.entries(permissionsData).map(([field_key, permission]) => ({
         field_key,
         permission
@@ -148,6 +223,37 @@ export default function OrganisationPreferencesPage() {
     setSelectedRoleId(roleId);
   };
 
+  const handleDragEnd = (result) => {
+    const { source, destination, type } = result;
+    
+    if (!destination) return;
+    if (source.droppableId === destination.droppableId && source.index === destination.index) return;
+
+    if (type === 'CONTACT_FIELDS') {
+      const newFields = Array.from(orderedContactFields);
+      const [removed] = newFields.splice(source.index, 1);
+      newFields.splice(destination.index, 0, removed);
+      setOrderedContactFields(newFields);
+      
+      saveOrderMutation.mutate({
+        contactFieldOrder: newFields.map(f => f.key),
+        customFieldOrder: orderedCustomFields.map(f => f.id)
+      });
+      toast.success('Field order updated');
+    } else if (type === 'CUSTOM_FIELDS') {
+      const newFields = Array.from(orderedCustomFields);
+      const [removed] = newFields.splice(source.index, 1);
+      newFields.splice(destination.index, 0, removed);
+      setOrderedCustomFields(newFields);
+      
+      saveOrderMutation.mutate({
+        contactFieldOrder: orderedContactFields.map(f => f.key),
+        customFieldOrder: newFields.map(f => f.id)
+      });
+      toast.success('Field order updated');
+    }
+  };
+
   const getPermissionBadge = (permission) => {
     const option = PERMISSION_OPTIONS.find(o => o.value === permission) || PERMISSION_OPTIONS[0];
     const Icon = option.icon;
@@ -178,7 +284,7 @@ export default function OrganisationPreferencesPage() {
             </h1>
           </div>
           <p className="text-slate-600">
-            Configure which organisation fields are visible and editable for each role on the My Organisation page.
+            Configure field order and permissions for each role on the My Organisation page. Drag fields to reorder them.
           </p>
         </div>
 
@@ -230,87 +336,40 @@ export default function OrganisationPreferencesPage() {
           </CardContent>
         </Card>
 
-        {selectedRoleId && (
-          <>
-            {permissionsLoading ? (
-              <div className="flex items-center justify-center py-12">
-                <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
-              </div>
-            ) : (
-              <div className="space-y-6">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Core Organisation Fields</CardTitle>
-                    <CardDescription>
-                      Standard fields available on all organisations
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-3">
-                      {CORE_ORG_FIELDS.map((field) => (
-                        <div
-                          key={field.key}
-                          className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800 rounded-lg"
-                        >
-                          <div>
-                            <p className="font-medium text-slate-900 dark:text-slate-100">{field.label}</p>
-                            <p className="text-sm text-slate-500 dark:text-slate-400">{field.description}</p>
-                          </div>
-                          <Select
-                            value={permissions[field.key] || 'read_write'}
-                            onValueChange={(value) => handlePermissionChange(field.key, value)}
-                          >
-                            <SelectTrigger className="w-[160px]" data-testid={`select-permission-${field.key}`}>
-                              <SelectValue>
-                                {getPermissionBadge(permissions[field.key] || 'read_write')}
-                              </SelectValue>
-                            </SelectTrigger>
-                            <SelectContent>
-                              {PERMISSION_OPTIONS.map((option) => (
-                                <SelectItem key={option.value} value={option.value}>
-                                  <div className="flex items-center gap-2">
-                                    <option.icon className="w-4 h-4" />
-                                    {option.label}
-                                  </div>
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {orgCustomFields.length > 0 && (
+        <DragDropContext onDragEnd={handleDragEnd}>
+          {selectedRoleId && (
+            <>
+              {permissionsLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+                </div>
+              ) : (
+                <div className="space-y-6">
                   <Card>
                     <CardHeader>
-                      <CardTitle>Custom Organisation Fields</CardTitle>
+                      <CardTitle>Header Fields</CardTitle>
                       <CardDescription>
-                        Custom fields defined for organisations
+                        Fields shown in the organisation header (fixed position)
                       </CardDescription>
                     </CardHeader>
                     <CardContent>
-                      <div className="space-y-3">
-                        {orgCustomFields.map((field) => (
+                      <div className="space-y-2">
+                        {HEADER_FIELDS.map((field) => (
                           <div
-                            key={field.id}
+                            key={field.key}
                             className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800 rounded-lg"
                           >
                             <div>
                               <p className="font-medium text-slate-900 dark:text-slate-100">{field.label}</p>
-                              <p className="text-sm text-slate-500 dark:text-slate-400">
-                                {field.field_type} field
-                                {field.is_required && <Badge variant="outline" className="ml-2">Required</Badge>}
-                              </p>
+                              <p className="text-sm text-slate-500 dark:text-slate-400">{field.description}</p>
                             </div>
                             <Select
-                              value={permissions[field.id] || 'read_write'}
-                              onValueChange={(value) => handlePermissionChange(field.id, value)}
+                              value={permissions[field.key] || 'read_write'}
+                              onValueChange={(value) => handlePermissionChange(field.key, value)}
                             >
-                              <SelectTrigger className="w-[160px]" data-testid={`select-permission-${field.id}`}>
+                              <SelectTrigger className="w-[160px]" data-testid={`select-permission-${field.key}`}>
                                 <SelectValue>
-                                  {getPermissionBadge(permissions[field.id] || 'read_write')}
+                                  {getPermissionBadge(permissions[field.key] || 'read_write')}
                                 </SelectValue>
                               </SelectTrigger>
                               <SelectContent>
@@ -329,29 +388,172 @@ export default function OrganisationPreferencesPage() {
                       </div>
                     </CardContent>
                   </Card>
-                )}
 
-                <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-                  <h4 className="font-medium text-blue-900 dark:text-blue-100 mb-2">Permission Levels</h4>
-                  <ul className="space-y-1 text-sm text-blue-800 dark:text-blue-200">
-                    <li className="flex items-center gap-2">
-                      <Pencil className="w-4 h-4" />
-                      <strong>Read & Write:</strong> Members can view and edit this field
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <Eye className="w-4 h-4" />
-                      <strong>Read Only:</strong> Members can view but not edit this field
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <EyeOff className="w-4 h-4" />
-                      <strong>Hidden:</strong> This field is not shown to members with this role
-                    </li>
-                  </ul>
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Contact & Invoicing Fields</CardTitle>
+                      <CardDescription>
+                        Drag to reorder these fields in the contact details section
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <Droppable droppableId="contact-fields" type="CONTACT_FIELDS">
+                        {(provided) => (
+                          <div
+                            ref={provided.innerRef}
+                            {...provided.droppableProps}
+                            className="space-y-2"
+                          >
+                            {orderedContactFields.map((field, index) => (
+                              <Draggable key={field.key} draggableId={field.key} index={index}>
+                                {(provided, snapshot) => (
+                                  <div
+                                    ref={provided.innerRef}
+                                    {...provided.draggableProps}
+                                    className={`flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800 rounded-lg ${
+                                      snapshot.isDragging ? 'shadow-lg ring-2 ring-blue-500' : ''
+                                    }`}
+                                  >
+                                    <div className="flex items-center gap-3">
+                                      <div
+                                        {...provided.dragHandleProps}
+                                        className="cursor-grab active:cursor-grabbing p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700"
+                                        data-testid={`drag-handle-${field.key}`}
+                                      >
+                                        <GripVertical className="w-4 h-4 text-slate-400" />
+                                      </div>
+                                      <div>
+                                        <p className="font-medium text-slate-900 dark:text-slate-100">{field.label}</p>
+                                        <p className="text-sm text-slate-500 dark:text-slate-400">{field.description}</p>
+                                      </div>
+                                    </div>
+                                    <Select
+                                      value={permissions[field.key] || 'read_write'}
+                                      onValueChange={(value) => handlePermissionChange(field.key, value)}
+                                    >
+                                      <SelectTrigger className="w-[160px]" data-testid={`select-permission-${field.key}`}>
+                                        <SelectValue>
+                                          {getPermissionBadge(permissions[field.key] || 'read_write')}
+                                        </SelectValue>
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {PERMISSION_OPTIONS.map((option) => (
+                                          <SelectItem key={option.value} value={option.value}>
+                                            <div className="flex items-center gap-2">
+                                              <option.icon className="w-4 h-4" />
+                                              {option.label}
+                                            </div>
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                )}
+                              </Draggable>
+                            ))}
+                            {provided.placeholder}
+                          </div>
+                        )}
+                      </Droppable>
+                    </CardContent>
+                  </Card>
+
+                  {orderedCustomFields.length > 0 && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Custom Organisation Fields</CardTitle>
+                        <CardDescription>
+                          Drag to reorder. Custom fields defined for organisations.
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <Droppable droppableId="custom-fields" type="CUSTOM_FIELDS">
+                          {(provided) => (
+                            <div
+                              ref={provided.innerRef}
+                              {...provided.droppableProps}
+                              className="space-y-2"
+                            >
+                              {orderedCustomFields.map((field, index) => (
+                                <Draggable key={field.id} draggableId={field.id} index={index}>
+                                  {(provided, snapshot) => (
+                                    <div
+                                      ref={provided.innerRef}
+                                      {...provided.draggableProps}
+                                      className={`flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800 rounded-lg ${
+                                        snapshot.isDragging ? 'shadow-lg ring-2 ring-blue-500' : ''
+                                      }`}
+                                    >
+                                      <div className="flex items-center gap-3">
+                                        <div
+                                          {...provided.dragHandleProps}
+                                          className="cursor-grab active:cursor-grabbing p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700"
+                                          data-testid={`drag-handle-custom-${field.id}`}
+                                        >
+                                          <GripVertical className="w-4 h-4 text-slate-400" />
+                                        </div>
+                                        <div>
+                                          <p className="font-medium text-slate-900 dark:text-slate-100">{field.label}</p>
+                                          <p className="text-sm text-slate-500 dark:text-slate-400">
+                                            {field.field_type} field
+                                            {field.is_required && <Badge variant="outline" className="ml-2">Required</Badge>}
+                                          </p>
+                                        </div>
+                                      </div>
+                                      <Select
+                                        value={permissions[field.id] || 'read_write'}
+                                        onValueChange={(value) => handlePermissionChange(field.id, value)}
+                                      >
+                                        <SelectTrigger className="w-[160px]" data-testid={`select-permission-${field.id}`}>
+                                          <SelectValue>
+                                            {getPermissionBadge(permissions[field.id] || 'read_write')}
+                                          </SelectValue>
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          {PERMISSION_OPTIONS.map((option) => (
+                                            <SelectItem key={option.value} value={option.value}>
+                                              <div className="flex items-center gap-2">
+                                                <option.icon className="w-4 h-4" />
+                                                {option.label}
+                                              </div>
+                                            </SelectItem>
+                                          ))}
+                                        </SelectContent>
+                                      </Select>
+                                    </div>
+                                  )}
+                                </Draggable>
+                              ))}
+                              {provided.placeholder}
+                            </div>
+                          )}
+                        </Droppable>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+                    <h4 className="font-medium text-blue-900 dark:text-blue-100 mb-2">Permission Levels</h4>
+                    <ul className="space-y-1 text-sm text-blue-800 dark:text-blue-200">
+                      <li className="flex items-center gap-2">
+                        <Pencil className="w-4 h-4" />
+                        <strong>Read & Write:</strong> Members can view and edit this field
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <Eye className="w-4 h-4" />
+                        <strong>Read Only:</strong> Members can view but not edit this field
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <EyeOff className="w-4 h-4" />
+                        <strong>Hidden:</strong> This field is not shown to members with this role
+                      </li>
+                    </ul>
+                  </div>
                 </div>
-              </div>
-            )}
-          </>
-        )}
+              )}
+            </>
+          )}
+        </DragDropContext>
 
         {!selectedRoleId && (
           <Card>

@@ -140,6 +140,24 @@ export default function MyOrganisationPage() {
     }
   });
 
+  const { data: fieldOrderSettings } = useQuery({
+    queryKey: ['org-field-order-settings'],
+    queryFn: async () => {
+      const settings = await base44.entities.SystemSettings.list({
+        filter: { key: 'organization_field_order' }
+      });
+      if (settings && settings.length > 0) {
+        try {
+          return JSON.parse(settings[0].value);
+        } catch {
+          return null;
+        }
+      }
+      return null;
+    },
+    enabled: accessChecked,
+  });
+
   const { data: members = [], isLoading: membersLoading } = useQuery({
     queryKey: ['organizationMembers', memberInfo?.organization_id],
     enabled: !!memberInfo?.organization_id && accessChecked,
@@ -208,6 +226,36 @@ export default function MyOrganisationPage() {
     }
   });
 
+  const orderedCustomFields = useMemo(() => {
+    if (!orgCustomFields.length) return [];
+    
+    if (fieldOrderSettings?.customFieldOrder) {
+      const orderedIds = fieldOrderSettings.customFieldOrder;
+      const reordered = orderedIds
+        .map(id => orgCustomFields.find(f => f.id === id))
+        .filter(Boolean);
+      const remaining = orgCustomFields.filter(f => !orderedIds.includes(f.id));
+      return [...reordered, ...remaining];
+    }
+    
+    return [...orgCustomFields].sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
+  }, [orgCustomFields, fieldOrderSettings]);
+
+  const orderedContactFieldKeys = useMemo(() => {
+    const defaultOrder = ['phone', 'website_url', 'invoicing_email', 'invoicing_address'];
+    
+    if (fieldOrderSettings?.contactFieldOrder) {
+      const orderedKeys = fieldOrderSettings.contactFieldOrder;
+      const result = [...orderedKeys];
+      defaultOrder.forEach(key => {
+        if (!result.includes(key)) result.push(key);
+      });
+      return result;
+    }
+    
+    return defaultOrder;
+  }, [fieldOrderSettings]);
+
   const getFieldPermission = (fieldKey) => {
     return fieldPermissions[fieldKey] || 'read_write';
   };
@@ -220,6 +268,145 @@ export default function MyOrganisationPage() {
     return getFieldPermission(fieldKey) !== 'hidden';
   };
 
+  const renderCoreField = (fieldKey) => {
+    if (!isFieldVisible(fieldKey)) return null;
+
+    switch (fieldKey) {
+      case 'phone':
+        return canEditField('phone') ? (
+          <div key="phone" className="space-y-2">
+            <Label htmlFor="phone" className="flex items-center gap-2">
+              <Phone className="w-4 h-4 text-slate-500" />
+              Phone Number
+            </Label>
+            <Input
+              id="phone"
+              value={formData.phone}
+              onChange={(e) => setFormData(prev => ({ ...prev, phone: e.target.value }))}
+              placeholder="Enter phone number"
+              data-testid="input-phone"
+            />
+          </div>
+        ) : (
+          <div key="phone" className="flex items-start gap-3 p-3 bg-slate-50 rounded-lg">
+            <Phone className="w-5 h-5 text-slate-500 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Phone Number</p>
+              <p className="text-sm font-medium text-slate-900" data-testid="text-phone">
+                {organization?.phone || <span className="text-slate-400 italic font-normal">Not set</span>}
+              </p>
+            </div>
+          </div>
+        );
+
+      case 'website_url':
+        return canEditField('website_url') ? (
+          <div key="website_url" className="space-y-2">
+            <Label htmlFor="website_url" className="flex items-center gap-2">
+              <Globe className="w-4 h-4 text-slate-500" />
+              Website
+            </Label>
+            <Input
+              id="website_url"
+              value={formData.website_url}
+              onChange={(e) => setFormData(prev => ({ ...prev, website_url: e.target.value }))}
+              placeholder="https://example.com"
+              data-testid="input-website"
+            />
+          </div>
+        ) : (
+          <div key="website_url" className="flex items-start gap-3 p-3 bg-slate-50 rounded-lg">
+            <Globe className="w-5 h-5 text-slate-500 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Website</p>
+              {organization?.website_url ? (
+                <a 
+                  href={organization.website_url.startsWith('http') ? organization.website_url : `https://${organization.website_url}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm font-medium text-blue-600 hover:text-blue-700 flex items-center gap-1"
+                  data-testid="link-website"
+                >
+                  {organization.website_url}
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+              ) : (
+                <p className="text-sm text-slate-400 italic" data-testid="text-website-empty">Not set</p>
+              )}
+            </div>
+          </div>
+        );
+
+      case 'invoicing_email':
+        return canEditField('invoicing_email') ? (
+          <div key="invoicing_email" className="space-y-2">
+            <Label htmlFor="invoicing_email" className="flex items-center gap-2">
+              <Mail className="w-4 h-4 text-slate-500" />
+              Invoicing Email
+            </Label>
+            <Input
+              id="invoicing_email"
+              type="email"
+              value={formData.invoicing_email}
+              onChange={(e) => setFormData(prev => ({ ...prev, invoicing_email: e.target.value }))}
+              placeholder="invoicing@example.com"
+              data-testid="input-invoicing-email"
+            />
+          </div>
+        ) : (
+          <div key="invoicing_email" className="flex items-start gap-3 p-3 bg-slate-50 rounded-lg">
+            <Mail className="w-5 h-5 text-slate-500 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Invoicing Email</p>
+              {organization?.invoicing_email ? (
+                <a 
+                  href={`mailto:${organization.invoicing_email}`}
+                  className="text-sm font-medium text-blue-600 hover:text-blue-700"
+                  data-testid="link-invoicing-email"
+                >
+                  {organization.invoicing_email}
+                </a>
+              ) : (
+                <p className="text-sm text-slate-400 italic" data-testid="text-invoicing-email-empty">Not set</p>
+              )}
+            </div>
+          </div>
+        );
+
+      case 'invoicing_address':
+        return canEditField('invoicing_address') ? (
+          <div key="invoicing_address" className="space-y-2">
+            <Label htmlFor="invoicing_address" className="flex items-center gap-2">
+              <MapPin className="w-4 h-4 text-slate-500" />
+              Invoicing Address
+            </Label>
+            <Textarea
+              id="invoicing_address"
+              value={formData.invoicing_address}
+              onChange={(e) => setFormData(prev => ({ ...prev, invoicing_address: e.target.value }))}
+              placeholder="Enter invoicing address"
+              rows={3}
+              data-testid="textarea-invoicing-address"
+            />
+          </div>
+        ) : (
+          <div key="invoicing_address" className="flex items-start gap-3 p-3 bg-slate-50 rounded-lg">
+            <MapPin className="w-5 h-5 text-slate-500 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Invoicing Address</p>
+              <p className="text-sm font-medium text-slate-900 whitespace-pre-line" data-testid="text-invoicing-address">
+                {organization?.invoicing_address || <span className="text-slate-400 italic font-normal">Not set</span>}
+              </p>
+            </div>
+          </div>
+        );
+
+      default:
+        return null;
+    }
+  };
+
+  
   useEffect(() => {
     if (organization) {
       const data = {
@@ -873,148 +1060,13 @@ export default function MyOrganisationPage() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {/* Phone Number */}
-                  {isFieldVisible('phone') && (
-                    canEditField('phone') ? (
-                      <div className="space-y-2">
-                        <Label htmlFor="phone" className="flex items-center gap-2">
-                          <Phone className="w-4 h-4 text-slate-500" />
-                          Phone Number
-                        </Label>
-                        <Input
-                          id="phone"
-                          value={formData.phone}
-                          onChange={(e) => setFormData(prev => ({ ...prev, phone: e.target.value }))}
-                          placeholder="Enter phone number"
-                          data-testid="input-phone"
-                        />
-                      </div>
-                    ) : (
-                      <div className="flex items-start gap-3 p-3 bg-slate-50 rounded-lg">
-                        <Phone className="w-5 h-5 text-slate-500 mt-0.5" />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Phone Number</p>
-                          <p className="text-sm font-medium text-slate-900" data-testid="text-phone">
-                            {organization.phone || <span className="text-slate-400 italic font-normal">Not set</span>}
-                          </p>
-                        </div>
-                      </div>
-                    )
-                  )}
-
-                  {/* Website */}
-                  {isFieldVisible('website_url') && (
-                    canEditField('website_url') ? (
-                      <div className="space-y-2">
-                        <Label htmlFor="website_url" className="flex items-center gap-2">
-                          <Globe className="w-4 h-4 text-slate-500" />
-                          Website
-                        </Label>
-                        <Input
-                          id="website_url"
-                          value={formData.website_url}
-                          onChange={(e) => setFormData(prev => ({ ...prev, website_url: e.target.value }))}
-                          placeholder="https://example.com"
-                          data-testid="input-website"
-                        />
-                      </div>
-                    ) : (
-                      <div className="flex items-start gap-3 p-3 bg-slate-50 rounded-lg">
-                        <Globe className="w-5 h-5 text-slate-500 mt-0.5" />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Website</p>
-                          {organization.website_url ? (
-                            <a 
-                              href={organization.website_url.startsWith('http') ? organization.website_url : `https://${organization.website_url}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-sm font-medium text-blue-600 hover:text-blue-700 flex items-center gap-1"
-                              data-testid="link-website"
-                            >
-                              {organization.website_url}
-                              <ExternalLink className="w-3 h-3" />
-                            </a>
-                          ) : (
-                            <p className="text-sm text-slate-400 italic" data-testid="text-website-empty">Not set</p>
-                          )}
-                        </div>
-                      </div>
-                    )
-                  )}
-
-                  {/* Invoicing Email */}
-                  {isFieldVisible('invoicing_email') && (
-                    canEditField('invoicing_email') ? (
-                      <div className="space-y-2">
-                        <Label htmlFor="invoicing_email" className="flex items-center gap-2">
-                          <Mail className="w-4 h-4 text-slate-500" />
-                          Invoicing Email
-                        </Label>
-                        <Input
-                          id="invoicing_email"
-                          type="email"
-                          value={formData.invoicing_email}
-                          onChange={(e) => setFormData(prev => ({ ...prev, invoicing_email: e.target.value }))}
-                          placeholder="invoicing@example.com"
-                          data-testid="input-invoicing-email"
-                        />
-                      </div>
-                    ) : (
-                      <div className="flex items-start gap-3 p-3 bg-slate-50 rounded-lg">
-                        <Mail className="w-5 h-5 text-slate-500 mt-0.5" />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Invoicing Email</p>
-                          {organization.invoicing_email ? (
-                            <a 
-                              href={`mailto:${organization.invoicing_email}`}
-                              className="text-sm font-medium text-blue-600 hover:text-blue-700"
-                              data-testid="link-invoicing-email"
-                            >
-                              {organization.invoicing_email}
-                            </a>
-                          ) : (
-                            <p className="text-sm text-slate-400 italic" data-testid="text-invoicing-email-empty">Not set</p>
-                          )}
-                        </div>
-                      </div>
-                    )
-                  )}
-
-                  {/* Invoicing Address */}
-                  {isFieldVisible('invoicing_address') && (
-                    canEditField('invoicing_address') ? (
-                      <div className="space-y-2">
-                        <Label htmlFor="invoicing_address" className="flex items-center gap-2">
-                          <MapPin className="w-4 h-4 text-slate-500" />
-                          Invoicing Address
-                        </Label>
-                        <Textarea
-                          id="invoicing_address"
-                          value={formData.invoicing_address}
-                          onChange={(e) => setFormData(prev => ({ ...prev, invoicing_address: e.target.value }))}
-                          placeholder="Enter invoicing address"
-                          rows={3}
-                          data-testid="textarea-invoicing-address"
-                        />
-                      </div>
-                    ) : (
-                      <div className="flex items-start gap-3 p-3 bg-slate-50 rounded-lg">
-                        <MapPin className="w-5 h-5 text-slate-500 mt-0.5" />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Invoicing Address</p>
-                          <p className="text-sm font-medium text-slate-900 whitespace-pre-line" data-testid="text-invoicing-address">
-                            {organization.invoicing_address || <span className="text-slate-400 italic font-normal">Not set</span>}
-                          </p>
-                        </div>
-                      </div>
-                    )
-                  )}
+                  {orderedContactFieldKeys.map(fieldKey => renderCoreField(fieldKey))}
                 </div>
               </CardContent>
             </Card>
 
             {/* Custom Fields Section */}
-            {orgCustomFields.filter(f => isFieldVisible(f.id)).length > 0 && (
+            {orderedCustomFields.filter(f => isFieldVisible(f.id)).length > 0 && (
               <Card className="border-slate-200">
                 <CardHeader>
                   <CardTitle className="text-lg flex items-center gap-2">
@@ -1029,7 +1081,7 @@ export default function MyOrganisationPage() {
                     </div>
                   ) : (
                     <div className="space-y-4">
-                      {orgCustomFields.filter(f => isFieldVisible(f.id)).map((field) => {
+                      {orderedCustomFields.filter(f => isFieldVisible(f.id)).map((field) => {
                         const valueRecord = orgValues.find(v => v.field_id === field.id);
                         const displayValue = getCustomFieldDisplayValue(field, valueRecord);
                         
