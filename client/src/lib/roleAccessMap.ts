@@ -163,14 +163,6 @@ export const ROLE_ACCESS_MAP: Module[] = [
         label: "Organisation Directory Settings"
       },
       {
-        id: "membership.members-list",
-        label: "Members List (CRM)"
-      },
-      {
-        id: "membership.organisations-list",
-        label: "Organisations List (CRM)"
-      },
-      {
         id: "membership.member-groups-guests",
         label: "Member Group Guest Management"
       },
@@ -697,8 +689,8 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_ArticlesSettings": "content.articles-settings",
   "page_VoucherManagement": "commerce.voucher-management",
   "page_TrainingFundManagement": "commerce.training-fund-management",
-  "page_MembersList": "membership.members-list",
-  "page_OrganisationsList": "membership.organisations-list",
+  "page_MembersList": "crm.members",
+  "page_OrganisationsList": "crm.organisations",
   "page_BorderRadiusSettings": "site-builder.border-radius",
   "page_TeamSettings": "system.team-settings",
   "page_PreferenceSettings": "communication.preference-settings",
