@@ -561,6 +561,44 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
         }
       }
       
+      // Send submission email if configured
+      console.log('[IEditFormElement] === EMAIL ON SUBMISSION CHECK ===');
+      console.log('[IEditFormElement] form exists:', !!form);
+      console.log('[IEditFormElement] form.id:', form?.id);
+      console.log('[IEditFormElement] form.name:', form?.name);
+      console.log('[IEditFormElement] submission_email_template_id:', form?.submission_email_template_id);
+      console.log('[IEditFormElement] submission_email_to:', form?.submission_email_to);
+      console.log('[IEditFormElement] submission_email_cc:', form?.submission_email_cc);
+      console.log('[IEditFormElement] submission_email_bcc:', form?.submission_email_bcc);
+      console.log('[IEditFormElement] Condition result:', !!(form?.submission_email_template_id && form?.submission_email_to));
+      
+      if (form?.submission_email_template_id && form?.submission_email_to) {
+        try {
+          console.log('[IEditFormElement] Sending submission email...');
+          const emailPayload = {
+            form_id: form.id,
+            submission_id: submissionResult?.id,
+            form_values: formValues,
+            fields: form.fields
+          };
+          console.log('[IEditFormElement] Email payload:', JSON.stringify(emailPayload, null, 2));
+          
+          const emailResponse = await fetch('/api/forms/send-submission-email', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(emailPayload)
+          });
+          console.log('[IEditFormElement] Email response status:', emailResponse.status);
+          const emailResult = await emailResponse.json();
+          console.log('[IEditFormElement] Submission email result:', emailResult);
+        } catch (error) {
+          console.error('[IEditFormElement] Error sending submission email:', error);
+          // Don't fail the submission if email fails
+        }
+      } else {
+        console.log('[IEditFormElement] Email on submission NOT configured - skipping email send');
+      }
+      
       setSubmitted(true);
       if (form?.redirect_url) {
         setTimeout(() => {
