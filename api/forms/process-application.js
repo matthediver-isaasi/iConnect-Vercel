@@ -68,13 +68,14 @@ export default async function handler(req, res) {
       application_level,
       create_entity_type,
       entity_action,
-      member_entity_action,        // New: independent member action (none/create/update/upsert)
-      organization_entity_action,  // New: independent organization action (none/create/update/upsert)
+      member_entity_action,        // Legacy: independent member action (none/create/update/upsert)
+      organization_entity_action,  // Legacy: independent organization action (none/create/update/upsert)
       prefill_member_id,
       prefill_organization_id,
       submission_id,
       role_id,                     // Role ID from form conditional logic (set_role action)
-      additional_member_creations  // Array of additional members to create: [{id, label, field_mappings}]
+      additional_member_creations, // Legacy: Array of additional members to create
+      entity_pipelines             // New unified structure: {members: [], organisations: []}
     } = req.body;
 
     if (!form_values || typeof form_values !== 'object') {
@@ -85,15 +86,25 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'fields array is required' });
     }
 
-    // Validate entity action values
+    // Normalize entity_pipelines to work with both new and legacy formats
+    const memberPipelines = entity_pipelines?.members || [];
+    const orgPipelines = entity_pipelines?.organisations || [];
+    
+    console.log('[AppProcessor] Entity pipelines - members:', memberPipelines.length, 'organisations:', orgPipelines.length);
+    
+    // Determine if we should process members/orgs based on new entity_pipelines structure
+    // If entity_pipelines has entries, use that; otherwise fall back to legacy fields
     const validActions = ['none', 'create', 'update', 'upsert'];
     
-    // Support new independent action fields with fallback to legacy fields
-    let memberAction = member_entity_action;
-    let orgAction = organization_entity_action;
+    let memberAction;
+    let orgAction;
     
-    // Fallback to legacy fields if new ones aren't provided
-    if (!memberAction || !validActions.includes(memberAction)) {
+    if (memberPipelines.length > 0) {
+      // New entity_pipelines system - always use 'upsert' mode for pipeline entries
+      memberAction = 'upsert';
+    } else if (member_entity_action && validActions.includes(member_entity_action)) {
+      memberAction = member_entity_action;
+    } else {
       // Legacy fallback
       const legacyEntityType = create_entity_type || application_level || 'member';
       const legacyActionMode = entity_action || 'create';
@@ -104,7 +115,12 @@ export default async function handler(req, res) {
       }
     }
     
-    if (!orgAction || !validActions.includes(orgAction)) {
+    if (orgPipelines.length > 0) {
+      // New entity_pipelines system - always use 'upsert' mode for pipeline entries
+      orgAction = 'upsert';
+    } else if (organization_entity_action && validActions.includes(organization_entity_action)) {
+      orgAction = organization_entity_action;
+    } else {
       // Legacy fallback
       const legacyEntityType = create_entity_type || application_level || 'member';
       const legacyActionMode = entity_action || 'create';
@@ -115,7 +131,7 @@ export default async function handler(req, res) {
       }
     }
     
-    // Determine processing flags based on new action values
+    // Determine processing flags based on action values
     const shouldProcessMember = memberAction !== 'none';
     const shouldProcessOrganization = orgAction !== 'none';
     const isUpdateMode = orgAction === 'update'; // For org logic compatibility
@@ -270,7 +286,119 @@ export default async function handler(req, res) {
     };
 
     const orgCustomFields = convertMapToArray(orgCustomFieldsMap);
-    const memberCustomFields = convertMapToArray(memberCustomFieldsMap);
+    let memberCustomFields = convertMapToArray(memberCustomFieldsMap);
+
+    // Process entity_pipelines primary entries if available (new unified system)
+    // This supplements/overrides the field_mappings data
+    if (memberPipelines.length > 0) {
+      const primaryMemberPipeline = memberPipelines.find(m => m.isPrimary);
+      if (primaryMemberPipeline?.field_mappings) {
+        console.log('[AppProcessor] Processing primary member from entity_pipelines:', primaryMemberPipeline.label);
+        
+        const coreFieldMappings = {
+          'email': 'email',
+          'first_name': 'first_name',
+          'last_name': 'last_name',
+          'phone': 'mobile',
+          'job_title': 'job_title'
+        };
+        
+        for (const [configKey, dbKey] of Object.entries(coreFieldMappings)) {
+          const fieldId = primaryMemberPipeline.field_mappings[configKey];
+          if (!fieldId) continue;
+          
+          if (fieldId === '__clear__') {
+            memberData[dbKey] = null;
+          } else {
+            const val = form_values[fieldId];
+            if (val !== undefined && val !== null && val !== '') {
+              memberData[dbKey] = val;
+            }
+          }
+        }
+        
+        // Process custom fields from primary member pipeline
+        const pipelineCustomMappings = Object.entries(primaryMemberPipeline.field_mappings)
+          .filter(([key]) => key.startsWith('custom_'));
+        
+        for (const [key, fieldId] of pipelineCustomMappings) {
+          if (!fieldId) continue;
+          const customFieldId = key.replace('custom_', '');
+          const prefField = prefFieldMap.get(customFieldId);
+          
+          if (fieldId === '__clear__') {
+            // Mark for clearing - we'll handle this during upsert
+            memberCustomFieldsMap.delete(customFieldId);
+          } else {
+            const val = form_values[fieldId];
+            if (val !== undefined && val !== null && val !== '') {
+              addCustomFieldValue(memberCustomFieldsMap, customFieldId, val, prefField);
+            }
+          }
+        }
+        
+        // If pipeline has a role_id, use it
+        if (primaryMemberPipeline.role_id) {
+          if (primaryMemberPipeline.role_id === '__clear__') {
+            memberData.role_id = null;
+          } else {
+            memberData.role_id = primaryMemberPipeline.role_id;
+          }
+        }
+        
+        // Re-convert custom fields after pipeline processing
+        memberCustomFields = convertMapToArray(memberCustomFieldsMap);
+      }
+    }
+    
+    // Process entity_pipelines primary organisation if available
+    if (orgPipelines.length > 0) {
+      const primaryOrgPipeline = orgPipelines.find(o => o.isPrimary);
+      if (primaryOrgPipeline?.field_mappings) {
+        console.log('[AppProcessor] Processing primary organisation from entity_pipelines:', primaryOrgPipeline.label);
+        
+        const orgCoreFieldMappings = {
+          'name': 'name',
+          'email': 'email',
+          'phone': 'phone',
+          'website': 'website',
+          'address': 'address'
+        };
+        
+        for (const [configKey, dbKey] of Object.entries(orgCoreFieldMappings)) {
+          const fieldId = primaryOrgPipeline.field_mappings[configKey];
+          if (!fieldId) continue;
+          
+          if (fieldId === '__clear__') {
+            orgData[dbKey] = null;
+          } else {
+            const val = form_values[fieldId];
+            if (val !== undefined && val !== null && val !== '') {
+              orgData[dbKey] = val;
+            }
+          }
+        }
+        
+        // Process custom fields from primary org pipeline
+        const pipelineOrgCustomMappings = Object.entries(primaryOrgPipeline.field_mappings)
+          .filter(([key]) => key.startsWith('custom_'));
+        
+        for (const [key, fieldId] of pipelineOrgCustomMappings) {
+          if (!fieldId) continue;
+          const customFieldId = key.replace('custom_', '');
+          const prefField = prefFieldMap.get(customFieldId);
+          
+          if (fieldId === '__clear__') {
+            orgCustomFieldsMap.delete(customFieldId);
+          } else {
+            const val = form_values[fieldId];
+            if (val !== undefined && val !== null && val !== '') {
+              addCustomFieldValue(orgCustomFieldsMap, customFieldId, val, prefField);
+            }
+          }
+        }
+      }
+    }
 
     console.log('[AppProcessor] Extracted data:', { memberData, orgData, memberCustomFields: memberCustomFields.length, orgCustomFields: orgCustomFields.length, orgCustomFieldsDetail: orgCustomFields });
 
@@ -753,7 +881,8 @@ export default async function handler(req, res) {
       }
     }
 
-    // Process additional member creations with sequential upsert logic
+    // Process member pipelines (additional members) with sequential upsert logic
+    // Use entity_pipelines.members if available, fall back to legacy additional_member_creations
     // Track processed emails to handle same email appearing in multiple member configs
     const processedEmails = new Map(); // email -> member_id
     
@@ -766,9 +895,22 @@ export default async function handler(req, res) {
       }
     }
     
+    // Merge member pipelines: use entity_pipelines.members if available, otherwise legacy additional_member_creations
+    // Filter out primary member from pipelines (it was already processed above via field_mappings)
+    let memberCreationConfigs = [];
+    if (memberPipelines.length > 0) {
+      // New system: use entity_pipelines.members, skip primary (it's handled by existing field_mappings logic)
+      memberCreationConfigs = memberPipelines.filter(m => !m.isPrimary);
+      console.log('[AppProcessor] Using entity_pipelines.members:', memberCreationConfigs.length, 'non-primary entries');
+    } else if (additional_member_creations && Array.isArray(additional_member_creations) && additional_member_creations.length > 0) {
+      // Legacy system: use additional_member_creations
+      memberCreationConfigs = additional_member_creations;
+      console.log('[AppProcessor] Using legacy additional_member_creations:', memberCreationConfigs.length);
+    }
+    
     const additionalMemberIds = [];
-    if (additional_member_creations && Array.isArray(additional_member_creations) && additional_member_creations.length > 0) {
-      console.log('[AppProcessor] Processing additional member creations:', additional_member_creations.length);
+    if (memberCreationConfigs.length > 0) {
+      console.log('[AppProcessor] Processing member creations:', memberCreationConfigs.length);
       
       // Pre-fetch system settings for welcome emails (only once)
       const { data: allSettings } = await supabase
@@ -784,7 +926,7 @@ export default async function handler(req, res) {
       const fromAddress = settingsMap['welcome_email_from_address'] || process.env.MAILGUN_FROM_EMAIL || 'noreply@mail.iconn.app';
       const fromName = settingsMap['welcome_email_from_name'] || appName;
       
-      for (const memberConfig of additional_member_creations) {
+      for (const memberConfig of memberCreationConfigs) {
         if (!memberConfig.field_mappings || !memberConfig.field_mappings.email) {
           console.log('[AppProcessor] Skipping additional member - no email mapping:', memberConfig.label);
           continue;

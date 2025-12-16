@@ -22,7 +22,7 @@ import { createPageUrl } from "@/utils";
 import { Link } from "react-router-dom";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
-import { Columns2, Columns3, ArrowRight, Settings2, Wand2 } from "lucide-react";
+import { Columns2, Columns3, ArrowRight, Settings2, Wand2, Building2 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
@@ -1981,10 +1981,6 @@ export default function FormBuilderPage() {
     is_active: true,
     is_application_form: false,
     application_level: "member",
-    auto_create_entity: false,
-    member_entity_action: "none", // "none", "create", "update", "upsert"
-    organization_entity_action: "none", // "none", "create", "update", "upsert"
-    default_member_role_id: null, // Role to assign when creating a new member
     uniqueness_checks: [],
     field_mappings: [], // Submission field mappings with transformations
     submission_email_template_id: null,
@@ -1993,8 +1989,12 @@ export default function FormBuilderPage() {
     submission_email_bcc: '',
     submission_email_field_mapping: {}, // Maps template placeholders to form field IDs: { "customer_name": "field_123" }
     prefill_source: "none", // "none", "member", or "organization" - enables pre-populating form from entity data
-    visibility_rules: [], // Conditional logic rules: [{id, rule_type, trigger_field_id, operator, value, action, target_field_ids, target_field_id, set_value_source, set_value, set_value_field_id, set_value_prefill_field}]
-    additional_member_creations: [] // Additional members to create on submission: [{id, label, field_mappings: {email: 'field_123', first_name: 'field_456', ...}}]
+    visibility_rules: [], // Conditional logic rules
+    // Unified entity pipelines - replaces old member_entity_action, organization_entity_action, additional_member_creations
+    entity_pipelines: {
+      members: [], // [{id, label, isPrimary, role_id, uniqueness_key, field_mappings}]
+      organisations: [] // [{id, label, isPrimary, uniqueness_key, field_mappings}]
+    }
   });
   
   // Track which form pages are expanded (for collapsible UI) - true = expanded, false = collapsed
@@ -2117,8 +2117,102 @@ export default function FormBuilderPage() {
     }
   }, [isAdmin, isAccessReady]);
 
+  // Migration function: Convert legacy format to unified entity_pipelines
+  const migrateToEntityPipelines = (form) => {
+    // If form already has entity_pipelines, use it
+    if (form.entity_pipelines && (form.entity_pipelines.members?.length > 0 || form.entity_pipelines.organisations?.length > 0)) {
+      return form.entity_pipelines;
+    }
+    
+    const pipelines = { members: [], organisations: [] };
+    
+    // Migrate legacy member settings
+    const memberAction = form.member_entity_action || 
+      (form.create_entity_type === "member" || form.create_entity_type === "both" 
+        ? (form.entity_action || "create") 
+        : "none");
+    
+    if (memberAction !== 'none' && form.auto_create_entity) {
+      // Create primary member entry from field_mappings
+      const primaryMember = {
+        id: `member_primary_${Date.now()}`,
+        label: 'Primary Member',
+        isPrimary: true,
+        role_id: form.default_member_role_id || null,
+        uniqueness_key: 'email',
+        field_mappings: {}
+      };
+      
+      // Extract member mappings from field_mappings array
+      if (form.field_mappings && Array.isArray(form.field_mappings)) {
+        for (const mapping of form.field_mappings) {
+          if (mapping.target_entity === 'member' && mapping.source_field_id) {
+            if (mapping.target_type === 'core') {
+              primaryMember.field_mappings[mapping.target_field] = mapping.source_field_id;
+            } else if (mapping.target_type === 'custom') {
+              primaryMember.field_mappings[`custom_${mapping.target_field}`] = mapping.source_field_id;
+            }
+          }
+        }
+      }
+      
+      pipelines.members.push(primaryMember);
+      
+      // Add additional members from legacy additional_member_creations
+      if (form.additional_member_creations && Array.isArray(form.additional_member_creations)) {
+        form.additional_member_creations.forEach((am, idx) => {
+          pipelines.members.push({
+            id: am.id || `member_${Date.now()}_${idx}`,
+            label: am.label || `Additional Member ${idx + 1}`,
+            isPrimary: false,
+            role_id: am.role_id || null,
+            uniqueness_key: 'email',
+            field_mappings: am.field_mappings || {}
+          });
+        });
+      }
+    }
+    
+    // Migrate legacy organization settings
+    const orgAction = form.organization_entity_action || 
+      (form.create_entity_type === "organization" || form.create_entity_type === "both" 
+        ? (form.entity_action || "create") 
+        : "none");
+    
+    if (orgAction !== 'none' && form.auto_create_entity) {
+      // Create primary organisation entry from field_mappings
+      const primaryOrg = {
+        id: `org_primary_${Date.now()}`,
+        label: 'Primary Organisation',
+        isPrimary: true,
+        uniqueness_key: 'name',
+        field_mappings: {}
+      };
+      
+      // Extract organisation mappings from field_mappings array
+      if (form.field_mappings && Array.isArray(form.field_mappings)) {
+        for (const mapping of form.field_mappings) {
+          if (mapping.target_entity === 'organization' && mapping.source_field_id) {
+            if (mapping.target_type === 'core') {
+              primaryOrg.field_mappings[mapping.target_field] = mapping.source_field_id;
+            } else if (mapping.target_type === 'custom') {
+              primaryOrg.field_mappings[`custom_${mapping.target_field}`] = mapping.source_field_id;
+            }
+          }
+        }
+      }
+      
+      pipelines.organisations.push(primaryOrg);
+    }
+    
+    return pipelines;
+  };
+
   useEffect(() => {
     if (existingForm) {
+      // Migrate to new entity_pipelines format
+      const entityPipelines = migrateToEntityPipelines(existingForm);
+      
       setFormData({
         name: existingForm.name || "",
         description: existingForm.description || "",
@@ -2141,16 +2235,6 @@ export default function FormBuilderPage() {
         is_active: existingForm.is_active ?? true,
         is_application_form: existingForm.is_application_form || false,
         application_level: existingForm.application_level || "member",
-        auto_create_entity: existingForm.auto_create_entity || false,
-        member_entity_action: existingForm.member_entity_action || 
-          (existingForm.create_entity_type === "member" || existingForm.create_entity_type === "both" 
-            ? (existingForm.entity_action || "create") 
-            : "none"),
-        organization_entity_action: existingForm.organization_entity_action || 
-          (existingForm.create_entity_type === "organization" || existingForm.create_entity_type === "both" 
-            ? (existingForm.entity_action || "create") 
-            : "none"),
-        default_member_role_id: existingForm.default_member_role_id || null,
         uniqueness_checks: existingForm.uniqueness_checks || [],
         field_mappings: existingForm.field_mappings || [],
         submission_email_template_id: existingForm.submission_email_template_id || null,
@@ -2169,7 +2253,7 @@ export default function FormBuilderPage() {
           set_value_prefill_field: rule.set_value_prefill_field || '',
           target_field_ids: rule.target_field_ids || []
         })),
-        additional_member_creations: existingForm.additional_member_creations || []
+        entity_pipelines: entityPipelines
       });
     }
   }, [existingForm]);
@@ -2485,45 +2569,24 @@ export default function FormBuilderPage() {
     }
     console.log('[FormBuilder] All mappings validated successfully');
 
-    // Validate field mappings when entity creation/update is enabled
-    if (formData.is_application_form && formData.auto_create_entity) {
-      // Check member_entity_action and organization_entity_action (new fields)
-      const memberAction = formData.member_entity_action || 'none';
-      const orgAction = formData.organization_entity_action || 'none';
-      
-      console.log('[FormBuilder] Entity creation validation - memberAction:', memberAction, 'orgAction:', orgAction);
-      
-      // Check if organization name mapping is needed (only when creating new orgs)
-      // 'update' only modifies existing records, so name mapping is not required
-      const needsOrgName = orgAction === 'create' || orgAction === 'upsert';
-      
-      if (needsOrgName) {
-        const hasOrgNameMapping = (formData.field_mappings || []).some(
-          m => m.target_entity === 'organization' && m.target_field === 'name'
-        );
-        console.log('[FormBuilder] Needs org name mapping:', needsOrgName, '| Has it:', hasOrgNameMapping);
-        
-        if (!hasOrgNameMapping) {
-          console.log('[FormBuilder] VALIDATION FAILED: Missing org name mapping');
-          toast.error('Organisation creation requires a field mapped to "Organisation Name". Please add this mapping in Field Mappings.');
-          return;
-        }
+    // Validate entity_pipelines when configured
+    const pipelines = formData.entity_pipelines || { members: [], organisations: [] };
+    
+    // Validate member entries - each must have email mapped (uniqueness key)
+    for (const member of (pipelines.members || [])) {
+      if (!member.field_mappings?.email || member.field_mappings.email === '__clear__') {
+        console.log('[FormBuilder] VALIDATION FAILED: Member entry missing email mapping:', member.label);
+        toast.error(`Member "${member.label}" requires an email field mapping.`);
+        return;
       }
-      
-      // Check if member email mapping is needed (only when creating new members)
-      // 'update' only modifies existing records, so email mapping is not required
-      const needsMemberEmail = memberAction === 'create' || memberAction === 'upsert';
-      if (needsMemberEmail) {
-        const hasMemberEmailMapping = (formData.field_mappings || []).some(
-          m => m.target_entity === 'member' && m.target_field === 'email'
-        );
-        console.log('[FormBuilder] Needs member email mapping:', needsMemberEmail, '| Has it:', hasMemberEmailMapping);
-        
-        if (!hasMemberEmailMapping) {
-          console.log('[FormBuilder] VALIDATION FAILED: Missing member email mapping');
-          toast.error('Member creation requires a field mapped to "Member Email". Please add this mapping in Field Mappings.');
-          return;
-        }
+    }
+    
+    // Validate organisation entries - each must have name mapped (uniqueness key)
+    for (const org of (pipelines.organisations || [])) {
+      if (!org.field_mappings?.name || org.field_mappings.name === '__clear__') {
+        console.log('[FormBuilder] VALIDATION FAILED: Organisation entry missing name mapping:', org.label);
+        toast.error(`Organisation "${org.label}" requires a name field mapping.`);
+        return;
       }
     }
 
@@ -3072,106 +3135,6 @@ export default function FormBuilderPage() {
                         : "Uniqueness will be checked against the Organisation table (email fields use domain-only matching)"}
                     </p>
                     
-                    <div className="mt-4 pt-4 border-t border-slate-100 space-y-4">
-                      <div className="flex items-center gap-2">
-                        <Switch
-                          id="auto_create_entity_tab"
-                          checked={formData.auto_create_entity || false}
-                          onCheckedChange={(checked) => setFormData({ ...formData, auto_create_entity: checked })}
-                          data-testid="switch-auto-create-entity"
-                        />
-                        <Label htmlFor="auto_create_entity_tab" className="text-sm">Auto-create records on submission</Label>
-                      </div>
-                      
-                      {formData.auto_create_entity && (
-                        <div className="ml-6 space-y-4">
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                              <Label className="text-sm font-medium">Member Record Action</Label>
-                              <Select
-                                value={formData.member_entity_action || "none"}
-                                onValueChange={(value) => setFormData({ ...formData, member_entity_action: value })}
-                              >
-                                <SelectTrigger data-testid="select-member-entity-action">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="none">Don't create/update</SelectItem>
-                                  <SelectItem value="create">Create new only</SelectItem>
-                                  <SelectItem value="update">Update existing only</SelectItem>
-                                  <SelectItem value="upsert">Upsert (create or update)</SelectItem>
-                                </SelectContent>
-                              </Select>
-                              <p className="text-xs text-slate-500">
-                                {formData.member_entity_action === "none" && "No member record will be created"}
-                                {formData.member_entity_action === "create" && "Create a new member (fail if exists)"}
-                                {formData.member_entity_action === "update" && "Update existing member (match by email)"}
-                                {formData.member_entity_action === "upsert" && "Create if not found, update if exists"}
-                              </p>
-                              
-                              {(formData.member_entity_action === "create" || formData.member_entity_action === "upsert") && (
-                                <div className="mt-3 pt-3 border-t border-slate-100">
-                                  <Label className="text-sm font-medium">Assign Role on Creation</Label>
-                                  <Select
-                                    value={formData.default_member_role_id || "none"}
-                                    onValueChange={(value) => setFormData({ ...formData, default_member_role_id: value === "none" ? null : value })}
-                                  >
-                                    <SelectTrigger className="mt-1" data-testid="select-default-member-role">
-                                      <SelectValue placeholder="No role assigned" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      <SelectItem value="none">No role assigned</SelectItem>
-                                      {roles.map(role => (
-                                        <SelectItem key={role.id} value={role.id}>
-                                          {role.name}
-                                        </SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
-                                  <p className="text-xs text-slate-500 mt-1">
-                                    New members will be assigned this role automatically
-                                  </p>
-                                </div>
-                              )}
-                            </div>
-                            
-                            <div className="space-y-2">
-                              <Label className="text-sm font-medium">Organisation Record Action</Label>
-                              <Select
-                                value={formData.organization_entity_action || "none"}
-                                onValueChange={(value) => setFormData({ ...formData, organization_entity_action: value })}
-                              >
-                                <SelectTrigger data-testid="select-organization-entity-action">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="none">Don't create/update</SelectItem>
-                                  <SelectItem value="create">Create new only</SelectItem>
-                                  <SelectItem value="update">Update existing only</SelectItem>
-                                  <SelectItem value="upsert">Upsert (create or update)</SelectItem>
-                                </SelectContent>
-                              </Select>
-                              <p className="text-xs text-slate-500">
-                                {formData.organization_entity_action === "none" && "No organisation record will be created"}
-                                {formData.organization_entity_action === "create" && "Create a new organisation (fail if exists)"}
-                                {formData.organization_entity_action === "update" && "Update existing org (match by name/domain)"}
-                                {formData.organization_entity_action === "upsert" && "Create if not found, update if exists"}
-                              </p>
-                            </div>
-                          </div>
-                          
-                          <p className="text-xs text-slate-500 bg-slate-50 p-3 rounded-lg">
-                            Use Field Mappings below to specify which form fields populate each entity type.
-                          </p>
-                        </div>
-                      )}
-                      
-                      {!formData.auto_create_entity && (
-                        <p className="text-xs text-slate-500 ml-6">
-                          Submissions will require admin approval before creating records
-                        </p>
-                      )}
-                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -3215,68 +3178,83 @@ export default function FormBuilderPage() {
               </CardContent>
             </Card>
 
-            {/* Additional Member Creation Card - Only show when member_entity_action !== "none" */}
-            {formData.member_entity_action !== "none" && (
-              <Card className="border-slate-200 mb-6">
-                <CardHeader className="pb-4">
+            {/* Record Creation - Unified Member and Organisation Pipelines */}
+            <Card className="border-slate-200 mb-6">
+              <CardHeader className="pb-4">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Users className="w-5 h-5" />
+                  Record Creation
+                </CardTitle>
+                <p className="text-xs text-slate-500 mt-1">
+                  Configure which member and organisation records to create or update on form submission. Records are processed sequentially using UPSERT logic.
+                </p>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {/* Members Section */}
+                <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <CardTitle className="text-lg flex items-center gap-2">
-                      <Users className="w-5 h-5" />
-                      Additional Member Creation
-                    </CardTitle>
+                    <Label className="text-sm font-semibold flex items-center gap-2">
+                      <UserPlus className="w-4 h-4" />
+                      Members
+                    </Label>
                     <Button
                       variant="outline"
                       size="sm"
                       onClick={() => {
+                        const members = formData.entity_pipelines?.members || [];
+                        const isPrimary = members.length === 0;
                         const newMember = {
                           id: `member_${Date.now()}`,
-                          label: `Additional Member ${(formData.additional_member_creations || []).length + 1}`,
+                          label: isPrimary ? 'Primary Member' : `Additional Member ${members.length}`,
+                          isPrimary,
+                          role_id: null,
+                          uniqueness_key: 'email',
                           field_mappings: {}
                         };
                         setFormData(prev => ({
                           ...prev,
-                          additional_member_creations: [...(prev.additional_member_creations || []), newMember]
+                          entity_pipelines: {
+                            ...prev.entity_pipelines,
+                            members: [...(prev.entity_pipelines?.members || []), newMember]
+                          }
                         }));
                       }}
-                      data-testid="button-add-additional-member"
+                      data-testid="button-add-member-pipeline"
                     >
-                      <UserPlus className="w-4 h-4 mr-2" />
+                      <Plus className="w-4 h-4 mr-2" />
                       Add Member
                     </Button>
                   </div>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-xs text-slate-500 mb-4">
-                    Create additional member records from form submission data. Each member must have an email field mapped.
-                  </p>
                   
-                  {(!formData.additional_member_creations || formData.additional_member_creations.length === 0) ? (
-                    <div className="text-center py-6 text-slate-400 border border-dashed border-slate-200 rounded-lg">
-                      <Users className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                      <p className="text-sm">No additional members configured</p>
-                      <p className="text-xs mt-1">Click "Add Member" to create additional member records from this form</p>
+                  {(!formData.entity_pipelines?.members || formData.entity_pipelines.members.length === 0) ? (
+                    <div className="text-center py-4 text-slate-400 border border-dashed border-slate-200 rounded-lg">
+                      <Users className="w-6 h-6 mx-auto mb-2 opacity-50" />
+                      <p className="text-sm">No member records configured</p>
+                      <p className="text-xs mt-1">Click "Add Member" to create member records from this form</p>
                     </div>
                   ) : (
-                    <div className="space-y-4">
-                      {formData.additional_member_creations.map((memberConfig, memberIdx) => {
-                        const hasEmail = !!memberConfig.field_mappings?.email;
+                    <div className="space-y-3">
+                      {formData.entity_pipelines.members.map((memberConfig, memberIdx) => {
+                        const hasEmail = !!memberConfig.field_mappings?.email && memberConfig.field_mappings.email !== '__clear__';
                         const memberCustomFields = customFields.filter(cf => cf.entity_scope === 'member');
                         
                         return (
                           <div 
                             key={memberConfig.id} 
                             className={`p-4 rounded-lg border ${hasEmail ? 'border-slate-200 bg-slate-50' : 'border-amber-300 bg-amber-50'}`}
-                            data-testid={`additional-member-${memberIdx}`}
+                            data-testid={`member-pipeline-${memberIdx}`}
                           >
                             <div className="flex items-center justify-between mb-3">
                               <div className="flex items-center gap-2 flex-wrap">
-                                <UserPlus className="w-4 h-4 text-slate-600" />
+                                {memberConfig.isPrimary && (
+                                  <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-medium">Primary</span>
+                                )}
                                 <Input
                                   value={memberConfig.label}
                                   onChange={(e) => {
-                                    const updated = [...formData.additional_member_creations];
+                                    const updated = [...formData.entity_pipelines.members];
                                     updated[memberIdx] = { ...updated[memberIdx], label: e.target.value };
-                                    setFormData(prev => ({ ...prev, additional_member_creations: updated }));
+                                    setFormData(prev => ({ ...prev, entity_pipelines: { ...prev.entity_pipelines, members: updated } }));
                                   }}
                                   className="h-8 w-48 text-sm font-medium"
                                   placeholder="Member label"
@@ -3285,12 +3263,12 @@ export default function FormBuilderPage() {
                                 <Select
                                   value={memberConfig.role_id === "__clear__" ? "clear" : (memberConfig.role_id || "none")}
                                   onValueChange={(value) => {
-                                    const updated = [...formData.additional_member_creations];
+                                    const updated = [...formData.entity_pipelines.members];
                                     updated[memberIdx] = {
                                       ...updated[memberIdx],
                                       role_id: value === "none" ? null : (value === "clear" ? "__clear__" : value)
                                     };
-                                    setFormData(prev => ({ ...prev, additional_member_creations: updated }));
+                                    setFormData(prev => ({ ...prev, entity_pipelines: { ...prev.entity_pipelines, members: updated } }));
                                   }}
                                 >
                                   <SelectTrigger className="h-8 w-48 text-xs" data-testid={`select-member-role-${memberIdx}`}>
@@ -3314,8 +3292,12 @@ export default function FormBuilderPage() {
                                 variant="ghost"
                                 size="icon"
                                 onClick={() => {
-                                  const updated = formData.additional_member_creations.filter((_, i) => i !== memberIdx);
-                                  setFormData(prev => ({ ...prev, additional_member_creations: updated }));
+                                  const updated = formData.entity_pipelines.members.filter((_, i) => i !== memberIdx);
+                                  // If we removed a primary, make the first remaining one primary
+                                  if (memberConfig.isPrimary && updated.length > 0) {
+                                    updated[0] = { ...updated[0], isPrimary: true };
+                                  }
+                                  setFormData(prev => ({ ...prev, entity_pipelines: { ...prev.entity_pipelines, members: updated } }));
                                 }}
                                 className="h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-50"
                                 data-testid={`button-delete-member-${memberIdx}`}
@@ -3342,7 +3324,7 @@ export default function FormBuilderPage() {
                                     <Select
                                       value={memberConfig.field_mappings?.[coreField.key] === "__clear__" ? "clear" : (memberConfig.field_mappings?.[coreField.key] || "none")}
                                       onValueChange={(value) => {
-                                        const updated = [...formData.additional_member_creations];
+                                        const updated = [...formData.entity_pipelines.members];
                                         updated[memberIdx] = {
                                           ...updated[memberIdx],
                                           field_mappings: {
@@ -3350,7 +3332,7 @@ export default function FormBuilderPage() {
                                             [coreField.key]: value === "none" ? null : (value === "clear" ? "__clear__" : value)
                                           }
                                         };
-                                        setFormData(prev => ({ ...prev, additional_member_creations: updated }));
+                                        setFormData(prev => ({ ...prev, entity_pipelines: { ...prev.entity_pipelines, members: updated } }));
                                       }}
                                     >
                                       <SelectTrigger 
@@ -3361,7 +3343,7 @@ export default function FormBuilderPage() {
                                       </SelectTrigger>
                                       <SelectContent>
                                         <SelectItem value="none">-- Not mapped --</SelectItem>
-                                        <SelectItem value="clear" className="text-amber-600">Clear field</SelectItem>
+                                        {!coreField.required && <SelectItem value="clear" className="text-amber-600">Clear field</SelectItem>}
                                         {formData.fields.map(field => (
                                           <SelectItem key={field.id} value={field.id}>
                                             {field.label || field.type}
@@ -3383,7 +3365,7 @@ export default function FormBuilderPage() {
                                         <Select
                                           value={memberConfig.field_mappings?.[`custom_${customField.id}`] === "__clear__" ? "clear" : (memberConfig.field_mappings?.[`custom_${customField.id}`] || "none")}
                                           onValueChange={(value) => {
-                                            const updated = [...formData.additional_member_creations];
+                                            const updated = [...formData.entity_pipelines.members];
                                             updated[memberIdx] = {
                                               ...updated[memberIdx],
                                               field_mappings: {
@@ -3391,7 +3373,7 @@ export default function FormBuilderPage() {
                                                 [`custom_${customField.id}`]: value === "none" ? null : (value === "clear" ? "__clear__" : value)
                                               }
                                             };
-                                            setFormData(prev => ({ ...prev, additional_member_creations: updated }));
+                                            setFormData(prev => ({ ...prev, entity_pipelines: { ...prev.entity_pipelines, members: updated } }));
                                           }}
                                         >
                                           <SelectTrigger className="h-8 text-xs" data-testid={`select-member-${memberIdx}-custom-${customField.id}`}>
@@ -3418,9 +3400,195 @@ export default function FormBuilderPage() {
                       })}
                     </div>
                   )}
-                </CardContent>
-              </Card>
-            )}
+                </div>
+
+                {/* Organisations Section */}
+                <div className="space-y-3 pt-4 border-t border-slate-200">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-sm font-semibold flex items-center gap-2">
+                      <Building2 className="w-4 h-4" />
+                      Organisations
+                    </Label>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        const orgs = formData.entity_pipelines?.organisations || [];
+                        const isPrimary = orgs.length === 0;
+                        const newOrg = {
+                          id: `org_${Date.now()}`,
+                          label: isPrimary ? 'Primary Organisation' : `Additional Organisation ${orgs.length}`,
+                          isPrimary,
+                          uniqueness_key: 'name',
+                          field_mappings: {}
+                        };
+                        setFormData(prev => ({
+                          ...prev,
+                          entity_pipelines: {
+                            ...prev.entity_pipelines,
+                            organisations: [...(prev.entity_pipelines?.organisations || []), newOrg]
+                          }
+                        }));
+                      }}
+                      data-testid="button-add-org-pipeline"
+                    >
+                      <Plus className="w-4 h-4 mr-2" />
+                      Add Organisation
+                    </Button>
+                  </div>
+                  
+                  {(!formData.entity_pipelines?.organisations || formData.entity_pipelines.organisations.length === 0) ? (
+                    <div className="text-center py-4 text-slate-400 border border-dashed border-slate-200 rounded-lg">
+                      <Building2 className="w-6 h-6 mx-auto mb-2 opacity-50" />
+                      <p className="text-sm">No organisation records configured</p>
+                      <p className="text-xs mt-1">Click "Add Organisation" to create organisation records from this form</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {formData.entity_pipelines.organisations.map((orgConfig, orgIdx) => {
+                        const hasName = !!orgConfig.field_mappings?.name && orgConfig.field_mappings.name !== '__clear__';
+                        const orgCustomFields = customFields.filter(cf => cf.entity_scope === 'organization');
+                        
+                        return (
+                          <div 
+                            key={orgConfig.id} 
+                            className={`p-4 rounded-lg border ${hasName ? 'border-slate-200 bg-slate-50' : 'border-amber-300 bg-amber-50'}`}
+                            data-testid={`org-pipeline-${orgIdx}`}
+                          >
+                            <div className="flex items-center justify-between mb-3">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                {orgConfig.isPrimary && (
+                                  <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-medium">Primary</span>
+                                )}
+                                <Input
+                                  value={orgConfig.label}
+                                  onChange={(e) => {
+                                    const updated = [...formData.entity_pipelines.organisations];
+                                    updated[orgIdx] = { ...updated[orgIdx], label: e.target.value };
+                                    setFormData(prev => ({ ...prev, entity_pipelines: { ...prev.entity_pipelines, organisations: updated } }));
+                                  }}
+                                  className="h-8 w-48 text-sm font-medium"
+                                  placeholder="Organisation label"
+                                  data-testid={`input-org-label-${orgIdx}`}
+                                />
+                                {!hasName && (
+                                  <span className="text-xs text-amber-600 font-medium">Name required</span>
+                                )}
+                              </div>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => {
+                                  const updated = formData.entity_pipelines.organisations.filter((_, i) => i !== orgIdx);
+                                  if (orgConfig.isPrimary && updated.length > 0) {
+                                    updated[0] = { ...updated[0], isPrimary: true };
+                                  }
+                                  setFormData(prev => ({ ...prev, entity_pipelines: { ...prev.entity_pipelines, organisations: updated } }));
+                                }}
+                                className="h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-50"
+                                data-testid={`button-delete-org-${orgIdx}`}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </div>
+                            
+                            <div className="space-y-3">
+                              <div className="text-xs font-medium text-slate-600 mb-2">Core Fields</div>
+                              <div className="grid grid-cols-2 gap-3">
+                                {[
+                                  { key: 'name', label: 'Name', required: true },
+                                  { key: 'email', label: 'Email' },
+                                  { key: 'phone', label: 'Phone' },
+                                  { key: 'website', label: 'Website' },
+                                  { key: 'address', label: 'Address' }
+                                ].map(coreField => (
+                                  <div key={coreField.key} className="space-y-1">
+                                    <Label className="text-xs text-slate-500">
+                                      {coreField.label}
+                                      {coreField.required && <span className="text-red-500 ml-1">*</span>}
+                                    </Label>
+                                    <Select
+                                      value={orgConfig.field_mappings?.[coreField.key] === "__clear__" ? "clear" : (orgConfig.field_mappings?.[coreField.key] || "none")}
+                                      onValueChange={(value) => {
+                                        const updated = [...formData.entity_pipelines.organisations];
+                                        updated[orgIdx] = {
+                                          ...updated[orgIdx],
+                                          field_mappings: {
+                                            ...updated[orgIdx].field_mappings,
+                                            [coreField.key]: value === "none" ? null : (value === "clear" ? "__clear__" : value)
+                                          }
+                                        };
+                                        setFormData(prev => ({ ...prev, entity_pipelines: { ...prev.entity_pipelines, organisations: updated } }));
+                                      }}
+                                    >
+                                      <SelectTrigger 
+                                        className={`h-8 text-xs ${coreField.required && !orgConfig.field_mappings?.[coreField.key] ? 'border-amber-300' : ''}`}
+                                        data-testid={`select-org-${orgIdx}-${coreField.key}`}
+                                      >
+                                        <SelectValue placeholder="Select form field..." />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="none">-- Not mapped --</SelectItem>
+                                        {!coreField.required && <SelectItem value="clear" className="text-amber-600">Clear field</SelectItem>}
+                                        {formData.fields.map(field => (
+                                          <SelectItem key={field.id} value={field.id}>
+                                            {field.label || field.type}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                ))}
+                              </div>
+                              
+                              {orgCustomFields.length > 0 && (
+                                <>
+                                  <div className="text-xs font-medium text-slate-600 mt-4 mb-2">Custom Fields</div>
+                                  <div className="grid grid-cols-2 gap-3">
+                                    {orgCustomFields.map(customField => (
+                                      <div key={customField.id} className="space-y-1">
+                                        <Label className="text-xs text-slate-500">{customField.label}</Label>
+                                        <Select
+                                          value={orgConfig.field_mappings?.[`custom_${customField.id}`] === "__clear__" ? "clear" : (orgConfig.field_mappings?.[`custom_${customField.id}`] || "none")}
+                                          onValueChange={(value) => {
+                                            const updated = [...formData.entity_pipelines.organisations];
+                                            updated[orgIdx] = {
+                                              ...updated[orgIdx],
+                                              field_mappings: {
+                                                ...updated[orgIdx].field_mappings,
+                                                [`custom_${customField.id}`]: value === "none" ? null : (value === "clear" ? "__clear__" : value)
+                                              }
+                                            };
+                                            setFormData(prev => ({ ...prev, entity_pipelines: { ...prev.entity_pipelines, organisations: updated } }));
+                                          }}
+                                        >
+                                          <SelectTrigger className="h-8 text-xs" data-testid={`select-org-${orgIdx}-custom-${customField.id}`}>
+                                            <SelectValue placeholder="Select form field..." />
+                                          </SelectTrigger>
+                                          <SelectContent>
+                                            <SelectItem value="none">-- Not mapped --</SelectItem>
+                                            <SelectItem value="clear" className="text-amber-600">Clear field</SelectItem>
+                                            {formData.fields.map(field => (
+                                              <SelectItem key={field.id} value={field.id}>
+                                                {field.label || field.type}
+                                              </SelectItem>
+                                            ))}
+                                          </SelectContent>
+                                        </Select>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
           </TabsContent>
 
           {/* Conditional Logic Tab */}

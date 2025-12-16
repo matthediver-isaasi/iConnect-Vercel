@@ -566,12 +566,15 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
               fields: form.fields,
               field_mappings: form.field_mappings || [],
               application_level: form.application_level || 'member',
-              member_entity_action: form.member_entity_action || 'none',
-              organization_entity_action: form.organization_entity_action || 'none',
               create_entity_type: form.create_entity_type || 'member',
               submission_id: submissionResult?.id,
               prefill_organization_id: effectiveOrganizationInfo?.id || null,
               role_id: form.default_member_role_id || null,
+              // Pass entity pipelines configuration (unified structure)
+              entity_pipelines: form.entity_pipelines || { members: [], organisations: [] },
+              // Legacy fallback fields for backward compatibility
+              member_entity_action: form.member_entity_action || 'none',
+              organization_entity_action: form.organization_entity_action || 'none',
               additional_member_creations: form.additional_member_creations || []
             })
           });

@@ -90,43 +90,74 @@ The platform supports dynamic email templates with placeholder substitution for 
 - `submission_email_bcc` (TEXT)
 - `submission_email_field_mapping` (JSONB)
 
-## Additional Member Creation (December 2025)
+## Entity Pipelines System (December 2025)
 
-Forms can create multiple member records on submission. This is useful for registration forms where a primary member may register additional people (e.g., spouse, colleagues).
-
-**Configuration:**
-- Located in FormBuilder.jsx → Submission Settings tab
-- Only visible when `member_entity_action !== 'none'` (form must be configured to create/update members)
-- Each additional member config includes:
-  - Label (e.g., "Spouse", "Colleague 1")
-  - Role assignment (optional) - assigns role_id to the created member
-  - Field mappings from form fields to member core fields (email, first_name, last_name, phone, job_title) and custom fields
+Forms use a unified `entity_pipelines` system to configure member and organisation record creation/updates on form submission. This replaces the legacy `member_entity_action`, `organization_entity_action`, and `additional_member_creations` fields.
 
 **Data Structure:**
 ```json
 {
-  "additional_member_creations": [
-    {
-      "id": "uuid",
-      "label": "Spouse",
-      "role_id": "uuid-of-role-or-null-or-__clear__",
-      "field_mappings": {
-        "email": "form_field_id",
-        "first_name": "form_field_id",
-        "custom_<preference_field_id>": "form_field_id"
+  "entity_pipelines": {
+    "members": [
+      {
+        "id": "member_1234567890",
+        "label": "Primary Member",
+        "isPrimary": true,
+        "role_id": "uuid-of-role-or-null-or-__clear__",
+        "uniqueness_key": "email",
+        "field_mappings": {
+          "email": "form_field_id",
+          "first_name": "form_field_id",
+          "last_name": "form_field_id",
+          "phone": "form_field_id",
+          "job_title": "form_field_id",
+          "custom_<preference_field_id>": "form_field_id"
+        }
+      },
+      {
+        "id": "member_1234567891",
+        "label": "Spouse",
+        "isPrimary": false,
+        "role_id": null,
+        "uniqueness_key": "email",
+        "field_mappings": { ... }
       }
-    }
-  ]
+    ],
+    "organisations": [
+      {
+        "id": "org_1234567890",
+        "label": "Primary Organisation",
+        "isPrimary": true,
+        "uniqueness_key": "name",
+        "field_mappings": {
+          "name": "form_field_id",
+          "email": "form_field_id",
+          "phone": "form_field_id",
+          "website": "form_field_id",
+          "address": "form_field_id",
+          "custom_<preference_field_id>": "form_field_id"
+        }
+      }
+    ]
+  }
 }
 ```
 
-**Sequential Processing & Email Upsert (api/forms/process-application.js):**
-1. Primary member processed first (from default form field mappings)
-2. Additional members processed in order (Additional 1, 2, 3...)
-3. Email-based upsert logic: first occurrence of email creates member, subsequent occurrences update
-4. `processedEmails` Map tracks email→member_id for sequential upsert semantics
-5. Merge/overlay pattern: updates only override fields with values; existing data preserved
-6. `"__clear__"` sentinel value explicitly clears fields in updates (not just null/empty)
+**Configuration UI:**
+- Located in FormBuilder.jsx → Submission Settings tab → Record Creation section
+- Separate tabs for Members and Organisations
+- Each entry shows: label input, role selector (members only), core field mappings, custom field mappings
+- Primary entries marked with "Primary" badge
+- Validation: Members require email mapping, Organisations require name mapping
+
+**Processing Logic (api/forms/process-application.js):**
+1. Primary member/organisation processed first from entity_pipelines entries where `isPrimary=true`
+2. Non-primary (additional) entries processed sequentially in order
+3. Email-based UPSERT for members: first occurrence creates, subsequent occurrences update
+4. Name-based UPSERT for organisations: first occurrence creates, subsequent occurrences update
+5. `processedEmails` Map tracks email→member_id for deduplication within a submission
+6. Merge/overlay pattern: updates only override fields with non-empty values; existing data preserved
+7. `"__clear__"` sentinel value explicitly clears fields in updates
 
 **Field Clearing with __clear__:**
 - Select dropdowns show "Clear field" option that stores `"__clear__"` value
@@ -134,10 +165,15 @@ Forms can create multiple member records on submission. This is useful for regis
 - Custom fields with `"__clear__"` delete the preference value row
 - Role with `"__clear__"` clears the member's role_id
 
+**Backward Compatibility:**
+- Backend accepts both `entity_pipelines` (new) and legacy `additional_member_creations` fields
+- If `entity_pipelines.members` has entries, they are used; otherwise falls back to legacy fields
+- Frontend passes both new and legacy fields to ensure compatibility with older API consumers
+
 **Key Files:**
-- `client/src/pages/FormBuilder.jsx` - UI for configuring additional member creations
-- `api/forms/process-application.js` - Backend processing logic with sequential upsert
-- `client/src/pages/FormView.jsx` - Passes config to API on submission
+- `client/src/pages/FormBuilder.jsx` - UI for configuring entity pipelines (Record Creation section)
+- `api/forms/process-application.js` - Backend processing logic with UPSERT and sequential processing
+- `client/src/pages/FormView.jsx` - Passes entity_pipelines to API on submission
 - `client/src/components/iedit/elements/IEditFormElement.jsx` - Page builder form submission
 
 ## Form Conditional Logic Visibility System (December 2025)

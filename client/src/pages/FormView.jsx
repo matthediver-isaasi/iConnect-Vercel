@@ -267,13 +267,15 @@ export default function FormViewPage() {
               fields: form.fields,
               field_mappings: form.field_mappings || [],
               application_level: form.application_level || 'member',
-              member_entity_action: form.member_entity_action || 'none',
-              organization_entity_action: form.organization_entity_action || 'none',
               submission_id: submissionResult?.id,
               prefill_organization_id: form.prefill_source === 'organization' ? prefillOrgId : null,
               // Pass role_id: use triggered role from visibility rules, or fallback to form's default role
               role_id: roleActionTriggeredRef.current ? triggeredRoleIdRef.current : (form.default_member_role_id || null),
-              // Pass additional member creations configuration
+              // Pass entity pipelines configuration (unified structure)
+              entity_pipelines: form.entity_pipelines || { members: [], organisations: [] },
+              // Legacy fallback fields for backward compatibility
+              member_entity_action: form.member_entity_action || 'none',
+              organization_entity_action: form.organization_entity_action || 'none',
               additional_member_creations: form.additional_member_creations || []
             })
           });
