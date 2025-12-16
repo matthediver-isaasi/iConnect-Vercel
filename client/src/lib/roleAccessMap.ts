@@ -718,7 +718,8 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_SupportManagement": "support.management",
   "page_AboutMe": "user.about-me",
   "page_Preferences_new": "user.about-me",
-  "communication.preferences": "user.about-me"
+  "communication.preferences": "user.about-me",
+  "membership.my-organisation": "organisation.my-organisation"
 };
 
 export function migrateLegacyFeatureId(legacyId: string): string {

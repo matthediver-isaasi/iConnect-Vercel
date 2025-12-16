@@ -163,7 +163,10 @@ export function getModuleExclusionState(
   excludedResources: string[],
   moduleId: string
 ): 'all' | 'some' | 'none' {
-  if (excludedResources.includes(moduleId)) {
+  // Normalize excluded resources with legacy mappings
+  const normalizedExcluded = excludedResources.map(id => migrateLegacyFeatureId(id));
+  
+  if (normalizedExcluded.includes(moduleId)) {
     return 'all';
   }
 
@@ -174,14 +177,14 @@ export function getModuleExclusionState(
   let allExcluded = true;
 
   for (const page of module.pages) {
-    if (excludedResources.includes(page.id)) {
+    if (normalizedExcluded.includes(page.id)) {
       hasExcluded = true;
     } else {
       // Page is not directly excluded - check its features
       if (page.features && page.features.length > 0) {
         let excludedFeatureCount = 0;
         for (const feature of page.features) {
-          if (excludedResources.includes(feature.id)) {
+          if (normalizedExcluded.includes(feature.id)) {
             hasExcluded = true;
             excludedFeatureCount++;
           }
@@ -206,12 +209,15 @@ export function getPageExclusionState(
   excludedResources: string[],
   pageId: string
 ): 'all' | 'some' | 'none' {
-  if (excludedResources.includes(pageId)) {
+  // Normalize excluded resources with legacy mappings
+  const normalizedExcluded = excludedResources.map(id => migrateLegacyFeatureId(id));
+  
+  if (normalizedExcluded.includes(pageId)) {
     return 'all';
   }
 
   const moduleId = getModuleForResource(pageId);
-  if (moduleId && excludedResources.includes(moduleId)) {
+  if (moduleId && normalizedExcluded.includes(moduleId)) {
     return 'all';
   }
 
@@ -234,7 +240,7 @@ export function getPageExclusionState(
   let allExcluded = true;
 
   for (const feature of page.features) {
-    if (excludedResources.includes(feature.id)) {
+    if (normalizedExcluded.includes(feature.id)) {
       hasExcluded = true;
     } else {
       allExcluded = false;

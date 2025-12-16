@@ -44,9 +44,11 @@ async function uploadImageToSupabase(file, bucket, folderPrefix = "") {
 }
 
 const MODULE_ICONS = {
+  "user": Users,
   "events": Calendar,
   "commerce": CreditCard,
   "membership": Users,
+  "organisation": Building2,
   "content": FileText,
   "jobs": Briefcase,
   "site-builder": Layout,
