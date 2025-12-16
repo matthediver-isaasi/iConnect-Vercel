@@ -35,6 +35,8 @@ export default function PreferenceSettingsPage() {
   const [showFieldVisibility, setShowFieldVisibility] = useState(false);
   const [hiddenFieldIds, setHiddenFieldIds] = useState([]);
   const [fieldVisibilityChanged, setFieldVisibilityChanged] = useState(false);
+  const [orderedFields, setOrderedFields] = useState([]);
+  const [fieldOrderChanged, setFieldOrderChanged] = useState(false);
   const [showResourceVisibility, setShowResourceVisibility] = useState(false);
   const [hiddenResourceCategoryIds, setHiddenResourceCategoryIds] = useState([]);
   const [resourceVisibilityChanged, setResourceVisibilityChanged] = useState(false);
@@ -125,6 +127,50 @@ export default function PreferenceSettingsPage() {
       }
     }
   }, [hiddenFieldsSetting]);
+
+  // Fetch custom field order setting
+  const { data: fieldOrderSetting } = useQuery({
+    queryKey: ['preferences-custom-field-order-record'],
+    queryFn: async () => {
+      const allSettings = await base44.entities.SystemSettings.list();
+      const found = allSettings.find(s => s.setting_key === 'preferences_custom_field_order');
+      return found || null;
+    },
+    staleTime: 0
+  });
+
+  // Initialize ordered fields from memberCustomFields and saved order
+  useEffect(() => {
+    if (memberCustomFields.length > 0) {
+      let savedOrder = [];
+      if (fieldOrderSetting?.setting_value) {
+        try {
+          savedOrder = JSON.parse(fieldOrderSetting.setting_value);
+        } catch {
+          savedOrder = [];
+        }
+      }
+      
+      // Order fields: first by saved order, then remaining fields by their original order
+      const orderedFieldIds = Array.isArray(savedOrder) ? savedOrder : [];
+      const orderedResult = [];
+      
+      // Add fields in saved order first
+      orderedFieldIds.forEach(id => {
+        const field = memberCustomFields.find(f => f.id === id);
+        if (field) orderedResult.push(field);
+      });
+      
+      // Add any remaining fields not in the saved order
+      memberCustomFields.forEach(field => {
+        if (!orderedResult.find(f => f.id === field.id)) {
+          orderedResult.push(field);
+        }
+      });
+      
+      setOrderedFields(orderedResult);
+    }
+  }, [memberCustomFields, fieldOrderSetting]);
 
   // Fetch resource categories for visibility configuration
   const { data: resourceCategories = [], isLoading: categoriesLoading } = useQuery({
@@ -269,6 +315,49 @@ export default function PreferenceSettingsPage() {
 
   const handleSaveFieldVisibility = () => {
     updateHiddenFieldsMutation.mutate(hiddenFieldIds);
+  };
+
+  // Mutation to save custom field order
+  const updateFieldOrderMutation = useMutation({
+    mutationFn: async (fieldIds) => {
+      const value = JSON.stringify(fieldIds);
+      if (fieldOrderSetting) {
+        return await base44.entities.SystemSettings.update(fieldOrderSetting.id, {
+          setting_value: value
+        });
+      } else {
+        return await base44.entities.SystemSettings.create({
+          setting_key: 'preferences_custom_field_order',
+          setting_value: value,
+          description: 'Order of custom fields on the Preferences page'
+        });
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['preferences-custom-field-order-record'] });
+      setFieldOrderChanged(false);
+      toast.success('Custom field order saved');
+    },
+    onError: (error) => {
+      console.error('Failed to save field order:', error);
+      toast.error('Failed to save field order: ' + error.message);
+    }
+  });
+
+  const handleFieldDragEnd = (result) => {
+    if (!result.destination) return;
+
+    const items = Array.from(orderedFields);
+    const [reorderedItem] = items.splice(result.source.index, 1);
+    items.splice(result.destination.index, 0, reorderedItem);
+
+    setOrderedFields(items);
+    setFieldOrderChanged(true);
+  };
+
+  const handleSaveFieldOrder = () => {
+    const fieldIds = orderedFields.map(f => f.id);
+    updateFieldOrderMutation.mutate(fieldIds);
   };
 
   // Mutation to save hidden resource category IDs
@@ -513,10 +602,10 @@ export default function PreferenceSettingsPage() {
               <div>
                 <CardTitle className="flex items-center gap-2">
                   <User className="w-5 h-5 text-blue-600" />
-                  Custom Field Visibility (Preferences Page)
+                  Custom Field Visibility & Order (Preferences Page)
                 </CardTitle>
                 <CardDescription>
-                  Control which member custom fields appear on the Preferences page
+                  Control which member custom fields appear on the Preferences page and their display order
                 </CardDescription>
               </div>
               <Button variant="ghost" size="icon">
@@ -530,7 +619,7 @@ export default function PreferenceSettingsPage() {
                 <div className="flex items-center justify-center py-8">
                   <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
                 </div>
-              ) : memberCustomFields.length === 0 ? (
+              ) : orderedFields.length === 0 ? (
                 <p className="text-sm text-slate-500 py-4">
                   No member custom fields have been created yet. 
                   <Link to="/CustomFieldsAdmin" className="text-blue-600 hover:underline ml-1">
@@ -540,65 +629,109 @@ export default function PreferenceSettingsPage() {
               ) : (
                 <div className="space-y-4">
                   <p className="text-sm text-slate-600">
-                    Toggle which custom fields members can see and edit on their Preferences page:
+                    Drag to reorder and toggle visibility of custom fields on the Preferences page:
                   </p>
-                  <div className="space-y-2">
-                    {memberCustomFields.map(field => {
-                      const isVisible = !hiddenFieldIds.includes(field.id);
-                      return (
-                        <div 
-                          key={field.id}
-                          className={`flex items-center justify-between p-3 rounded-lg border transition-colors ${
-                            isVisible ? 'bg-white border-slate-200' : 'bg-slate-50 border-slate-200 opacity-60'
-                          }`}
+                  <DragDropContext onDragEnd={handleFieldDragEnd}>
+                    <Droppable droppableId="custom-fields">
+                      {(provided) => (
+                        <div
+                          {...provided.droppableProps}
+                          ref={provided.innerRef}
+                          className="space-y-2"
                         >
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2">
-                              <span className={`font-medium ${isVisible ? 'text-slate-900' : 'text-slate-500'}`}>
-                                {field.label || field.field_name}
-                              </span>
-                              <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded">
-                                {field.field_type}
-                              </span>
-                              {!isVisible && (
-                                <span className="text-xs text-orange-600 bg-orange-50 px-2 py-0.5 rounded flex items-center gap-1">
-                                  <EyeOff className="w-3 h-3" />
-                                  Hidden
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Label htmlFor={`field-vis-${field.id}`} className="text-sm text-slate-600 cursor-pointer">
-                              {isVisible ? <Eye className="w-4 h-4 text-green-600" /> : <EyeOff className="w-4 h-4 text-slate-400" />}
-                            </Label>
-                            <Switch
-                              id={`field-vis-${field.id}`}
-                              checked={isVisible}
-                              onCheckedChange={() => handleToggleFieldVisibility(field.id)}
-                              data-testid={`switch-field-visibility-${field.id}`}
-                            />
-                          </div>
+                          {orderedFields.map((field, index) => {
+                            const isVisible = !hiddenFieldIds.includes(field.id);
+                            return (
+                              <Draggable key={field.id} draggableId={field.id} index={index}>
+                                {(provided, snapshot) => (
+                                  <div
+                                    ref={provided.innerRef}
+                                    {...provided.draggableProps}
+                                    className={`flex items-center gap-3 p-3 rounded-lg border transition-colors ${
+                                      snapshot.isDragging ? 'shadow-lg border-blue-300' : ''
+                                    } ${isVisible ? 'bg-white border-slate-200' : 'bg-slate-50 border-slate-200 opacity-60'}`}
+                                  >
+                                    <div
+                                      {...provided.dragHandleProps}
+                                      className="cursor-grab active:cursor-grabbing p-1 hover:bg-slate-100 rounded"
+                                      data-testid={`drag-handle-field-${field.id}`}
+                                    >
+                                      <GripVertical className="w-4 h-4 text-slate-400" />
+                                    </div>
+                                    <div className="flex-1">
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded">
+                                          {index + 1}
+                                        </span>
+                                        <span className={`font-medium ${isVisible ? 'text-slate-900' : 'text-slate-500'}`}>
+                                          {field.label || field.field_name}
+                                        </span>
+                                        <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded">
+                                          {field.field_type}
+                                        </span>
+                                        {!isVisible && (
+                                          <span className="text-xs text-orange-600 bg-orange-50 px-2 py-0.5 rounded flex items-center gap-1">
+                                            <EyeOff className="w-3 h-3" />
+                                            Hidden
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <Label htmlFor={`field-vis-${field.id}`} className="text-sm text-slate-600 cursor-pointer">
+                                        {isVisible ? <Eye className="w-4 h-4 text-green-600" /> : <EyeOff className="w-4 h-4 text-slate-400" />}
+                                      </Label>
+                                      <Switch
+                                        id={`field-vis-${field.id}`}
+                                        checked={isVisible}
+                                        onCheckedChange={() => handleToggleFieldVisibility(field.id)}
+                                        data-testid={`switch-field-visibility-${field.id}`}
+                                      />
+                                    </div>
+                                  </div>
+                                )}
+                              </Draggable>
+                            );
+                          })}
+                          {provided.placeholder}
                         </div>
-                      );
-                    })}
-                  </div>
+                      )}
+                    </Droppable>
+                  </DragDropContext>
                   
-                  {fieldVisibilityChanged && (
-                    <div className="flex justify-end pt-4 border-t">
-                      <Button
-                        onClick={handleSaveFieldVisibility}
-                        disabled={updateHiddenFieldsMutation.isPending}
-                        className="gap-2 bg-blue-600 hover:bg-blue-700"
-                        data-testid="button-save-field-visibility"
-                      >
-                        {updateHiddenFieldsMutation.isPending ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        ) : (
-                          <Save className="w-4 h-4" />
-                        )}
-                        Save Field Visibility
-                      </Button>
+                  {(fieldVisibilityChanged || fieldOrderChanged) && (
+                    <div className="flex justify-end gap-2 pt-4 border-t">
+                      {fieldOrderChanged && (
+                        <Button
+                          onClick={handleSaveFieldOrder}
+                          disabled={updateFieldOrderMutation.isPending}
+                          className="gap-2"
+                          variant="outline"
+                          data-testid="button-save-field-order"
+                        >
+                          {updateFieldOrderMutation.isPending ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Save className="w-4 h-4" />
+                          )}
+                          Save Order
+                        </Button>
+                      )}
+                      {fieldVisibilityChanged && (
+                        <Button
+                          onClick={handleSaveFieldVisibility}
+                          disabled={updateHiddenFieldsMutation.isPending}
+                          className="gap-2 bg-blue-600 hover:bg-blue-700"
+                          data-testid="button-save-field-visibility"
+                        >
+                          {updateHiddenFieldsMutation.isPending ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Save className="w-4 h-4" />
+                          )}
+                          Save Visibility
+                        </Button>
+                      )}
                     </div>
                   )}
                 </div>

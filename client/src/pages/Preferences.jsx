@@ -541,11 +541,54 @@ export default function PreferencesPage() {
     },
   });
 
-  // Filter out hidden fields from preference fields
+  // --- Fetch custom field order for Preferences page ---
+  const { data: customFieldOrder = [] } = useQuery({
+    queryKey: ['preferences-custom-field-order'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('system_settings')
+        .select('setting_value')
+        .eq('setting_key', 'preferences_custom_field_order')
+        .limit(1);
+      if (error || !data?.[0]?.setting_value) return [];
+      try {
+        const parsed = JSON.parse(data[0].setting_value);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    },
+  });
+
+  // Filter out hidden fields and sort by custom order
   const preferenceFields = useMemo(() => {
     if (!allPreferenceFields.length) return [];
-    return allPreferenceFields.filter(field => !hiddenFieldIds.includes(field.id));
-  }, [allPreferenceFields, hiddenFieldIds]);
+    
+    // First filter out hidden fields
+    const visibleFields = allPreferenceFields.filter(field => !hiddenFieldIds.includes(field.id));
+    
+    // Then sort by custom order if defined
+    if (customFieldOrder.length > 0) {
+      const orderedResult = [];
+      
+      // Add fields in saved order first
+      customFieldOrder.forEach(id => {
+        const field = visibleFields.find(f => f.id === id);
+        if (field) orderedResult.push(field);
+      });
+      
+      // Add any remaining visible fields not in the saved order
+      visibleFields.forEach(field => {
+        if (!orderedResult.find(f => f.id === field.id)) {
+          orderedResult.push(field);
+        }
+      });
+      
+      return orderedResult;
+    }
+    
+    return visibleFields;
+  }, [allPreferenceFields, hiddenFieldIds, customFieldOrder]);
 
   // --- Fetch hidden resource category IDs for Preferences page ---
   const { data: hiddenResourceCategoryIds = [] } = useQuery({
