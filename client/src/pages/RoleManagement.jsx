@@ -99,6 +99,47 @@ export default function RoleManagementPage() {
 
   const segmentationFieldId = segmentationFieldSetting?.setting_value || null;
 
+  // Fetch dynamic role access configuration from database
+  const { data: roleAccessItems = [] } = useQuery({
+    queryKey: ['role-access-items'],
+    queryFn: () => base44.entities.RoleAccessItem.list(),
+    staleTime: 60000
+  });
+
+  // Build access map from database items or fall back to hardcoded ROLE_ACCESS_MAP
+  const accessMap = React.useMemo(() => {
+    if (roleAccessItems.length === 0) {
+      return ROLE_ACCESS_MAP;
+    }
+
+    // Build hierarchical structure from flat database items
+    const modules = roleAccessItems.filter(item => item.item_type === 'module' && item.is_active !== false);
+    const pages = roleAccessItems.filter(item => item.item_type === 'page' && item.is_active !== false);
+    const features = roleAccessItems.filter(item => item.item_type === 'feature' && item.is_active !== false);
+
+    return modules
+      .sort((a, b) => (a.display_order || 0) - (b.display_order || 0))
+      .map(mod => ({
+        id: mod.item_key,
+        label: mod.label,
+        icon: mod.icon,
+        pages: pages
+          .filter(p => p.parent_id === mod.id)
+          .sort((a, b) => (a.display_order || 0) - (b.display_order || 0))
+          .map(page => ({
+            id: page.item_key,
+            label: page.label,
+            features: features
+              .filter(f => f.parent_id === page.id)
+              .sort((a, b) => (a.display_order || 0) - (b.display_order || 0))
+              .map(feature => ({
+                id: feature.item_key,
+                label: feature.label
+              }))
+          }))
+      }));
+  }, [roleAccessItems]);
+
   // Fetch organization-scoped preference fields for segmentation options
   const { data: orgPreferenceFields = [] } = useQuery({
     queryKey: ['org-preference-fields-for-segmentation'],
@@ -568,7 +609,7 @@ export default function RoleManagementPage() {
                       let partial = 0;
                       let blocked = 0;
                       
-                      ROLE_ACCESS_MAP.forEach(module => {
+                      accessMap.forEach(module => {
                         const state = getModuleExclusionState(excluded, module.id);
                         if (state === 'none') fullAccess++;
                         else if (state === 'some') partial++;
@@ -580,7 +621,7 @@ export default function RoleManagementPage() {
                           <span className="w-2 h-2 rounded-full bg-green-500"></span>
                           Full access to all modules
                         </div>;
-                      } else if (blocked === ROLE_ACCESS_MAP.length) {
+                      } else if (blocked === accessMap.length) {
                         return <div className="text-sm text-red-600 flex items-center gap-1.5">
                           <span className="w-2 h-2 rounded-full bg-red-500"></span>
                           No module access
@@ -911,7 +952,7 @@ export default function RoleManagementPage() {
                   </div>
 
                   <div className="space-y-2 border rounded-lg p-3 bg-slate-50/50">
-                    {ROLE_ACCESS_MAP.map((module) => {
+                    {accessMap.map((module) => {
                       const ModuleIcon = MODULE_ICONS[module.id] || Shield;
                       const moduleExclusionState = getModuleExclusionState(editingRole.excluded_features || [], module.id);
                       const isModuleExpanded = expandedModules[module.id];
