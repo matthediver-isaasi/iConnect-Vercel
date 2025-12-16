@@ -604,7 +604,12 @@ export default function PortalMenuManagementPage() {
                     <SelectContent className="max-h-[400px]">
                       {availablePages.map((page) => (
                         <SelectItem key={page.value} value={page.value}>
-                          {page.label}
+                          <div className="flex flex-col">
+                            <span>{page.label}</span>
+                            {page.value && page.value !== "_none" && (
+                              <span className="text-xs text-muted-foreground">/{page.value}</span>
+                            )}
+                          </div>
                         </SelectItem>
                       ))}
                     </SelectContent>
