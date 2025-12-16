@@ -2565,18 +2565,19 @@ export default function FormBuilderPage() {
                         const isFieldRef = currentValue.startsWith('{{') && currentValue.endsWith('}}');
                         const selectedFieldId = isFieldRef ? currentValue.slice(2, -2) : null;
                         const isCustom = currentValue && !isFieldRef;
+                        const showCustomInput = formData._ccCustomMode || isCustom;
                         
                         return (
                           <div className="space-y-2">
                             <Select
-                              value={isCustom ? '_custom' : (selectedFieldId || '_none')}
+                              value={showCustomInput ? '_custom' : (selectedFieldId || '_none')}
                               onValueChange={(val) => {
                                 if (val === '_none') {
-                                  setFormData({ ...formData, submission_email_cc: '' });
+                                  setFormData({ ...formData, submission_email_cc: '', _ccCustomMode: false });
                                 } else if (val === '_custom') {
-                                  setFormData({ ...formData, submission_email_cc: '' });
+                                  setFormData({ ...formData, submission_email_cc: '', _ccCustomMode: true });
                                 } else {
-                                  setFormData({ ...formData, submission_email_cc: `{{${val}}}` });
+                                  setFormData({ ...formData, submission_email_cc: `{{${val}}}`, _ccCustomMode: false });
                                 }
                               }}
                             >
@@ -2593,7 +2594,7 @@ export default function FormBuilderPage() {
                                 <SelectItem value="_custom">Custom email address</SelectItem>
                               </SelectContent>
                             </Select>
-                            {isCustom && (
+                            {showCustomInput && (
                               <Input
                                 value={currentValue}
                                 onChange={(e) => setFormData({ ...formData, submission_email_cc: e.target.value })}
@@ -2615,18 +2616,19 @@ export default function FormBuilderPage() {
                         const isFieldRef = currentValue.startsWith('{{') && currentValue.endsWith('}}');
                         const selectedFieldId = isFieldRef ? currentValue.slice(2, -2) : null;
                         const isCustom = currentValue && !isFieldRef;
+                        const showCustomInput = formData._bccCustomMode || isCustom;
                         
                         return (
                           <div className="space-y-2">
                             <Select
-                              value={isCustom ? '_custom' : (selectedFieldId || '_none')}
+                              value={showCustomInput ? '_custom' : (selectedFieldId || '_none')}
                               onValueChange={(val) => {
                                 if (val === '_none') {
-                                  setFormData({ ...formData, submission_email_bcc: '' });
+                                  setFormData({ ...formData, submission_email_bcc: '', _bccCustomMode: false });
                                 } else if (val === '_custom') {
-                                  setFormData({ ...formData, submission_email_bcc: '' });
+                                  setFormData({ ...formData, submission_email_bcc: '', _bccCustomMode: true });
                                 } else {
-                                  setFormData({ ...formData, submission_email_bcc: `{{${val}}}` });
+                                  setFormData({ ...formData, submission_email_bcc: `{{${val}}}`, _bccCustomMode: false });
                                 }
                               }}
                             >
@@ -2643,7 +2645,7 @@ export default function FormBuilderPage() {
                                 <SelectItem value="_custom">Custom email address</SelectItem>
                               </SelectContent>
                             </Select>
-                            {isCustom && (
+                            {showCustomInput && (
                               <Input
                                 value={currentValue}
                                 onChange={(e) => setFormData({ ...formData, submission_email_bcc: e.target.value })}
