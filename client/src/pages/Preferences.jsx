@@ -2343,6 +2343,17 @@ export default function PreferencesPage() {
                           />
                         )}
                         
+                        {field.field_type === 'url' && (
+                          <Input
+                            id={`field-${field.id}`}
+                            type="url"
+                            value={fieldValue}
+                            onChange={(e) => handleAdditionalInfoChange(field.id, e.target.value)}
+                            placeholder="https://example.com"
+                            data-testid={`input-field-${field.id}`}
+                          />
+                        )}
+                        
                         {field.field_type === 'number' && (
                           <Input
                             id={`field-${field.id}`}
@@ -2460,7 +2471,7 @@ export default function PreferencesPage() {
                         )}
 
                         {/* Fallback for unrecognized field types - render as text input */}
-                        {!['text', 'number', 'decimal', 'boolean', 'dropdown', 'picklist', 'list'].includes(field.field_type) && (
+                        {!['text', 'url', 'number', 'decimal', 'boolean', 'dropdown', 'picklist', 'list'].includes(field.field_type) && (
                           <Input
                             id={`field-${field.id}`}
                             value={fieldValue}
