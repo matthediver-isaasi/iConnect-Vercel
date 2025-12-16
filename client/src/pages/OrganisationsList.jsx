@@ -100,6 +100,7 @@ export default function OrganisationsListPage() {
   const [selectedOrgs, setSelectedOrgs] = useState([]);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [singleDeleteOrg, setSingleDeleteOrg] = useState(null);
   const [columns, setColumns] = useState(() => loadLocalColumns() || DEFAULT_COLUMNS);
   const [draggedColumn, setDraggedColumn] = useState(null);
 
@@ -263,6 +264,7 @@ export default function OrganisationsListPage() {
       setSelectedOrgs([]);
       setShowDeleteDialog(false);
       setDeleteConfirmText('');
+      setSingleDeleteOrg(null);
       toast({
         title: "Organisations deleted",
         description: `Successfully deleted ${result.deletedOrgs} organisation(s) and ${result.deletedMembers} member(s).`
@@ -297,9 +299,26 @@ export default function OrganisationsListPage() {
     }
   };
 
+  const handleDeleteOrgClick = (org, e) => {
+    e.stopPropagation();
+    setSingleDeleteOrg(org);
+    setShowDeleteDialog(true);
+  };
+
+  const handleConfirmDelete = () => {
+    if (singleDeleteOrg) {
+      batchDeleteMutation.mutate([singleDeleteOrg.id]);
+    } else {
+      batchDeleteMutation.mutate(selectedOrgs);
+    }
+  };
+
   const selectedMemberCount = useMemo(() => {
+    if (singleDeleteOrg) {
+      return members.filter(m => m.organization_id === singleDeleteOrg.id).length;
+    }
     return members.filter(m => selectedOrgs.includes(m.organization_id)).length;
-  }, [members, selectedOrgs]);
+  }, [members, selectedOrgs, singleDeleteOrg]);
 
   const organizationMemberCounts = useMemo(() => {
     const counts = {};
@@ -888,6 +907,7 @@ export default function OrganisationsListPage() {
                           {col.label}
                         </th>
                       ))}
+                      <th className="w-12 px-4 py-3"></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -987,6 +1007,17 @@ export default function OrganisationsListPage() {
                           }
                           return <td key={col.id} className="px-4 py-3">-</td>;
                         })}
+                        <td className="w-12 px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-slate-400 hover:text-red-600"
+                            onClick={(e) => handleDeleteOrgClick(org, e)}
+                            data-testid={`button-delete-org-${org.id}`}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -1118,20 +1149,29 @@ export default function OrganisationsListPage() {
       {/* Delete Confirmation Dialog */}
       <Dialog open={showDeleteDialog} onOpenChange={(open) => {
         setShowDeleteDialog(open);
-        if (!open) setDeleteConfirmText('');
+        if (!open) {
+          setDeleteConfirmText('');
+          setSingleDeleteOrg(null);
+        }
       }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-destructive">
               <AlertTriangle className="w-5 h-5" />
-              Delete Organisations
+              Delete Organisation{singleDeleteOrg ? '' : 's'}
             </DialogTitle>
             <DialogDescription className="text-left space-y-3 pt-2">
-              <p>
-                You are about to permanently delete <strong>{selectedOrgs.length} organisation{selectedOrgs.length !== 1 ? 's' : ''}</strong>.
-              </p>
+              {singleDeleteOrg ? (
+                <p>
+                  You are about to permanently delete <strong>{singleDeleteOrg.name}</strong>.
+                </p>
+              ) : (
+                <p>
+                  You are about to permanently delete <strong>{selectedOrgs.length} organisation{selectedOrgs.length !== 1 ? 's' : ''}</strong>.
+                </p>
+              )}
               <div className="bg-destructive/10 border border-destructive/20 rounded-md p-3 text-destructive text-sm">
-                <strong>Warning:</strong> This will also delete <strong>{selectedMemberCount} member{selectedMemberCount !== 1 ? 's' : ''}</strong> belonging to these organisations. This action cannot be undone.
+                <strong>Warning:</strong> This will also delete <strong>{selectedMemberCount} member{selectedMemberCount !== 1 ? 's' : ''}</strong> belonging to {singleDeleteOrg ? 'this organisation' : 'these organisations'}. This action cannot be undone.
               </div>
               <p className="text-sm">
                 To confirm, please type <strong>DELETE</strong> below:
@@ -1152,6 +1192,7 @@ export default function OrganisationsListPage() {
               onClick={() => {
                 setShowDeleteDialog(false);
                 setDeleteConfirmText('');
+                setSingleDeleteOrg(null);
               }}
               data-testid="button-cancel-delete"
             >
@@ -1159,7 +1200,7 @@ export default function OrganisationsListPage() {
             </Button>
             <Button 
               variant="destructive"
-              onClick={() => batchDeleteMutation.mutate(selectedOrgs)}
+              onClick={handleConfirmDelete}
               disabled={deleteConfirmText !== 'DELETE' || batchDeleteMutation.isPending}
               data-testid="button-confirm-delete"
             >
@@ -1171,7 +1212,7 @@ export default function OrganisationsListPage() {
               ) : (
                 <>
                   <Trash2 className="w-4 h-4 mr-2" />
-                  Delete {selectedOrgs.length} Organisation{selectedOrgs.length !== 1 ? 's' : ''}
+                  Delete {singleDeleteOrg ? '1' : selectedOrgs.length} Organisation{(singleDeleteOrg || selectedOrgs.length === 1) ? '' : 's'}
                 </>
               )}
             </Button>

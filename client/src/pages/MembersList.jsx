@@ -32,8 +32,19 @@ import {
   Mail,
   Smartphone,
   Briefcase,
-  Save
+  Save,
+  Trash2,
+  AlertTriangle
 } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 import MemberDetailView from "@/components/MemberDetailView";
@@ -101,6 +112,10 @@ export default function MembersListPage() {
   const [isCreatingNew, setIsCreatingNew] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [columns, setColumns] = useState(() => loadLocalColumns() || DEFAULT_COLUMNS);
+  const [selectedMembers, setSelectedMembers] = useState([]);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [singleDeleteMember, setSingleDeleteMember] = useState(null);
   const [draggedColumn, setDraggedColumn] = useState(null);
   const [pendingMemberId, setPendingMemberId] = useState(() => {
     const params = new URLSearchParams(window.location.search);
@@ -249,6 +264,68 @@ export default function MembersListPage() {
       });
     }
   });
+
+  // Batch delete mutation
+  const batchDeleteMutation = useMutation({
+    mutationFn: async (memberIds) => {
+      for (const memberId of memberIds) {
+        await base44.entities.Member.delete(memberId);
+      }
+      return { deletedCount: memberIds.length };
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ['members-crm-list'] });
+      setSelectedMembers([]);
+      setShowDeleteDialog(false);
+      setDeleteConfirmText('');
+      setSingleDeleteMember(null);
+      toast({
+        title: "Members deleted",
+        description: `Successfully deleted ${result.deletedCount} member(s).`
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Delete failed",
+        description: error.message || "Could not delete members. Please try again.",
+        variant: "destructive"
+      });
+    }
+  });
+
+  // Selection handlers
+  const toggleMemberSelection = (memberId, e) => {
+    if (e?.stopPropagation) e.stopPropagation();
+    setSelectedMembers(prev => 
+      prev.includes(memberId) 
+        ? prev.filter(id => id !== memberId)
+        : [...prev, memberId]
+    );
+  };
+
+  const toggleSelectAll = () => {
+    const currentPageIds = paginatedMembers.map(m => m.id);
+    const allSelected = currentPageIds.every(id => selectedMembers.includes(id));
+    if (allSelected) {
+      setSelectedMembers(prev => prev.filter(id => !currentPageIds.includes(id)));
+    } else {
+      setSelectedMembers(prev => [...new Set([...prev, ...currentPageIds])]);
+    }
+  };
+
+  const handleDeleteClick = (member, e) => {
+    e.stopPropagation();
+    setSingleDeleteMember(member);
+    setShowDeleteDialog(true);
+  };
+
+  const handleConfirmDelete = () => {
+    if (singleDeleteMember) {
+      batchDeleteMutation.mutate([singleDeleteMember.id]);
+    } else {
+      batchDeleteMutation.mutate(selectedMembers);
+    }
+  };
 
   // Handle URL parameter to open specific member
   useEffect(() => {
@@ -854,6 +931,17 @@ export default function MembersListPage() {
                     </PopoverContent>
                   </Popover>
                 )}
+                {selectedMembers.length > 0 && (
+                  <Button 
+                    variant="destructive"
+                    onClick={() => setShowDeleteDialog(true)}
+                    className="gap-1"
+                    data-testid="button-delete-selected-members"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Delete Selected ({selectedMembers.length})
+                  </Button>
+                )}
                 <Button 
                   onClick={() => setIsCreatingNew(true)}
                   className="gap-1"
@@ -904,22 +992,48 @@ export default function MembersListPage() {
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead className="w-12">
+                        <Checkbox 
+                          checked={paginatedMembers.length > 0 && paginatedMembers.every(m => selectedMembers.includes(m.id))}
+                          onCheckedChange={toggleSelectAll}
+                          data-testid="checkbox-select-all-members"
+                        />
+                      </TableHead>
                       {visibleColumns.map(col => (
                         <TableHead key={col.id} className="whitespace-nowrap">{col.label}</TableHead>
                       ))}
+                      <TableHead className="w-12"></TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {paginatedMembers.map(member => (
                       <TableRow 
                         key={member.id} 
-                        className="cursor-pointer hover:bg-slate-50"
+                        className={`cursor-pointer hover:bg-slate-50 ${selectedMembers.includes(member.id) ? 'bg-blue-50' : ''}`}
                         onClick={() => setSelectedMember(member)}
                         data-testid={`member-row-${member.id}`}
                       >
+                        <TableCell onClick={(e) => e.stopPropagation()}>
+                          <Checkbox 
+                            checked={selectedMembers.includes(member.id)}
+                            onCheckedChange={() => toggleMemberSelection(member.id)}
+                            data-testid={`checkbox-member-${member.id}`}
+                          />
+                        </TableCell>
                         {visibleColumns.map(col => (
                           <TableCell key={col.id}>{getCellValue(member, col)}</TableCell>
                         ))}
+                        <TableCell onClick={(e) => e.stopPropagation()}>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-slate-400 hover:text-red-600"
+                            onClick={(e) => handleDeleteClick(member, e)}
+                            data-testid={`button-delete-member-${member.id}`}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -1026,6 +1140,80 @@ export default function MembersListPage() {
           )}
         </main>
       </div>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={showDeleteDialog} onOpenChange={(open) => {
+        setShowDeleteDialog(open);
+        if (!open) {
+          setDeleteConfirmText('');
+          setSingleDeleteMember(null);
+        }
+      }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="w-5 h-5" />
+              Delete Member{singleDeleteMember ? '' : 's'}
+            </DialogTitle>
+            <DialogDescription className="text-left space-y-3 pt-2">
+              {singleDeleteMember ? (
+                <p>
+                  You are about to permanently delete <strong>{getMemberName(singleDeleteMember)}</strong>.
+                </p>
+              ) : (
+                <p>
+                  You are about to permanently delete <strong>{selectedMembers.length} member{selectedMembers.length !== 1 ? 's' : ''}</strong>.
+                </p>
+              )}
+              <div className="bg-destructive/10 border border-destructive/20 rounded-md p-3 text-destructive text-sm">
+                <strong>Warning:</strong> This action cannot be undone.
+              </div>
+              <p className="text-sm">
+                To confirm, please type <strong>DELETE</strong> below:
+              </p>
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Input 
+              value={deleteConfirmText}
+              onChange={(e) => setDeleteConfirmText(e.target.value)}
+              placeholder="Type DELETE to confirm"
+              data-testid="input-delete-member-confirm"
+            />
+          </div>
+          <DialogFooter>
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                setShowDeleteDialog(false);
+                setDeleteConfirmText('');
+                setSingleDeleteMember(null);
+              }}
+              data-testid="button-cancel-member-delete"
+            >
+              Cancel
+            </Button>
+            <Button 
+              variant="destructive"
+              onClick={handleConfirmDelete}
+              disabled={deleteConfirmText !== 'DELETE' || batchDeleteMutation.isPending}
+              data-testid="button-confirm-member-delete"
+            >
+              {batchDeleteMutation.isPending ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                  Deleting...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Delete {singleDeleteMember ? '1' : selectedMembers.length} Member{(singleDeleteMember || selectedMembers.length === 1) ? '' : 's'}
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
