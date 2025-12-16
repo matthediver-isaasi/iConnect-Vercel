@@ -89,7 +89,9 @@ export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bc
 
 export function replacePlaceholders(template, entityType, entityData) {
   if (!template) return '';
-  return template.replace(/\{\{(\w+(?:\.\w+)?)\}\}/g, (match, path) => {
+  
+  // First handle {{placeholder}} syntax (form field mappings)
+  let result = template.replace(/\{\{(\w+(?:\.\w+)?)\}\}/g, (match, path) => {
     const parts = path.split('.');
     if (parts[0] === entityType || parts[0] === 'record') {
       const fieldName = parts[1] || parts[0];
@@ -97,4 +99,17 @@ export function replacePlaceholders(template, entityType, entityData) {
     }
     return entityData?.[path] || match;
   });
+  
+  // Then handle [[placeholder]] syntax (core database values like [[organization.id]], [[member.email]])
+  result = result.replace(/\[\[(\w+(?:\.\w+)?)\]\]/g, (match, path) => {
+    const parts = path.split('.');
+    // Handle patterns like [[organization.id]], [[member.email]], [[record.field]]
+    if (parts[0] === entityType || parts[0] === 'record' || parts[0] === 'organization' || parts[0] === 'member') {
+      const fieldName = parts[1] || parts[0];
+      return entityData?.[fieldName] || match;
+    }
+    return entityData?.[path] || match;
+  });
+  
+  return result;
 }

@@ -142,7 +142,8 @@ async function getFieldValue(
 
 // Replace placeholders in template strings
 function replacePlaceholders(template: string, entityType: string, entityData: any): string {
-  return template.replace(/\{\{(\w+(?:\.\w+)?)\}\}/g, (match, path) => {
+  // First handle {{placeholder}} syntax (form field mappings)
+  let result = template.replace(/\{\{(\w+(?:\.\w+)?)\}\}/g, (match, path) => {
     const parts = path.split('.');
     if (parts[0] === entityType || parts[0] === 'record') {
       const fieldName = parts[1] || parts[0];
@@ -150,6 +151,19 @@ function replacePlaceholders(template: string, entityType: string, entityData: a
     }
     return entityData[path] || match;
   });
+  
+  // Then handle [[placeholder]] syntax (core database values like [[organization.id]], [[member.email]])
+  result = result.replace(/\[\[(\w+(?:\.\w+)?)\]\]/g, (match, path) => {
+    const parts = path.split('.');
+    // Handle patterns like [[organization.id]], [[member.email]], [[record.field]]
+    if (parts[0] === entityType || parts[0] === 'record' || parts[0] === 'organization' || parts[0] === 'member') {
+      const fieldName = parts[1] || parts[0];
+      return entityData[fieldName] || match;
+    }
+    return entityData[path] || match;
+  });
+  
+  return result;
 }
 
 // Execute email action
