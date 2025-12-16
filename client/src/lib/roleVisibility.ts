@@ -177,8 +177,11 @@ export function getModuleExclusionState(
   let allExcluded = true;
 
   for (const page of module.pages) {
-    if (normalizedExcluded.includes(page.id)) {
+    const pageIsExcluded = normalizedExcluded.includes(page.id);
+    
+    if (pageIsExcluded) {
       hasExcluded = true;
+      // Page is explicitly excluded - continue to next page
     } else {
       // Page is not directly excluded - check its features
       if (page.features && page.features.length > 0) {
@@ -198,6 +201,17 @@ export function getModuleExclusionState(
         allExcluded = false;
       }
     }
+  }
+
+  // Debug logging for organisation module
+  if (moduleId === 'organisation') {
+    console.log('[getModuleExclusionState] organisation module:', {
+      excludedResources,
+      normalizedExcluded,
+      hasExcluded,
+      allExcluded,
+      pages: module.pages.map(p => ({ id: p.id, isExcluded: normalizedExcluded.includes(p.id) }))
+    });
   }
 
   if (hasExcluded && !allExcluded) return 'some';
