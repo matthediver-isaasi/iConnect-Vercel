@@ -136,10 +136,10 @@ const navigationItems = [
     featureId: "page_MyJobPostings"
   },
   {
-    title: "Preferences",
-    url: createPageUrl("Preferences"),
+    title: "About Me",
+    url: "/about-me",
     icon: Settings,
-    featureId: "page_Preferences"
+    featureId: "user.about-me"
   },
   {
     title: "Support",
@@ -777,6 +777,7 @@ useEffect(() => {
     'News': 'page_user_News',
     'MyJobPostings': 'page_user_MyJobPostings',
     'Preferences': 'page_user_Preferences',
+    'about-me': 'user.about-me',
     'Support': 'page_user_Support',
     // Admin navigation pages use page_admin_* pattern  
     'MyNews': 'page_admin_MyNews',
