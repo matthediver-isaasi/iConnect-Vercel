@@ -4,15 +4,16 @@ import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
+import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { 
   Plus, Pencil, Trash2, ChevronDown, ChevronRight, GripVertical,
-  FolderTree, FileText, Settings, Save, RotateCcw, AlertTriangle,
-  Layers, Layout, Sparkles
+  FolderTree, Save, RotateCcw, AlertTriangle,
+  Layers, Sparkles
 } from 'lucide-react';
 import { ROLE_ACCESS_MAP } from '@/lib/roleAccessMap';
 
@@ -30,13 +31,11 @@ export default function RoleAccessConfigManagement() {
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const queryClient = useQueryClient();
 
-  // Fetch all role access items from the database
   const { data: accessItems = [], isLoading, error } = useQuery({
     queryKey: ['role-access-items'],
     queryFn: () => base44.entities.RoleAccessItem.list(),
   });
 
-  // Create mutation
   const createMutation = useMutation({
     mutationFn: async (data) => {
       return base44.entities.RoleAccessItem.create(data);
@@ -52,7 +51,6 @@ export default function RoleAccessConfigManagement() {
     }
   });
 
-  // Update mutation
   const updateMutation = useMutation({
     mutationFn: async ({ id, data }) => {
       return base44.entities.RoleAccessItem.update(id, data);
@@ -68,7 +66,6 @@ export default function RoleAccessConfigManagement() {
     }
   });
 
-  // Delete mutation
   const deleteMutation = useMutation({
     mutationFn: async (id) => {
       return base44.entities.RoleAccessItem.delete(id);
@@ -82,10 +79,8 @@ export default function RoleAccessConfigManagement() {
     }
   });
 
-  // Bulk create mutation for seeding from defaults
   const seedMutation = useMutation({
     mutationFn: async (items) => {
-      // Create items one by one to ensure proper ordering
       for (const item of items) {
         await base44.entities.RoleAccessItem.create(item);
       }
@@ -99,7 +94,6 @@ export default function RoleAccessConfigManagement() {
     }
   });
 
-  // Build hierarchical structure from flat list
   const hierarchy = useMemo(() => {
     const modules = accessItems.filter(item => item.item_type === 'module')
       .sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
@@ -119,12 +113,10 @@ export default function RoleAccessConfigManagement() {
     });
   }, [accessItems]);
 
-  // Get modules for parent selection
   const moduleOptions = useMemo(() => {
     return accessItems.filter(item => item.item_type === 'module');
   }, [accessItems]);
 
-  // Get pages for parent selection (filtered by module if editing a feature)
   const pageOptions = useMemo(() => {
     return accessItems.filter(item => item.item_type === 'page');
   }, [accessItems]);
@@ -156,7 +148,6 @@ export default function RoleAccessConfigManagement() {
   };
 
   const handleDelete = (item) => {
-    // Check for children
     const hasChildren = accessItems.some(child => child.parent_id === item.id);
     if (hasChildren) {
       toast.error('Cannot delete item with children. Delete children first.');
@@ -170,6 +161,16 @@ export default function RoleAccessConfigManagement() {
   const handleSave = () => {
     if (!editingItem.item_key || !editingItem.label) {
       toast.error('Item Key and Label are required');
+      return;
+    }
+
+    if (editingItem.item_type === 'page' && !editingItem.parent_id) {
+      toast.error('Please select a parent module');
+      return;
+    }
+
+    if (editingItem.item_type === 'feature' && !editingItem.parent_id) {
+      toast.error('Please select a parent page');
       return;
     }
 
@@ -190,39 +191,54 @@ export default function RoleAccessConfigManagement() {
     }
   };
 
-  const handleMoveUp = async (item) => {
-    const siblings = accessItems.filter(i => 
-      i.item_type === item.item_type && 
-      (item.item_type === 'module' ? !i.parent_id : i.parent_id === item.parent_id)
-    ).sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
-    
-    const currentIndex = siblings.findIndex(s => s.id === item.id);
-    if (currentIndex <= 0) return;
+  const handleDragEnd = async (result) => {
+    if (!result.destination) return;
 
-    const prevItem = siblings[currentIndex - 1];
+    const { source, destination, type } = result;
     
-    // Swap display orders
-    await updateMutation.mutateAsync({ id: item.id, data: { display_order: prevItem.display_order } });
-    await updateMutation.mutateAsync({ id: prevItem.id, data: { display_order: item.display_order } });
+    if (source.droppableId === destination.droppableId && source.index === destination.index) {
+      return;
+    }
+
+    let items = [];
+    
+    if (type === 'module') {
+      items = hierarchy.map(m => ({ ...m }));
+    } else if (type === 'page') {
+      const moduleId = source.droppableId.replace('pages-', '');
+      const module = hierarchy.find(m => m.id === moduleId);
+      if (!module) return;
+      items = module.pages.map(p => ({ ...p }));
+    } else if (type === 'feature') {
+      const pageId = source.droppableId.replace('features-', '');
+      for (const mod of hierarchy) {
+        const page = mod.pages.find(p => p.id === pageId);
+        if (page) {
+          items = page.features.map(f => ({ ...f }));
+          break;
+        }
+      }
+    }
+
+    const [removed] = items.splice(source.index, 1);
+    items.splice(destination.index, 0, removed);
+
+    const updates = items.map((item, index) => ({
+      id: item.id,
+      display_order: index
+    }));
+
+    try {
+      for (const update of updates) {
+        await base44.entities.RoleAccessItem.update(update.id, { display_order: update.display_order });
+      }
+      queryClient.invalidateQueries({ queryKey: ['role-access-items'] });
+      toast.success('Order updated');
+    } catch (err) {
+      toast.error('Failed to update order: ' + err.message);
+    }
   };
 
-  const handleMoveDown = async (item) => {
-    const siblings = accessItems.filter(i => 
-      i.item_type === item.item_type && 
-      (item.item_type === 'module' ? !i.parent_id : i.parent_id === item.parent_id)
-    ).sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
-    
-    const currentIndex = siblings.findIndex(s => s.id === item.id);
-    if (currentIndex >= siblings.length - 1) return;
-
-    const nextItem = siblings[currentIndex + 1];
-    
-    // Swap display orders
-    await updateMutation.mutateAsync({ id: item.id, data: { display_order: nextItem.display_order } });
-    await updateMutation.mutateAsync({ id: nextItem.id, data: { display_order: item.display_order } });
-  };
-
-  // Seed from hardcoded defaults
   const handleSeedFromDefaults = async () => {
     if (accessItems.length > 0) {
       setShowResetConfirm(true);
@@ -248,10 +264,8 @@ export default function RoleAccessConfigManagement() {
       items.push(moduleItem);
     }
 
-    // First create all modules
     await seedMutation.mutateAsync(items);
 
-    // Wait for modules to be created, then create pages
     const createdModules = await base44.entities.RoleAccessItem.list();
 
     const pageItems = [];
@@ -277,7 +291,6 @@ export default function RoleAccessConfigManagement() {
       await seedMutation.mutateAsync(pageItems);
     }
 
-    // Wait for pages to be created, then create features
     const createdPages = await base44.entities.RoleAccessItem.list();
 
     const featureItems = [];
@@ -311,7 +324,6 @@ export default function RoleAccessConfigManagement() {
   };
 
   const handleResetToDefaults = async () => {
-    // Delete all existing items first (delete in reverse order - features first, then pages, then modules)
     const features = accessItems.filter(i => i.item_type === 'feature');
     const pages = accessItems.filter(i => i.item_type === 'page');
     const modules = accessItems.filter(i => i.item_type === 'module');
@@ -329,6 +341,16 @@ export default function RoleAccessConfigManagement() {
 
   const togglePage = (pageId) => {
     setExpandedPages(prev => ({ ...prev, [pageId]: !prev[pageId] }));
+  };
+
+  const getSelectedModuleLabel = (parentId) => {
+    const mod = moduleOptions.find(m => m.id === parentId);
+    return mod?.label || '';
+  };
+
+  const getSelectedPageLabel = (parentId) => {
+    const page = pageOptions.find(p => p.id === parentId);
+    return page?.label || '';
   };
 
   if (isLoading) {
@@ -375,17 +397,12 @@ export default function RoleAccessConfigManagement() {
   UNIQUE(item_key)
 );
 
--- Create indexes for performance
 CREATE INDEX idx_role_access_item_type ON role_access_item(item_type);
 CREATE INDEX idx_role_access_item_parent ON role_access_item(parent_id);
 
--- Enable RLS
 ALTER TABLE role_access_item ENABLE ROW LEVEL SECURITY;
 
--- Allow all users to read (including anon for API access)
 CREATE POLICY "Allow read access" ON role_access_item FOR SELECT USING (true);
-
--- Allow all operations (for service role / authenticated admin access)
 CREATE POLICY "Allow full access" ON role_access_item FOR ALL USING (true);`}
           </pre>
           <p className="text-sm text-muted-foreground">
@@ -398,7 +415,7 @@ CREATE POLICY "Allow full access" ON role_access_item FOR ALL USING (true);`}
 
   return (
     <div className="p-6 space-y-6" data-testid="page-role-access-config">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <FolderTree className="h-6 w-6" />
@@ -408,7 +425,7 @@ CREATE POLICY "Allow full access" ON role_access_item FOR ALL USING (true);`}
             Configure how modules, pages, and features are grouped in Role Management
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button
             variant="outline"
             onClick={handleSeedFromDefaults}
@@ -421,6 +438,14 @@ CREATE POLICY "Allow full access" ON role_access_item FOR ALL USING (true);`}
           <Button onClick={() => handleAdd('module')} data-testid="button-add-module">
             <Plus className="h-4 w-4 mr-2" />
             Add Module
+          </Button>
+          <Button variant="secondary" onClick={() => handleAdd('page')} data-testid="button-add-page" disabled={moduleOptions.length === 0}>
+            <Plus className="h-4 w-4 mr-2" />
+            Add Page
+          </Button>
+          <Button variant="secondary" onClick={() => handleAdd('feature')} data-testid="button-add-feature" disabled={pageOptions.length === 0}>
+            <Plus className="h-4 w-4 mr-2" />
+            Add Feature
           </Button>
         </div>
       </div>
@@ -442,162 +467,188 @@ CREATE POLICY "Allow full access" ON role_access_item FOR ALL USING (true);`}
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-3">
-          {hierarchy.map((module) => (
-            <Card key={module.id} className="overflow-hidden">
+        <DragDropContext onDragEnd={handleDragEnd}>
+          <Droppable droppableId="modules" type="module">
+            {(provided) => (
               <div 
-                className="flex items-center gap-2 p-4 cursor-pointer hover-elevate"
-                onClick={() => toggleModule(module.id)}
-                data-testid={`module-${module.item_key}`}
+                className="space-y-3"
+                ref={provided.innerRef}
+                {...provided.droppableProps}
               >
-                <GripVertical className="h-4 w-4 text-muted-foreground" />
-                {expandedModules[module.id] ? (
-                  <ChevronDown className="h-4 w-4" />
-                ) : (
-                  <ChevronRight className="h-4 w-4" />
-                )}
-                <Badge variant="default" className="bg-primary/20 text-primary border-0">
-                  Module
-                </Badge>
-                <span className="font-medium flex-1">{module.label}</span>
-                <span className="text-xs text-muted-foreground font-mono">{module.item_key}</span>
-                <div className="flex gap-1" onClick={e => e.stopPropagation()}>
-                  <Button size="icon" variant="ghost" onClick={() => handleMoveUp(module)} data-testid={`button-moveup-${module.item_key}`}>
-                    <ChevronDown className="h-4 w-4 rotate-180" />
-                  </Button>
-                  <Button size="icon" variant="ghost" onClick={() => handleMoveDown(module)} data-testid={`button-movedown-${module.item_key}`}>
-                    <ChevronDown className="h-4 w-4" />
-                  </Button>
-                  <Button size="icon" variant="ghost" onClick={() => handleEdit(module)} data-testid={`button-edit-${module.item_key}`}>
-                    <Pencil className="h-4 w-4" />
-                  </Button>
-                  <Button size="icon" variant="ghost" onClick={() => handleDelete(module)} data-testid={`button-delete-${module.item_key}`}>
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-
-              {expandedModules[module.id] && (
-                <div className="border-t bg-muted/30 p-4 pl-10 space-y-2">
-                  <Button 
-                    size="sm" 
-                    variant="outline" 
-                    onClick={() => handleAdd('page', module.id)}
-                    className="mb-2"
-                    data-testid={`button-add-page-${module.item_key}`}
-                  >
-                    <Plus className="h-3 w-3 mr-1" />
-                    Add Page
-                  </Button>
-
-                  {module.pages.map((page) => (
-                    <div key={page.id} className="bg-background rounded-md border">
-                      <div 
-                        className="flex items-center gap-2 p-3 cursor-pointer hover-elevate"
-                        onClick={() => togglePage(page.id)}
-                        data-testid={`page-${page.item_key}`}
+                {hierarchy.map((module, moduleIndex) => (
+                  <Draggable key={module.id} draggableId={module.id} index={moduleIndex}>
+                    {(provided, snapshot) => (
+                      <Card 
+                        ref={provided.innerRef}
+                        {...provided.draggableProps}
+                        className={`overflow-hidden ${snapshot.isDragging ? 'shadow-lg ring-2 ring-primary' : ''}`}
                       >
-                        <GripVertical className="h-4 w-4 text-muted-foreground" />
-                        {page.features?.length > 0 ? (
-                          expandedPages[page.id] ? (
+                        <div 
+                          className="flex items-center gap-2 p-4 cursor-pointer hover-elevate"
+                          onClick={() => toggleModule(module.id)}
+                          data-testid={`module-${module.item_key}`}
+                        >
+                          <div {...provided.dragHandleProps} onClick={e => e.stopPropagation()}>
+                            <GripVertical className="h-4 w-4 text-muted-foreground cursor-grab active:cursor-grabbing" />
+                          </div>
+                          {expandedModules[module.id] ? (
                             <ChevronDown className="h-4 w-4" />
                           ) : (
                             <ChevronRight className="h-4 w-4" />
-                          )
-                        ) : (
-                          <div className="w-4" />
-                        )}
-                        <Badge variant="secondary" className="bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300 border-0">
-                          Page
-                        </Badge>
-                        <span className="font-medium flex-1">{page.label}</span>
-                        <span className="text-xs text-muted-foreground font-mono">{page.item_key}</span>
-                        <div className="flex gap-1" onClick={e => e.stopPropagation()}>
-                          <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => handleMoveUp(page)}>
-                            <ChevronDown className="h-3 w-3 rotate-180" />
-                          </Button>
-                          <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => handleMoveDown(page)}>
-                            <ChevronDown className="h-3 w-3" />
-                          </Button>
-                          <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => handleEdit(page)}>
-                            <Pencil className="h-3 w-3" />
-                          </Button>
-                          <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => handleDelete(page)}>
-                            <Trash2 className="h-3 w-3" />
-                          </Button>
+                          )}
+                          <Badge variant="default" className="bg-primary/20 text-primary border-0">
+                            Module
+                          </Badge>
+                          <span className="font-medium flex-1">{module.label}</span>
+                          <span className="text-xs text-muted-foreground font-mono">{module.item_key}</span>
+                          <div className="flex gap-1" onClick={e => e.stopPropagation()}>
+                            <Button size="icon" variant="ghost" onClick={() => handleEdit(module)} data-testid={`button-edit-${module.item_key}`}>
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button size="icon" variant="ghost" onClick={() => handleDelete(module)} data-testid={`button-delete-${module.item_key}`}>
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
                         </div>
-                      </div>
 
-                      {expandedPages[page.id] && page.features?.length > 0 && (
-                        <div className="border-t bg-muted/20 p-3 pl-12 space-y-1">
-                          <Button 
-                            size="sm" 
-                            variant="outline" 
-                            onClick={() => handleAdd('feature', page.id)}
-                            className="mb-2 h-7 text-xs"
-                            data-testid={`button-add-feature-${page.item_key}`}
-                          >
-                            <Plus className="h-3 w-3 mr-1" />
-                            Add Feature
-                          </Button>
-
-                          {page.features.map((feature) => (
-                            <div 
-                              key={feature.id}
-                              className="flex items-center gap-2 p-2 bg-background rounded border"
-                              data-testid={`feature-${feature.item_key}`}
+                        {expandedModules[module.id] && (
+                          <div className="border-t bg-muted/30 p-4 pl-10">
+                            <Button 
+                              size="sm" 
+                              variant="outline" 
+                              onClick={() => handleAdd('page', module.id)}
+                              className="mb-3"
+                              data-testid={`button-add-page-${module.item_key}`}
                             >
-                              <GripVertical className="h-3 w-3 text-muted-foreground" />
-                              <Badge variant="outline" className="text-xs bg-green-50 text-green-700 dark:bg-green-900 dark:text-green-300 border-0">
-                                Feature
-                              </Badge>
-                              <span className="text-sm flex-1">{feature.label}</span>
-                              <span className="text-xs text-muted-foreground font-mono">{feature.item_key}</span>
-                              <div className="flex gap-1">
-                                <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => handleMoveUp(feature)}>
-                                  <ChevronDown className="h-3 w-3 rotate-180" />
-                                </Button>
-                                <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => handleMoveDown(feature)}>
-                                  <ChevronDown className="h-3 w-3" />
-                                </Button>
-                                <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => handleEdit(feature)}>
-                                  <Pencil className="h-3 w-3" />
-                                </Button>
-                                <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => handleDelete(feature)}>
-                                  <Trash2 className="h-3 w-3" />
-                                </Button>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
+                              <Plus className="h-3 w-3 mr-1" />
+                              Add Page to {module.label}
+                            </Button>
 
-                      {expandedPages[page.id] && (!page.features || page.features.length === 0) && (
-                        <div className="border-t bg-muted/20 p-3 pl-12">
-                          <Button 
-                            size="sm" 
-                            variant="outline" 
-                            onClick={() => handleAdd('feature', page.id)}
-                            className="h-7 text-xs"
-                            data-testid={`button-add-feature-${page.item_key}`}
-                          >
-                            <Plus className="h-3 w-3 mr-1" />
-                            Add Feature
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </Card>
-          ))}
-        </div>
+                            <Droppable droppableId={`pages-${module.id}`} type="page">
+                              {(provided) => (
+                                <div 
+                                  className="space-y-2"
+                                  ref={provided.innerRef}
+                                  {...provided.droppableProps}
+                                >
+                                  {module.pages.map((page, pageIndex) => (
+                                    <Draggable key={page.id} draggableId={page.id} index={pageIndex}>
+                                      {(provided, snapshot) => (
+                                        <div 
+                                          ref={provided.innerRef}
+                                          {...provided.draggableProps}
+                                          className={`bg-background rounded-md border ${snapshot.isDragging ? 'shadow-lg ring-2 ring-blue-500' : ''}`}
+                                        >
+                                          <div 
+                                            className="flex items-center gap-2 p-3 cursor-pointer hover-elevate"
+                                            onClick={() => togglePage(page.id)}
+                                            data-testid={`page-${page.item_key}`}
+                                          >
+                                            <div {...provided.dragHandleProps} onClick={e => e.stopPropagation()}>
+                                              <GripVertical className="h-4 w-4 text-muted-foreground cursor-grab active:cursor-grabbing" />
+                                            </div>
+                                            {page.features?.length > 0 ? (
+                                              expandedPages[page.id] ? (
+                                                <ChevronDown className="h-4 w-4" />
+                                              ) : (
+                                                <ChevronRight className="h-4 w-4" />
+                                              )
+                                            ) : (
+                                              <div className="w-4" />
+                                            )}
+                                            <Badge variant="secondary" className="bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300 border-0">
+                                              Page
+                                            </Badge>
+                                            <span className="font-medium flex-1">{page.label}</span>
+                                            <span className="text-xs text-muted-foreground font-mono">{page.item_key}</span>
+                                            <div className="flex gap-1" onClick={e => e.stopPropagation()}>
+                                              <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => handleEdit(page)}>
+                                                <Pencil className="h-3 w-3" />
+                                              </Button>
+                                              <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => handleDelete(page)}>
+                                                <Trash2 className="h-3 w-3" />
+                                              </Button>
+                                            </div>
+                                          </div>
+
+                                          {expandedPages[page.id] && (
+                                            <div className="border-t bg-muted/20 p-3 pl-12">
+                                              <Button 
+                                                size="sm" 
+                                                variant="outline" 
+                                                onClick={() => handleAdd('feature', page.id)}
+                                                className="mb-2 h-7 text-xs"
+                                                data-testid={`button-add-feature-${page.item_key}`}
+                                              >
+                                                <Plus className="h-3 w-3 mr-1" />
+                                                Add Feature to {page.label}
+                                              </Button>
+
+                                              <Droppable droppableId={`features-${page.id}`} type="feature">
+                                                {(provided) => (
+                                                  <div 
+                                                    className="space-y-1"
+                                                    ref={provided.innerRef}
+                                                    {...provided.droppableProps}
+                                                  >
+                                                    {page.features?.map((feature, featureIndex) => (
+                                                      <Draggable key={feature.id} draggableId={feature.id} index={featureIndex}>
+                                                        {(provided, snapshot) => (
+                                                          <div 
+                                                            ref={provided.innerRef}
+                                                            {...provided.draggableProps}
+                                                            className={`flex items-center gap-2 p-2 bg-background rounded border ${snapshot.isDragging ? 'shadow-lg ring-2 ring-green-500' : ''}`}
+                                                            data-testid={`feature-${feature.item_key}`}
+                                                          >
+                                                            <div {...provided.dragHandleProps}>
+                                                              <GripVertical className="h-3 w-3 text-muted-foreground cursor-grab active:cursor-grabbing" />
+                                                            </div>
+                                                            <Badge variant="outline" className="text-xs bg-green-50 text-green-700 dark:bg-green-900 dark:text-green-300 border-0">
+                                                              Feature
+                                                            </Badge>
+                                                            <span className="text-sm flex-1">{feature.label}</span>
+                                                            <span className="text-xs text-muted-foreground font-mono">{feature.item_key}</span>
+                                                            <div className="flex gap-1">
+                                                              <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => handleEdit(feature)}>
+                                                                <Pencil className="h-3 w-3" />
+                                                              </Button>
+                                                              <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => handleDelete(feature)}>
+                                                                <Trash2 className="h-3 w-3" />
+                                                              </Button>
+                                                            </div>
+                                                          </div>
+                                                        )}
+                                                      </Draggable>
+                                                    ))}
+                                                    {provided.placeholder}
+                                                  </div>
+                                                )}
+                                              </Droppable>
+                                            </div>
+                                          )}
+                                        </div>
+                                      )}
+                                    </Draggable>
+                                  ))}
+                                  {provided.placeholder}
+                                </div>
+                              )}
+                            </Droppable>
+                          </div>
+                        )}
+                      </Card>
+                    )}
+                  </Draggable>
+                ))}
+                {provided.placeholder}
+              </div>
+            )}
+          </Droppable>
+        </DragDropContext>
       )}
 
-      {/* Edit/Create Dialog */}
       <Dialog open={showDialog} onOpenChange={(open) => { setShowDialog(open); if (!open) setEditingItem(null); }}>
-        <DialogContent>
+        <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>
               {editingItem?.id ? 'Edit' : 'Create'} {editingItem?.item_type === 'module' ? 'Module' : editingItem?.item_type === 'page' ? 'Page' : 'Feature'}
@@ -612,6 +663,58 @@ CREATE POLICY "Allow full access" ON role_access_item FOR ALL USING (true);`}
           </DialogHeader>
 
           <div className="space-y-4 py-4">
+            {editingItem?.item_type === 'page' && (
+              <div className="space-y-2">
+                <Label htmlFor="parent" className="flex items-center gap-1">
+                  Parent Module <span className="text-destructive">*</span>
+                </Label>
+                <Select
+                  value={editingItem?.parent_id || ''}
+                  onValueChange={(value) => setEditingItem({ ...editingItem, parent_id: value })}
+                >
+                  <SelectTrigger data-testid="select-parent-module" className={!editingItem?.parent_id ? 'border-amber-500' : ''}>
+                    <SelectValue placeholder="Select a module...">
+                      {editingItem?.parent_id ? getSelectedModuleLabel(editingItem.parent_id) : 'Select a module...'}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {moduleOptions.map(mod => (
+                      <SelectItem key={mod.id} value={mod.id}>{mod.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {!editingItem?.parent_id && (
+                  <p className="text-xs text-amber-600">Please select a parent module</p>
+                )}
+              </div>
+            )}
+
+            {editingItem?.item_type === 'feature' && (
+              <div className="space-y-2">
+                <Label htmlFor="parent" className="flex items-center gap-1">
+                  Parent Page <span className="text-destructive">*</span>
+                </Label>
+                <Select
+                  value={editingItem?.parent_id || ''}
+                  onValueChange={(value) => setEditingItem({ ...editingItem, parent_id: value })}
+                >
+                  <SelectTrigger data-testid="select-parent-page" className={!editingItem?.parent_id ? 'border-amber-500' : ''}>
+                    <SelectValue placeholder="Select a page...">
+                      {editingItem?.parent_id ? getSelectedPageLabel(editingItem.parent_id) : 'Select a page...'}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {pageOptions.map(page => (
+                      <SelectItem key={page.id} value={page.id}>{page.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {!editingItem?.parent_id && (
+                  <p className="text-xs text-amber-600">Please select a parent page</p>
+                )}
+              </div>
+            )}
+
             <div className="space-y-2">
               <Label htmlFor="item_key">Item Key (ID)</Label>
               <Input
@@ -659,44 +762,6 @@ CREATE POLICY "Allow full access" ON role_access_item FOR ALL USING (true);`}
                 </Select>
               </div>
             )}
-
-            {editingItem?.item_type === 'page' && (
-              <div className="space-y-2">
-                <Label htmlFor="parent">Parent Module</Label>
-                <Select
-                  value={editingItem?.parent_id || ''}
-                  onValueChange={(value) => setEditingItem({ ...editingItem, parent_id: value })}
-                >
-                  <SelectTrigger data-testid="select-parent-module">
-                    <SelectValue placeholder="Select module" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {moduleOptions.map(mod => (
-                      <SelectItem key={mod.id} value={mod.id}>{mod.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-
-            {editingItem?.item_type === 'feature' && (
-              <div className="space-y-2">
-                <Label htmlFor="parent">Parent Page</Label>
-                <Select
-                  value={editingItem?.parent_id || ''}
-                  onValueChange={(value) => setEditingItem({ ...editingItem, parent_id: value })}
-                >
-                  <SelectTrigger data-testid="select-parent-page">
-                    <SelectValue placeholder="Select page" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {pageOptions.map(page => (
-                      <SelectItem key={page.id} value={page.id}>{page.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
           </div>
 
           <DialogFooter>
@@ -715,7 +780,6 @@ CREATE POLICY "Allow full access" ON role_access_item FOR ALL USING (true);`}
         </DialogContent>
       </Dialog>
 
-      {/* Reset Confirmation Dialog */}
       <Dialog open={showResetConfirm} onOpenChange={setShowResetConfirm}>
         <DialogContent>
           <DialogHeader>
