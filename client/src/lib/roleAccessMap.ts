@@ -429,6 +429,21 @@ export const ROLE_ACCESS_MAP: Module[] = [
     ]
   },
   {
+    id: "crm",
+    label: "CRM",
+    icon: "Database",
+    pages: [
+      {
+        id: "crm.organisations",
+        label: "Organisations"
+      },
+      {
+        id: "crm.members",
+        label: "Members"
+      }
+    ]
+  },
+  {
     id: "system",
     label: "System Settings",
     icon: "Settings",
@@ -720,7 +735,9 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_Preferences_new": "user.about-me",
   "communication.preferences": "user.about-me",
   "membership.my-organisation": "organisation.my-organisation",
-  "membership.organisation-preferences": "organisation.field-permissions"
+  "membership.organisation-preferences": "organisation.field-permissions",
+  "page_CRMOrganisations": "crm.organisations",
+  "page_CRMMembers": "crm.members"
 };
 
 export function migrateLegacyFeatureId(legacyId: string): string {
