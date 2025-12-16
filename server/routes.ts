@@ -2092,12 +2092,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       console.log('[FormSubmissionEmail] Form loaded:', form.name);
       console.log('[FormSubmissionEmail] Email settings - template_id:', form.submission_email_template_id);
-      console.log('[FormSubmissionEmail] Email settings - to:', form.submission_email_to);
+      console.log('[FormSubmissionEmail] Email settings - recipient:', form.submission_email_recipient);
       console.log('[FormSubmissionEmail] Email settings - cc:', form.submission_email_cc);
       console.log('[FormSubmissionEmail] Email settings - bcc:', form.submission_email_bcc);
 
       // Check if email on submission is enabled
-      if (!form.submission_email_template_id || !form.submission_email_to) {
+      if (!form.submission_email_template_id || !form.submission_email_recipient) {
         console.log('[FormSubmissionEmail] Email on submission not configured - skipping');
         return res.json({ success: true, skipped: true, reason: 'Email on submission not configured' });
       }
@@ -2133,7 +2133,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       };
 
       // Resolve the recipient email address
-      const toEmail = resolveEmailAddress(form.submission_email_to);
+      const toEmail = resolveEmailAddress(form.submission_email_recipient);
       const ccEmail = form.submission_email_cc ? resolveEmailAddress(form.submission_email_cc) : '';
       const bccEmail = form.submission_email_bcc ? resolveEmailAddress(form.submission_email_bcc) : '';
 

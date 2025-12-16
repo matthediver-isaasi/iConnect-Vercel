@@ -567,12 +567,12 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
       console.log('[IEditFormElement] form.id:', form?.id);
       console.log('[IEditFormElement] form.name:', form?.name);
       console.log('[IEditFormElement] submission_email_template_id:', form?.submission_email_template_id);
-      console.log('[IEditFormElement] submission_email_to:', form?.submission_email_to);
+      console.log('[IEditFormElement] submission_email_recipient:', form?.submission_email_recipient);
       console.log('[IEditFormElement] submission_email_cc:', form?.submission_email_cc);
       console.log('[IEditFormElement] submission_email_bcc:', form?.submission_email_bcc);
-      console.log('[IEditFormElement] Condition result:', !!(form?.submission_email_template_id && form?.submission_email_to));
+      console.log('[IEditFormElement] Condition result:', !!(form?.submission_email_template_id && form?.submission_email_recipient));
       
-      if (form?.submission_email_template_id && form?.submission_email_to) {
+      if (form?.submission_email_template_id && form?.submission_email_recipient) {
         try {
           console.log('[IEditFormElement] Sending submission email...');
           const emailPayload = {

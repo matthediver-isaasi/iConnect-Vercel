@@ -310,12 +310,12 @@ export default function FormViewPage() {
       console.log('[FormView] form.id:', form?.id);
       console.log('[FormView] form.name:', form?.name);
       console.log('[FormView] submission_email_template_id:', form?.submission_email_template_id);
-      console.log('[FormView] submission_email_to:', form?.submission_email_to);
+      console.log('[FormView] submission_email_recipient:', form?.submission_email_recipient);
       console.log('[FormView] submission_email_cc:', form?.submission_email_cc);
       console.log('[FormView] submission_email_bcc:', form?.submission_email_bcc);
-      console.log('[FormView] Condition result:', !!(form?.submission_email_template_id && form?.submission_email_to));
+      console.log('[FormView] Condition result:', !!(form?.submission_email_template_id && form?.submission_email_recipient));
       
-      if (form?.submission_email_template_id && form?.submission_email_to) {
+      if (form?.submission_email_template_id && form?.submission_email_recipient) {
         try {
           console.log('[FormView] Sending submission email...');
           const emailPayload = {
