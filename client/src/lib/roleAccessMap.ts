@@ -414,6 +414,10 @@ export const ROLE_ACCESS_MAP: Module[] = [
       {
         id: "admin.dynamic-directories",
         label: "Dynamic Directory Management"
+      },
+      {
+        id: "admin.preference-settings",
+        label: "Preference Settings"
       }
     ]
   },
