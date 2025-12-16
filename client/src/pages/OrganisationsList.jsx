@@ -36,8 +36,18 @@ import {
   Eye,
   EyeOff,
   Save,
-  Calendar
+  Calendar,
+  Trash2,
+  AlertTriangle
 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 import OrganisationDetailView from "@/components/OrganisationDetailView";
@@ -87,6 +97,9 @@ export default function OrganisationsListPage() {
   const [selectedOrg, setSelectedOrg] = useState(null);
   const [isCreatingNew, setIsCreatingNew] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [selectedOrgs, setSelectedOrgs] = useState([]);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [columns, setColumns] = useState(() => loadLocalColumns() || DEFAULT_COLUMNS);
   const [draggedColumn, setDraggedColumn] = useState(null);
 
@@ -229,6 +242,64 @@ export default function OrganisationsListPage() {
       });
     }
   });
+
+  // Batch delete mutation
+  const batchDeleteMutation = useMutation({
+    mutationFn: async (orgIds) => {
+      // First delete all members belonging to these organizations
+      const membersToDelete = members.filter(m => orgIds.includes(m.organization_id));
+      for (const member of membersToDelete) {
+        await base44.entities.Member.delete(member.id);
+      }
+      // Then delete the organizations
+      for (const orgId of orgIds) {
+        await base44.entities.Organization.delete(orgId);
+      }
+      return { deletedOrgs: orgIds.length, deletedMembers: membersToDelete.length };
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ['organizations-crm-list'] });
+      queryClient.invalidateQueries({ queryKey: ['all-members-for-org-list'] });
+      setSelectedOrgs([]);
+      setShowDeleteDialog(false);
+      setDeleteConfirmText('');
+      toast({
+        title: "Organisations deleted",
+        description: `Successfully deleted ${result.deletedOrgs} organisation(s) and ${result.deletedMembers} member(s).`
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Delete failed",
+        description: error.message || "Could not delete organisations. Please try again.",
+        variant: "destructive"
+      });
+    }
+  });
+
+  // Selection handlers
+  const toggleOrgSelection = (orgId, e) => {
+    e.stopPropagation();
+    setSelectedOrgs(prev => 
+      prev.includes(orgId) 
+        ? prev.filter(id => id !== orgId)
+        : [...prev, orgId]
+    );
+  };
+
+  const toggleSelectAll = () => {
+    const currentPageIds = paginatedOrganizations.map(org => org.id);
+    const allSelected = currentPageIds.every(id => selectedOrgs.includes(id));
+    if (allSelected) {
+      setSelectedOrgs(prev => prev.filter(id => !currentPageIds.includes(id)));
+    } else {
+      setSelectedOrgs(prev => [...new Set([...prev, ...currentPageIds])]);
+    }
+  };
+
+  const selectedMemberCount = useMemo(() => {
+    return members.filter(m => selectedOrgs.includes(m.organization_id)).length;
+  }, [members, selectedOrgs]);
 
   const organizationMemberCounts = useMemo(() => {
     const counts = {};
@@ -667,6 +738,17 @@ export default function OrganisationsListPage() {
               </div>
 
               <div className="flex items-center gap-2">
+                {selectedOrgs.length > 0 && (
+                  <Button 
+                    variant="destructive"
+                    onClick={() => setShowDeleteDialog(true)}
+                    className="gap-1"
+                    data-testid="button-delete-selected"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Delete Selected ({selectedOrgs.length})
+                  </Button>
+                )}
                 <Button 
                   onClick={() => setIsCreatingNew(true)}
                   className="gap-1"
@@ -794,6 +876,13 @@ export default function OrganisationsListPage() {
                 <table className="w-full">
                   <thead className="bg-slate-50 border-b border-slate-200">
                     <tr>
+                      <th className="w-12 px-4 py-3">
+                        <Checkbox 
+                          checked={paginatedOrganizations.length > 0 && paginatedOrganizations.every(org => selectedOrgs.includes(org.id))}
+                          onCheckedChange={toggleSelectAll}
+                          data-testid="checkbox-select-all"
+                        />
+                      </th>
                       {visibleColumns.map(col => (
                         <th key={col.id} className="text-left px-4 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide">
                           {col.label}
@@ -805,10 +894,17 @@ export default function OrganisationsListPage() {
                     {paginatedOrganizations.map(org => (
                       <tr 
                         key={org.id} 
-                        className="hover:bg-slate-50 cursor-pointer transition-colors"
+                        className={`hover:bg-slate-50 cursor-pointer transition-colors ${selectedOrgs.includes(org.id) ? 'bg-blue-50' : ''}`}
                         onClick={() => setSelectedOrg(org)}
                         data-testid={`row-org-${org.id}`}
                       >
+                        <td className="w-12 px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                          <Checkbox 
+                            checked={selectedOrgs.includes(org.id)}
+                            onCheckedChange={(checked) => toggleOrgSelection(org.id, { stopPropagation: () => {} })}
+                            data-testid={`checkbox-org-${org.id}`}
+                          />
+                        </td>
                         {visibleColumns.map(col => {
                           if (col.id === 'name') {
                             return (
@@ -1018,6 +1114,70 @@ export default function OrganisationsListPage() {
           )}
         </main>
       </div>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={showDeleteDialog} onOpenChange={(open) => {
+        setShowDeleteDialog(open);
+        if (!open) setDeleteConfirmText('');
+      }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="w-5 h-5" />
+              Delete Organisations
+            </DialogTitle>
+            <DialogDescription className="text-left space-y-3 pt-2">
+              <p>
+                You are about to permanently delete <strong>{selectedOrgs.length} organisation{selectedOrgs.length !== 1 ? 's' : ''}</strong>.
+              </p>
+              <div className="bg-destructive/10 border border-destructive/20 rounded-md p-3 text-destructive text-sm">
+                <strong>Warning:</strong> This will also delete <strong>{selectedMemberCount} member{selectedMemberCount !== 1 ? 's' : ''}</strong> belonging to these organisations. This action cannot be undone.
+              </div>
+              <p className="text-sm">
+                To confirm, please type <strong>DELETE</strong> below:
+              </p>
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Input 
+              value={deleteConfirmText}
+              onChange={(e) => setDeleteConfirmText(e.target.value)}
+              placeholder="Type DELETE to confirm"
+              data-testid="input-delete-confirm"
+            />
+          </div>
+          <DialogFooter>
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                setShowDeleteDialog(false);
+                setDeleteConfirmText('');
+              }}
+              data-testid="button-cancel-delete"
+            >
+              Cancel
+            </Button>
+            <Button 
+              variant="destructive"
+              onClick={() => batchDeleteMutation.mutate(selectedOrgs)}
+              disabled={deleteConfirmText !== 'DELETE' || batchDeleteMutation.isPending}
+              data-testid="button-confirm-delete"
+            >
+              {batchDeleteMutation.isPending ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                  Deleting...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Delete {selectedOrgs.length} Organisation{selectedOrgs.length !== 1 ? 's' : ''}
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
