@@ -3269,44 +3269,6 @@ export default function FormBuilderPage() {
               </Card>
             )}
 
-            {/* Field Mappings Card */}
-            <Card className="border-slate-200 mb-6">
-              <CardHeader className="pb-4">
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <Settings2 className="w-5 h-5" />
-                  Field Mappings
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <Accordion type="single" collapsible defaultValue="mappings">
-                  <AccordionItem value="mappings" className="border-none">
-                    <AccordionTrigger className="py-2 hover:no-underline" data-testid="accordion-field-mappings">
-                      <span className="text-sm font-medium">Field Mappings &amp; Transformations</span>
-                    </AccordionTrigger>
-                    <AccordionContent>
-                      <div className="pt-2">
-                        <FieldMappingSection
-                          fields={formData.fields}
-                          fieldMappings={formData.field_mappings}
-                          onMappingsChange={(mappings) => {
-                            console.log('[FormBuilder] onMappingsChange called with:', mappings);
-                            try {
-                              setFormData(prev => ({ ...prev, field_mappings: mappings }));
-                            } catch (error) {
-                              console.error('[FormBuilder] Error setting field_mappings:', error);
-                              toast.error(`Failed to update mappings: ${error.message}`);
-                            }
-                          }}
-                          applicationLevel={formData.application_level}
-                          customFields={customFields}
-                        />
-                      </div>
-                    </AccordionContent>
-                  </AccordionItem>
-                </Accordion>
-              </CardContent>
-            </Card>
-
             {/* Record Creation - Unified Member and Organisation Pipelines */}
             <Card className="border-slate-200 mb-6">
               <CardHeader className="pb-4">

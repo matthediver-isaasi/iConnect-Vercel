@@ -157,8 +157,9 @@ Each entry now uses a `mappings` array with the same format as the form-level fi
 
 **Configuration UI:**
 - Located in FormBuilder.jsx → Submission Settings tab → Record Creation section
-- Uses the same FieldMappingSection component as the form-level Field Mappings
-- Each entry shows: label input, role selector (members only), and inline FieldMappingSection
+- The original standalone Field Mappings section has been removed and superseded by entity pipelines
+- Each member/organisation entry uses the FieldMappingSection component inline
+- Each entry shows: label input, role selector (members only), and inline field mappings
 - Supports source type (form field / static value), target field, and transformation options
 - Primary entries marked with "Primary" badge
 - Entity selector hidden since target entity is fixed per section (member/organisation)
