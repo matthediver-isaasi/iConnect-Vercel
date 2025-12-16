@@ -56,6 +56,13 @@ The role management system uses a hierarchical Module→Page→Feature structure
 - Enabling a page within an excluded module: module exclusion removed, all OTHER pages individually excluded
 - Enabling a feature within an excluded page: page exclusion removed, all OTHER features individually excluded
 
+**Dynamic Role Access Configuration (December 2025):**
+- `client/src/pages/RoleAccessConfigManagement.jsx` - Admin UI for dynamically configuring the module/page/feature hierarchy
+- Stores configuration in `role_access_item` Supabase table with schema: id, item_type (module|page|feature), item_key, label, icon, parent_id, display_order, is_active
+- RoleManagement loads config from database with fallback to hardcoded ROLE_ACCESS_MAP if no rows exist
+- Supports seed-from-defaults and reset functionality for bootstrapping configurations
+- Navigation accessible under Admin > Role Management > Access Configuration
+
 # External Dependencies
 
 **Supabase:** Primary database (PostgreSQL) for application data, including CRUD and realtime subscriptions.
