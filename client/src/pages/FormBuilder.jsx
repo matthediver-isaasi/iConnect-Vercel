@@ -1060,19 +1060,26 @@ function LogicRulesSection({
                                   <div className="flex flex-wrap gap-2">
                                     {availableTargetFields.map(field => {
                                       const isSelected = (action.target_field_ids || []).includes(field.id);
-                                      const ActionIcon = isDisabilityAction 
-                                        ? (isSelected ? Lock : Unlock) 
-                                        : (isSelected ? Eye : EyeOff);
+                                      // Determine background color based on action type and selection
+                                      let buttonClass = "h-7 text-xs ";
+                                      if (isSelected) {
+                                        if (action.action_type === 'show' || action.action_type === 'enable') {
+                                          // Green for show/enable actions
+                                          buttonClass += "bg-green-600 hover:bg-green-700 text-white border-green-600";
+                                        } else if (action.action_type === 'hide' || action.action_type === 'disable') {
+                                          // Red for hide/disable actions
+                                          buttonClass += "bg-red-600 hover:bg-red-700 text-white border-red-600";
+                                        }
+                                      }
                                       return (
                                         <Button
                                           key={field.id}
                                           variant={isSelected ? "default" : "outline"}
                                           size="sm"
-                                          className="h-7 text-xs"
+                                          className={buttonClass}
                                           onClick={() => toggleTargetFieldInAction(rule.id, action.id, field.id)}
                                           data-testid={`button-action-target-${index}-${actionIndex}-${field.id}`}
                                         >
-                                          <ActionIcon className="w-3 h-3 mr-1" />
                                           {field.label || field.type}
                                         </Button>
                                       );
