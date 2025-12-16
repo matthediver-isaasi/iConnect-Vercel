@@ -1789,6 +1789,8 @@ export default function FormBuilderPage() {
     field_mappings: [], // Submission field mappings with transformations
     submission_email_template_id: null,
     submission_email_recipient: '',
+    submission_email_cc: '',
+    submission_email_bcc: '',
     prefill_source: "none", // "none", "member", or "organization" - enables pre-populating form from entity data
     visibility_rules: [] // Conditional logic rules: [{id, rule_type, trigger_field_id, operator, value, action, target_field_ids, target_field_id, set_value_source, set_value, set_value_field_id, set_value_prefill_field}]
   });
@@ -1951,6 +1953,8 @@ export default function FormBuilderPage() {
         field_mappings: existingForm.field_mappings || [],
         submission_email_template_id: existingForm.submission_email_template_id || null,
         submission_email_recipient: existingForm.submission_email_recipient || '',
+        submission_email_cc: existingForm.submission_email_cc || '',
+        submission_email_bcc: existingForm.submission_email_bcc || '',
         prefill_source: existingForm.prefill_source || "none",
         visibility_rules: (existingForm.visibility_rules || []).map(rule => ({
           ...rule,
@@ -2494,18 +2498,44 @@ export default function FormBuilderPage() {
                   </Select>
                 </div>
                 {formData.submission_email_template_id && (
-                  <div>
-                    <Label className="text-xs text-slate-600 mb-1">Send To (Field or Address)</Label>
-                    <Input
-                      value={formData.submission_email_recipient || ''}
-                      onChange={(e) => setFormData({ ...formData, submission_email_recipient: e.target.value })}
-                      placeholder="{{email}} or admin@example.com"
-                      data-testid="input-submission-email-recipient"
-                    />
-                    <p className="text-xs text-slate-500 mt-1">
-                      Use {'{{field_id}}'} for a form field value, or enter a fixed email address
-                    </p>
-                  </div>
+                  <>
+                    <div>
+                      <Label className="text-xs text-slate-600 mb-1">Send To (Field or Address)</Label>
+                      <Input
+                        value={formData.submission_email_recipient || ''}
+                        onChange={(e) => setFormData({ ...formData, submission_email_recipient: e.target.value })}
+                        placeholder="{{email}} or admin@example.com"
+                        data-testid="input-submission-email-recipient"
+                      />
+                      <p className="text-xs text-slate-500 mt-1">
+                        Use {'{{field_id}}'} for a form field value, or enter a fixed email address
+                      </p>
+                    </div>
+                    <div>
+                      <Label className="text-xs text-slate-600 mb-1">CC (Optional)</Label>
+                      <Input
+                        value={formData.submission_email_cc || ''}
+                        onChange={(e) => setFormData({ ...formData, submission_email_cc: e.target.value })}
+                        placeholder="cc@example.com, another@example.com"
+                        data-testid="input-submission-email-cc"
+                      />
+                      <p className="text-xs text-slate-500 mt-1">
+                        Comma-separated addresses or {'{{field_id}}'}
+                      </p>
+                    </div>
+                    <div>
+                      <Label className="text-xs text-slate-600 mb-1">BCC (Optional)</Label>
+                      <Input
+                        value={formData.submission_email_bcc || ''}
+                        onChange={(e) => setFormData({ ...formData, submission_email_bcc: e.target.value })}
+                        placeholder="bcc@example.com"
+                        data-testid="input-submission-email-bcc"
+                      />
+                      <p className="text-xs text-slate-500 mt-1">
+                        Comma-separated addresses or {'{{field_id}}'}
+                      </p>
+                    </div>
+                  </>
                 )}
               </div>
             </div>
