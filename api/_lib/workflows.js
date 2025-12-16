@@ -54,12 +54,16 @@ async function executeWorkflowActions(workflow, entityType, entityId, entityData
       }
       
       const to = replacePlaceholders(action.config?.to || '', entityType, entityData);
+      const cc = action.config?.cc ? replacePlaceholders(action.config.cc, entityType, entityData) : undefined;
+      const bcc = action.config?.bcc ? replacePlaceholders(action.config.bcc, entityType, entityData) : undefined;
       subject = replacePlaceholders(subject, entityType, entityData);
       body = replacePlaceholders(body, entityType, entityData);
       
       console.log(`[Workflows] Sending email - to: "${to}", subject: "${subject}", body length: ${body?.length}`);
+      if (cc) console.log(`[Workflows] CC: "${cc}"`);
+      if (bcc) console.log(`[Workflows] BCC: "${bcc}"`);
       
-      const emailResult = await sendEmail({ to, subject, html: body, from: fromEmail, replyTo });
+      const emailResult = await sendEmail({ to, subject, html: body, from: fromEmail, replyTo, cc, bcc });
       console.log(`[Workflows] Email result:`, JSON.stringify(emailResult));
       
       results.push({ 
