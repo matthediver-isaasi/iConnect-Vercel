@@ -2500,16 +2500,60 @@ export default function FormBuilderPage() {
                 {formData.submission_email_template_id && (
                   <>
                     <div>
-                      <Label className="text-xs text-slate-600 mb-1">Send To (Field or Address)</Label>
-                      <Input
-                        value={formData.submission_email_recipient || ''}
-                        onChange={(e) => setFormData({ ...formData, submission_email_recipient: e.target.value })}
-                        placeholder="{{email}} or admin@example.com"
-                        data-testid="input-submission-email-recipient"
-                      />
-                      <p className="text-xs text-slate-500 mt-1">
-                        Use {'{{field_id}}'} for a form field value, or enter a fixed email address
-                      </p>
+                      <Label className="text-xs text-slate-600 mb-1">Send To</Label>
+                      {(() => {
+                        const emailFields = formData.fields.filter(f => 
+                          f.type === 'email' || f.type === 'user_email'
+                        );
+                        const currentValue = formData.submission_email_recipient || '';
+                        const isFieldRef = currentValue.startsWith('{{') && currentValue.endsWith('}}');
+                        const selectedFieldId = isFieldRef ? currentValue.slice(2, -2) : null;
+                        const isCustom = currentValue && !isFieldRef;
+                        
+                        return (
+                          <div className="space-y-2">
+                            <Select
+                              value={isCustom ? '_custom' : (selectedFieldId || '_custom')}
+                              onValueChange={(val) => {
+                                if (val === '_custom') {
+                                  setFormData({ ...formData, submission_email_recipient: '' });
+                                } else {
+                                  setFormData({ ...formData, submission_email_recipient: `{{${val}}}` });
+                                }
+                              }}
+                            >
+                              <SelectTrigger data-testid="select-submission-email-recipient">
+                                <SelectValue placeholder="Select email source" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {emailFields.length > 0 && (
+                                  <>
+                                    {emailFields.map(field => (
+                                      <SelectItem key={field.id} value={field.id}>
+                                        {field.label || field.id}
+                                      </SelectItem>
+                                    ))}
+                                  </>
+                                )}
+                                <SelectItem value="_custom">Custom email address</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            {(isCustom || (!selectedFieldId && !isFieldRef)) && (
+                              <Input
+                                value={isCustom ? currentValue : ''}
+                                onChange={(e) => setFormData({ ...formData, submission_email_recipient: e.target.value })}
+                                placeholder="admin@example.com"
+                                data-testid="input-submission-email-recipient"
+                              />
+                            )}
+                            {emailFields.length === 0 && (
+                              <p className="text-xs text-slate-500">
+                                No email fields on form. Add an email field or enter a custom address.
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
                     <div>
                       <Label className="text-xs text-slate-600 mb-1">CC (Optional)</Label>
