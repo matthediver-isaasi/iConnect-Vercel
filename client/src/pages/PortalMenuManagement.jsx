@@ -18,21 +18,26 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 import { ROLE_ACCESS_MAP } from "@/lib/roleAccessMap";
 
-// Build flat list of all role access IDs for dropdown
-const roleAccessOptions = (() => {
-  const options = [{ value: "", label: "(Auto-generate from page)" }];
+// Build grouped role access options by module for better organization
+const groupedRoleAccessOptions = (() => {
+  const groups = [];
   for (const module of ROLE_ACCESS_MAP) {
-    options.push({ value: module.id, label: `${module.label} (module)`, type: 'module' });
+    const items = [];
+    // Add module itself
+    items.push({ value: module.id, label: module.label, type: 'module' });
+    // Add pages
     for (const page of module.pages) {
-      options.push({ value: page.id, label: `  ${page.label}`, type: 'page' });
+      items.push({ value: page.id, label: page.label, type: 'page' });
+      // Add features
       if (page.features) {
         for (const feature of page.features) {
-          options.push({ value: feature.id, label: `    ${feature.label}`, type: 'feature' });
+          items.push({ value: feature.id, label: feature.label, type: 'feature', parentPage: page.label });
         }
       }
     }
+    groups.push({ module: module.label, icon: module.icon, items });
   }
-  return options;
+  return groups;
 })();
 
 const availableIcons = {
@@ -154,6 +159,8 @@ export default function PortalMenuManagementPage() {
   const [showDialog, setShowDialog] = useState(false);
   const [expandedItems, setExpandedItems] = useState({});
   const [pageSelectOpen, setPageSelectOpen] = useState(false);
+  const [roleAccessOpen, setRoleAccessOpen] = useState(false);
+  const [roleAccessSearch, setRoleAccessSearch] = useState("");
 
   const queryClient = useQueryClient();
 
@@ -631,26 +638,85 @@ export default function PortalMenuManagementPage() {
 
                 <div className="space-y-2">
                   <Label>Role Access ID (for permissions)</Label>
-                  <Select
-                    value={editingItem.feature_id || "_auto"}
-                    onValueChange={(value) => setEditingItem({ ...editingItem, feature_id: value === "_auto" ? "" : value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="(Auto-generate from page)" />
-                    </SelectTrigger>
-                    <SelectContent className="max-h-[300px]">
-                      <SelectItem value="_auto">(Auto-generate from page)</SelectItem>
-                      {roleAccessOptions.filter(o => o.value).map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Popover open={roleAccessOpen} onOpenChange={setRoleAccessOpen}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        role="combobox"
+                        aria-expanded={roleAccessOpen}
+                        className="w-full justify-between font-normal"
+                        data-testid="button-role-access-select"
+                      >
+                        {editingItem.feature_id ? (
+                          <span className="truncate">{editingItem.feature_id}</span>
+                        ) : (
+                          <span className="text-muted-foreground">(Auto-generate from page)</span>
+                        )}
+                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[400px] p-0" align="start">
+                      <Command>
+                        <CommandInput 
+                          placeholder="Search permissions..." 
+                          value={roleAccessSearch}
+                          onValueChange={setRoleAccessSearch}
+                          data-testid="input-role-access-search"
+                        />
+                        <div className="max-h-[300px] overflow-y-auto">
+                          <CommandEmpty>No permission found.</CommandEmpty>
+                          <CommandGroup>
+                            <CommandItem
+                              value="_auto"
+                              onSelect={() => {
+                                setEditingItem({ ...editingItem, feature_id: "" });
+                                setRoleAccessOpen(false);
+                                setRoleAccessSearch("");
+                              }}
+                              data-testid="option-role-access-auto"
+                            >
+                              <Check className={cn("mr-2 h-4 w-4", !editingItem.feature_id ? "opacity-100" : "opacity-0")} />
+                              <span className="text-muted-foreground italic">(Auto-generate from page)</span>
+                            </CommandItem>
+                          </CommandGroup>
+                          {groupedRoleAccessOptions.map((group) => (
+                            <CommandGroup key={group.module} heading={group.module}>
+                              {group.items.map((item) => (
+                                <CommandItem
+                                  key={item.value}
+                                  value={`${group.module} ${item.label} ${item.value}`}
+                                  onSelect={() => {
+                                    setEditingItem({ ...editingItem, feature_id: item.value });
+                                    setRoleAccessOpen(false);
+                                    setRoleAccessSearch("");
+                                  }}
+                                  data-testid={`option-role-access-${item.value}`}
+                                >
+                                  <Check className={cn("mr-2 h-4 w-4", editingItem.feature_id === item.value ? "opacity-100" : "opacity-0")} />
+                                  <div className="flex items-center gap-2">
+                                    {item.type === 'module' && (
+                                      <Badge variant="outline" className="text-xs px-1.5 py-0 bg-blue-50 text-blue-700 border-blue-200">Module</Badge>
+                                    )}
+                                    {item.type === 'page' && (
+                                      <Badge variant="outline" className="text-xs px-1.5 py-0 bg-green-50 text-green-700 border-green-200">Page</Badge>
+                                    )}
+                                    {item.type === 'feature' && (
+                                      <Badge variant="outline" className="text-xs px-1.5 py-0 bg-amber-50 text-amber-700 border-amber-200">Feature</Badge>
+                                    )}
+                                    <span>{item.label}</span>
+                                  </div>
+                                </CommandItem>
+                              ))}
+                            </CommandGroup>
+                          ))}
+                        </div>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
                   <p className="text-xs text-slate-500">
                     Select a Role Access ID to link this menu item to the permissions system. 
                     When blocked in Role Management, this item will be hidden.
-                    {editingItem.feature_id && editingItem.feature_id !== "_auto" && (
+                    {editingItem.feature_id && (
                       <span className="block mt-1 font-medium text-blue-600">
                         Current: {editingItem.feature_id}
                       </span>
