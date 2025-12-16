@@ -30,6 +30,9 @@ interface EmailActionConfig {
   to: string;
   subject: string;
   body: string;
+  cc?: string;
+  bcc?: string;
+  template_id?: string;
 }
 
 interface UpdateFieldActionConfig {
@@ -59,6 +62,7 @@ interface ExecutionResult {
   status: 'success' | 'failed';
   result?: any;
   error?: string;
+  template_id?: string;
 }
 
 // Evaluate a single condition against entity data
@@ -150,31 +154,66 @@ function replacePlaceholders(template: string, entityType: string, entityData: a
 
 // Execute email action
 async function executeEmailAction(config: EmailActionConfig, entityType: string, entityData: any): Promise<ExecutionResult> {
+  let subject = config.subject || '';
+  let body = config.body || '';
+  
+  // If using template mode, fetch the template content
+  if (config.template_id && supabase) {
+    try {
+      const { data: template } = await supabase
+        .from('email_template')
+        .select('subject, body')
+        .eq('id', config.template_id)
+        .single();
+      
+      if (template) {
+        subject = template.subject || subject;
+        body = template.body || body;
+        console.log(`[Workflow Engine] Using email template: ${config.template_id}`);
+      } else {
+        console.warn(`[Workflow Engine] Email template not found: ${config.template_id}`);
+      }
+    } catch (err) {
+      console.error(`[Workflow Engine] Failed to fetch email template:`, err);
+    }
+  }
+
   const to = replacePlaceholders(config.to, entityType, entityData);
-  const subject = replacePlaceholders(config.subject, entityType, entityData);
-  const body = replacePlaceholders(config.body, entityType, entityData);
+  const resolvedSubject = replacePlaceholders(subject, entityType, entityData);
+  const resolvedBody = replacePlaceholders(body, entityType, entityData);
+  const cc = config.cc ? replacePlaceholders(config.cc, entityType, entityData) : undefined;
+  const bcc = config.bcc ? replacePlaceholders(config.bcc, entityType, entityData) : undefined;
 
   console.log(`[Workflow Engine] Sending email to: ${to}`);
-  console.log(`[Workflow Engine] Subject: ${subject}`);
+  console.log(`[Workflow Engine] Subject: ${resolvedSubject}`);
+  if (cc) console.log(`[Workflow Engine] CC: ${cc}`);
+  if (bcc) console.log(`[Workflow Engine] BCC: ${bcc}`);
+
+  // Build email options
+  const emailOptions: any = {
+    to,
+    subject: resolvedSubject,
+    html: resolvedBody,
+  };
+  
+  if (cc) emailOptions.cc = cc;
+  if (bcc) emailOptions.bcc = bcc;
 
   // Send email via Mailgun
-  const emailResult = await sendMailgunEmail({
-    to,
-    subject,
-    html: body,
-  });
+  const emailResult = await sendMailgunEmail(emailOptions);
 
   if (emailResult.success) {
     return {
       action_type: 'send_email',
       status: 'success',
-      result: { to, subject, messageId: emailResult.messageId }
+      result: { to, subject: resolvedSubject, cc, bcc, messageId: emailResult.messageId }
     };
   } else {
     return {
       action_type: 'send_email',
       status: 'failed',
-      error: emailResult.error || 'Failed to send email'
+      error: emailResult.error || 'Failed to send email',
+      template_id: config.template_id
     };
   }
 }
