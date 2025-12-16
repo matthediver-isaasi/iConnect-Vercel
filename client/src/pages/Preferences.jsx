@@ -715,15 +715,22 @@ export default function PreferencesPage() {
               storedConfig = parsed.map(id => ({ id, visible: true }));
             }
             
+            // Remove deprecated 'engagement' section (now split into separate cards)
+            storedConfig = storedConfig.filter(s => s.id !== 'engagement');
+            
+            // Ensure password_security is always at the bottom
+            const passwordSection = storedConfig.find(s => s.id === 'password_security');
+            storedConfig = storedConfig.filter(s => s.id !== 'password_security');
+            
             // Merge with DEFAULT_SECTION_CONFIG to include any new sections
-            // that weren't in the stored config (like 'communications')
+            // that weren't in the stored config
             const storedIds = storedConfig.map(s => s.id);
             const newSections = DEFAULT_SECTION_CONFIG.filter(
-              defaultSection => !storedIds.includes(defaultSection.id)
+              defaultSection => !storedIds.includes(defaultSection.id) && defaultSection.id !== 'password_security'
             );
             
-            // Add new sections at the end of the stored config
-            return [...storedConfig, ...newSections];
+            // Add new sections, then password_security at the very end
+            return [...storedConfig, ...newSections, passwordSection || { id: 'password_security', visible: true }];
           }
         } catch {
           return DEFAULT_SECTION_CONFIG;
