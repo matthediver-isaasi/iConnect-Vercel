@@ -63,6 +63,7 @@ const builtInPages = [
   { value: "DiscountCodeManagement", label: "Discount Code Management" },
   { value: "DynamicDirectoryManagement", label: "Dynamic Directory Management" },
   { value: "DynamicPage", label: "Dynamic Page" },
+  { value: "EmailTemplateManagement", label: "Email Templates" },
   { value: "EventDetails", label: "Event Details" },
   { value: "Events", label: "Events" },
   { value: "EventSettings", label: "Event Settings" },
@@ -110,6 +111,7 @@ const builtInPages = [
   { value: "PortalMenuManagement", label: "Portal Menu Management" },
   { value: "PortalNavigationManagement", label: "Portal Navigation Management" },
   { value: "PostJob", label: "Post Job" },
+  { value: "Preferences", label: "User Preferences" },
   { value: "PreferenceSettings", label: "Preference Settings" },
   { value: "About-me", label: "About Me" },
   { value: "PublicAbout", label: "Public - About" },
@@ -138,6 +140,7 @@ const builtInPages = [
   { value: "VoucherManagement", label: "Voucher Management" },
   { value: "ViewPage", label: "View Page" },
   { value: "WallOfFameManagement", label: "Wall of Fame" },
+  { value: "WorkflowManagement", label: "Workflow Management" },
   { value: "ZoomWebinarProvisioning", label: "Zoom Webinar Management" },
   { value: "SpeakerManagement", label: "Speaker Management" }
 ];
