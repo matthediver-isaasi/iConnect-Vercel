@@ -30,6 +30,7 @@ export const ROLE_ACCESS_MAP: Module[] = [
           { id: "user.about-me.change-password", label: "Change Password" },
           { id: "user.about-me.show-in-directory", label: "Show in Member Directory Toggle" },
           { id: "user.about-me.communication-preferences", label: "Communication Preferences" },
+          { id: "user.about-me.additional-info", label: "Additional Info" },
           { id: "user.about-me.engagement-stats", label: "Engagement Stats" },
           { id: "user.about-me.engagement-awards", label: "Engagement Awards" },
           { id: "user.about-me.groups", label: "Groups" },

@@ -2391,6 +2391,7 @@ export default function PreferencesPage() {
         );
 
       case 'additional_info':
+        if (isFeatureExcluded('user.about-me.additional-info')) return null;
         if (preferenceFields.length === 0 && !preferenceFieldsLoading) return null;
         return (
           <Card key="additional_info" className="border-slate-200 shadow-sm">
