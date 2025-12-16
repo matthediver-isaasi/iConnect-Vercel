@@ -1410,6 +1410,277 @@ const ORG_PREFILL_FIELDS = [
   { value: 'website_url', label: 'Website URL' },
 ];
 
+// EmailCard component for configuring individual email notifications
+function EmailCard({
+  email,
+  index,
+  emailTemplates,
+  formFields,
+  onUpdate,
+  onRemove
+}) {
+  const selectedTemplate = emailTemplates.find(t => t.id === email.template_id);
+  
+  // Extract placeholders from template
+  const extractPlaceholders = (text) => {
+    if (!text) return [];
+    const regex = /\{\{([^}]+)\}\}/g;
+    const placeholders = [];
+    let match;
+    while ((match = regex.exec(text)) !== null) {
+      const placeholder = match[1].trim();
+      if (!placeholders.includes(placeholder)) {
+        placeholders.push(placeholder);
+      }
+    }
+    return placeholders;
+  };
+  
+  const SYSTEM_PREFIXES = ['member.', 'organization.', 'form.', 'submission.'];
+  const isSystemPlaceholder = (p) => SYSTEM_PREFIXES.some(prefix => p.startsWith(prefix));
+  
+  const allPlaceholders = selectedTemplate ? [...new Set([
+    ...extractPlaceholders(selectedTemplate.subject),
+    ...extractPlaceholders(selectedTemplate.body)
+  ])] : [];
+  
+  const customPlaceholders = allPlaceholders.filter(p => !isSystemPlaceholder(p));
+  
+  // Get email fields from form
+  const emailFields = formFields.filter(f => f.type === 'email' || f.type === 'user_email');
+  
+  // Helper to parse recipient field value
+  const parseRecipientValue = (value) => {
+    if (!value) return { type: '_custom', fieldId: null };
+    if (value.startsWith('{{') && value.endsWith('}}')) {
+      return { type: 'field', fieldId: value.slice(2, -2) };
+    }
+    return { type: '_custom', fieldId: null };
+  };
+  
+  const recipientInfo = parseRecipientValue(email.recipient);
+  const ccInfo = parseRecipientValue(email.cc);
+  const bccInfo = parseRecipientValue(email.bcc);
+  
+  return (
+    <Card className="border-blue-200 bg-blue-50/30">
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Mail className="w-4 h-4 text-blue-600" />
+            <span className="text-sm font-medium">Email {index + 1}</span>
+            {selectedTemplate && (
+              <Badge variant="outline" className="text-xs">
+                {selectedTemplate.name}
+              </Badge>
+            )}
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onRemove}
+            className="h-7 w-7 text-red-600 hover:text-red-700 hover:bg-red-50"
+            data-testid={`button-remove-email-${email.id}`}
+          >
+            <Trash2 className="w-4 h-4" />
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* Template Selection */}
+        <div className="space-y-1">
+          <Label className="text-xs text-slate-600">Email Template</Label>
+          <Select
+            value={email.template_id || '_none'}
+            onValueChange={(val) => onUpdate({ 
+              template_id: val === '_none' ? null : val,
+              field_mapping: {} // Reset mappings when template changes
+            })}
+          >
+            <SelectTrigger data-testid={`select-email-template-${email.id}`}>
+              <SelectValue placeholder="Select template" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="_none">Select template...</SelectItem>
+              {emailTemplates.map(t => (
+                <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        
+        {email.template_id && (
+          <>
+            {/* Recipient (To) */}
+            <div className="space-y-1">
+              <Label className="text-xs text-slate-600">Send To</Label>
+              <div className="space-y-2">
+                <Select
+                  value={recipientInfo.type === 'field' ? recipientInfo.fieldId : '_custom'}
+                  onValueChange={(val) => {
+                    if (val === '_custom') {
+                      onUpdate({ recipient: '' });
+                    } else {
+                      onUpdate({ recipient: `{{${val}}}` });
+                    }
+                  }}
+                >
+                  <SelectTrigger data-testid={`select-email-recipient-${email.id}`}>
+                    <SelectValue placeholder="Select source" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {emailFields.length > 0 && emailFields.map(field => (
+                      <SelectItem key={field.id} value={field.id}>
+                        {field.label || field.id}
+                      </SelectItem>
+                    ))}
+                    <SelectItem value="_custom">Custom email address</SelectItem>
+                  </SelectContent>
+                </Select>
+                {recipientInfo.type === '_custom' && (
+                  <Input
+                    value={email.recipient || ''}
+                    onChange={(e) => onUpdate({ recipient: e.target.value })}
+                    placeholder="recipient@example.com"
+                    data-testid={`input-email-recipient-${email.id}`}
+                  />
+                )}
+              </div>
+            </div>
+            
+            {/* CC */}
+            <div className="space-y-1">
+              <Label className="text-xs text-slate-600">CC (Optional)</Label>
+              <div className="space-y-2">
+                <Select
+                  value={ccInfo.type === 'field' ? ccInfo.fieldId : (email.cc ? '_custom' : '_none')}
+                  onValueChange={(val) => {
+                    if (val === '_none') {
+                      onUpdate({ cc: '' });
+                    } else if (val === '_custom') {
+                      onUpdate({ cc: '' });
+                    } else {
+                      onUpdate({ cc: `{{${val}}}` });
+                    }
+                  }}
+                >
+                  <SelectTrigger data-testid={`select-email-cc-${email.id}`}>
+                    <SelectValue placeholder="None" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="_none">None</SelectItem>
+                    {emailFields.map(field => (
+                      <SelectItem key={field.id} value={field.id}>
+                        {field.label || field.id}
+                      </SelectItem>
+                    ))}
+                    <SelectItem value="_custom">Custom email address</SelectItem>
+                  </SelectContent>
+                </Select>
+                {(ccInfo.type === '_custom' || (email.cc && !email.cc.startsWith('{{'))) && (
+                  <Input
+                    value={email.cc || ''}
+                    onChange={(e) => onUpdate({ cc: e.target.value })}
+                    placeholder="cc@example.com"
+                    data-testid={`input-email-cc-${email.id}`}
+                  />
+                )}
+              </div>
+            </div>
+            
+            {/* BCC */}
+            <div className="space-y-1">
+              <Label className="text-xs text-slate-600">BCC (Optional)</Label>
+              <div className="space-y-2">
+                <Select
+                  value={bccInfo.type === 'field' ? bccInfo.fieldId : (email.bcc ? '_custom' : '_none')}
+                  onValueChange={(val) => {
+                    if (val === '_none') {
+                      onUpdate({ bcc: '' });
+                    } else if (val === '_custom') {
+                      onUpdate({ bcc: '' });
+                    } else {
+                      onUpdate({ bcc: `{{${val}}}` });
+                    }
+                  }}
+                >
+                  <SelectTrigger data-testid={`select-email-bcc-${email.id}`}>
+                    <SelectValue placeholder="None" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="_none">None</SelectItem>
+                    {emailFields.map(field => (
+                      <SelectItem key={field.id} value={field.id}>
+                        {field.label || field.id}
+                      </SelectItem>
+                    ))}
+                    <SelectItem value="_custom">Custom email address</SelectItem>
+                  </SelectContent>
+                </Select>
+                {(bccInfo.type === '_custom' || (email.bcc && !email.bcc.startsWith('{{'))) && (
+                  <Input
+                    value={email.bcc || ''}
+                    onChange={(e) => onUpdate({ bcc: e.target.value })}
+                    placeholder="bcc@example.com"
+                    data-testid={`input-email-bcc-${email.id}`}
+                  />
+                )}
+              </div>
+            </div>
+            
+            {/* Placeholder Field Mappings */}
+            {customPlaceholders.length > 0 && (
+              <div className="p-3 bg-slate-50 rounded-lg space-y-3">
+                <div>
+                  <Label className="text-xs font-medium">Map Placeholders</Label>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Map template placeholders to form fields
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  {customPlaceholders.map(placeholder => {
+                    const currentMapping = email.field_mapping?.[placeholder] || '';
+                    return (
+                      <div key={placeholder} className="flex items-center gap-2">
+                        <Badge variant="outline" className="font-mono text-xs shrink-0">
+                          {`{{${placeholder}}}`}
+                        </Badge>
+                        <Select
+                          value={currentMapping || '_none'}
+                          onValueChange={(val) => {
+                            onUpdate({
+                              field_mapping: {
+                                ...email.field_mapping,
+                                [placeholder]: val === '_none' ? '' : val
+                              }
+                            });
+                          }}
+                        >
+                          <SelectTrigger className="flex-1" data-testid={`select-placeholder-${email.id}-${placeholder}`}>
+                            <SelectValue placeholder="Select field" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="_none">Not mapped</SelectItem>
+                            {formFields.map(field => (
+                              <SelectItem key={field.id} value={field.id}>
+                                {field.label || field.id}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function FieldCard({ 
   field, 
   index, 
@@ -2026,6 +2297,8 @@ export default function FormBuilderPage() {
     submission_email_cc: '',
     submission_email_bcc: '',
     submission_email_field_mapping: {}, // Maps template placeholders to form field IDs: { "customer_name": "field_123" }
+    // New multi-email structure
+    submission_emails: [], // [{id, template_id, recipient, cc, bcc, field_mapping}]
     prefill_source: "none", // "none", "member", or "organization" - enables pre-populating form from entity data
     visibility_rules: [], // Conditional logic rules
     // Unified entity pipelines - replaces old member_entity_action, organization_entity_action, additional_member_creations
@@ -2358,6 +2631,19 @@ export default function FormBuilderPage() {
         submission_email_cc: existingForm.submission_email_cc || '',
         submission_email_bcc: existingForm.submission_email_bcc || '',
         submission_email_field_mapping: existingForm.submission_email_field_mapping || {},
+        // Load submission_emails array or migrate from legacy single email
+        submission_emails: existingForm.submission_emails?.length > 0 
+          ? existingForm.submission_emails 
+          : (existingForm.submission_email_template_id 
+            ? [{
+                id: `email_${Date.now()}`,
+                template_id: existingForm.submission_email_template_id,
+                recipient: existingForm.submission_email_recipient || '',
+                cc: existingForm.submission_email_cc || '',
+                bcc: existingForm.submission_email_bcc || '',
+                field_mapping: existingForm.submission_email_field_mapping || {}
+              }] 
+            : []),
         prefill_source: existingForm.prefill_source || "none",
         visibility_rules: (existingForm.visibility_rules || []).map(rule => ({
           ...rule,
@@ -2774,10 +3060,11 @@ export default function FormBuilderPage() {
 
         {/* Tabs for organizing form sections */}
         <Tabs defaultValue="builder" className="w-full">
-          <TabsList className="grid w-full grid-cols-4 mb-6" data-testid="formbuilder-tabs">
+          <TabsList className="grid w-full grid-cols-5 mb-6" data-testid="formbuilder-tabs">
             <TabsTrigger value="builder" data-testid="tab-builder">Builder</TabsTrigger>
             <TabsTrigger value="settings" data-testid="tab-settings">Form Settings</TabsTrigger>
             <TabsTrigger value="submission" data-testid="tab-submission">Submission Settings</TabsTrigger>
+            <TabsTrigger value="emails" data-testid="tab-emails">Emails</TabsTrigger>
             <TabsTrigger value="logic" data-testid="tab-logic">Conditional Logic</TabsTrigger>
           </TabsList>
 
@@ -2866,282 +3153,6 @@ export default function FormBuilderPage() {
                   onChange={(e) => setFormData({ ...formData, redirect_url: e.target.value })}
                   placeholder="https://example.com/thanks"
                 />
-              </div>
-            </div>
-
-            {/* Email on Submission */}
-            <div className="mt-4 pt-4 border-t border-slate-100 space-y-4">
-              <Label className="text-sm font-medium">Email on Submission</Label>
-              <p className="text-xs text-slate-500">Optionally send an email when the form is submitted</p>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <Label className="text-xs text-slate-600 mb-1">Email Template</Label>
-                  <Select
-                    value={formData.submission_email_template_id || '_none'}
-                    onValueChange={(val) => setFormData({ 
-                      ...formData, 
-                      submission_email_template_id: val === '_none' ? null : val 
-                    })}
-                  >
-                    <SelectTrigger data-testid="select-submission-email-template">
-                      <SelectValue placeholder="Select email template" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="_none">No email</SelectItem>
-                      {emailTemplates.map(t => (
-                        <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                {formData.submission_email_template_id && (
-                  <>
-                    <div>
-                      <Label className="text-xs text-slate-600 mb-1">Send To</Label>
-                      {(() => {
-                        const emailFields = formData.fields.filter(f => 
-                          f.type === 'email' || f.type === 'user_email'
-                        );
-                        const currentValue = formData.submission_email_recipient || '';
-                        const isFieldRef = currentValue.startsWith('{{') && currentValue.endsWith('}}');
-                        const selectedFieldId = isFieldRef ? currentValue.slice(2, -2) : null;
-                        const isCustom = currentValue && !isFieldRef;
-                        
-                        return (
-                          <div className="space-y-2">
-                            <Select
-                              value={isCustom ? '_custom' : (selectedFieldId || '_custom')}
-                              onValueChange={(val) => {
-                                if (val === '_custom') {
-                                  setFormData({ ...formData, submission_email_recipient: '' });
-                                } else {
-                                  setFormData({ ...formData, submission_email_recipient: `{{${val}}}` });
-                                }
-                              }}
-                            >
-                              <SelectTrigger data-testid="select-submission-email-recipient">
-                                <SelectValue placeholder="Select email source" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {emailFields.length > 0 && (
-                                  <>
-                                    {emailFields.map(field => (
-                                      <SelectItem key={field.id} value={field.id}>
-                                        {field.label || field.id}
-                                      </SelectItem>
-                                    ))}
-                                  </>
-                                )}
-                                <SelectItem value="_custom">Custom email address</SelectItem>
-                              </SelectContent>
-                            </Select>
-                            {(isCustom || (!selectedFieldId && !isFieldRef)) && (
-                              <Input
-                                value={isCustom ? currentValue : ''}
-                                onChange={(e) => setFormData({ ...formData, submission_email_recipient: e.target.value })}
-                                placeholder="admin@example.com"
-                                data-testid="input-submission-email-recipient"
-                              />
-                            )}
-                            {emailFields.length === 0 && (
-                              <p className="text-xs text-slate-500">
-                                No email fields on form. Add an email field or enter a custom address.
-                              </p>
-                            )}
-                          </div>
-                        );
-                      })()}
-                    </div>
-                    <div>
-                      <Label className="text-xs text-slate-600 mb-1">CC (Optional)</Label>
-                      {(() => {
-                        const emailFields = formData.fields.filter(f => 
-                          f.type === 'email' || f.type === 'user_email'
-                        );
-                        const currentValue = formData.submission_email_cc || '';
-                        const isFieldRef = currentValue.startsWith('{{') && currentValue.endsWith('}}');
-                        const selectedFieldId = isFieldRef ? currentValue.slice(2, -2) : null;
-                        const isCustom = currentValue && !isFieldRef;
-                        const showCustomInput = formData._ccCustomMode || isCustom;
-                        
-                        return (
-                          <div className="space-y-2">
-                            <Select
-                              value={showCustomInput ? '_custom' : (selectedFieldId || '_none')}
-                              onValueChange={(val) => {
-                                if (val === '_none') {
-                                  setFormData({ ...formData, submission_email_cc: '', _ccCustomMode: false });
-                                } else if (val === '_custom') {
-                                  setFormData({ ...formData, submission_email_cc: '', _ccCustomMode: true });
-                                } else {
-                                  setFormData({ ...formData, submission_email_cc: `{{${val}}}`, _ccCustomMode: false });
-                                }
-                              }}
-                            >
-                              <SelectTrigger data-testid="select-submission-email-cc">
-                                <SelectValue placeholder="Select CC source" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="_none">None</SelectItem>
-                                {emailFields.map(field => (
-                                  <SelectItem key={field.id} value={field.id}>
-                                    {field.label || field.id}
-                                  </SelectItem>
-                                ))}
-                                <SelectItem value="_custom">Custom email address</SelectItem>
-                              </SelectContent>
-                            </Select>
-                            {showCustomInput && (
-                              <Input
-                                value={currentValue}
-                                onChange={(e) => setFormData({ ...formData, submission_email_cc: e.target.value })}
-                                placeholder="cc@example.com, another@example.com"
-                                data-testid="input-submission-email-cc"
-                              />
-                            )}
-                          </div>
-                        );
-                      })()}
-                    </div>
-                    <div>
-                      <Label className="text-xs text-slate-600 mb-1">BCC (Optional)</Label>
-                      {(() => {
-                        const emailFields = formData.fields.filter(f => 
-                          f.type === 'email' || f.type === 'user_email'
-                        );
-                        const currentValue = formData.submission_email_bcc || '';
-                        const isFieldRef = currentValue.startsWith('{{') && currentValue.endsWith('}}');
-                        const selectedFieldId = isFieldRef ? currentValue.slice(2, -2) : null;
-                        const isCustom = currentValue && !isFieldRef;
-                        const showCustomInput = formData._bccCustomMode || isCustom;
-                        
-                        return (
-                          <div className="space-y-2">
-                            <Select
-                              value={showCustomInput ? '_custom' : (selectedFieldId || '_none')}
-                              onValueChange={(val) => {
-                                if (val === '_none') {
-                                  setFormData({ ...formData, submission_email_bcc: '', _bccCustomMode: false });
-                                } else if (val === '_custom') {
-                                  setFormData({ ...formData, submission_email_bcc: '', _bccCustomMode: true });
-                                } else {
-                                  setFormData({ ...formData, submission_email_bcc: `{{${val}}}`, _bccCustomMode: false });
-                                }
-                              }}
-                            >
-                              <SelectTrigger data-testid="select-submission-email-bcc">
-                                <SelectValue placeholder="Select BCC source" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="_none">None</SelectItem>
-                                {emailFields.map(field => (
-                                  <SelectItem key={field.id} value={field.id}>
-                                    {field.label || field.id}
-                                  </SelectItem>
-                                ))}
-                                <SelectItem value="_custom">Custom email address</SelectItem>
-                              </SelectContent>
-                            </Select>
-                            {showCustomInput && (
-                              <Input
-                                value={currentValue}
-                                onChange={(e) => setFormData({ ...formData, submission_email_bcc: e.target.value })}
-                                placeholder="bcc@example.com"
-                                data-testid="input-submission-email-bcc"
-                              />
-                            )}
-                          </div>
-                        );
-                      })()}
-                    </div>
-                    {/* Placeholder Field Mapping */}
-                    {formData.submission_email_template_id && (() => {
-                      // Find the selected template
-                      const selectedTemplate = emailTemplates.find(t => t.id === formData.submission_email_template_id);
-                      if (!selectedTemplate) return null;
-                      
-                      // Extract all placeholders from subject and body
-                      const extractPlaceholders = (text) => {
-                        if (!text) return [];
-                        const regex = /\{\{([^}]+)\}\}/g;
-                        const placeholders = [];
-                        let match;
-                        while ((match = regex.exec(text)) !== null) {
-                          const placeholder = match[1].trim();
-                          if (!placeholders.includes(placeholder)) {
-                            placeholders.push(placeholder);
-                          }
-                        }
-                        return placeholders;
-                      };
-                      
-                      // System placeholders are auto-resolved
-                      const SYSTEM_PREFIXES = ['member.', 'organization.', 'form.', 'submission.'];
-                      const isSystemPlaceholder = (p) => SYSTEM_PREFIXES.some(prefix => p.startsWith(prefix));
-                      
-                      const allPlaceholders = [...new Set([
-                        ...extractPlaceholders(selectedTemplate.subject),
-                        ...extractPlaceholders(selectedTemplate.body)
-                      ])];
-                      
-                      // Only show custom placeholders that need mapping
-                      const customPlaceholders = allPlaceholders.filter(p => !isSystemPlaceholder(p));
-                      
-                      if (customPlaceholders.length === 0) return null;
-                      
-                      return (
-                        <div className="md:col-span-2 mt-4 p-4 bg-slate-50 rounded-lg space-y-3">
-                          <div>
-                            <Label className="text-sm font-medium">Map Placeholders to Form Fields</Label>
-                            <p className="text-xs text-slate-500 mt-1">
-                              The selected template uses custom placeholders. Map each one to a form field.
-                            </p>
-                          </div>
-                          <div className="space-y-3">
-                            {customPlaceholders.map(placeholder => {
-                              const currentMapping = formData.submission_email_field_mapping?.[placeholder] || '';
-                              return (
-                                <div key={placeholder} className="flex items-center gap-3">
-                                  <div className="w-1/3">
-                                    <Badge variant="outline" className="font-mono text-xs">
-                                      {`{{${placeholder}}}`}
-                                    </Badge>
-                                  </div>
-                                  <div className="w-2/3">
-                                    <Select
-                                      value={currentMapping || '_none'}
-                                      onValueChange={(val) => {
-                                        setFormData({
-                                          ...formData,
-                                          submission_email_field_mapping: {
-                                            ...formData.submission_email_field_mapping,
-                                            [placeholder]: val === '_none' ? '' : val
-                                          }
-                                        });
-                                      }}
-                                    >
-                                      <SelectTrigger data-testid={`select-placeholder-mapping-${placeholder}`}>
-                                        <SelectValue placeholder="Select form field" />
-                                      </SelectTrigger>
-                                      <SelectContent>
-                                        <SelectItem value="_none">Not mapped</SelectItem>
-                                        {formData.fields.map(field => (
-                                          <SelectItem key={field.id} value={field.id}>
-                                            {field.label || field.id}
-                                          </SelectItem>
-                                        ))}
-                                      </SelectContent>
-                                    </Select>
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      );
-                    })()}
-                  </>
-                )}
               </div>
             </div>
 
@@ -3466,6 +3477,76 @@ export default function FormBuilderPage() {
                     </div>
                   )}
                 </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Emails Tab */}
+          <TabsContent value="emails">
+            <Card className="border-slate-200">
+              <CardHeader className="pb-4">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Mail className="w-5 h-5" />
+                  Email Notifications
+                </CardTitle>
+                <p className="text-sm text-slate-500">
+                  Configure emails to send when this form is submitted
+                </p>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* Email Cards */}
+                {formData.submission_emails.length === 0 ? (
+                  <div className="text-center py-8 text-slate-500">
+                    <Mail className="w-12 h-12 mx-auto mb-3 text-slate-300" />
+                    <p className="text-sm">No emails configured</p>
+                    <p className="text-xs text-slate-400 mt-1">Click "Add Email" to send emails on form submission</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {formData.submission_emails.map((email, idx) => (
+                      <EmailCard
+                        key={email.id}
+                        email={email}
+                        index={idx}
+                        emailTemplates={emailTemplates}
+                        formFields={formData.fields}
+                        onUpdate={(updates) => {
+                          const updatedEmails = [...formData.submission_emails];
+                          updatedEmails[idx] = { ...updatedEmails[idx], ...updates };
+                          setFormData({ ...formData, submission_emails: updatedEmails });
+                        }}
+                        onRemove={() => {
+                          const updatedEmails = formData.submission_emails.filter((_, i) => i !== idx);
+                          setFormData({ ...formData, submission_emails: updatedEmails });
+                        }}
+                      />
+                    ))}
+                  </div>
+                )}
+                
+                {/* Add Email Button */}
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    const newEmail = {
+                      id: `email_${Date.now()}`,
+                      template_id: null,
+                      recipient: '',
+                      cc: '',
+                      bcc: '',
+                      field_mapping: {}
+                    };
+                    setFormData({ 
+                      ...formData, 
+                      submission_emails: [...formData.submission_emails, newEmail] 
+                    });
+                  }}
+                  className="w-full"
+                  data-testid="button-add-email"
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add Email
+                </Button>
               </CardContent>
             </Card>
           </TabsContent>

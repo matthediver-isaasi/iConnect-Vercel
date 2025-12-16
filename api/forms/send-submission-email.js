@@ -45,102 +45,34 @@ export default async function handler(req, res) {
     }
 
     console.log('[FormSubmissionEmail] Form loaded:', form.name);
-    console.log('[FormSubmissionEmail] Email settings - template_id:', form.submission_email_template_id);
-    console.log('[FormSubmissionEmail] Email settings - recipient:', form.submission_email_recipient);
-    console.log('[FormSubmissionEmail] Email settings - cc:', form.submission_email_cc);
-    console.log('[FormSubmissionEmail] Email settings - bcc:', form.submission_email_bcc);
 
-    // Check if email on submission is enabled
-    if (!form.submission_email_template_id || !form.submission_email_recipient) {
-      console.log('[FormSubmissionEmail] Email on submission not configured - skipping');
-      return res.json({ success: true, skipped: true, reason: 'Email on submission not configured' });
+    // Build list of emails to send
+    let emailsToSend = [];
+
+    // Check for new multi-email format (submission_emails array)
+    if (form.submission_emails && Array.isArray(form.submission_emails) && form.submission_emails.length > 0) {
+      console.log('[FormSubmissionEmail] Using new multi-email format, count:', form.submission_emails.length);
+      emailsToSend = form.submission_emails.filter(e => e.template_id && e.recipient);
+    } 
+    // Fallback to legacy single email format
+    else if (form.submission_email_template_id && form.submission_email_recipient) {
+      console.log('[FormSubmissionEmail] Using legacy single email format');
+      emailsToSend = [{
+        id: 'legacy',
+        template_id: form.submission_email_template_id,
+        recipient: form.submission_email_recipient,
+        cc: form.submission_email_cc || '',
+        bcc: form.submission_email_bcc || '',
+        field_mapping: form.submission_email_field_mapping || {}
+      }];
     }
 
-    // Get the email template
-    const { data: template, error: templateError } = await supabase
-      .from('email_template')
-      .select('*')
-      .eq('id', form.submission_email_template_id)
-      .single();
-
-    if (templateError || !template) {
-      console.log('[FormSubmissionEmail] Email template not found:', form.submission_email_template_id, templateError);
-      return res.status(404).json({ error: 'Email template not found' });
+    if (emailsToSend.length === 0) {
+      console.log('[FormSubmissionEmail] No emails configured - skipping');
+      return res.json({ success: true, skipped: true, reason: 'No emails configured' });
     }
 
-    console.log('[FormSubmissionEmail] Template loaded:', template.name);
-
-    // Helper function to resolve email address from field reference or static value
-    const resolveEmailAddress = (value) => {
-      if (!value) return '';
-      
-      // Check if it's a field reference like {{field_id}}
-      if (value.startsWith('{{') && value.endsWith('}}')) {
-        const fieldId = value.slice(2, -2);
-        const fieldValue = form_values?.[fieldId];
-        console.log('[FormSubmissionEmail] Resolved field reference', fieldId, 'to:', fieldValue);
-        return fieldValue || '';
-      }
-      
-      // It's a static email address
-      return value;
-    };
-
-    // Resolve the recipient email address
-    const toEmail = resolveEmailAddress(form.submission_email_recipient);
-    const ccEmail = form.submission_email_cc ? resolveEmailAddress(form.submission_email_cc) : '';
-    const bccEmail = form.submission_email_bcc ? resolveEmailAddress(form.submission_email_bcc) : '';
-
-    console.log('[FormSubmissionEmail] Resolved emails - to:', toEmail, 'cc:', ccEmail, 'bcc:', bccEmail);
-
-    if (!toEmail) {
-      console.log('[FormSubmissionEmail] No valid recipient email resolved');
-      return res.json({ success: false, error: 'No valid recipient email' });
-    }
-
-    // Replace placeholders in template with form values
-    let emailSubject = template.subject || 'Form Submission';
-    let emailBody = template.body || '';
-
-    // Get the field mapping from the form
-    const fieldMapping = form.submission_email_field_mapping || {};
-    console.log('[FormSubmissionEmail] Field mapping:', JSON.stringify(fieldMapping));
-
-    // Helper to escape regex special chars
-    const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-    // Replace custom placeholders using the field mapping
-    for (const [placeholder, fieldId] of Object.entries(fieldMapping)) {
-      if (fieldId && form_values) {
-        const fieldValue = form_values[fieldId];
-        const displayValue = Array.isArray(fieldValue) ? fieldValue.join(', ') : (fieldValue || '');
-        const placeholderPattern = `{{${placeholder}}}`;
-        console.log('[FormSubmissionEmail] Replacing', placeholderPattern, 'with value from field', fieldId, ':', displayValue);
-        
-        emailSubject = emailSubject.replace(new RegExp(escapeRegex(placeholderPattern), 'g'), displayValue);
-        emailBody = emailBody.replace(new RegExp(escapeRegex(placeholderPattern), 'g'), displayValue);
-      }
-    }
-
-    // Replace form field placeholders (by field ID and label)
-    if (form_values && fields) {
-      for (const field of fields) {
-        const fieldValue = form_values[field.id];
-        const placeholder = `{{${field.id}}}`;
-        const labelPlaceholder = field.label ? `{{${field.label}}}` : null;
-        const displayValue = Array.isArray(fieldValue) ? fieldValue.join(', ') : (fieldValue || '');
-        
-        emailSubject = emailSubject.replace(new RegExp(escapeRegex(placeholder), 'g'), displayValue);
-        emailBody = emailBody.replace(new RegExp(escapeRegex(placeholder), 'g'), displayValue);
-        if (labelPlaceholder) {
-          emailSubject = emailSubject.replace(new RegExp(escapeRegex(labelPlaceholder), 'g'), displayValue);
-          emailBody = emailBody.replace(new RegExp(escapeRegex(labelPlaceholder), 'g'), displayValue);
-        }
-      }
-    }
-
-    // Replace [[placeholder]] core database placeholders
-    // These are auto-resolved from the submission's member/organization context
+    // Get member/org data for system placeholders
     const { data: submission, error: submissionError } = submission_id 
       ? await supabase.from('form_submission').select('member_id, organization_id').eq('id', submission_id).single()
       : { data: null, error: null };
@@ -158,70 +90,171 @@ export default async function handler(req, res) {
       organizationData = data;
     }
 
-    // Build core DB placeholders with [[]] syntax
-    const dbPlaceholders = {
-      'member.id': memberData?.id || '',
-      'member.full_name': memberData?.full_name || '',
-      'member.email': memberData?.email || '',
-      'member.phone': memberData?.phone || '',
-      'organization.id': organizationData?.id || '',
-      'organization.name': organizationData?.name || '',
-      'organization.invoicing_email': organizationData?.invoicing_email || '',
-      'organization.phone': organizationData?.phone || ''
+    // Helper to escape regex special chars
+    const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+    // Helper function to resolve email address from field reference or static value
+    const resolveEmailAddress = (value) => {
+      if (!value) return '';
+      
+      // Check if it's a field reference like {{field_id}}
+      if (value.startsWith('{{') && value.endsWith('}}')) {
+        const fieldId = value.slice(2, -2);
+        const fieldValue = form_values?.[fieldId];
+        console.log('[FormSubmissionEmail] Resolved field reference', fieldId, 'to:', fieldValue);
+        return fieldValue || '';
+      }
+      
+      // It's a static email address
+      return value;
     };
 
-    for (const [key, value] of Object.entries(dbPlaceholders)) {
-      const placeholder = `[[${key}]]`;
-      emailSubject = emailSubject.replace(new RegExp(escapeRegex(placeholder), 'g'), value);
-      emailBody = emailBody.replace(new RegExp(escapeRegex(placeholder), 'g'), value);
-    }
+    // Helper to replace placeholders in template content
+    const replacePlaceholders = (text, emailConfig) => {
+      if (!text) return '';
+      
+      let result = text;
+      const fieldMapping = emailConfig.field_mapping || {};
+      
+      // Replace custom placeholders using the field mapping
+      for (const [placeholder, fieldId] of Object.entries(fieldMapping)) {
+        if (fieldId && form_values) {
+          const fieldValue = form_values[fieldId];
+          const displayValue = Array.isArray(fieldValue) ? fieldValue.join(', ') : (fieldValue || '');
+          const placeholderPattern = `{{${placeholder}}}`;
+          result = result.replace(new RegExp(escapeRegex(placeholderPattern), 'g'), displayValue);
+        }
+      }
 
-    // Also support legacy {{}} syntax for backwards compatibility with existing templates
-    const systemPlaceholders = {
-      'form.name': form.name || '',
-      'submission.date': new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' }),
-      // Include member/org in legacy format too for backwards compat
-      'member.id': memberData?.id || '',
-      'member.full_name': memberData?.full_name || '',
-      'member.email': memberData?.email || '',
-      'member.phone': memberData?.phone || '',
-      'organization.id': organizationData?.id || '',
-      'organization.name': organizationData?.name || '',
-      'organization.invoicing_email': organizationData?.invoicing_email || '',
-      'organization.phone': organizationData?.phone || ''
+      // Replace form field placeholders (by field ID and label)
+      if (form_values && fields) {
+        for (const field of fields) {
+          const fieldValue = form_values[field.id];
+          const placeholder = `{{${field.id}}}`;
+          const labelPlaceholder = field.label ? `{{${field.label}}}` : null;
+          const displayValue = Array.isArray(fieldValue) ? fieldValue.join(', ') : (fieldValue || '');
+          
+          result = result.replace(new RegExp(escapeRegex(placeholder), 'g'), displayValue);
+          if (labelPlaceholder) {
+            result = result.replace(new RegExp(escapeRegex(labelPlaceholder), 'g'), displayValue);
+          }
+        }
+      }
+
+      // Replace [[placeholder]] core database placeholders
+      const dbPlaceholders = {
+        'member.id': memberData?.id || '',
+        'member.full_name': memberData?.full_name || '',
+        'member.email': memberData?.email || '',
+        'member.phone': memberData?.phone || '',
+        'organization.id': organizationData?.id || '',
+        'organization.name': organizationData?.name || '',
+        'organization.invoicing_email': organizationData?.invoicing_email || '',
+        'organization.phone': organizationData?.phone || ''
+      };
+
+      for (const [key, value] of Object.entries(dbPlaceholders)) {
+        const placeholder = `[[${key}]]`;
+        result = result.replace(new RegExp(escapeRegex(placeholder), 'g'), value);
+      }
+
+      // Also support legacy {{}} syntax for backwards compatibility
+      const systemPlaceholders = {
+        'form.name': form.name || '',
+        'submission.date': new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' }),
+        'member.id': memberData?.id || '',
+        'member.full_name': memberData?.full_name || '',
+        'member.email': memberData?.email || '',
+        'member.phone': memberData?.phone || '',
+        'organization.id': organizationData?.id || '',
+        'organization.name': organizationData?.name || '',
+        'organization.invoicing_email': organizationData?.invoicing_email || '',
+        'organization.phone': organizationData?.phone || ''
+      };
+      
+      for (const [key, value] of Object.entries(systemPlaceholders)) {
+        const placeholder = `{{${key}}}`;
+        result = result.replace(new RegExp(escapeRegex(placeholder), 'g'), value);
+      }
+
+      return result;
     };
-    for (const [key, value] of Object.entries(systemPlaceholders)) {
-      const placeholder = `{{${key}}}`;
-      emailSubject = emailSubject.replace(new RegExp(escapeRegex(placeholder), 'g'), value);
-      emailBody = emailBody.replace(new RegExp(escapeRegex(placeholder), 'g'), value);
-    }
 
-    console.log('[FormSubmissionEmail] Sending email...');
-    console.log('[FormSubmissionEmail] Subject:', emailSubject);
+    // Process each email configuration
+    const results = [];
+    
+    for (const emailConfig of emailsToSend) {
+      console.log('[FormSubmissionEmail] Processing email:', emailConfig.id, 'template:', emailConfig.template_id);
+      
+      // Get the email template
+      const { data: template, error: templateError } = await supabase
+        .from('email_template')
+        .select('*')
+        .eq('id', emailConfig.template_id)
+        .single();
 
-    // Send the email
-    const emailResult = await sendEmail({
-      to: toEmail,
-      subject: emailSubject,
-      html: emailBody,
-      cc: ccEmail || undefined,
-      bcc: bccEmail || undefined
-    });
+      if (templateError || !template) {
+        console.log('[FormSubmissionEmail] Email template not found:', emailConfig.template_id, templateError);
+        results.push({
+          id: emailConfig.id,
+          success: false,
+          error: 'Template not found'
+        });
+        continue;
+      }
 
-    console.log('[FormSubmissionEmail] Email result:', emailResult);
+      console.log('[FormSubmissionEmail] Template loaded:', template.name);
 
-    if (emailResult.success) {
-      return res.json({ 
-        success: true, 
+      // Resolve the recipient email address
+      const toEmail = resolveEmailAddress(emailConfig.recipient);
+      const ccEmail = emailConfig.cc ? resolveEmailAddress(emailConfig.cc) : '';
+      const bccEmail = emailConfig.bcc ? resolveEmailAddress(emailConfig.bcc) : '';
+
+      console.log('[FormSubmissionEmail] Resolved emails - to:', toEmail, 'cc:', ccEmail, 'bcc:', bccEmail);
+
+      if (!toEmail) {
+        console.log('[FormSubmissionEmail] No valid recipient email resolved');
+        results.push({
+          id: emailConfig.id,
+          success: false,
+          error: 'No valid recipient email'
+        });
+        continue;
+      }
+
+      // Replace placeholders in template
+      const emailSubject = replacePlaceholders(template.subject || 'Form Submission', emailConfig);
+      const emailBody = replacePlaceholders(template.body || '', emailConfig);
+
+      console.log('[FormSubmissionEmail] Sending email...');
+      console.log('[FormSubmissionEmail] Subject:', emailSubject);
+
+      // Send the email
+      const emailResult = await sendEmail({
+        to: toEmail,
+        subject: emailSubject,
+        html: emailBody,
+        cc: ccEmail || undefined,
+        bcc: bccEmail || undefined
+      });
+
+      console.log('[FormSubmissionEmail] Email result:', emailResult);
+
+      results.push({
+        id: emailConfig.id,
+        success: emailResult.success,
         messageId: emailResult.messageId,
-        to: toEmail 
-      });
-    } else {
-      return res.json({ 
-        success: false, 
-        error: emailResult.error 
+        to: toEmail,
+        error: emailResult.error
       });
     }
+
+    console.log('[FormSubmissionEmail] All emails processed, results:', results.length);
+
+    return res.json({ 
+      success: results.every(r => r.success),
+      emails: results 
+    });
   } catch (error) {
     console.error('[FormSubmissionEmail] Error:', error);
     res.status(500).json({ error: 'Failed to send submission email', details: error.message });
