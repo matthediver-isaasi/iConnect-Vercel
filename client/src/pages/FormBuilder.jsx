@@ -1791,6 +1791,7 @@ export default function FormBuilderPage() {
     submission_email_recipient: '',
     submission_email_cc: '',
     submission_email_bcc: '',
+    submission_email_field_mapping: {}, // Maps template placeholders to form field IDs: { "customer_name": "field_123" }
     prefill_source: "none", // "none", "member", or "organization" - enables pre-populating form from entity data
     visibility_rules: [] // Conditional logic rules: [{id, rule_type, trigger_field_id, operator, value, action, target_field_ids, target_field_id, set_value_source, set_value, set_value_field_id, set_value_prefill_field}]
   });
@@ -1955,6 +1956,7 @@ export default function FormBuilderPage() {
         submission_email_recipient: existingForm.submission_email_recipient || '',
         submission_email_cc: existingForm.submission_email_cc || '',
         submission_email_bcc: existingForm.submission_email_bcc || '',
+        submission_email_field_mapping: existingForm.submission_email_field_mapping || {},
         prefill_source: existingForm.prefill_source || "none",
         visibility_rules: (existingForm.visibility_rules || []).map(rule => ({
           ...rule,
@@ -2661,6 +2663,92 @@ export default function FormBuilderPage() {
                         );
                       })()}
                     </div>
+                    {/* Placeholder Field Mapping */}
+                    {formData.submission_email_template_id && (() => {
+                      // Find the selected template
+                      const selectedTemplate = emailTemplates.find(t => t.id === formData.submission_email_template_id);
+                      if (!selectedTemplate) return null;
+                      
+                      // Extract all placeholders from subject and body
+                      const extractPlaceholders = (text) => {
+                        if (!text) return [];
+                        const regex = /\{\{([^}]+)\}\}/g;
+                        const placeholders = [];
+                        let match;
+                        while ((match = regex.exec(text)) !== null) {
+                          const placeholder = match[1].trim();
+                          if (!placeholders.includes(placeholder)) {
+                            placeholders.push(placeholder);
+                          }
+                        }
+                        return placeholders;
+                      };
+                      
+                      // System placeholders are auto-resolved
+                      const SYSTEM_PREFIXES = ['member.', 'organization.', 'form.', 'submission.'];
+                      const isSystemPlaceholder = (p) => SYSTEM_PREFIXES.some(prefix => p.startsWith(prefix));
+                      
+                      const allPlaceholders = [...new Set([
+                        ...extractPlaceholders(selectedTemplate.subject),
+                        ...extractPlaceholders(selectedTemplate.body)
+                      ])];
+                      
+                      // Only show custom placeholders that need mapping
+                      const customPlaceholders = allPlaceholders.filter(p => !isSystemPlaceholder(p));
+                      
+                      if (customPlaceholders.length === 0) return null;
+                      
+                      return (
+                        <div className="md:col-span-2 mt-4 p-4 bg-slate-50 rounded-lg space-y-3">
+                          <div>
+                            <Label className="text-sm font-medium">Map Placeholders to Form Fields</Label>
+                            <p className="text-xs text-slate-500 mt-1">
+                              The selected template uses custom placeholders. Map each one to a form field.
+                            </p>
+                          </div>
+                          <div className="space-y-3">
+                            {customPlaceholders.map(placeholder => {
+                              const currentMapping = formData.submission_email_field_mapping?.[placeholder] || '';
+                              return (
+                                <div key={placeholder} className="flex items-center gap-3">
+                                  <div className="w-1/3">
+                                    <Badge variant="outline" className="font-mono text-xs">
+                                      {`{{${placeholder}}}`}
+                                    </Badge>
+                                  </div>
+                                  <div className="w-2/3">
+                                    <Select
+                                      value={currentMapping || '_none'}
+                                      onValueChange={(val) => {
+                                        setFormData({
+                                          ...formData,
+                                          submission_email_field_mapping: {
+                                            ...formData.submission_email_field_mapping,
+                                            [placeholder]: val === '_none' ? '' : val
+                                          }
+                                        });
+                                      }}
+                                    >
+                                      <SelectTrigger data-testid={`select-placeholder-mapping-${placeholder}`}>
+                                        <SelectValue placeholder="Select form field" />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="_none">Not mapped</SelectItem>
+                                        {formData.fields.map(field => (
+                                          <SelectItem key={field.id} value={field.id}>
+                                            {field.label || field.id}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </>
                 )}
               </div>

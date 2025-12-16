@@ -63,6 +63,33 @@ The role management system uses a hierarchical Module→Page→Feature structure
 - Supports seed-from-defaults and reset functionality for bootstrapping configurations
 - Navigation accessible under Admin > Role Management > Access Configuration
 
+## Email Template Placeholder System (December 2025)
+
+The platform supports dynamic email templates with placeholder substitution for form submissions:
+
+**Placeholder Types:**
+- System placeholders (auto-resolved): `{{member.full_name}}`, `{{member.email}}`, `{{organization.name}}`, `{{form.name}}`, `{{submission.date}}`
+- Custom placeholders: Any `{{custom_name}}` that can be mapped to form fields
+
+**Key Files:**
+- `client/src/pages/EmailTemplateManagement.jsx` - Template editor with placeholder detection and insertion
+- `client/src/pages/FormBuilder.jsx` - Form Settings tab → Email on Submission section with field mapping UI
+- `api/forms/send-submission-email.js` (Vercel) and `server/routes.ts` (Express) - Email sending with placeholder replacement
+
+**How it works:**
+1. Admin creates email template in EmailTemplateManagement, using `{{placeholder}}` syntax
+2. Template shows detected placeholders (system vs custom) automatically
+3. In FormBuilder, when an email template is selected, custom placeholders appear with dropdowns to map to form fields
+4. Form saves `submission_email_field_mapping` object: `{ "placeholder_name": "form_field_id" }`
+5. On form submission, the email API replaces all placeholders with actual values from the submission
+
+**Required Database Columns (form table):**
+- `submission_email_template_id` (TEXT/UUID)
+- `submission_email_recipient` (TEXT)
+- `submission_email_cc` (TEXT)
+- `submission_email_bcc` (TEXT)
+- `submission_email_field_mapping` (JSONB)
+
 # External Dependencies
 
 **Supabase:** Primary database (PostgreSQL) for application data, including CRUD and realtime subscriptions.

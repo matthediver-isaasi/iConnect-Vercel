@@ -33,7 +33,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2, Plus, Pencil, Trash2, Mail, Eye, Copy, Code, FileText } from "lucide-react";
+import { Loader2, Plus, Pencil, Trash2, Mail, Eye, Copy, Code, FileText, X, Info } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
@@ -59,6 +59,29 @@ const AVAILABLE_PLACEHOLDERS = [
   { value: '{{form.name}}', label: 'Form Name' },
   { value: '{{submission.date}}', label: 'Submission Date' },
 ];
+
+// System placeholders that are auto-resolved (not mapped from form fields)
+const SYSTEM_PLACEHOLDER_PREFIXES = ['member.', 'organization.', 'form.', 'submission.'];
+
+// Extract all {{placeholder}} patterns from text
+const extractPlaceholders = (text) => {
+  if (!text) return [];
+  const regex = /\{\{([^}]+)\}\}/g;
+  const placeholders = [];
+  let match;
+  while ((match = regex.exec(text)) !== null) {
+    const placeholder = match[1].trim();
+    if (!placeholders.includes(placeholder)) {
+      placeholders.push(placeholder);
+    }
+  }
+  return placeholders;
+};
+
+// Check if a placeholder is a system placeholder (auto-resolved)
+const isSystemPlaceholder = (placeholder) => {
+  return SYSTEM_PLACEHOLDER_PREFIXES.some(prefix => placeholder.startsWith(prefix));
+};
 
 const emptyTemplate = {
   name: '',
@@ -104,7 +127,39 @@ export default function EmailTemplateManagement() {
   const [formData, setFormData] = useState(emptyTemplate);
   const [activeTab, setActiveTab] = useState('all');
   const [isCodeView, setIsCodeView] = useState(false);
+  const [newPlaceholder, setNewPlaceholder] = useState('');
   const quillRef = useRef(null);
+
+  // Get all placeholders detected in the current template
+  const detectedPlaceholders = [...new Set([
+    ...extractPlaceholders(formData.subject),
+    ...extractPlaceholders(formData.body)
+  ])];
+  
+  // Split into system (auto-resolved) and custom (needs mapping) placeholders
+  const systemPlaceholders = detectedPlaceholders.filter(isSystemPlaceholder);
+  const customPlaceholders = detectedPlaceholders.filter(p => !isSystemPlaceholder(p));
+  
+  // Add a custom placeholder
+  const handleAddCustomPlaceholder = () => {
+    const cleaned = newPlaceholder.trim().replace(/[{}]/g, '');
+    if (!cleaned) {
+      toast.error('Please enter a placeholder name');
+      return;
+    }
+    if (isSystemPlaceholder(cleaned)) {
+      toast.error('This is a system placeholder - use the dropdown to insert it');
+      return;
+    }
+    // Insert the placeholder at the cursor or at the end
+    const placeholder = `{{${cleaned}}}`;
+    setFormData(prev => ({
+      ...prev,
+      body: prev.body + placeholder,
+    }));
+    setNewPlaceholder('');
+    toast.success(`Placeholder {{${cleaned}}} added`);
+  };
 
   const queryClient = useQueryClient();
 
@@ -546,6 +601,78 @@ export default function EmailTemplateManagement() {
                     : "Format your email visually. Switch to Code View to edit HTML directly."}
                   {" "}Placeholders like {"{{member.full_name}}"} will be replaced with actual values.
                 </p>
+              </div>
+
+              {/* Detected Placeholders Summary */}
+              {detectedPlaceholders.length > 0 && (
+                <div className="space-y-3 p-4 bg-muted/50 rounded-lg">
+                  <div className="flex items-center gap-2">
+                    <Info className="w-4 h-4 text-muted-foreground" />
+                    <Label className="text-sm font-medium">Placeholders in this template</Label>
+                  </div>
+                  
+                  {systemPlaceholders.length > 0 && (
+                    <div className="space-y-1">
+                      <p className="text-xs text-muted-foreground">System placeholders (auto-resolved):</p>
+                      <div className="flex flex-wrap gap-1">
+                        {systemPlaceholders.map(p => (
+                          <Badge key={p} variant="secondary" className="font-mono text-xs">
+                            {`{{${p}}}`}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {customPlaceholders.length > 0 && (
+                    <div className="space-y-1">
+                      <p className="text-xs text-muted-foreground">Custom placeholders (will be mapped from form fields):</p>
+                      <div className="flex flex-wrap gap-1">
+                        {customPlaceholders.map(p => (
+                          <Badge key={p} variant="outline" className="font-mono text-xs bg-primary/10">
+                            {`{{${p}}}`}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Add Custom Placeholder */}
+              <div className="space-y-2">
+                <Label className="text-sm">Add Custom Placeholder</Label>
+                <p className="text-xs text-muted-foreground">
+                  Custom placeholders can be mapped to form fields when using this template for form submissions.
+                </p>
+                <div className="flex gap-2">
+                  <div className="flex-1 relative">
+                    <span className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground font-mono text-sm">{'{{'}</span>
+                    <Input
+                      value={newPlaceholder}
+                      onChange={(e) => setNewPlaceholder(e.target.value)}
+                      placeholder="field_name"
+                      className="pl-7 pr-7 font-mono"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleAddCustomPlaceholder();
+                        }
+                      }}
+                      data-testid="input-new-placeholder"
+                    />
+                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground font-mono text-sm">{'}}'}</span>
+                  </div>
+                  <Button 
+                    type="button" 
+                    variant="outline" 
+                    onClick={handleAddCustomPlaceholder}
+                    data-testid="button-add-placeholder"
+                  >
+                    <Plus className="w-4 h-4 mr-1" />
+                    Add
+                  </Button>
+                </div>
               </div>
 
               <div className="flex items-center gap-2">

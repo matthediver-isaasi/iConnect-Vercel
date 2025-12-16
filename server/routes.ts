@@ -2148,24 +2148,52 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let emailSubject = template.subject || 'Form Submission';
       let emailBody = template.body || '';
 
-      // Replace form field placeholders
+      // Get the field mapping from the form
+      const fieldMapping = form.submission_email_field_mapping || {};
+      console.log('[FormSubmissionEmail] Field mapping:', JSON.stringify(fieldMapping));
+
+      // Helper to escape regex special chars
+      const escapeRegex = (str: string) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+      // Replace custom placeholders using the field mapping
+      for (const [placeholder, fieldId] of Object.entries(fieldMapping)) {
+        if (fieldId && form_values) {
+          const fieldValue = form_values[fieldId as string];
+          const displayValue = Array.isArray(fieldValue) ? fieldValue.join(', ') : (fieldValue || '');
+          const placeholderPattern = `{{${placeholder}}}`;
+          console.log('[FormSubmissionEmail] Replacing', placeholderPattern, 'with value from field', fieldId, ':', displayValue);
+          
+          emailSubject = emailSubject.replace(new RegExp(escapeRegex(placeholderPattern), 'g'), displayValue);
+          emailBody = emailBody.replace(new RegExp(escapeRegex(placeholderPattern), 'g'), displayValue);
+        }
+      }
+
+      // Replace form field placeholders (by field ID and label)
       if (form_values && fields) {
         for (const field of fields) {
           const fieldValue = form_values[field.id];
           const placeholder = `{{${field.id}}}`;
-          const labelPlaceholder = `{{${field.label}}}`;
+          const labelPlaceholder = field.label ? `{{${field.label}}}` : null;
           const displayValue = Array.isArray(fieldValue) ? fieldValue.join(', ') : (fieldValue || '');
           
-          emailSubject = emailSubject.replace(new RegExp(placeholder, 'g'), displayValue);
-          emailSubject = emailSubject.replace(new RegExp(labelPlaceholder, 'g'), displayValue);
-          emailBody = emailBody.replace(new RegExp(placeholder, 'g'), displayValue);
-          emailBody = emailBody.replace(new RegExp(labelPlaceholder, 'g'), displayValue);
+          emailSubject = emailSubject.replace(new RegExp(escapeRegex(placeholder), 'g'), displayValue);
+          emailBody = emailBody.replace(new RegExp(escapeRegex(placeholder), 'g'), displayValue);
+          if (labelPlaceholder) {
+            emailSubject = emailSubject.replace(new RegExp(escapeRegex(labelPlaceholder), 'g'), displayValue);
+            emailBody = emailBody.replace(new RegExp(escapeRegex(labelPlaceholder), 'g'), displayValue);
+          }
         }
       }
 
-      // Add form submission summary if not already in template
-      if (!emailBody.includes('{{submission_summary}}')) {
-        // Optionally append a summary of all fields
+      // Replace system placeholders
+      const systemPlaceholders: Record<string, string> = {
+        'form.name': form.name || '',
+        'submission.date': new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' })
+      };
+      for (const [key, value] of Object.entries(systemPlaceholders)) {
+        const placeholder = `{{${key}}}`;
+        emailSubject = emailSubject.replace(new RegExp(escapeRegex(placeholder), 'g'), value);
+        emailBody = emailBody.replace(new RegExp(escapeRegex(placeholder), 'g'), value);
       }
 
       console.log('[FormSubmissionEmail] Sending email...');
