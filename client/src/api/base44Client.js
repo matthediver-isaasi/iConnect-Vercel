@@ -246,6 +246,7 @@ class EntitiesProxy {
   get WorkflowLog() { return this._getEntity('WorkflowLog'); }
   get EmailTemplate() { return this._getEntity('EmailTemplate'); }
   get MemberResourceCategory() { return this._getEntity('MemberResourceCategory'); }
+  get RoleAccessItem() { return this._getEntity('RoleAccessItem'); }
 }
 
 class CoreIntegration {
