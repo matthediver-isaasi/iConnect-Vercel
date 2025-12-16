@@ -18,6 +18,21 @@ export interface Module {
 
 export const ROLE_ACCESS_MAP: Module[] = [
   {
+    id: "user",
+    label: "User",
+    icon: "Users",
+    pages: [
+      {
+        id: "user.about-me",
+        label: "About Me",
+        features: [
+          { id: "user.about-me.edit-profile", label: "Edit Profile" },
+          { id: "user.about-me.change-password", label: "Change Password" }
+        ]
+      }
+    ]
+  },
+  {
     id: "events",
     label: "Events",
     icon: "Calendar",
@@ -680,7 +695,10 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_PortalNavigationManagement": "system.portal-navigation",
   "action_article_edit": "content.articles.edit",
   "action_article_delete": "content.articles.delete",
-  "page_SupportManagement": "support.management"
+  "page_SupportManagement": "support.management",
+  "page_AboutMe": "user.about-me",
+  "page_Preferences_new": "user.about-me",
+  "communication.preferences": "user.about-me"
 };
 
 export function migrateLegacyFeatureId(legacyId: string): string {
