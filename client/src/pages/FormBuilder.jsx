@@ -2285,8 +2285,9 @@ export default function FormBuilderPage() {
       
       console.log('[FormBuilder] Entity creation validation - memberAction:', memberAction, 'orgAction:', orgAction);
       
-      // Check if organization name mapping is needed (when org action is not 'none')
-      const needsOrgName = orgAction !== 'none';
+      // Check if organization name mapping is needed (only when creating new orgs)
+      // 'update' only modifies existing records, so name mapping is not required
+      const needsOrgName = orgAction === 'create' || orgAction === 'upsert';
       
       if (needsOrgName) {
         const hasOrgNameMapping = (formData.field_mappings || []).some(
@@ -2301,8 +2302,9 @@ export default function FormBuilderPage() {
         }
       }
       
-      // Check if member email mapping is needed (when member action is not 'none')
-      const needsMemberEmail = memberAction !== 'none';
+      // Check if member email mapping is needed (only when creating new members)
+      // 'update' only modifies existing records, so email mapping is not required
+      const needsMemberEmail = memberAction === 'create' || memberAction === 'upsert';
       if (needsMemberEmail) {
         const hasMemberEmailMapping = (formData.field_mappings || []).some(
           m => m.target_entity === 'member' && m.target_field === 'email'
