@@ -2557,27 +2557,103 @@ export default function FormBuilderPage() {
                     </div>
                     <div>
                       <Label className="text-xs text-slate-600 mb-1">CC (Optional)</Label>
-                      <Input
-                        value={formData.submission_email_cc || ''}
-                        onChange={(e) => setFormData({ ...formData, submission_email_cc: e.target.value })}
-                        placeholder="cc@example.com, another@example.com"
-                        data-testid="input-submission-email-cc"
-                      />
-                      <p className="text-xs text-slate-500 mt-1">
-                        Comma-separated addresses or {'{{field_id}}'}
-                      </p>
+                      {(() => {
+                        const emailFields = formData.fields.filter(f => 
+                          f.type === 'email' || f.type === 'user_email'
+                        );
+                        const currentValue = formData.submission_email_cc || '';
+                        const isFieldRef = currentValue.startsWith('{{') && currentValue.endsWith('}}');
+                        const selectedFieldId = isFieldRef ? currentValue.slice(2, -2) : null;
+                        const isCustom = currentValue && !isFieldRef;
+                        
+                        return (
+                          <div className="space-y-2">
+                            <Select
+                              value={isCustom ? '_custom' : (selectedFieldId || '_none')}
+                              onValueChange={(val) => {
+                                if (val === '_none') {
+                                  setFormData({ ...formData, submission_email_cc: '' });
+                                } else if (val === '_custom') {
+                                  setFormData({ ...formData, submission_email_cc: '' });
+                                } else {
+                                  setFormData({ ...formData, submission_email_cc: `{{${val}}}` });
+                                }
+                              }}
+                            >
+                              <SelectTrigger data-testid="select-submission-email-cc">
+                                <SelectValue placeholder="Select CC source" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="_none">None</SelectItem>
+                                {emailFields.map(field => (
+                                  <SelectItem key={field.id} value={field.id}>
+                                    {field.label || field.id}
+                                  </SelectItem>
+                                ))}
+                                <SelectItem value="_custom">Custom email address</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            {isCustom && (
+                              <Input
+                                value={currentValue}
+                                onChange={(e) => setFormData({ ...formData, submission_email_cc: e.target.value })}
+                                placeholder="cc@example.com, another@example.com"
+                                data-testid="input-submission-email-cc"
+                              />
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
                     <div>
                       <Label className="text-xs text-slate-600 mb-1">BCC (Optional)</Label>
-                      <Input
-                        value={formData.submission_email_bcc || ''}
-                        onChange={(e) => setFormData({ ...formData, submission_email_bcc: e.target.value })}
-                        placeholder="bcc@example.com"
-                        data-testid="input-submission-email-bcc"
-                      />
-                      <p className="text-xs text-slate-500 mt-1">
-                        Comma-separated addresses or {'{{field_id}}'}
-                      </p>
+                      {(() => {
+                        const emailFields = formData.fields.filter(f => 
+                          f.type === 'email' || f.type === 'user_email'
+                        );
+                        const currentValue = formData.submission_email_bcc || '';
+                        const isFieldRef = currentValue.startsWith('{{') && currentValue.endsWith('}}');
+                        const selectedFieldId = isFieldRef ? currentValue.slice(2, -2) : null;
+                        const isCustom = currentValue && !isFieldRef;
+                        
+                        return (
+                          <div className="space-y-2">
+                            <Select
+                              value={isCustom ? '_custom' : (selectedFieldId || '_none')}
+                              onValueChange={(val) => {
+                                if (val === '_none') {
+                                  setFormData({ ...formData, submission_email_bcc: '' });
+                                } else if (val === '_custom') {
+                                  setFormData({ ...formData, submission_email_bcc: '' });
+                                } else {
+                                  setFormData({ ...formData, submission_email_bcc: `{{${val}}}` });
+                                }
+                              }}
+                            >
+                              <SelectTrigger data-testid="select-submission-email-bcc">
+                                <SelectValue placeholder="Select BCC source" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="_none">None</SelectItem>
+                                {emailFields.map(field => (
+                                  <SelectItem key={field.id} value={field.id}>
+                                    {field.label || field.id}
+                                  </SelectItem>
+                                ))}
+                                <SelectItem value="_custom">Custom email address</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            {isCustom && (
+                              <Input
+                                value={currentValue}
+                                onChange={(e) => setFormData({ ...formData, submission_email_bcc: e.target.value })}
+                                placeholder="bcc@example.com"
+                                data-testid="input-submission-email-bcc"
+                              />
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
                   </>
                 )}
