@@ -11,14 +11,14 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { ChevronRight, ChevronDown, Plus, Pencil, Trash2, GripVertical, Users, Shield, Menu, Calendar, CreditCard, Ticket, Wallet, ShoppingCart, History, Sparkles, FileText, Briefcase, Settings, BookOpen, Building, HelpCircle, BarChart3, FileEdit, AtSign, FolderTree, Trophy, MousePointer2, Mail, Download, Check, ChevronsUpDown } from "lucide-react";
 import { toast } from "sonner";
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from "@/components/ui/command";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 import { ROLE_ACCESS_MAP } from "@/lib/roleAccessMap";
 
-// Build grouped role access options by module for better organization
+// Build grouped role access options by module for better organization (sorted alphabetically)
 const groupedRoleAccessOptions = (() => {
   const groups = [];
   for (const module of ROLE_ACCESS_MAP) {
@@ -37,7 +37,8 @@ const groupedRoleAccessOptions = (() => {
     }
     groups.push({ module: module.label, icon: module.icon, items });
   }
-  return groups;
+  // Sort groups alphabetically by module name
+  return groups.sort((a, b) => a.module.localeCompare(b.module));
 })();
 
 const availableIcons = {
@@ -663,7 +664,7 @@ export default function PortalMenuManagementPage() {
                           onValueChange={setRoleAccessSearch}
                           data-testid="input-role-access-search"
                         />
-                        <div className="max-h-[300px] overflow-y-auto">
+                        <CommandList className="max-h-[300px]">
                           <CommandEmpty>No permission found.</CommandEmpty>
                           <CommandGroup>
                             <CommandItem
@@ -709,7 +710,7 @@ export default function PortalMenuManagementPage() {
                               ))}
                             </CommandGroup>
                           ))}
-                        </div>
+                        </CommandList>
                       </Command>
                     </PopoverContent>
                   </Popover>
