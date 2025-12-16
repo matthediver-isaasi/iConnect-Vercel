@@ -1419,7 +1419,6 @@ function FieldCard({
   FIELD_TYPES, 
   categories = [],
   customFields = [],
-  isApplicationForm = false,
   applicationLevel = "member",
   uniquenessChecks = [],
   onUniquenessChange,
@@ -1667,9 +1666,8 @@ function FieldCard({
                 </div>
               )}
 
-              {/* Uniqueness Check - Only for Application Forms */}
-              {isApplicationForm && (
-                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg space-y-3">
+              {/* Uniqueness Check */}
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg space-y-3">
                   <div className="flex items-center gap-2">
                     <Checkbox
                       id={`uniqueness-${field.id}`}
@@ -1736,8 +1734,7 @@ function FieldCard({
                       )}
                     </div>
                   )}
-                </div>
-              )}
+              </div>
 
               {field.type === 'boolean' && (
                 <div className="flex items-center justify-between p-3 bg-slate-50 border border-slate-200 rounded-lg">
@@ -3168,20 +3165,6 @@ export default function FormBuilderPage() {
                 <Label htmlFor="is_active" className="text-sm">Active</Label>
               </div>
 
-              <div className="flex items-center gap-2">
-                <Switch
-                  id="is_application_form"
-                  checked={formData.is_application_form}
-                  onCheckedChange={(checked) => setFormData({ 
-                    ...formData, 
-                    is_application_form: checked,
-                    uniqueness_checks: checked ? formData.uniqueness_checks : []
-                  })}
-                  data-testid="switch-application-form"
-                />
-                <Label htmlFor="is_application_form" className="text-sm">Application Form</Label>
-              </div>
-
               <div className="text-xs text-slate-500 ml-auto">
                 URL: /FormView?slug={formData.slug || 'your-slug'}
               </div>
@@ -3219,56 +3202,6 @@ export default function FormBuilderPage() {
 
         {/* Submission Settings Tab */}
           <TabsContent value="submission">
-            {/* Application Form Settings - moved here */}
-            {formData.is_application_form && (
-              <Card className="border-slate-200 mb-6">
-                <CardHeader className="pb-4">
-                  <CardTitle className="text-lg">Application Settings</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    <div className="flex items-center gap-4">
-                      <Label className="text-sm font-medium">Application Level:</Label>
-                      <div className="flex gap-3">
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="radio"
-                            id="level-member-tab"
-                            name="application_level_tab"
-                            value="member"
-                            checked={formData.application_level === "member"}
-                            onChange={() => setFormData({ ...formData, application_level: "member" })}
-                            className="w-4 h-4 text-blue-600"
-                            data-testid="radio-level-member"
-                          />
-                          <Label htmlFor="level-member-tab" className="text-sm cursor-pointer">Member Level</Label>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="radio"
-                            id="level-organization-tab"
-                            name="application_level_tab"
-                            value="organization"
-                            checked={formData.application_level === "organization"}
-                            onChange={() => setFormData({ ...formData, application_level: "organization" })}
-                            className="w-4 h-4 text-blue-600"
-                            data-testid="radio-level-organization"
-                          />
-                          <Label htmlFor="level-organization-tab" className="text-sm cursor-pointer">Organisation Level</Label>
-                        </div>
-                      </div>
-                    </div>
-                    <p className="text-xs text-slate-500">
-                      {formData.application_level === "member" 
-                        ? "Uniqueness will be checked against the Member table" 
-                        : "Uniqueness will be checked against the Organisation table (email fields use domain-only matching)"}
-                    </p>
-                    
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
             {/* Record Creation - Unified Member and Organisation Pipelines */}
             <Card className="border-slate-200 mb-6">
               <CardHeader className="pb-4">
@@ -3745,7 +3678,7 @@ export default function FormBuilderPage() {
                                       FIELD_TYPES={FIELD_TYPES}
                                       categories={categories}
                                       customFields={customFields}
-                                      isApplicationForm={formData.is_application_form}
+
                                       applicationLevel={formData.application_level}
                                       uniquenessChecks={formData.uniqueness_checks}
                                       onUniquenessChange={handleUniquenessChange}
@@ -3882,7 +3815,7 @@ export default function FormBuilderPage() {
                                                   FIELD_TYPES={FIELD_TYPES}
                                                   categories={categories}
                                                   customFields={customFields}
-                                                  isApplicationForm={formData.is_application_form}
+            
                                                   applicationLevel={formData.application_level}
                                                   uniquenessChecks={formData.uniqueness_checks}
                                                   onUniquenessChange={handleUniquenessChange}

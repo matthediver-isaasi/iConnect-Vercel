@@ -554,8 +554,9 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
       return base44.entities.FormSubmission.create(data);
     },
     onSuccess: async (submissionResult) => {
-      // For application forms with auto_create_entity, create member/org entities
-      if (form?.is_application_form && form?.auto_create_entity) {
+      // Process entity pipelines if configured (create/update member/org entities)
+      const hasEntityPipelines = (form?.entity_pipelines?.members?.length > 0) || (form?.entity_pipelines?.organisations?.length > 0);
+      if (hasEntityPipelines) {
         try {
           const response = await fetch('/api/forms/process-application', {
             method: 'POST',
@@ -682,8 +683,8 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
       return;
     }
 
-    // Application form uniqueness validation
-    if (form.is_application_form && form.uniqueness_checks && form.uniqueness_checks.length > 0) {
+    // Uniqueness validation (runs if uniqueness checks are configured)
+    if (form.uniqueness_checks && form.uniqueness_checks.length > 0) {
       setIsValidating(true);
       try {
         const response = await fetch('/api/forms/validate-uniqueness', {

@@ -254,8 +254,9 @@ export default function FormViewPage() {
         });
       }
       
-      // For application forms with auto_create_entity, create member/org entities
-      if (form?.is_application_form && form?.auto_create_entity) {
+      // Process entity pipelines if configured (create/update member/org entities)
+      const hasEntityPipelines = (form?.entity_pipelines?.members?.length > 0) || (form?.entity_pipelines?.organisations?.length > 0);
+      if (hasEntityPipelines) {
         try {
           console.log('[FormView] Processing application - roleActionTriggered:', roleActionTriggeredRef.current, 'triggeredRoleId:', triggeredRoleIdRef.current);
           const response = await fetch('/api/forms/process-application', {
@@ -928,8 +929,8 @@ export default function FormViewPage() {
       }
     }
 
-    // Application form uniqueness validation
-    if (form.is_application_form && form.uniqueness_checks && form.uniqueness_checks.length > 0) {
+    // Uniqueness validation (runs if uniqueness checks are configured)
+    if (form.uniqueness_checks && form.uniqueness_checks.length > 0) {
       try {
         const response = await fetch('/api/forms/validate-uniqueness', {
           method: 'POST',
