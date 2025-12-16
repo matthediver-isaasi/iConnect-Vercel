@@ -304,6 +304,28 @@ export default function FormViewPage() {
         }
       }
       
+      // Send submission email if configured
+      if (form?.submission_email_template_id && form?.submission_email_to) {
+        try {
+          console.log('[FormView] Sending submission email...');
+          const emailResponse = await fetch('/api/forms/send-submission-email', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              form_id: form.id,
+              submission_id: submissionResult?.id,
+              form_values: formValues,
+              fields: form.fields
+            })
+          });
+          const emailResult = await emailResponse.json();
+          console.log('[FormView] Submission email result:', emailResult);
+        } catch (error) {
+          console.error('[FormView] Error sending submission email:', error);
+          // Don't fail the submission if email fails
+        }
+      }
+      
       queryClient.invalidateQueries({ queryKey: ['form-by-slug'] });
       setSubmitted(true);
       

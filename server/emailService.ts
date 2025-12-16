@@ -12,6 +12,8 @@ interface EmailOptions {
   html: string;
   text?: string;
   from?: string;
+  cc?: string;
+  bcc?: string;
 }
 
 interface EmailResult {
@@ -40,7 +42,7 @@ function getMailgunClient() {
 }
 
 export async function sendEmail(options: EmailOptions): Promise<EmailResult> {
-  const { to, subject, html, text, from = DEFAULT_FROM } = options;
+  const { to, subject, html, text, from = DEFAULT_FROM, cc, bcc } = options;
 
   if (!MAILGUN_API_KEY) {
     console.error('[Email Service] MAILGUN_API_KEY not configured');
@@ -61,14 +63,24 @@ export async function sendEmail(options: EmailOptions): Promise<EmailResult> {
   try {
     console.log(`[Email Service] Sending email to: ${to}`);
     console.log(`[Email Service] Subject: ${subject}`);
+    if (cc) console.log(`[Email Service] CC: ${cc}`);
+    if (bcc) console.log(`[Email Service] BCC: ${bcc}`);
 
-    const messageData = {
+    const messageData: any = {
       from,
       to: [to],
       subject,
       html,
       text: text || html.replace(/<[^>]*>/g, ''),
     };
+    
+    // Add CC and BCC if provided
+    if (cc) {
+      messageData.cc = cc.split(',').map((e: string) => e.trim()).filter((e: string) => e);
+    }
+    if (bcc) {
+      messageData.bcc = bcc.split(',').map((e: string) => e.trim()).filter((e: string) => e);
+    }
 
     const response = await client.messages.create(MAILGUN_DOMAIN, messageData);
 
