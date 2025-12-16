@@ -139,10 +139,56 @@ export default async function handler(req, res) {
       }
     }
 
-    // Replace system placeholders
+    // Replace [[placeholder]] core database placeholders
+    // These are auto-resolved from the submission's member/organization context
+    const { data: submission, error: submissionError } = submission_id 
+      ? await supabase.from('form_submission').select('member_id, organization_id').eq('id', submission_id).single()
+      : { data: null, error: null };
+
+    let memberData = null;
+    let organizationData = null;
+
+    if (submission?.member_id) {
+      const { data } = await supabase.from('member').select('id, full_name, email, phone').eq('id', submission.member_id).single();
+      memberData = data;
+    }
+
+    if (submission?.organization_id) {
+      const { data } = await supabase.from('organization').select('id, name, invoicing_email, phone').eq('id', submission.organization_id).single();
+      organizationData = data;
+    }
+
+    // Build core DB placeholders with [[]] syntax
+    const dbPlaceholders = {
+      'member.id': memberData?.id || '',
+      'member.full_name': memberData?.full_name || '',
+      'member.email': memberData?.email || '',
+      'member.phone': memberData?.phone || '',
+      'organization.id': organizationData?.id || '',
+      'organization.name': organizationData?.name || '',
+      'organization.invoicing_email': organizationData?.invoicing_email || '',
+      'organization.phone': organizationData?.phone || ''
+    };
+
+    for (const [key, value] of Object.entries(dbPlaceholders)) {
+      const placeholder = `[[${key}]]`;
+      emailSubject = emailSubject.replace(new RegExp(escapeRegex(placeholder), 'g'), value);
+      emailBody = emailBody.replace(new RegExp(escapeRegex(placeholder), 'g'), value);
+    }
+
+    // Also support legacy {{}} syntax for backwards compatibility with existing templates
     const systemPlaceholders = {
       'form.name': form.name || '',
-      'submission.date': new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' })
+      'submission.date': new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' }),
+      // Include member/org in legacy format too for backwards compat
+      'member.id': memberData?.id || '',
+      'member.full_name': memberData?.full_name || '',
+      'member.email': memberData?.email || '',
+      'member.phone': memberData?.phone || '',
+      'organization.id': organizationData?.id || '',
+      'organization.name': organizationData?.name || '',
+      'organization.invoicing_email': organizationData?.invoicing_email || '',
+      'organization.phone': organizationData?.phone || ''
     };
     for (const [key, value] of Object.entries(systemPlaceholders)) {
       const placeholder = `{{${key}}}`;

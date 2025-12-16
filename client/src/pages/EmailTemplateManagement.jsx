@@ -49,24 +49,41 @@ const TEMPLATE_CATEGORIES = [
   { value: 'other', label: 'Other' },
 ];
 
+// Core database field placeholders - use [[placeholder]] syntax for DB values
+// These are auto-resolved from member/organization records, not form field mappings
 const AVAILABLE_PLACEHOLDERS = [
-  { value: '{{member.full_name}}', label: 'Member Full Name' },
-  { value: '{{member.email}}', label: 'Member Email' },
-  { value: '{{member.phone}}', label: 'Member Phone' },
-  { value: '{{organization.name}}', label: 'Organization Name' },
-  { value: '{{organization.invoicing_email}}', label: 'Organization Email' },
-  { value: '{{organization.phone}}', label: 'Organization Phone' },
-  { value: '{{form.name}}', label: 'Form Name' },
-  { value: '{{submission.date}}', label: 'Submission Date' },
+  { value: '[[member.id]]', label: 'Member ID' },
+  { value: '[[member.full_name]]', label: 'Member Full Name' },
+  { value: '[[member.email]]', label: 'Member Email' },
+  { value: '[[member.phone]]', label: 'Member Phone' },
+  { value: '[[organization.id]]', label: 'Organisation ID' },
+  { value: '[[organization.name]]', label: 'Organisation Name' },
+  { value: '[[organization.invoicing_email]]', label: 'Organisation Email' },
+  { value: '[[organization.phone]]', label: 'Organisation Phone' },
 ];
 
 // System placeholders that are auto-resolved (not mapped from form fields)
 const SYSTEM_PLACEHOLDER_PREFIXES = ['member.', 'organization.', 'form.', 'submission.'];
 
-// Extract all {{placeholder}} patterns from text
-const extractPlaceholders = (text) => {
+// Extract all {{placeholder}} patterns from text (form field mappings)
+const extractFormPlaceholders = (text) => {
   if (!text) return [];
   const regex = /\{\{([^}]+)\}\}/g;
+  const placeholders = [];
+  let match;
+  while ((match = regex.exec(text)) !== null) {
+    const placeholder = match[1].trim();
+    if (!placeholders.includes(placeholder)) {
+      placeholders.push(placeholder);
+    }
+  }
+  return placeholders;
+};
+
+// Extract all [[placeholder]] patterns from text (core DB values)
+const extractDbPlaceholders = (text) => {
+  if (!text) return [];
+  const regex = /\[\[([^\]]+)\]\]/g;
   const placeholders = [];
   let match;
   while ((match = regex.exec(text)) !== null) {
@@ -130,15 +147,17 @@ export default function EmailTemplateManagement() {
   const [newPlaceholder, setNewPlaceholder] = useState('');
   const quillRef = useRef(null);
 
-  // Get all placeholders detected in the current template
-  const detectedPlaceholders = [...new Set([
-    ...extractPlaceholders(formData.subject),
-    ...extractPlaceholders(formData.body)
+  // Get all [[placeholder]] patterns (core DB values) detected in the current template
+  const detectedDbPlaceholders = [...new Set([
+    ...extractDbPlaceholders(formData.subject),
+    ...extractDbPlaceholders(formData.body)
   ])];
   
-  // Split into system (auto-resolved) and custom (needs mapping) placeholders
-  const systemPlaceholders = detectedPlaceholders.filter(isSystemPlaceholder);
-  const customPlaceholders = detectedPlaceholders.filter(p => !isSystemPlaceholder(p));
+  // Get all {{placeholder}} patterns (form field mappings) detected in the current template
+  const detectedFormPlaceholders = [...new Set([
+    ...extractFormPlaceholders(formData.subject),
+    ...extractFormPlaceholders(formData.body)
+  ])];
   
   // Add a custom placeholder
   const handleAddCustomPlaceholder = () => {
@@ -522,12 +541,9 @@ export default function EmailTemplateManagement() {
                   id="subject"
                   value={formData.subject}
                   onChange={(e) => setFormData(prev => ({ ...prev, subject: e.target.value }))}
-                  placeholder="Welcome to ICONN, {{member.full_name}}!"
+                  placeholder="Welcome to ICONN, [[member.full_name]]!"
                   data-testid="input-subject"
                 />
-                <p className="text-xs text-muted-foreground">
-                  Use placeholders like {'{{member.full_name}}'} for dynamic content
-                </p>
               </div>
 
               <div className="space-y-2">
@@ -574,7 +590,7 @@ export default function EmailTemplateManagement() {
                     id="body"
                     value={formData.body}
                     onChange={(e) => setFormData(prev => ({ ...prev, body: e.target.value }))}
-                    placeholder="<p>Hello {{member.full_name}},</p><p>Welcome to our community!</p>"
+                    placeholder="<p>Hello [[member.full_name]],</p><p>Welcome to our community!</p>"
                     rows={12}
                     className="font-mono text-sm"
                     data-testid="textarea-body-code"
@@ -588,47 +604,52 @@ export default function EmailTemplateManagement() {
                       onChange={(value) => setFormData(prev => ({ ...prev, body: value }))}
                       modules={quillModules}
                       formats={quillFormats}
-                      placeholder="Hello {{member.full_name}}, Welcome to our community!"
+                      placeholder="Hello [[member.full_name]], Welcome to our community!"
                       style={{ height: '250px' }}
                       data-testid="editor-body-rich"
                     />
                   </div>
                 )}
                 
-                <p className="text-xs text-muted-foreground">
-                  {isCodeView 
-                    ? "Edit HTML directly. Switch to Rich Text for visual editing." 
-                    : "Format your email visually. Switch to Code View to edit HTML directly."}
-                  {" "}Placeholders like {"{{member.full_name}}"} will be replaced with actual values.
-                </p>
+                {/* Helper note explaining placeholder syntax */}
+                <div className="p-3 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-md">
+                  <div className="flex items-start gap-2">
+                    <Info className="w-4 h-4 text-blue-600 dark:text-blue-400 mt-0.5 flex-shrink-0" />
+                    <div className="text-xs text-blue-800 dark:text-blue-200 space-y-1">
+                      <p className="font-medium">Placeholder Syntax</p>
+                      <p><code className="bg-blue-100 dark:bg-blue-900 px-1 rounded">[[placeholder]]</code> - Core database values (member/organisation fields from the dropdown above)</p>
+                      <p><code className="bg-blue-100 dark:bg-blue-900 px-1 rounded">{"{{placeholder}}"}</code> - Form field values (mapped in Form Builder when using this template)</p>
+                    </div>
+                  </div>
+                </div>
               </div>
 
               {/* Detected Placeholders Summary */}
-              {detectedPlaceholders.length > 0 && (
+              {(detectedDbPlaceholders.length > 0 || detectedFormPlaceholders.length > 0) && (
                 <div className="space-y-3 p-4 bg-muted/50 rounded-lg">
                   <div className="flex items-center gap-2">
                     <Info className="w-4 h-4 text-muted-foreground" />
                     <Label className="text-sm font-medium">Placeholders in this template</Label>
                   </div>
                   
-                  {systemPlaceholders.length > 0 && (
+                  {detectedDbPlaceholders.length > 0 && (
                     <div className="space-y-1">
-                      <p className="text-xs text-muted-foreground">System placeholders (auto-resolved):</p>
+                      <p className="text-xs text-muted-foreground">Database placeholders (auto-resolved from member/organisation):</p>
                       <div className="flex flex-wrap gap-1">
-                        {systemPlaceholders.map(p => (
+                        {detectedDbPlaceholders.map(p => (
                           <Badge key={p} variant="secondary" className="font-mono text-xs">
-                            {`{{${p}}}`}
+                            {`[[${p}]]`}
                           </Badge>
                         ))}
                       </div>
                     </div>
                   )}
                   
-                  {customPlaceholders.length > 0 && (
+                  {detectedFormPlaceholders.length > 0 && (
                     <div className="space-y-1">
-                      <p className="text-xs text-muted-foreground">Custom placeholders (will be mapped from form fields):</p>
+                      <p className="text-xs text-muted-foreground">Form field placeholders (mapped in Form Builder):</p>
                       <div className="flex flex-wrap gap-1">
-                        {customPlaceholders.map(p => (
+                        {detectedFormPlaceholders.map(p => (
                           <Badge key={p} variant="outline" className="font-mono text-xs bg-primary/10">
                             {`{{${p}}}`}
                           </Badge>
