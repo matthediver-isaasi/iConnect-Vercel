@@ -25,7 +25,7 @@ function getMailgunClient() {
   return mailgunClient;
 }
 
-export async function sendEmail({ to, subject, html, text, from, replyTo }) {
+export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bcc }) {
   const fromAddress = from || DEFAULT_FROM;
   
   if (!MAILGUN_API_KEY) {
@@ -46,6 +46,8 @@ export async function sendEmail({ to, subject, html, text, from, replyTo }) {
 
   try {
     console.log(`[Email Service] Sending email to: ${to}`);
+    if (cc) console.log(`[Email Service] CC: ${cc}`);
+    if (bcc) console.log(`[Email Service] BCC: ${bcc}`);
     console.log(`[Email Service] Subject: ${subject}`);
 
     const messageData = {
@@ -58,6 +60,14 @@ export async function sendEmail({ to, subject, html, text, from, replyTo }) {
     
     if (replyTo) {
       messageData['h:Reply-To'] = replyTo;
+    }
+    
+    if (cc) {
+      messageData.cc = [cc];
+    }
+    
+    if (bcc) {
+      messageData.bcc = [bcc];
     }
 
     const response = await client.messages.create(MAILGUN_DOMAIN, messageData);
