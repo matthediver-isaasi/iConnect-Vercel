@@ -16,6 +16,24 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { cn } from "@/lib/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
+import { ROLE_ACCESS_MAP } from "@/lib/roleAccessMap";
+
+// Build flat list of all role access IDs for dropdown
+const roleAccessOptions = (() => {
+  const options = [{ value: "", label: "(Auto-generate from page)" }];
+  for (const module of ROLE_ACCESS_MAP) {
+    options.push({ value: module.id, label: `${module.label} (module)`, type: 'module' });
+    for (const page of module.pages) {
+      options.push({ value: page.id, label: `  ${page.label}`, type: 'page' });
+      if (page.features) {
+        for (const feature of page.features) {
+          options.push({ value: feature.id, label: `    ${feature.label}`, type: 'feature' });
+        }
+      }
+    }
+  }
+  return options;
+})();
 
 const availableIcons = {
   Menu, Calendar, CreditCard, Ticket, Wallet, ShoppingCart, History, Sparkles, FileText, Briefcase, Settings, 
@@ -271,14 +289,16 @@ export default function PortalMenuManagementPage() {
       return;
     }
 
-    // Auto-generate feature_id with section prefix
-    let featureId;
-    const section = editingItem.section;
-    if (editingItem.url) {
-      featureId = `page_${section}_${editingItem.url}`;
-    } else {
-      // For parent menus, use title converted to PascalCase
-      featureId = `page_${section}_${editingItem.title.replace(/\s+/g, '')}`;
+    // Use manually selected feature_id if set, otherwise auto-generate
+    let featureId = editingItem.feature_id;
+    if (!featureId) {
+      const section = editingItem.section;
+      if (editingItem.url) {
+        featureId = `page_${section}_${editingItem.url}`;
+      } else {
+        // For parent menus, use title converted to PascalCase
+        featureId = `page_${section}_${editingItem.title.replace(/\s+/g, '')}`;
+      }
     }
 
     const data = {
@@ -604,13 +624,32 @@ export default function PortalMenuManagementPage() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label>Feature ID (Auto-generated)</Label>
-                  <div className="px-3 py-2 bg-slate-100 border border-slate-200 rounded-md text-sm text-slate-600">
-                    {editingItem.url 
-                      ? `page_${editingItem.section}_${editingItem.url}` 
-                      : `page_${editingItem.section}_${editingItem.title.replace(/\s+/g, '')}`}
-                  </div>
-                  <p className="text-xs text-slate-500">Auto-generated from section, URL or title (used for permissions)</p>
+                  <Label>Role Access ID (for permissions)</Label>
+                  <Select
+                    value={editingItem.feature_id || "_auto"}
+                    onValueChange={(value) => setEditingItem({ ...editingItem, feature_id: value === "_auto" ? "" : value })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="(Auto-generate from page)" />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-[300px]">
+                      <SelectItem value="_auto">(Auto-generate from page)</SelectItem>
+                      {roleAccessOptions.filter(o => o.value).map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-slate-500">
+                    Select a Role Access ID to link this menu item to the permissions system. 
+                    When blocked in Role Management, this item will be hidden.
+                    {editingItem.feature_id && editingItem.feature_id !== "_auto" && (
+                      <span className="block mt-1 font-medium text-blue-600">
+                        Current: {editingItem.feature_id}
+                      </span>
+                    )}
+                  </p>
                 </div>
 
                 <div className="flex items-center gap-2">
