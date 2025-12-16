@@ -99,6 +99,7 @@ Forms can create multiple member records on submission. This is useful for regis
 - Only visible when `member_entity_action !== 'none'` (form must be configured to create/update members)
 - Each additional member config includes:
   - Label (e.g., "Spouse", "Colleague 1")
+  - Role assignment (optional) - assigns role_id to the created member
   - Field mappings from form fields to member core fields (email, first_name, last_name, phone, job_title) and custom fields
 
 **Data Structure:**
@@ -108,6 +109,7 @@ Forms can create multiple member records on submission. This is useful for regis
     {
       "id": "uuid",
       "label": "Spouse",
+      "role_id": "uuid-of-role-or-null-or-__clear__",
       "field_mappings": {
         "email": "form_field_id",
         "first_name": "form_field_id",
@@ -118,16 +120,23 @@ Forms can create multiple member records on submission. This is useful for regis
 }
 ```
 
-**Processing (api/forms/process-application.js):**
-1. For each additional member config, resolve field mappings to get values from form submission
-2. Create member record in database
-3. Save custom field values to member_preference_value table
-4. Generate temporary credentials (password hash in member_credentials)
-5. Send welcome email with login details
+**Sequential Processing & Email Upsert (api/forms/process-application.js):**
+1. Primary member processed first (from default form field mappings)
+2. Additional members processed in order (Additional 1, 2, 3...)
+3. Email-based upsert logic: first occurrence of email creates member, subsequent occurrences update
+4. `processedEmails` Map tracks email→member_id for sequential upsert semantics
+5. Merge/overlay pattern: updates only override fields with values; existing data preserved
+6. `"__clear__"` sentinel value explicitly clears fields in updates (not just null/empty)
+
+**Field Clearing with __clear__:**
+- Select dropdowns show "Clear field" option that stores `"__clear__"` value
+- Core fields with `"__clear__"` are set to null in database
+- Custom fields with `"__clear__"` delete the preference value row
+- Role with `"__clear__"` clears the member's role_id
 
 **Key Files:**
 - `client/src/pages/FormBuilder.jsx` - UI for configuring additional member creations
-- `api/forms/process-application.js` - Backend processing logic
+- `api/forms/process-application.js` - Backend processing logic with sequential upsert
 - `client/src/pages/FormView.jsx` - Passes config to API on submission
 - `client/src/components/iedit/elements/IEditFormElement.jsx` - Page builder form submission
 
