@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { base44 } from "@/api/base44Client";
@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, Building2, Globe, Users, Phone, Mail, MapPin, ClipboardList, ExternalLink, Pencil, Save, X, Camera, Upload } from "lucide-react";
+import { Loader2, Building2, Globe, Users, Phone, Mail, MapPin, ClipboardList, ExternalLink, Save, X, Camera } from "lucide-react";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 import { useToast } from "@/components/ui/use-toast";
@@ -20,17 +20,20 @@ export default function MyOrganisationPage() {
   const queryClient = useQueryClient();
   const [, setLocation] = useLocation();
   const [accessChecked, setAccessChecked] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
   const [isUploadingLogo, setIsUploadingLogo] = useState(false);
   const logoInputRef = useRef(null);
-  const [formData, setFormData] = useState({
+  const defaultFormData = {
     phone: '',
     website_url: '',
     invoicing_email: '',
     invoicing_address: '',
     description: ''
-  });
+  };
+  const [formData, setFormData] = useState(defaultFormData);
   const [customFieldValues, setCustomFieldValues] = useState({});
+  const [originalFormData, setOriginalFormData] = useState(defaultFormData);
+  const [originalCustomFieldValues, setOriginalCustomFieldValues] = useState({});
+  const [dataReady, setDataReady] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -135,18 +138,21 @@ export default function MyOrganisationPage() {
 
   useEffect(() => {
     if (organization) {
-      setFormData({
+      const data = {
         phone: organization.phone || '',
         website_url: organization.website_url || '',
         invoicing_email: organization.invoicing_email || '',
         invoicing_address: organization.invoicing_address || '',
         description: organization.description || ''
-      });
+      };
+      setFormData(data);
+      setOriginalFormData(data);
+      setDataReady(true);
     }
   }, [organization]);
 
   useEffect(() => {
-    if (orgValues.length > 0 && orgCustomFields.length > 0) {
+    if (orgCustomFields.length > 0) {
       const valuesMap = {};
       orgValues.forEach(pv => {
         const field = orgCustomFields.find(f => f.id === pv.field_id);
@@ -161,8 +167,35 @@ export default function MyOrganisationPage() {
         }
       });
       setCustomFieldValues(valuesMap);
+      setOriginalCustomFieldValues(valuesMap);
+    } else if (!valuesLoading) {
+      setCustomFieldValues({});
+      setOriginalCustomFieldValues({});
     }
-  }, [orgValues, orgCustomFields]);
+  }, [orgValues, orgCustomFields, valuesLoading]);
+
+  const hasChanges = useMemo(() => {
+    if (!dataReady) return false;
+    
+    const coreFieldsChanged = Object.keys(formData).some(key => {
+      if (!canEditField(key)) return false;
+      return formData[key] !== originalFormData[key];
+    });
+    
+    if (coreFieldsChanged) return true;
+    
+    const customFieldsChanged = Object.keys(customFieldValues).some(fieldId => {
+      if (!canEditField(fieldId)) return false;
+      const current = customFieldValues[fieldId];
+      const original = originalCustomFieldValues[fieldId];
+      if (Array.isArray(current) && Array.isArray(original)) {
+        return JSON.stringify(current) !== JSON.stringify(original);
+      }
+      return current !== original;
+    });
+    
+    return customFieldsChanged;
+  }, [formData, originalFormData, customFieldValues, originalCustomFieldValues, fieldPermissions, dataReady]);
 
   const updateOrgMutation = useMutation({
     mutationFn: async (updates) => {
@@ -184,7 +217,6 @@ export default function MyOrganisationPage() {
         title: "Changes saved",
         description: "Organisation details have been updated successfully."
       });
-      setIsEditing(false);
     },
     onError: (error) => {
       toast({
@@ -223,6 +255,15 @@ export default function MyOrganisationPage() {
   const handleLogoUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    if (!canEditField('logo_url')) {
+      toast({
+        title: "Permission denied",
+        description: "You don't have permission to change the logo",
+        variant: "destructive"
+      });
+      return;
+    }
 
     const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
     if (!allowedTypes.includes(file.type)) {
@@ -278,54 +319,43 @@ export default function MyOrganisationPage() {
   };
 
   const handleSave = async () => {
-    await updateOrgMutation.mutateAsync(formData);
+    const changedCoreFields = {};
+    Object.keys(formData).forEach(key => {
+      if (canEditField(key) && formData[key] !== originalFormData[key]) {
+        changedCoreFields[key] = formData[key];
+      }
+    });
+    
+    if (Object.keys(changedCoreFields).length > 0) {
+      await updateOrgMutation.mutateAsync(changedCoreFields);
+    }
     
     for (const [fieldId, value] of Object.entries(customFieldValues)) {
-      const originalValue = orgValues.find(v => v.field_id === fieldId);
+      if (!canEditField(fieldId)) continue;
+      
+      const originalValue = originalCustomFieldValues[fieldId];
       const field = orgCustomFields.find(f => f.id === fieldId);
       
-      let storedOriginal = originalValue?.value;
-      let storedNew = value;
+      let currentVal = value;
+      let origVal = originalValue;
       
       if (field?.field_type === 'picklist') {
-        storedNew = Array.isArray(value) ? JSON.stringify(value) : value;
+        currentVal = Array.isArray(value) ? JSON.stringify(value) : value;
+        origVal = Array.isArray(originalValue) ? JSON.stringify(originalValue) : originalValue;
       }
       
-      if (storedOriginal !== storedNew) {
+      if (currentVal !== origVal) {
         await updateCustomFieldMutation.mutateAsync({ fieldId, value });
       }
     }
+    
+    setOriginalFormData({ ...formData });
+    setOriginalCustomFieldValues({ ...customFieldValues });
   };
 
   const handleCancel = () => {
-    if (organization) {
-      setFormData({
-        phone: organization.phone || '',
-        website_url: organization.website_url || '',
-        invoicing_email: organization.invoicing_email || '',
-        invoicing_address: organization.invoicing_address || '',
-        description: organization.description || ''
-      });
-    }
-    
-    if (orgValues.length > 0) {
-      const valuesMap = {};
-      orgValues.forEach(pv => {
-        const field = orgCustomFields.find(f => f.id === pv.field_id);
-        if (field?.field_type === 'picklist' && pv.value) {
-          try {
-            valuesMap[pv.field_id] = JSON.parse(pv.value);
-          } catch {
-            valuesMap[pv.field_id] = pv.value;
-          }
-        } else {
-          valuesMap[pv.field_id] = pv.value;
-        }
-      });
-      setCustomFieldValues(valuesMap);
-    }
-    
-    setIsEditing(false);
+    setFormData({ ...originalFormData });
+    setCustomFieldValues({ ...originalCustomFieldValues });
   };
 
   const handleCustomFieldChange = (fieldId, value) => {
@@ -582,53 +612,33 @@ export default function MyOrganisationPage() {
               </h1>
             </div>
             <p className="text-slate-600">
-              {isEditing ? 'Edit your organisation details' : 'View and manage your organisation details'}
+              View and manage your organisation details
             </p>
           </div>
           
-          {!isLoading && organization && (
+          {!isLoading && organization && hasChanges && (
             <div className="flex items-center gap-2">
-              {isEditing ? (
-                <>
-                  <Button
-                    variant="outline"
-                    onClick={handleCancel}
-                    disabled={isSaving}
-                    data-testid="button-cancel-edit"
-                  >
-                    <X className="w-4 h-4 mr-2" />
-                    Cancel
-                  </Button>
-                  <Button
-                    onClick={handleSave}
-                    disabled={isSaving}
-                    data-testid="button-save-organisation"
-                  >
-                    {isSaving ? (
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    ) : (
-                      <Save className="w-4 h-4 mr-2" />
-                    )}
-                    Save Changes
-                  </Button>
-                </>
-              ) : (
-                ((isFieldVisible('logo_url') && canEditField('logo_url')) || 
-                 (isFieldVisible('description') && canEditField('description')) || 
-                 (isFieldVisible('phone') && canEditField('phone')) || 
-                 (isFieldVisible('website_url') && canEditField('website_url')) || 
-                 (isFieldVisible('invoicing_email') && canEditField('invoicing_email')) || 
-                 (isFieldVisible('invoicing_address') && canEditField('invoicing_address')) ||
-                 orgCustomFields.some(f => isFieldVisible(f.id) && canEditField(f.id))) && (
-                  <Button
-                    onClick={() => setIsEditing(true)}
-                    data-testid="button-edit-organisation"
-                  >
-                    <Pencil className="w-4 h-4 mr-2" />
-                    Edit Details
-                  </Button>
-                )
-              )}
+              <Button
+                variant="outline"
+                onClick={handleCancel}
+                disabled={isSaving}
+                data-testid="button-cancel-edit"
+              >
+                <X className="w-4 h-4 mr-2" />
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSave}
+                disabled={isSaving}
+                data-testid="button-save-organisation"
+              >
+                {isSaving ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <Save className="w-4 h-4 mr-2" />
+                )}
+                Save Changes
+              </Button>
             </div>
           )}
         </div>
@@ -658,7 +668,7 @@ export default function MyOrganisationPage() {
                           <Building2 className="w-12 h-12 text-slate-400" />
                         )}
                       </div>
-                      {isEditing && canEditField('logo_url') && (
+                      {canEditField('logo_url') && (
                         <>
                           <input
                             ref={logoInputRef}
@@ -678,6 +688,11 @@ export default function MyOrganisationPage() {
                             <Camera className="w-4 h-4" />
                           </button>
                         </>
+                      )}
+                      {canEditField('logo_url') && (
+                        <p className="text-xs text-slate-500 mt-2 text-center">
+                          200 x 200px
+                        </p>
                       )}
                     </div>
                   )}
@@ -702,34 +717,29 @@ export default function MyOrganisationPage() {
                         {members.length} {members.length === 1 ? 'member' : 'members'}
                       </Badge>
                     </div>
-                    {isEditing && (
-                      <p className="text-xs text-slate-500 mt-3">
-                        <Camera className="w-3 h-3 inline mr-1" />
-                        Ideal logo size: 200 x 200 pixels
-                      </p>
-                    )}
                   </div>
                 </div>
 
                 {isFieldVisible('description') && (
-                  isEditing && canEditField('description') ? (
-                    <div className="mt-4 pt-4 border-t border-slate-200">
-                      <Label htmlFor="description" className="text-sm font-medium text-slate-700">Description</Label>
-                      <Textarea
-                        id="description"
-                        value={formData.description}
-                        onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-                        placeholder="Enter organisation description"
-                        rows={3}
-                        className="mt-1"
-                        data-testid="textarea-description"
-                      />
-                    </div>
-                  ) : organization.description && (
-                    <div className="mt-4 pt-4 border-t border-slate-200">
+                  <div className="mt-4 pt-4 border-t border-slate-200">
+                    {canEditField('description') ? (
+                      <div className="space-y-2">
+                        <Label htmlFor="description" className="text-sm font-medium text-slate-700">Description</Label>
+                        <Textarea
+                          id="description"
+                          value={formData.description}
+                          onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
+                          placeholder="Enter organisation description"
+                          rows={3}
+                          data-testid="textarea-description"
+                        />
+                      </div>
+                    ) : organization.description ? (
                       <p className="text-slate-600">{organization.description}</p>
-                    </div>
-                  )
+                    ) : (
+                      <p className="text-slate-400 italic">No description set</p>
+                    )}
+                  </div>
                 )}
 
                 {organization.additional_verified_domains?.length > 0 && (
@@ -759,7 +769,7 @@ export default function MyOrganisationPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {/* Phone Number */}
                   {isFieldVisible('phone') && (
-                    isEditing && canEditField('phone') ? (
+                    canEditField('phone') ? (
                       <div className="space-y-2">
                         <Label htmlFor="phone" className="flex items-center gap-2">
                           <Phone className="w-4 h-4 text-slate-500" />
@@ -788,7 +798,7 @@ export default function MyOrganisationPage() {
 
                   {/* Website */}
                   {isFieldVisible('website_url') && (
-                    isEditing && canEditField('website_url') ? (
+                    canEditField('website_url') ? (
                       <div className="space-y-2">
                         <Label htmlFor="website_url" className="flex items-center gap-2">
                           <Globe className="w-4 h-4 text-slate-500" />
@@ -828,7 +838,7 @@ export default function MyOrganisationPage() {
 
                   {/* Invoicing Email */}
                   {isFieldVisible('invoicing_email') && (
-                    isEditing && canEditField('invoicing_email') ? (
+                    canEditField('invoicing_email') ? (
                       <div className="space-y-2">
                         <Label htmlFor="invoicing_email" className="flex items-center gap-2">
                           <Mail className="w-4 h-4 text-slate-500" />
@@ -866,7 +876,7 @@ export default function MyOrganisationPage() {
 
                   {/* Invoicing Address */}
                   {isFieldVisible('invoicing_address') && (
-                    isEditing && canEditField('invoicing_address') ? (
+                    canEditField('invoicing_address') ? (
                       <div className="space-y-2">
                         <Label htmlFor="invoicing_address" className="flex items-center gap-2">
                           <MapPin className="w-4 h-4 text-slate-500" />
@@ -917,7 +927,7 @@ export default function MyOrganisationPage() {
                         const valueRecord = orgValues.find(v => v.field_id === field.id);
                         const displayValue = getCustomFieldDisplayValue(field, valueRecord);
                         
-                        if (isEditing && canEditField(field.id)) {
+                        if (canEditField(field.id)) {
                           return (
                             <div key={field.id} className="space-y-2">
                               <Label htmlFor={`field-${field.id}`} className="text-sm font-medium text-slate-700">

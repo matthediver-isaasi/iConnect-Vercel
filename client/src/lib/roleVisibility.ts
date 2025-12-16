@@ -203,17 +203,6 @@ export function getModuleExclusionState(
     }
   }
 
-  // Debug logging for organisation module
-  if (moduleId === 'organisation') {
-    console.log('[getModuleExclusionState] organisation module:', {
-      excludedResources,
-      normalizedExcluded,
-      hasExcluded,
-      allExcluded,
-      pages: module.pages.map(p => ({ id: p.id, isExcluded: normalizedExcluded.includes(p.id) }))
-    });
-  }
-
   if (hasExcluded && !allExcluded) return 'some';
   if (hasExcluded) return 'all';
   return 'none';
