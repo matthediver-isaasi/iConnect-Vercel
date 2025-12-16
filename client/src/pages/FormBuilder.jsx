@@ -446,10 +446,64 @@ function LogicRulesSection({
   roles = []
 }) {
   // Normalize rules to new multi-action format (for backward compatibility)
+  // Migrate legacy show/hide/enable/disable actions to consolidated visibility action
+  const migrateLegacyActions = (actions) => {
+    if (!actions || !Array.isArray(actions)) return actions;
+    
+    // Check if there are any legacy visibility/disability actions
+    const legacyActions = actions.filter(a => 
+      ['show', 'hide', 'enable', 'disable'].includes(a.action_type)
+    );
+    
+    if (legacyActions.length === 0) {
+      return actions;
+    }
+    
+    // Build consolidated visibility state from legacy actions
+    const field_states = {};
+    
+    for (const action of legacyActions) {
+      const fieldIds = action.target_field_ids || [];
+      for (const fieldId of fieldIds) {
+        if (!field_states[fieldId]) {
+          field_states[fieldId] = { visible: null, enabled: null };
+        }
+        
+        if (action.action_type === 'show') {
+          field_states[fieldId].visible = true;
+        } else if (action.action_type === 'hide') {
+          field_states[fieldId].visible = false;
+        } else if (action.action_type === 'enable') {
+          field_states[fieldId].enabled = true;
+        } else if (action.action_type === 'disable') {
+          field_states[fieldId].enabled = false;
+        }
+      }
+    }
+    
+    // Filter out legacy actions and add consolidated visibility action
+    const nonLegacyActions = actions.filter(a => 
+      !['show', 'hide', 'enable', 'disable'].includes(a.action_type)
+    );
+    
+    // Only add visibility action if there were actually fields configured
+    if (Object.keys(field_states).length > 0) {
+      nonLegacyActions.unshift({
+        id: `action_migrated_${Date.now()}`,
+        action_type: 'visibility',
+        field_states
+      });
+    }
+    
+    return nonLegacyActions;
+  };
+
   const normalizeRule = (rule) => {
     // If rule already has actions array, it's in new format
     if (rule.actions && Array.isArray(rule.actions)) {
-      return rule;
+      // Migrate any legacy actions to new visibility format
+      const migratedActions = migrateLegacyActions(rule.actions);
+      return { ...rule, actions: migratedActions };
     }
     // Convert old format to new format
     const actions = [];
@@ -464,12 +518,28 @@ function LogicRulesSection({
         set_value_prefill_field: rule.set_value_prefill_field || ''
       });
     } else {
-      // Visibility rule
-      actions.push({
-        id: `action_${Date.now()}_1`,
-        action_type: rule.action || 'show',
-        target_field_ids: rule.target_field_ids || []
-      });
+      // Legacy visibility rule - convert to consolidated format
+      const fieldIds = rule.target_field_ids || [];
+      if (fieldIds.length > 0) {
+        const field_states = {};
+        for (const fieldId of fieldIds) {
+          field_states[fieldId] = { visible: null, enabled: null };
+          if (rule.action === 'show') {
+            field_states[fieldId].visible = true;
+          } else if (rule.action === 'hide') {
+            field_states[fieldId].visible = false;
+          } else if (rule.action === 'enable') {
+            field_states[fieldId].enabled = true;
+          } else if (rule.action === 'disable') {
+            field_states[fieldId].enabled = false;
+          }
+        }
+        actions.push({
+          id: `action_${Date.now()}_1`,
+          action_type: 'visibility',
+          field_states
+        });
+      }
     }
     return {
       id: rule.id,
