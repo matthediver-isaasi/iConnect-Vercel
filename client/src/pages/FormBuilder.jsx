@@ -3269,7 +3269,7 @@ export default function FormBuilderPage() {
                             data-testid={`additional-member-${memberIdx}`}
                           >
                             <div className="flex items-center justify-between mb-3">
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-2 flex-wrap">
                                 <UserPlus className="w-4 h-4 text-slate-600" />
                                 <Input
                                   value={memberConfig.label}
@@ -3282,6 +3282,30 @@ export default function FormBuilderPage() {
                                   placeholder="Member label"
                                   data-testid={`input-member-label-${memberIdx}`}
                                 />
+                                <Select
+                                  value={memberConfig.role_id === "__clear__" ? "clear" : (memberConfig.role_id || "none")}
+                                  onValueChange={(value) => {
+                                    const updated = [...formData.additional_member_creations];
+                                    updated[memberIdx] = {
+                                      ...updated[memberIdx],
+                                      role_id: value === "none" ? null : (value === "clear" ? "__clear__" : value)
+                                    };
+                                    setFormData(prev => ({ ...prev, additional_member_creations: updated }));
+                                  }}
+                                >
+                                  <SelectTrigger className="h-8 w-48 text-xs" data-testid={`select-member-role-${memberIdx}`}>
+                                    <SelectValue placeholder="Select role..." />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="none">-- No role --</SelectItem>
+                                    <SelectItem value="clear" className="text-amber-600">Clear role</SelectItem>
+                                    {roles.map(role => (
+                                      <SelectItem key={role.id} value={role.id}>
+                                        {role.name}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
                                 {!hasEmail && (
                                   <span className="text-xs text-amber-600 font-medium">Email required</span>
                                 )}
@@ -3316,14 +3340,14 @@ export default function FormBuilderPage() {
                                       {coreField.required && <span className="text-red-500 ml-1">*</span>}
                                     </Label>
                                     <Select
-                                      value={memberConfig.field_mappings?.[coreField.key] || "none"}
+                                      value={memberConfig.field_mappings?.[coreField.key] === "__clear__" ? "clear" : (memberConfig.field_mappings?.[coreField.key] || "none")}
                                       onValueChange={(value) => {
                                         const updated = [...formData.additional_member_creations];
                                         updated[memberIdx] = {
                                           ...updated[memberIdx],
                                           field_mappings: {
                                             ...updated[memberIdx].field_mappings,
-                                            [coreField.key]: value === "none" ? null : value
+                                            [coreField.key]: value === "none" ? null : (value === "clear" ? "__clear__" : value)
                                           }
                                         };
                                         setFormData(prev => ({ ...prev, additional_member_creations: updated }));
@@ -3337,6 +3361,7 @@ export default function FormBuilderPage() {
                                       </SelectTrigger>
                                       <SelectContent>
                                         <SelectItem value="none">-- Not mapped --</SelectItem>
+                                        <SelectItem value="clear" className="text-amber-600">Clear field</SelectItem>
                                         {formData.fields.map(field => (
                                           <SelectItem key={field.id} value={field.id}>
                                             {field.label || field.type}
@@ -3356,14 +3381,14 @@ export default function FormBuilderPage() {
                                       <div key={customField.id} className="space-y-1">
                                         <Label className="text-xs text-slate-500">{customField.label}</Label>
                                         <Select
-                                          value={memberConfig.field_mappings?.[`custom_${customField.id}`] || "none"}
+                                          value={memberConfig.field_mappings?.[`custom_${customField.id}`] === "__clear__" ? "clear" : (memberConfig.field_mappings?.[`custom_${customField.id}`] || "none")}
                                           onValueChange={(value) => {
                                             const updated = [...formData.additional_member_creations];
                                             updated[memberIdx] = {
                                               ...updated[memberIdx],
                                               field_mappings: {
                                                 ...updated[memberIdx].field_mappings,
-                                                [`custom_${customField.id}`]: value === "none" ? null : value
+                                                [`custom_${customField.id}`]: value === "none" ? null : (value === "clear" ? "__clear__" : value)
                                               }
                                             };
                                             setFormData(prev => ({ ...prev, additional_member_creations: updated }));
@@ -3374,6 +3399,7 @@ export default function FormBuilderPage() {
                                           </SelectTrigger>
                                           <SelectContent>
                                             <SelectItem value="none">-- Not mapped --</SelectItem>
+                                            <SelectItem value="clear" className="text-amber-600">Clear field</SelectItem>
                                             {formData.fields.map(field => (
                                               <SelectItem key={field.id} value={field.id}>
                                                 {field.label || field.type}
