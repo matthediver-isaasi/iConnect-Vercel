@@ -680,7 +680,6 @@ export default function PreferencesPage() {
   // --- Section order and visibility for Preferences page layout ---
   const DEFAULT_SECTION_CONFIG = [
     { id: 'profile_information', visible: true },
-    { id: 'password_security', visible: true },
     { id: 'communications', visible: true },
     { id: 'additional_info', visible: true },
     { id: 'engagement_stats', visible: true },
@@ -689,7 +688,8 @@ export default function PreferencesPage() {
     { id: 'membership_badges', visible: true },
     { id: 'awards', visible: true },
     { id: 'professional_biography', visible: true },
-    { id: 'resource_interests', visible: true }
+    { id: 'resource_interests', visible: true },
+    { id: 'password_security', visible: true }
   ];
   
   const { data: sectionConfig = DEFAULT_SECTION_CONFIG } = useQuery({
