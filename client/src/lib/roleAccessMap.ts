@@ -147,10 +147,6 @@ export const ROLE_ACCESS_MAP: Module[] = [
         ]
       },
       {
-        id: "membership.my-organisation",
-        label: "My Organisation"
-      },
-      {
         id: "membership.team",
         label: "Team"
       },
@@ -185,6 +181,17 @@ export const ROLE_ACCESS_MAP: Module[] = [
       {
         id: "membership.awards",
         label: "Award Management"
+      }
+    ]
+  },
+  {
+    id: "organisation",
+    label: "Organisation",
+    icon: "Building",
+    pages: [
+      {
+        id: "organisation.my-organisation",
+        label: "My Organisation"
       }
     ]
   },
@@ -546,7 +553,7 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_user_Team": "membership.team",
   "page_user_MemberDirectory": "membership.member-directory",
   "page_user_OrganisationDirectory": "membership.organisation-directory",
-  "page_user_MyOrganisation": "membership.my-organisation",
+  "page_user_MyOrganisation": "organisation.my-organisation",
   "page_user_Resources": "content.resources",
   "page_user_ArticlesSection": "content",
   "page_user_MyArticles": "content.my-articles",
@@ -641,7 +648,7 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_Team": "membership.team",
   "page_MemberDirectory": "membership.member-directory",
   "page_OrganisationDirectory": "membership.organisation-directory",
-  "page_MyOrganisation": "membership.my-organisation",
+  "page_MyOrganisation": "organisation.my-organisation",
   "page_Resources": "content.resources",
   "page_MyArticles": "content.my-articles",
   "page_Articles": "content.articles",
