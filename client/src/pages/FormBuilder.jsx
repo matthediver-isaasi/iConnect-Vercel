@@ -519,6 +519,20 @@ function LogicRulesSection({
         id: `action_${Date.now()}`,
         action_type: 'clear_role'
       };
+    } else if (actionType === 'visibility') {
+      // Consolidated visibility action - check if one already exists
+      const existingVisibilityAction = (normalizedRule.actions || []).find(a => a.action_type === 'visibility');
+      if (existingVisibilityAction) {
+        toast.info('A visibility action already exists for this rule');
+        return;
+      }
+      newAction = {
+        id: `action_${Date.now()}`,
+        action_type: 'visibility',
+        // field_states maps fieldId -> { visible: true/false/null, enabled: true/false/null }
+        // null means inherit (no change)
+        field_states: {}
+      };
     } else {
       newAction = {
         id: `action_${Date.now()}`,
@@ -565,6 +579,31 @@ function LogicRulesSection({
       : [...currentTargets, fieldId];
     
     updateAction(ruleId, actionId, { target_field_ids: newTargets });
+  };
+
+  // Update visibility state for a field in the consolidated visibility action
+  const updateFieldVisibilityState = (ruleId, actionId, fieldId, property, value) => {
+    const rule = visibilityRules.find(r => r.id === ruleId);
+    if (!rule) return;
+    
+    const normalizedRule = normalizeRule(rule);
+    const action = (normalizedRule.actions || []).find(a => a.id === actionId);
+    if (!action || action.action_type !== 'visibility') return;
+    
+    const currentStates = action.field_states || {};
+    const fieldState = currentStates[fieldId] || { visible: null, enabled: null };
+    
+    const newFieldState = { ...fieldState, [property]: value };
+    
+    // If both are null, remove the field entirely to keep payload clean
+    const newStates = { ...currentStates };
+    if (newFieldState.visible === null && newFieldState.enabled === null) {
+      delete newStates[fieldId];
+    } else {
+      newStates[fieldId] = newFieldState;
+    }
+    
+    updateAction(ruleId, actionId, { field_states: newStates });
   };
   
   const getPrefillFields = () => {
@@ -939,19 +978,10 @@ function LogicRulesSection({
                         variant="outline"
                         size="sm"
                         className="h-7 text-xs"
-                        onClick={() => addAction(rule.id, 'show')}
-                        data-testid={`button-add-show-action-${index}`}
+                        onClick={() => addAction(rule.id, 'visibility')}
+                        data-testid={`button-add-visibility-action-${index}`}
                       >
-                        <Eye className="w-3 h-3 mr-1" /> Show
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 text-xs"
-                        onClick={() => addAction(rule.id, 'hide')}
-                        data-testid={`button-add-hide-action-${index}`}
-                      >
-                        <EyeOff className="w-3 h-3 mr-1" /> Hide
+                        <Eye className="w-3 h-3 mr-1" /> Visibility
                       </Button>
                       <Button
                         variant="outline"
@@ -961,24 +991,6 @@ function LogicRulesSection({
                         data-testid={`button-add-setvalue-action-${index}`}
                       >
                         <Edit2 className="w-3 h-3 mr-1" /> Set Value
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 text-xs"
-                        onClick={() => addAction(rule.id, 'disable')}
-                        data-testid={`button-add-disable-action-${index}`}
-                      >
-                        <Lock className="w-3 h-3 mr-1" /> Disable
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 text-xs"
-                        onClick={() => addAction(rule.id, 'enable')}
-                        data-testid={`button-add-enable-action-${index}`}
-                      >
-                        <Unlock className="w-3 h-3 mr-1" /> Enable
                       </Button>
                       <Button
                         variant="outline"
@@ -1008,19 +1020,35 @@ function LogicRulesSection({
                   ) : (
                     <div className="space-y-2">
                       {actions.map((action, actionIndex) => {
-                        const isVisibilityAction = action.action_type === 'show' || action.action_type === 'hide';
-                        const isDisabilityAction = action.action_type === 'disable' || action.action_type === 'enable';
-                        const isFieldTargetAction = isVisibilityAction || isDisabilityAction;
+                        const isLegacyVisibilityAction = action.action_type === 'show' || action.action_type === 'hide';
+                        const isLegacyDisabilityAction = action.action_type === 'disable' || action.action_type === 'enable';
+                        const isLegacyFieldTargetAction = isLegacyVisibilityAction || isLegacyDisabilityAction;
+                        const isConsolidatedVisibility = action.action_type === 'visibility';
                         const isRoleAction = action.action_type === 'set_role' || action.action_type === 'clear_role';
+                        
+                        // Determine card styling
+                        let cardClass = 'p-3 rounded-lg border ';
+                        if (isConsolidatedVisibility) {
+                          cardClass += 'bg-slate-50 border-slate-300';
+                        } else if (isLegacyVisibilityAction) {
+                          cardClass += 'bg-white border-slate-200';
+                        } else if (isLegacyDisabilityAction) {
+                          cardClass += 'bg-orange-50 border-orange-200';
+                        } else if (isRoleAction) {
+                          cardClass += 'bg-purple-50 border-purple-200';
+                        } else {
+                          cardClass += 'bg-blue-50 border-blue-200';
+                        }
                         
                         return (
                           <div 
                             key={action.id} 
-                            className={`p-3 rounded-lg border ${isVisibilityAction ? 'bg-white border-slate-200' : isDisabilityAction ? 'bg-orange-50 border-orange-200' : isRoleAction ? 'bg-purple-50 border-purple-200' : 'bg-blue-50 border-blue-200'}`}
+                            className={cardClass}
                             data-testid={`action-row-${index}-${actionIndex}`}
                           >
                             <div className="flex items-center justify-between mb-2">
                               <div className="flex items-center gap-2">
+                                {action.action_type === 'visibility' && <Eye className="w-3 h-3 text-slate-600" />}
                                 {action.action_type === 'show' && <Eye className="w-3 h-3 text-green-600" />}
                                 {action.action_type === 'hide' && <EyeOff className="w-3 h-3 text-slate-600" />}
                                 {action.action_type === 'set_value' && <Edit2 className="w-3 h-3 text-blue-600" />}
@@ -1029,11 +1057,12 @@ function LogicRulesSection({
                                 {action.action_type === 'set_role' && <UserCheck className="w-3 h-3 text-purple-600" />}
                                 {action.action_type === 'clear_role' && <UserMinus className="w-3 h-3 text-gray-600" />}
                                 <span className="text-xs font-medium">
-                                  {action.action_type === 'show' && 'Show Fields'}
-                                  {action.action_type === 'hide' && 'Hide Fields'}
+                                  {action.action_type === 'visibility' && 'Field Visibility & State'}
+                                  {action.action_type === 'show' && 'Show Fields (Legacy)'}
+                                  {action.action_type === 'hide' && 'Hide Fields (Legacy)'}
                                   {action.action_type === 'set_value' && 'Set Field Value'}
-                                  {action.action_type === 'disable' && 'Disable Fields'}
-                                  {action.action_type === 'enable' && 'Enable Fields'}
+                                  {action.action_type === 'disable' && 'Disable Fields (Legacy)'}
+                                  {action.action_type === 'enable' && 'Enable Fields (Legacy)'}
                                   {action.action_type === 'set_role' && 'Set Member Role'}
                                   {action.action_type === 'clear_role' && 'Clear Member Role'}
                                 </span>
@@ -1049,7 +1078,102 @@ function LogicRulesSection({
                               </Button>
                             </div>
 
-                            {isFieldTargetAction ? (
+                            {isConsolidatedVisibility ? (
+                              <div>
+                                <p className="text-xs text-slate-500 mb-3">
+                                  Configure visibility and enabled state for each field. Leave as "Inherit" for no change.
+                                </p>
+                                {availableTargetFields.length === 0 ? (
+                                  <p className="text-xs text-slate-400">Add more fields to configure visibility</p>
+                                ) : (
+                                  <div className="border rounded-lg overflow-hidden">
+                                    <div className="grid grid-cols-[1fr,120px,120px] gap-2 bg-slate-100 px-3 py-2 text-xs font-medium text-slate-600 border-b">
+                                      <div>Field</div>
+                                      <div className="text-center">Visibility</div>
+                                      <div className="text-center">State</div>
+                                    </div>
+                                    <div className="max-h-64 overflow-y-auto">
+                                      {availableTargetFields.map((field, fieldIdx) => {
+                                        const fieldState = (action.field_states || {})[field.id] || { visible: null, enabled: null };
+                                        return (
+                                          <div 
+                                            key={field.id} 
+                                            className={`grid grid-cols-[1fr,120px,120px] gap-2 px-3 py-2 text-xs items-center ${fieldIdx % 2 === 0 ? 'bg-white' : 'bg-slate-50'}`}
+                                            data-testid={`visibility-row-${index}-${actionIndex}-${field.id}`}
+                                          >
+                                            <div className="font-medium truncate" title={field.label || field.type}>
+                                              {field.label || field.type}
+                                            </div>
+                                            <div className="flex justify-center">
+                                              <div className="inline-flex rounded-md border border-slate-200 overflow-hidden">
+                                                <button
+                                                  type="button"
+                                                  onClick={() => updateFieldVisibilityState(rule.id, action.id, field.id, 'visible', true)}
+                                                  className={`px-2 py-1 text-xs ${fieldState.visible === true ? 'bg-green-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+                                                  title="Show"
+                                                  data-testid={`btn-show-${index}-${actionIndex}-${field.id}`}
+                                                >
+                                                  <Eye className="w-3 h-3" />
+                                                </button>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => updateFieldVisibilityState(rule.id, action.id, field.id, 'visible', null)}
+                                                  className={`px-2 py-1 text-xs border-l border-r border-slate-200 ${fieldState.visible === null ? 'bg-slate-200 text-slate-700' : 'bg-white text-slate-400 hover:bg-slate-50'}`}
+                                                  title="Inherit (no change)"
+                                                  data-testid={`btn-inherit-vis-${index}-${actionIndex}-${field.id}`}
+                                                >
+                                                  —
+                                                </button>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => updateFieldVisibilityState(rule.id, action.id, field.id, 'visible', false)}
+                                                  className={`px-2 py-1 text-xs ${fieldState.visible === false ? 'bg-red-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+                                                  title="Hide"
+                                                  data-testid={`btn-hide-${index}-${actionIndex}-${field.id}`}
+                                                >
+                                                  <EyeOff className="w-3 h-3" />
+                                                </button>
+                                              </div>
+                                            </div>
+                                            <div className="flex justify-center">
+                                              <div className="inline-flex rounded-md border border-slate-200 overflow-hidden">
+                                                <button
+                                                  type="button"
+                                                  onClick={() => updateFieldVisibilityState(rule.id, action.id, field.id, 'enabled', true)}
+                                                  className={`px-2 py-1 text-xs ${fieldState.enabled === true ? 'bg-green-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+                                                  title="Enable"
+                                                  data-testid={`btn-enable-${index}-${actionIndex}-${field.id}`}
+                                                >
+                                                  <Unlock className="w-3 h-3" />
+                                                </button>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => updateFieldVisibilityState(rule.id, action.id, field.id, 'enabled', null)}
+                                                  className={`px-2 py-1 text-xs border-l border-r border-slate-200 ${fieldState.enabled === null ? 'bg-slate-200 text-slate-700' : 'bg-white text-slate-400 hover:bg-slate-50'}`}
+                                                  title="Inherit (no change)"
+                                                  data-testid={`btn-inherit-state-${index}-${actionIndex}-${field.id}`}
+                                                >
+                                                  —
+                                                </button>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => updateFieldVisibilityState(rule.id, action.id, field.id, 'enabled', false)}
+                                                  className={`px-2 py-1 text-xs ${fieldState.enabled === false ? 'bg-orange-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+                                                  title="Disable"
+                                                  data-testid={`btn-disable-${index}-${actionIndex}-${field.id}`}
+                                                >
+                                                  <Lock className="w-3 h-3" />
+                                                </button>
+                                              </div>
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            ) : isLegacyFieldTargetAction ? (
                               <div>
                                 <Label className="text-xs text-slate-600 mb-2 block">
                                   Target Fields ({(action.target_field_ids || []).length} selected)
