@@ -33,6 +33,7 @@ interface EmailActionConfig {
   cc?: string;
   bcc?: string;
   template_id?: string;
+  field_mappings?: Record<string, string | null>;
 }
 
 interface UpdateFieldActionConfig {
@@ -140,6 +141,54 @@ async function getFieldValue(
   }
 }
 
+// Apply field mappings to template - replaces placeholders with actual field values
+async function applyFieldMappings(
+  template: string, 
+  fieldMappings: Record<string, string | null>, 
+  entityType: string, 
+  entityId: string, 
+  entityData: any
+): Promise<string> {
+  if (!template || !fieldMappings || Object.keys(fieldMappings).length === 0) {
+    return template;
+  }
+  
+  let result = template;
+  
+  for (const [placeholder, mapping] of Object.entries(fieldMappings)) {
+    if (!mapping) continue; // Skip auto mappings (null)
+    
+    const [fieldType, fieldId] = mapping.split(':');
+    let value = '';
+    
+    if (fieldType === 'core') {
+      // Core field - get directly from entity data
+      value = entityData?.[fieldId] || '';
+      console.log(`[Workflow Engine] Mapping "${placeholder}" -> core:${fieldId} = "${value}"`);
+    } else if (fieldType === 'custom' && supabase) {
+      // Custom field - look up from preference values
+      const tableName = entityType === 'organization' ? 'organization_preference_value' : 'member_preference_value';
+      const foreignKey = entityType === 'organization' ? 'organization_id' : 'member_id';
+      
+      const { data: prefValue } = await supabase
+        .from(tableName)
+        .select('value')
+        .eq(foreignKey, entityId)
+        .eq('field_id', fieldId)
+        .single();
+      
+      value = prefValue?.value || '';
+      console.log(`[Workflow Engine] Mapping "${placeholder}" -> custom:${fieldId} = "${value}"`);
+    }
+    
+    // Replace both {{placeholder}} and [[placeholder]] syntax
+    result = result.replace(new RegExp(`\\{\\{${placeholder}\\}\\}`, 'g'), value);
+    result = result.replace(new RegExp(`\\[\\[${placeholder}\\]\\]`, 'g'), value);
+  }
+  
+  return result;
+}
+
 // Replace placeholders in template strings
 function replacePlaceholders(template: string, entityType: string, entityData: any): string {
   // First handle {{placeholder}} syntax (form field mappings)
@@ -167,7 +216,7 @@ function replacePlaceholders(template: string, entityType: string, entityData: a
 }
 
 // Execute email action
-async function executeEmailAction(config: EmailActionConfig, entityType: string, entityData: any): Promise<ExecutionResult> {
+async function executeEmailAction(config: EmailActionConfig, entityType: string, entityId: string, entityData: any): Promise<ExecutionResult> {
   let subject = config.subject || '';
   let body = config.body || '';
   
@@ -184,6 +233,13 @@ async function executeEmailAction(config: EmailActionConfig, entityType: string,
         subject = template.subject || subject;
         body = template.body || body;
         console.log(`[Workflow Engine] Using email template: ${config.template_id}`);
+        
+        // Apply field mappings if configured
+        if (config.field_mappings && Object.keys(config.field_mappings).length > 0) {
+          console.log(`[Workflow Engine] Applying field mappings:`, JSON.stringify(config.field_mappings));
+          subject = await applyFieldMappings(subject, config.field_mappings, entityType, entityId, entityData);
+          body = await applyFieldMappings(body, config.field_mappings, entityType, entityId, entityData);
+        }
       } else {
         console.warn(`[Workflow Engine] Email template not found: ${config.template_id}`);
       }
@@ -410,7 +466,7 @@ export async function evaluateWorkflows(
           let result: ExecutionResult;
 
           if (action.type === 'send_email') {
-            result = await executeEmailAction(action.config as EmailActionConfig, entityType, afterData);
+            result = await executeEmailAction(action.config as EmailActionConfig, entityType, entityId, afterData);
           } else if (action.type === 'update_field') {
             result = await executeUpdateFieldAction(action.config as UpdateFieldActionConfig, entityType, entityId, afterData);
           } else {

@@ -8,6 +8,48 @@ const supabase = supabaseUrl && supabaseServiceKey
   ? createClient(supabaseUrl, supabaseServiceKey)
   : null;
 
+// Apply field mappings to template - replaces placeholders with actual field values
+async function applyFieldMappings(template, fieldMappings, entityType, entityId, entityData) {
+  if (!template || !fieldMappings || Object.keys(fieldMappings).length === 0) {
+    return template;
+  }
+  
+  let result = template;
+  
+  for (const [placeholder, mapping] of Object.entries(fieldMappings)) {
+    if (!mapping) continue; // Skip auto mappings (null)
+    
+    const [fieldType, fieldId] = mapping.split(':');
+    let value = '';
+    
+    if (fieldType === 'core') {
+      // Core field - get directly from entity data
+      value = entityData?.[fieldId] || '';
+      console.log(`[Workflows] Mapping "${placeholder}" -> core:${fieldId} = "${value}"`);
+    } else if (fieldType === 'custom') {
+      // Custom field - look up from preference values
+      const tableName = entityType === 'organization' ? 'organization_preference_value' : 'member_preference_value';
+      const foreignKey = entityType === 'organization' ? 'organization_id' : 'member_id';
+      
+      const { data: prefValue } = await supabase
+        .from(tableName)
+        .select('value')
+        .eq(foreignKey, entityId)
+        .eq('field_id', fieldId)
+        .single();
+      
+      value = prefValue?.value || '';
+      console.log(`[Workflows] Mapping "${placeholder}" -> custom:${fieldId} = "${value}"`);
+    }
+    
+    // Replace both {{placeholder}} and [[placeholder]] syntax
+    result = result.replace(new RegExp(`\\{\\{${placeholder}\\}\\}`, 'g'), value);
+    result = result.replace(new RegExp(`\\[\\[${placeholder}\\]\\]`, 'g'), value);
+  }
+  
+  return result;
+}
+
 // Resolve a field ID placeholder to actual value from preference values
 async function resolveFieldIdPlaceholder(template, entityType, entityId) {
   if (!template || !supabase) return template;
@@ -84,6 +126,13 @@ async function executeWorkflowActions(workflow, entityType, entityId, entityData
         fromEmail = template.from_email;
         replyTo = template.reply_to;
         console.log(`[Workflows] Template loaded - subject: "${subject}", body length: ${body?.length}`);
+        
+        // Apply field mappings if configured
+        if (action.config?.field_mappings && Object.keys(action.config.field_mappings).length > 0) {
+          console.log(`[Workflows] Applying field mappings:`, JSON.stringify(action.config.field_mappings));
+          subject = await applyFieldMappings(subject, action.config.field_mappings, entityType, entityId, entityData);
+          body = await applyFieldMappings(body, action.config.field_mappings, entityType, entityId, entityData);
+        }
       } else {
         subject = action.config?.subject || '';
         body = action.config?.body || '';

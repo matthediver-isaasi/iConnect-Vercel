@@ -49,6 +49,7 @@ const ACTION_TYPES = [
 ];
 
 const ORGANIZATION_CORE_FIELDS = [
+  { id: 'id', label: 'ID', type: 'text' },
   { id: 'name', label: 'Name', type: 'text' },
   { id: 'status', label: 'Status', type: 'text' },
   { id: 'phone', label: 'Phone', type: 'text' },
@@ -59,12 +60,35 @@ const ORGANIZATION_CORE_FIELDS = [
 ];
 
 const MEMBER_CORE_FIELDS = [
+  { id: 'id', label: 'ID', type: 'text' },
   { id: 'full_name', label: 'Full Name', type: 'text' },
   { id: 'email', label: 'Email', type: 'email' },
   { id: 'phone', label: 'Phone', type: 'text' },
   { id: 'status', label: 'Status', type: 'text' },
   { id: 'job_title', label: 'Job Title', type: 'text' },
 ];
+
+// Extract placeholders from template content - both {{placeholder}} and [[placeholder]] syntax
+const extractPlaceholders = (template) => {
+  if (!template) return [];
+  const placeholders = new Set();
+  
+  // Match {{placeholder}} syntax
+  const curlyMatches = template.match(/\{\{([^}]+)\}\}/g) || [];
+  curlyMatches.forEach(match => {
+    const placeholder = match.replace(/[{}]/g, '');
+    placeholders.add(placeholder);
+  });
+  
+  // Match [[placeholder]] syntax
+  const bracketMatches = template.match(/\[\[([^\]]+)\]\]/g) || [];
+  bracketMatches.forEach(match => {
+    const placeholder = match.replace(/[\[\]]/g, '');
+    placeholders.add(placeholder);
+  });
+  
+  return Array.from(placeholders);
+};
 
 export default function WorkflowManagementPage() {
   const { isAdmin, isFeatureExcluded, isAccessReady } = useMemberAccess();
@@ -1019,7 +1043,8 @@ export default function WorkflowManagementPage() {
                                       updateAction(index, { 
                                         config: { 
                                           ...action.config, 
-                                          template_id: val === '_none' ? null : val
+                                          template_id: val === '_none' ? null : val,
+                                          field_mappings: {} // Reset mappings when template changes
                                         } 
                                       });
                                     }}
@@ -1037,6 +1062,75 @@ export default function WorkflowManagementPage() {
                                   <p className="text-xs text-muted-foreground">
                                     Template content will be fetched when the workflow runs, so updates to the template will automatically apply.
                                   </p>
+
+                                  {/* Placeholder Mapping UI */}
+                                  {action.config?.template_id && (() => {
+                                    const selectedTemplate = emailTemplates.find(t => t.id === action.config.template_id);
+                                    if (!selectedTemplate) return null;
+                                    
+                                    const templateContent = (selectedTemplate.subject || '') + ' ' + (selectedTemplate.body || '');
+                                    const placeholders = extractPlaceholders(templateContent);
+                                    
+                                    if (placeholders.length === 0) return null;
+                                    
+                                    return (
+                                      <div className="mt-4 p-3 border rounded-md bg-muted/30">
+                                        <Label className="text-sm font-medium mb-2 block">Template Placeholder Mappings</Label>
+                                        <p className="text-xs text-muted-foreground mb-3">
+                                          Map each placeholder to a field from the {formData.entity_type === 'organization' ? 'organization' : 'member'} record.
+                                        </p>
+                                        <div className="space-y-2">
+                                          {placeholders.map((placeholder) => (
+                                            <div key={placeholder} className="flex items-center gap-2">
+                                              <Badge variant="outline" className="font-mono text-xs shrink-0">
+                                                {placeholder}
+                                              </Badge>
+                                              <ArrowRight className="h-3 w-3 text-muted-foreground shrink-0" />
+                                              <Select
+                                                value={action.config?.field_mappings?.[placeholder] || '_auto'}
+                                                onValueChange={(val) => {
+                                                  updateAction(index, {
+                                                    config: {
+                                                      ...action.config,
+                                                      field_mappings: {
+                                                        ...action.config.field_mappings,
+                                                        [placeholder]: val === '_auto' ? null : val
+                                                      }
+                                                    }
+                                                  });
+                                                }}
+                                              >
+                                                <SelectTrigger className="flex-1" data-testid={`select-mapping-${placeholder}-${index}`}>
+                                                  <SelectValue placeholder="Select field" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                  <SelectItem value="_auto">Auto (use placeholder name)</SelectItem>
+                                                  <SelectGroup>
+                                                    <SelectLabel>Core Fields</SelectLabel>
+                                                    {availableFields.filter(f => f.field_type === 'core').map((field) => (
+                                                      <SelectItem key={`core-${field.id}`} value={`core:${field.id}`}>
+                                                        {field.label}
+                                                      </SelectItem>
+                                                    ))}
+                                                  </SelectGroup>
+                                                  {availableFields.filter(f => f.field_type === 'custom').length > 0 && (
+                                                    <SelectGroup>
+                                                      <SelectLabel>Custom Fields</SelectLabel>
+                                                      {availableFields.filter(f => f.field_type === 'custom').map((field) => (
+                                                        <SelectItem key={`custom-${field.id}`} value={`custom:${field.id}`}>
+                                                          {field.label}
+                                                        </SelectItem>
+                                                      ))}
+                                                    </SelectGroup>
+                                                  )}
+                                                </SelectContent>
+                                              </Select>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    );
+                                  })()}
                                 </div>
                               )}
 
