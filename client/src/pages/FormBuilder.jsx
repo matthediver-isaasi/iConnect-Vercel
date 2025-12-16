@@ -2324,12 +2324,16 @@ export default function FormBuilderPage() {
     }
 
     console.log('[FormBuilder] All validation passed, submitting form');
+    
+    // Remove temporary UI-only flags before saving
+    const { _ccCustomMode, _bccCustomMode, ...dataToSave } = formData;
+    
     if (formId) {
       console.log('[FormBuilder] Updating form:', formId);
-      updateFormMutation.mutate({ id: formId, data: formData });
+      updateFormMutation.mutate({ id: formId, data: dataToSave });
     } else {
       console.log('[FormBuilder] Creating new form');
-      createFormMutation.mutate(formData);
+      createFormMutation.mutate(dataToSave);
     }
   };
 
