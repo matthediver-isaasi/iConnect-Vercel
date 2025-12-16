@@ -106,9 +106,43 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
   const [showOtherInput, setShowOtherInput] = useState(false);
   const [otherValue, setOtherValue] = useState('');
   const [domainError, setDomainError] = useState('');
+  const [emailFormatError, setEmailFormatError] = useState('');
+  const [urlFormatError, setUrlFormatError] = useState('');
   
   // Combine field.locked with disabled prop - either makes the field non-editable
   const isFieldDisabled = field.locked || disabled;
+
+  // Basic email format validation
+  const validateEmailFormat = (email) => {
+    if (!email) {
+      setEmailFormatError('');
+      return true;
+    }
+    // Basic email pattern: something@something.something
+    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailPattern.test(email)) {
+      setEmailFormatError('Please enter a valid email address');
+      return false;
+    }
+    setEmailFormatError('');
+    return true;
+  };
+
+  // Basic URL format validation
+  const validateUrlFormat = (url) => {
+    if (!url) {
+      setUrlFormatError('');
+      return true;
+    }
+    // Basic URL pattern: protocol://domain or just domain.tld
+    const urlPattern = /^(https?:\/\/)?([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(\/.*)?$/;
+    if (!urlPattern.test(url)) {
+      setUrlFormatError('Please enter a valid web address (e.g., https://example.com)');
+      return false;
+    }
+    setUrlFormatError('');
+    return true;
+  };
 
   // Domain validation helper for email fields
   const validateEmailDomain = (email) => {
@@ -262,17 +296,38 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
 
     switch (field.type) {
       case 'text':
-      case 'url':
         return (
           <Input
-            type={field.type}
+            type="text"
             value={value || ''}
             onChange={(e) => onChange(e.target.value)}
-            placeholder={field.placeholder || (field.type === 'url' ? 'https://example.com' : undefined)}
+            placeholder={field.placeholder}
             required={field.required}
             disabled={isFieldDisabled}
             className={isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : ''}
           />
+        );
+
+      case 'url':
+        return (
+          <div className="space-y-1">
+            <Input
+              type="url"
+              value={value || ''}
+              onChange={(e) => onChange(e.target.value)}
+              onBlur={(e) => validateUrlFormat(e.target.value)}
+              placeholder={field.placeholder || 'https://example.com'}
+              required={field.required}
+              disabled={isFieldDisabled}
+              className={`${isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : ''} ${urlFormatError ? 'border-amber-500' : ''}`}
+              data-testid={`input-url-${field.id}`}
+            />
+            {urlFormatError && (
+              <p className="text-xs text-amber-600" data-testid={`error-url-format-${field.id}`}>
+                {urlFormatError}
+              </p>
+            )}
+          </div>
         );
 
       case 'email':
@@ -285,13 +340,21 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
                 onChange(e.target.value);
                 validateEmailDomain(e.target.value);
               }}
-              onBlur={(e) => validateEmailDomain(e.target.value)}
+              onBlur={(e) => {
+                validateEmailFormat(e.target.value);
+                validateEmailDomain(e.target.value);
+              }}
               placeholder={field.placeholder}
               required={field.required}
               disabled={isFieldDisabled}
-              className={`${isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : ''} ${domainError ? 'border-amber-500' : ''}`}
+              className={`${isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : ''} ${domainError || emailFormatError ? 'border-amber-500' : ''}`}
               data-testid={`input-email-${field.id}`}
             />
+            {emailFormatError && (
+              <p className="text-xs text-amber-600" data-testid={`error-email-format-${field.id}`}>
+                {emailFormatError}
+              </p>
+            )}
             {domainError && (
               <p className="text-xs text-amber-600" data-testid={`error-domain-${field.id}`}>
                 {domainError}
