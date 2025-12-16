@@ -8,6 +8,43 @@ const supabase = supabaseUrl && supabaseServiceKey
   ? createClient(supabaseUrl, supabaseServiceKey)
   : null;
 
+// Resolve a field ID placeholder to actual value from preference values
+async function resolveFieldIdPlaceholder(template, entityType, entityId) {
+  if (!template || !supabase) return template;
+  
+  // Match UUID-style placeholders like {{4a53827a-d7f0-4e81-b0db-5671f537550a}}
+  const uuidRegex = /\{\{([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\}\}/gi;
+  const matches = template.match(uuidRegex);
+  
+  if (!matches) return template;
+  
+  let result = template;
+  
+  for (const match of matches) {
+    const fieldId = match.replace(/[{}]/g, '');
+    const tableName = entityType === 'organization' ? 'organization_preference_value' : 'member_preference_value';
+    const foreignKey = entityType === 'organization' ? 'organization_id' : 'member_id';
+    
+    console.log(`[Workflows] Resolving field ID ${fieldId} for ${entityType}:${entityId}`);
+    
+    const { data: prefValue } = await supabase
+      .from(tableName)
+      .select('value')
+      .eq(foreignKey, entityId)
+      .eq('field_id', fieldId)
+      .single();
+    
+    if (prefValue?.value) {
+      console.log(`[Workflows] Resolved field ${fieldId} to: ${prefValue.value}`);
+      result = result.replace(match, prefValue.value);
+    } else {
+      console.log(`[Workflows] No value found for field ${fieldId}`);
+    }
+  }
+  
+  return result;
+}
+
 async function executeWorkflowActions(workflow, entityType, entityId, entityData) {
   const results = [];
   
@@ -53,9 +90,21 @@ async function executeWorkflowActions(workflow, entityType, entityId, entityData
         console.log(`[Workflows] Using custom email mode`);
       }
       
-      const to = replacePlaceholders(action.config?.to || '', entityType, entityData);
-      const cc = action.config?.cc ? replacePlaceholders(action.config.cc, entityType, entityData) : undefined;
-      const bcc = action.config?.bcc ? replacePlaceholders(action.config.bcc, entityType, entityData) : undefined;
+      // First resolve field ID placeholders (UUIDs), then standard placeholders
+      let toResolved = action.config?.to || '';
+      if (action.config?.to_mode === 'field') {
+        toResolved = await resolveFieldIdPlaceholder(toResolved, entityType, entityId);
+      }
+      const to = replacePlaceholders(toResolved, entityType, entityData);
+      
+      let ccResolved = action.config?.cc || '';
+      ccResolved = await resolveFieldIdPlaceholder(ccResolved, entityType, entityId);
+      const cc = ccResolved ? replacePlaceholders(ccResolved, entityType, entityData) : undefined;
+      
+      let bccResolved = action.config?.bcc || '';
+      bccResolved = await resolveFieldIdPlaceholder(bccResolved, entityType, entityId);
+      const bcc = bccResolved ? replacePlaceholders(bccResolved, entityType, entityData) : undefined;
+      
       subject = replacePlaceholders(subject, entityType, entityData);
       body = replacePlaceholders(body, entityType, entityData);
       
