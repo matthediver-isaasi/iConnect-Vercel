@@ -445,23 +445,48 @@ function LogicRulesSection({
   customFields = [],
   roles = []
 }) {
-  // Normalize rules to new multi-action format (for backward compatibility)
-  // Migrate legacy show/hide/enable/disable actions to consolidated visibility action
-  const migrateLegacyActions = (actions) => {
-    if (!actions || !Array.isArray(actions)) return actions;
+  // Track the last rules JSON we migrated to detect new data
+  const lastMigratedJsonRef = React.useRef(null);
+
+  // Migrate and consolidate visibility actions (legacy + duplicates)
+  const consolidateVisibilityActions = (actions, ruleId) => {
+    if (!actions || !Array.isArray(actions)) return { actions: actions || [], migrated: false };
     
-    // Check if there are any legacy visibility/disability actions
+    // Check if there are any legacy or multiple visibility actions to consolidate
     const legacyActions = actions.filter(a => 
       ['show', 'hide', 'enable', 'disable'].includes(a.action_type)
     );
+    const visibilityActions = actions.filter(a => a.action_type === 'visibility');
     
-    if (legacyActions.length === 0) {
-      return actions;
+    // No consolidation needed if no legacy actions and at most one visibility action
+    if (legacyActions.length === 0 && visibilityActions.length <= 1) {
+      return { actions, migrated: false };
     }
     
-    // Build consolidated visibility state from legacy actions
-    const field_states = {};
+    // Find the first visibility action to use as base (preserve all its properties)
+    const baseVisibilityAction = visibilityActions[0];
+    const field_states = baseVisibilityAction?.field_states ? { ...baseVisibilityAction.field_states } : {};
     
+    // Merge additional visibility actions' field_states (if duplicates exist)
+    for (let i = 1; i < visibilityActions.length; i++) {
+      const extraAction = visibilityActions[i];
+      if (extraAction.field_states) {
+        for (const [fieldId, state] of Object.entries(extraAction.field_states)) {
+          if (!field_states[fieldId]) {
+            field_states[fieldId] = { visible: null, enabled: null };
+          }
+          // Later actions override earlier ones
+          if (state.visible !== null && state.visible !== undefined) {
+            field_states[fieldId].visible = state.visible;
+          }
+          if (state.enabled !== null && state.enabled !== undefined) {
+            field_states[fieldId].enabled = state.enabled;
+          }
+        }
+      }
+    }
+    
+    // Merge legacy actions into field_states
     for (const action of legacyActions) {
       const fieldIds = action.target_field_ids || [];
       for (const fieldId of fieldIds) {
@@ -481,72 +506,111 @@ function LogicRulesSection({
       }
     }
     
-    // Filter out legacy actions and add consolidated visibility action
-    const nonLegacyActions = actions.filter(a => 
-      !['show', 'hide', 'enable', 'disable'].includes(a.action_type)
+    // Filter out all legacy and visibility actions
+    const otherActions = actions.filter(a => 
+      !['show', 'hide', 'enable', 'disable', 'visibility'].includes(a.action_type)
     );
     
-    // Only add visibility action if there were actually fields configured
-    if (Object.keys(field_states).length > 0) {
-      nonLegacyActions.unshift({
-        id: `action_migrated_${Date.now()}`,
+    // Add the consolidated visibility action, preserving base action properties
+    if (Object.keys(field_states).length > 0 || baseVisibilityAction) {
+      otherActions.unshift({
+        ...(baseVisibilityAction || {}),
+        id: baseVisibilityAction?.id || `action_vis_${ruleId}`,
         action_type: 'visibility',
         field_states
       });
     }
     
-    return nonLegacyActions;
+    return { actions: otherActions, migrated: true };
   };
 
-  const normalizeRule = (rule) => {
-    // If rule already has actions array, it's in new format
-    if (rule.actions && Array.isArray(rule.actions)) {
-      // Migrate any legacy actions to new visibility format
-      const migratedActions = migrateLegacyActions(rule.actions);
-      return { ...rule, actions: migratedActions };
-    }
-    // Convert old format to new format
-    const actions = [];
-    if (rule.rule_type === 'set_value' || rule.action === 'set_value') {
-      actions.push({
-        id: `action_${Date.now()}_1`,
-        action_type: 'set_value',
-        target_field_id: rule.target_field_id || '',
-        set_value_source: rule.set_value_source || 'static',
-        set_value: rule.set_value || '',
-        set_value_field_id: rule.set_value_field_id || '',
-        set_value_prefill_field: rule.set_value_prefill_field || ''
-      });
-    } else {
-      // Legacy visibility rule - convert to consolidated format
-      const fieldIds = rule.target_field_ids || [];
-      if (fieldIds.length > 0) {
-        const field_states = {};
-        for (const fieldId of fieldIds) {
-          field_states[fieldId] = { visible: null, enabled: null };
-          if (rule.action === 'show') {
-            field_states[fieldId].visible = true;
-          } else if (rule.action === 'hide') {
-            field_states[fieldId].visible = false;
-          } else if (rule.action === 'enable') {
-            field_states[fieldId].enabled = true;
-          } else if (rule.action === 'disable') {
-            field_states[fieldId].enabled = false;
+  // Normalize and migrate rules on initial load or when rules change
+  useEffect(() => {
+    if (!visibilityRules || visibilityRules.length === 0) return;
+    
+    // Use JSON comparison to detect new data (handles cached array references)
+    const currentJson = JSON.stringify(visibilityRules);
+    if (lastMigratedJsonRef.current === currentJson) return;
+    
+    let needsUpdate = false;
+    const migratedRules = visibilityRules.map(rule => {
+      // Preserve all existing rule properties
+      let normalizedRule = { ...rule };
+      
+      // First normalize to actions array format if needed
+      if (!rule.actions || !Array.isArray(rule.actions)) {
+        needsUpdate = true;
+        const actions = [];
+        if (rule.rule_type === 'set_value' || rule.action === 'set_value') {
+          actions.push({
+            id: `action_${rule.id}_1`,
+            action_type: 'set_value',
+            target_field_id: rule.target_field_id || '',
+            set_value_source: rule.set_value_source || 'static',
+            set_value: rule.set_value || '',
+            set_value_field_id: rule.set_value_field_id || '',
+            set_value_prefill_field: rule.set_value_prefill_field || ''
+          });
+        } else if (rule.target_field_ids && rule.target_field_ids.length > 0) {
+          // Has old visibility format - convert directly to new visibility action
+          const field_states = {};
+          for (const fieldId of rule.target_field_ids) {
+            field_states[fieldId] = { visible: null, enabled: null };
+            if (rule.action === 'show') {
+              field_states[fieldId].visible = true;
+            } else if (rule.action === 'hide') {
+              field_states[fieldId].visible = false;
+            } else if (rule.action === 'enable') {
+              field_states[fieldId].enabled = true;
+            } else if (rule.action === 'disable') {
+              field_states[fieldId].enabled = false;
+            }
           }
+          actions.push({
+            id: `action_vis_${rule.id}`,
+            action_type: 'visibility',
+            field_states
+          });
         }
-        actions.push({
-          id: `action_${Date.now()}_1`,
-          action_type: 'visibility',
-          field_states
-        });
+        normalizedRule = { ...normalizedRule, actions };
       }
+      
+      // Consolidate any legacy or duplicate visibility actions
+      const { actions: consolidatedActions, migrated } = consolidateVisibilityActions(
+        normalizedRule.actions, 
+        normalizedRule.id
+      );
+      if (migrated) {
+        needsUpdate = true;
+        normalizedRule = { ...normalizedRule, actions: consolidatedActions };
+      }
+      
+      return normalizedRule;
+    });
+    
+    // Mark as migrated before calling onRulesChange to prevent re-entry
+    lastMigratedJsonRef.current = currentJson;
+    
+    if (needsUpdate) {
+      console.log('[FormBuilder] Migrating legacy visibility rules to new format');
+      // Update the ref to the new JSON so we don't re-trigger
+      lastMigratedJsonRef.current = JSON.stringify(migratedRules);
+      onRulesChange(migratedRules);
     }
+  }, [visibilityRules, onRulesChange]);
+
+  // Simple normalize for rendering (no migration, just ensure actions array exists)
+  const normalizeRule = (rule) => {
+    if (rule.actions && Array.isArray(rule.actions)) {
+      return rule;
+    }
+    // Fallback for any rules not yet migrated
     return {
       id: rule.id,
       trigger_field_id: rule.trigger_field_id,
       operator: rule.operator,
       value: rule.value,
-      actions
+      actions: []
     };
   };
 
@@ -561,7 +625,7 @@ function LogicRulesSection({
     onRulesChange([...visibilityRules, newRule]);
   };
 
-  const addAction = (ruleId, actionType = 'show') => {
+  const addAction = (ruleId, actionType = 'visibility') => {
     const rule = visibilityRules.find(r => r.id === ruleId);
     if (!rule) return;
     
@@ -597,18 +661,16 @@ function LogicRulesSection({
         return;
       }
       newAction = {
-        id: `action_${Date.now()}`,
+        id: `action_vis_${Date.now()}`,
         action_type: 'visibility',
         // field_states maps fieldId -> { visible: true/false/null, enabled: true/false/null }
         // null means inherit (no change)
         field_states: {}
       };
     } else {
-      newAction = {
-        id: `action_${Date.now()}`,
-        action_type: actionType, // 'show', 'hide', 'disable', 'enable'
-        target_field_ids: []
-      };
+      // Unknown action type
+      toast.error('Unknown action type');
+      return;
     }
     
     const updatedActions = [...(normalizedRule.actions || []), newAction];
