@@ -274,6 +274,14 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
     setFieldOptions(fieldOptions.filter((_, i) => i !== index));
   };
 
+  const handleOptionDragEnd = (result) => {
+    if (!result.destination) return;
+    const items = Array.from(fieldOptions);
+    const [reorderedItem] = items.splice(result.source.index, 1);
+    items.splice(result.destination.index, 0, reorderedItem);
+    setFieldOptions(items);
+  };
+
   const handleSubmit = () => {
     if (!fieldName.trim() || !fieldLabel.trim()) {
       toast.error('Please provide both field name and label');
@@ -509,29 +517,53 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
               <div className="space-y-3">
                 <Label>Options (Optional)</Label>
                 <p className="text-xs text-slate-500 -mt-1">
-                  Leave empty if values will be unique per {entityScope === 'member' ? 'member' : 'organisation'} (e.g., approved domains, custom tags)
+                  Leave empty if values will be unique per {entityScope === 'member' ? 'member' : 'organisation'} (e.g., approved domains, custom tags). Drag to reorder.
                 </p>
                 
                 {fieldOptions.length > 0 && (
-                  <div className="space-y-2">
-                    {fieldOptions.map((option, index) => (
-                      <div 
-                        key={index} 
-                        className="flex items-center gap-2 p-2 bg-slate-50 rounded border"
-                      >
-                        <span className="flex-1 text-sm">{option.label}</span>
-                        <span className="text-xs text-slate-400">({option.value})</span>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleRemoveOption(index)}
-                          className="h-6 w-6"
+                  <DragDropContext onDragEnd={handleOptionDragEnd}>
+                    <Droppable droppableId="options-list">
+                      {(provided) => (
+                        <div
+                          {...provided.droppableProps}
+                          ref={provided.innerRef}
+                          className="space-y-2"
                         >
-                          <X className="w-3 h-3" />
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
+                          {fieldOptions.map((option, index) => (
+                            <Draggable key={`option-${index}`} draggableId={`option-${index}`} index={index}>
+                              {(provided, snapshot) => (
+                                <div 
+                                  ref={provided.innerRef}
+                                  {...provided.draggableProps}
+                                  className={`flex items-center gap-2 p-2 bg-slate-50 rounded border ${
+                                    snapshot.isDragging ? 'shadow-lg border-blue-300' : ''
+                                  }`}
+                                >
+                                  <div
+                                    {...provided.dragHandleProps}
+                                    className="cursor-grab active:cursor-grabbing p-1 hover:bg-slate-200 rounded"
+                                  >
+                                    <GripVertical className="w-3 h-3 text-slate-400" />
+                                  </div>
+                                  <span className="flex-1 text-sm">{option.label}</span>
+                                  <span className="text-xs text-slate-400">({option.value})</span>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => handleRemoveOption(index)}
+                                    className="h-6 w-6"
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </Button>
+                                </div>
+                              )}
+                            </Draggable>
+                          ))}
+                          {provided.placeholder}
+                        </div>
+                      )}
+                    </Droppable>
+                  </DragDropContext>
                 )}
 
                 <div className="flex gap-2">
