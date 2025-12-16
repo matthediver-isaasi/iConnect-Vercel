@@ -10,10 +10,94 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, Building2, Globe, Users, Phone, Mail, MapPin, ClipboardList, ExternalLink, Save, X, Camera } from "lucide-react";
+import { Loader2, Building2, Globe, Users, Phone, Mail, MapPin, ClipboardList, ExternalLink, Save, X, Camera, Plus, Trash2 } from "lucide-react";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 import { useToast } from "@/components/ui/use-toast";
+
+function ListFieldInput({ items, onChange, placeholder, fieldId }) {
+  const [newItem, setNewItem] = useState('');
+
+  const handleAdd = () => {
+    const trimmed = newItem.trim();
+    if (trimmed && !items.includes(trimmed)) {
+      onChange([...items, trimmed]);
+      setNewItem('');
+    }
+  };
+
+  const handleRemove = (index) => {
+    onChange(items.filter((_, i) => i !== index));
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleAdd();
+    }
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="flex gap-2">
+        <Input
+          value={newItem}
+          onChange={(e) => setNewItem(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder={placeholder}
+          className="flex-1"
+          data-testid={`input-list-${fieldId}`}
+        />
+        <Button
+          type="button"
+          size="sm"
+          onClick={handleAdd}
+          disabled={!newItem.trim()}
+          data-testid={`button-add-list-item-${fieldId}`}
+        >
+          <Plus className="w-4 h-4" />
+        </Button>
+      </div>
+      {items.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {items.map((item, index) => (
+            <Badge
+              key={index}
+              variant="secondary"
+              className="flex items-center gap-1 pr-1"
+            >
+              <span>{item}</span>
+              <button
+                type="button"
+                onClick={() => handleRemove(index)}
+                className="ml-1 p-0.5 rounded-full hover:bg-slate-300 transition-colors"
+                data-testid={`button-remove-list-item-${fieldId}-${index}`}
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </Badge>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ListFieldDisplay({ items }) {
+  if (!items || !Array.isArray(items) || items.length === 0) {
+    return <span className="text-slate-400 italic font-normal">Not set</span>;
+  }
+  
+  return (
+    <div className="flex flex-wrap gap-1">
+      {items.map((item, index) => (
+        <Badge key={index} variant="secondary" className="text-xs">
+          {item}
+        </Badge>
+      ))}
+    </div>
+  );
+}
 
 export default function MyOrganisationPage() {
   const { memberInfo, organizationInfo, isFeatureExcluded, isAccessReady } = useMemberAccess();
@@ -156,7 +240,7 @@ export default function MyOrganisationPage() {
       const valuesMap = {};
       orgValues.forEach(pv => {
         const field = orgCustomFields.find(f => f.id === pv.field_id);
-        if (field?.field_type === 'picklist' && pv.value) {
+        if ((field?.field_type === 'picklist' || field?.field_type === 'list') && pv.value) {
           try {
             valuesMap[pv.field_id] = JSON.parse(pv.value);
           } catch {
@@ -188,8 +272,8 @@ export default function MyOrganisationPage() {
       if (!canEditField(fieldId)) return false;
       const current = customFieldValues[fieldId];
       const original = originalCustomFieldValues[fieldId];
-      if (Array.isArray(current) && Array.isArray(original)) {
-        return JSON.stringify(current) !== JSON.stringify(original);
+      if (Array.isArray(current) || Array.isArray(original)) {
+        return JSON.stringify(current || []) !== JSON.stringify(original || []);
       }
       return current !== original;
     });
@@ -233,7 +317,7 @@ export default function MyOrganisationPage() {
       const field = orgCustomFields.find(f => f.id === fieldId);
       
       let storedValue = value;
-      if (field?.field_type === 'picklist' && Array.isArray(value)) {
+      if ((field?.field_type === 'picklist' || field?.field_type === 'list') && Array.isArray(value)) {
         storedValue = JSON.stringify(value);
       }
       
@@ -339,7 +423,7 @@ export default function MyOrganisationPage() {
       let currentVal = value;
       let origVal = originalValue;
       
-      if (field?.field_type === 'picklist') {
+      if (field?.field_type === 'picklist' || field?.field_type === 'list') {
         currentVal = Array.isArray(value) ? JSON.stringify(value) : value;
         origVal = Array.isArray(originalValue) ? JSON.stringify(originalValue) : originalValue;
       }
@@ -407,6 +491,17 @@ export default function MyOrganisationPage() {
             return parsed
               .map(v => field.options.find(o => o.value === v)?.label || v)
               .join(', ');
+          }
+        } catch {
+          return displayValue;
+        }
+        break;
+      
+      case 'list':
+        try {
+          const parsed = typeof displayValue === 'string' ? JSON.parse(displayValue) : displayValue;
+          if (Array.isArray(parsed)) {
+            return parsed;
           }
         } catch {
           return displayValue;
@@ -559,6 +654,17 @@ export default function MyOrganisationPage() {
               );
             })}
           </div>
+        );
+        
+      case 'list':
+        const listItems = Array.isArray(fieldValue) ? fieldValue : [];
+        return (
+          <ListFieldInput
+            items={listItems}
+            onChange={(newItems) => handleCustomFieldChange(field.id, newItems)}
+            placeholder={field.placeholder || `Add ${field.label.toLowerCase()}`}
+            fieldId={field.id}
+          />
         );
         
       case 'boolean':
@@ -945,9 +1051,13 @@ export default function MyOrganisationPage() {
                         return (
                           <div key={field.id} className="flex justify-between items-start gap-4 p-3 bg-slate-50 rounded-lg">
                             <span className="text-sm text-slate-600">{field.label}</span>
-                            <span className="text-sm font-medium text-slate-900 text-right" data-testid={`text-custom-field-${field.id}`}>
-                              {displayValue || <span className="text-slate-400 italic font-normal">Not set</span>}
-                            </span>
+                            <div className="text-sm font-medium text-slate-900 text-right" data-testid={`text-custom-field-${field.id}`}>
+                              {field.field_type === 'list' ? (
+                                <ListFieldDisplay items={displayValue} />
+                              ) : (
+                                displayValue || <span className="text-slate-400 italic font-normal">Not set</span>
+                              )}
+                            </div>
                           </div>
                         );
                       })}
