@@ -514,7 +514,7 @@ export default function WorkflowManagementPage() {
       </Tabs>
 
       <Dialog open={showDialog} onOpenChange={(open) => !open && handleCloseDialog()}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
+        <DialogContent className="max-w-3xl h-[90vh] overflow-hidden flex flex-col">
           <DialogHeader>
             <DialogTitle>
               {editingWorkflow ? 'Edit Workflow' : 'Create Workflow'}
@@ -553,7 +553,7 @@ export default function WorkflowManagementPage() {
             <span className={builderStep === 4 ? 'text-primary font-medium' : ''}>Actions</span>
           </div>
 
-          <ScrollArea className="flex-1 min-h-0 px-1">
+          <ScrollArea className="flex-1 min-h-0 px-1 pb-4">
             {builderStep === 1 && (
               <div className="space-y-4">
                 <div className="space-y-2">
