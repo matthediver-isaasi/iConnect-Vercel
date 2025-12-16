@@ -254,7 +254,7 @@ function FieldMappingSection({
                       onValueChange={(value) => updateMapping(mapping.id, { 
                         source_type: value, 
                         source_field_id: '',
-                        static_value: ''
+                        static_value: value === 'clear' ? '__clear__' : ''
                       })}
                     >
                       <SelectTrigger className="h-9" data-testid={`select-source-type-${index}`}>
@@ -263,11 +263,12 @@ function FieldMappingSection({
                       <SelectContent>
                         <SelectItem value="field">Form Field</SelectItem>
                         <SelectItem value="static">Fixed Value</SelectItem>
+                        <SelectItem value="clear">Clear Field</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
 
-                  {/* Source Field or Static Value */}
+                  {/* Source Field or Static Value or Clear indicator */}
                   {sourceType === 'field' ? (
                     <div className="space-y-1 min-w-[160px] flex-1">
                       <Label className="text-xs">Form Field</Label>
@@ -291,6 +292,13 @@ function FieldMappingSection({
                           ))}
                         </SelectContent>
                       </Select>
+                    </div>
+                  ) : sourceType === 'clear' ? (
+                    <div className="space-y-1 min-w-[160px] flex-1">
+                      <Label className="text-xs">Action</Label>
+                      <div className="h-9 px-3 flex items-center text-sm text-muted-foreground bg-slate-100 border rounded-md">
+                        Will clear/remove existing value
+                      </div>
                     </div>
                   ) : (
                     <div className="space-y-1 min-w-[160px] flex-1">
@@ -2960,8 +2968,8 @@ export default function FormBuilderPage() {
         return;
       }
       
-      // Non-current_date mappings need a source field (unless static)
-      if (m.transformation !== 'current_date' && m.source_type !== 'static') {
+      // Non-current_date mappings need a source field (unless static or clear)
+      if (m.transformation !== 'current_date' && m.source_type !== 'static' && m.source_type !== 'clear') {
         if (!m.source_field_id) {
           console.log(`[FormBuilder] Validation failed: mapping #${i + 1} missing source_field_id`);
           toast.error(`Field mapping #${i + 1} is missing a source field. Please select a source field or use "Current date" transformation.`);
