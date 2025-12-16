@@ -305,25 +305,41 @@ export default function FormViewPage() {
       }
       
       // Send submission email if configured
+      console.log('[FormView] === EMAIL ON SUBMISSION CHECK ===');
+      console.log('[FormView] form exists:', !!form);
+      console.log('[FormView] form.id:', form?.id);
+      console.log('[FormView] form.name:', form?.name);
+      console.log('[FormView] submission_email_template_id:', form?.submission_email_template_id);
+      console.log('[FormView] submission_email_to:', form?.submission_email_to);
+      console.log('[FormView] submission_email_cc:', form?.submission_email_cc);
+      console.log('[FormView] submission_email_bcc:', form?.submission_email_bcc);
+      console.log('[FormView] Condition result:', !!(form?.submission_email_template_id && form?.submission_email_to));
+      
       if (form?.submission_email_template_id && form?.submission_email_to) {
         try {
           console.log('[FormView] Sending submission email...');
+          const emailPayload = {
+            form_id: form.id,
+            submission_id: submissionResult?.id,
+            form_values: formValues,
+            fields: form.fields
+          };
+          console.log('[FormView] Email payload:', JSON.stringify(emailPayload, null, 2));
+          
           const emailResponse = await fetch('/api/forms/send-submission-email', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              form_id: form.id,
-              submission_id: submissionResult?.id,
-              form_values: formValues,
-              fields: form.fields
-            })
+            body: JSON.stringify(emailPayload)
           });
+          console.log('[FormView] Email response status:', emailResponse.status);
           const emailResult = await emailResponse.json();
           console.log('[FormView] Submission email result:', emailResult);
         } catch (error) {
           console.error('[FormView] Error sending submission email:', error);
           // Don't fail the submission if email fails
         }
+      } else {
+        console.log('[FormView] Email on submission NOT configured - skipping email send');
       }
       
       queryClient.invalidateQueries({ queryKey: ['form-by-slug'] });
