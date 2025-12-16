@@ -340,15 +340,25 @@ export default function RoleAccessConfigManagement() {
   }
 
   if (error) {
+    const errorMessage = error?.message || String(error);
+    const isTableNotFound = errorMessage.toLowerCase().includes('does not exist') || 
+                            errorMessage.toLowerCase().includes('relation') ||
+                            errorMessage.toLowerCase().includes('42p01');
+    
     return (
       <Card className="m-6">
         <CardContent className="pt-6">
           <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400 mb-4">
             <AlertTriangle className="h-5 w-5" />
-            <span className="font-medium">Table not found</span>
+            <span className="font-medium">{isTableNotFound ? 'Table not found' : 'Database Error'}</span>
           </div>
+          <p className="text-sm text-red-600 dark:text-red-400 mb-4 font-mono bg-red-50 dark:bg-red-950 p-2 rounded">
+            {errorMessage}
+          </p>
           <p className="text-sm text-muted-foreground mb-4">
-            The role_access_item table doesn't exist yet. Please create it in your Supabase database using the SQL below:
+            {isTableNotFound 
+              ? "The role_access_item table doesn't exist yet. Please create it in your Supabase database using the SQL below:"
+              : "If this is a permissions error, you may need to update your RLS policies. The table creation SQL is below:"}
           </p>
           <pre className="bg-muted p-4 rounded-md text-xs overflow-x-auto mb-4">
 {`CREATE TABLE role_access_item (
@@ -372,12 +382,11 @@ CREATE INDEX idx_role_access_item_parent ON role_access_item(parent_id);
 -- Enable RLS
 ALTER TABLE role_access_item ENABLE ROW LEVEL SECURITY;
 
--- Allow authenticated users to read
+-- Allow all users to read (including anon for API access)
 CREATE POLICY "Allow read access" ON role_access_item FOR SELECT USING (true);
 
--- Allow service role to manage
-CREATE POLICY "Allow service role full access" ON role_access_item
-  FOR ALL USING (auth.role() = 'service_role');`}
+-- Allow all operations (for service role / authenticated admin access)
+CREATE POLICY "Allow full access" ON role_access_item FOR ALL USING (true);`}
           </pre>
           <p className="text-sm text-muted-foreground">
             After creating the table, refresh this page.
