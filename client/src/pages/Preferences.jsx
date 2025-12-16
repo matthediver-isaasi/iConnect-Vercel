@@ -147,9 +147,6 @@ async function uploadImageToSupabase(file, bucket, folderPrefix = "") {
   return publicData.publicUrl;
 }
 
-// LinkedIn preference field UUID from the database
-const LINKEDIN_PREFERENCE_FIELD_ID = "6d2fd088-8995-44ef-a955-c21c8b390544";
-
 export default function PreferencesPage() {
   // Get hasBanner from layout context (since props don't work through React Router)
   const { hasBanner } = useLayoutContext();
@@ -167,7 +164,6 @@ export default function PreferencesPage() {
   const [jobTitle, setJobTitle] = useState("");
   const [mobile, setMobile] = useState("");
   const [landline, setLandline] = useState("");
-  const [linkedIn, setLinkedIn] = useState("");
   const [biography, setBiography] = useState("");
   const [profilePhotoUrl, setProfilePhotoUrl] = useState("");
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
@@ -761,17 +757,6 @@ export default function PreferencesPage() {
     setShowInDirectory(memberRecord.show_in_directory !== false);
   }, [memberRecord]);
 
-  // --- Load LinkedIn from preference field value ---
-  useEffect(() => {
-    if (memberPreferenceValues.length > 0) {
-      const linkedInPref = memberPreferenceValues.find(pv => pv.field_id === LINKEDIN_PREFERENCE_FIELD_ID);
-      if (linkedInPref) {
-        setLinkedIn(linkedInPref.value || "");
-      }
-    }
-  }, [memberPreferenceValues]);
-
-
   // --- Load expandedCategories from localStorage (UI state only, always load) ---
   useEffect(() => {
     const storedPrefs = localStorage.getItem('agcas_resource_preferences');
@@ -1067,27 +1052,6 @@ export default function PreferencesPage() {
 
     setIsSavingProfile(true);
     
-    // Save LinkedIn to preference field (separate from member table)
-    try {
-      if (memberRecord?.id) {
-        const existingLinkedInPref = memberPreferenceValues.find(pv => pv.field_id === LINKEDIN_PREFERENCE_FIELD_ID);
-        if (existingLinkedInPref) {
-          await base44.entities.MemberPreferenceValue.update(existingLinkedInPref.id, {
-            value: linkedIn,
-            updated_at: new Date().toISOString()
-          });
-        } else if (linkedIn) {
-          await base44.entities.MemberPreferenceValue.create({
-            member_id: memberRecord.id,
-            field_id: LINKEDIN_PREFERENCE_FIELD_ID,
-            value: linkedIn
-          });
-        }
-      }
-    } catch (error) {
-      console.error("Failed to save LinkedIn preference:", error);
-    }
-    
     updateProfileMutation.mutate({
       first_name: firstName,
       last_name: lastName,
@@ -1275,9 +1239,6 @@ export default function PreferencesPage() {
   // --- Track profile / org changes ---
   useEffect(() => {
     if (!memberRecord) return;
-    // Get LinkedIn value from preference field
-    const linkedInPref = memberPreferenceValues.find(pv => pv.field_id === LINKEDIN_PREFERENCE_FIELD_ID);
-    const savedLinkedIn = linkedInPref?.value || "";
     
     const changed =
       firstName !== (memberRecord.first_name || "") ||
@@ -1285,7 +1246,6 @@ export default function PreferencesPage() {
       jobTitle !== (memberRecord.job_title || "") ||
       mobile !== (memberRecord.mobile || "") ||
       landline !== (memberRecord.landline || "") ||
-      linkedIn !== savedLinkedIn ||
       biography !== (memberRecord.biography || "") ||
       profilePhotoUrl !== (memberRecord.profile_photo_url || "") ||
       showInDirectory !== (memberRecord.show_in_directory !== false);
@@ -1296,12 +1256,10 @@ export default function PreferencesPage() {
     jobTitle,
     mobile,
     landline,
-    linkedIn,
     biography,
     profilePhotoUrl,
     showInDirectory,
     memberRecord,
-    memberPreferenceValues,
   ]);
 
 
@@ -1463,17 +1421,6 @@ export default function PreferencesPage() {
                     data-testid="input-landline"
                   />
                 </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="linkedIn">LinkedIn</Label>
-                <Input
-                  id="linkedIn"
-                  value={linkedIn}
-                  onChange={(e) => setLinkedIn(e.target.value)}
-                  placeholder="https://linkedin.com/in/your-profile"
-                  data-testid="input-linkedin"
-                />
               </div>
 
               {!isFeatureExcluded('user.about-me.show-in-directory') && (
