@@ -177,16 +177,21 @@ export function getModuleExclusionState(
     if (excludedResources.includes(page.id)) {
       hasExcluded = true;
     } else {
-      let pageHasExclusions = false;
-      if (page.features) {
+      // Page is not directly excluded - check its features
+      if (page.features && page.features.length > 0) {
+        let excludedFeatureCount = 0;
         for (const feature of page.features) {
           if (excludedResources.includes(feature.id)) {
             hasExcluded = true;
-            pageHasExclusions = true;
+            excludedFeatureCount++;
           }
         }
-      }
-      if (!pageHasExclusions) {
+        // If not ALL features are excluded, the page is not fully excluded
+        if (excludedFeatureCount < page.features.length) {
+          allExcluded = false;
+        }
+      } else {
+        // Page has no features and is not excluded
         allExcluded = false;
       }
     }

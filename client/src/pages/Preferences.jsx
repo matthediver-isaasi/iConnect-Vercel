@@ -1476,22 +1476,24 @@ export default function PreferencesPage() {
                 />
               </div>
 
-              <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg border border-slate-200">
-                <div className="flex-1">
-                  <Label htmlFor="show-in-directory" className="cursor-pointer">
-                    Show in Member Directory
-                  </Label>
-                  <p className="text-xs text-slate-500 mt-1">
-                    Allow other members to see your profile in the member
-                    directory
-                  </p>
+              {!isFeatureExcluded('user.about-me.show-in-directory') && (
+                <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg border border-slate-200">
+                  <div className="flex-1">
+                    <Label htmlFor="show-in-directory" className="cursor-pointer">
+                      Show in Member Directory
+                    </Label>
+                    <p className="text-xs text-slate-500 mt-1">
+                      Allow other members to see your profile in the member
+                      directory
+                    </p>
+                  </div>
+                  <Switch
+                    id="show-in-directory"
+                    checked={showInDirectory}
+                    onCheckedChange={setShowInDirectory}
+                  />
                 </div>
-                <Switch
-                  id="show-in-directory"
-                  checked={showInDirectory}
-                  onCheckedChange={setShowInDirectory}
-                />
-              </div>
+              )}
 
               <div className="flex items-center gap-2 p-4 bg-slate-50 rounded-lg border border-slate-200">
                 <CalendarDays className="w-5 h-5 text-slate-500" />
