@@ -2061,53 +2061,57 @@ export default function PreferencesPage() {
               )}
 
               {/* Biography */}
-              <div className="space-y-2 pt-4 border-t border-slate-200">
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="biography">Professional Biography</Label>
-                  <span
-                    className={`text-xs ${
-                      getBiographyWordCount() > 500
-                        ? "text-red-600 font-semibold"
-                        : "text-slate-500"
-                    }`}
-                  >
-                    {getBiographyWordCount()} / 500 words
-                  </span>
-                </div>
-                <Textarea
-                  id="biography"
-                  value={biography}
-                  onChange={(e) => setBiography(e.target.value)}
-                  placeholder="Share your professional background, expertise, and experience (max 500 words)"
-                  className="min-h-[200px]"
-                />
-                <p className="text-xs text-slate-500">
-                  This biography will be displayed on your published articles
-                </p>
-              </div>
+              {!isFeatureExcluded('user.about-me.professional-biography') && (
+                <>
+                  <div className="space-y-2 pt-4 border-t border-slate-200">
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="biography">Professional Biography</Label>
+                      <span
+                        className={`text-xs ${
+                          getBiographyWordCount() > 500
+                            ? "text-red-600 font-semibold"
+                            : "text-slate-500"
+                        }`}
+                      >
+                        {getBiographyWordCount()} / 500 words
+                      </span>
+                    </div>
+                    <Textarea
+                      id="biography"
+                      value={biography}
+                      onChange={(e) => setBiography(e.target.value)}
+                      placeholder="Share your professional background, expertise, and experience (max 500 words)"
+                      className="min-h-[200px]"
+                    />
+                    <p className="text-xs text-slate-500">
+                      This biography will be displayed on your published articles
+                    </p>
+                  </div>
 
-              {hasUnsavedProfile && (
-                <div className="flex justify-end pt-4">
-                  <Button
-                    onClick={handleSaveProfile}
-                    disabled={
-                      isSavingProfile || getBiographyWordCount() > 500
-                    }
-                    className="bg-blue-600 hover:bg-blue-700"
-                  >
-                    {isSavingProfile ? (
-                      <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        Saving...
-                      </>
-                    ) : (
-                      <>
-                        <Save className="w-4 h-4 mr-2" />
-                        Save Biography
-                      </>
-                    )}
-                  </Button>
-                </div>
+                  {hasUnsavedProfile && (
+                    <div className="flex justify-end pt-4">
+                      <Button
+                        onClick={handleSaveProfile}
+                        disabled={
+                          isSavingProfile || getBiographyWordCount() > 500
+                        }
+                        className="bg-blue-600 hover:bg-blue-700"
+                      >
+                        {isSavingProfile ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            Saving...
+                          </>
+                        ) : (
+                          <>
+                            <Save className="w-4 h-4 mr-2" />
+                            Save Biography
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  )}
+                </>
               )}
             </CardContent>
           </Card>

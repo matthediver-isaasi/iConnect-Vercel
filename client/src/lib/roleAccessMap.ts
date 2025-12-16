@@ -34,7 +34,8 @@ export const ROLE_ACCESS_MAP: Module[] = [
           { id: "user.about-me.engagement-awards", label: "Engagement Awards" },
           { id: "user.about-me.groups", label: "Groups" },
           { id: "user.about-me.membership-badges", label: "Membership Badges" },
-          { id: "user.about-me.awards", label: "Awards" }
+          { id: "user.about-me.awards", label: "Awards" },
+          { id: "user.about-me.professional-biography", label: "Professional Biography" }
         ]
       }
     ]
