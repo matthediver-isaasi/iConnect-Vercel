@@ -412,7 +412,17 @@ export default function FormViewPage() {
         // Handle new multi-action format
         if (rule.actions && Array.isArray(rule.actions)) {
           for (const action of rule.actions) {
-            if (action.action_type === 'show' && action.target_field_ids?.length) {
+            // Handle consolidated visibility action format
+            if (action.action_type === 'visibility' && action.field_states) {
+              for (const [fieldId, state] of Object.entries(action.field_states)) {
+                // If visible is explicitly true, field starts hidden (needs condition to show)
+                if (state.visible === true) {
+                  hidden.add(fieldId);
+                }
+              }
+            }
+            // Handle legacy show action format
+            else if (action.action_type === 'show' && action.target_field_ids?.length) {
               action.target_field_ids.forEach(id => hidden.add(id));
             }
           }
@@ -449,7 +459,23 @@ export default function FormViewPage() {
       // Handle new multi-action format
       if (rule.actions && Array.isArray(rule.actions)) {
         for (const action of rule.actions) {
-          if (action.action_type === 'show' || action.action_type === 'hide') {
+          // Handle consolidated visibility action format
+          if (action.action_type === 'visibility' && action.field_states) {
+            for (const [fieldId, state] of Object.entries(action.field_states)) {
+              if (!fieldVisibility[fieldId]) {
+                fieldVisibility[fieldId] = { showRules: [], hideRules: [] };
+              }
+              // visible: true means "show when condition met" (starts hidden)
+              // visible: false means "hide when condition met" (starts visible)
+              if (state.visible === true) {
+                fieldVisibility[fieldId].showRules.push(conditionMet);
+              } else if (state.visible === false) {
+                fieldVisibility[fieldId].hideRules.push(conditionMet);
+              }
+            }
+          }
+          // Handle legacy show/hide action format
+          else if (action.action_type === 'show' || action.action_type === 'hide') {
             const targetIds = action.target_field_ids || [];
             targetIds.forEach(fieldId => {
               if (!fieldVisibility[fieldId]) {
@@ -540,7 +566,23 @@ export default function FormViewPage() {
       // Handle new multi-action format
       if (rule.actions && Array.isArray(rule.actions)) {
         for (const action of rule.actions) {
-          if (action.action_type === 'enable' || action.action_type === 'disable') {
+          // Handle consolidated visibility action format
+          if (action.action_type === 'visibility' && action.field_states) {
+            for (const [fieldId, state] of Object.entries(action.field_states)) {
+              if (!fieldDisability[fieldId]) {
+                fieldDisability[fieldId] = { enableRules: [], disableRules: [] };
+              }
+              // enabled: true means "enable when condition met" (starts disabled)
+              // enabled: false means "disable when condition met" (starts enabled)
+              if (state.enabled === true) {
+                fieldDisability[fieldId].enableRules.push(conditionMet);
+              } else if (state.enabled === false) {
+                fieldDisability[fieldId].disableRules.push(conditionMet);
+              }
+            }
+          }
+          // Handle legacy enable/disable action format
+          else if (action.action_type === 'enable' || action.action_type === 'disable') {
             const targetIds = action.target_field_ids || [];
             targetIds.forEach(fieldId => {
               if (!fieldDisability[fieldId]) {
