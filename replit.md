@@ -90,6 +90,62 @@ The platform supports dynamic email templates with placeholder substitution for 
 - `submission_email_bcc` (TEXT)
 - `submission_email_field_mapping` (JSONB)
 
+## Additional Member Creation (December 2025)
+
+Forms can create multiple member records on submission. This is useful for registration forms where a primary member may register additional people (e.g., spouse, colleagues).
+
+**Configuration:**
+- Located in FormBuilder.jsx → Submission Settings tab
+- Only visible when `member_entity_action !== 'none'` (form must be configured to create/update members)
+- Each additional member config includes:
+  - Label (e.g., "Spouse", "Colleague 1")
+  - Field mappings from form fields to member core fields (email, first_name, last_name, phone, job_title) and custom fields
+
+**Data Structure:**
+```json
+{
+  "additional_member_creations": [
+    {
+      "id": "uuid",
+      "label": "Spouse",
+      "field_mappings": {
+        "email": "form_field_id",
+        "first_name": "form_field_id",
+        "custom_<preference_field_id>": "form_field_id"
+      }
+    }
+  ]
+}
+```
+
+**Processing (api/forms/process-application.js):**
+1. For each additional member config, resolve field mappings to get values from form submission
+2. Create member record in database
+3. Save custom field values to member_preference_value table
+4. Generate temporary credentials (password hash in member_credentials)
+5. Send welcome email with login details
+
+**Key Files:**
+- `client/src/pages/FormBuilder.jsx` - UI for configuring additional member creations
+- `api/forms/process-application.js` - Backend processing logic
+- `client/src/pages/FormView.jsx` - Passes config to API on submission
+- `client/src/components/iedit/elements/IEditFormElement.jsx` - Page builder form submission
+
+## Form Conditional Logic Visibility System (December 2025)
+
+Forms support conditional visibility rules that control field visibility and enabled state based on other field values.
+
+**Consolidated Action Format:**
+- Single "Visibility" action type per rule with field_states map
+- Each field can have: `visible` (true/false/null) and `enabled` (true/false/null)
+- `visible: true` = show when condition met (starts hidden)
+- `visible: false` = hide when condition met (starts visible)
+- `enabled: true` = enable when condition met (starts disabled)
+- `enabled: false` = disable when condition met (starts enabled)
+- `null` = inherit/no change
+
+**Note:** Set Role and Clear Role actions have been removed from the Conditional Logic system. Role assignment is now controlled via the default_member_role_id form setting.
+
 # External Dependencies
 
 **Supabase:** Primary database (PostgreSQL) for application data, including CRUD and realtime subscriptions.

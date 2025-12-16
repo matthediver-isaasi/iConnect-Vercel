@@ -272,7 +272,9 @@ export default function FormViewPage() {
               submission_id: submissionResult?.id,
               prefill_organization_id: form.prefill_source === 'organization' ? prefillOrgId : null,
               // Pass role_id: use triggered role from visibility rules, or fallback to form's default role
-              role_id: roleActionTriggeredRef.current ? triggeredRoleIdRef.current : (form.default_member_role_id || null)
+              role_id: roleActionTriggeredRef.current ? triggeredRoleIdRef.current : (form.default_member_role_id || null),
+              // Pass additional member creations configuration
+              additional_member_creations: form.additional_member_creations || []
             })
           });
           if (response.ok) {

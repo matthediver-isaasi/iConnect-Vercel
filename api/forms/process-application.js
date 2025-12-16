@@ -73,7 +73,8 @@ export default async function handler(req, res) {
       prefill_member_id,
       prefill_organization_id,
       submission_id,
-      role_id                      // Role ID from form conditional logic (set_role action)
+      role_id,                     // Role ID from form conditional logic (set_role action)
+      additional_member_creations  // Array of additional members to create: [{id, label, field_mappings}]
     } = req.body;
 
     if (!form_values || typeof form_values !== 'object') {
@@ -752,6 +753,164 @@ export default async function handler(req, res) {
       }
     }
 
+    // Process additional member creations
+    const additionalMemberIds = [];
+    if (additional_member_creations && Array.isArray(additional_member_creations) && additional_member_creations.length > 0) {
+      console.log('[AppProcessor] Processing additional member creations:', additional_member_creations.length);
+      
+      for (const memberConfig of additional_member_creations) {
+        if (!memberConfig.field_mappings || !memberConfig.field_mappings.email) {
+          console.log('[AppProcessor] Skipping additional member - no email mapping:', memberConfig.label);
+          continue;
+        }
+        
+        // Extract email from form values using the mapped field
+        const emailFieldId = memberConfig.field_mappings.email;
+        const memberEmail = form_values[emailFieldId];
+        
+        if (!memberEmail) {
+          console.log('[AppProcessor] Skipping additional member - email value is empty:', memberConfig.label);
+          continue;
+        }
+        
+        // Check if member already exists
+        const { data: existingMember } = await supabase
+          .from('member')
+          .select('id')
+          .ilike('email', memberEmail)
+          .limit(1)
+          .single();
+        
+        if (existingMember) {
+          console.log('[AppProcessor] Additional member already exists:', memberEmail, existingMember.id);
+          additionalMemberIds.push({ id: existingMember.id, label: memberConfig.label, created: false });
+          continue;
+        }
+        
+        // Build member data from field mappings
+        const additionalMemberData = {
+          email: memberEmail,
+          login_enabled: true,
+          organization_id: createdOrganizationId || prefill_organization_id || null
+        };
+        
+        // Map core fields
+        const coreFieldKeys = ['first_name', 'last_name', 'phone', 'job_title'];
+        for (const key of coreFieldKeys) {
+          const fieldId = memberConfig.field_mappings[key];
+          if (fieldId && form_values[fieldId]) {
+            if (key === 'phone') {
+              // Member table uses mobile/landline, not phone
+              additionalMemberData.mobile = form_values[fieldId];
+            } else {
+              additionalMemberData[key] = form_values[fieldId];
+            }
+          }
+        }
+        
+        console.log('[AppProcessor] Creating additional member:', memberConfig.label, additionalMemberData);
+        
+        const { data: newMember, error: memberError } = await supabase
+          .from('member')
+          .insert(additionalMemberData)
+          .select()
+          .single();
+        
+        if (memberError) {
+          console.error('[AppProcessor] Failed to create additional member:', memberError);
+          continue;
+        }
+        
+        additionalMemberIds.push({ id: newMember.id, label: memberConfig.label, created: true });
+        console.log('[AppProcessor] Created additional member:', newMember.id);
+        
+        // Process custom field mappings
+        const customFieldMappings = Object.entries(memberConfig.field_mappings)
+          .filter(([key]) => key.startsWith('custom_'));
+        
+        if (customFieldMappings.length > 0) {
+          for (const [key, fieldId] of customFieldMappings) {
+            if (!fieldId || !form_values[fieldId]) continue;
+            
+            const customFieldId = key.replace('custom_', '');
+            const value = form_values[fieldId];
+            
+            await supabase.from('member_preference_value').insert({
+              member_id: newMember.id,
+              field_id: customFieldId,
+              value: String(value)
+            });
+          }
+        }
+        
+        // Generate temporary password and send welcome email for additional member
+        try {
+          const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+          let tempPassword = '';
+          for (let i = 0; i < 12; i++) {
+            tempPassword += chars.charAt(Math.floor(Math.random() * chars.length));
+          }
+          
+          const passwordHash = await bcrypt.hash(tempPassword, 12);
+          
+          const { error: credError } = await supabase
+            .from('member_credentials')
+            .insert({
+              member_id: newMember.id,
+              email: memberEmail.toLowerCase(),
+              password_hash: passwordHash,
+              is_temp_password: true,
+              password_set_at: new Date().toISOString()
+            });
+          
+          if (!credError) {
+            const { data: allSettings } = await supabase
+              .from('system_settings')
+              .select('setting_key, setting_value')
+              .in('setting_key', ['app_name', 'welcome_email_from_address', 'welcome_email_from_name']);
+            
+            const settingsMap = {};
+            (allSettings || []).forEach(s => { settingsMap[s.setting_key] = s.setting_value; });
+            
+            const appName = settingsMap['app_name'] || 'ICONN';
+            const loginUrl = process.env.APP_URL || 'https://iconn.app';
+            const fromAddress = settingsMap['welcome_email_from_address'] || process.env.MAILGUN_FROM_EMAIL || 'noreply@mail.iconn.app';
+            const fromName = settingsMap['welcome_email_from_name'] || appName;
+            
+            const emailHtml = `
+              <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                <h2>Welcome to ${appName}!</h2>
+                <p>Your account has been created. Here are your login details:</p>
+                <div style="background-color: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0;">
+                  <p><strong>Email:</strong> ${memberEmail}</p>
+                  <p><strong>Temporary Password:</strong> <code style="background-color: #e0e0e0; padding: 4px 8px; border-radius: 4px;">${tempPassword}</code></p>
+                </div>
+                <p>Please log in and change your password as soon as possible.</p>
+                <p style="margin-top: 20px;">
+                  <a href="${loginUrl}/login" style="background-color: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
+                    Log In Now
+                  </a>
+                </p>
+              </div>
+            `;
+            
+            await sendEmail({
+              to: memberEmail,
+              subject: `Welcome to ${appName} - Your Login Details`,
+              html: emailHtml,
+              from: `${fromName} <${fromAddress}>`
+            });
+            
+            console.log('[AppProcessor] Welcome email sent to additional member:', memberEmail);
+          }
+        } catch (credEmailError) {
+          console.error('[AppProcessor] Error creating credentials for additional member:', credEmailError);
+        }
+      }
+      
+      console.log('[AppProcessor] Additional members processed:', additionalMemberIds.length);
+    }
+
     if (submission_id && (createdMemberId || createdOrganizationId)) {
       await supabase
         .from('form_submission')
@@ -766,7 +925,8 @@ export default async function handler(req, res) {
     return res.json({
       success: true,
       created_member_id: createdMemberId,
-      created_organization_id: createdOrganizationId
+      created_organization_id: createdOrganizationId,
+      additional_member_ids: additionalMemberIds
     });
   } catch (error) {
     console.error('[AppProcessor] Error:', error);

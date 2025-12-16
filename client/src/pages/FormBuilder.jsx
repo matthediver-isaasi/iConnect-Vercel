@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Loader2, Plus, Trash2, GripVertical, Save, ArrowLeft, FileText, ChevronDown, ChevronUp, Edit2, X, Eye, EyeOff, Lock, Unlock, UserCheck, UserMinus } from "lucide-react";
+import { Loader2, Plus, Trash2, GripVertical, Save, ArrowLeft, FileText, ChevronDown, ChevronUp, Edit2, X, Eye, EyeOff, Lock, Unlock, UserCheck, UserMinus, Users, UserPlus } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -642,17 +642,6 @@ function LogicRulesSection({
         set_value_field_id: '',
         set_value_prefill_field: ''
       };
-    } else if (actionType === 'set_role') {
-      newAction = {
-        id: `action_${Date.now()}`,
-        action_type: 'set_role',
-        role_id: ''
-      };
-    } else if (actionType === 'clear_role') {
-      newAction = {
-        id: `action_${Date.now()}`,
-        action_type: 'clear_role'
-      };
     } else if (actionType === 'visibility') {
       // Consolidated visibility action - check if one already exists
       const existingVisibilityAction = (normalizedRule.actions || []).find(a => a.action_type === 'visibility');
@@ -1124,24 +1113,6 @@ function LogicRulesSection({
                       >
                         <Edit2 className="w-3 h-3 mr-1" /> Set Value
                       </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 text-xs"
-                        onClick={() => addAction(rule.id, 'set_role')}
-                        data-testid={`button-add-setrole-action-${index}`}
-                      >
-                        <UserCheck className="w-3 h-3 mr-1" /> Set Role
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 text-xs"
-                        onClick={() => addAction(rule.id, 'clear_role')}
-                        data-testid={`button-add-clearrole-action-${index}`}
-                      >
-                        <UserMinus className="w-3 h-3 mr-1" /> Clear Role
-                      </Button>
                     </div>
                   </div>
 
@@ -1156,8 +1127,6 @@ function LogicRulesSection({
                         const isLegacyDisabilityAction = action.action_type === 'disable' || action.action_type === 'enable';
                         const isLegacyFieldTargetAction = isLegacyVisibilityAction || isLegacyDisabilityAction;
                         const isConsolidatedVisibility = action.action_type === 'visibility';
-                        const isRoleAction = action.action_type === 'set_role' || action.action_type === 'clear_role';
-                        
                         // Determine card styling
                         let cardClass = 'p-3 rounded-lg border ';
                         if (isConsolidatedVisibility) {
@@ -1166,8 +1135,6 @@ function LogicRulesSection({
                           cardClass += 'bg-white border-slate-200';
                         } else if (isLegacyDisabilityAction) {
                           cardClass += 'bg-orange-50 border-orange-200';
-                        } else if (isRoleAction) {
-                          cardClass += 'bg-purple-50 border-purple-200';
                         } else {
                           cardClass += 'bg-blue-50 border-blue-200';
                         }
@@ -1186,8 +1153,6 @@ function LogicRulesSection({
                                 {action.action_type === 'set_value' && <Edit2 className="w-3 h-3 text-blue-600" />}
                                 {action.action_type === 'disable' && <Lock className="w-3 h-3 text-orange-600" />}
                                 {action.action_type === 'enable' && <Unlock className="w-3 h-3 text-teal-600" />}
-                                {action.action_type === 'set_role' && <UserCheck className="w-3 h-3 text-purple-600" />}
-                                {action.action_type === 'clear_role' && <UserMinus className="w-3 h-3 text-gray-600" />}
                                 <span className="text-xs font-medium">
                                   {action.action_type === 'visibility' && 'Field Visibility & State'}
                                   {action.action_type === 'show' && 'Show Fields (Legacy)'}
@@ -1195,8 +1160,6 @@ function LogicRulesSection({
                                   {action.action_type === 'set_value' && 'Set Field Value'}
                                   {action.action_type === 'disable' && 'Disable Fields (Legacy)'}
                                   {action.action_type === 'enable' && 'Enable Fields (Legacy)'}
-                                  {action.action_type === 'set_role' && 'Set Member Role'}
-                                  {action.action_type === 'clear_role' && 'Clear Member Role'}
                                 </span>
                               </div>
                               <Button
@@ -1342,33 +1305,6 @@ function LogicRulesSection({
                                     })}
                                   </div>
                                 )}
-                              </div>
-                            ) : action.action_type === 'set_role' ? (
-                              <div className="space-y-2">
-                                <Label className="text-xs text-slate-600">Select Role</Label>
-                                {roles.length === 0 ? (
-                                  <p className="text-xs text-slate-400">No roles available. Create roles first.</p>
-                                ) : (
-                                  <Select
-                                    value={action.role_id || undefined}
-                                    onValueChange={(value) => updateAction(rule.id, action.id, { role_id: value })}
-                                  >
-                                    <SelectTrigger className="h-9" data-testid={`select-role-${index}-${actionIndex}`}>
-                                      <SelectValue placeholder="Select a role..." />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      {roles.map(role => (
-                                        <SelectItem key={role.id} value={role.id}>
-                                          {role.name}
-                                        </SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
-                                )}
-                              </div>
-                            ) : action.action_type === 'clear_role' ? (
-                              <div className="text-xs text-slate-500">
-                                This action will remove any role assignment when the condition is met.
                               </div>
                             ) : (
                               <div className="space-y-3">
@@ -2057,7 +1993,8 @@ export default function FormBuilderPage() {
     submission_email_bcc: '',
     submission_email_field_mapping: {}, // Maps template placeholders to form field IDs: { "customer_name": "field_123" }
     prefill_source: "none", // "none", "member", or "organization" - enables pre-populating form from entity data
-    visibility_rules: [] // Conditional logic rules: [{id, rule_type, trigger_field_id, operator, value, action, target_field_ids, target_field_id, set_value_source, set_value, set_value_field_id, set_value_prefill_field}]
+    visibility_rules: [], // Conditional logic rules: [{id, rule_type, trigger_field_id, operator, value, action, target_field_ids, target_field_id, set_value_source, set_value, set_value_field_id, set_value_prefill_field}]
+    additional_member_creations: [] // Additional members to create on submission: [{id, label, field_mappings: {email: 'field_123', first_name: 'field_456', ...}}]
   });
   
   // Track which form pages are expanded (for collapsible UI) - true = expanded, false = collapsed
@@ -2231,7 +2168,8 @@ export default function FormBuilderPage() {
           set_value_field_id: rule.set_value_field_id || '',
           set_value_prefill_field: rule.set_value_prefill_field || '',
           target_field_ids: rule.target_field_ids || []
-        }))
+        })),
+        additional_member_creations: existingForm.additional_member_creations || []
       });
     }
   }, [existingForm]);
@@ -3276,6 +3214,187 @@ export default function FormBuilderPage() {
                 </Accordion>
               </CardContent>
             </Card>
+
+            {/* Additional Member Creation Card - Only show when member_entity_action !== "none" */}
+            {formData.member_entity_action !== "none" && (
+              <Card className="border-slate-200 mb-6">
+                <CardHeader className="pb-4">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-lg flex items-center gap-2">
+                      <Users className="w-5 h-5" />
+                      Additional Member Creation
+                    </CardTitle>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        const newMember = {
+                          id: `member_${Date.now()}`,
+                          label: `Additional Member ${(formData.additional_member_creations || []).length + 1}`,
+                          field_mappings: {}
+                        };
+                        setFormData(prev => ({
+                          ...prev,
+                          additional_member_creations: [...(prev.additional_member_creations || []), newMember]
+                        }));
+                      }}
+                      data-testid="button-add-additional-member"
+                    >
+                      <UserPlus className="w-4 h-4 mr-2" />
+                      Add Member
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-xs text-slate-500 mb-4">
+                    Create additional member records from form submission data. Each member must have an email field mapped.
+                  </p>
+                  
+                  {(!formData.additional_member_creations || formData.additional_member_creations.length === 0) ? (
+                    <div className="text-center py-6 text-slate-400 border border-dashed border-slate-200 rounded-lg">
+                      <Users className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                      <p className="text-sm">No additional members configured</p>
+                      <p className="text-xs mt-1">Click "Add Member" to create additional member records from this form</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {formData.additional_member_creations.map((memberConfig, memberIdx) => {
+                        const hasEmail = !!memberConfig.field_mappings?.email;
+                        const memberCustomFields = customFields.filter(cf => cf.entity_scope === 'member');
+                        
+                        return (
+                          <div 
+                            key={memberConfig.id} 
+                            className={`p-4 rounded-lg border ${hasEmail ? 'border-slate-200 bg-slate-50' : 'border-amber-300 bg-amber-50'}`}
+                            data-testid={`additional-member-${memberIdx}`}
+                          >
+                            <div className="flex items-center justify-between mb-3">
+                              <div className="flex items-center gap-2">
+                                <UserPlus className="w-4 h-4 text-slate-600" />
+                                <Input
+                                  value={memberConfig.label}
+                                  onChange={(e) => {
+                                    const updated = [...formData.additional_member_creations];
+                                    updated[memberIdx] = { ...updated[memberIdx], label: e.target.value };
+                                    setFormData(prev => ({ ...prev, additional_member_creations: updated }));
+                                  }}
+                                  className="h-8 w-48 text-sm font-medium"
+                                  placeholder="Member label"
+                                  data-testid={`input-member-label-${memberIdx}`}
+                                />
+                                {!hasEmail && (
+                                  <span className="text-xs text-amber-600 font-medium">Email required</span>
+                                )}
+                              </div>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => {
+                                  const updated = formData.additional_member_creations.filter((_, i) => i !== memberIdx);
+                                  setFormData(prev => ({ ...prev, additional_member_creations: updated }));
+                                }}
+                                className="h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-50"
+                                data-testid={`button-delete-member-${memberIdx}`}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </div>
+                            
+                            <div className="space-y-3">
+                              <div className="text-xs font-medium text-slate-600 mb-2">Core Fields</div>
+                              <div className="grid grid-cols-2 gap-3">
+                                {[
+                                  { key: 'email', label: 'Email', required: true },
+                                  { key: 'first_name', label: 'First Name' },
+                                  { key: 'last_name', label: 'Last Name' },
+                                  { key: 'phone', label: 'Phone' },
+                                  { key: 'job_title', label: 'Job Title' }
+                                ].map(coreField => (
+                                  <div key={coreField.key} className="space-y-1">
+                                    <Label className="text-xs text-slate-500">
+                                      {coreField.label}
+                                      {coreField.required && <span className="text-red-500 ml-1">*</span>}
+                                    </Label>
+                                    <Select
+                                      value={memberConfig.field_mappings?.[coreField.key] || "none"}
+                                      onValueChange={(value) => {
+                                        const updated = [...formData.additional_member_creations];
+                                        updated[memberIdx] = {
+                                          ...updated[memberIdx],
+                                          field_mappings: {
+                                            ...updated[memberIdx].field_mappings,
+                                            [coreField.key]: value === "none" ? null : value
+                                          }
+                                        };
+                                        setFormData(prev => ({ ...prev, additional_member_creations: updated }));
+                                      }}
+                                    >
+                                      <SelectTrigger 
+                                        className={`h-8 text-xs ${coreField.required && !memberConfig.field_mappings?.[coreField.key] ? 'border-amber-300' : ''}`}
+                                        data-testid={`select-member-${memberIdx}-${coreField.key}`}
+                                      >
+                                        <SelectValue placeholder="Select form field..." />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="none">-- Not mapped --</SelectItem>
+                                        {formData.fields.map(field => (
+                                          <SelectItem key={field.id} value={field.id}>
+                                            {field.label || field.type}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                ))}
+                              </div>
+                              
+                              {memberCustomFields.length > 0 && (
+                                <>
+                                  <div className="text-xs font-medium text-slate-600 mt-4 mb-2">Custom Fields</div>
+                                  <div className="grid grid-cols-2 gap-3">
+                                    {memberCustomFields.map(customField => (
+                                      <div key={customField.id} className="space-y-1">
+                                        <Label className="text-xs text-slate-500">{customField.label}</Label>
+                                        <Select
+                                          value={memberConfig.field_mappings?.[`custom_${customField.id}`] || "none"}
+                                          onValueChange={(value) => {
+                                            const updated = [...formData.additional_member_creations];
+                                            updated[memberIdx] = {
+                                              ...updated[memberIdx],
+                                              field_mappings: {
+                                                ...updated[memberIdx].field_mappings,
+                                                [`custom_${customField.id}`]: value === "none" ? null : value
+                                              }
+                                            };
+                                            setFormData(prev => ({ ...prev, additional_member_creations: updated }));
+                                          }}
+                                        >
+                                          <SelectTrigger className="h-8 text-xs" data-testid={`select-member-${memberIdx}-custom-${customField.id}`}>
+                                            <SelectValue placeholder="Select form field..." />
+                                          </SelectTrigger>
+                                          <SelectContent>
+                                            <SelectItem value="none">-- Not mapped --</SelectItem>
+                                            {formData.fields.map(field => (
+                                              <SelectItem key={field.id} value={field.id}>
+                                                {field.label || field.type}
+                                              </SelectItem>
+                                            ))}
+                                          </SelectContent>
+                                        </Select>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
           </TabsContent>
 
           {/* Conditional Logic Tab */}
