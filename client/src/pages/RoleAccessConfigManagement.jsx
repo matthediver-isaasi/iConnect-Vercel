@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
@@ -8,12 +8,14 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { toast } from 'sonner';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { 
   Plus, Pencil, Trash2, ChevronDown, ChevronRight, GripVertical,
   FolderTree, Save, RotateCcw, AlertTriangle,
-  Layers, Sparkles
+  Layers, Sparkles, Check, ChevronsUpDown, Info
 } from 'lucide-react';
 import { ROLE_ACCESS_MAP } from '@/lib/roleAccessMap';
 
@@ -22,6 +24,132 @@ const ICON_OPTIONS = [
   'ClipboardList', 'HelpCircle', 'Mail', 'Shield', 'Settings', 'BarChart3',
   'Award', 'Building', 'Globe', 'Lock', 'Key', 'Database', 'Folder'
 ];
+
+// Extract all available keys from the default ROLE_ACCESS_MAP
+const extractDefaultKeys = () => {
+  const modules = [];
+  const pages = [];
+  const features = [];
+  
+  for (const mod of ROLE_ACCESS_MAP) {
+    modules.push({ id: mod.id, label: mod.label });
+    for (const page of mod.pages || []) {
+      pages.push({ id: page.id, label: page.label, parentId: mod.id, parentLabel: mod.label });
+      for (const feature of page.features || []) {
+        features.push({ id: feature.id, label: feature.label, parentId: page.id, parentLabel: page.label });
+      }
+    }
+  }
+  
+  return { modules, pages, features };
+};
+
+const DEFAULT_KEYS = extractDefaultKeys();
+
+// Combobox component for selecting item keys with autocomplete
+function ItemKeyCombobox({ type, value, onChange, existingKeys = [] }) {
+  const [open, setOpen] = useState(false);
+  const [inputValue, setInputValue] = useState(value);
+  
+  // Get suggestions based on type
+  const suggestions = useMemo(() => {
+    let items = [];
+    if (type === 'module') {
+      items = DEFAULT_KEYS.modules;
+    } else if (type === 'page') {
+      items = DEFAULT_KEYS.pages;
+    } else if (type === 'feature') {
+      items = DEFAULT_KEYS.features;
+    }
+    // Filter out already used keys
+    return items.filter(item => !existingKeys.includes(item.id) || item.id === value);
+  }, [type, existingKeys, value]);
+
+  const handleSelect = (selectedId) => {
+    const item = suggestions.find(s => s.id === selectedId);
+    setInputValue(selectedId);
+    onChange(selectedId, item?.label || '');
+    setOpen(false);
+  };
+
+  const handleInputChange = (newValue) => {
+    setInputValue(newValue);
+    onChange(newValue, '');
+  };
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          className="w-full justify-between font-normal"
+          data-testid="input-item-key"
+        >
+          <span className={value ? '' : 'text-muted-foreground'}>
+            {value || `Select or type a ${type} key...`}
+          </span>
+          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[400px] p-0" align="start">
+        <Command>
+          <CommandInput 
+            placeholder={`Search ${type}s or type custom key...`}
+            value={inputValue}
+            onValueChange={(val) => {
+              setInputValue(val);
+              onChange(val, '');
+            }}
+          />
+          <CommandList>
+            <CommandEmpty>
+              <div className="p-2 text-sm">
+                <p className="text-muted-foreground mb-2">No matching {type} found in defaults.</p>
+                {inputValue && (
+                  <Button 
+                    size="sm" 
+                    variant="secondary" 
+                    onClick={() => handleSelect(inputValue)}
+                    className="w-full"
+                  >
+                    Use "{inputValue}" as custom key
+                  </Button>
+                )}
+              </div>
+            </CommandEmpty>
+            <CommandGroup heading={`Available ${type}s from defaults`}>
+              {suggestions.map((item) => (
+                <CommandItem
+                  key={item.id}
+                  value={item.id}
+                  onSelect={handleSelect}
+                  className="flex flex-col items-start"
+                >
+                  <div className="flex items-center w-full">
+                    <Check
+                      className={`mr-2 h-4 w-4 ${value === item.id ? 'opacity-100' : 'opacity-0'}`}
+                    />
+                    <div className="flex-1">
+                      <span className="font-medium">{item.label}</span>
+                      {item.parentLabel && (
+                        <span className="text-xs text-muted-foreground ml-2">
+                          (in {item.parentLabel})
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <span className="text-xs text-muted-foreground font-mono ml-6">{item.id}</span>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 export default function RoleAccessConfigManagement() {
   const [showDialog, setShowDialog] = useState(false);
@@ -716,21 +844,29 @@ CREATE POLICY "Allow full access" ON role_access_item FOR ALL USING (true);`}
             )}
 
             <div className="space-y-2">
-              <Label htmlFor="item_key">Item Key (ID)</Label>
-              <Input
-                id="item_key"
+              <Label htmlFor="item_key" className="flex items-center gap-2">
+                Select or Enter Item Key
+                <span className="text-xs text-muted-foreground font-normal">(from defaults or custom)</span>
+              </Label>
+              <ItemKeyCombobox
+                type={editingItem?.item_type}
                 value={editingItem?.item_key || ''}
-                onChange={(e) => setEditingItem({ ...editingItem, item_key: e.target.value })}
-                placeholder={
-                  editingItem?.item_type === 'module' ? 'events' :
-                  editingItem?.item_type === 'page' ? 'events.browse-events' :
-                  'events.browse-events.search-filters'
-                }
-                data-testid="input-item-key"
+                onChange={(value, label) => {
+                  setEditingItem({ 
+                    ...editingItem, 
+                    item_key: value,
+                    label: label || editingItem?.label || ''
+                  });
+                }}
+                existingKeys={accessItems.map(i => i.item_key)}
               />
-              <p className="text-xs text-muted-foreground">
-                Use dot notation for hierarchy: module.page.feature
-              </p>
+              <div className="flex items-start gap-2 p-2 bg-blue-50 dark:bg-blue-950 rounded-md border border-blue-200 dark:border-blue-800">
+                <Info className="h-4 w-4 text-blue-600 dark:text-blue-400 mt-0.5 shrink-0" />
+                <p className="text-xs text-blue-700 dark:text-blue-300">
+                  Select from default {editingItem?.item_type}s above, or type a custom key. 
+                  Keys use dot notation (e.g., events.browse-events).
+                </p>
+              </div>
             </div>
 
             <div className="space-y-2">
