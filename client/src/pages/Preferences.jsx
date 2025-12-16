@@ -1720,60 +1720,62 @@ export default function PreferencesPage() {
             </CardHeader>
             <CardContent className="space-y-6">
               {/* Stats */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg p-4 border border-blue-200">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center">
-                      <Calendar className="w-5 h-5 text-white" />
-                    </div>
-                    <div>
-                      <p className="text-2xl font-bold text-blue-900">
-                        {statsLoading
-                          ? "-"
-                          : engagementStats?.eventsAttended || 0}
-                      </p>
-                      <p className="text-xs text-blue-700">Events Attended</p>
+              {!isFeatureExcluded('user.about-me.engagement-stats') && (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg p-4 border border-blue-200">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center">
+                        <Calendar className="w-5 h-5 text-white" />
+                      </div>
+                      <div>
+                        <p className="text-2xl font-bold text-blue-900">
+                          {statsLoading
+                            ? "-"
+                            : engagementStats?.eventsAttended || 0}
+                        </p>
+                        <p className="text-xs text-blue-700">Events Attended</p>
+                      </div>
                     </div>
                   </div>
-                </div>
 
-                <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-lg p-4 border border-purple-200">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-purple-600 flex items-center justify-center">
-                      <FileText className="w-5 h-5 text-white" />
-                    </div>
-                    <div>
-                      <p className="text-2xl font-bold text-purple-900">
-                        {statsLoading
-                          ? "-"
-                          : engagementStats?.articlesWritten || 0}
-                      </p>
-                      <p className="text-xs text-purple-700">
-                        Articles Published
-                      </p>
+                  <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-lg p-4 border border-purple-200">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full bg-purple-600 flex items-center justify-center">
+                        <FileText className="w-5 h-5 text-white" />
+                      </div>
+                      <div>
+                        <p className="text-2xl font-bold text-purple-900">
+                          {statsLoading
+                            ? "-"
+                            : engagementStats?.articlesWritten || 0}
+                        </p>
+                        <p className="text-xs text-purple-700">
+                          Articles Published
+                        </p>
+                      </div>
                     </div>
                   </div>
-                </div>
 
-                <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-lg p-4 border border-green-200">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-green-600 flex items-center justify-center">
-                      <Briefcase className="w-5 h-5 text-white" />
-                    </div>
-                    <div>
-                      <p className="text-2xl font-bold text-green-900">
-                        {statsLoading
-                          ? "-"
-                          : engagementStats?.jobsPosted || 0}
-                      </p>
-                      <p className="text-xs text-green-700">Jobs Posted</p>
+                  <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-lg p-4 border border-green-200">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full bg-green-600 flex items-center justify-center">
+                        <Briefcase className="w-5 h-5 text-white" />
+                      </div>
+                      <div>
+                        <p className="text-2xl font-bold text-green-900">
+                          {statsLoading
+                            ? "-"
+                            : engagementStats?.jobsPosted || 0}
+                        </p>
+                        <p className="text-xs text-green-700">Jobs Posted</p>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
+              )}
 
               {/* Engagement Awards */}
-              {earnedEngagementAwards.length > 0 && (
+              {!isFeatureExcluded('user.about-me.engagement-awards') && earnedEngagementAwards.length > 0 && (
                 <div className="pt-4 border-t border-slate-200">
                   <div className="flex items-center gap-2 mb-4">
                     <Trophy className="w-5 h-5 text-rose-600" />
@@ -1839,7 +1841,7 @@ export default function PreferencesPage() {
               )}
 
               {/* Groups */}
-              {groupAssignments.length > 0 && (
+              {!isFeatureExcluded('user.about-me.groups') && groupAssignments.length > 0 && (
                 <div className="pt-4 border-t border-slate-200">
                   <div className="flex items-center gap-2 mb-4">
                     <Users className="w-5 h-5 text-blue-600" />
@@ -1885,7 +1887,7 @@ export default function PreferencesPage() {
               )}
 
               {/* Role Badges */}
-              {rolesWithBadges.length > 0 && (
+              {!isFeatureExcluded('user.about-me.membership-badges') && rolesWithBadges.length > 0 && (
                 <div className="pt-4 border-t border-slate-200">
                   <div className="flex items-center gap-2 mb-4">
                     <Award className="w-5 h-5 text-indigo-600" />
@@ -1943,7 +1945,7 @@ export default function PreferencesPage() {
               )}
 
               {/* Awards */}
-              {(earnedOnlineAwards.length > 0 ||
+              {!isFeatureExcluded('user.about-me.awards') && (earnedOnlineAwards.length > 0 ||
                 earnedOfflineAwards.length > 0) && (
                 <div className="pt-4 border-t border-slate-200">
                   <div className="flex items-center gap-2 mb-4">
