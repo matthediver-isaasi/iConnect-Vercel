@@ -28,7 +28,8 @@ export const ROLE_ACCESS_MAP: Module[] = [
         features: [
           { id: "user.about-me.edit-profile", label: "Edit Profile" },
           { id: "user.about-me.change-password", label: "Change Password" },
-          { id: "user.about-me.show-in-directory", label: "Show in Member Directory Toggle" }
+          { id: "user.about-me.show-in-directory", label: "Show in Member Directory Toggle" },
+          { id: "user.about-me.communication-preferences", label: "Communication Preferences" }
         ]
       }
     ]

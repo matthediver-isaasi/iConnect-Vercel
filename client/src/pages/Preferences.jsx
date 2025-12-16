@@ -2301,6 +2301,7 @@ export default function PreferencesPage() {
         );
 
       case 'communications':
+        if (isFeatureExcluded('user.about-me.communication-preferences')) return null;
         return (
           <Card key="communications" className="border-slate-200 shadow-sm">
             <CardHeader>
