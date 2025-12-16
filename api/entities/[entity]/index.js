@@ -163,6 +163,7 @@ const entityToTable = {
   'TrainingFundTransaction': 'training_fund_transaction',
   'Workflow': 'workflow',
   'WorkflowLog': 'workflow_log',
+  'RoleAccessItem': 'role_access_item',
 };
 
 const getTableName = (entity) => entityToTable[entity] || entity.toLowerCase().replace(/([A-Z])/g, '_$1').toLowerCase().replace(/^_/, '');
