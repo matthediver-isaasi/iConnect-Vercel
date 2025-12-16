@@ -40,6 +40,8 @@ import PublicEvents from "./PublicEvents";
 
 import RoleManagement from "./RoleManagement";
 
+import RoleAccessConfigManagement from "./RoleAccessConfigManagement";
+
 import MemberRoleAssignment from "./MemberRoleAssignment";
 
 import TeamMemberManagement from "./TeamMemberManagement";
@@ -276,6 +278,8 @@ const PAGES = {
     PublicEvents: PublicEvents,
     
     RoleManagement: RoleManagement,
+    
+    RoleAccessConfigManagement: RoleAccessConfigManagement,
     
     MemberRoleAssignment: MemberRoleAssignment,
     
@@ -545,6 +549,8 @@ function PagesContent() {
                 <Route path="/PublicEvents" element={<PublicEvents />} />
                 
                 <Route path="/RoleManagement" element={<RoleManagement />} />
+                
+                <Route path="/RoleAccessConfigManagement" element={<RoleAccessConfigManagement />} />
                 
                 <Route path="/MemberRoleAssignment" element={<MemberRoleAssignment />} />
                 

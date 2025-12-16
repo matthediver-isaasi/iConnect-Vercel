@@ -187,9 +187,20 @@ const adminNavigationItems = [
   },
   {
     title: "Role Management",
-    url: createPageUrl("RoleManagement"),
     icon: Shield,
-    featureId: "page_RoleManagement"
+    featureId: "page_RoleManagement",
+    subItems: [
+      {
+        title: "Manage Roles",
+        url: createPageUrl("RoleManagement"),
+        featureId: "page_RoleManagement"
+      },
+      {
+        title: "Access Configuration",
+        url: createPageUrl("RoleAccessConfigManagement"),
+        featureId: "page_RoleAccessConfigManagement"
+      }
+    ]
   },
   {
     title: "Organisation Preferences",
@@ -722,7 +733,7 @@ useEffect(() => {
   // "HomePageRedirect" handles the root path "/" and can show either a public IEdit page or Events
   const hybridPages = ["PostJob", "ArticleView", "NewsView", "icontent", "ViewPage", "OrganisationDirectory", "JobBoard", "JobDetails", "JobPostSuccess", "_DynamicPage", "HomePageRedirect", "Events", "EventDetails", "FormView"];
   
-  const adminPages = ["RoleManagement", "MemberRoleAssignment", "TeamMemberManagement", "DiscountCodeManagement", "EventSettings", "TicketSalesAnalytics", "ResourceSettings", "ResourceManagement", "TagManagement", "ResourceAuthorSettings", "TourManagement", "FileManagement", "JobPostingManagement", "JobBoardSettings", "IEditPageManagement", "IEditTemplateManagement", "PageBannerManagement", "NavigationManagement", "MemberHandleManagement", "ButtonElements", "ButtonStyleManagement", "AwardManagement", "WallOfFameManagement", "TeamInviteSettings", "FormManagement", "FormSubmissions", "FloaterManagement", "MemberDirectorySettings", "SupportManagement", "PageVisibilitySettings"];
+  const adminPages = ["RoleManagement", "RoleAccessConfigManagement", "MemberRoleAssignment", "TeamMemberManagement", "DiscountCodeManagement", "EventSettings", "TicketSalesAnalytics", "ResourceSettings", "ResourceManagement", "TagManagement", "ResourceAuthorSettings", "TourManagement", "FileManagement", "JobPostingManagement", "JobBoardSettings", "IEditPageManagement", "IEditTemplateManagement", "PageBannerManagement", "NavigationManagement", "MemberHandleManagement", "ButtonElements", "ButtonStyleManagement", "AwardManagement", "WallOfFameManagement", "TeamInviteSettings", "FormManagement", "FormSubmissions", "FloaterManagement", "MemberDirectorySettings", "SupportManagement", "PageVisibilitySettings"];
 
   // Pages that should use the bare layout (no new header/footer)
   const bareLayoutPages = ["Home", "TestLogin"];
@@ -773,6 +784,7 @@ useEffect(() => {
     'ArticleManagement': 'page_admin_ArticleManagement',
     'ArticlesSettings': 'page_admin_ArticlesSettings',
     'RoleManagement': 'page_admin_RoleManagement',
+    'RoleAccessConfigManagement': 'page_RoleAccessConfigManagement',
     'MemberRoleAssignment': 'page_admin_MemberRoleAssignment',
     'TeamMemberManagement': 'page_admin_TeamMemberManagement',
     'MemberHandleManagement': 'page_admin_MemberHandleManagement',

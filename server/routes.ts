@@ -92,6 +92,7 @@ const entityToTable: Record<string, string> = {
   'WorkflowLog': 'workflow_log',
   'MemberResourceCategory': 'member_resource_category',
   'RoleOrganizationFieldPermission': 'role_organization_field_permission',
+  'RoleAccessItem': 'role_access_item',
 };
 
 // Extend session type
