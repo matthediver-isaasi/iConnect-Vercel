@@ -2458,6 +2458,17 @@ export default function PreferencesPage() {
                             placeholder={`Add ${field.label.toLowerCase()}...`}
                           />
                         )}
+
+                        {/* Fallback for unrecognized field types - render as text input */}
+                        {!['text', 'number', 'decimal', 'boolean', 'dropdown', 'picklist', 'list'].includes(field.field_type) && (
+                          <Input
+                            id={`field-${field.id}`}
+                            value={fieldValue}
+                            onChange={(e) => handleAdditionalInfoChange(field.id, e.target.value)}
+                            placeholder={`Enter ${field.label.toLowerCase()}`}
+                            data-testid={`input-field-${field.id}`}
+                          />
+                        )}
                       </div>
                     );
                   })}
