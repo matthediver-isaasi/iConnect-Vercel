@@ -288,37 +288,83 @@ export default async function handler(req, res) {
     const orgCustomFields = convertMapToArray(orgCustomFieldsMap);
     let memberCustomFields = convertMapToArray(memberCustomFieldsMap);
 
-    // Process entity_pipelines primary entries if available (new unified system)
-    // This supplements/overrides the field_mappings data
-    if (memberPipelines.length > 0) {
-      const primaryMemberPipeline = memberPipelines.find(m => m.isPrimary);
-      if (primaryMemberPipeline?.field_mappings) {
-        console.log('[AppProcessor] Processing primary member from entity_pipelines:', primaryMemberPipeline.label);
+    // Helper function to process pipeline entry mappings (supports both new array format and legacy object format)
+    const processPipelineMappings = (pipelineEntry, targetEntity, dataObj, customFieldsMap, coreFieldMappingConfig) => {
+      if (!pipelineEntry) return;
+      
+      // Check for new mappings array format first
+      if (pipelineEntry.mappings && Array.isArray(pipelineEntry.mappings)) {
+        console.log(`[AppProcessor] Processing ${targetEntity} from entity_pipelines (new format):`, pipelineEntry.label, 'mappings:', pipelineEntry.mappings.length);
         
-        const coreFieldMappings = {
-          'email': 'email',
-          'first_name': 'first_name',
-          'last_name': 'last_name',
-          'phone': 'mobile',
-          'job_title': 'job_title'
-        };
-        
-        for (const [configKey, dbKey] of Object.entries(coreFieldMappings)) {
-          const fieldId = primaryMemberPipeline.field_mappings[configKey];
-          if (!fieldId) continue;
+        for (const mapping of pipelineEntry.mappings) {
+          if (!mapping.target_field) continue;
           
-          if (fieldId === '__clear__') {
-            memberData[dbKey] = null;
-          } else {
-            const val = form_values[fieldId];
-            if (val !== undefined && val !== null && val !== '') {
-              memberData[dbKey] = val;
+          // Get value from form or static value
+          let value;
+          if (mapping.source_type === 'static') {
+            value = mapping.static_value;
+          } else if (mapping.transformation === 'current_date') {
+            value = new Date().toISOString().split('T')[0];
+          } else if (mapping.source_field_id) {
+            value = form_values[mapping.source_field_id];
+          }
+          
+          // Handle __clear__ sentinel value
+          if (value === '__clear__') {
+            if (mapping.target_type === 'core') {
+              const dbKey = coreFieldMappingConfig[mapping.target_field] || mapping.target_field;
+              dataObj[dbKey] = null;
+            } else if (mapping.target_type === 'custom') {
+              customFieldsMap.delete(mapping.target_field);
+            }
+            continue;
+          }
+          
+          // Apply transformation
+          if (value !== undefined && value !== null && mapping.transformation && mapping.transformation !== 'none') {
+            value = applyTransformation(value, mapping.transformation);
+          }
+          
+          if (mapping.target_type === 'core') {
+            // Map to database field name using config
+            const dbKey = coreFieldMappingConfig[mapping.target_field] || mapping.target_field;
+            if (value !== undefined && value !== null && value !== '') {
+              dataObj[dbKey] = value;
+            }
+          } else if (mapping.target_type === 'custom') {
+            // Custom field
+            const customFieldId = mapping.target_field;
+            const prefField = prefFieldMap.get(customFieldId);
+            if (value !== undefined && value !== null && value !== '') {
+              addCustomFieldValue(customFieldsMap, customFieldId, value, prefField);
             }
           }
         }
         
-        // Process custom fields from primary member pipeline
-        const pipelineCustomMappings = Object.entries(primaryMemberPipeline.field_mappings)
+        return;
+      }
+      
+      // Fall back to legacy field_mappings object format ONLY if no mappings array
+      // This ensures we don't process both formats for the same entry
+      if (!pipelineEntry.mappings && pipelineEntry.field_mappings) {
+        console.log(`[AppProcessor] Processing ${targetEntity} from entity_pipelines (legacy format):`, pipelineEntry.label);
+        
+        for (const [configKey, dbKey] of Object.entries(coreFieldMappingConfig)) {
+          const fieldId = pipelineEntry.field_mappings[configKey];
+          if (!fieldId) continue;
+          
+          if (fieldId === '__clear__') {
+            dataObj[dbKey] = null;
+          } else {
+            const val = form_values[fieldId];
+            if (val !== undefined && val !== null && val !== '') {
+              dataObj[dbKey] = val;
+            }
+          }
+        }
+        
+        // Process custom fields from legacy format
+        const pipelineCustomMappings = Object.entries(pipelineEntry.field_mappings)
           .filter(([key]) => key.startsWith('custom_'));
         
         for (const [key, fieldId] of pipelineCustomMappings) {
@@ -327,77 +373,56 @@ export default async function handler(req, res) {
           const prefField = prefFieldMap.get(customFieldId);
           
           if (fieldId === '__clear__') {
-            // Mark for clearing - we'll handle this during upsert
-            memberCustomFieldsMap.delete(customFieldId);
+            customFieldsMap.delete(customFieldId);
           } else {
             const val = form_values[fieldId];
             if (val !== undefined && val !== null && val !== '') {
-              addCustomFieldValue(memberCustomFieldsMap, customFieldId, val, prefField);
+              addCustomFieldValue(customFieldsMap, customFieldId, val, prefField);
             }
           }
         }
-        
-        // If pipeline has a role_id, use it
-        if (primaryMemberPipeline.role_id) {
-          if (primaryMemberPipeline.role_id === '__clear__') {
-            memberData.role_id = null;
-          } else {
-            memberData.role_id = primaryMemberPipeline.role_id;
-          }
-        }
-        
-        // Re-convert custom fields after pipeline processing
-        memberCustomFields = convertMapToArray(memberCustomFieldsMap);
       }
+    };
+
+    // Process entity_pipelines primary entries if available (new unified system)
+    // This supplements/overrides the field_mappings data
+    if (memberPipelines.length > 0) {
+      const primaryMemberPipeline = memberPipelines.find(m => m.isPrimary);
+      const memberCoreFieldMappings = {
+        'email': 'email',
+        'first_name': 'first_name',
+        'last_name': 'last_name',
+        'phone': 'mobile',
+        'job_title': 'job_title'
+      };
+      
+      processPipelineMappings(primaryMemberPipeline, 'member', memberData, memberCustomFieldsMap, memberCoreFieldMappings);
+      
+      // If pipeline has a role_id, use it
+      if (primaryMemberPipeline?.role_id) {
+        if (primaryMemberPipeline.role_id === '__clear__') {
+          memberData.role_id = null;
+        } else {
+          memberData.role_id = primaryMemberPipeline.role_id;
+        }
+      }
+      
+      // Re-convert custom fields after pipeline processing
+      memberCustomFields = convertMapToArray(memberCustomFieldsMap);
     }
     
     // Process entity_pipelines primary organisation if available
     if (orgPipelines.length > 0) {
       const primaryOrgPipeline = orgPipelines.find(o => o.isPrimary);
-      if (primaryOrgPipeline?.field_mappings) {
-        console.log('[AppProcessor] Processing primary organisation from entity_pipelines:', primaryOrgPipeline.label);
-        
-        const orgCoreFieldMappings = {
-          'name': 'name',
-          'email': 'email',
-          'phone': 'phone',
-          'website': 'website',
-          'address': 'address'
-        };
-        
-        for (const [configKey, dbKey] of Object.entries(orgCoreFieldMappings)) {
-          const fieldId = primaryOrgPipeline.field_mappings[configKey];
-          if (!fieldId) continue;
-          
-          if (fieldId === '__clear__') {
-            orgData[dbKey] = null;
-          } else {
-            const val = form_values[fieldId];
-            if (val !== undefined && val !== null && val !== '') {
-              orgData[dbKey] = val;
-            }
-          }
-        }
-        
-        // Process custom fields from primary org pipeline
-        const pipelineOrgCustomMappings = Object.entries(primaryOrgPipeline.field_mappings)
-          .filter(([key]) => key.startsWith('custom_'));
-        
-        for (const [key, fieldId] of pipelineOrgCustomMappings) {
-          if (!fieldId) continue;
-          const customFieldId = key.replace('custom_', '');
-          const prefField = prefFieldMap.get(customFieldId);
-          
-          if (fieldId === '__clear__') {
-            orgCustomFieldsMap.delete(customFieldId);
-          } else {
-            const val = form_values[fieldId];
-            if (val !== undefined && val !== null && val !== '') {
-              addCustomFieldValue(orgCustomFieldsMap, customFieldId, val, prefField);
-            }
-          }
-        }
-      }
+      const orgCoreFieldMappings = {
+        'name': 'name',
+        'email': 'email',
+        'phone': 'phone',
+        'website': 'website',
+        'address': 'address'
+      };
+      
+      processPipelineMappings(primaryOrgPipeline, 'organization', orgData, orgCustomFieldsMap, orgCoreFieldMappings);
     }
 
     console.log('[AppProcessor] Extracted data:', { memberData, orgData, memberCustomFields: memberCustomFields.length, orgCustomFields: orgCustomFields.length, orgCustomFieldsDetail: orgCustomFields });
@@ -927,60 +952,124 @@ export default async function handler(req, res) {
       const fromName = settingsMap['welcome_email_from_name'] || appName;
       
       for (const memberConfig of memberCreationConfigs) {
-        if (!memberConfig.field_mappings || !memberConfig.field_mappings.email) {
-          console.log('[AppProcessor] Skipping additional member - no email mapping:', memberConfig.label);
-          continue;
-        }
+        // Extract email and build data from either new mappings array or legacy field_mappings object
+        let memberEmail = null;
+        const additionalMemberData = {};
+        const additionalCustomFieldsMap = new Map();
+        const clearFields = [];
         
-        // Handle explicit clear option - skip if email is set to clear
-        const emailFieldId = memberConfig.field_mappings.email;
-        if (emailFieldId === '__clear__') {
-          console.log('[AppProcessor] Skipping additional member - email set to clear:', memberConfig.label);
-          continue;
-        }
+        const coreFieldMappings = {
+          'email': 'email',
+          'first_name': 'first_name',
+          'last_name': 'last_name',
+          'phone': 'mobile',
+          'job_title': 'job_title'
+        };
         
-        // Extract email from form values using the mapped field
-        const memberEmail = form_values[emailFieldId];
-        
-        if (!memberEmail) {
-          console.log('[AppProcessor] Skipping additional member - email value is empty:', memberConfig.label);
+        if (memberConfig.mappings && Array.isArray(memberConfig.mappings)) {
+          // New format: process mappings array
+          const emailMapping = memberConfig.mappings.find(m => m.target_field === 'email' && m.target_type === 'core');
+          if (!emailMapping) {
+            console.log('[AppProcessor] Skipping additional member - no email mapping:', memberConfig.label);
+            continue;
+          }
+          
+          // Get email value
+          if (emailMapping.source_type === 'static') {
+            memberEmail = emailMapping.static_value;
+          } else if (emailMapping.source_field_id) {
+            memberEmail = form_values[emailMapping.source_field_id];
+          }
+          
+          if (!memberEmail) {
+            console.log('[AppProcessor] Skipping additional member - email value is empty:', memberConfig.label);
+            continue;
+          }
+          
+          // Process all mappings
+          for (const mapping of memberConfig.mappings) {
+            if (!mapping.target_field || mapping.target_field === 'email') continue;
+            
+            let value;
+            if (mapping.source_type === 'static') {
+              value = mapping.static_value;
+            } else if (mapping.transformation === 'current_date') {
+              value = new Date().toISOString().split('T')[0];
+            } else if (mapping.source_field_id) {
+              value = form_values[mapping.source_field_id];
+            }
+            
+            // Handle __clear__ sentinel value
+            if (value === '__clear__') {
+              if (mapping.target_type === 'core') {
+                const dbKey = coreFieldMappings[mapping.target_field] || mapping.target_field;
+                clearFields.push(dbKey);
+                additionalMemberData[dbKey] = null;
+              } else if (mapping.target_type === 'custom') {
+                // Mark custom field for clearing - will be handled in custom field processing
+                additionalCustomFieldsMap.set(mapping.target_field, '__clear__');
+              }
+              continue;
+            }
+            
+            if (value !== undefined && value !== null && mapping.transformation && mapping.transformation !== 'none') {
+              value = applyTransformation(value, mapping.transformation);
+            }
+            
+            if (mapping.target_type === 'core') {
+              const dbKey = coreFieldMappings[mapping.target_field] || mapping.target_field;
+              if (value !== undefined && value !== null && value !== '') {
+                additionalMemberData[dbKey] = value;
+              }
+            } else if (mapping.target_type === 'custom') {
+              const prefField = prefFieldMap.get(mapping.target_field);
+              if (value !== undefined && value !== null && value !== '') {
+                addCustomFieldValue(additionalCustomFieldsMap, mapping.target_field, value, prefField);
+              }
+            }
+          }
+        } else if (memberConfig.field_mappings) {
+          // Legacy format: process field_mappings object
+          if (!memberConfig.field_mappings.email) {
+            console.log('[AppProcessor] Skipping additional member - no email mapping:', memberConfig.label);
+            continue;
+          }
+          
+          const emailFieldId = memberConfig.field_mappings.email;
+          if (emailFieldId === '__clear__') {
+            console.log('[AppProcessor] Skipping additional member - email set to clear:', memberConfig.label);
+            continue;
+          }
+          
+          memberEmail = form_values[emailFieldId];
+          
+          if (!memberEmail) {
+            console.log('[AppProcessor] Skipping additional member - email value is empty:', memberConfig.label);
+            continue;
+          }
+          
+          for (const [configKey, dbKey] of Object.entries(coreFieldMappings)) {
+            if (configKey === 'email') continue;
+            const fieldId = memberConfig.field_mappings[configKey];
+            if (!fieldId) continue;
+            
+            if (fieldId === '__clear__') {
+              clearFields.push(dbKey);
+              additionalMemberData[dbKey] = null;
+            } else if (form_values[fieldId] !== undefined && form_values[fieldId] !== null && form_values[fieldId] !== '') {
+              additionalMemberData[dbKey] = form_values[fieldId];
+            }
+          }
+        } else {
+          console.log('[AppProcessor] Skipping additional member - no mappings:', memberConfig.label);
           continue;
         }
         
         const normalizedEmail = memberEmail.toLowerCase().trim();
         
-        // Build member data from field mappings
-        // Only include fields that are explicitly mapped (not null and not "none")
-        const additionalMemberData = {};
-        const clearFields = []; // Fields to explicitly clear
-        
-        // Map core fields with __clear__ handling
-        const coreFieldMappings = {
-          'first_name': 'first_name',
-          'last_name': 'last_name',
-          'phone': 'mobile',  // Member table uses mobile, not phone
-          'job_title': 'job_title'
-        };
-        
-        for (const [configKey, dbKey] of Object.entries(coreFieldMappings)) {
-          const fieldId = memberConfig.field_mappings[configKey];
-          if (!fieldId) continue; // Not mapped, skip
-          
-          if (fieldId === '__clear__') {
-            // Explicitly clear this field
-            clearFields.push(dbKey);
-            additionalMemberData[dbKey] = null;
-          } else if (form_values[fieldId] !== undefined && form_values[fieldId] !== null && form_values[fieldId] !== '') {
-            // Has a value, set it
-            additionalMemberData[dbKey] = form_values[fieldId];
-          }
-          // If value is empty/undefined, don't include - preserve existing value on update
-        }
-        
         // Add role_id if specified in this member config
         if (memberConfig.role_id) {
           if (memberConfig.role_id === '__clear__') {
-            // Explicitly clear role
             additionalMemberData.role_id = null;
             clearFields.push('role_id');
           } else {
@@ -1058,28 +1147,20 @@ export default async function handler(req, res) {
         }
         
         // Process custom field mappings (upsert logic)
-        const customFieldMappings = Object.entries(memberConfig.field_mappings)
-          .filter(([key]) => key.startsWith('custom_'));
-        
-        if (customFieldMappings.length > 0) {
-          for (const [key, fieldId] of customFieldMappings) {
-            if (!fieldId) continue;
-            
-            const customFieldId = key.replace('custom_', '');
-            
-            if (fieldId === '__clear__') {
-              // Explicitly clear this custom field
+        // For new format, custom fields were already collected in additionalCustomFieldsMap
+        // For legacy format, process from field_mappings object
+        if (memberConfig.mappings && Array.isArray(memberConfig.mappings)) {
+          // New format: custom fields already in additionalCustomFieldsMap
+          for (const [customFieldId, value] of additionalCustomFieldsMap.entries()) {
+            if (value === '__clear__') {
+              // Clear this custom field
               await supabase
                 .from('member_preference_value')
                 .delete()
                 .eq('member_id', existingMemberId)
                 .eq('field_id', customFieldId);
-              console.log('[AppProcessor] Cleared custom field:', customFieldId, 'for member:', existingMemberId);
-            } else if (form_values[fieldId] !== undefined && form_values[fieldId] !== null && form_values[fieldId] !== '') {
-              // Has a value, upsert it
-              const value = form_values[fieldId];
-              
-              // Check if exists
+              console.log('[AppProcessor] Cleared custom field:', customFieldId, 'for additional member:', existingMemberId);
+            } else if (value !== undefined && value !== null && value !== '') {
               const { data: existingPref } = await supabase
                 .from('member_preference_value')
                 .select('id')
@@ -1087,10 +1168,12 @@ export default async function handler(req, res) {
                 .eq('field_id', customFieldId)
                 .single();
               
+              const storedValue = Array.isArray(value) ? JSON.stringify(value) : String(value);
+              
               if (existingPref) {
                 await supabase
                   .from('member_preference_value')
-                  .update({ value: String(value) })
+                  .update({ value: storedValue })
                   .eq('id', existingPref.id);
               } else {
                 await supabase
@@ -1098,11 +1181,55 @@ export default async function handler(req, res) {
                   .insert({
                     member_id: existingMemberId,
                     field_id: customFieldId,
-                    value: String(value)
+                    value: storedValue
                   });
               }
             }
-            // If value is empty and not __clear__, preserve existing value
+          }
+        } else if (memberConfig.field_mappings) {
+          // Legacy format: process custom fields from field_mappings object
+          const customFieldMappings = Object.entries(memberConfig.field_mappings)
+            .filter(([key]) => key.startsWith('custom_'));
+          
+          if (customFieldMappings.length > 0) {
+            for (const [key, fieldId] of customFieldMappings) {
+              if (!fieldId) continue;
+              
+              const customFieldId = key.replace('custom_', '');
+              
+              if (fieldId === '__clear__') {
+                await supabase
+                  .from('member_preference_value')
+                  .delete()
+                  .eq('member_id', existingMemberId)
+                  .eq('field_id', customFieldId);
+                console.log('[AppProcessor] Cleared custom field:', customFieldId, 'for member:', existingMemberId);
+              } else if (form_values[fieldId] !== undefined && form_values[fieldId] !== null && form_values[fieldId] !== '') {
+                const value = form_values[fieldId];
+                
+                const { data: existingPref } = await supabase
+                  .from('member_preference_value')
+                  .select('id')
+                  .eq('member_id', existingMemberId)
+                  .eq('field_id', customFieldId)
+                  .single();
+                
+                if (existingPref) {
+                  await supabase
+                    .from('member_preference_value')
+                    .update({ value: String(value) })
+                    .eq('id', existingPref.id);
+                } else {
+                  await supabase
+                    .from('member_preference_value')
+                    .insert({
+                      member_id: existingMemberId,
+                      field_id: customFieldId,
+                      value: String(value)
+                    });
+                }
+              }
+            }
           }
         }
         

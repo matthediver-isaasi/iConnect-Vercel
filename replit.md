@@ -90,11 +90,13 @@ The platform supports dynamic email templates with placeholder substitution for 
 - `submission_email_bcc` (TEXT)
 - `submission_email_field_mapping` (JSONB)
 
-## Entity Pipelines System (December 2025)
+## Entity Pipelines System (December 2025 - Updated)
 
 Forms use a unified `entity_pipelines` system to configure member and organisation record creation/updates on form submission. This replaces the legacy `member_entity_action`, `organization_entity_action`, and `additional_member_creations` fields.
 
-**Data Structure:**
+**Data Structure (New Mappings Array Format):**
+Each entry now uses a `mappings` array with the same format as the form-level field_mappings, supporting transformations and both field-based and static value sources:
+
 ```json
 {
   "entity_pipelines": {
@@ -105,22 +107,28 @@ Forms use a unified `entity_pipelines` system to configure member and organisati
         "isPrimary": true,
         "role_id": "uuid-of-role-or-null-or-__clear__",
         "uniqueness_key": "email",
-        "field_mappings": {
-          "email": "form_field_id",
-          "first_name": "form_field_id",
-          "last_name": "form_field_id",
-          "phone": "form_field_id",
-          "job_title": "form_field_id",
-          "custom_<preference_field_id>": "form_field_id"
-        }
-      },
-      {
-        "id": "member_1234567891",
-        "label": "Spouse",
-        "isPrimary": false,
-        "role_id": null,
-        "uniqueness_key": "email",
-        "field_mappings": { ... }
+        "mappings": [
+          {
+            "id": "mapping_123",
+            "source_type": "field",
+            "source_field_id": "form_field_id",
+            "static_value": "",
+            "target_type": "core",
+            "target_entity": "member",
+            "target_field": "email",
+            "transformation": "lowercase"
+          },
+          {
+            "id": "mapping_124",
+            "source_type": "static",
+            "source_field_id": "",
+            "static_value": "Gold",
+            "target_type": "custom",
+            "target_entity": "member",
+            "target_field": "preference_field_id",
+            "transformation": "none"
+          }
+        ]
       }
     ],
     "organisations": [
@@ -129,14 +137,18 @@ Forms use a unified `entity_pipelines` system to configure member and organisati
         "label": "Primary Organisation",
         "isPrimary": true,
         "uniqueness_key": "name",
-        "field_mappings": {
-          "name": "form_field_id",
-          "email": "form_field_id",
-          "phone": "form_field_id",
-          "website": "form_field_id",
-          "address": "form_field_id",
-          "custom_<preference_field_id>": "form_field_id"
-        }
+        "mappings": [
+          {
+            "id": "mapping_125",
+            "source_type": "field",
+            "source_field_id": "form_field_id",
+            "static_value": "",
+            "target_type": "core",
+            "target_entity": "organization",
+            "target_field": "name",
+            "transformation": "titlecase"
+          }
+        ]
       }
     ]
   }
@@ -145,10 +157,12 @@ Forms use a unified `entity_pipelines` system to configure member and organisati
 
 **Configuration UI:**
 - Located in FormBuilder.jsx → Submission Settings tab → Record Creation section
-- Separate tabs for Members and Organisations
-- Each entry shows: label input, role selector (members only), core field mappings, custom field mappings
+- Uses the same FieldMappingSection component as the form-level Field Mappings
+- Each entry shows: label input, role selector (members only), and inline FieldMappingSection
+- Supports source type (form field / static value), target field, and transformation options
 - Primary entries marked with "Primary" badge
-- Validation: Members require email mapping, Organisations require name mapping
+- Entity selector hidden since target entity is fixed per section (member/organisation)
+- Validation: Members require email core field mapping, Organisations require name core field mapping
 
 **Processing Logic (api/forms/process-application.js):**
 1. Primary member/organisation processed first from entity_pipelines entries where `isPrimary=true`
