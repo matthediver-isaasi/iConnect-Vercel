@@ -245,10 +245,19 @@ async function scheduleBookingReminderEmails(bookingId, eventId, attendeeEmail) 
       return;
     }
 
-    // Parse start_date as UTC - ensure we treat it consistently
-    // Supabase stores timestamps in UTC, so we ensure the Z suffix for correct parsing
-    const startDateStr = event.start_date.endsWith('Z') ? event.start_date : event.start_date + 'Z';
+    // Parse start_date - handle various formats from Supabase
+    // Dates may come as: "2025-12-18T13:55:00" or "2025-12-18T13:55:00Z" or "2025-12-18T13:55:00+00:00"
+    let startDateStr = event.start_date;
+    // Only append Z if there's no timezone indicator already
+    if (!startDateStr.endsWith('Z') && !startDateStr.includes('+') && !startDateStr.includes('-', 10)) {
+      startDateStr = startDateStr + 'Z';
+    }
     const eventStartMs = new Date(startDateStr).getTime();
+    
+    if (isNaN(eventStartMs)) {
+      console.error('[scheduleBookingReminderEmails] Invalid event start_date:', event.start_date);
+      return;
+    }
     const nowMs = Date.now();
     
     console.log(`[scheduleBookingReminderEmails] Event start: ${startDateStr}, now: ${new Date().toISOString()}`);
