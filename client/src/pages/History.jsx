@@ -85,7 +85,7 @@ export default function HistoryPage({ hasBanner }) {
       }
       groups[ref].push(booking);
     });
-    // Convert to array and sort by first booking's created_date
+    // Convert to array and sort by first booking's created_date (handle null dates)
     return Object.entries(groups)
       .map(([ref, items]) => ({
         reference: ref,
@@ -94,7 +94,11 @@ export default function HistoryPage({ hasBanner }) {
         created_date: items[0].created_date,
         event: events.find(e => e.id === items[0].event_id)
       }))
-      .sort((a, b) => new Date(b.created_date) - new Date(a.created_date));
+      .sort((a, b) => {
+        const dateA = a.created_date ? new Date(a.created_date).getTime() : 0;
+        const dateB = b.created_date ? new Date(b.created_date).getTime() : 0;
+        return dateB - dateA;
+      });
   }, [bookings, events]);
 
   const isLoading = transactionsLoading || bookingsLoading;
@@ -327,9 +331,11 @@ export default function HistoryPage({ hasBanner }) {
               )}
             </div>
             
-            <p className="text-xs text-slate-500 mt-1">
-              {format(new Date(firstBooking.created_date), 'MMM d, yyyy • h:mm a')}
-            </p>
+            {firstBooking.created_date && (
+              <p className="text-xs text-slate-500 mt-1">
+                {format(new Date(firstBooking.created_date), 'MMM d, yyyy • h:mm a')}
+              </p>
+            )}
           </div>
           
           <div className="flex items-center gap-2 shrink-0">
@@ -457,9 +463,11 @@ export default function HistoryPage({ hasBanner }) {
             </p>
           )}
           
-          <p className="text-xs text-slate-500 mt-1">
-            {format(new Date(transaction.created_date), 'MMM d, yyyy • h:mm a')}
-          </p>
+          {transaction.created_date && (
+            <p className="text-xs text-slate-500 mt-1">
+              {format(new Date(transaction.created_date), 'MMM d, yyyy • h:mm a')}
+            </p>
+          )}
         </div>
         
         <div className="flex items-center gap-3">
