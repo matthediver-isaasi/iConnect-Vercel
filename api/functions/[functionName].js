@@ -218,6 +218,75 @@ async function sendZoomEventConfirmationEmail(attendee, eventDetails, zoomJoinUr
   }
 }
 
+async function scheduleBookingReminderEmails(bookingId, eventId, attendeeEmail) {
+  if (!supabase) return;
+  
+  try {
+    const { data: event, error: eventError } = await supabase
+      .from('one_off_event')
+      .select('id, start_date, title')
+      .eq('id', eventId)
+      .single();
+
+    if (eventError || !event || !event.start_date) {
+      console.log('[scheduleBookingReminderEmails] No event or start_date found');
+      return;
+    }
+
+    const { data: reminderEmails, error: emailsError } = await supabase
+      .from('event_email')
+      .select('*')
+      .eq('event_id', eventId)
+      .eq('email_type', 'reminder')
+      .eq('is_enabled', true);
+
+    if (emailsError || !reminderEmails || reminderEmails.length === 0) {
+      console.log('[scheduleBookingReminderEmails] No reminder emails configured for event');
+      return;
+    }
+
+    const eventStart = new Date(event.start_date);
+    
+    for (const email of reminderEmails) {
+      const hoursBeforeEvent = getHoursFromTimingType(email.timing_type, email.custom_hours_before);
+      const scheduledTime = new Date(eventStart.getTime() - hoursBeforeEvent * 60 * 60 * 1000);
+
+      if (scheduledTime <= new Date()) {
+        console.log(`[scheduleBookingReminderEmails] Skipping reminder - scheduled time already passed`);
+        continue;
+      }
+
+      await supabase
+        .from('scheduled_email')
+        .insert({
+          event_email_id: email.id,
+          booking_id: bookingId,
+          attendee_email: attendeeEmail,
+          scheduled_send_time: scheduledTime.toISOString(),
+          status: 'pending'
+        });
+    }
+
+    console.log(`[scheduleBookingReminderEmails] Scheduled reminders for booking ${bookingId}`);
+  } catch (err) {
+    console.error('[scheduleBookingReminderEmails] Error:', err.message);
+  }
+}
+
+function getHoursFromTimingType(timingType, customHours) {
+  switch (timingType) {
+    case '7_days_before': return 7 * 24;
+    case '3_days_before': return 3 * 24;
+    case '1_day_before': return 24;
+    case '12_hours_before': return 12;
+    case '6_hours_before': return 6;
+    case '1_hour_before': return 1;
+    case '30_minutes_before': return 0.5;
+    case 'custom': return customHours || 24;
+    default: return 24;
+  }
+}
+
 async function getValidZohoAccessToken() {
   if (!supabase) throw new Error('Supabase not configured');
   
@@ -1789,6 +1858,11 @@ const functionHandlers = {
       } else if (booking) {
         console.log('[createOneOffEventBooking] Booking created:', booking.id);
         createdBookings.push(booking);
+        
+        // Schedule reminder emails for this booking (non-blocking)
+        scheduleBookingReminderEmails(booking.id, eventId, booking.attendee_email).catch(err => {
+          console.error('[createOneOffEventBooking] Failed to schedule reminders:', err.message);
+        });
       }
     }
 

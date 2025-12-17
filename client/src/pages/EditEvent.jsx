@@ -30,7 +30,10 @@ import {
   Mic,
   X,
   Tag,
-  Eye
+  Eye,
+  Mail,
+  Clock,
+  Bell
 } from "lucide-react";
 import { createFilterTagKey, parseFilterTagKey, normalizeFilterTags } from "@/lib/utils";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -117,6 +120,10 @@ export default function EditEvent() {
   const [expandedTickets, setExpandedTickets] = useState({});
   const [allowGuestsToViewAllTickets, setAllowGuestsToViewAllTickets] = useState(false);
 
+  // Email configuration state
+  const [eventEmails, setEventEmails] = useState([]);
+  const [isSavingEmails, setIsSavingEmails] = useState(false);
+
   const [formData, setFormData] = useState({
     title: "",
     summary: "",
@@ -168,6 +175,29 @@ export default function EditEvent() {
     queryFn: () => base44.entities.Booking.filter({ event_id: eventId }),
     enabled: !!eventId
   });
+
+  // Fetch event email configurations
+  const { data: fetchedEventEmails = [], isLoading: loadingEmails } = useQuery({
+    queryKey: ['event-emails', eventId],
+    queryFn: async () => {
+      const response = await fetch(`/api/event-emails/${eventId}`, {
+        credentials: 'include'
+      });
+      if (!response.ok) {
+        if (response.status === 404) return [];
+        throw new Error('Failed to fetch event emails');
+      }
+      return response.json();
+    },
+    enabled: !!eventId
+  });
+
+  // Sync fetched emails to state when loaded
+  useEffect(() => {
+    if (fetchedEventEmails.length > 0 && eventEmails.length === 0) {
+      setEventEmails(fetchedEventEmails);
+    }
+  }, [fetchedEventEmails]);
 
   // Calculate sold count per ticket class
   const ticketClassSoldCounts = useMemo(() => {
@@ -324,6 +354,78 @@ export default function EditEvent() {
     return roleIds
       .map(id => roles.find(r => r.id === id)?.name || 'Unknown')
       .join(', ');
+  };
+
+  // Email configuration helper functions
+  const TIMING_OPTIONS = [
+    { value: '7_days_before', label: '7 days before' },
+    { value: '3_days_before', label: '3 days before' },
+    { value: '1_day_before', label: '1 day before' },
+    { value: '12_hours_before', label: '12 hours before' },
+    { value: '6_hours_before', label: '6 hours before' },
+    { value: '1_hour_before', label: '1 hour before' },
+    { value: '30_minutes_before', label: '30 minutes before' },
+    { value: 'custom', label: 'Custom timing' }
+  ];
+
+  const createEmptyEmail = (emailType = 'reminder') => ({
+    id: `email-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+    email_type: emailType,
+    timing_type: emailType === 'booking_confirmation' ? null : '1_day_before',
+    custom_hours_before: null,
+    subject: emailType === 'booking_confirmation' 
+      ? 'Your booking confirmation for {{event_name}}'
+      : 'Reminder: {{event_name}} is coming up!',
+    body: emailType === 'booking_confirmation'
+      ? 'Dear {{attendee_first_name}},\n\nThank you for booking {{event_name}}.\n\nEvent Date: {{event_date}}\nLocation: {{event_location}}\n{{#zoom_link}}Join Link: {{zoom_link}}{{/zoom_link}}\n\nWe look forward to seeing you!'
+      : 'Dear {{attendee_first_name}},\n\nThis is a reminder that {{event_name}} is coming up soon.\n\nEvent Date: {{event_date}}\nLocation: {{event_location}}\n{{#zoom_link}}Join Link: {{zoom_link}}{{/zoom_link}}\n\nSee you there!',
+    is_enabled: true,
+    isNew: true
+  });
+
+  const addEventEmail = (emailType = 'reminder') => {
+    setEventEmails([...eventEmails, createEmptyEmail(emailType)]);
+  };
+
+  const removeEventEmail = (emailId) => {
+    setEventEmails(eventEmails.filter(e => e.id !== emailId));
+  };
+
+  const updateEventEmail = (emailId, field, value) => {
+    setEventEmails(prev => prev.map(e => 
+      e.id === emailId ? { ...e, [field]: value } : e
+    ));
+  };
+
+  const getTimingLabel = (timingType) => {
+    const option = TIMING_OPTIONS.find(o => o.value === timingType);
+    return option ? option.label : timingType;
+  };
+
+  const saveEventEmails = async () => {
+    setIsSavingEmails(true);
+    try {
+      const response = await fetch(`/api/event-emails/${eventId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ emails: eventEmails })
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to save email configurations');
+      }
+      
+      const savedEmails = await response.json();
+      setEventEmails(savedEmails);
+      queryClient.invalidateQueries({ queryKey: ['event-emails', eventId] });
+      toast.success('Email configurations saved');
+    } catch (error) {
+      console.error('Error saving emails:', error);
+      toast.error('Failed to save email configurations');
+    } finally {
+      setIsSavingEmails(false);
+    }
   };
 
   // Query for webinar show join link settings (for online events)
@@ -2011,6 +2113,194 @@ export default function EditEvent() {
                 value={formData.image_url}
                 onChange={(url) => handleInputChange('image_url', url)}
               />
+            </CardContent>
+          </Card>
+
+          {/* Email Configuration Section */}
+          <Card className="border-slate-200 shadow-sm mb-6">
+            <CardHeader className="pb-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Mail className="h-5 w-5 text-blue-600" />
+                    Email Configuration
+                  </CardTitle>
+                  <CardDescription>
+                    Configure confirmation and reminder emails for this event
+                  </CardDescription>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => addEventEmail('booking_confirmation')}
+                    data-testid="button-add-confirmation-email"
+                  >
+                    <Plus className="h-4 w-4 mr-1" />
+                    Confirmation
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => addEventEmail('reminder')}
+                    data-testid="button-add-reminder-email"
+                  >
+                    <Plus className="h-4 w-4 mr-1" />
+                    Reminder
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {loadingEmails ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
+                  <span className="ml-2 text-slate-500">Loading email configurations...</span>
+                </div>
+              ) : eventEmails.length === 0 ? (
+                <div className="text-center py-8 text-slate-500">
+                  <Mail className="h-12 w-12 mx-auto mb-3 text-slate-300" />
+                  <p>No email configurations yet</p>
+                  <p className="text-sm mt-1">Add a confirmation or reminder email to get started</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {eventEmails.map((email, index) => (
+                    <div 
+                      key={email.id} 
+                      className={`p-4 border rounded-lg ${email.email_type === 'booking_confirmation' ? 'border-green-200 bg-green-50' : 'border-blue-200 bg-blue-50'}`}
+                    >
+                      <div className="flex items-start justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          {email.email_type === 'booking_confirmation' ? (
+                            <Badge variant="outline" className="bg-green-100 text-green-700 border-green-300">
+                              <Check className="h-3 w-3 mr-1" />
+                              Confirmation
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline" className="bg-blue-100 text-blue-700 border-blue-300">
+                              <Bell className="h-3 w-3 mr-1" />
+                              Reminder
+                            </Badge>
+                          )}
+                          <div className="flex items-center gap-2">
+                            <Switch
+                              checked={email.is_enabled}
+                              onCheckedChange={(checked) => updateEventEmail(email.id, 'is_enabled', checked)}
+                              data-testid={`switch-email-enabled-${email.id}`}
+                            />
+                            <span className="text-sm text-slate-600">
+                              {email.is_enabled ? 'Enabled' : 'Disabled'}
+                            </span>
+                          </div>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => removeEventEmail(email.id)}
+                          className="text-slate-400 hover:text-red-500"
+                          data-testid={`button-remove-email-${email.id}`}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+
+                      {/* Timing Selection for Reminders */}
+                      {email.email_type === 'reminder' && (
+                        <div className="mb-3">
+                          <Label className="text-sm font-medium flex items-center gap-1 mb-2">
+                            <Clock className="h-4 w-4" />
+                            Send Timing
+                          </Label>
+                          <Select
+                            value={email.timing_type || '1_day_before'}
+                            onValueChange={(value) => updateEventEmail(email.id, 'timing_type', value)}
+                          >
+                            <SelectTrigger className="w-full bg-white" data-testid={`select-timing-${email.id}`}>
+                              <SelectValue placeholder="Select when to send" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {TIMING_OPTIONS.map(option => (
+                                <SelectItem key={option.value} value={option.value}>
+                                  {option.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          
+                          {email.timing_type === 'custom' && (
+                            <div className="mt-2 flex items-center gap-2">
+                              <Input
+                                type="number"
+                                min="1"
+                                value={email.custom_hours_before || ''}
+                                onChange={(e) => updateEventEmail(email.id, 'custom_hours_before', parseInt(e.target.value) || null)}
+                                placeholder="Hours"
+                                className="w-24 bg-white"
+                                data-testid={`input-custom-hours-${email.id}`}
+                              />
+                              <span className="text-sm text-slate-600">hours before event</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Subject Line */}
+                      <div className="mb-3">
+                        <Label className="text-sm font-medium mb-2 block">Subject</Label>
+                        <Input
+                          value={email.subject}
+                          onChange={(e) => updateEventEmail(email.id, 'subject', e.target.value)}
+                          placeholder="Email subject line"
+                          className="bg-white"
+                          data-testid={`input-email-subject-${email.id}`}
+                        />
+                      </div>
+
+                      {/* Email Body */}
+                      <div className="mb-3">
+                        <Label className="text-sm font-medium mb-2 block">Body</Label>
+                        <Textarea
+                          value={email.body}
+                          onChange={(e) => updateEventEmail(email.id, 'body', e.target.value)}
+                          placeholder="Email body content"
+                          className="bg-white min-h-[120px]"
+                          data-testid={`textarea-email-body-${email.id}`}
+                        />
+                        <p className="text-xs text-slate-500 mt-1">
+                          Available placeholders: {'{{event_name}}'}, {'{{event_date}}'}, {'{{event_location}}'}, {'{{attendee_first_name}}'}, {'{{zoom_link}}'}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                  
+                  {/* Save Emails Button */}
+                  <div className="flex justify-end pt-2">
+                    <Button
+                      type="button"
+                      onClick={saveEventEmails}
+                      disabled={isSavingEmails}
+                      className="bg-blue-600 hover:bg-blue-700"
+                      data-testid="button-save-emails"
+                    >
+                      {isSavingEmails ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Saving Emails...
+                        </>
+                      ) : (
+                        <>
+                          <Save className="h-4 w-4 mr-2" />
+                          Save Email Settings
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
 
