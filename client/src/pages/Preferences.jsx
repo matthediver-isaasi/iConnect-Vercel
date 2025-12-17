@@ -435,7 +435,7 @@ export default function PreferencesPage() {
       const { data, error } = await supabase
         .from("resource_category")
         .select("*")
-        .eq("is_active", true)
+        .or("is_active.eq.true,is_active.is.null")
         .order("display_order", { ascending: true });
       if (error) throw error;
       return data || [];
