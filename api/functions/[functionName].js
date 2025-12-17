@@ -493,7 +493,8 @@ const functionHandlers = {
         const accessToken = await getValidZohoAccessToken();
         
         const criteria = `(Email:equals:${email})`;
-        const searchUrl = `${ZOHO_CRM_API_DOMAIN}/crm/v3/Contacts/search?criteria=${encodeURIComponent(criteria)}`;
+        const contactFields = 'id,Email,First_Name,Last_Name,Account_Name';
+        const searchUrl = `${ZOHO_CRM_API_DOMAIN}/crm/v3/Contacts/search?criteria=${encodeURIComponent(criteria)}&fields=${contactFields}`;
         
         const searchResponse = await fetch(searchUrl, {
           headers: { 'Authorization': `Zoho-oauthtoken ${accessToken}` }
@@ -544,7 +545,8 @@ const functionHandlers = {
 
         let organizationId = null;
         if (!member && contact.Account_Name?.id) {
-          const accountUrl = `${ZOHO_CRM_API_DOMAIN}/crm/v3/Accounts/${contact.Account_Name.id}`;
+          const accountFields = 'id,Account_Name,Training_Fund_Balance,Purchase_Order_Enabled,Email_Domains';
+          const accountUrl = `${ZOHO_CRM_API_DOMAIN}/crm/v3/Accounts/${contact.Account_Name.id}?fields=${accountFields}`;
           const accountResponse = await fetch(accountUrl, {
             headers: { 'Authorization': `Zoho-oauthtoken ${accessToken}` }
           });
@@ -811,7 +813,8 @@ const functionHandlers = {
     }
 
     const criteria = `(Email:equals:${email})`;
-    const searchUrl = `${ZOHO_CRM_API_DOMAIN}/crm/v3/Contacts/search?criteria=${encodeURIComponent(criteria)}`;
+    const contactFields = 'id,Email,First_Name,Last_Name,Account_Name';
+    const searchUrl = `${ZOHO_CRM_API_DOMAIN}/crm/v3/Contacts/search?criteria=${encodeURIComponent(criteria)}&fields=${contactFields}`;
     
     const searchResponse = await fetch(searchUrl, {
       headers: { 'Authorization': `Zoho-oauthtoken ${accessToken}` }
@@ -830,7 +833,8 @@ const functionHandlers = {
     const contact = searchData.data[0];
 
     if (contact.Account_Name?.id) {
-      const accountUrl = `${ZOHO_CRM_API_DOMAIN}/crm/v3/Accounts/${contact.Account_Name.id}`;
+      const accountFields = 'id,Account_Name,Training_Fund_Balance,Purchase_Order_Enabled,Email_Domains';
+      const accountUrl = `${ZOHO_CRM_API_DOMAIN}/crm/v3/Accounts/${contact.Account_Name.id}?fields=${accountFields}`;
       const accountResponse = await fetch(accountUrl, {
         headers: { 'Authorization': `Zoho-oauthtoken ${accessToken}` }
       });
@@ -956,7 +960,8 @@ const functionHandlers = {
     const accessToken = await getValidZohoAccessToken();
 
     const criteria = `(Email:equals:${email})`;
-    const searchUrl = `${ZOHO_CRM_API_DOMAIN}/crm/v3/Contacts/search?criteria=${encodeURIComponent(criteria)}`;
+    const contactFields = 'id,Email,First_Name,Last_Name,Account_Name';
+    const searchUrl = `${ZOHO_CRM_API_DOMAIN}/crm/v3/Contacts/search?criteria=${encodeURIComponent(criteria)}&fields=${contactFields}`;
 
     const searchResponse = await fetch(searchUrl, {
       headers: { 'Authorization': `Zoho-oauthtoken ${accessToken}` }
@@ -3090,7 +3095,8 @@ const functionHandlers = {
 
     while (hasMore) {
       const criteria = `(Account_Name:equals:${org.name})`;
-      const searchUrl = `${ZOHO_CRM_API_DOMAIN}/crm/v3/Contacts/search?criteria=${encodeURIComponent(criteria)}&page=${page}&per_page=${perPage}`;
+      const contactFields = 'id,Email,First_Name,Last_Name,Account_Name';
+      const searchUrl = `${ZOHO_CRM_API_DOMAIN}/crm/v3/Contacts/search?criteria=${encodeURIComponent(criteria)}&fields=${contactFields}&page=${page}&per_page=${perPage}`;
 
       const response = await fetch(searchUrl, {
         headers: { 'Authorization': `Zoho-oauthtoken ${accessToken}` }
@@ -3544,7 +3550,8 @@ const functionHandlers = {
       console.log('[syncAllOrganizationsFromZoho] Starting to fetch accounts from Zoho...');
 
       while (hasMore) {
-        const accountsUrl = `${ZOHO_CRM_API_DOMAIN}/crm/v3/Accounts?page=${page}&per_page=${perPage}`;
+        const accountFields = 'id,Account_Name,Training_Fund_Balance,Purchase_Order_Enabled,Email_Domains';
+        const accountsUrl = `${ZOHO_CRM_API_DOMAIN}/crm/v3/Accounts?fields=${accountFields}&page=${page}&per_page=${perPage}`;
         console.log('[syncAllOrganizationsFromZoho] Fetching URL:', accountsUrl);
         
         const response = await fetch(accountsUrl, {
@@ -3664,7 +3671,8 @@ const functionHandlers = {
       console.log('[syncAllMembersFromZoho] Starting to fetch contacts from Zoho...');
 
       while (hasMore) {
-        const contactsUrl = `${ZOHO_CRM_API_DOMAIN}/crm/v3/Contacts?page=${page}&per_page=${perPage}`;
+        const contactFields = 'id,Email,First_Name,Last_Name,Account_Name';
+        const contactsUrl = `${ZOHO_CRM_API_DOMAIN}/crm/v3/Contacts?fields=${contactFields}&page=${page}&per_page=${perPage}`;
         
         const response = await fetch(contactsUrl, {
           headers: {
