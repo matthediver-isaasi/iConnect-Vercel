@@ -18,13 +18,13 @@ export default function TeamEngagementReportPage() {
   const [sortDirection, setSortDirection] = useState("desc");
   const [includeInactive, setIncludeInactive] = useState(false);
 
-  // Fetch all members from the same organization (include all, filter later based on toggle)
+  // Fetch members from the same organization directly via server-side filter
   const { data: teamMembers = [], isLoading: membersLoading } = useQuery({
     queryKey: ['team-members-report', memberInfo?.organization_id],
     queryFn: async () => {
       if (!memberInfo?.organization_id) return [];
-      const allMembers = await base44.entities.Member.listAll();
-      return allMembers.filter(m => m.organization_id === memberInfo.organization_id);
+      // Use server-side filter to only fetch members from this organization
+      return base44.entities.Member.filter({ organization_id: memberInfo.organization_id });
     },
     enabled: !!memberInfo?.organization_id
   });
