@@ -28,14 +28,13 @@ export default function TeamPage({ hasBanner }) {
   const [editForm, setEditForm] = useState({ first_name: "", last_name: "", job_title: "", email: "", profile_photo_url: "", linkedin_url: "" });
   const queryClient = useQueryClient();
 
-  // Fetch all members from the same organization
+  // Fetch members from the same organization directly via server-side filter
   const { data: teamMembers = [], isLoading: membersLoading } = useQuery({
     queryKey: ['team-members', memberInfo?.organization_id],
     queryFn: async () => {
       if (!memberInfo?.organization_id) return [];
-      // Use listAll to handle Supabase's 1000 row limit with automatic pagination
-      const allMembers = await base44.entities.Member.listAll();
-      return allMembers.filter(m => m.organization_id === memberInfo.organization_id);
+      // Use server-side filter to only fetch members from this organization
+      return base44.entities.Member.filter({ organization_id: memberInfo.organization_id });
     },
     enabled: !!memberInfo?.organization_id
   });
