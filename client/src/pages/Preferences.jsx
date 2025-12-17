@@ -432,13 +432,15 @@ export default function PreferencesPage() {
   const { data: categories = [], isLoading: categoriesLoading } = useQuery({
     queryKey: ["resourceCategories"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("resource_category")
-        .select("*")
-        .or("is_active.eq.true,is_active.is.null")
-        .order("display_order", { ascending: true });
-      if (error) throw error;
-      return data || [];
+      // Use base44 entity API like CategoryManagement does for consistency
+      try {
+        const cats = await base44.entities.ResourceCategory.list('display_order');
+        // Filter out explicitly inactive categories (allow null/undefined is_active)
+        return (cats || []).filter(c => c.is_active !== false);
+      } catch (error) {
+        console.error('[Preferences] Failed to load resource categories:', error);
+        return [];
+      }
     },
   });
 
