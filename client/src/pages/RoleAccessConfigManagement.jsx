@@ -14,7 +14,7 @@ import { toast } from 'sonner';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { 
   Plus, Pencil, Trash2, ChevronDown, ChevronRight, GripVertical,
-  FolderTree, Save, RotateCcw, AlertTriangle,
+  FolderTree, Save, RotateCcw, RefreshCw, AlertTriangle,
   Layers, Sparkles, Check, ChevronsUpDown, Info
 } from 'lucide-react';
 import { ROLE_ACCESS_MAP } from '@/lib/roleAccessMap';
@@ -463,6 +463,100 @@ export default function RoleAccessConfigManagement() {
     setShowResetConfirm(false);
   };
 
+  const handleSyncMissingFeatures = async () => {
+    const existingKeys = new Set(accessItems.map(item => item.item_key));
+    const itemsToCreate = [];
+
+    for (const mod of ROLE_ACCESS_MAP) {
+      if (!existingKeys.has(mod.id)) {
+        const siblings = accessItems.filter(item => item.item_type === 'module');
+        const maxOrder = siblings.length > 0 ? Math.max(...siblings.map(s => s.display_order || 0)) : -1;
+        itemsToCreate.push({
+          item_type: 'module',
+          item_key: mod.id,
+          label: mod.label,
+          icon: mod.icon || 'Settings',
+          parent_id: null,
+          display_order: maxOrder + 1 + itemsToCreate.filter(i => i.item_type === 'module').length,
+          is_active: true
+        });
+      }
+    }
+
+    if (itemsToCreate.length > 0) {
+      await seedMutation.mutateAsync(itemsToCreate);
+    }
+
+    const updatedItems = await base44.entities.RoleAccessItem.list();
+    const updatedKeys = new Set(updatedItems.map(item => item.item_key));
+    const pageItemsToCreate = [];
+
+    for (const mod of ROLE_ACCESS_MAP) {
+      const dbModule = updatedItems.find(i => i.item_key === mod.id);
+      if (!dbModule) continue;
+
+      for (const page of mod.pages) {
+        if (!updatedKeys.has(page.id)) {
+          const siblings = updatedItems.filter(item => item.item_type === 'page' && item.parent_id === dbModule.id);
+          const maxOrder = siblings.length > 0 ? Math.max(...siblings.map(s => s.display_order || 0)) : -1;
+          pageItemsToCreate.push({
+            item_type: 'page',
+            item_key: page.id,
+            label: page.label,
+            icon: null,
+            parent_id: dbModule.id,
+            display_order: maxOrder + 1 + pageItemsToCreate.filter(i => i.parent_id === dbModule.id).length,
+            is_active: true
+          });
+        }
+      }
+    }
+
+    if (pageItemsToCreate.length > 0) {
+      await seedMutation.mutateAsync(pageItemsToCreate);
+    }
+
+    const finalItems = await base44.entities.RoleAccessItem.list();
+    const finalKeys = new Set(finalItems.map(item => item.item_key));
+    const featureItemsToCreate = [];
+
+    for (const mod of ROLE_ACCESS_MAP) {
+      for (const page of mod.pages) {
+        const dbPage = finalItems.find(i => i.item_key === page.id);
+        if (!dbPage || !page.features) continue;
+
+        for (const feature of page.features) {
+          if (!finalKeys.has(feature.id)) {
+            const siblings = finalItems.filter(item => item.item_type === 'feature' && item.parent_id === dbPage.id);
+            const maxOrder = siblings.length > 0 ? Math.max(...siblings.map(s => s.display_order || 0)) : -1;
+            featureItemsToCreate.push({
+              item_type: 'feature',
+              item_key: feature.id,
+              label: feature.label,
+              icon: null,
+              parent_id: dbPage.id,
+              display_order: maxOrder + 1 + featureItemsToCreate.filter(i => i.parent_id === dbPage.id).length,
+              is_active: true
+            });
+          }
+        }
+      }
+    }
+
+    if (featureItemsToCreate.length > 0) {
+      await seedMutation.mutateAsync(featureItemsToCreate);
+    }
+
+    queryClient.invalidateQueries({ queryKey: ['role-access-items'] });
+    
+    const totalAdded = itemsToCreate.length + pageItemsToCreate.length + featureItemsToCreate.length;
+    if (totalAdded > 0) {
+      toast.success(`Added ${totalAdded} missing item(s) from defaults`);
+    } else {
+      toast.info('All features are already synced');
+    }
+  };
+
   const toggleModule = (moduleId) => {
     setExpandedModules(prev => ({ ...prev, [moduleId]: !prev[moduleId] }));
   };
@@ -563,6 +657,17 @@ CREATE POLICY "Allow full access" ON role_access_item FOR ALL USING (true);`}
             <RotateCcw className="h-4 w-4 mr-2" />
             {accessItems.length > 0 ? 'Reset to Defaults' : 'Seed from Defaults'}
           </Button>
+          {accessItems.length > 0 && (
+            <Button
+              variant="outline"
+              onClick={handleSyncMissingFeatures}
+              disabled={seedMutation.isPending}
+              data-testid="button-sync-missing"
+            >
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Sync Missing Features
+            </Button>
+          )}
           <Button onClick={() => handleAdd('module')} data-testid="button-add-module">
             <Plus className="h-4 w-4 mr-2" />
             Add Module
