@@ -1,7 +1,7 @@
 const LEGACY_TO_NEW_MAPPING = {
   "page_user_BuyProgramTickets": "commerce.buy-tickets",
   "page_user_Events": "events.browse-events",
-  "page_user_Bookings": "events.bookings",
+  "page_user_Bookings": "commerce.bookings",
   "page_user_MyTickets": "events.my-tickets",
   "page_user_Balances": "commerce.balances",
   "page_user_History": "commerce.history",
@@ -95,7 +95,7 @@ const LEGACY_TO_NEW_MAPPING = {
   "admin_can_manage_communications": "communication",
   "feature_PostJobOnBehalfOfOrg": "jobs.my-postings.post-for-others",
   "page_Events": "events.browse-events",
-  "page_Bookings": "events.bookings",
+  "page_Bookings": "commerce.bookings",
   "page_MyTickets": "events.my-tickets",
   "page_BuyProgramTickets": "commerce.buy-tickets",
   "page_Balances": "commerce.balances",
