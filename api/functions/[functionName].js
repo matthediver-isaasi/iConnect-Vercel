@@ -276,7 +276,7 @@ async function scheduleBookingReminderEmails(bookingId, eventId, attendeeEmail) 
         continue;
       }
 
-      await supabase
+      const { error: insertError } = await supabase
         .from('scheduled_email')
         .insert({
           event_email_id: email.id,
@@ -285,6 +285,11 @@ async function scheduleBookingReminderEmails(bookingId, eventId, attendeeEmail) 
           scheduled_send_time: scheduledTimeISO,
           status: 'pending'
         });
+      
+      if (insertError) {
+        console.error(`[scheduleBookingReminderEmails] Failed to insert scheduled_email for ${email.timing_type}:`, insertError.message, insertError.code);
+        continue;
+      }
       
       console.log(`[scheduleBookingReminderEmails] Scheduled ${email.timing_type} reminder for ${scheduledTimeISO}`);
     }
