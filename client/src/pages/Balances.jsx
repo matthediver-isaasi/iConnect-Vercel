@@ -10,7 +10,13 @@ import { format, differenceInDays } from "date-fns";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 
 export default function BalancesPage({ hasBanner }) {
-  const { memberInfo, organizationInfo } = useMemberAccess();
+  const { memberInfo, organizationInfo, isFeatureExcluded } = useMemberAccess();
+  
+  // Check feature exclusions for each section
+  const hideTrainingFundCard = isFeatureExcluded('commerce.balances.training-fund-card');
+  const hideTrainingVouchersCard = isFeatureExcluded('commerce.balances.training-vouchers-card');
+  const hideProgramTicketsCard = isFeatureExcluded('commerce.balances.program-tickets-card');
+  const hideVouchersList = isFeatureExcluded('commerce.balances.vouchers-list');
   
   // Fetch all vouchers (both active and expired)
   const { data: allVouchers = [], isLoading } = useQuery({
@@ -86,121 +92,130 @@ export default function BalancesPage({ hasBanner }) {
           </div>
         )}
 
-        <div className="grid lg:grid-cols-2 gap-6 mb-8">
-          {/* Training Fund Card */}
-          <Card className="border-slate-200 shadow-sm bg-gradient-to-br from-green-50 to-emerald-50">
-            <CardHeader>
-              <div className="flex items-center gap-3">
-                <div className="p-3 bg-green-600 rounded-lg">
-                  <Wallet className="w-6 h-6 text-white" />
-                </div>
-                <div>
-                  <CardTitle className="text-xl">Training Fund</CardTitle>
-                  <p className="text-sm text-slate-600 mt-1">Available for program ticket purchases</p>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-baseline gap-2">
-                <span className="text-4xl font-bold text-green-700">
-                  £{(organizationInfo.training_fund_balance || 0).toFixed(2)}
-                </span>
-              </div>
-              <p className="text-sm text-slate-600 mt-3">
-                Use your training fund balance when purchasing event tickets and training
-              </p>
-            </CardContent>
-          </Card>
+        {(!hideTrainingFundCard || !hideTrainingVouchersCard) && (
+          <div className="grid lg:grid-cols-2 gap-6 mb-8">
+            {/* Training Fund Card */}
+            {!hideTrainingFundCard && (
+              <Card className="border-slate-200 shadow-sm bg-gradient-to-br from-green-50 to-emerald-50">
+                <CardHeader>
+                  <div className="flex items-center gap-3">
+                    <div className="p-3 bg-green-600 rounded-lg">
+                      <Wallet className="w-6 h-6 text-white" />
+                    </div>
+                    <div>
+                      <CardTitle className="text-xl">Training Fund</CardTitle>
+                      <p className="text-sm text-slate-600 mt-1">Available for program ticket purchases</p>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-4xl font-bold text-green-700">
+                      £{(organizationInfo.training_fund_balance || 0).toFixed(2)}
+                    </span>
+                  </div>
+                  <p className="text-sm text-slate-600 mt-3">
+                    Use your training fund balance when purchasing event tickets and training
+                  </p>
+                </CardContent>
+              </Card>
+            )}
 
-          {/* Vouchers Summary Card */}
-          <Card className="border-slate-200 shadow-sm bg-gradient-to-br from-blue-50 to-indigo-50">
-            <CardHeader>
+            {/* Vouchers Summary Card */}
+            {!hideTrainingVouchersCard && (
+              <Card className="border-slate-200 shadow-sm bg-gradient-to-br from-blue-50 to-indigo-50">
+                <CardHeader>
+                  <div className="flex items-center gap-3">
+                    <div className="p-3 bg-blue-600 rounded-lg">
+                      <Ticket className="w-6 h-6 text-white" />
+                    </div>
+                    <div>
+                      <CardTitle className="text-xl">Training Vouchers</CardTitle>
+                      <p className="text-sm text-slate-600 mt-1">Active vouchers available</p>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2">
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-4xl font-bold text-blue-700">
+                        £{totalVoucherValue.toFixed(2)}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 text-sm text-slate-600">
+                      <span>{vouchers.length} active {vouchers.length === 1 ? 'voucher' : 'vouchers'}</span>
+                    </div>
+                  </div>
+                  <p className="text-sm text-slate-600 mt-3">
+                    Apply vouchers when purchasing event and training tickets
+                  </p>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        )}
+
+        {/* Program Tickets Card */}
+        {!hideProgramTicketsCard && (
+          <Card className="border-slate-200 shadow-sm mb-8 bg-gradient-to-br from-purple-50 to-pink-50">
+            <CardHeader className="border-b border-slate-200">
               <div className="flex items-center gap-3">
-                <div className="p-3 bg-blue-600 rounded-lg">
+                <div className="p-3 bg-purple-600 rounded-lg">
                   <Ticket className="w-6 h-6 text-white" />
                 </div>
                 <div>
-                  <CardTitle className="text-xl">Training Vouchers</CardTitle>
-                  <p className="text-sm text-slate-600 mt-1">Active vouchers available</p>
+                  <CardTitle className="text-xl">Program Tickets</CardTitle>
+                  <p className="text-sm text-slate-600 mt-1">Available tickets by program</p>
                 </div>
               </div>
             </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                <div className="flex items-baseline gap-2">
-                  <span className="text-4xl font-bold text-blue-700">
-                    £{totalVoucherValue.toFixed(2)}
-                  </span>
+            <CardContent className="pt-6">
+              {programNames.length === 0 ? (
+                <div className="text-center py-8">
+                  <Ticket className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                  <p className="text-slate-600">No program tickets</p>
+                  <p className="text-sm text-slate-500 mt-1">
+                    Purchase program tickets to see them here
+                  </p>
                 </div>
-                <div className="flex items-center gap-2 text-sm text-slate-600">
-                  <span>{vouchers.length} active {vouchers.length === 1 ? 'voucher' : 'vouchers'}</span>
+              ) : (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between p-4 bg-white rounded-lg border-2 border-purple-200">
+                    <span className="font-semibold text-slate-700">Total Tickets</span>
+                    <span className="text-2xl font-bold text-purple-600">{totalProgramTickets}</span>
+                  </div>
+                  
+                  <div className="grid md:grid-cols-2 gap-4">
+                    {programNames.map((programName) => (
+                      <Card key={programName} className="border-2 border-purple-200 bg-white">
+                        <CardContent className="p-4">
+                          <div className="flex items-center justify-between">
+                            <div className="flex-1">
+                              <h3 className="font-semibold text-slate-900 mb-1">{programName}</h3>
+                              <p className="text-xs text-slate-500">Available tickets</p>
+                            </div>
+                            <div className="text-right">
+                              <span className="text-3xl font-bold text-purple-600">
+                                {programTicketBalances[programName]}
+                              </span>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
                 </div>
-              </div>
-              <p className="text-sm text-slate-600 mt-3">
-                Apply vouchers when purchasing event and training tickets
-              </p>
+              )}
             </CardContent>
           </Card>
-        </div>
-
-        {/* Program Tickets Card */}
-        <Card className="border-slate-200 shadow-sm mb-8 bg-gradient-to-br from-purple-50 to-pink-50">
-          <CardHeader className="border-b border-slate-200">
-            <div className="flex items-center gap-3">
-              <div className="p-3 bg-purple-600 rounded-lg">
-                <Ticket className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <CardTitle className="text-xl">Program Tickets</CardTitle>
-                <p className="text-sm text-slate-600 mt-1">Available tickets by program</p>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="pt-6">
-            {programNames.length === 0 ? (
-              <div className="text-center py-8">
-                <Ticket className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-                <p className="text-slate-600">No program tickets</p>
-                <p className="text-sm text-slate-500 mt-1">
-                  Purchase program tickets to see them here
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                <div className="flex items-center justify-between p-4 bg-white rounded-lg border-2 border-purple-200">
-                  <span className="font-semibold text-slate-700">Total Tickets</span>
-                  <span className="text-2xl font-bold text-purple-600">{totalProgramTickets}</span>
-                </div>
-                
-                <div className="grid md:grid-cols-2 gap-4">
-                  {programNames.map((programName) => (
-                    <Card key={programName} className="border-2 border-purple-200 bg-white">
-                      <CardContent className="p-4">
-                        <div className="flex items-center justify-between">
-                          <div className="flex-1">
-                            <h3 className="font-semibold text-slate-900 mb-1">{programName}</h3>
-                            <p className="text-xs text-slate-500">Available tickets</p>
-                          </div>
-                          <div className="text-right">
-                            <span className="text-3xl font-bold text-purple-600">
-                              {programTicketBalances[programName]}
-                            </span>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        )}
 
         {/* Vouchers List with Tabs */}
-        <Card className="border-slate-200 shadow-sm">
-          <CardHeader className="border-b border-slate-200">
-            <CardTitle className="text-xl">Vouchers</CardTitle>
-          </CardHeader>
+        {!hideVouchersList && (
+          <Card className="border-slate-200 shadow-sm">
+            <CardHeader className="border-b border-slate-200">
+              <CardTitle className="text-xl">Vouchers</CardTitle>
+            </CardHeader>
           <CardContent className="pt-6">
             {isLoading ? (
               <div className="text-center py-8 text-slate-600">Loading vouchers...</div>
@@ -335,7 +350,8 @@ export default function BalancesPage({ hasBanner }) {
               </Tabs>
             )}
           </CardContent>
-        </Card>
+          </Card>
+        )}
       </div>
     </div>
   );

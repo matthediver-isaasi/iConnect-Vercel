@@ -110,7 +110,13 @@ export const ROLE_ACCESS_MAP: Module[] = [
       },
       {
         id: "commerce.balances",
-        label: "Balances"
+        label: "Balances",
+        features: [
+          { id: "commerce.balances.training-fund-card", label: "Training Fund Card" },
+          { id: "commerce.balances.training-vouchers-card", label: "Training Vouchers Card" },
+          { id: "commerce.balances.program-tickets-card", label: "Program Tickets Card" },
+          { id: "commerce.balances.vouchers-list", label: "Vouchers List" }
+        ]
       },
       {
         id: "commerce.history",
