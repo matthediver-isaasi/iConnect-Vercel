@@ -730,17 +730,17 @@ export default function PaymentOptions({
                         </div>
 
                         {remainingBalancePaymentMethod === 'account' && (
-                          <div className="ml-6 space-y-3">
+                          <div className="space-y-3 mt-2">
                             {!poSupplyLater && (
                               <Input
                                 placeholder="Purchase Order Number *"
                                 value={purchaseOrderNumber}
                                 onChange={(e) => setPurchaseOrderNumber(e.target.value)}
-                                className="mt-2"
+                                className="w-full"
                                 data-testid="input-purchase-order"
                               />
                             )}
-                            <div className="flex items-center space-x-2 mt-2">
+                            <div className="flex items-center space-x-2">
                               <Switch
                                 id="po-supply-later"
                                 checked={poSupplyLater}
