@@ -10,7 +10,7 @@
   "crons": [
     {
       "path": "/api/cron/send-event-reminders",
-      "schedule": "*/15 * * * *"
+      "schedule": "* * * * *"
     }
   ],
   "rewrites": [
