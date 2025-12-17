@@ -3530,7 +3530,11 @@ const functionHandlers = {
     if (!supabase) throw new Error('Supabase not configured');
     
     try {
+      console.log('[syncAllOrganizationsFromZoho] Getting Zoho access token...');
+      console.log('[syncAllOrganizationsFromZoho] ZOHO_CRM_API_DOMAIN:', ZOHO_CRM_API_DOMAIN);
+      
       const accessToken = await getValidZohoAccessToken();
+      console.log('[syncAllOrganizationsFromZoho] Access token obtained:', accessToken ? 'Yes' : 'No');
       
       let allAccounts = [];
       let page = 1;
@@ -3541,6 +3545,7 @@ const functionHandlers = {
 
       while (hasMore) {
         const accountsUrl = `${ZOHO_CRM_API_DOMAIN}/crm/v3/Accounts?page=${page}&per_page=${perPage}`;
+        console.log('[syncAllOrganizationsFromZoho] Fetching URL:', accountsUrl);
         
         const response = await fetch(accountsUrl, {
           headers: {
@@ -3548,13 +3553,24 @@ const functionHandlers = {
           },
         });
 
+        console.log('[syncAllOrganizationsFromZoho] Response status:', response.status);
+
         if (!response.ok) {
           const errorText = await response.text();
           console.error('[syncAllOrganizationsFromZoho] Failed to fetch accounts:', response.status, errorText);
-          break;
+          return { success: false, error: `Zoho API error: ${response.status} - ${errorText}` };
         }
 
-        const data = await response.json();
+        const responseText = await response.text();
+        console.log('[syncAllOrganizationsFromZoho] Response preview:', responseText.substring(0, 500));
+        
+        let data;
+        try {
+          data = JSON.parse(responseText);
+        } catch (parseErr) {
+          console.error('[syncAllOrganizationsFromZoho] Failed to parse response:', parseErr.message);
+          return { success: false, error: `Failed to parse Zoho response: ${parseErr.message}` };
+        }
         
         if (data.data && data.data.length > 0) {
           allAccounts = allAccounts.concat(data.data);
@@ -3566,6 +3582,7 @@ const functionHandlers = {
             hasMore = false;
           }
         } else {
+          console.log('[syncAllOrganizationsFromZoho] No data in response or empty array');
           hasMore = false;
         }
       }
