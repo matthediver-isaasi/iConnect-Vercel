@@ -2,6 +2,11 @@
   "version": 2,
   "buildCommand": "npx vite build",
   "outputDirectory": "dist/public",
+  "functions": {
+    "api/**/*.js": {
+      "maxDuration": 60
+    }
+  },
   "crons": [
     {
       "path": "/api/cron/send-event-reminders",

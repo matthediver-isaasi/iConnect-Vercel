@@ -3544,6 +3544,7 @@ const functionHandlers = {
       
       let allAccounts = [];
       let page = 1;
+      let pageToken = null;
       const perPage = 200;
       let hasMore = true;
 
@@ -3551,7 +3552,14 @@ const functionHandlers = {
 
       while (hasMore) {
         const accountFields = 'id,Account_Name,Training_Fund_Balance,Purchase_Order_Enabled,Email_Domains';
-        const accountsUrl = `${ZOHO_CRM_API_DOMAIN}/crm/v3/Accounts?fields=${accountFields}&page=${page}&per_page=${perPage}`;
+        let accountsUrl;
+        if (pageToken) {
+          // Use cursor-based pagination for records beyond 2000
+          accountsUrl = `${ZOHO_CRM_API_DOMAIN}/crm/v3/Accounts?fields=${accountFields}&per_page=${perPage}&page_token=${pageToken}`;
+        } else {
+          // Use offset pagination for first 2000 records
+          accountsUrl = `${ZOHO_CRM_API_DOMAIN}/crm/v3/Accounts?fields=${accountFields}&page=${page}&per_page=${perPage}`;
+        }
         console.log('[syncAllOrganizationsFromZoho] Fetching URL:', accountsUrl);
         
         const response = await fetch(accountsUrl, {
@@ -3583,8 +3591,14 @@ const functionHandlers = {
           allAccounts = allAccounts.concat(data.data);
           console.log(`[syncAllOrganizationsFromZoho] Fetched page ${page}, total accounts: ${allAccounts.length}`);
           
-          if (data.info && data.info.more_records) {
+          // Check for cursor-based pagination token (for records beyond 2000)
+          if (data.info && data.info.next_page_token) {
+            pageToken = data.info.next_page_token;
             page++;
+          } else if (data.info && data.info.more_records) {
+            // Continue with offset pagination
+            page++;
+            pageToken = null;
           } else {
             hasMore = false;
           }
@@ -3663,53 +3677,9 @@ const functionHandlers = {
     try {
       const accessToken = await getValidZohoAccessToken();
       
-      let allContacts = [];
-      let page = 1;
-      const perPage = 200;
-      let hasMore = true;
-
-      console.log('[syncAllMembersFromZoho] Starting to fetch contacts from Zoho...');
-
-      while (hasMore) {
-        const contactFields = 'id,Email,First_Name,Last_Name,Account_Name';
-        const contactsUrl = `${ZOHO_CRM_API_DOMAIN}/crm/v3/Contacts?fields=${contactFields}&page=${page}&per_page=${perPage}`;
-        
-        const response = await fetch(contactsUrl, {
-          headers: {
-            'Authorization': `Zoho-oauthtoken ${accessToken}`,
-          },
-        });
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error('[syncAllMembersFromZoho] Failed to fetch contacts:', response.status, errorText);
-          break;
-        }
-
-        const data = await response.json();
-        
-        if (data.data && data.data.length > 0) {
-          allContacts = allContacts.concat(data.data);
-          console.log(`[syncAllMembersFromZoho] Fetched page ${page}, total contacts: ${allContacts.length}`);
-          
-          if (data.info && data.info.more_records) {
-            page++;
-          } else {
-            hasMore = false;
-          }
-        } else {
-          hasMore = false;
-        }
-      }
-
-      console.log(`[syncAllMembersFromZoho] Total contacts fetched: ${allContacts.length}`);
-
-      if (allContacts.length === 0) {
-        return { success: true, synced: 0, created: 0, updated: 0, message: 'No contacts found in Zoho' };
-      }
-
-      // Get existing members
-      const { data: existingMembers } = await supabase.from('member').select('*');
+      // Pre-load existing members and organizations for fast lookups
+      console.log('[syncAllMembersFromZoho] Loading existing members and organizations...');
+      const { data: existingMembers } = await supabase.from('member').select('id, email, zoho_contact_id');
       const existingByZohoId = {};
       const existingByEmail = {};
       (existingMembers || []).forEach(member => {
@@ -3721,7 +3691,6 @@ const functionHandlers = {
         }
       });
 
-      // Get organizations for linking
       const { data: orgs } = await supabase.from('organization').select('id, zoho_account_id');
       const orgByZohoId = {};
       (orgs || []).forEach(org => {
@@ -3730,49 +3699,111 @@ const functionHandlers = {
         }
       });
 
+      let page = 1;
+      let pageToken = null;
+      const perPage = 200;
+      let hasMore = true;
+      let totalFetched = 0;
       let created = 0;
       let updated = 0;
       let skipped = 0;
 
-      for (const contact of allContacts) {
-        if (!contact.Email) {
-          skipped++;
-          continue;
-        }
+      console.log('[syncAllMembersFromZoho] Starting to fetch and process contacts from Zoho...');
 
-        // Find linked organization
-        let organizationId = null;
-        if (contact.Account_Name && contact.Account_Name.id) {
-          const linkedOrg = orgByZohoId[contact.Account_Name.id];
-          if (linkedOrg) {
-            organizationId = linkedOrg.id;
-          }
-        }
-
-        const memberData = {
-          zoho_contact_id: contact.id,
-          email: contact.Email,
-          first_name: contact.First_Name || '',
-          last_name: contact.Last_Name || '',
-          phone: contact.Phone || contact.Mobile || null,
-          job_title: contact.Title || null,
-          organization_id: organizationId,
-          last_synced: new Date().toISOString()
-        };
-
-        const existingMember = existingByZohoId[contact.id] || existingByEmail[contact.Email.toLowerCase()];
-
-        if (existingMember) {
-          // Update existing
-          await supabase
-            .from('member')
-            .update(memberData)
-            .eq('id', existingMember.id);
-          updated++;
+      while (hasMore) {
+        const contactFields = 'id,Email,First_Name,Last_Name,Account_Name';
+        let contactsUrl;
+        if (pageToken) {
+          contactsUrl = `${ZOHO_CRM_API_DOMAIN}/crm/v3/Contacts?fields=${contactFields}&per_page=${perPage}&page_token=${pageToken}`;
         } else {
-          // Create new
-          await supabase.from('member').insert(memberData);
-          created++;
+          contactsUrl = `${ZOHO_CRM_API_DOMAIN}/crm/v3/Contacts?fields=${contactFields}&page=${page}&per_page=${perPage}`;
+        }
+        
+        const response = await fetch(contactsUrl, {
+          headers: { 'Authorization': `Zoho-oauthtoken ${accessToken}` },
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error('[syncAllMembersFromZoho] Failed to fetch contacts:', response.status, errorText);
+          break;
+        }
+
+        const data = await response.json();
+        
+        if (data.data && data.data.length > 0) {
+          const contacts = data.data;
+          totalFetched += contacts.length;
+          console.log(`[syncAllMembersFromZoho] Fetched page ${page}, processing ${contacts.length} contacts (total: ${totalFetched})`);
+          
+          // Process this batch immediately
+          const toInsert = [];
+          const toUpdate = [];
+          
+          for (const contact of contacts) {
+            if (!contact.Email) {
+              skipped++;
+              continue;
+            }
+
+            let organizationId = null;
+            if (contact.Account_Name && contact.Account_Name.id) {
+              const linkedOrg = orgByZohoId[contact.Account_Name.id];
+              if (linkedOrg) {
+                organizationId = linkedOrg.id;
+              }
+            }
+
+            const memberData = {
+              zoho_contact_id: contact.id,
+              email: contact.Email,
+              first_name: contact.First_Name || '',
+              last_name: contact.Last_Name || '',
+              organization_id: organizationId,
+              last_synced: new Date().toISOString()
+            };
+
+            const existingMember = existingByZohoId[contact.id] || existingByEmail[contact.Email.toLowerCase()];
+
+            if (existingMember) {
+              toUpdate.push({ id: existingMember.id, ...memberData });
+            } else {
+              toInsert.push(memberData);
+              // Add to lookup to prevent duplicates in subsequent batches
+              existingByZohoId[contact.id] = { id: 'pending', zoho_contact_id: contact.id };
+              existingByEmail[contact.Email.toLowerCase()] = { id: 'pending', email: contact.Email };
+            }
+          }
+
+          // Bulk insert new members
+          if (toInsert.length > 0) {
+            const { error: insertError } = await supabase.from('member').insert(toInsert);
+            if (insertError) {
+              console.error('[syncAllMembersFromZoho] Bulk insert error:', insertError.message);
+            } else {
+              created += toInsert.length;
+            }
+          }
+
+          // Bulk update existing members (in smaller batches to avoid issues)
+          for (const member of toUpdate) {
+            const { id, ...updateData } = member;
+            await supabase.from('member').update(updateData).eq('id', id);
+            updated++;
+          }
+          
+          // Check for next page
+          if (data.info && data.info.next_page_token) {
+            pageToken = data.info.next_page_token;
+            page++;
+          } else if (data.info && data.info.more_records) {
+            page++;
+            pageToken = null;
+          } else {
+            hasMore = false;
+          }
+        } else {
+          hasMore = false;
         }
       }
 
@@ -3780,11 +3811,11 @@ const functionHandlers = {
 
       return { 
         success: true, 
-        synced: allContacts.length, 
+        synced: totalFetched, 
         created, 
         updated,
         skipped,
-        message: `Synced ${allContacts.length} members (${created} created, ${updated} updated, ${skipped} skipped)`
+        message: `Synced ${totalFetched} members (${created} created, ${updated} updated, ${skipped} skipped)`
       };
     } catch (err) {
       console.error('[syncAllMembersFromZoho] Error:', err);
