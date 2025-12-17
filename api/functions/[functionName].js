@@ -1905,10 +1905,12 @@ const functionHandlers = {
         console.log('[createOneOffEventBooking] Booking created:', booking.id);
         createdBookings.push(booking);
         
-        // Schedule reminder emails for this booking (non-blocking)
-        scheduleBookingReminderEmails(booking.id, eventId, booking.attendee_email).catch(err => {
+        // Schedule reminder emails for this booking - must await to complete before function ends
+        try {
+          await scheduleBookingReminderEmails(booking.id, eventId, booking.attendee_email);
+        } catch (err) {
           console.error('[createOneOffEventBooking] Failed to schedule reminders:', err.message);
-        });
+        }
       }
     }
 
