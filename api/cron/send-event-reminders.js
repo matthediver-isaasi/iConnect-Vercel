@@ -95,7 +95,7 @@ export default async function handler(req, res) {
         }
 
         const { data: event, error: eventError } = await supabase
-          .from('one_off_event')
+          .from('event')
           .select('id, title, start_date, location, is_online')
           .eq('id', eventEmail.event_id)
           .single();

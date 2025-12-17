@@ -128,7 +128,7 @@ export default async function handler(req, res) {
 async function scheduleReminderEmails(eventId) {
   try {
     const { data: event, error: eventError } = await supabase
-      .from('one_off_event')
+      .from('event')
       .select('id, start_date, title')
       .eq('id', eventId)
       .single();

@@ -4,7 +4,7 @@
 -- Create event_email table for storing email configurations per event
 CREATE TABLE IF NOT EXISTS event_email (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  event_id UUID NOT NULL REFERENCES one_off_event(id) ON DELETE CASCADE,
+  event_id UUID NOT NULL REFERENCES event(id) ON DELETE CASCADE,
   email_type VARCHAR(50) NOT NULL CHECK (email_type IN ('booking_confirmation', 'reminder')),
   timing_type VARCHAR(50) CHECK (timing_type IN ('7_days_before', '3_days_before', '1_day_before', '12_hours_before', '6_hours_before', '1_hour_before', '30_minutes_before', 'custom')),
   custom_hours_before INTEGER,
