@@ -1239,33 +1239,47 @@ export default function EventDetailsPage() {
             {!noTicketsForRole && (
             <Card className="border-slate-200 shadow-sm">
               <CardHeader className="border-b border-slate-200">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col gap-3">
                   <CardTitle className="text-xl">
                     {isGuestCheckout ? 'Your Details' : 'Attendees'}
                   </CardTitle>
                   {!isGuestCheckout && canAddColleagues && (
-                    <div className="flex items-center gap-4">
+                    <div className="flex flex-wrap items-center gap-2">
                       {currentMemberInfo && canSelfRegister && (
-                        <div className="flex items-center gap-3" id="member-attending-toggle">
-                          <Switch
-                            id="member-attending"
-                            checked={memberAttending}
-                            onCheckedChange={toggleMemberAttendance}
-                          />
-                          <Label htmlFor="member-attending" className="text-sm font-medium text-slate-700 cursor-pointer">
-                            I am attending
-                          </Label>
-                        </div>
+                        <Button
+                          id="register-myself-button"
+                          variant={memberAttending ? "default" : "outline"}
+                          size="sm"
+                          onClick={handleRegisterMyself}
+                          disabled={memberAttending}
+                          className="gap-2"
+                          data-testid="button-register-myself"
+                        >
+                          <User className="w-4 h-4" />
+                          {memberAttending ? 'Registered' : 'Register Myself'}
+                        </Button>
                       )}
                       <Button
-                        id="add-colleague-button"
+                        id="register-team-member-button"
                         variant="outline"
                         size="sm"
-                        onClick={() => setShowColleagueSelector(true)}
-                        className="gap-2"
+                        onClick={() => setActiveRegistrationPanel(activeRegistrationPanel === 'team' ? null : 'team')}
+                        className={`gap-2 ${activeRegistrationPanel === 'team' ? 'ring-2 ring-blue-500' : ''}`}
+                        data-testid="button-register-team-member"
+                      >
+                        <Users className="w-4 h-4" />
+                        Register a Team Member
+                      </Button>
+                      <Button
+                        id="register-someone-else-button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setActiveRegistrationPanel(activeRegistrationPanel === 'external' ? null : 'external')}
+                        className={`gap-2 ${activeRegistrationPanel === 'external' ? 'ring-2 ring-blue-500' : ''}`}
+                        data-testid="button-register-someone-else"
                       >
                         <Plus className="w-4 h-4" />
-                        Add Colleague
+                        Register Someone Else
                       </Button>
                     </div>
                   )}
@@ -1395,16 +1409,18 @@ export default function EventDetailsPage() {
                   </div>
                 ) : (
                   <>
-                    {showColleagueSelector && (
+                    {/* Team Member Search Panel */}
+                    {activeRegistrationPanel === 'team' && (
                       <div className="p-4 border border-blue-200 rounded-lg bg-blue-50">
                         <div className="flex items-center justify-between mb-3">
-                          <h3 className="font-medium text-slate-900">Add Colleague</h3>
+                          <h3 className="font-medium text-slate-900">Register a Team Member</h3>
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => setShowColleagueSelector(false)}
+                            onClick={() => setActiveRegistrationPanel(null)}
+                            data-testid="button-cancel-team-member"
                           >
-                            Cancel
+                            <X className="w-4 h-4" />
                           </Button>
                         </div>
                         <div id="colleague-search-input">
@@ -1418,12 +1434,58 @@ export default function EventDetailsPage() {
                       </div>
                     )}
 
+                    {/* External Attendee Panel */}
+                    {activeRegistrationPanel === 'external' && (
+                      <div className="p-4 border border-purple-200 rounded-lg bg-purple-50">
+                        <div className="flex items-center justify-between mb-3">
+                          <h3 className="font-medium text-slate-900">Register Someone Else</h3>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setActiveRegistrationPanel(null)}
+                            data-testid="button-cancel-external"
+                          >
+                            <X className="w-4 h-4" />
+                          </Button>
+                        </div>
+                        <div className="space-y-3">
+                          <p className="text-sm text-slate-600">Enter the email address of the person you want to register:</p>
+                          <div className="flex gap-2">
+                            <Input
+                              placeholder="email@example.com"
+                              type="email"
+                              value={externalEmail}
+                              onChange={(e) => setExternalEmail(e.target.value)}
+                              onKeyPress={(e) => e.key === 'Enter' && handleExternalEmailSubmit()}
+                              disabled={externalValidating}
+                              className="flex-1"
+                              data-testid="input-external-email"
+                            />
+                            <Button 
+                              onClick={handleExternalEmailSubmit} 
+                              disabled={externalValidating || !externalEmail}
+                              data-testid="button-add-external"
+                            >
+                              {externalValidating ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : (
+                                'Add'
+                              )}
+                            </Button>
+                          </div>
+                          <p className="text-xs text-slate-500">
+                            You'll be able to enter their name after adding them.
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
                     {attendees.length === 0 ? (
                       <div className="text-center py-8 text-slate-500">
                         <Users className="w-12 h-12 text-slate-300 mx-auto mb-3" />
                         <p>No attendees added yet</p>
                         {currentMemberInfo && canAddColleagues && (
-                          <p className="text-sm mt-1">Toggle "I am attending" or add colleagues to get started.</p>
+                          <p className="text-sm mt-1">Use the buttons above to register attendees.</p>
                         )}
                       </div>
                     ) : (
