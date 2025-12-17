@@ -15,10 +15,11 @@ export default async function handler(req, res) {
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
   try {
+    // Include categories where is_active is true OR null (treat null as active)
     const { data, error } = await supabase
       .from('resource_category')
       .select('id, name, description, subcategories, applies_to_content_types')
-      .eq('is_active', true)
+      .or('is_active.eq.true,is_active.is.null')
       .order('display_order', { ascending: true });
 
     if (error) {
