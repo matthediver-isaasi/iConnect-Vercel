@@ -244,6 +244,8 @@ async function scheduleBookingReminderEmails(bookingId, eventId, attendeeEmail) 
       console.log('[scheduleBookingReminderEmails] No reminder emails configured for event');
       return;
     }
+    
+    console.log(`[scheduleBookingReminderEmails] Found ${reminderEmails.length} reminder emails to process`);
 
     // Parse start_date - handle various formats from Supabase
     // Dates may come as: "2025-12-18T13:55:00" or "2025-12-18T13:55:00Z" or "2025-12-18T13:55:00+00:00"
@@ -262,7 +264,10 @@ async function scheduleBookingReminderEmails(bookingId, eventId, attendeeEmail) 
     
     console.log(`[scheduleBookingReminderEmails] Event start: ${startDateStr}, now: ${new Date().toISOString()}`);
     
-    for (const email of reminderEmails) {
+    for (let i = 0; i < reminderEmails.length; i++) {
+      const email = reminderEmails[i];
+      console.log(`[scheduleBookingReminderEmails] Processing email ${i + 1}/${reminderEmails.length}: id=${email.id}, timing_type=${email.timing_type}`);
+      
       const hoursBeforeEvent = getHoursFromTimingType(email.timing_type, email.custom_hours_before);
       const scheduledTimeMs = eventStartMs - (hoursBeforeEvent * 60 * 60 * 1000);
       const scheduledTimeISO = new Date(scheduledTimeMs).toISOString();
