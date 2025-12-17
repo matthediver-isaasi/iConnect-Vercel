@@ -466,31 +466,6 @@ export default function PaymentOptions({
           refreshOrganizationInfo();
         }
         
-        // Log Xero debug info for troubleshooting (temporary)
-        if (response.data.xero_debug) {
-          console.log('XERO DEBUG INFO:', JSON.stringify(response.data.xero_debug, null, 2));
-          // Store in sessionStorage so we can display it
-          if (response.data.xero_debug.attempted || response.data.xero_debug.conditionsMet) {
-            sessionStorage.setItem('xero_debug_info', JSON.stringify(response.data.xero_debug, null, 2));
-            // Open debug info in new tab with copyable content
-            const debugWindow = window.open('', '_blank');
-            if (debugWindow) {
-              debugWindow.document.write(`
-                <html>
-                <head><title>Xero Debug Info</title></head>
-                <body style="font-family: monospace; padding: 20px; background: #1e1e1e; color: #d4d4d4;">
-                  <h2 style="color: #4fc3f7;">Xero Invoice Debug Info</h2>
-                  <p style="color: #81c784;">Copy the JSON below:</p>
-                  <textarea id="debug-text" style="width: 100%; height: 400px; font-family: monospace; font-size: 14px; background: #2d2d2d; color: #d4d4d4; border: 1px solid #555; padding: 10px;">${JSON.stringify(response.data.xero_debug, null, 2)}</textarea>
-                  <br><br>
-                  <button onclick="navigator.clipboard.writeText(document.getElementById('debug-text').value); this.textContent='Copied!';" style="padding: 10px 20px; font-size: 16px; cursor: pointer; background: #4fc3f7; border: none; border-radius: 4px;">Copy to Clipboard</button>
-                </body>
-                </html>
-              `);
-            }
-          }
-        }
-        
         toast.success("Booking confirmed!");
         
         // For guest checkout, redirect to a confirmation page or Events page
