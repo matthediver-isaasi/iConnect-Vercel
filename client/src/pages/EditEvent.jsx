@@ -33,7 +33,10 @@ import {
   Eye,
   Mail,
   Clock,
-  Bell
+  Bell,
+  Code,
+  FileText,
+  Download
 } from "lucide-react";
 import { createFilterTagKey, parseFilterTagKey, normalizeFilterTags } from "@/lib/utils";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -123,6 +126,20 @@ export default function EditEvent() {
   // Email configuration state
   const [eventEmails, setEventEmails] = useState([]);
   const [isSavingEmails, setIsSavingEmails] = useState(false);
+  const [emailCodeViewMode, setEmailCodeViewMode] = useState({}); // Track code view mode per email
+
+  // Quill modules for rich text editing
+  const emailQuillModules = {
+    toolbar: [
+      [{ 'header': [1, 2, 3, false] }],
+      ['bold', 'italic', 'underline', 'strike'],
+      [{ 'color': [] }, { 'background': [] }],
+      [{ 'list': 'ordered' }, { 'list': 'bullet' }],
+      [{ 'align': [] }],
+      ['link'],
+      ['clean']
+    ],
+  };
 
   const [formData, setFormData] = useState({
     title: "",
@@ -190,6 +207,15 @@ export default function EditEvent() {
       return response.json();
     },
     enabled: !!eventId
+  });
+
+  // Fetch email templates filtered by 'events' category for template loading
+  const { data: emailTemplates = [] } = useQuery({
+    queryKey: ['/api/entities/EmailTemplate', 'events'],
+    queryFn: async () => {
+      const allTemplates = await base44.entities.EmailTemplate.list();
+      return allTemplates.filter(t => t.category === 'events' && t.is_active);
+    }
   });
 
   // Sync fetched emails to state when loaded
@@ -395,6 +421,22 @@ export default function EditEvent() {
     setEventEmails(prev => prev.map(e => 
       e.id === emailId ? { ...e, [field]: value } : e
     ));
+  };
+
+  const loadTemplateIntoEmail = (emailId, templateId) => {
+    const template = emailTemplates.find(t => t.id === templateId);
+    if (!template) return;
+    
+    setEventEmails(prev => prev.map(e => 
+      e.id === emailId ? { 
+        ...e, 
+        subject: template.subject || e.subject,
+        body: template.body || e.body,
+        loaded_template_id: templateId,
+        loaded_template_name: template.name
+      } : e
+    ));
+    toast.success(`Loaded template: ${template.name}`);
   };
 
   const getTimingLabel = (timingType) => {
@@ -2248,6 +2290,43 @@ export default function EditEvent() {
                         </div>
                       )}
 
+                      {/* Load from Template */}
+                      {emailTemplates.length > 0 && (
+                        <div className="mb-3">
+                          <Label className="text-sm font-medium mb-2 block flex items-center gap-2">
+                            <Download className="h-4 w-4" />
+                            Load from Template
+                          </Label>
+                          <div className="flex gap-2">
+                            <Select
+                              value={email.loaded_template_id || "none"}
+                              onValueChange={(templateId) => {
+                                if (templateId !== "none") {
+                                  loadTemplateIntoEmail(email.id, templateId);
+                                }
+                              }}
+                            >
+                              <SelectTrigger className="bg-white" data-testid={`select-template-${email.id}`}>
+                                <SelectValue placeholder="Select a template to load..." />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="none">Select a template to load...</SelectItem>
+                                {emailTemplates.map(template => (
+                                  <SelectItem key={template.id} value={template.id}>
+                                    {template.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          {email.loaded_template_name && (
+                            <p className="text-xs text-slate-500 mt-1">
+                              Based on: {email.loaded_template_name} (edits won't affect the original template)
+                            </p>
+                          )}
+                        </div>
+                      )}
+
                       {/* Subject Line */}
                       <div className="mb-3">
                         <Label className="text-sm font-medium mb-2 block">Subject</Label>
@@ -2260,16 +2339,57 @@ export default function EditEvent() {
                         />
                       </div>
 
-                      {/* Email Body */}
+                      {/* Email Body with Plain Text / Rich Text Toggle */}
                       <div className="mb-3">
-                        <Label className="text-sm font-medium mb-2 block">Body</Label>
-                        <Textarea
-                          value={email.body}
-                          onChange={(e) => updateEventEmail(email.id, 'body', e.target.value)}
-                          placeholder="Email body content"
-                          className="bg-white min-h-[120px]"
-                          data-testid={`textarea-email-body-${email.id}`}
-                        />
+                        <div className="flex items-center justify-between mb-2">
+                          <Label className="text-sm font-medium">Body</Label>
+                          <div className="flex gap-1">
+                            <Button
+                              type="button"
+                              variant={emailCodeViewMode[email.id] === 'richtext' ? "ghost" : "secondary"}
+                              size="sm"
+                              onClick={() => setEmailCodeViewMode(prev => ({ ...prev, [email.id]: undefined }))}
+                              className="h-7 px-2"
+                              data-testid={`button-plain-text-${email.id}`}
+                            >
+                              <Code className="h-3 w-3 mr-1" />
+                              Plain Text
+                            </Button>
+                            <Button
+                              type="button"
+                              variant={emailCodeViewMode[email.id] === 'richtext' ? "secondary" : "ghost"}
+                              size="sm"
+                              onClick={() => setEmailCodeViewMode(prev => ({ ...prev, [email.id]: 'richtext' }))}
+                              className="h-7 px-2"
+                              data-testid={`button-rich-text-${email.id}`}
+                            >
+                              <FileText className="h-3 w-3 mr-1" />
+                              Rich Text
+                            </Button>
+                          </div>
+                        </div>
+                        
+                        {emailCodeViewMode[email.id] === 'richtext' ? (
+                          <div className="bg-white border rounded-md overflow-hidden">
+                            <ReactQuill
+                              theme="snow"
+                              value={email.body || ''}
+                              onChange={(value) => updateEventEmail(email.id, 'body', value)}
+                              modules={emailQuillModules}
+                              placeholder="Email body content"
+                              className="[&_.ql-editor]:min-h-[150px]"
+                              data-testid={`quill-email-body-${email.id}`}
+                            />
+                          </div>
+                        ) : (
+                          <Textarea
+                            value={email.body}
+                            onChange={(e) => updateEventEmail(email.id, 'body', e.target.value)}
+                            placeholder="Email body content"
+                            className="bg-white min-h-[200px]"
+                            data-testid={`textarea-email-body-${email.id}`}
+                          />
+                        )}
                         <p className="text-xs text-slate-500 mt-1">
                           Available placeholders: {'{{event_name}}'}, {'{{event_date}}'}, {'{{event_location}}'}, {'{{attendee_first_name}}'}, {'{{zoom_link}}'}
                         </p>

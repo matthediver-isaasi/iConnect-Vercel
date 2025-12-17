@@ -46,6 +46,7 @@ const TEMPLATE_CATEGORIES = [
   { value: 'notification', label: 'Notifications' },
   { value: 'welcome', label: 'Welcome Messages' },
   { value: 'reminder', label: 'Reminders' },
+  { value: 'events', label: 'Events' },
   { value: 'other', label: 'Other' },
 ];
 
