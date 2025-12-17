@@ -3631,11 +3631,20 @@ const functionHandlers = {
             }
           }
           
-          // Bulk insert new organizations
+          // Bulk insert new organizations (with fallback to individual inserts on error)
           if (toInsert.length > 0) {
             const { error: insertError } = await supabase.from('organization').insert(toInsert);
             if (insertError) {
-              console.error('[syncAllOrganizationsFromZoho] Bulk insert error:', insertError.message);
+              console.warn('[syncAllOrganizationsFromZoho] Bulk insert failed, trying individual inserts:', insertError.message);
+              // Fallback to individual inserts to identify and skip problematic records
+              for (const org of toInsert) {
+                const { error: singleError } = await supabase.from('organization').insert([org]);
+                if (singleError) {
+                  console.error(`[syncAllOrganizationsFromZoho] Failed to insert org "${org.name}" (Zoho ID: ${org.zoho_account_id}): ${singleError.message}`);
+                } else {
+                  created++;
+                }
+              }
             } else {
               created += toInsert.length;
             }
