@@ -41,7 +41,7 @@ export default function HistoryPage({ hasBanner }) {
     queryKey: ['program-transactions', organizationInfo?.id],
     queryFn: async () => {
       if (!organizationInfo?.id) return [];
-      const allTransactions = await base44.entities.ProgramTicketTransaction.list('-created_at');
+      const allTransactions = await base44.entities.ProgramTicketTransaction.list('-created_date');
       return allTransactions.filter((t) => t.organization_id === organizationInfo.id);
     },
     enabled: !!organizationInfo?.id,
