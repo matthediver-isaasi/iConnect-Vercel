@@ -112,16 +112,23 @@ export default function AttendeeList({ attendees, onUpdate, onRemove, onAdd, mem
     }
   };
 
+  // Only show name input fields if attendee is external type AND name is missing
   const needsManualName = (attendee) => {
-    return !attendee.isSelf && 
-           (attendee.validationStatus === 'unregistered_domain_match' || 
-            attendee.validationStatus === 'external' ||
-            attendee.validationStatus === 'wrong_organization');
+    if (attendee.isSelf) return false;
+    const isExternalType = attendee.validationStatus === 'unregistered_domain_match' || 
+                           attendee.validationStatus === 'external' ||
+                           attendee.validationStatus === 'wrong_organization';
+    // Only need manual entry if name is not already provided
+    return isExternalType && (!attendee.first_name || !attendee.last_name);
   };
 
-  // Check if attendee is missing required name fields
-  const isMissingRequiredName = (attendee) => {
-    return needsManualName(attendee) && (!attendee.first_name || !attendee.last_name);
+  // Check if attendee has a name to display (external with name already filled)
+  const hasExternalName = (attendee) => {
+    if (attendee.isSelf) return false;
+    const isExternalType = attendee.validationStatus === 'unregistered_domain_match' || 
+                           attendee.validationStatus === 'external' ||
+                           attendee.validationStatus === 'wrong_organization';
+    return isExternalType && attendee.first_name && attendee.last_name;
   };
 
   return (
@@ -201,8 +208,16 @@ export default function AttendeeList({ attendees, onUpdate, onRemove, onAdd, mem
                 </div>
               )}
 
+              {hasExternalName(attendee) && (
+                <div className="flex items-center gap-2 text-sm text-amber-700">
+                  <User className="w-4 h-4" />
+                  <span>{attendee.first_name} {attendee.last_name}</span>
+                </div>
+              )}
+
               {!attendee.isSelf && attendee.validationMessage && 
-               !(attendee.validationStatus === 'registered' && attendee.first_name) && (
+               !(attendee.validationStatus === 'registered' && attendee.first_name) &&
+               !hasExternalName(attendee) && (
                 <p className={`text-xs flex items-start gap-1 flex-1 ${getMessageStyle(attendee.validationStatus)}`}>
                   {getIcon(attendee)}
                   <span className="flex-1">{attendee.validationMessage}</span>
