@@ -15,7 +15,6 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 
 export default function HistoryPage({ hasBanner }) {
   const { memberInfo, organizationInfo, memberRole, isFeatureExcluded, reloadMemberInfo, refreshOrganizationInfo } = useMemberAccess();
-  const [selectedProgram, setSelectedProgram] = useState(null);
   const [downloadingInvoice, setDownloadingInvoice] = useState(null);
   const [invoiceModalOpen, setInvoiceModalOpen] = useState(false);
   const [currentInvoiceUrl, setCurrentInvoiceUrl] = useState(null);
@@ -57,14 +56,7 @@ export default function HistoryPage({ hasBanner }) {
 
   }
 
-  const balances = organizationInfo.program_ticket_balances || {};
-  const programs = Object.keys(balances).sort();
-
-  // If a program is selected, filter transactions for that program
-  const displayTransactions = selectedProgram ?
-  transactions.filter((t) => t.program_name === selectedProgram) :
-  transactions;
-
+  
   const updateMemberTourStatus = async (tourKey) => {
     if (memberInfo && !memberInfo.is_team_member) {
       try {
@@ -208,80 +200,24 @@ export default function HistoryPage({ hasBanner }) {
           </div>
         )}
 
-        {/* Program Balance Cards */}
-        {programs.length > 0 ?
+        {/* Transaction History */}
+        {transactions.length > 0 || isLoading ?
         <>
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8" id="program-balance-cards">
-              {programs.map((program) =>
-            <button
-              key={program}
-              onClick={() => setSelectedProgram(selectedProgram === program ? null : program)}
-              className="text-left">
-
-                  <Card className={`border-2 transition-all hover:shadow-lg cursor-pointer ${
-              selectedProgram === program ?
-              'border-purple-600 bg-purple-50' :
-              'border-slate-200 hover:border-slate-300'}`
-              }>
-                    <CardHeader>
-                      <div className="flex items-start justify-between">
-                        <div className="flex items-center gap-2">
-                          <Ticket className={`w-5 h-5 ${
-                      selectedProgram === program ? 'text-purple-600' : 'text-slate-400'}`
-                      } />
-                          <CardTitle className="text-lg">{program}</CardTitle>
-                        </div>
-                        {selectedProgram === program &&
-                    <Badge className="bg-purple-600">Selected</Badge>
-                    }
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="flex items-baseline gap-2">
-                        <span className="text-3xl font-bold text-purple-600">
-                          {balances[program]}
-                        </span>
-                        <span className="text-slate-600">tickets</span>
-                      </div>
-                      <p className="text-xs text-slate-500 mt-2">
-                        Click to view transactions
-                      </p>
-                    </CardContent>
-                  </Card>
-                </button>
-            )}
-            </div>
-
-            {/* Transaction History */}
             <Card className="border-slate-200 shadow-sm" id="transaction-history-card">
               <CardHeader className="border-b border-slate-200">
-                <CardTitle className="flex items-center gap-2">
-                  {selectedProgram ?
-                <>
-                      Transaction History: {selectedProgram}
-                      <button
-                    onClick={() => setSelectedProgram(null)}
-                    className="ml-auto text-sm text-blue-600 hover:text-blue-700">
-
-                        View All
-                      </button>
-                    </> :
-
-                'All Transactions'
-                }
-                </CardTitle>
+                <CardTitle>All Transactions</CardTitle>
               </CardHeader>
               <CardContent className="pt-6">
                 {isLoading ?
               <div className="text-center py-8 text-slate-600">Loading transactions...</div> :
-              displayTransactions.length === 0 ?
+              transactions.length === 0 ?
               <div className="text-center py-8">
                     <Ticket className="w-12 h-12 text-slate-300 mx-auto mb-3" />
                     <p className="text-slate-600">No transactions yet</p>
                   </div> :
 
               <div className="space-y-3">
-                    {displayTransactions.map((transaction) => {
+                    {transactions.map((transaction) => {
                   // Determine icon and color based on transaction type
                   let icon, colorClass, label;
                   if (transaction.transaction_type === 'purchase') {
