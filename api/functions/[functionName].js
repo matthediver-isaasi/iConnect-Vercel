@@ -245,14 +245,34 @@ async function scheduleBookingReminderEmails(bookingId, eventId, attendeeEmail) 
       return;
     }
 
-    const eventStart = new Date(event.start_date);
+    // Parse start_date as UTC - ensure we treat it consistently
+    // Supabase stores timestamps in UTC, so we ensure the Z suffix for correct parsing
+    const startDateStr = event.start_date.endsWith('Z') ? event.start_date : event.start_date + 'Z';
+    const eventStartMs = new Date(startDateStr).getTime();
+    const nowMs = Date.now();
+    
+    console.log(`[scheduleBookingReminderEmails] Event start: ${startDateStr}, now: ${new Date().toISOString()}`);
     
     for (const email of reminderEmails) {
       const hoursBeforeEvent = getHoursFromTimingType(email.timing_type, email.custom_hours_before);
-      const scheduledTime = new Date(eventStart.getTime() - hoursBeforeEvent * 60 * 60 * 1000);
+      const scheduledTimeMs = eventStartMs - (hoursBeforeEvent * 60 * 60 * 1000);
+      const scheduledTimeISO = new Date(scheduledTimeMs).toISOString();
 
-      if (scheduledTime <= new Date()) {
-        console.log(`[scheduleBookingReminderEmails] Skipping reminder - scheduled time already passed`);
+      if (scheduledTimeMs <= nowMs) {
+        console.log(`[scheduleBookingReminderEmails] Skipping reminder (${email.timing_type}) - scheduled time ${scheduledTimeISO} already passed`);
+        continue;
+      }
+
+      // Check for existing scheduled email to avoid duplicates
+      const { data: existing } = await supabase
+        .from('scheduled_email')
+        .select('id')
+        .eq('event_email_id', email.id)
+        .eq('booking_id', bookingId)
+        .maybeSingle();
+
+      if (existing) {
+        console.log(`[scheduleBookingReminderEmails] Reminder already scheduled for booking ${bookingId}, email ${email.id}`);
         continue;
       }
 
@@ -262,9 +282,11 @@ async function scheduleBookingReminderEmails(bookingId, eventId, attendeeEmail) 
           event_email_id: email.id,
           booking_id: bookingId,
           attendee_email: attendeeEmail,
-          scheduled_send_time: scheduledTime.toISOString(),
+          scheduled_send_time: scheduledTimeISO,
           status: 'pending'
         });
+      
+      console.log(`[scheduleBookingReminderEmails] Scheduled ${email.timing_type} reminder for ${scheduledTimeISO}`);
     }
 
     console.log(`[scheduleBookingReminderEmails] Scheduled reminders for booking ${bookingId}`);
