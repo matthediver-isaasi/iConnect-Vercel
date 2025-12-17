@@ -82,8 +82,14 @@ export default async function handler(req, res) {
           .single();
 
         if (bookingError) {
-          console.log(`[cron/send-event-reminders] Booking lookup error for ${scheduledEmail.booking_id}:`, bookingError.message, bookingError.code, bookingError.details);
-          await markAsFailed(scheduledEmail.id, `Booking lookup failed: ${bookingError.message}`);
+          // PGRST116 = "The result contains 0 rows" - treat as not found
+          if (bookingError.code === 'PGRST116') {
+            console.log(`[cron/send-event-reminders] Booking ${scheduledEmail.booking_id} not found in database`);
+            await markAsFailed(scheduledEmail.id, 'Booking not found (may have been deleted)');
+          } else {
+            console.log(`[cron/send-event-reminders] Booking lookup error for ${scheduledEmail.booking_id}:`, bookingError.message, bookingError.code);
+            await markAsFailed(scheduledEmail.id, `Booking lookup failed: ${bookingError.message}`);
+          }
           failedCount++;
           continue;
         }
