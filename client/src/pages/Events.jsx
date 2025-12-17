@@ -39,13 +39,16 @@ export default function EventsPage({
     hasBanner, 
     refreshOrganizationInfo,
     organizationInfo: contextOrganizationInfo,
-    memberInfo: contextMemberInfo
+    memberInfo: contextMemberInfo,
+    isFeatureExcluded: contextIsFeatureExcluded
   } = useLayoutContext();
   
   // Use context values if available, otherwise fall back to props
   // This fixes the issue where PublicLayout doesn't pass memberInfo props
   const organizationInfo = contextOrganizationInfo || propsOrganizationInfo;
   const memberInfo = contextMemberInfo || propsMemberInfo;
+  // Use context isFeatureExcluded if available, otherwise use prop
+  const resolvedIsFeatureExcluded = contextIsFeatureExcluded || isFeatureExcluded || (() => false);
   const { isAdmin } = useMemberAccess();
   const { eventTypes } = useEventTypes();
   const [searchQuery, setSearchQuery] = useState("");
@@ -690,7 +693,7 @@ export default function EventsPage({
                 </Popover>
 
                 {/* Create Event Button - shown for admins unless excluded */}
-                {isAdmin && !isFeatureExcluded?.('events.browse-events.create') && (
+                {isAdmin && !resolvedIsFeatureExcluded('events.browse-events.create') && (
                   <Button
                     onClick={() => window.location.href = createPageUrl('CreateEvent')}
                     className="bg-blue-600 hover:bg-blue-700 ml-auto"
@@ -704,7 +707,7 @@ export default function EventsPage({
             )}
 
             {/* Create Event Button - shown for admins when no filter row */}
-            {isAdmin && !isFeatureExcluded?.('events.browse-events.create') && !(eventCategories.length > 0 || eventTypes.length > 0) && (
+            {isAdmin && !resolvedIsFeatureExcluded('events.browse-events.create') && !(eventCategories.length > 0 || eventTypes.length > 0) && (
               <div className="flex justify-end mt-4">
                 <Button
                   onClick={() => window.location.href = createPageUrl('CreateEvent')}
@@ -782,7 +785,7 @@ export default function EventsPage({
                     key={event.id}
                     event={event}
                     organizationInfo={organizationInfo}
-                    isFeatureExcluded={isFeatureExcluded}
+                    isFeatureExcluded={resolvedIsFeatureExcluded}
                     isAdmin={isAdmin}
                     joinLinkSettings={joinLinkSettings}
                     webinars={webinars}

@@ -905,7 +905,6 @@ useEffect(() => {
       const roleExclusions = memberRole?.excluded_features || [];
       const memberExclusions = memberInfo.member_excluded_features || [];
       const allExclusions = [...new Set([...roleExclusions, ...memberExclusions])];
-      // Use the new hierarchical checking that handles legacy IDs and module/page/feature hierarchy
       return isResourceExcluded(allExclusions, featureId);
     };
     setContextIsFeatureExcluded(isFeatureExcludedFn);
