@@ -3527,11 +3527,244 @@ const functionHandlers = {
   },
 
   async syncAllOrganizationsFromZoho() {
-    return { success: false, error: 'Organization sync should be triggered from admin panel in development environment' };
+    if (!supabase) throw new Error('Supabase not configured');
+    
+    try {
+      const accessToken = await getValidZohoAccessToken();
+      
+      let allAccounts = [];
+      let page = 1;
+      const perPage = 200;
+      let hasMore = true;
+
+      console.log('[syncAllOrganizationsFromZoho] Starting to fetch accounts from Zoho...');
+
+      while (hasMore) {
+        const accountsUrl = `${ZOHO_CRM_API_DOMAIN}/crm/v3/Accounts?page=${page}&per_page=${perPage}`;
+        
+        const response = await fetch(accountsUrl, {
+          headers: {
+            'Authorization': `Zoho-oauthtoken ${accessToken}`,
+          },
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error('[syncAllOrganizationsFromZoho] Failed to fetch accounts:', response.status, errorText);
+          break;
+        }
+
+        const data = await response.json();
+        
+        if (data.data && data.data.length > 0) {
+          allAccounts = allAccounts.concat(data.data);
+          console.log(`[syncAllOrganizationsFromZoho] Fetched page ${page}, total accounts: ${allAccounts.length}`);
+          
+          if (data.info && data.info.more_records) {
+            page++;
+          } else {
+            hasMore = false;
+          }
+        } else {
+          hasMore = false;
+        }
+      }
+
+      console.log(`[syncAllOrganizationsFromZoho] Total accounts fetched: ${allAccounts.length}`);
+
+      if (allAccounts.length === 0) {
+        return { success: true, synced: 0, created: 0, updated: 0, message: 'No accounts found in Zoho' };
+      }
+
+      // Get existing organizations
+      const { data: existingOrgs } = await supabase.from('organization').select('*');
+      const existingByZohoId = {};
+      (existingOrgs || []).forEach(org => {
+        if (org.zoho_account_id) {
+          existingByZohoId[org.zoho_account_id] = org;
+        }
+      });
+
+      let created = 0;
+      let updated = 0;
+
+      for (const account of allAccounts) {
+        const orgData = {
+          zoho_account_id: account.id,
+          name: account.Account_Name || 'Unnamed Organization',
+          website: account.Website || null,
+          phone: account.Phone || null,
+          industry: account.Industry || null,
+          account_type: account.Account_Type || null,
+          billing_street: account.Billing_Street || null,
+          billing_city: account.Billing_City || null,
+          billing_state: account.Billing_State || null,
+          billing_code: account.Billing_Code || null,
+          billing_country: account.Billing_Country || null,
+          last_synced: new Date().toISOString()
+        };
+
+        if (existingByZohoId[account.id]) {
+          // Update existing
+          await supabase
+            .from('organization')
+            .update(orgData)
+            .eq('id', existingByZohoId[account.id].id);
+          updated++;
+        } else {
+          // Create new
+          await supabase.from('organization').insert(orgData);
+          created++;
+        }
+      }
+
+      console.log(`[syncAllOrganizationsFromZoho] Complete: ${created} created, ${updated} updated`);
+
+      return { 
+        success: true, 
+        synced: allAccounts.length, 
+        created, 
+        updated,
+        message: `Synced ${allAccounts.length} organizations (${created} created, ${updated} updated)`
+      };
+    } catch (err) {
+      console.error('[syncAllOrganizationsFromZoho] Error:', err);
+      return { success: false, error: err.message };
+    }
   },
 
   async syncAllMembersFromZoho() {
-    return { success: false, error: 'Member sync should be triggered from admin panel in development environment' };
+    if (!supabase) throw new Error('Supabase not configured');
+    
+    try {
+      const accessToken = await getValidZohoAccessToken();
+      
+      let allContacts = [];
+      let page = 1;
+      const perPage = 200;
+      let hasMore = true;
+
+      console.log('[syncAllMembersFromZoho] Starting to fetch contacts from Zoho...');
+
+      while (hasMore) {
+        const contactsUrl = `${ZOHO_CRM_API_DOMAIN}/crm/v3/Contacts?page=${page}&per_page=${perPage}`;
+        
+        const response = await fetch(contactsUrl, {
+          headers: {
+            'Authorization': `Zoho-oauthtoken ${accessToken}`,
+          },
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error('[syncAllMembersFromZoho] Failed to fetch contacts:', response.status, errorText);
+          break;
+        }
+
+        const data = await response.json();
+        
+        if (data.data && data.data.length > 0) {
+          allContacts = allContacts.concat(data.data);
+          console.log(`[syncAllMembersFromZoho] Fetched page ${page}, total contacts: ${allContacts.length}`);
+          
+          if (data.info && data.info.more_records) {
+            page++;
+          } else {
+            hasMore = false;
+          }
+        } else {
+          hasMore = false;
+        }
+      }
+
+      console.log(`[syncAllMembersFromZoho] Total contacts fetched: ${allContacts.length}`);
+
+      if (allContacts.length === 0) {
+        return { success: true, synced: 0, created: 0, updated: 0, message: 'No contacts found in Zoho' };
+      }
+
+      // Get existing members
+      const { data: existingMembers } = await supabase.from('member').select('*');
+      const existingByZohoId = {};
+      const existingByEmail = {};
+      (existingMembers || []).forEach(member => {
+        if (member.zoho_contact_id) {
+          existingByZohoId[member.zoho_contact_id] = member;
+        }
+        if (member.email) {
+          existingByEmail[member.email.toLowerCase()] = member;
+        }
+      });
+
+      // Get organizations for linking
+      const { data: orgs } = await supabase.from('organization').select('id, zoho_account_id');
+      const orgByZohoId = {};
+      (orgs || []).forEach(org => {
+        if (org.zoho_account_id) {
+          orgByZohoId[org.zoho_account_id] = org;
+        }
+      });
+
+      let created = 0;
+      let updated = 0;
+      let skipped = 0;
+
+      for (const contact of allContacts) {
+        if (!contact.Email) {
+          skipped++;
+          continue;
+        }
+
+        // Find linked organization
+        let organizationId = null;
+        if (contact.Account_Name && contact.Account_Name.id) {
+          const linkedOrg = orgByZohoId[contact.Account_Name.id];
+          if (linkedOrg) {
+            organizationId = linkedOrg.id;
+          }
+        }
+
+        const memberData = {
+          zoho_contact_id: contact.id,
+          email: contact.Email,
+          first_name: contact.First_Name || '',
+          last_name: contact.Last_Name || '',
+          phone: contact.Phone || contact.Mobile || null,
+          job_title: contact.Title || null,
+          organization_id: organizationId,
+          last_synced: new Date().toISOString()
+        };
+
+        const existingMember = existingByZohoId[contact.id] || existingByEmail[contact.Email.toLowerCase()];
+
+        if (existingMember) {
+          // Update existing
+          await supabase
+            .from('member')
+            .update(memberData)
+            .eq('id', existingMember.id);
+          updated++;
+        } else {
+          // Create new
+          await supabase.from('member').insert(memberData);
+          created++;
+        }
+      }
+
+      console.log(`[syncAllMembersFromZoho] Complete: ${created} created, ${updated} updated, ${skipped} skipped`);
+
+      return { 
+        success: true, 
+        synced: allContacts.length, 
+        created, 
+        updated,
+        skipped,
+        message: `Synced ${allContacts.length} members (${created} created, ${updated} updated, ${skipped} skipped)`
+      };
+    } catch (err) {
+      console.error('[syncAllMembersFromZoho] Error:', err);
+      return { success: false, error: err.message };
+    }
   },
 
   async exportAllData() {
