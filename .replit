@@ -42,6 +42,7 @@ waitForPort = 5000
 [userenv]
 
 [userenv.shared]
+ZOHO_CRM_API_DOMAIN = "https://www.zohoapis.eu"
 
 [agent]
 integrations = ["javascript_stripe:1.0.0"]
