@@ -2,7 +2,7 @@
 import { useState, useEffect } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Loader2, Search, Mail, Users, RefreshCw } from "lucide-react";
+import { Loader2, Search, Mail, Users } from "lucide-react";
 import { createClient } from '@supabase/supabase-js';
 
 // Initialize Supabase client for direct queries
@@ -22,9 +22,9 @@ export default function ColleagueSelector({ organizationId, onSelect, memberInfo
   const [showDropdown, setShowDropdown] = useState(false);
   const [syncError, setSyncError] = useState(null);
 
-  // Sync with CRM and then load members from Supabase
+  // Load members directly from Supabase (no CRM sync on this page)
   useEffect(() => {
-    const syncAndLoadMembers = async () => {
+    const loadMembers = async () => {
       if (!organizationId) {
         setSyncing(false);
         setSyncComplete(true);
@@ -35,25 +35,6 @@ export default function ColleagueSelector({ organizationId, onSelect, memberInfo
       setSyncError(null);
       
       try {
-        console.log('[ColleagueSelector] Starting CRM sync for organization:', organizationId);
-        
-        // Step 1: Sync contacts from CRM
-        const syncResponse = await fetch('/api/functions/syncOrganizationContacts', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ organizationId })
-        });
-        
-        const syncResult = await syncResponse.json();
-        
-        if (!syncResponse.ok) {
-          console.error('[ColleagueSelector] CRM sync failed:', syncResult);
-          setSyncError('Failed to sync with CRM');
-        } else {
-          console.log('[ColleagueSelector] CRM sync complete:', syncResult);
-        }
-        
-        // Step 2: Load members from member table (includes role_id for filtering)
         console.log('[ColleagueSelector] Loading members from Supabase...');
         const { data, error } = await supabase
           .from('member')
@@ -84,7 +65,7 @@ export default function ColleagueSelector({ organizationId, onSelect, memberInfo
           setMembers(filteredMembers);
         }
       } catch (error) {
-        console.error('[ColleagueSelector] Sync/load failed:', error);
+        console.error('[ColleagueSelector] Load failed:', error);
         setSyncError('Failed to load colleagues');
         setMembers([]);
       } finally {
@@ -93,7 +74,7 @@ export default function ColleagueSelector({ organizationId, onSelect, memberInfo
       }
     };
 
-    syncAndLoadMembers();
+    loadMembers();
   }, [organizationId, memberInfo?.email, JSON.stringify(ticketRoleIds)]);
 
   // Filter members based on search term
@@ -208,11 +189,9 @@ export default function ColleagueSelector({ organizationId, onSelect, memberInfo
     return (
       <div className="p-4 border border-slate-200 rounded-lg bg-slate-50 text-center">
         <div className="flex items-center justify-center gap-2 mb-2">
-          <RefreshCw className="w-5 h-5 animate-spin text-blue-600" />
           <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
         </div>
-        <p className="text-sm font-medium text-slate-700">Syncing with CRM...</p>
-        <p className="text-xs text-slate-500 mt-1">Loading your organisation's colleagues</p>
+        <p className="text-sm font-medium text-slate-700">Loading colleagues...</p>
       </div>
     );
   }
