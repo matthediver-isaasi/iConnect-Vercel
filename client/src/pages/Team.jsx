@@ -458,11 +458,13 @@ export default function TeamPage({ hasBanner }) {
                   const role = roles.find(r => r.id === member.role_id);
                   const loginEnabled = member.login_enabled ?? true;
                   
+                  const canEditMember = !isFeatureExcluded('element_TeamEditMember');
+                  
                   return (
                     <Card 
                       key={member.id} 
-                      className="border-slate-200 hover:shadow-lg transition-shadow cursor-pointer"
-                      onClick={() => handleEditClick(member)}
+                      className={`border-slate-200 transition-shadow ${canEditMember ? 'hover:shadow-lg cursor-pointer' : ''}`}
+                      onClick={canEditMember ? () => handleEditClick(member) : undefined}
                     >
                       <CardHeader className="pb-3">
                         <div className="flex items-start gap-3">
@@ -504,7 +506,7 @@ export default function TeamPage({ hasBanner }) {
                             )}
                           </div>
 
-                          {!isFeatureExcluded('element_TeamEditMember') && (
+                          {canEditMember && (
                             <Edit className="w-4 h-4 text-slate-400" data-testid={`icon-edit-member-${member.id}`} />
                           )}
                         </div>
