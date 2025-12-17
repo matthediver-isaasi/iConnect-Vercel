@@ -101,6 +101,7 @@ const LEGACY_TO_NEW_MAPPING = {
   "page_Balances": "commerce.balances",
   "page_History": "commerce.history",
   "page_Team": "membership.team",
+  "page_TeamEngagement": "membership.teamEngagement",
   "page_MemberDirectory": "membership.member-directory",
   "page_OrganisationDirectory": "membership.organisation-directory",
   "page_MyOrganisation": "membership.my-organisation",
