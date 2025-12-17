@@ -3619,7 +3619,6 @@ const functionHandlers = {
               website: account.Website || null,
               phone: account.Phone || null,
               industry: account.Industry || null,
-              account_type: account.Account_Type || null,
               billing_street: account.Billing_Street || null,
               billing_city: account.Billing_City || null,
               billing_state: account.Billing_State || null,
