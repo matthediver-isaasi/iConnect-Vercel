@@ -75,7 +75,6 @@ export default async function handler(req, res) {
             attendee_email,
             attendee_first_name,
             attendee_last_name,
-            zoom_join_url,
             event_id,
             status
           `)
@@ -198,9 +197,11 @@ function replacePlaceholders(template, data) {
   result = result.replace(/\{\{attendee_first_name\}\}/gi, booking.attendee_first_name || '');
   result = result.replace(/\{\{attendee_last_name\}\}/gi, booking.attendee_last_name || '');
   
-  if (booking.zoom_join_url) {
+  // Handle zoom link - check event first, then booking (if field exists)
+  const zoomLink = event.zoom_join_url || booking.zoom_join_url || '';
+  if (zoomLink) {
     result = result.replace(/\{\{#zoom_link\}\}([\s\S]*?)\{\{\/zoom_link\}\}/gi, '$1');
-    result = result.replace(/\{\{zoom_link\}\}/gi, booking.zoom_join_url);
+    result = result.replace(/\{\{zoom_link\}\}/gi, zoomLink);
   } else {
     result = result.replace(/\{\{#zoom_link\}\}[\s\S]*?\{\{\/zoom_link\}\}/gi, '');
     result = result.replace(/\{\{zoom_link\}\}/gi, '');
