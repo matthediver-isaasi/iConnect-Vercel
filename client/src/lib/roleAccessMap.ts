@@ -64,6 +64,8 @@ export const ROLE_ACCESS_MAP: Module[] = [
           { id: "events.event-details.self-registration", label: "Self Registration" },
           { id: "events.event-details.add-colleagues", label: "Add Team Members to Events" },
           { id: "events.event-details.register-external", label: "Register External Attendees" },
+          { id: "events.event-details.use-vouchers", label: "Use Training Vouchers" },
+          { id: "events.event-details.use-training-fund", label: "Use Training Fund" },
           { id: "events.event-details.purchase-button", label: "Purchase Button" },
           { id: "events.event-details.available-seats", label: "Available Seats Display" }
         ]
@@ -641,6 +643,8 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "element_SelfRegistration": "events.event-details.self-registration",
   "element_AddColleaguesToEvents": "events.event-details.add-colleagues",
   "element_RegisterExternalAttendees": "events.event-details.register-external",
+  "element_EventUseVouchers": "events.event-details.use-vouchers",
+  "element_EventUseTrainingFund": "events.event-details.use-training-fund",
   "element_PurchaseButton": "events.event-details.purchase-button",
   "element_AvailableSeatsDisplay": "events.event-details.available-seats",
   "element_FloatersDisplay": "site-builder.floaters.display",

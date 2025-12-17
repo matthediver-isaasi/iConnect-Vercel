@@ -201,10 +201,10 @@ export default function PaymentOptions({
     const voucher = vouchers.find((v) => v.id === voucherId);
     return sum + (voucher?.value || 0);
   }, 0);
-  const voucherAmount = isFeatureExcluded('payment_training_vouchers') ? 0 : Math.min(voucherAmountRaw, totalCost);
+  const voucherAmount = isFeatureExcluded('element_EventUseVouchers') ? 0 : Math.min(voucherAmountRaw, totalCost);
 
   // Max available for training fund
-  const maxTrainingFund = isFeatureExcluded('payment_training_fund') ? 0 : Math.min(
+  const maxTrainingFund = isFeatureExcluded('element_EventUseTrainingFund') ? 0 : Math.min(
     organizationInfo?.training_fund_balance || 0,
     totalCost - voucherAmount
   );
@@ -438,8 +438,8 @@ export default function PaymentOptions({
       // Add member-specific fields for logged-in users
       if (!isGuestCheckout) {
         bookingPayload.memberEmail = memberInfo.email;
-        bookingPayload.selectedVoucherIds = isFeatureExcluded('payment_training_vouchers') ? [] : selectedVouchers;
-        bookingPayload.trainingFundAmount = isFeatureExcluded('payment_training_fund') ? 0 : trainingFundAmount;
+        bookingPayload.selectedVoucherIds = isFeatureExcluded('element_EventUseVouchers') ? [] : selectedVouchers;
+        bookingPayload.trainingFundAmount = isFeatureExcluded('element_EventUseTrainingFund') ? 0 : trainingFundAmount;
         bookingPayload.accountAmount = remainingBalancePaymentMethod === 'account' ? remainingBalance : 0;
         bookingPayload.purchaseOrderNumber = remainingBalancePaymentMethod === 'account' ? purchaseOrderNumber.trim() : null;
         bookingPayload.poToFollow = remainingBalancePaymentMethod === 'account' ? poSupplyLater : false;
@@ -610,7 +610,7 @@ export default function PaymentOptions({
         {totalCost > 0 && ticketsRequired > 0 && (
           <div className="space-y-4">
             {/* Vouchers - only for logged-in members */}
-            {memberInfo && !isFeatureExcluded('payment_training_vouchers') && (
+            {memberInfo && !isFeatureExcluded('element_EventUseVouchers') && (
               <div className="p-4 rounded-lg border border-slate-200 bg-blue-50">
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
@@ -647,7 +647,7 @@ export default function PaymentOptions({
             )}
 
             {/* Training Fund - only for logged-in members */}
-            {memberInfo && !isFeatureExcluded('payment_training_fund') && (
+            {memberInfo && !isFeatureExcluded('element_EventUseTrainingFund') && (
               <div className="p-4 rounded-lg border border-slate-200 bg-green-50">
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
