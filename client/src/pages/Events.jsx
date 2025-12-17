@@ -689,8 +689,8 @@ export default function EventsPage({
                   </PopoverContent>
                 </Popover>
 
-                {/* Create Event Button - shown for admins */}
-                {isAdmin && (
+                {/* Create Event Button - shown for admins unless excluded */}
+                {isAdmin && !isFeatureExcluded?.('events.browse-events.create') && (
                   <Button
                     onClick={() => window.location.href = createPageUrl('CreateEvent')}
                     className="bg-blue-600 hover:bg-blue-700 ml-auto"
@@ -704,7 +704,7 @@ export default function EventsPage({
             )}
 
             {/* Create Event Button - shown for admins when no filter row */}
-            {isAdmin && !(eventCategories.length > 0 || eventTypes.length > 0) && (
+            {isAdmin && !isFeatureExcluded?.('events.browse-events.create') && !(eventCategories.length > 0 || eventTypes.length > 0) && (
               <div className="flex justify-end mt-4">
                 <Button
                   onClick={() => window.location.href = createPageUrl('CreateEvent')}

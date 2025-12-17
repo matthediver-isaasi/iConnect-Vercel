@@ -51,7 +51,9 @@ export const ROLE_ACCESS_MAP: Module[] = [
         label: "Browse Events",
         features: [
           { id: "events.browse-events.search-filters", label: "Search & Filters" },
-          { id: "events.browse-events.page-description", label: "Page Description" }
+          { id: "events.browse-events.page-description", label: "Page Description" },
+          { id: "events.browse-events.create", label: "Create, Edit & Delete Events" },
+          { id: "events.browse-events.view-attendees", label: "View Attendees" }
         ]
       },
       {
