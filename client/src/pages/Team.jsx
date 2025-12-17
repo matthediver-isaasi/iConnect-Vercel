@@ -16,7 +16,7 @@ import { sendTeamMemberInvite } from "@/api/functions";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 
 export default function TeamPage({ hasBanner }) {
-  const { memberInfo, organizationInfo, isAdmin } = useMemberAccess();
+  const { memberInfo, organizationInfo, isAdmin, isFeatureExcluded } = useMemberAccess();
 
   const [searchQuery, setSearchQuery] = useState("");
   const [showDisabled, setShowDisabled] = useState(false);
@@ -397,7 +397,7 @@ export default function TeamPage({ hasBanner }) {
                     </p>
                   </div>
                 </div>
-                {isAdmin && (
+                {isAdmin && !isFeatureExcluded('element_TeamInviteMember') && (
                   <Button
                     onClick={() => setShowInviteDialog(true)}
                     className="bg-blue-600 hover:bg-blue-700"
@@ -529,7 +529,7 @@ export default function TeamPage({ hasBanner }) {
                                 </div>
                               ) : null;
                             case 'login_toggle':
-                              return showLoginToggle && isAdmin ? (
+                              return showLoginToggle && isAdmin && !isFeatureExcluded('element_TeamLoginAccessToggle') ? (
                                 <div key="login_toggle" className="flex items-center justify-between pt-2 pb-2 border-y border-slate-200">
                                   <span className="text-sm font-medium text-slate-700">Login Access</span>
                                   <div className="flex items-center gap-2">

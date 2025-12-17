@@ -159,7 +159,11 @@ export const ROLE_ACCESS_MAP: Module[] = [
       },
       {
         id: "membership.team",
-        label: "Team"
+        label: "Team",
+        features: [
+          { id: "membership.team.invite-member", label: "Invite Member Button" },
+          { id: "membership.team.login-access-toggle", label: "Login Access Toggle" }
+        ]
       },
       {
         id: "membership.member-groups",
@@ -650,6 +654,8 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "element_FloatersDisplay": "site-builder.floaters.display",
   "element_NewsTickerBar": "system.news-ticker.display",
   "element_ShowDisabledAccounts": "membership.member-directory.show-disabled",
+  "element_TeamInviteMember": "membership.team.invite-member",
+  "element_TeamLoginAccessToggle": "membership.team.login-access-toggle",
   "edit_professional_biography": "communication.preferences.edit-biography",
   "view_member_biography": "membership.member-directory.view-biography",
   "payment_training_vouchers": "commerce.buy-tickets.use-vouchers",
