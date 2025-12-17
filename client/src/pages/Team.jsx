@@ -504,7 +504,9 @@ export default function TeamPage({ hasBanner }) {
                             )}
                           </div>
 
-                          <Edit className="w-4 h-4 text-slate-400" />
+                          {!isFeatureExcluded('element_TeamEditMember') && (
+                            <Edit className="w-4 h-4 text-slate-400" data-testid={`icon-edit-member-${member.id}`} />
+                          )}
                         </div>
                       </CardHeader>
 

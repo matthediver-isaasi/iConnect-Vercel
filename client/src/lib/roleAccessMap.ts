@@ -162,7 +162,8 @@ export const ROLE_ACCESS_MAP: Module[] = [
         label: "Team",
         features: [
           { id: "membership.team.invite-member", label: "Invite Member Button" },
-          { id: "membership.team.login-access-toggle", label: "Login Access Toggle" }
+          { id: "membership.team.login-access-toggle", label: "Login Access Toggle" },
+          { id: "membership.team.edit-member", label: "Edit Member Icon" }
         ]
       },
       {
@@ -656,6 +657,7 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "element_ShowDisabledAccounts": "membership.member-directory.show-disabled",
   "element_TeamInviteMember": "membership.team.invite-member",
   "element_TeamLoginAccessToggle": "membership.team.login-access-toggle",
+  "element_TeamEditMember": "membership.team.edit-member",
   "edit_professional_biography": "communication.preferences.edit-biography",
   "view_member_biography": "membership.member-directory.view-biography",
   "payment_training_vouchers": "commerce.buy-tickets.use-vouchers",
