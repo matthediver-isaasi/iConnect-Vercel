@@ -217,20 +217,41 @@ export default function ResourcesPage() {
     }
   }, [memberCategoryPreferences, memberCategoriesLoading, memberInfo?.id, currentUser, hasLoadedPreferences]);
 
-  // Save preferences mutation
+  // Save preferences mutation - saves to member_resource_category table
   const savePreferencesMutation = useMutation({
     mutationFn: async () => {
-      const updatedPreferences = {
-        ...(currentUser?.preferences || {}),
-        resources: {
-          selectedCategory: "all",
-          selectedSubcategories
+      if (!memberInfo?.id) {
+        throw new Error('You must be logged in to save preferences');
+      }
+      
+      // Build selections array: map each selected subcategory to its parent category_id
+      const selections = [];
+      for (const subcatName of selectedSubcategories) {
+        // Find the category that contains this subcategory
+        const parentCategory = categories.find(cat => 
+          cat.subcategories && cat.subcategories.includes(subcatName)
+        );
+        if (parentCategory) {
+          selections.push({
+            category_id: parentCategory.id,
+            subcategory_name: subcatName
+          });
         }
-      };
-      await base44.auth.updateMe({ preferences: updatedPreferences });
+      }
+      
+      const response = await fetch(`/api/members/${memberInfo.id}/categories`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ selections })
+      });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to save preferences');
+      }
+      return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['current-user'] });
+      queryClient.invalidateQueries({ queryKey: ['member-resource-categories', memberInfo?.id] });
       toast.success('Filter preferences saved as default');
     },
     onError: (error) => {
