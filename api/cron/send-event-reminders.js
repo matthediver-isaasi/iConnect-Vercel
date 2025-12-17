@@ -109,7 +109,7 @@ export default async function handler(req, res) {
 
         const { data: event, error: eventError } = await supabase
           .from('event')
-          .select('id, title, start_date, location, is_online')
+          .select('id, title, start_date, location, is_online, zoom_meeting_id, zoom_webinar_id')
           .eq('id', eventEmail.event_id)
           .single();
 
@@ -119,6 +119,27 @@ export default async function handler(req, res) {
           failedCount++;
           continue;
         }
+
+        // Fetch zoom link if event has a zoom meeting or webinar
+        let zoomJoinUrl = null;
+        if (event.zoom_meeting_id) {
+          const { data: zoomMeeting } = await supabase
+            .from('zoom_meeting')
+            .select('join_url')
+            .eq('id', event.zoom_meeting_id)
+            .single();
+          zoomJoinUrl = zoomMeeting?.join_url;
+        } else if (event.zoom_webinar_id) {
+          const { data: zoomWebinar } = await supabase
+            .from('zoom_webinar')
+            .select('join_url')
+            .eq('id', event.zoom_webinar_id)
+            .single();
+          zoomJoinUrl = zoomWebinar?.join_url;
+        }
+        
+        // Attach zoom link to event object for placeholder replacement
+        event.zoom_join_url = zoomJoinUrl;
 
         const subject = replacePlaceholders(eventEmail.subject, {
           event,
