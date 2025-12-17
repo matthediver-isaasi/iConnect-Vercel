@@ -107,7 +107,7 @@ export default function BalancesPage({ hasBanner }) {
                 </span>
               </div>
               <p className="text-sm text-slate-600 mt-3">
-                Use your training fund balance when purchasing program tickets
+                Use your training fund balance when purchasing event tickets and training
               </p>
             </CardContent>
           </Card>
@@ -137,7 +137,7 @@ export default function BalancesPage({ hasBanner }) {
                 </div>
               </div>
               <p className="text-sm text-slate-600 mt-3">
-                Apply vouchers when purchasing program tickets
+                Apply vouchers when purchasing event and training tickets
               </p>
             </CardContent>
           </Card>
