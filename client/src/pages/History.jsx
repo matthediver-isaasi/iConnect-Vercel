@@ -195,7 +195,7 @@ export default function HistoryPage({ hasBanner }) {
               <TourButton onClick={handleStartTour} />
               }
             </div>
-            <p className="text-slate-600">View your organisation's program ticket balances and transaction history
+            <p className="text-slate-600">View your organisation's transaction history
             </p>
           </div>
         )}
