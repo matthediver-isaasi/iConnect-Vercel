@@ -66,10 +66,6 @@ export const ROLE_ACCESS_MAP: Module[] = [
         ]
       },
       {
-        id: "events.bookings",
-        label: "Bookings"
-      },
-      {
         id: "events.my-tickets",
         label: "My Tickets"
       },
@@ -100,6 +96,10 @@ export const ROLE_ACCESS_MAP: Module[] = [
     label: "Commerce & Finance",
     icon: "CreditCard",
     pages: [
+      {
+        id: "commerce.bookings",
+        label: "Bookings"
+      },
       {
         id: "commerce.buy-tickets",
         label: "Buy Tickets",
@@ -553,7 +553,7 @@ export function getResourceLabel(resourceId: string): string | null {
 export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_user_BuyProgramTickets": "commerce.buy-tickets",
   "page_user_Events": "events.browse-events",
-  "page_user_Bookings": "events.bookings",
+  "page_user_Bookings": "commerce.bookings",
   "page_user_MyTickets": "events.my-tickets",
   "page_user_Balances": "commerce.balances",
   "page_user_History": "commerce.history",
@@ -647,7 +647,7 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "admin_can_manage_communications": "communication",
   "feature_PostJobOnBehalfOfOrg": "jobs.my-postings.post-for-others",
   "page_Events": "events.browse-events",
-  "page_Bookings": "events.bookings",
+  "page_Bookings": "commerce.bookings",
   "page_MyTickets": "events.my-tickets",
   "page_BuyProgramTickets": "commerce.buy-tickets",
   "page_Balances": "commerce.balances",
