@@ -47,6 +47,8 @@ export default function EventDetailsPage() {
   
   // External attendee form state
   const [externalEmail, setExternalEmail] = useState('');
+  const [externalFirstName, setExternalFirstName] = useState('');
+  const [externalLastName, setExternalLastName] = useState('');
   const [externalValidating, setExternalValidating] = useState(false);
 
   // Modal states for speaker profiles
@@ -652,6 +654,11 @@ export default function EventDetailsPage() {
       toast.error('Please enter a valid email address');
       return;
     }
+    
+    if (!externalFirstName.trim() || !externalLastName.trim()) {
+      toast.error('Please enter first and last name');
+      return;
+    }
 
     setExternalValidating(true);
     
@@ -663,20 +670,23 @@ export default function EventDetailsPage() {
         return;
       }
       
-      // Add as external attendee
+      // Add as external attendee with name
       setAttendees([...attendees, {
         email: externalEmail,
-        first_name: "",
-        last_name: "",
+        first_name: externalFirstName.trim(),
+        last_name: externalLastName.trim(),
         isValid: true,
         validationStatus: 'external',
-        validationMessage: 'External attendee - will be registered with this email',
+        validationMessage: 'External attendee',
         isSelf: false
       }]);
       
+      // Clear form
       setExternalEmail('');
+      setExternalFirstName('');
+      setExternalLastName('');
       setActiveRegistrationPanel(null);
-      toast.success('Attendee added - please enter their name');
+      toast.success(`${externalFirstName} ${externalLastName} has been added`);
     } catch (error) {
       console.error('[EventDetails] External email submission error:', error);
       toast.error('Failed to add attendee');
@@ -1454,10 +1464,26 @@ export default function EventDetailsPage() {
                           </Button>
                         </div>
                         <div className="space-y-3">
-                          <p className="text-sm text-slate-600">Enter the email address of the person you want to register:</p>
+                          <p className="text-sm text-slate-600">Enter the details of the person you want to register:</p>
+                          <div className="grid grid-cols-2 gap-2">
+                            <Input
+                              placeholder="First Name"
+                              value={externalFirstName}
+                              onChange={(e) => setExternalFirstName(e.target.value)}
+                              disabled={externalValidating}
+                              data-testid="input-external-first-name"
+                            />
+                            <Input
+                              placeholder="Last Name"
+                              value={externalLastName}
+                              onChange={(e) => setExternalLastName(e.target.value)}
+                              disabled={externalValidating}
+                              data-testid="input-external-last-name"
+                            />
+                          </div>
                           <div className="flex gap-2">
                             <Input
-                              placeholder="email@example.com"
+                              placeholder="Email address"
                               type="email"
                               value={externalEmail}
                               onChange={(e) => setExternalEmail(e.target.value)}
@@ -1468,7 +1494,7 @@ export default function EventDetailsPage() {
                             />
                             <Button 
                               onClick={handleExternalEmailSubmit} 
-                              disabled={externalValidating || !externalEmail}
+                              disabled={externalValidating || !externalEmail || !externalFirstName.trim() || !externalLastName.trim()}
                               data-testid="button-add-external"
                             >
                               {externalValidating ? (
@@ -1478,9 +1504,6 @@ export default function EventDetailsPage() {
                               )}
                             </Button>
                           </div>
-                          <p className="text-xs text-slate-500">
-                            You'll be able to enter their name after adding them.
-                          </p>
                         </div>
                       </div>
                     )}

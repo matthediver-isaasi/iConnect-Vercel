@@ -175,12 +175,13 @@ export default function AttendeeList({ attendees, onUpdate, onRemove, onAdd, mem
             )}
 
             <div className="flex items-center gap-2">
-              {!attendee.isSelf && onRemove && (
+              {onRemove && (
                 <Button
                   variant="ghost"
                   size="icon"
                   onClick={() => onRemove(index)}
                   className="text-red-600 hover:text-red-700 hover:bg-red-50 h-8 w-8 shrink-0"
+                  data-testid={`button-remove-attendee-${index}`}
                 >
                   <Trash2 className="w-4 h-4" />
                 </Button>
