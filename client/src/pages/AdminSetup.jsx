@@ -1240,6 +1240,31 @@ export default function AdminSetupPage() {
                 </div>
               )}
 
+              {crmSyncLoading && crmSyncResult && (
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
+                    <span className="font-medium text-blue-900">Sync in progress...</span>
+                  </div>
+                  <div className="text-sm text-blue-700 space-y-1">
+                    {crmSyncResult.organizations && (
+                      <div>
+                        Organisations: {crmSyncResult.organizations.synced || 0} processed
+                        {!crmSyncResult.organizations.complete && ' (fetching more...)'}
+                        {crmSyncResult.organizations.complete && ' (complete)'}
+                      </div>
+                    )}
+                    {crmSyncResult.members && (
+                      <div>
+                        Members: {crmSyncResult.members.synced || 0} processed
+                        {!crmSyncResult.members.complete && ' (fetching more...)'}
+                        {crmSyncResult.members.complete && ' (complete)'}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
               <Button
                 onClick={handleSyncCrmData}
                 disabled={crmSyncLoading}

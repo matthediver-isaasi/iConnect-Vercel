@@ -3536,7 +3536,8 @@ const functionHandlers = {
     if (!supabase) throw new Error('Supabase not configured');
     
     // Chunked sync: fetch and process limited records per call
-    const { page_token: inputPageToken, max_pages = 3 } = params;
+    // Reduced to 1 page (200 records) to stay under Vercel timeout
+    const { page_token: inputPageToken, max_pages = 1 } = params;
     
     try {
       console.log('[syncAllOrganizationsFromZoho] Getting Zoho access token...');
@@ -3730,7 +3731,8 @@ const functionHandlers = {
     if (!supabase) throw new Error('Supabase not configured');
     
     // Chunked sync: fetch and process limited records per call
-    const { page_token: inputPageToken, max_pages = 3 } = params;
+    // Reduced to 1 page (200 records) to stay under Vercel timeout
+    const { page_token: inputPageToken, max_pages = 1 } = params;
     
     try {
       const accessToken = await getValidZohoAccessToken();
