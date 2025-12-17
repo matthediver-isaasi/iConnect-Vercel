@@ -167,55 +167,158 @@ async function getZoomAccessToken() {
   return data.access_token;
 }
 
-// Helper: Send Zoom event confirmation email with join link
-async function sendZoomEventConfirmationEmail(attendee, eventDetails, zoomJoinUrl, zoomType = 'webinar') {
-  if (!zoomJoinUrl) {
-    console.log(`[sendZoomEventConfirmationEmail] No join URL provided for ${attendee.email}`);
-    return { success: false, error: 'No Zoom join URL available' };
-  }
+// Helper: Send confirmation emails using event_email configuration
+// personalizedZoomUrl: Optional attendee-specific Zoom join URL from webinar registration
+async function sendConfirmationEmailsFromTemplate(eventId, booking, attendee, personalizedZoomUrl = null) {
+  if (!supabase) return [];
+  
+  const results = [];
   
   try {
-    const eventDate = eventDetails.start_time 
-      ? new Date(eventDetails.start_time).toLocaleString('en-GB', { 
-          dateStyle: 'full', 
-          timeStyle: 'short',
-          timeZone: 'Europe/London'
-        })
-      : 'Date TBC';
+    // Fetch enabled confirmation emails for this event
+    const { data: confirmationEmails, error: emailsError } = await supabase
+      .from('event_email')
+      .select('*')
+      .eq('event_id', eventId)
+      .eq('email_type', 'confirmation')
+      .eq('is_enabled', true);
+
+    if (emailsError || !confirmationEmails || confirmationEmails.length === 0) {
+      console.log('[sendConfirmationEmailsFromTemplate] No confirmation emails configured for event');
+      return results;
+    }
+
+    console.log(`[sendConfirmationEmailsFromTemplate] Found ${confirmationEmails.length} confirmation email(s) to send`);
+
+    // Fetch event details
+    const { data: event, error: eventError } = await supabase
+      .from('event')
+      .select('id, title, start_date, location, is_online, zoom_meeting_id, zoom_webinar_id')
+      .eq('id', eventId)
+      .single();
+
+    if (eventError || !event) {
+      console.error('[sendConfirmationEmailsFromTemplate] Event not found');
+      return results;
+    }
+
+    // Fetch zoom link if event has a zoom meeting or webinar (fallback if no personalized URL)
+    let zoomJoinUrl = personalizedZoomUrl; // Prioritize personalized URL from registration
+    if (!zoomJoinUrl) {
+      if (event.zoom_meeting_id) {
+        const { data: zoomMeeting } = await supabase
+          .from('zoom_meeting')
+          .select('join_url')
+          .eq('id', event.zoom_meeting_id)
+          .single();
+        zoomJoinUrl = zoomMeeting?.join_url;
+      } else if (event.zoom_webinar_id) {
+        const { data: zoomWebinar } = await supabase
+          .from('zoom_webinar')
+          .select('join_url')
+          .eq('id', event.zoom_webinar_id)
+          .single();
+        zoomJoinUrl = zoomWebinar?.join_url;
+      }
+    }
     
-    const zoomTypeLabel = zoomType === 'meeting' ? 'Meeting' : 'Webinar';
+    // Attach zoom link to event object for placeholder replacement
+    event.zoom_join_url = zoomJoinUrl;
     
-    const emailHtml = `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <h2 style="color: #2d89ef;">Your Zoom ${zoomTypeLabel} Details</h2>
-        <p>Hi ${attendee.first_name || 'there'},</p>
-        <p>Thank you for registering for <strong>${eventDetails.title || 'the event'}</strong>.</p>
-        <p><strong>Date:</strong> ${eventDate}</p>
-        <p>Click the button below to join the ${zoomTypeLabel.toLowerCase()} when it starts:</p>
-        <p style="text-align: center; margin: 30px 0;">
-          <a href="${zoomJoinUrl}" style="background-color: #2d89ef; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; display: inline-block;">
-            Join Zoom ${zoomTypeLabel}
-          </a>
-        </p>
-        <p style="font-size: 12px; color: #666;">
-          Or copy this link: <a href="${zoomJoinUrl}">${zoomJoinUrl}</a>
-        </p>
-        <p>We look forward to seeing you there!</p>
-      </div>
-    `;
-    
-    const result = await sendEmail({
-      to: attendee.email,
-      subject: `Your Zoom ${zoomTypeLabel} Link: ${eventDetails.title || 'Event'}`,
-      html: emailHtml
-    });
-    
-    console.log(`[sendZoomEventConfirmationEmail] Email sent to ${attendee.email}:`, result);
-    return { success: true, ...result };
-  } catch (error) {
-    console.error(`[sendZoomEventConfirmationEmail] Failed to send email to ${attendee.email}:`, error.message);
-    return { success: false, error: error.message };
+    if (zoomJoinUrl) {
+      console.log(`[sendConfirmationEmailsFromTemplate] Using Zoom link for ${attendee?.email || booking?.attendee_email}: ${zoomJoinUrl.substring(0, 50)}...`);
+    }
+
+    // Build booking data for placeholders
+    const bookingData = {
+      attendee_first_name: attendee?.first_name || booking?.attendee_first_name || '',
+      attendee_last_name: attendee?.last_name || booking?.attendee_last_name || '',
+      attendee_email: attendee?.email || booking?.attendee_email || ''
+    };
+
+    for (const emailConfig of confirmationEmails) {
+      try {
+        const subject = replacePlaceholders(emailConfig.subject, { event, booking: bookingData });
+        const body = replacePlaceholders(emailConfig.body, { event, booking: bookingData });
+
+        const emailResult = await sendEmail({
+          to: bookingData.attendee_email,
+          subject: subject,
+          html: formatBodyAsHtml(body)
+        });
+
+        if (emailResult.success) {
+          console.log(`[sendConfirmationEmailsFromTemplate] Sent confirmation to ${bookingData.attendee_email}`);
+          results.push({ email: bookingData.attendee_email, success: true, ...emailResult });
+        } else {
+          console.error(`[sendConfirmationEmailsFromTemplate] Failed to send to ${bookingData.attendee_email}:`, emailResult.error);
+          results.push({ email: bookingData.attendee_email, success: false, error: emailResult.error });
+        }
+      } catch (err) {
+        console.error(`[sendConfirmationEmailsFromTemplate] Error sending confirmation:`, err.message);
+        results.push({ email: bookingData.attendee_email, success: false, error: err.message });
+      }
+    }
+
+  } catch (err) {
+    console.error('[sendConfirmationEmailsFromTemplate] Error:', err.message);
   }
+
+  return results;
+}
+
+// Helper functions for email template processing
+function replacePlaceholders(template, data) {
+  const { event, booking } = data;
+  
+  let result = template || '';
+  
+  result = result.replace(/\{\{event_name\}\}/gi, event?.title || '');
+  result = result.replace(/\{\{event_date\}\}/gi, formatEventDate(event?.start_date));
+  result = result.replace(/\{\{event_location\}\}/gi, event?.is_online ? 'Online Event' : (event?.location || ''));
+  result = result.replace(/\{\{attendee_first_name\}\}/gi, booking?.attendee_first_name || '');
+  result = result.replace(/\{\{attendee_last_name\}\}/gi, booking?.attendee_last_name || '');
+  
+  // Handle zoom link - check event first, then booking (if field exists)
+  const zoomLink = event?.zoom_join_url || booking?.zoom_join_url || '';
+  if (zoomLink) {
+    result = result.replace(/\{\{#zoom_link\}\}([\s\S]*?)\{\{\/zoom_link\}\}/gi, '$1');
+    result = result.replace(/\{\{zoom_link\}\}/gi, zoomLink);
+  } else {
+    result = result.replace(/\{\{#zoom_link\}\}[\s\S]*?\{\{\/zoom_link\}\}/gi, '');
+    result = result.replace(/\{\{zoom_link\}\}/gi, '');
+  }
+  
+  return result;
+}
+
+function formatEventDate(dateStr) {
+  if (!dateStr) return '';
+  try {
+    const date = new Date(dateStr);
+    return date.toLocaleString('en-GB', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZoneName: 'short'
+    });
+  } catch {
+    return dateStr;
+  }
+}
+
+function formatBodyAsHtml(body) {
+  let html = (body || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\n/g, '<br>')
+    .replace(/(https?:\/\/[^\s<]+)/gi, '<a href="$1">$1</a>');
+  
+  return `<div style="font-family: Arial, sans-serif; line-height: 1.6;">${html}</div>`;
 }
 
 async function scheduleBookingReminderEmails(bookingId, eventId, attendeeEmail) {
@@ -1462,62 +1565,21 @@ const functionHandlers = {
         notes: `Used ${ticketsRequired} ${programTag} ticket(s) for ${event.title || 'event'}`
       });
 
-    // Send Zoom confirmation emails if this is a Zoom event
+    // Send confirmation emails using event_email configuration
     const emailResults = [];
-    if (eventIsZoom && matchingWebinar && (registrationMode === 'self' || registrationMode === 'colleagues')) {
-      console.log('[createBooking] Sending Zoom confirmation emails to attendees...');
-      
-      for (const attendee of (attendees || [])) {
-        const zoomResult = zoomRegistrationResults.find(r => r.email === attendee.email);
-        
-        // Use the personalized join_url from registration, or fall back to webinar's general join_url
-        const joinUrl = zoomResult?.join_url || matchingWebinar.join_url;
-        
-        if (joinUrl) {
-          const emailResult = await sendZoomEventConfirmationEmail(
-            attendee,
-            { title: event.title, start_time: event.start_date || matchingWebinar.start_time },
-            joinUrl,
-            'webinar'
-          );
-          emailResults.push({ email: attendee.email, ...emailResult });
-        } else {
-          console.log(`[createBooking] No join_url available for ${attendee.email} - skipping email`);
-          emailResults.push({ email: attendee.email, success: false, error: 'No Zoom join URL available' });
-        }
-      }
+    console.log('[createBooking] Sending confirmation emails to attendees...');
+    
+    for (const booking of createdBookings) {
+      const attendee = (attendees || []).find(a => a.email === booking.attendee_email);
+      // Get personalized Zoom join URL from registration results if available
+      const zoomResult = zoomRegistrationResults.find(r => r.email === booking.attendee_email);
+      const personalizedZoomUrl = zoomResult?.join_url || null;
+      const results = await sendConfirmationEmailsFromTemplate(eventId, booking, attendee, personalizedZoomUrl);
+      emailResults.push(...results);
     }
     
-    // Check if this is a Zoom meeting (not webinar) and send emails
-    let matchingMeeting = null;
-    if (!eventIsZoom && !eventIsBackstage && event.zoom_meeting_id) {
-      const { data: meetingData } = await supabase
-        .from('zoom_meeting')
-        .select('*')
-        .eq('id', event.zoom_meeting_id)
-        .single();
-      
-      if (meetingData) {
-        matchingMeeting = meetingData;
-        console.log('[createBooking] Found Zoom meeting, sending confirmation emails...');
-        
-        for (const attendee of (attendees || [])) {
-          const joinUrl = meetingData.join_url;
-          
-          if (joinUrl) {
-            const emailResult = await sendZoomEventConfirmationEmail(
-              attendee,
-              { title: event.title, start_time: event.start_date || meetingData.start_time },
-              joinUrl,
-              'meeting'
-            );
-            emailResults.push({ email: attendee.email, ...emailResult });
-          } else {
-            console.log(`[createBooking] No meeting join_url available for ${attendee.email}`);
-            emailResults.push({ email: attendee.email, success: false, error: 'No Zoom meeting join URL available' });
-          }
-        }
-      }
+    if (emailResults.length > 0) {
+      console.log(`[createBooking] Sent ${emailResults.filter(r => r.success).length}/${emailResults.length} confirmation emails`);
     }
 
     // Build response based on event type
@@ -1530,6 +1592,15 @@ const functionHandlers = {
       event_type: eventIsZoom ? 'zoom' : eventIsBackstage ? 'backstage' : 'regular'
     };
 
+    // Add confirmation email results
+    if (emailResults.length > 0) {
+      response.confirmation_emails = {
+        results: emailResults,
+        sent: emailResults.filter(r => r.success).length,
+        failed: emailResults.filter(r => !r.success).length
+      };
+    }
+
     if (eventIsZoom || event.zoom_webinar_id) {
       // Extract webinar ID from location for diagnostics (fallback method)
       const extractedWebinarId = extractZoomWebinarId(event.location);
@@ -1537,7 +1608,6 @@ const functionHandlers = {
       response.zoom_registration = {
         webinar_found: !!matchingWebinar,
         registrations: zoomRegistrationResults,
-        email_results: emailResults,
         debug: {
           event_zoom_webinar_id: event.zoom_webinar_id || null,
           event_location: event.location,
@@ -1551,11 +1621,6 @@ const functionHandlers = {
       } else if (!matchingWebinar) {
         response.warning = `Zoom webinar not found - extracted ID "${extractedWebinarId}" from location "${event.location}"`;
       }
-    } else if (matchingMeeting) {
-      response.zoom_meeting = {
-        meeting_found: true,
-        email_results: emailResults
-      };
     } else if (eventIsBackstage) {
       response.warning = 'Backstage sync not performed in serverless mode - admin may need to sync manually';
     }
@@ -2328,69 +2393,21 @@ const functionHandlers = {
       }
     }
 
-    // Send Zoom confirmation emails if this is a Zoom webinar event
+    // Send confirmation emails using event_email configuration
     const emailResults = [];
-    if (event.zoom_webinar_id && zoomRegistrationResults.length > 0) {
-      console.log('[createOneOffEventBooking] Sending Zoom confirmation emails to attendees...');
-      
-      // Fetch webinar join_url for fallback
-      const { data: webinarData } = await supabase
-        .from('zoom_webinar')
-        .select('join_url, start_time')
-        .eq('id', event.zoom_webinar_id)
-        .single();
-      
-      for (const attendee of bookingAttendees) {
-        const zoomResult = zoomRegistrationResults.find(r => r.email === attendee.email);
-        
-        // Use the personalized join_url from registration, or fall back to webinar's general join_url
-        const joinUrl = zoomResult?.join_url || webinarData?.join_url;
-        
-        if (joinUrl) {
-          const emailResult = await sendZoomEventConfirmationEmail(
-            attendee,
-            { title: event.title, start_time: event.start_date || webinarData?.start_time },
-            joinUrl,
-            'webinar'
-          );
-          emailResults.push({ email: attendee.email, ...emailResult });
-        } else {
-          console.log(`[createOneOffEventBooking] No join_url available for ${attendee.email} - skipping email`);
-          emailResults.push({ email: attendee.email, success: false, error: 'No Zoom join URL available' });
-        }
-      }
+    console.log('[createOneOffEventBooking] Sending confirmation emails to attendees...');
+    
+    for (const booking of createdBookings) {
+      const attendee = bookingAttendees.find(a => a.email === booking.attendee_email);
+      // Get personalized Zoom join URL from registration results if available
+      const zoomResult = zoomRegistrationResults.find(r => r.email === booking.attendee_email);
+      const personalizedZoomUrl = zoomResult?.join_url || null;
+      const results = await sendConfirmationEmailsFromTemplate(eventId, booking, attendee, personalizedZoomUrl);
+      emailResults.push(...results);
     }
     
-    // Check if this is a Zoom meeting (not webinar) and send emails
-    let matchingMeeting = null;
-    if (!event.zoom_webinar_id && event.zoom_meeting_id) {
-      const { data: meetingData } = await supabase
-        .from('zoom_meeting')
-        .select('*')
-        .eq('id', event.zoom_meeting_id)
-        .single();
-      
-      if (meetingData) {
-        matchingMeeting = meetingData;
-        console.log('[createOneOffEventBooking] Found Zoom meeting, sending confirmation emails...');
-        
-        for (const attendee of bookingAttendees) {
-          const joinUrl = meetingData.join_url;
-          
-          if (joinUrl) {
-            const emailResult = await sendZoomEventConfirmationEmail(
-              attendee,
-              { title: event.title, start_time: event.start_date || meetingData.start_time },
-              joinUrl,
-              'meeting'
-            );
-            emailResults.push({ email: attendee.email, ...emailResult });
-          } else {
-            console.log(`[createOneOffEventBooking] No meeting join_url available for ${attendee.email}`);
-            emailResults.push({ email: attendee.email, success: false, error: 'No Zoom meeting join URL available' });
-          }
-        }
-      }
+    if (emailResults.length > 0) {
+      console.log(`[createOneOffEventBooking] Sent ${emailResults.filter(r => r.success).length}/${emailResults.length} confirmation emails`);
     }
 
     const response = {
@@ -2408,18 +2425,21 @@ const functionHandlers = {
       xero_invoice: xeroInvoiceResult
     };
 
+    // Add confirmation email results
+    if (emailResults.length > 0) {
+      response.confirmation_emails = {
+        results: emailResults,
+        sent: emailResults.filter(r => r.success).length,
+        failed: emailResults.filter(r => !r.success).length
+      };
+    }
+
     // Add Zoom registration results if applicable
-    if (event.zoom_webinar_id) {
+    if (event.zoom_webinar_id && zoomRegistrationResults.length > 0) {
       response.zoom_registration = {
         webinar_id: event.zoom_webinar_id,
         registrations: zoomRegistrationResults,
-        email_results: emailResults,
         all_successful: zoomRegistrationResults.every(r => r.success !== false)
-      };
-    } else if (matchingMeeting) {
-      response.zoom_meeting = {
-        meeting_found: true,
-        email_results: emailResults
       };
     }
 
