@@ -355,20 +355,86 @@ export default function AdminSetupPage() {
   const handleSyncCrmData = async () => {
     setCrmSyncLoading(true);
     setCrmSyncResult(null);
+    
     try {
-      const orgResponse = await base44.functions.invoke('syncAllOrganizationsFromZoho');
-      const memberResponse = await base44.functions.invoke('syncAllMembersFromZoho');
+      // Chunked sync for organizations - auto-continue until complete
+      let orgTotals = { synced: 0, created: 0, updated: 0 };
+      let orgPageToken = null;
+      let orgComplete = false;
       
+      while (!orgComplete) {
+        const params = orgPageToken ? { page_token: orgPageToken } : {};
+        const orgResponse = await base44.functions.invoke('syncAllOrganizationsFromZoho', params);
+        const orgData = orgResponse.data;
+        
+        if (!orgData.success) {
+          throw new Error(orgData.error || 'Organization sync failed');
+        }
+        
+        orgTotals.synced += orgData.synced || 0;
+        orgTotals.created += orgData.created || 0;
+        orgTotals.updated += orgData.updated || 0;
+        
+        // Update UI with progress
+        setCrmSyncResult(prev => ({
+          ...prev,
+          success: true,
+          organizations: { ...orgTotals, message: orgData.message, complete: orgData.complete }
+        }));
+        
+        if (orgData.complete || !orgData.next_page_token) {
+          orgComplete = true;
+        } else {
+          orgPageToken = orgData.next_page_token;
+        }
+      }
+      
+      // Chunked sync for members - auto-continue until complete
+      let memberTotals = { synced: 0, created: 0, updated: 0, skipped: 0 };
+      let memberPageToken = null;
+      let memberComplete = false;
+      
+      while (!memberComplete) {
+        const params = memberPageToken ? { page_token: memberPageToken } : {};
+        const memberResponse = await base44.functions.invoke('syncAllMembersFromZoho', params);
+        const memberData = memberResponse.data;
+        
+        if (!memberData.success) {
+          throw new Error(memberData.error || 'Member sync failed');
+        }
+        
+        memberTotals.synced += memberData.synced || 0;
+        memberTotals.created += memberData.created || 0;
+        memberTotals.updated += memberData.updated || 0;
+        memberTotals.skipped += memberData.skipped || 0;
+        
+        // Update UI with progress
+        setCrmSyncResult(prev => ({
+          ...prev,
+          success: true,
+          members: { ...memberTotals, message: memberData.message, complete: memberData.complete }
+        }));
+        
+        if (memberData.complete || !memberData.next_page_token) {
+          memberComplete = true;
+        } else {
+          memberPageToken = memberData.next_page_token;
+        }
+      }
+      
+      // Final result
       setCrmSyncResult({
         success: true,
-        organizations: orgResponse.data,
-        members: memberResponse.data
+        organizations: { ...orgTotals, complete: true, message: `Synced ${orgTotals.synced} organizations (${orgTotals.created} created, ${orgTotals.updated} updated)` },
+        members: { ...memberTotals, complete: true, message: `Synced ${memberTotals.synced} members (${memberTotals.created} created, ${memberTotals.updated} updated, ${memberTotals.skipped} skipped)` }
       });
+      
     } catch (error) {
-      setCrmSyncResult({ 
+      setCrmSyncResult(prev => ({ 
+        ...prev,
         success: false, 
         error: error.response?.data?.error || error.message 
-      });
+      }));
     } finally {
       setCrmSyncLoading(false);
     }
