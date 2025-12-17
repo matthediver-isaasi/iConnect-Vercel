@@ -597,6 +597,11 @@ export default function EventDetailsPage() {
   // ========== END PRICING/TICKET CLASS HOOKS ==========
 
   const removeAttendee = (index) => {
+    const attendeeToRemove = attendees[index];
+    // If removing self, reset memberAttending flag
+    if (attendeeToRemove?.isSelf) {
+      setMemberAttending(false);
+    }
     setAttendees(attendees.filter((_, i) => i !== index));
   };
 
