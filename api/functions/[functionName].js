@@ -176,11 +176,12 @@ async function sendConfirmationEmailsFromTemplate(eventId, booking, attendee, pe
   
   try {
     // Fetch enabled confirmation emails for this event
+    // Support both 'confirmation' and 'booking_confirmation' email types
     const { data: confirmationEmails, error: emailsError } = await supabase
       .from('event_email')
       .select('*')
       .eq('event_id', eventId)
-      .eq('email_type', 'confirmation')
+      .in('email_type', ['confirmation', 'booking_confirmation'])
       .eq('is_enabled', true);
 
     if (emailsError || !confirmationEmails || confirmationEmails.length === 0) {
