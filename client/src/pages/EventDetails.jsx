@@ -41,9 +41,13 @@ export default function EventDetailsPage() {
   const [submitting, setSubmitting] = useState(false);
   const [registrationMode, setRegistrationMode] = useState('colleagues');
   const [memberAttending, setMemberAttending] = useState(false);
-  const [showColleagueSelector, setShowColleagueSelector] = useState(false);
+  const [activeRegistrationPanel, setActiveRegistrationPanel] = useState(null); // 'team' | 'external' | null
   const [selectedTicketClassId, setSelectedTicketClassId] = useState(null);
   const [paymentCanProceed, setPaymentCanProceed] = useState(false);
+  
+  // External attendee form state
+  const [externalEmail, setExternalEmail] = useState('');
+  const [externalValidating, setExternalValidating] = useState(false);
 
   // Modal states for speaker profiles
   const [showSpeakerModal, setShowSpeakerModal] = useState(false);
@@ -131,20 +135,14 @@ export default function EventDetailsPage() {
         setAttendees(savedAttendees);
         setRegistrationMode('colleagues');
         setMemberAttending(savedMemberAttending !== undefined ? savedMemberAttending : false);
-        
-        // Only auto-show colleague selector if no attendees
-        if (savedAttendees.length === 0) {
-          setShowColleagueSelector(true);
-        } else {
-          setShowColleagueSelector(false);
-        }
+        setActiveRegistrationPanel(null);
       } else {
         // No saved registration - set defaults
         console.log('[EventDetails] No saved registration - initializing defaults');
         setRegistrationMode('colleagues');
         setMemberAttending(false);
         setAttendees([]);
-        setShowColleagueSelector(true);
+        setActiveRegistrationPanel(null);
       }
     } else {
       // For unauthenticated users
@@ -152,7 +150,7 @@ export default function EventDetailsPage() {
       setAttendees([]);
       setRegistrationMode('colleagues');
       setMemberAttending(false);
-      setShowColleagueSelector(true);
+      setActiveRegistrationPanel(null);
     }
   }, [eventId]); // CRITICAL: Only depends on eventId
 
@@ -561,7 +559,7 @@ export default function EventDetailsPage() {
       // Preserve existing colleagues and prepend the self-attendee
       setAttendees(prev => [memberAsAttendee, ...prev.filter(a => !a.isSelf)]);
       setMemberAttending(true);
-      setShowColleagueSelector(false);
+      setActiveRegistrationPanel(null);
     }
   }, [eventId, currentMemberInfo, canAddColleagues, canSelfRegister, organizationInfo, attendees]);
   
@@ -614,7 +612,72 @@ export default function EventDetailsPage() {
       isValid: true,
       isSelf: false
     }]);
-    setShowColleagueSelector(false);
+    setActiveRegistrationPanel(null);
+  };
+
+  // Handle registering self (Register Myself button)
+  const handleRegisterMyself = () => {
+    if (!currentMemberInfo) return;
+    
+    // Check if already registered
+    if (memberAttending) {
+      toast.info('You are already registered for this event');
+      return;
+    }
+    
+    const memberAsAttendee = {
+      email: currentMemberInfo.email || "",
+      first_name: currentMemberInfo.first_name || "",
+      last_name: currentMemberInfo.last_name || "",
+      isValid: true,
+      isSelf: true
+    };
+    
+    if (!attendees.some((a) => a.isSelf)) {
+      setAttendees([memberAsAttendee, ...attendees]);
+    }
+    setMemberAttending(true);
+    setActiveRegistrationPanel(null);
+    toast.success('You have been added as an attendee');
+  };
+
+  // Handle external email submission (Register Someone Else)
+  const handleExternalEmailSubmit = async () => {
+    if (!externalEmail || !externalEmail.includes('@')) {
+      toast.error('Please enter a valid email address');
+      return;
+    }
+
+    setExternalValidating(true);
+    
+    try {
+      // Check if email is already in attendees
+      if (attendees.some(a => a.email?.toLowerCase() === externalEmail.toLowerCase())) {
+        toast.error('This person is already registered');
+        setExternalValidating(false);
+        return;
+      }
+      
+      // Add as external attendee
+      setAttendees([...attendees, {
+        email: externalEmail,
+        first_name: "",
+        last_name: "",
+        isValid: true,
+        validationStatus: 'external',
+        validationMessage: 'External attendee - will be registered with this email',
+        isSelf: false
+      }]);
+      
+      setExternalEmail('');
+      setActiveRegistrationPanel(null);
+      toast.success('Attendee added - please enter their name');
+    } catch (error) {
+      console.error('[EventDetails] External email submission error:', error);
+      toast.error('Failed to add attendee');
+    } finally {
+      setExternalValidating(false);
+    }
   };
 
   const toggleMemberAttendance = () => {
