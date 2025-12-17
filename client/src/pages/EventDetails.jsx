@@ -530,9 +530,13 @@ export default function EventDetailsPage() {
     return userRoleId && roleIds.includes(userRoleId);
   }, [isOneOffEvent, selectedTicketClass, userRoleId]);
   
-  // Check if user can add colleagues to events (role-based permission)
-  // If this permission is excluded, user is auto-registered and cannot add colleagues
-  const canAddColleagues = !isFeatureExcluded || !isFeatureExcluded('element_AddColleaguesToEvents');
+  // Role-based permission checks for registration buttons
+  const canRoleSelfRegister = !isFeatureExcluded || !isFeatureExcluded('element_SelfRegistration');
+  const canAddTeamMembers = !isFeatureExcluded || !isFeatureExcluded('element_AddColleaguesToEvents');
+  const canRegisterExternal = !isFeatureExcluded || !isFeatureExcluded('element_RegisterExternalAttendees');
+  
+  // User can add colleagues if they have permission for team members OR external attendees
+  const canAddColleagues = canAddTeamMembers || canRegisterExternal;
   
   // Auto-register user if they cannot add colleagues and are logged in
   // This runs after initialization is complete
@@ -1258,9 +1262,9 @@ export default function EventDetailsPage() {
                   <CardTitle className="text-xl">
                     {isGuestCheckout ? 'Your Details' : 'Attendees'}
                   </CardTitle>
-                  {!isGuestCheckout && canAddColleagues && (
+                  {!isGuestCheckout && (canRoleSelfRegister || canAddTeamMembers || canRegisterExternal) && (
                     <div className="flex flex-wrap items-center gap-2">
-                      {currentMemberInfo && canSelfRegister && (
+                      {currentMemberInfo && canSelfRegister && canRoleSelfRegister && (
                         <Button
                           id="register-myself-button"
                           variant={memberAttending ? "default" : "outline"}
@@ -1274,28 +1278,32 @@ export default function EventDetailsPage() {
                           {memberAttending ? 'Registered' : 'Register Myself'}
                         </Button>
                       )}
-                      <Button
-                        id="register-team-member-button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setActiveRegistrationPanel(activeRegistrationPanel === 'team' ? null : 'team')}
-                        className={`gap-2 ${activeRegistrationPanel === 'team' ? 'ring-2 ring-blue-500' : ''}`}
-                        data-testid="button-register-team-member"
-                      >
-                        <Users className="w-4 h-4" />
-                        Register a Team Member
-                      </Button>
-                      <Button
-                        id="register-someone-else-button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setActiveRegistrationPanel(activeRegistrationPanel === 'external' ? null : 'external')}
-                        className={`gap-2 ${activeRegistrationPanel === 'external' ? 'ring-2 ring-blue-500' : ''}`}
-                        data-testid="button-register-someone-else"
-                      >
-                        <Plus className="w-4 h-4" />
-                        Register Someone Else
-                      </Button>
+                      {canAddTeamMembers && (
+                        <Button
+                          id="register-team-member-button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setActiveRegistrationPanel(activeRegistrationPanel === 'team' ? null : 'team')}
+                          className={`gap-2 ${activeRegistrationPanel === 'team' ? 'ring-2 ring-blue-500' : ''}`}
+                          data-testid="button-register-team-member"
+                        >
+                          <Users className="w-4 h-4" />
+                          Register a Team Member
+                        </Button>
+                      )}
+                      {canRegisterExternal && (
+                        <Button
+                          id="register-someone-else-button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setActiveRegistrationPanel(activeRegistrationPanel === 'external' ? null : 'external')}
+                          className={`gap-2 ${activeRegistrationPanel === 'external' ? 'ring-2 ring-blue-500' : ''}`}
+                          data-testid="button-register-someone-else"
+                        >
+                          <Plus className="w-4 h-4" />
+                          Register Someone Else
+                        </Button>
+                      )}
                     </div>
                   )}
                 </div>

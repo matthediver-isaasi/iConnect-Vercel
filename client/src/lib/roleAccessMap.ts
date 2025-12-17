@@ -62,7 +62,8 @@ export const ROLE_ACCESS_MAP: Module[] = [
         features: [
           { id: "events.event-details.description", label: "Event Description" },
           { id: "events.event-details.self-registration", label: "Self Registration" },
-          { id: "events.event-details.add-colleagues", label: "Add Colleagues to Events" },
+          { id: "events.event-details.add-colleagues", label: "Add Team Members to Events" },
+          { id: "events.event-details.register-external", label: "Register External Attendees" },
           { id: "events.event-details.purchase-button", label: "Purchase Button" },
           { id: "events.event-details.available-seats", label: "Available Seats Display" }
         ]
@@ -639,6 +640,7 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "element_EventsSearch": "events.browse-events.search-filters",
   "element_SelfRegistration": "events.event-details.self-registration",
   "element_AddColleaguesToEvents": "events.event-details.add-colleagues",
+  "element_RegisterExternalAttendees": "events.event-details.register-external",
   "element_PurchaseButton": "events.event-details.purchase-button",
   "element_AvailableSeatsDisplay": "events.event-details.available-seats",
   "element_FloatersDisplay": "site-builder.floaters.display",
