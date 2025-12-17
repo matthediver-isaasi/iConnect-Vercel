@@ -81,7 +81,7 @@ export default function BalancesPage({ hasBanner }) {
               Account Balances
             </h1>
             <p className="text-slate-600">
-              View your organization's training fund and voucher balances
+              View your organisation's training fund and voucher balances
             </p>
           </div>
         )}
