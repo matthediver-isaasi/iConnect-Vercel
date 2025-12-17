@@ -3,7 +3,7 @@ import React, { useState, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Shield, Loader2, CheckCircle2, ExternalLink, RefreshCw, Calendar, Users, Building2, Search, AlertTriangle, Unlink, Upload, Image, Trash2, Database } from "lucide-react";
+import { Shield, Loader2, CheckCircle2, ExternalLink, RefreshCw, Calendar, Users, Building2, Search, AlertTriangle, Unlink, Upload, Image, Trash2, Database, Download } from "lucide-react";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
@@ -26,6 +26,7 @@ export default function AdminSetupPage() {
   const [xeroAuthWindow, setXeroAuthWindow] = useState(null);
   const [crmSyncLoading, setCrmSyncLoading] = useState(false);
   const [crmSyncResult, setCrmSyncResult] = useState(null);
+  const [crmSyncLogs, setCrmSyncLogs] = useState([]);
   const [selectedOrgId, setSelectedOrgId] = useState("");
   const [zohoAccountIdInput, setZohoAccountIdInput] = useState("");
   const [singleOrgSyncLoading, setSingleOrgSyncLoading] = useState(false);
@@ -355,12 +356,19 @@ export default function AdminSetupPage() {
   const handleSyncCrmData = async () => {
     setCrmSyncLoading(true);
     setCrmSyncResult(null);
+    setCrmSyncLogs([]);
+    
+    const allLogs = [];
+    const syncStartTime = new Date().toISOString();
+    allLogs.push({ type: 'info', entity: 'sync', message: `CRM sync started at ${syncStartTime}` });
     
     try {
       // Chunked sync for organizations - auto-continue until complete
-      let orgTotals = { synced: 0, created: 0, updated: 0 };
+      let orgTotals = { synced: 0, created: 0, updated: 0, failed: 0 };
       let orgPageToken = null;
       let orgComplete = false;
+      
+      allLogs.push({ type: 'info', entity: 'organization', message: 'Starting organization sync...' });
       
       while (!orgComplete) {
         const params = orgPageToken ? { page_token: orgPageToken } : {};
@@ -368,12 +376,19 @@ export default function AdminSetupPage() {
         const orgData = orgResponse.data;
         
         if (!orgData.success) {
+          allLogs.push({ type: 'error', entity: 'organization', message: orgData.error || 'Organization sync failed' });
           throw new Error(orgData.error || 'Organization sync failed');
         }
         
         orgTotals.synced += orgData.synced || 0;
         orgTotals.created += orgData.created || 0;
         orgTotals.updated += orgData.updated || 0;
+        orgTotals.failed += orgData.failed || 0;
+        
+        // Collect logs from this chunk
+        if (orgData.logs && orgData.logs.length > 0) {
+          allLogs.push(...orgData.logs);
+        }
         
         // Update UI with progress
         setCrmSyncResult(prev => ({
@@ -389,10 +404,14 @@ export default function AdminSetupPage() {
         }
       }
       
+      allLogs.push({ type: 'info', entity: 'organization', message: `Organization sync complete: ${orgTotals.synced} processed, ${orgTotals.created} created, ${orgTotals.updated} updated, ${orgTotals.failed} failed` });
+      
       // Chunked sync for members - auto-continue until complete
-      let memberTotals = { synced: 0, created: 0, updated: 0, skipped: 0 };
+      let memberTotals = { synced: 0, created: 0, updated: 0, skipped: 0, failed: 0 };
       let memberPageToken = null;
       let memberComplete = false;
+      
+      allLogs.push({ type: 'info', entity: 'member', message: 'Starting member sync...' });
       
       while (!memberComplete) {
         const params = memberPageToken ? { page_token: memberPageToken } : {};
@@ -400,6 +419,7 @@ export default function AdminSetupPage() {
         const memberData = memberResponse.data;
         
         if (!memberData.success) {
+          allLogs.push({ type: 'error', entity: 'member', message: memberData.error || 'Member sync failed' });
           throw new Error(memberData.error || 'Member sync failed');
         }
         
@@ -407,6 +427,12 @@ export default function AdminSetupPage() {
         memberTotals.created += memberData.created || 0;
         memberTotals.updated += memberData.updated || 0;
         memberTotals.skipped += memberData.skipped || 0;
+        memberTotals.failed += memberData.failed || 0;
+        
+        // Collect logs from this chunk
+        if (memberData.logs && memberData.logs.length > 0) {
+          allLogs.push(...memberData.logs);
+        }
         
         // Update UI with progress
         setCrmSyncResult(prev => ({
@@ -422,14 +448,22 @@ export default function AdminSetupPage() {
         }
       }
       
+      allLogs.push({ type: 'info', entity: 'member', message: `Member sync complete: ${memberTotals.synced} processed, ${memberTotals.created} created, ${memberTotals.updated} updated, ${memberTotals.skipped} skipped, ${memberTotals.failed} failed` });
+      allLogs.push({ type: 'info', entity: 'sync', message: `CRM sync completed at ${new Date().toISOString()}` });
+      
+      // Store logs for download
+      setCrmSyncLogs(allLogs);
+      
       // Final result
       setCrmSyncResult({
         success: true,
-        organizations: { ...orgTotals, complete: true, message: `Synced ${orgTotals.synced} organizations (${orgTotals.created} created, ${orgTotals.updated} updated)` },
-        members: { ...memberTotals, complete: true, message: `Synced ${memberTotals.synced} members (${memberTotals.created} created, ${memberTotals.updated} updated, ${memberTotals.skipped} skipped)` }
+        organizations: { ...orgTotals, complete: true, message: `Synced ${orgTotals.synced} organizations (${orgTotals.created} created, ${orgTotals.updated} updated, ${orgTotals.failed} failed)` },
+        members: { ...memberTotals, complete: true, message: `Synced ${memberTotals.synced} members (${memberTotals.created} created, ${memberTotals.updated} updated, ${memberTotals.skipped} skipped, ${memberTotals.failed} failed)` }
       });
       
     } catch (error) {
+      allLogs.push({ type: 'error', entity: 'sync', message: `Sync failed: ${error.message}` });
+      setCrmSyncLogs(allLogs);
       setCrmSyncResult(prev => ({ 
         ...prev,
         success: false, 
@@ -438,6 +472,78 @@ export default function AdminSetupPage() {
     } finally {
       setCrmSyncLoading(false);
     }
+  };
+  
+  const handleDownloadSyncLog = () => {
+    if (crmSyncLogs.length === 0) {
+      toast.error('No sync logs available to download');
+      return;
+    }
+    
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const filename = `crm-sync-log-${timestamp}.txt`;
+    
+    // Build human-readable log content
+    let content = `CRM Sync Log\n`;
+    content += `Generated: ${new Date().toLocaleString()}\n`;
+    content += `${'='.repeat(80)}\n\n`;
+    
+    // Summary section
+    const errors = crmSyncLogs.filter(l => l.type === 'error');
+    const skipped = crmSyncLogs.filter(l => l.type === 'skipped');
+    const created = crmSyncLogs.filter(l => l.action === 'created');
+    const updated = crmSyncLogs.filter(l => l.action === 'updated');
+    
+    content += `SUMMARY\n`;
+    content += `${'-'.repeat(40)}\n`;
+    content += `Total log entries: ${crmSyncLogs.length}\n`;
+    content += `Created: ${created.length}\n`;
+    content += `Updated: ${updated.length}\n`;
+    content += `Skipped: ${skipped.length}\n`;
+    content += `Errors: ${errors.length}\n\n`;
+    
+    // Errors section (most important, at the top)
+    if (errors.length > 0) {
+      content += `ERRORS (${errors.length})\n`;
+      content += `${'-'.repeat(40)}\n`;
+      for (const log of errors) {
+        content += `[${log.entity}] ${log.name || log.email || 'Unknown'}\n`;
+        content += `  Zoho ID: ${log.zoho_id || 'N/A'}\n`;
+        content += `  Error: ${log.message}\n\n`;
+      }
+    }
+    
+    // Skipped section
+    if (skipped.length > 0) {
+      content += `SKIPPED RECORDS (${skipped.length})\n`;
+      content += `${'-'.repeat(40)}\n`;
+      for (const log of skipped) {
+        content += `[${log.entity}] ${log.name || 'Unknown'} (Zoho ID: ${log.zoho_id})\n`;
+        content += `  Reason: ${log.reason}\n\n`;
+      }
+    }
+    
+    // Full log
+    content += `\nFULL LOG\n`;
+    content += `${'-'.repeat(40)}\n`;
+    for (const log of crmSyncLogs) {
+      const prefix = log.type === 'error' ? 'ERROR' : log.type === 'skipped' ? 'SKIP' : log.type === 'success' ? 'OK' : 'INFO';
+      const identifier = log.email || log.name || log.zoho_id || '';
+      content += `[${prefix}] [${log.entity}] ${log.action || ''} ${identifier} ${log.message || ''}\n`;
+    }
+    
+    // Create and download file
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    
+    toast.success('Sync log downloaded');
   };
 
   const handleSyncSingleOrganization = async () => {
@@ -1075,21 +1181,39 @@ export default function AdminSetupPage() {
                           <div className="flex items-center gap-2">
                             <Building2 className="w-4 h-4" />
                             <span>
-                              Organisations: {crmSyncResult.organizations?.total_fetched || 0} fetched, 
+                              Organisations: {crmSyncResult.organizations?.synced || 0} processed, 
                               {' '}{crmSyncResult.organizations?.created || 0} created, 
                               {' '}{crmSyncResult.organizations?.updated || 0} updated
+                              {crmSyncResult.organizations?.failed > 0 && (
+                                <span className="text-red-600 font-medium">, {crmSyncResult.organizations.failed} failed</span>
+                              )}
                             </span>
                           </div>
                           <div className="flex items-center gap-2">
                             <Users className="w-4 h-4" />
                             <span>
-                              Members: {crmSyncResult.members?.total_fetched || 0} fetched, 
+                              Members: {crmSyncResult.members?.synced || 0} processed, 
                               {' '}{crmSyncResult.members?.created || 0} created, 
                               {' '}{crmSyncResult.members?.updated || 0} updated,
-                              {' '}{crmSyncResult.members?.linked_to_org || 0} linked to organisations
+                              {' '}{crmSyncResult.members?.skipped || 0} skipped
+                              {crmSyncResult.members?.failed > 0 && (
+                                <span className="text-red-600 font-medium">, {crmSyncResult.members.failed} failed</span>
+                              )}
                             </span>
                           </div>
                         </div>
+                        {crmSyncLogs.length > 0 && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={handleDownloadSyncLog}
+                            className="mt-3"
+                            data-testid="button-download-sync-log"
+                          >
+                            <Download className="w-4 h-4 mr-2" />
+                            Download Sync Log
+                          </Button>
+                        )}
                       </div>
                     </>
                   ) : (
@@ -1098,6 +1222,18 @@ export default function AdminSetupPage() {
                       <div>
                         <h3 className="font-semibold text-red-900 mb-1">Sync Failed</h3>
                         <p className="text-sm text-red-700">{crmSyncResult.error}</p>
+                        {crmSyncLogs.length > 0 && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={handleDownloadSyncLog}
+                            className="mt-3"
+                            data-testid="button-download-sync-log-error"
+                          >
+                            <Download className="w-4 h-4 mr-2" />
+                            Download Sync Log
+                          </Button>
+                        )}
                       </div>
                     </>
                   )}

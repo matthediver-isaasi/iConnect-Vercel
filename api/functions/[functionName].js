@@ -3568,8 +3568,12 @@ const functionHandlers = {
       let totalFetched = 0;
       let created = 0;
       let updated = 0;
+      let failed = 0;
       let hasMore = true;
       let nextPageToken = null;
+      
+      // Detailed logs for download
+      const logs = [];
 
       console.log(`[syncAllOrganizationsFromZoho] Starting sync (max ${max_pages} pages per call, starting page ${page})...`);
 
@@ -3591,7 +3595,8 @@ const functionHandlers = {
         if (!response.ok) {
           const errorText = await response.text();
           console.error('[syncAllOrganizationsFromZoho] Failed to fetch accounts:', response.status, errorText);
-          return { success: false, error: `Zoho API error: ${response.status} - ${errorText}` };
+          logs.push({ type: 'error', entity: 'API', message: `Zoho API error: ${response.status} - ${errorText}` });
+          return { success: false, error: `Zoho API error: ${response.status} - ${errorText}`, logs };
         }
 
         const data = await response.json();
@@ -3624,28 +3629,44 @@ const functionHandlers = {
             };
 
             if (existingByZohoId[account.id]) {
-              toUpdate.push({ id: existingByZohoId[account.id].id, ...orgData });
+              toUpdate.push({ id: existingByZohoId[account.id].id, ...orgData, _zohoName: account.Account_Name });
             } else {
-              toInsert.push(orgData);
+              toInsert.push({ ...orgData, _zohoName: account.Account_Name });
               existingByZohoId[account.id] = { id: 'pending' };
             }
           }
           
           // Bulk insert new organizations (with fallback to individual inserts on error)
           if (toInsert.length > 0) {
-            const { error: insertError } = await supabase.from('organization').insert(toInsert);
+            const insertData = toInsert.map(({ _zohoName, ...rest }) => rest);
+            const { error: insertError } = await supabase.from('organization').insert(insertData);
             if (insertError) {
               console.warn('[syncAllOrganizationsFromZoho] Bulk insert failed, trying individual inserts:', insertError.message);
               // Fallback to individual inserts to identify and skip problematic records
               for (const org of toInsert) {
-                const { error: singleError } = await supabase.from('organization').insert([org]);
+                const { _zohoName, ...orgInsertData } = org;
+                const { error: singleError } = await supabase.from('organization').insert([orgInsertData]);
                 if (singleError) {
                   console.error(`[syncAllOrganizationsFromZoho] Failed to insert org "${org.name}" (Zoho ID: ${org.zoho_account_id}): ${singleError.message}`);
+                  logs.push({ 
+                    type: 'error', 
+                    entity: 'organization', 
+                    action: 'insert',
+                    zoho_id: org.zoho_account_id, 
+                    name: org.name,
+                    zoho_name: _zohoName,
+                    message: singleError.message 
+                  });
+                  failed++;
                 } else {
+                  logs.push({ type: 'success', entity: 'organization', action: 'created', zoho_id: org.zoho_account_id, name: org.name });
                   created++;
                 }
               }
             } else {
+              for (const org of toInsert) {
+                logs.push({ type: 'success', entity: 'organization', action: 'created', zoho_id: org.zoho_account_id, name: org.name });
+              }
               created += toInsert.length;
             }
           }
@@ -3654,9 +3675,12 @@ const functionHandlers = {
           const updateBatchSize = 50;
           for (let i = 0; i < toUpdate.length; i += updateBatchSize) {
             const batch = toUpdate.slice(i, i + updateBatchSize);
-            await Promise.all(batch.map(({ id, ...updateData }) => 
+            await Promise.all(batch.map(({ id, _zohoName, ...updateData }) => 
               supabase.from('organization').update(updateData).eq('id', id)
             ));
+            for (const org of batch) {
+              logs.push({ type: 'success', entity: 'organization', action: 'updated', zoho_id: org.zoho_account_id, name: org.name });
+            }
             updated += batch.length;
           }
           
@@ -3682,17 +3706,19 @@ const functionHandlers = {
       }
 
       const isComplete = !hasMore || !nextPageToken;
-      console.log(`[syncAllOrganizationsFromZoho] Chunk complete: ${created} created, ${updated} updated, complete: ${isComplete}`);
+      console.log(`[syncAllOrganizationsFromZoho] Chunk complete: ${created} created, ${updated} updated, ${failed} failed, complete: ${isComplete}`);
 
       return { 
         success: true, 
         synced: totalFetched, 
         created, 
         updated,
+        failed,
         complete: isComplete,
         next_page_token: nextPageToken,
+        logs,
         message: isComplete 
-          ? `Sync complete: ${totalFetched} organizations (${created} created, ${updated} updated)`
+          ? `Sync complete: ${totalFetched} organizations (${created} created, ${updated} updated, ${failed} failed)`
           : `Synced ${totalFetched} organizations so far... (${created} created, ${updated} updated) - continuing...`
       };
     } catch (err) {
@@ -3749,8 +3775,13 @@ const functionHandlers = {
       let created = 0;
       let updated = 0;
       let skipped = 0;
+      let failed = 0;
       let hasMore = true;
       let nextPageToken = null;
+      
+      // Detailed logs for download
+      const logs = [];
+      const skippedContacts = [];
 
       console.log(`[syncAllMembersFromZoho] Starting sync (max ${max_pages} pages per call, starting page ${page})...`);
 
@@ -3772,7 +3803,8 @@ const functionHandlers = {
         if (!response.ok) {
           const errorText = await response.text();
           console.error('[syncAllMembersFromZoho] Failed to fetch contacts:', response.status, errorText);
-          return { success: false, error: `Zoho API error: ${response.status} - ${errorText}` };
+          logs.push({ type: 'error', entity: 'API', message: `Zoho API error: ${response.status} - ${errorText}` });
+          return { success: false, error: `Zoho API error: ${response.status} - ${errorText}`, logs, skippedContacts };
         }
 
         const data = await response.json();
@@ -3791,15 +3823,30 @@ const functionHandlers = {
           for (const contact of contacts) {
             if (!contact.Email) {
               skipped++;
+              skippedContacts.push({
+                zoho_id: contact.id,
+                first_name: contact.First_Name || '',
+                last_name: contact.Last_Name || '',
+                reason: 'No email address'
+              });
+              logs.push({ 
+                type: 'skipped', 
+                entity: 'member', 
+                zoho_id: contact.id, 
+                name: `${contact.First_Name || ''} ${contact.Last_Name || ''}`.trim() || 'Unknown',
+                reason: 'No email address'
+              });
               continue;
             }
 
             let organizationId = null;
+            let orgName = null;
             if (contact.Account_Name && contact.Account_Name.id) {
               const linkedOrg = orgByZohoId[contact.Account_Name.id];
               if (linkedOrg) {
                 organizationId = linkedOrg.id;
               }
+              orgName = contact.Account_Name.name;
             }
 
             const memberData = {
@@ -3814,20 +3861,45 @@ const functionHandlers = {
             const existingMember = existingByZohoId[contact.id] || existingByEmail[contact.Email.toLowerCase()];
 
             if (existingMember) {
-              toUpdate.push({ id: existingMember.id, ...memberData });
+              toUpdate.push({ id: existingMember.id, ...memberData, _email: contact.Email, _orgName: orgName });
             } else {
-              toInsert.push(memberData);
+              toInsert.push({ ...memberData, _email: contact.Email, _orgName: orgName });
               existingByZohoId[contact.id] = { id: 'pending', zoho_contact_id: contact.id };
               existingByEmail[contact.Email.toLowerCase()] = { id: 'pending', email: contact.Email };
             }
           }
 
-          // Bulk insert new members
+          // Bulk insert new members (with fallback to individual inserts on error)
           if (toInsert.length > 0) {
-            const { error: insertError } = await supabase.from('member').insert(toInsert);
+            const insertData = toInsert.map(({ _email, _orgName, ...rest }) => rest);
+            const { error: insertError } = await supabase.from('member').insert(insertData);
             if (insertError) {
-              console.error('[syncAllMembersFromZoho] Bulk insert error:', insertError.message);
+              console.warn('[syncAllMembersFromZoho] Bulk insert failed, trying individual inserts:', insertError.message);
+              for (const member of toInsert) {
+                const { _email, _orgName, ...memberInsertData } = member;
+                const { error: singleError } = await supabase.from('member').insert([memberInsertData]);
+                if (singleError) {
+                  console.error(`[syncAllMembersFromZoho] Failed to insert member "${_email}": ${singleError.message}`);
+                  logs.push({ 
+                    type: 'error', 
+                    entity: 'member', 
+                    action: 'insert',
+                    zoho_id: member.zoho_contact_id, 
+                    email: _email,
+                    name: `${member.first_name} ${member.last_name}`.trim(),
+                    organization: _orgName,
+                    message: singleError.message 
+                  });
+                  failed++;
+                } else {
+                  logs.push({ type: 'success', entity: 'member', action: 'created', zoho_id: member.zoho_contact_id, email: _email, name: `${member.first_name} ${member.last_name}`.trim() });
+                  created++;
+                }
+              }
             } else {
+              for (const member of toInsert) {
+                logs.push({ type: 'success', entity: 'member', action: 'created', zoho_id: member.zoho_contact_id, email: member._email, name: `${member.first_name} ${member.last_name}`.trim() });
+              }
               created += toInsert.length;
             }
           }
@@ -3836,9 +3908,12 @@ const functionHandlers = {
           const updateBatchSize = 50;
           for (let i = 0; i < toUpdate.length; i += updateBatchSize) {
             const batch = toUpdate.slice(i, i + updateBatchSize);
-            await Promise.all(batch.map(({ id, ...updateData }) => 
+            await Promise.all(batch.map(({ id, _email, _orgName, ...updateData }) => 
               supabase.from('member').update(updateData).eq('id', id)
             ));
+            for (const member of batch) {
+              logs.push({ type: 'success', entity: 'member', action: 'updated', zoho_id: member.zoho_contact_id, email: member._email, name: `${member.first_name} ${member.last_name}`.trim() });
+            }
             updated += batch.length;
           }
           
@@ -3864,7 +3939,7 @@ const functionHandlers = {
       }
 
       const isComplete = !hasMore || !nextPageToken;
-      console.log(`[syncAllMembersFromZoho] Chunk complete: ${created} created, ${updated} updated, ${skipped} skipped, complete: ${isComplete}`);
+      console.log(`[syncAllMembersFromZoho] Chunk complete: ${created} created, ${updated} updated, ${skipped} skipped, ${failed} failed, complete: ${isComplete}`);
 
       return { 
         success: true, 
@@ -3872,10 +3947,13 @@ const functionHandlers = {
         created, 
         updated,
         skipped,
+        failed,
         complete: isComplete,
         next_page_token: nextPageToken,
+        logs,
+        skippedContacts,
         message: isComplete 
-          ? `Sync complete: ${totalFetched} members (${created} created, ${updated} updated, ${skipped} skipped)`
+          ? `Sync complete: ${totalFetched} members (${created} created, ${updated} updated, ${skipped} skipped, ${failed} failed)`
           : `Synced ${totalFetched} members so far... (${created} created, ${updated} updated) - continuing...`
       };
     } catch (err) {
