@@ -700,6 +700,22 @@ export default function PaymentOptions({
                 ) : (
                   <RadioGroup value={remainingBalancePaymentMethod} onValueChange={setRemainingBalancePaymentMethod}>
                     <div className="space-y-3">
+                      <div
+                        className={`flex items-start space-x-3 p-3 rounded-lg border-2 transition-colors ${stripeAvailable ? 'cursor-pointer hover:bg-slate-100' : 'opacity-60 cursor-not-allowed'}`}
+                        style={{ borderColor: remainingBalancePaymentMethod === 'card' ? '#6366f1' : '#e2e8f0' }}
+                        onClick={() => stripeAvailable && setRemainingBalancePaymentMethod('card')}
+                      >
+                        <RadioGroupItem value="card" id="card" className="mt-1" disabled={!stripeAvailable} />
+                        <div className="flex-1">
+                          <Label htmlFor="card" className={`text-sm font-medium ${stripeAvailable ? 'cursor-pointer' : 'cursor-not-allowed'}`}>Pay by Credit/Debit Card</Label>
+                          {stripeAvailable ? (
+                            <p className="text-xs text-slate-500 mt-1">Secure payment via Stripe</p>
+                          ) : (
+                            <p className="text-xs text-amber-600 mt-1">Card payments not currently available</p>
+                          )}
+                        </div>
+                      </div>
+
                       <div className="space-y-2">
                         <div
                           className="flex items-start space-x-3 p-3 rounded-lg border-2 transition-colors cursor-pointer hover:bg-slate-100"
@@ -742,22 +758,6 @@ export default function PaymentOptions({
                             </div>
                           </div>
                         )}
-                      </div>
-
-                      <div
-                        className={`flex items-start space-x-3 p-3 rounded-lg border-2 transition-colors ${stripeAvailable ? 'cursor-pointer hover:bg-slate-100' : 'opacity-60 cursor-not-allowed'}`}
-                        style={{ borderColor: remainingBalancePaymentMethod === 'card' ? '#6366f1' : '#e2e8f0' }}
-                        onClick={() => stripeAvailable && setRemainingBalancePaymentMethod('card')}
-                      >
-                        <RadioGroupItem value="card" id="card" className="mt-1" disabled={!stripeAvailable} />
-                        <div className="flex-1">
-                          <Label htmlFor="card" className={`text-sm font-medium ${stripeAvailable ? 'cursor-pointer' : 'cursor-not-allowed'}`}>Pay by Credit/Debit Card</Label>
-                          {stripeAvailable ? (
-                            <p className="text-xs text-slate-500 mt-1">Secure payment via Stripe</p>
-                          ) : (
-                            <p className="text-xs text-amber-600 mt-1">Card payments not currently available</p>
-                          )}
-                        </div>
                       </div>
                     </div>
                   </RadioGroup>
