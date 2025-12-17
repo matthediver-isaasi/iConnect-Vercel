@@ -76,13 +76,21 @@ export default async function handler(req, res) {
             attendee_first_name,
             attendee_last_name,
             zoom_join_url,
-            event_id
+            event_id,
+            status
           `)
           .eq('id', scheduledEmail.booking_id)
           .single();
 
-        if (bookingError || !booking) {
-          console.log(`[cron/send-event-reminders] Booking ${scheduledEmail.booking_id} not found`);
+        if (bookingError) {
+          console.log(`[cron/send-event-reminders] Booking lookup error for ${scheduledEmail.booking_id}:`, bookingError.message, bookingError.code, bookingError.details);
+          await markAsFailed(scheduledEmail.id, `Booking lookup failed: ${bookingError.message}`);
+          failedCount++;
+          continue;
+        }
+
+        if (!booking) {
+          console.log(`[cron/send-event-reminders] Booking ${scheduledEmail.booking_id} not found (no data returned)`);
           await markAsFailed(scheduledEmail.id, 'Booking not found');
           failedCount++;
           continue;
