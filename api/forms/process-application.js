@@ -285,7 +285,6 @@ export default async function handler(req, res) {
       return result;
     };
 
-    const orgCustomFields = convertMapToArray(orgCustomFieldsMap);
     let memberCustomFields = convertMapToArray(memberCustomFieldsMap);
 
     // Helper function to process pipeline entry mappings (supports both new array format and legacy object format)
@@ -412,6 +411,7 @@ export default async function handler(req, res) {
     }
     
     // Process entity_pipelines primary organisation if available
+    let orgCustomFields = convertMapToArray(orgCustomFieldsMap);
     if (orgPipelines.length > 0) {
       const primaryOrgPipeline = orgPipelines.find(o => o.isPrimary);
       const orgCoreFieldMappings = {
@@ -423,6 +423,9 @@ export default async function handler(req, res) {
       };
       
       processPipelineMappings(primaryOrgPipeline, 'organization', orgData, orgCustomFieldsMap, orgCoreFieldMappings);
+      
+      // Re-convert custom fields after pipeline processing
+      orgCustomFields = convertMapToArray(orgCustomFieldsMap);
     }
 
     console.log('[AppProcessor] Extracted data:', { memberData, orgData, memberCustomFields: memberCustomFields.length, orgCustomFields: orgCustomFields.length, orgCustomFieldsDetail: orgCustomFields });
