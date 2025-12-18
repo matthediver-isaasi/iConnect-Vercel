@@ -10,11 +10,52 @@ import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Image, Plus, Pencil, Trash2, Upload, Loader2, AlertCircle, Eye, Sparkles, Copy } from "lucide-react";
+import { Image, Plus, Pencil, Trash2, Upload, Loader2, AlertCircle, Eye, Sparkles, Copy, AlignLeft, AlignCenter, AlignRight } from "lucide-react";
 import { toast } from "sonner";
+import ReactQuill from 'react-quill';
+import 'react-quill/dist/quill.snow.css';
+import TypographyStyleSelector, { applyTypographyStyle } from "@/components/iedit/TypographyStyleSelector";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import IEditHeroElement, { IEditHeroElementEditor } from "@/components/iedit/elements/IEditHeroElement";
+
+const fontFamilies = [
+  'Poppins',
+  'Degular Medium', 
+  'Degular Bold',
+  'Degular Semibold',
+  'Inter',
+  'Arial',
+  'Georgia',
+  'Times New Roman'
+];
+
+const fontWeights = [
+  { value: 300, label: 'Light' },
+  { value: 400, label: 'Regular' },
+  { value: 500, label: 'Medium' },
+  { value: 600, label: 'Semibold' },
+  { value: 700, label: 'Bold' },
+  { value: 800, label: 'Extra Bold' }
+];
+
+const safeHexColor = (color, fallback = '#000000') => {
+  if (!color || typeof color !== 'string') return fallback;
+  const trimmed = color.trim();
+  if (/^#[0-9A-Fa-f]{6}$/.test(trimmed)) return trimmed;
+  if (/^#[0-9A-Fa-f]{3}$/.test(trimmed)) {
+    return '#' + trimmed[1] + trimmed[1] + trimmed[2] + trimmed[2] + trimmed[3] + trimmed[3];
+  }
+  return fallback;
+};
+
+const bannerQuillModules = {
+  toolbar: [
+    ['bold', 'italic', 'underline'],
+    [{ 'color': [] }],
+    ['clean']
+  ]
+};
 
 const BUILT_IN_PUBLIC_PAGES = [
   { value: "Home", label: "Home Page" },
@@ -783,6 +824,173 @@ export default function PageBannerManagementPage() {
                       <p className="text-xs text-slate-500">
                         Vertical positioning of the image within the banner container
                       </p>
+                    </div>
+
+                    {/* Header Configuration */}
+                    <div className="border border-slate-200 rounded-lg p-4 bg-slate-50 space-y-4">
+                      <div className="text-sm font-medium text-slate-700 flex items-center gap-2">
+                        Header Text (Optional)
+                      </div>
+                      
+                      {/* Header Title */}
+                      <div className="space-y-3">
+                        <div>
+                          <Label className="text-xs">Title Text</Label>
+                          <div className="border border-slate-300 rounded-md overflow-hidden bg-white">
+                            <ReactQuill
+                              theme="snow"
+                              value={editingBanner.header_title || ''}
+                              onChange={(value) => setEditingBanner({ ...editingBanner, header_title: value })}
+                              modules={bannerQuillModules}
+                              placeholder="Enter header title..."
+                              style={{ minHeight: '80px' }}
+                            />
+                          </div>
+                        </div>
+                        
+                        <TypographyStyleSelector
+                          value={editingBanner.header_typography_style_id || null}
+                          onChange={(styleId, style) => {
+                            const updates = { ...editingBanner, header_typography_style_id: styleId };
+                            if (style) {
+                              const mapped = applyTypographyStyle(style);
+                              if (mapped.font_family) updates.header_font_family = mapped.font_family;
+                              if (mapped.font_size) updates.header_font_size = mapped.font_size;
+                              if (mapped.font_size_mobile) updates.header_font_size_mobile = mapped.font_size_mobile;
+                              if (mapped.font_weight) updates.header_font_weight = mapped.font_weight;
+                              if (mapped.line_height) updates.header_line_height = mapped.line_height;
+                              if (mapped.letter_spacing !== undefined) updates.header_letter_spacing = mapped.letter_spacing;
+                              if (mapped.color) updates.header_color = mapped.color;
+                            }
+                            setEditingBanner(updates);
+                          }}
+                          label="Header Title Typography Style"
+                        />
+                        
+                        {/* Alignment Buttons */}
+                        <div className="flex items-center gap-2">
+                          <Label className="text-xs">Alignment</Label>
+                          <div className="flex border border-slate-300 rounded-md overflow-hidden">
+                            <button
+                              type="button"
+                              onClick={() => setEditingBanner({ ...editingBanner, header_text_align: 'left' })}
+                              className={`p-1.5 ${(editingBanner.header_text_align || 'center') === 'left' ? 'bg-slate-200' : 'bg-white hover:bg-slate-50'}`}
+                              data-testid="banner-header-align-left"
+                            >
+                              <AlignLeft className="w-4 h-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingBanner({ ...editingBanner, header_text_align: 'center' })}
+                              className={`p-1.5 border-x border-slate-300 ${(editingBanner.header_text_align || 'center') === 'center' ? 'bg-slate-200' : 'bg-white hover:bg-slate-50'}`}
+                              data-testid="banner-header-align-center"
+                            >
+                              <AlignCenter className="w-4 h-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingBanner({ ...editingBanner, header_text_align: 'right' })}
+                              className={`p-1.5 ${(editingBanner.header_text_align || 'center') === 'right' ? 'bg-slate-200' : 'bg-white hover:bg-slate-50'}`}
+                              data-testid="banner-header-align-right"
+                            >
+                              <AlignRight className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                        
+                        {/* Manual Font Settings */}
+                        <details className="text-xs">
+                          <summary className="cursor-pointer text-slate-500 hover:text-slate-700 font-medium">Manual Font Settings</summary>
+                          <div className="space-y-3 p-3 mt-2 bg-white rounded-md border border-slate-200">
+                            <div className="grid grid-cols-2 gap-3">
+                              <div>
+                                <Label className="text-xs">Font Family</Label>
+                                <select
+                                  value={editingBanner.header_font_family || 'Poppins'}
+                                  onChange={(e) => setEditingBanner({ ...editingBanner, header_font_family: e.target.value })}
+                                  className="w-full px-2 py-1.5 border border-slate-300 rounded-md text-sm"
+                                >
+                                  {fontFamilies.map(font => (
+                                    <option key={font} value={font}>{font}</option>
+                                  ))}
+                                </select>
+                              </div>
+                              <div>
+                                <Label className="text-xs">Font Weight</Label>
+                                <select
+                                  value={editingBanner.header_font_weight || 700}
+                                  onChange={(e) => setEditingBanner({ ...editingBanner, header_font_weight: parseInt(e.target.value) })}
+                                  className="w-full px-2 py-1.5 border border-slate-300 rounded-md text-sm"
+                                >
+                                  {fontWeights.map(weight => (
+                                    <option key={weight.value} value={weight.value}>{weight.label}</option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-3 gap-3">
+                              <div>
+                                <Label className="text-xs">Font Size (px)</Label>
+                                <Input
+                                  type="number"
+                                  value={editingBanner.header_font_size || 32}
+                                  onChange={(e) => setEditingBanner({ ...editingBanner, header_font_size: parseInt(e.target.value) || 32 })}
+                                  min="10"
+                                  max="120"
+                                  className="h-8"
+                                />
+                              </div>
+                              <div>
+                                <Label className="text-xs">Mobile Size (px)</Label>
+                                <Input
+                                  type="number"
+                                  value={editingBanner.header_font_size_mobile || ''}
+                                  onChange={(e) => setEditingBanner({ ...editingBanner, header_font_size_mobile: e.target.value ? parseInt(e.target.value) : '' })}
+                                  min="10"
+                                  max="120"
+                                  placeholder="Same"
+                                  className="h-8"
+                                />
+                              </div>
+                              <div>
+                                <Label className="text-xs">Text Color</Label>
+                                <input
+                                  type="color"
+                                  value={safeHexColor(editingBanner.header_color, '#ffffff')}
+                                  onChange={(e) => setEditingBanner({ ...editingBanner, header_color: e.target.value })}
+                                  className="w-full h-8 px-0.5 py-0.5 border border-slate-300 rounded cursor-pointer"
+                                />
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-3">
+                              <div>
+                                <Label className="text-xs">Letter Spacing (px)</Label>
+                                <Input
+                                  type="number"
+                                  step="0.5"
+                                  value={editingBanner.header_letter_spacing || 0}
+                                  onChange={(e) => setEditingBanner({ ...editingBanner, header_letter_spacing: parseFloat(e.target.value) || 0 })}
+                                  className="h-8"
+                                />
+                              </div>
+                              <div>
+                                <Label className="text-xs">Line Height</Label>
+                                <Input
+                                  type="number"
+                                  step="0.1"
+                                  value={editingBanner.header_line_height || 1.2}
+                                  onChange={(e) => setEditingBanner({ ...editingBanner, header_line_height: parseFloat(e.target.value) || 1.2 })}
+                                  min="0.8"
+                                  max="3"
+                                  className="h-8"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        </details>
+                      </div>
                     </div>
                   </>
                 ) : (

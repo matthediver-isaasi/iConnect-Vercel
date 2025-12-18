@@ -1,6 +1,10 @@
 import React from "react";
+import DOMPurify from 'dompurify';
+import { useIsMobile } from "@/hooks/use-mobile";
 
 export default function PageBannerDisplay({ banner }) {
+  const isMobile = useIsMobile();
+  
   if (!banner || !banner.image_url) return null;
 
   const sizeClasses = {
@@ -58,14 +62,57 @@ export default function PageBannerDisplay({ banner }) {
   const paddingTopClass = paddingTopClasses[banner.padding_top] || paddingTopClasses['none'];
   const paddingBottomClass = paddingBottomClasses[banner.padding_bottom] || paddingBottomClasses['none'];
 
+  // Check if header has actual content
+  const hasHeaderContent = (value) => {
+    if (!value) return false;
+    const stripped = value.replace(/<[^>]*>/g, '').trim();
+    return stripped.length > 0;
+  };
+
+  const hasHeader = hasHeaderContent(banner.header_title);
+
+  // Header text styles
+  const getHeaderStyle = () => {
+    const fontSize = isMobile && banner.header_font_size_mobile 
+      ? banner.header_font_size_mobile 
+      : (banner.header_font_size || 32);
+    
+    return {
+      fontFamily: banner.header_font_family || 'Poppins',
+      fontSize: `${fontSize}px`,
+      fontWeight: banner.header_font_weight || 700,
+      color: banner.header_color || '#ffffff',
+      lineHeight: banner.header_line_height || 1.2,
+      letterSpacing: `${banner.header_letter_spacing || 0}px`,
+      textAlign: banner.header_text_align || 'center'
+    };
+  };
+
+  const textAlignmentClass = {
+    'left': 'items-start text-left',
+    'center': 'items-center text-center',
+    'right': 'items-end text-right'
+  }[banner.header_text_align || 'center'];
+
   return (
     <div className={`${containerClass} ${alignmentClass} ${paddingTopClass} ${paddingBottomClass} overflow-hidden`}>
-      <div className={`${heightClass} w-full`}>
+      <div className={`${heightClass} w-full relative`}>
         <img
           src={banner.image_url}
           alt={banner.alt_text || banner.name}
           className={`w-full h-full object-cover ${positionClass}`}
         />
+        
+        {/* Header Text Overlay */}
+        {hasHeader && (
+          <div className={`absolute inset-0 flex flex-col justify-center ${textAlignmentClass} px-4 md:px-8 lg:px-16`}>
+            <div 
+              className="max-w-4xl"
+              style={getHeaderStyle()}
+              dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(banner.header_title) }}
+            />
+          </div>
+        )}
       </div>
     </div>
   );
