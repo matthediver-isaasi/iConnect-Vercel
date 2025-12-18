@@ -304,9 +304,9 @@ export default function TeamSettingsPage() {
                   <div className="space-y-2">
                     <Label htmlFor="invite-template">Email Template</Label>
                     <Select
-                      value={inviteTemplateId || ""}
+                      value={inviteTemplateId || "__none__"}
                       onValueChange={(value) => {
-                        const newId = value || null;
+                        const newId = value === "__none__" ? null : value;
                         setInviteTemplateId(newId);
                         updateInviteTemplateMutation.mutate(newId);
                       }}
@@ -315,7 +315,7 @@ export default function TeamSettingsPage() {
                         <SelectValue placeholder="Select an email template..." />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">None (use default)</SelectItem>
+                        <SelectItem value="__none__">None (use default)</SelectItem>
                         {emailTemplates.map((template) => (
                           <SelectItem key={template.id} value={template.id}>
                             {template.name}
