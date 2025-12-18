@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,11 +10,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { Ticket, Plus, Pencil, Trash2, Search, ChevronLeft, ChevronRight, Building2, Calendar, EyeOff, Eye, AlertCircle, Check, ChevronsUpDown } from "lucide-react";
+import { Ticket, Plus, Pencil, Trash2, Search, ChevronLeft, ChevronRight, Building2, Calendar, EyeOff, Eye, AlertCircle, Check, ChevronsUpDown, Wifi } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { useAdminBalancesRealtime } from "@/hooks/useAdminBalancesRealtime";
 
 const ITEMS_PER_PAGE = 10;
 
@@ -35,6 +36,27 @@ export default function VoucherManagementPage() {
   const [orgSearchOpen, setOrgSearchOpen] = useState(false);
   
   const queryClient = useQueryClient();
+
+  // Realtime callbacks for admin updates
+  const handleVoucherUpdated = useCallback(({ eventType, voucher }) => {
+    console.log('[VoucherManagement] Voucher updated via realtime:', eventType, voucher?.id);
+    if (eventType === 'UPDATE') {
+      toast.info('Voucher updated', {
+        description: 'A voucher was just modified.',
+        duration: 3000
+      });
+    } else if (eventType === 'INSERT') {
+      toast.info('New voucher created', {
+        description: 'A new voucher was just added.',
+        duration: 3000
+      });
+    }
+  }, []);
+
+  // Subscribe to realtime updates
+  const { isConnected: realtimeConnected } = useAdminBalancesRealtime({
+    onVoucherUpdated: handleVoucherUpdated
+  });
 
   useEffect(() => {
     if (isAccessReady) {
@@ -239,11 +261,19 @@ export default function VoucherManagementPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
-        <div className="flex items-center justify-between mb-8">
+        <div className="flex items-center justify-between mb-8 gap-4">
           <div>
-            <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-2">
-              Training Voucher Management
-            </h1>
+            <div className="flex items-center gap-3">
+              <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-2">
+                Training Voucher Management
+              </h1>
+              {realtimeConnected && (
+                <div className="flex items-center gap-1.5 text-xs text-green-600" title="Live updates enabled">
+                  <Wifi className="w-3 h-3" />
+                  <span>Live</span>
+                </div>
+              )}
+            </div>
             <p className="text-slate-600">
               Create and manage training vouchers for organisations
             </p>

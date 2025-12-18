@@ -1894,25 +1894,34 @@ const functionHandlers = {
 
       // Process training fund deduction if any (use validated amount)
       if (validatedTrainingFundAmount > 0) {
+        const newTrainingFundBalance = org.training_fund_balance - validatedTrainingFundAmount;
+        
         await supabase
           .from('organization')
           .update({
-            training_fund_balance: org.training_fund_balance - validatedTrainingFundAmount
+            training_fund_balance: newTrainingFundBalance
           })
           .eq('id', org.id);
         
-        // Create training fund transaction record
-        await supabase
-          .from('program_ticket_transaction')
+        // Create training fund transaction record in the correct table
+        const { error: tfTxError } = await supabase
+          .from('training_fund_transaction')
           .insert({
             organization_id: org.id,
-            transaction_type: 'training_fund_usage',
-            value: -validatedTrainingFundAmount,
-            booking_reference: bookingReference,
-            event_name: event.title || 'One-off Event',
-            member_email: memberEmail,
-            notes: `Training fund used: £${validatedTrainingFundAmount.toFixed(2)} for ${event.title || 'event'}`
+            type: 'booking_usage',
+            amount: validatedTrainingFundAmount,
+            balance_before: org.training_fund_balance,
+            balance_after: newTrainingFundBalance,
+            reason: `Event booking: ${event.title || 'One-off Event'} (${bookingReference})`,
+            created_by: member?.id || null,
+            created_date: new Date().toISOString()
           });
+        
+        if (tfTxError) {
+          console.error('[createOneOffEventBooking] Failed to create training fund transaction:', tfTxError.message);
+        } else {
+          console.log('[createOneOffEventBooking] Training fund transaction created successfully');
+        }
       }
     }
 

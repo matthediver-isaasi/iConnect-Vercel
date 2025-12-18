@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,11 +10,12 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Building2, Search, ChevronLeft, ChevronRight, Plus, Minus, Wallet, TrendingUp, TrendingDown, History, ArrowLeft, X } from "lucide-react";
+import { Building2, Search, ChevronLeft, ChevronRight, Plus, Minus, Wallet, TrendingUp, TrendingDown, History, ArrowLeft, X, Wifi } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { useAdminBalancesRealtime } from "@/hooks/useAdminBalancesRealtime";
 
 const ITEMS_PER_PAGE = 15;
 
@@ -35,6 +36,31 @@ export default function TrainingFundManagementPage() {
   const [selectedOrg, setSelectedOrg] = useState(null);
   
   const queryClient = useQueryClient();
+
+  // Realtime callbacks for admin updates
+  const handleTransactionUpdated = useCallback(({ eventType, transaction }) => {
+    console.log('[TrainingFundManagement] Transaction updated via realtime:', eventType, transaction?.id);
+    if (eventType === 'INSERT') {
+      toast.info('New transaction recorded', {
+        description: 'A training fund transaction was just created.',
+        duration: 3000
+      });
+    }
+  }, []);
+
+  const handleOrganizationUpdated = useCallback(({ organization, oldBalance, newBalance }) => {
+    console.log('[TrainingFundManagement] Organization updated via realtime:', organization?.id);
+    toast.info('Training fund balance updated', {
+      description: `${organization?.name}: £${(oldBalance || 0).toFixed(2)} → £${(newBalance || 0).toFixed(2)}`,
+      duration: 3000
+    });
+  }, []);
+
+  // Subscribe to realtime updates
+  const { isConnected: realtimeConnected } = useAdminBalancesRealtime({
+    onTrainingFundTransactionUpdated: handleTransactionUpdated,
+    onOrganizationUpdated: handleOrganizationUpdated
+  });
 
   useEffect(() => {
     if (isAccessReady) {
@@ -469,9 +495,17 @@ export default function TrainingFundManagementPage() {
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
         <div className="mb-8">
-          <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-2">
-            Training Fund Management
-          </h1>
+          <div className="flex items-center justify-between">
+            <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-2">
+              Training Fund Management
+            </h1>
+            {realtimeConnected && (
+              <div className="flex items-center gap-1.5 text-xs text-green-600" title="Live updates enabled">
+                <Wifi className="w-3 h-3" />
+                <span>Live</span>
+              </div>
+            )}
+          </div>
           <p className="text-slate-600">
             View and adjust training fund balances for organisations. Click on an organisation to view its adjustment history.
           </p>
