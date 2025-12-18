@@ -51,13 +51,12 @@ async function generatePasswordSetupUrl(memberId, baseUrl) {
         return null;
       }
     } else {
-      // Create new credentials record - include email for the record
+      // Create new credentials record - don't include password_hash (column allows null)
       const { error: insertError } = await supabase
         .from('member_credentials')
         .insert({
           member_id: memberId,
           email: member.email.toLowerCase(),
-          password_hash: '',
           reset_token: resetToken,
           reset_token_expires: resetTokenExpires.toISOString()
         });
