@@ -1849,13 +1849,12 @@ const functionHandlers = {
       // Process voucher deductions if any - with ownership validation
       if (selectedVoucherIds && selectedVoucherIds.length > 0) {
         for (const voucherId of selectedVoucherIds) {
-          // Fetch voucher and validate it belongs to the member's organization
+          // Fetch voucher from the voucher table and validate it belongs to the member's organization
           const { data: voucher } = await supabase
-            .from('program_ticket_transaction')
+            .from('voucher')
             .select('*')
             .eq('id', voucherId)
             .eq('organization_id', org.id)
-            .eq('transaction_type', 'voucher')
             .eq('status', 'active')
             .single();
           
@@ -1866,10 +1865,10 @@ const functionHandlers = {
               voucherAmountApplied += amountToUse;
               voucherDeductions.push({ voucherId, amount: amountToUse });
               
-              // Update voucher balance
+              // Update voucher balance in the voucher table
               const newValue = voucher.value - amountToUse;
               await supabase
-                .from('program_ticket_transaction')
+                .from('voucher')
                 .update({
                   value: newValue,
                   status: newValue <= 0 ? 'used' : 'active',
