@@ -55,6 +55,7 @@ export default function IEditHeroElement({ content, variant, settings }) {
     subheading_font_size = 20,
     subheading_line_height = 1.5,
     subheading_letter_spacing = 0,
+    subheading_color,
     subheading_text_align,
     content_text = '',
     content_font_family = 'Poppins',
@@ -176,7 +177,7 @@ export default function IEditHeroElement({ content, variant, settings }) {
       font-size: ${subheading_font_size}px;
       line-height: ${subheading_line_height};
       letter-spacing: ${subheading_letter_spacing}px;
-      color: ${text_color};
+      color: ${subheading_color || text_color};
       text-align: ${effectiveSubheadingAlign};
     }
     
@@ -1238,6 +1239,44 @@ export function IEditHeroElementEditor({ element, onChange }) {
                         min="-5"
                         max="20"
                       />
+                    </div>
+                    <div className="col-span-2">
+                      <label className="block text-sm font-medium mb-1">Font Color</label>
+                      <div className="flex items-center gap-2 mb-1">
+                        <input
+                          type="checkbox"
+                          id="subheading-use-text-color"
+                          checked={!content.subheading_color}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              updateContent('subheading_color', '');
+                            } else {
+                              updateContent('subheading_color', content.text_color || '#ffffff');
+                            }
+                          }}
+                          className="w-4 h-4"
+                        />
+                        <label htmlFor="subheading-use-text-color" className="text-xs cursor-pointer">
+                          Use main text color
+                        </label>
+                      </div>
+                      {content.subheading_color && (
+                        <div className="flex gap-2">
+                          <input
+                            type="color"
+                            value={content.subheading_color || '#ffffff'}
+                            onChange={(e) => updateContent('subheading_color', e.target.value)}
+                            className="w-12 h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+                          />
+                          <input
+                            type="text"
+                            value={content.subheading_color || '#ffffff'}
+                            onChange={(e) => updateContent('subheading_color', e.target.value)}
+                            className="flex-1 px-3 py-2 border border-slate-300 rounded-md font-mono text-sm"
+                            placeholder="#ffffff"
+                          />
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
