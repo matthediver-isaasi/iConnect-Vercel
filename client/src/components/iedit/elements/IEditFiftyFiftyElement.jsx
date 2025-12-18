@@ -4,7 +4,7 @@ import 'react-quill/dist/quill.snow.css';
 import DOMPurify from 'dompurify';
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ChevronDown, ChevronUp, Upload, X, AlignLeft, AlignCenter, AlignRight, AlignStartVertical, AlignCenterVertical, AlignEndVertical } from "lucide-react";
+import { ChevronDown, ChevronUp, Upload, X, AlignLeft, AlignCenter, AlignRight, ArrowUpToLine, AlignVerticalSpaceAround, ArrowDownToLine } from "lucide-react";
 import AGCASButton from "../../ui/AGCASButton";
 import TypographyStyleSelector, { applyTypographyStyle } from "../TypographyStyleSelector";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -719,16 +719,16 @@ export function IEditFiftyFiftyElementEditor({ element, onChange }) {
                 title="Align to top"
                 data-testid={`button-${side}-valign-top`}
               >
-                <AlignStartVertical className="w-4 h-4" />
+                <ArrowUpToLine className="w-4 h-4" />
               </button>
               <button
                 type="button"
                 onClick={() => updateContent(verticalAlignmentKey, 'center')}
                 className={`flex-1 flex items-center justify-center border-x border-slate-300 ${(!content[verticalAlignmentKey] || content[verticalAlignmentKey] === 'center') ? 'bg-slate-200' : 'bg-white hover:bg-slate-50'}`}
-                title="Align to center"
+                title="Align to middle"
                 data-testid={`button-${side}-valign-center`}
               >
-                <AlignCenterVertical className="w-4 h-4" />
+                <AlignVerticalSpaceAround className="w-4 h-4" />
               </button>
               <button
                 type="button"
@@ -737,7 +737,7 @@ export function IEditFiftyFiftyElementEditor({ element, onChange }) {
                 title="Align to bottom"
                 data-testid={`button-${side}-valign-bottom`}
               >
-                <AlignEndVertical className="w-4 h-4" />
+                <ArrowDownToLine className="w-4 h-4" />
               </button>
             </div>
           </div>
