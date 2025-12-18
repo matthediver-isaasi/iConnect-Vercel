@@ -289,13 +289,35 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
   const renderField = () => {
     // Handle auto-populated user fields
     if (['user_name', 'user_email', 'user_organization', 'user_job_title'].includes(field.type)) {
+      // If user is logged in, show as read-only auto-populated field
+      if (memberInfo) {
+        return (
+          <Input
+            type="text"
+            value={value || ''}
+            readOnly
+            className="bg-slate-50 cursor-not-allowed"
+            placeholder={field.placeholder || 'Auto-populated from your profile'}
+          />
+        );
+      }
+      // If no user is logged in, allow manual input based on field type
+      const inputType = field.type === 'user_email' ? 'email' : 'text';
+      const placeholder = field.placeholder || (
+        field.type === 'user_name' ? 'Enter your name' :
+        field.type === 'user_email' ? 'Enter your email' :
+        field.type === 'user_organization' ? 'Enter your organisation' :
+        field.type === 'user_job_title' ? 'Enter your job title' : ''
+      );
       return (
         <Input
-          type="text"
+          type={inputType}
           value={value || ''}
-          readOnly
-          className="bg-slate-50 cursor-not-allowed"
-          placeholder={field.placeholder || 'Auto-populated from your profile'}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          required={field.required}
+          disabled={isFieldDisabled}
+          className={isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : ''}
         />
       );
     }
