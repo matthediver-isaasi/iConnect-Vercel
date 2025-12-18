@@ -6,7 +6,35 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Building2, Search, Globe, Users, Loader2, ChevronLeft, ChevronRight, ArrowDownAZ, ArrowUpZA } from "lucide-react";
+import { Building2, Search, Globe, Users, Loader2, ChevronLeft, ChevronRight, ArrowDownAZ, ArrowUpZA, AlignLeft, AlignCenter, AlignRight, ChevronDown, ChevronUp } from "lucide-react";
+import TypographyStyleSelector, { applyTypographyStyle } from "../TypographyStyleSelector";
+import { useIsMobile } from "@/hooks/use-mobile";
+import ReactQuill from 'react-quill';
+import 'react-quill/dist/quill.snow.css';
+import DOMPurify from 'dompurify';
+
+const directoryQuillModules = {
+  toolbar: [
+    ['bold', 'italic', 'underline'],
+    ['link'],
+    ['clean']
+  ]
+};
+
+const fontFamilies = [
+  'Poppins', 'Inter', 'Roboto', 'Open Sans', 'Lato', 'Montserrat', 
+  'Playfair Display', 'Merriweather', 'Source Sans Pro', 'Raleway',
+  'Nunito', 'Work Sans', 'DM Sans', 'Outfit'
+];
+
+const fontWeights = [
+  { value: 300, label: 'Light' },
+  { value: 400, label: 'Regular' },
+  { value: 500, label: 'Medium' },
+  { value: 600, label: 'Semi Bold' },
+  { value: 700, label: 'Bold' },
+  { value: 800, label: 'Extra Bold' }
+];
 
 export function IEditOrganisationDirectoryElementEditor({ element, onChange }) {
   const defaultContent = {
@@ -22,17 +50,191 @@ export function IEditOrganisationDirectoryElementEditor({ element, onChange }) {
     columns: '3',
     rowsPerPage: '4',
     cardBorderRadius: 8,
-    headerText: '',
-    headerFontSize: 32,
-    headerColor: '#0f172a',
+    // Section header fields
+    header_title: '',
+    header_subtitle: '',
+    header_content: '',
+    header_font_family: 'Poppins',
+    header_font_size: 32,
+    header_font_size_mobile: 24,
+    header_font_weight: 700,
+    header_color: '#1e293b',
+    header_line_height: 1.2,
+    header_letter_spacing: 0,
+    subtitle_font_family: 'Poppins',
+    subtitle_font_size: 18,
+    subtitle_font_size_mobile: 16,
+    subtitle_font_weight: 400,
+    subtitle_color: '#64748b',
+    subtitle_line_height: 1.5,
+    subtitle_letter_spacing: 0,
+    content_font_family: 'Poppins',
+    content_font_size: 16,
+    content_font_size_mobile: 14,
+    content_font_weight: 400,
+    content_color: '#475569',
+    content_line_height: 1.6,
+    content_letter_spacing: 0,
   };
   
   const [content, setContent] = React.useState({ ...defaultContent, ...(element.content || {}) });
+  const [expandedSections, setExpandedSections] = useState({
+    sectionHeader: false
+  });
+
+  const toggleSection = (section) => {
+    setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
+  };
 
   const updateContent = (key, value) => {
     const newContent = { ...content, [key]: value };
     setContent(newContent);
     onChange({ ...element, content: newContent });
+  };
+
+  const updateMultipleContent = (updates) => {
+    const newContent = { ...content, ...updates };
+    setContent(newContent);
+    onChange({ ...element, content: newContent });
+  };
+
+  const AlignmentButtons = ({ value, onChange: onAlignChange, label, testIdPrefix }) => (
+    <div>
+      <Label className="text-xs">{label}</Label>
+      <div className="flex gap-1 mt-1">
+        {[
+          { val: 'left', Icon: AlignLeft },
+          { val: 'center', Icon: AlignCenter },
+          { val: 'right', Icon: AlignRight }
+        ].map(({ val, Icon }) => (
+          <button
+            key={val}
+            type="button"
+            onClick={() => onAlignChange(val)}
+            className={`p-2 rounded border ${
+              value === val 
+                ? 'bg-blue-600 text-white border-blue-600' 
+                : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
+            }`}
+            data-testid={`${testIdPrefix}-${val}`}
+          >
+            <Icon className="w-4 h-4" />
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
+  const renderTypographyControls = (prefix, label, defaultValues = {}) => {
+    const defaults = {
+      font_family: 'Poppins',
+      font_weight: prefix.includes('header') ? 700 : 400,
+      font_size: prefix.includes('header') ? 32 : (prefix.includes('subtitle') ? 18 : 16),
+      color: '#1e293b',
+      letter_spacing: 0,
+      line_height: prefix.includes('header') ? 1.2 : 1.6,
+      ...defaultValues
+    };
+
+    return (
+      <div className="space-y-3 p-3 bg-white rounded-md border border-slate-200 mt-2">
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label className="text-xs">Font Family</Label>
+            <select
+              value={content[`${prefix}_font_family`] || defaults.font_family}
+              onChange={(e) => updateContent(`${prefix}_font_family`, e.target.value)}
+              className="w-full px-2 py-1.5 border border-slate-300 rounded-md text-sm"
+            >
+              {fontFamilies.map(font => (
+                <option key={font} value={font}>{font}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <Label className="text-xs">Font Weight</Label>
+            <select
+              value={content[`${prefix}_font_weight`] || defaults.font_weight}
+              onChange={(e) => updateContent(`${prefix}_font_weight`, parseInt(e.target.value))}
+              className="w-full px-2 py-1.5 border border-slate-300 rounded-md text-sm"
+            >
+              {fontWeights.map(weight => (
+                <option key={weight.value} value={weight.value}>{weight.label}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-3 gap-3">
+          <div>
+            <Label className="text-xs">Font Size (px)</Label>
+            <Input
+              type="number"
+              value={content[`${prefix}_font_size`] || defaults.font_size}
+              onChange={(e) => updateContent(`${prefix}_font_size`, parseInt(e.target.value) || defaults.font_size)}
+              min="10"
+              max="120"
+              className="h-8"
+            />
+          </div>
+          <div>
+            <Label className="text-xs">Mobile Size (px)</Label>
+            <Input
+              type="number"
+              value={content[`${prefix}_font_size_mobile`] || ''}
+              onChange={(e) => updateContent(`${prefix}_font_size_mobile`, e.target.value ? parseInt(e.target.value) : '')}
+              min="10"
+              max="120"
+              placeholder="Same"
+              className="h-8"
+            />
+          </div>
+          <div>
+            <Label className="text-xs">Color</Label>
+            <div className="flex gap-1">
+              <input
+                type="color"
+                value={content[`${prefix}_color`] || defaults.color}
+                onChange={(e) => updateContent(`${prefix}_color`, e.target.value)}
+                className="w-10 h-8 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+              />
+              <Input
+                value={content[`${prefix}_color`] || defaults.color}
+                onChange={(e) => updateContent(`${prefix}_color`, e.target.value)}
+                className="flex-1 h-8 font-mono text-xs"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label className="text-xs">Letter Spacing (px)</Label>
+            <Input
+              type="number"
+              value={content[`${prefix}_letter_spacing`] ?? defaults.letter_spacing}
+              onChange={(e) => updateContent(`${prefix}_letter_spacing`, parseFloat(e.target.value) || 0)}
+              min="-5"
+              max="20"
+              step="0.5"
+              className="h-8"
+            />
+          </div>
+          <div>
+            <Label className="text-xs">Line Height</Label>
+            <Input
+              type="number"
+              value={content[`${prefix}_line_height`] || defaults.line_height}
+              onChange={(e) => updateContent(`${prefix}_line_height`, parseFloat(e.target.value) || defaults.line_height)}
+              min="0.8"
+              max="3"
+              step="0.1"
+              className="h-8"
+            />
+          </div>
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -59,41 +261,164 @@ export function IEditOrganisationDirectoryElementEditor({ element, onChange }) {
         </p>
       </div>
 
-      <div>
-        <Label htmlFor="headerText">Section Header (optional)</Label>
-        <Input
-          id="headerText"
-          value={content.headerText || ''}
-          onChange={(e) => updateContent('headerText', e.target.value)}
-          placeholder="e.g., Our Member Organisations"
-        />
-      </div>
+      {/* Section Header Accordion */}
+      <div className="border rounded-lg overflow-hidden">
+        <button
+          type="button"
+          onClick={() => toggleSection('sectionHeader')}
+          className="w-full flex items-center justify-between p-3 bg-slate-100 hover:bg-slate-200 text-left"
+        >
+          <span className="font-semibold text-sm">Section Header (Optional)</span>
+          {expandedSections.sectionHeader ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+        </button>
+        
+        {expandedSections.sectionHeader && (
+          <div className="p-4 space-y-6 bg-slate-50">
+            {/* Header Title */}
+            <div className="border-b pb-4">
+              <h5 className="font-medium text-sm mb-3">Header Title</h5>
+              <div className="space-y-3">
+                <div>
+                  <Label className="text-xs">Title Text</Label>
+                  <div className="directory-quill-editor border border-slate-300 rounded-md overflow-hidden bg-white">
+                    <ReactQuill
+                      theme="snow"
+                      value={content.header_title || ''}
+                      onChange={(value) => updateContent('header_title', value)}
+                      modules={directoryQuillModules}
+                      placeholder="Enter header title..."
+                      style={{ minHeight: '80px' }}
+                    />
+                  </div>
+                </div>
+                <TypographyStyleSelector
+                  value={content.header_typography_style_id || null}
+                  onChange={(styleId, style) => {
+                    const updates = { header_typography_style_id: styleId };
+                    if (style) {
+                      const mapped = applyTypographyStyle(style);
+                      if (mapped.font_family) updates.header_font_family = mapped.font_family;
+                      if (mapped.font_size) updates.header_font_size = mapped.font_size;
+                      if (mapped.font_size_mobile) updates.header_font_size_mobile = mapped.font_size_mobile;
+                      if (mapped.font_weight) updates.header_font_weight = mapped.font_weight;
+                      if (mapped.line_height) updates.header_line_height = mapped.line_height;
+                      if (mapped.letter_spacing !== undefined) updates.header_letter_spacing = mapped.letter_spacing;
+                      if (mapped.color) updates.header_color = mapped.color;
+                    }
+                    updateMultipleContent(updates);
+                  }}
+                  label="Header Title Typography Style"
+                />
+                <AlignmentButtons 
+                  value={content.header_title_text_align || 'center'} 
+                  onChange={(val) => updateContent('header_title_text_align', val)}
+                  label="Alignment"
+                  testIdPrefix="orgdir-header-title-align"
+                />
+                <details className="text-xs">
+                  <summary className="cursor-pointer text-slate-500 hover:text-slate-700 font-medium">Manual Font Settings</summary>
+                  {renderTypographyControls('header', 'Header Title Typography')}
+                </details>
+              </div>
+            </div>
 
-      {content.headerText && (
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <Label htmlFor="headerFontSize">Header Size (px)</Label>
-            <Input
-              id="headerFontSize"
-              type="number"
-              value={content.headerFontSize || 32}
-              onChange={(e) => updateContent('headerFontSize', parseInt(e.target.value) || 32)}
-              min="16"
-              max="72"
-            />
+            {/* Header Subtitle */}
+            <div className="border-b pb-4">
+              <h5 className="font-medium text-sm mb-3">Header Subtitle</h5>
+              <div className="space-y-3">
+                <div>
+                  <Label className="text-xs">Subtitle Text</Label>
+                  <div className="directory-quill-editor border border-slate-300 rounded-md overflow-hidden bg-white">
+                    <ReactQuill
+                      theme="snow"
+                      value={content.header_subtitle || ''}
+                      onChange={(value) => updateContent('header_subtitle', value)}
+                      modules={directoryQuillModules}
+                      placeholder="Enter header subtitle..."
+                      style={{ minHeight: '80px' }}
+                    />
+                  </div>
+                </div>
+                <TypographyStyleSelector
+                  value={content.subtitle_typography_style_id || null}
+                  onChange={(styleId, style) => {
+                    const updates = { subtitle_typography_style_id: styleId };
+                    if (style) {
+                      const mapped = applyTypographyStyle(style);
+                      if (mapped.font_family) updates.subtitle_font_family = mapped.font_family;
+                      if (mapped.font_size) updates.subtitle_font_size = mapped.font_size;
+                      if (mapped.font_size_mobile) updates.subtitle_font_size_mobile = mapped.font_size_mobile;
+                      if (mapped.font_weight) updates.subtitle_font_weight = mapped.font_weight;
+                      if (mapped.line_height) updates.subtitle_line_height = mapped.line_height;
+                      if (mapped.letter_spacing !== undefined) updates.subtitle_letter_spacing = mapped.letter_spacing;
+                      if (mapped.color) updates.subtitle_color = mapped.color;
+                    }
+                    updateMultipleContent(updates);
+                  }}
+                  label="Header Subtitle Typography Style"
+                />
+                <AlignmentButtons 
+                  value={content.header_subtitle_text_align || 'center'} 
+                  onChange={(val) => updateContent('header_subtitle_text_align', val)}
+                  label="Alignment"
+                  testIdPrefix="orgdir-header-subtitle-align"
+                />
+                <details className="text-xs">
+                  <summary className="cursor-pointer text-slate-500 hover:text-slate-700 font-medium">Manual Font Settings</summary>
+                  {renderTypographyControls('subtitle', 'Header Subtitle Typography')}
+                </details>
+              </div>
+            </div>
+
+            {/* Header Content */}
+            <div>
+              <h5 className="font-medium text-sm mb-3">Header Content</h5>
+              <div className="space-y-3">
+                <div>
+                  <Label className="text-xs">Content Text</Label>
+                  <div className="directory-quill-editor border border-slate-300 rounded-md overflow-hidden bg-white">
+                    <ReactQuill
+                      theme="snow"
+                      value={content.header_content || ''}
+                      onChange={(value) => updateContent('header_content', value)}
+                      modules={directoryQuillModules}
+                      placeholder="Enter header content..."
+                      style={{ minHeight: '120px' }}
+                    />
+                  </div>
+                </div>
+                <TypographyStyleSelector
+                  value={content.content_typography_style_id || null}
+                  onChange={(styleId, style) => {
+                    const updates = { content_typography_style_id: styleId };
+                    if (style) {
+                      const mapped = applyTypographyStyle(style);
+                      if (mapped.font_family) updates.content_font_family = mapped.font_family;
+                      if (mapped.font_size) updates.content_font_size = mapped.font_size;
+                      if (mapped.font_size_mobile) updates.content_font_size_mobile = mapped.font_size_mobile;
+                      if (mapped.font_weight) updates.content_font_weight = mapped.font_weight;
+                      if (mapped.line_height) updates.content_line_height = mapped.line_height;
+                      if (mapped.color) updates.content_color = mapped.color;
+                    }
+                    updateMultipleContent(updates);
+                  }}
+                  label="Header Content Typography Style"
+                />
+                <AlignmentButtons 
+                  value={content.header_content_text_align || 'center'} 
+                  onChange={(val) => updateContent('header_content_text_align', val)}
+                  label="Alignment"
+                  testIdPrefix="orgdir-header-content-align"
+                />
+                <details className="text-xs">
+                  <summary className="cursor-pointer text-slate-500 hover:text-slate-700 font-medium">Manual Font Settings</summary>
+                  {renderTypographyControls('content', 'Header Content Typography')}
+                </details>
+              </div>
+            </div>
           </div>
-          <div>
-            <Label htmlFor="headerColor">Header Color</Label>
-            <input
-              id="headerColor"
-              type="color"
-              value={content.headerColor || '#0f172a'}
-              onChange={(e) => updateContent('headerColor', e.target.value)}
-              className="w-full h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
-            />
-          </div>
-        </div>
-      )}
+        )}
+      </div>
 
       <div>
         <Label htmlFor="backgroundColor">Background Color</Label>
@@ -274,6 +599,7 @@ export function IEditOrganisationDirectoryElementRenderer({ content, settings })
   const [searchQuery, setSearchQuery] = useState("");
   const [sortOrder, setSortOrder] = useState("asc");
   const [currentPage, setCurrentPage] = useState(1);
+  const isMobile = useIsMobile();
 
   const {
     anchor,
@@ -289,10 +615,77 @@ export function IEditOrganisationDirectoryElementRenderer({ content, settings })
     columns = '3',
     rowsPerPage = '4',
     cardBorderRadius = 8,
-    headerText = '',
-    headerFontSize = 32,
-    headerColor = '#0f172a',
+    // Section header fields
+    header_title = '',
+    header_subtitle = '',
+    header_content = '',
+    header_title_text_align = 'center',
+    header_subtitle_text_align = 'center',
+    header_content_text_align = 'center',
+    header_font_family = 'Poppins',
+    header_font_size = 32,
+    header_font_size_mobile = 24,
+    header_font_weight = 700,
+    header_color = '#1e293b',
+    header_line_height = 1.2,
+    header_letter_spacing = 0,
+    subtitle_font_family = 'Poppins',
+    subtitle_font_size = 18,
+    subtitle_font_size_mobile = 16,
+    subtitle_font_weight = 400,
+    subtitle_color = '#64748b',
+    subtitle_line_height = 1.5,
+    subtitle_letter_spacing = 0,
+    content_font_family = 'Poppins',
+    content_font_size = 16,
+    content_font_size_mobile = 14,
+    content_font_weight = 400,
+    content_color = '#475569',
+    content_line_height = 1.6,
+    content_letter_spacing = 0,
   } = content || {};
+
+  // Helper to check if a text value has actual content
+  const hasContent = (value) => {
+    if (!value) return false;
+    const stripped = value.replace(/<[^>]*>/g, '').trim();
+    return stripped.length > 0;
+  };
+
+  const hasHeaderTitle = hasContent(header_title);
+  const hasHeaderSubtitle = hasContent(header_subtitle);
+  const hasHeaderContentText = hasContent(header_content);
+  const hasHeaderSection = hasHeaderTitle || hasHeaderSubtitle || hasHeaderContentText;
+
+  const getHeaderTitleStyle = () => ({
+    fontFamily: header_font_family,
+    fontSize: `${isMobile && header_font_size_mobile ? header_font_size_mobile : header_font_size}px`,
+    fontWeight: header_font_weight,
+    color: header_color,
+    lineHeight: header_line_height,
+    letterSpacing: `${header_letter_spacing}px`,
+    textAlign: header_title_text_align
+  });
+
+  const getSubtitleStyle = () => ({
+    fontFamily: subtitle_font_family,
+    fontSize: `${isMobile && subtitle_font_size_mobile ? subtitle_font_size_mobile : subtitle_font_size}px`,
+    fontWeight: subtitle_font_weight,
+    color: subtitle_color,
+    lineHeight: subtitle_line_height,
+    letterSpacing: `${subtitle_letter_spacing}px`,
+    textAlign: header_subtitle_text_align
+  });
+
+  const getContentStyle = () => ({
+    fontFamily: content_font_family,
+    fontSize: `${isMobile && content_font_size_mobile ? content_font_size_mobile : content_font_size}px`,
+    fontWeight: content_font_weight,
+    color: content_color,
+    lineHeight: content_line_height,
+    letterSpacing: `${content_letter_spacing}px`,
+    textAlign: header_content_text_align
+  });
 
   const { data: organizations = [], isLoading } = useQuery({
     queryKey: ['organizations-element'],
@@ -412,16 +805,31 @@ export function IEditOrganisationDirectoryElementRenderer({ content, settings })
   return (
     <div id={anchor || undefined} style={{ backgroundColor }} className="p-4 md:p-8">
       <div className={settings?.fullWidth ? 'px-4' : 'max-w-7xl mx-auto'}>
-        {headerText && (
-          <h2 
-            className="mb-6 font-bold"
-            style={{ 
-              fontSize: `${headerFontSize}px`,
-              color: headerColor 
-            }}
-          >
-            {headerText}
-          </h2>
+        {/* Section Header - only render if there's actual content */}
+        {hasHeaderSection && (
+          <div className="mb-8 space-y-2">
+            {hasHeaderTitle && (
+              <div 
+                style={getHeaderTitleStyle()} 
+                className="section-header-title"
+                dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(header_title) }}
+              />
+            )}
+            {hasHeaderSubtitle && (
+              <div 
+                style={getSubtitleStyle()} 
+                className="section-header-subtitle"
+                dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(header_subtitle) }}
+              />
+            )}
+            {hasHeaderContentText && (
+              <div 
+                style={getContentStyle()} 
+                className="max-w-3xl mx-auto section-header-content"
+                dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(header_content) }}
+              />
+            )}
+          </div>
         )}
 
         {(showSearch || showSortFilter) && (
