@@ -407,13 +407,27 @@ export default function TeamPage({ hasBanner }) {
       return;
     }
 
-    // Extract domain from logged-in user's email
-    const userDomain = memberInfo.email.split('@')[1].toLowerCase();
+    // Get organization's verified domains
+    const orgDomains = [];
+    if (organizationInfo?.domain) {
+      orgDomains.push(organizationInfo.domain.toLowerCase());
+    }
+    if (organizationInfo?.additional_verified_domains && Array.isArray(organizationInfo.additional_verified_domains)) {
+      orgDomains.push(...organizationInfo.additional_verified_domains.map(d => d.toLowerCase()));
+    }
+
+    // Fallback to user's domain if no org domains configured
+    if (orgDomains.length === 0 && memberInfo?.email) {
+      const userDomain = memberInfo.email.split('@')[1].toLowerCase();
+      orgDomains.push(userDomain);
+    }
+
     const inviteDomain = inviteEmail.split('@')[1].toLowerCase();
 
-    // Validate domain match
-    if (userDomain !== inviteDomain) {
-      toast.error(`Email domain must match yours: @${userDomain}`);
+    // Validate domain match against organization's verified domains
+    if (!orgDomains.includes(inviteDomain)) {
+      const domainList = orgDomains.map(d => `@${d}`).join(', ');
+      toast.error(`Email domain must be one of: ${domainList}`);
       return;
     }
 
@@ -442,8 +456,23 @@ export default function TeamPage({ hasBanner }) {
     );
   }
 
-  // Get user's email domain for display
-  const userDomain = memberInfo?.email ? memberInfo.email.split('@')[1] : '';
+  // Get organization's verified domains for display
+  const orgVerifiedDomains = useMemo(() => {
+    const domains = [];
+    if (organizationInfo?.domain) {
+      domains.push(organizationInfo.domain.toLowerCase());
+    }
+    if (organizationInfo?.additional_verified_domains && Array.isArray(organizationInfo.additional_verified_domains)) {
+      domains.push(...organizationInfo.additional_verified_domains.map(d => d.toLowerCase()));
+    }
+    // Fallback to user's domain if no org domains configured
+    if (domains.length === 0 && memberInfo?.email) {
+      domains.push(memberInfo.email.split('@')[1].toLowerCase());
+    }
+    return domains;
+  }, [organizationInfo, memberInfo]);
+
+  const primaryDomain = orgVerifiedDomains[0] || '';
 
   return (
     <TooltipProvider delayDuration={100}>
@@ -896,11 +925,14 @@ export default function TeamPage({ hasBanner }) {
                 type="email"
                 value={inviteEmail}
                 onChange={(e) => setInviteEmail(e.target.value)}
-                placeholder={`user@${userDomain}`}
+                placeholder={`user@${primaryDomain}`}
                 data-testid="input-invite-email"
               />
               <p className="text-xs text-slate-500">
-                Email domain must match: @{userDomain}
+                {orgVerifiedDomains.length > 1 
+                  ? `Allowed domains: ${orgVerifiedDomains.map(d => `@${d}`).join(', ')}`
+                  : `Email domain must match: @${primaryDomain}`
+                }
               </p>
             </div>
 
