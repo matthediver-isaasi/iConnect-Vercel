@@ -643,8 +643,8 @@ export default function MembersListPage() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50">
-      <div className="flex flex-1 overflow-hidden">
+    <div className="min-h-screen bg-slate-50">
+      <div className="flex h-screen">
         <aside 
           className={`bg-white border-r border-slate-200 flex flex-col transition-all duration-300 ease-in-out ${
             sidebarCollapsed ? 'w-0 overflow-hidden' : 'w-72'
