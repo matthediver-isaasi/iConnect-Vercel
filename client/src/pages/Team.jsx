@@ -97,6 +97,18 @@ export default function TeamPage({ hasBanner }) {
     enabled: !!memberInfo?.organization_id
   });
 
+  // Fetch organization's verified domains from preference_field/organization_preference_value
+  const { data: orgDomainsData } = useQuery({
+    queryKey: ['org-verified-domains', memberInfo?.organization_id],
+    queryFn: async () => {
+      if (!memberInfo?.organization_id) return { verified_domains: [] };
+      const response = await fetch(`/api/public/organisation/${memberInfo.organization_id}/domains`);
+      if (!response.ok) return { verified_domains: [] };
+      return response.json();
+    },
+    enabled: !!memberInfo?.organization_id
+  });
+
   // Fetch all articles to count posts
   const { data: allArticles = [] } = useQuery({
     queryKey: ['all-articles'],
@@ -407,26 +419,11 @@ export default function TeamPage({ hasBanner }) {
       return;
     }
 
-    // Get organization's verified domains
-    const orgDomains = [];
-    if (organizationInfo?.domain) {
-      orgDomains.push(organizationInfo.domain.toLowerCase());
-    }
-    if (organizationInfo?.additional_verified_domains && Array.isArray(organizationInfo.additional_verified_domains)) {
-      orgDomains.push(...organizationInfo.additional_verified_domains.map(d => d.toLowerCase()));
-    }
-
-    // Fallback to user's domain if no org domains configured
-    if (orgDomains.length === 0 && memberInfo?.email) {
-      const userDomain = memberInfo.email.split('@')[1].toLowerCase();
-      orgDomains.push(userDomain);
-    }
-
     const inviteDomain = inviteEmail.split('@')[1].toLowerCase();
 
-    // Validate domain match against organization's verified domains
-    if (!orgDomains.includes(inviteDomain)) {
-      const domainList = orgDomains.map(d => `@${d}`).join(', ');
+    // Validate domain match against organization's verified domains (from preference_field/organization_preference_value)
+    if (!orgVerifiedDomains.includes(inviteDomain)) {
+      const domainList = orgVerifiedDomains.map(d => `@${d}`).join(', ');
       toast.error(`Email domain must be one of: ${domainList}`);
       return;
     }
@@ -448,19 +445,17 @@ export default function TeamPage({ hasBanner }) {
 
   // Get organization's verified domains for display (must be before early returns)
   const orgVerifiedDomains = useMemo(() => {
-    const domains = [];
-    if (organizationInfo?.domain) {
-      domains.push(organizationInfo.domain.toLowerCase());
-    }
-    if (organizationInfo?.additional_verified_domains && Array.isArray(organizationInfo.additional_verified_domains)) {
-      domains.push(...organizationInfo.additional_verified_domains.map(d => d.toLowerCase()));
+    // Use verified_domains from the organization_preference_value table (fetched via API)
+    const apiDomains = orgDomainsData?.verified_domains || [];
+    if (apiDomains.length > 0) {
+      return apiDomains.map(d => d.toLowerCase());
     }
     // Fallback to user's domain if no org domains configured
-    if (domains.length === 0 && memberInfo?.email) {
-      domains.push(memberInfo.email.split('@')[1].toLowerCase());
+    if (memberInfo?.email) {
+      return [memberInfo.email.split('@')[1].toLowerCase()];
     }
-    return domains;
-  }, [organizationInfo, memberInfo]);
+    return [];
+  }, [orgDomainsData, memberInfo]);
 
   const primaryDomain = orgVerifiedDomains[0] || '';
 
