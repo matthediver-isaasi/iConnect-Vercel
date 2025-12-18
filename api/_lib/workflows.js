@@ -91,29 +91,45 @@ async function processSpecialPlaceholders(content, entityType, entityId, baseUrl
   
   let result = content;
   
-  // Check for various forms of the placeholder (normal and HTML-encoded)
-  const hasNormalPlaceholder = result.includes('{{set_password_url}}');
-  const hasHtmlEncodedPlaceholder = result.includes('&#123;&#123;set_password_url&#125;&#125;');
-  const hasUrlEncodedPlaceholder = result.includes('%7B%7Bset_password_url%7D%7D');
+  // First, decode any HTML entities in the content for detection
+  const decodedContent = result
+    .replace(/&#123;/g, '{')
+    .replace(/&#125;/g, '}')
+    .replace(/&lcub;/g, '{')
+    .replace(/&rcub;/g, '}');
   
-  console.log(`[processSpecialPlaceholders] Placeholder checks - normal: ${hasNormalPlaceholder}, htmlEncoded: ${hasHtmlEncodedPlaceholder}, urlEncoded: ${hasUrlEncodedPlaceholder}`);
+  // Use flexible regex that handles whitespace and is case-insensitive
+  // Matches: {{set_password_url}}, {{ set_password_url }}, {{SET_PASSWORD_URL}}, etc.
+  const placeholderRegex = /\{\{\s*set_password_url\s*\}\}/gi;
+  const hasPlaceholder = placeholderRegex.test(decodedContent) || placeholderRegex.test(result);
+  
+  // Also check URL-encoded version
+  const hasUrlEncodedPlaceholder = result.includes('%7B%7Bset_password_url%7D%7D') || 
+                                    result.toLowerCase().includes('%7b%7bset_password_url%7d%7d');
+  
+  console.log(`[processSpecialPlaceholders] Placeholder detected: ${hasPlaceholder}, urlEncoded: ${hasUrlEncodedPlaceholder}`);
   
   // Handle {{set_password_url}} placeholder in all forms
-  if (hasNormalPlaceholder || hasHtmlEncodedPlaceholder || hasUrlEncodedPlaceholder) {
+  if (hasPlaceholder || hasUrlEncodedPlaceholder) {
     const passwordUrl = await generatePasswordSetupUrl(entityId, baseUrl);
     console.log(`[processSpecialPlaceholders] Generated passwordUrl: "${passwordUrl}"`);
     
     if (passwordUrl) {
-      // Replace all forms of the placeholder
-      result = result.replace(/\{\{set_password_url\}\}/g, passwordUrl);
-      result = result.replace(/&#123;&#123;set_password_url&#125;&#125;/g, passwordUrl);
-      result = result.replace(/%7B%7Bset_password_url%7D%7D/g, passwordUrl);
+      // Replace all forms of the placeholder (flexible regex with whitespace support)
+      result = result.replace(/\{\{\s*set_password_url\s*\}\}/gi, passwordUrl);
+      // HTML entity encoded versions
+      result = result.replace(/&#123;&#123;\s*set_password_url\s*&#125;&#125;/gi, passwordUrl);
+      result = result.replace(/&lcub;&lcub;\s*set_password_url\s*&rcub;&rcub;/gi, passwordUrl);
+      // URL encoded version
+      result = result.replace(/%7B%7Bset_password_url%7D%7D/gi, passwordUrl);
       console.log(`[Workflows] Replaced {{set_password_url}} with ${passwordUrl}`);
     } else {
       console.warn('[Workflows] Failed to generate password setup URL, placeholder not replaced');
     }
   } else {
     console.log(`[processSpecialPlaceholders] No set_password_url placeholder found in content`);
+    // Log a snippet of the content to help debug
+    console.log(`[processSpecialPlaceholders] Content snippet (first 500 chars): ${content.substring(0, 500)}`);
   }
   
   return result;
