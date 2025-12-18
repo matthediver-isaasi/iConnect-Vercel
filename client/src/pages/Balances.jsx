@@ -1,5 +1,5 @@
 
-import React, { useMemo } from "react";
+import React, { useMemo, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,7 +10,14 @@ import { format, differenceInDays } from "date-fns";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 
 export default function BalancesPage({ hasBanner }) {
-  const { memberInfo, organizationInfo, isFeatureExcluded } = useMemberAccess();
+  const { memberInfo, organizationInfo, isFeatureExcluded, refreshOrganizationInfo } = useMemberAccess();
+  
+  // Refresh organization info on mount to get latest training fund balance
+  useEffect(() => {
+    if (refreshOrganizationInfo) {
+      refreshOrganizationInfo();
+    }
+  }, [refreshOrganizationInfo]);
   
   // Check feature exclusions for each section
   const hideTrainingFundCard = isFeatureExcluded('commerce.balances.training-fund-card');
