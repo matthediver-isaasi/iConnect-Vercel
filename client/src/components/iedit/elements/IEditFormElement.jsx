@@ -68,6 +68,15 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   const [isValidating, setIsValidating] = useState(false);
   const [validationErrors, setValidationErrors] = useState([]);
   const [fieldValidity, setFieldValidity] = useState({}); // Track format validity for each field
+  
+  // Get prefill parameters from URL query string (same as FormView)
+  const urlParams = new URLSearchParams(window.location.search);
+  const prefillMemberId = urlParams.get('member_id');
+  const prefillOrgId = urlParams.get('organization_id');
+  
+  // Track if prefill has been applied and defaults initialized
+  const [prefillApplied, setPrefillApplied] = useState(false);
+  const [defaultsInitialized, setDefaultsInitialized] = useState(false);
 
   // Handler for field validity changes from FormRenderer
   const handleValidityChange = (fieldId, isValid) => {
@@ -208,18 +217,65 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     enabled: !!formSlug
   });
 
+  // Prefill: Fetch member entity when form has prefill_source = 'member'
+  const { data: prefillMember } = useQuery({
+    queryKey: ['prefill-member-embed', prefillMemberId],
+    queryFn: async () => {
+      const allMembers = await base44.entities.Member.listAll();
+      return allMembers.find(m => m.id === prefillMemberId);
+    },
+    enabled: !!prefillMemberId && form?.prefill_source === 'member'
+  });
+
+  // Prefill: Fetch organization entity when form has prefill_source = 'organization'
+  const { data: prefillOrg } = useQuery({
+    queryKey: ['prefill-org-embed', prefillOrgId],
+    queryFn: async () => {
+      const allOrgs = await base44.entities.Organization.listAll();
+      return allOrgs.find(o => o.id === prefillOrgId);
+    },
+    enabled: !!prefillOrgId && form?.prefill_source === 'organization'
+  });
+
+  // Prefill: Fetch custom field values for prefill entity
+  const { data: prefillCustomFieldValues = [] } = useQuery({
+    queryKey: ['prefill-custom-values-embed', form?.prefill_source, prefillMemberId, prefillOrgId],
+    queryFn: async () => {
+      if (form?.prefill_source === 'member' && prefillMemberId) {
+        const values = await base44.entities.MemberPreferenceValue.list({
+          filter: { member_id: prefillMemberId }
+        });
+        return values || [];
+      } else if (form?.prefill_source === 'organization' && prefillOrgId) {
+        const values = await base44.entities.OrganizationPreferenceValue.list({
+          filter: { organization_id: prefillOrgId }
+        });
+        return values || [];
+      }
+      return [];
+    },
+    enabled: form?.prefill_source && form.prefill_source !== 'none' && 
+      ((form.prefill_source === 'member' && !!prefillMemberId) || 
+       (form.prefill_source === 'organization' && !!prefillOrgId))
+  });
+
   // Find the organisation_dropdown field (if any) to determine selected org for domain validation
   const orgDropdownField = useMemo(() => {
     return (form?.fields || []).find(f => f.type === 'organisation_dropdown');
   }, [form?.fields]);
 
-  // Get the selected org ID from the organisation_dropdown field selection
+  // Get the selected org ID from either URL prefill or form dropdown selection
   const selectedOrgId = useMemo(() => {
+    // First priority: org selected in the organisation_dropdown field
     if (orgDropdownField && formValues[orgDropdownField.id]) {
       return formValues[orgDropdownField.id];
     }
+    // Second priority: prefilled org from URL (for organization prefill source)
+    if (prefillOrgId) {
+      return prefillOrgId;
+    }
     return null;
-  }, [orgDropdownField, formValues]);
+  }, [orgDropdownField, formValues, prefillOrgId]);
 
   // Fetch the selected organization for domain validation (uses public endpoint for unauthenticated access)
   const { data: selectedOrg } = useQuery({
@@ -236,15 +292,25 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   });
 
   // Compute effective organization for email domain validation
-  // Priority: selected org from form dropdown > passed organizationInfo
+  // Priority: selected org from form dropdown > prefill org > passed organizationInfo
   const effectiveOrganizationInfo = useMemo(() => {
-    return selectedOrg || organizationInfo;
-  }, [selectedOrg, organizationInfo]);
+    return selectedOrg || prefillOrg || organizationInfo;
+  }, [selectedOrg, prefillOrg, organizationInfo]);
+
+  // Reset prefill state when form changes
+  useEffect(() => {
+    setCurrentPageIndex(0);
+    setCurrentStep(0);
+    setSubmitted(false);
+    setPrefillApplied(false);
+    setDefaultsInitialized(false);
+    setFormValues({});
+  }, [form?.id]);
 
   // Initialize boolean fields with their default values when form loads
   // This ensures untouched boolean fields are included in the submission
   useEffect(() => {
-    if (!form?.fields) return;
+    if (!form?.fields || defaultsInitialized) return;
     
     const booleanDefaults = {};
     for (const field of form.fields) {
@@ -254,17 +320,78 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     }
     
     if (Object.keys(booleanDefaults).length > 0) {
+      setFormValues(prev => ({ ...prev, ...booleanDefaults }));
+    }
+    setDefaultsInitialized(true);
+  }, [form?.fields, defaultsInitialized]);
+
+  // Prefill: Populate form values when prefill entity loads (one-time only)
+  useEffect(() => {
+    if (!form || !form.prefill_source || form.prefill_source === 'none') return;
+    if (!defaultsInitialized) return; // Wait for boolean defaults to be set first
+    if (prefillApplied) return; // Already applied prefill, don't overwrite user edits
+    
+    const entity = form.prefill_source === 'member' ? prefillMember : prefillOrg;
+    if (!entity) return;
+    
+    const newValues = {};
+    for (const field of (form.fields || [])) {
+      // Special handling for organisation_dropdown: always use the entity's ID
+      if (field.type === 'organisation_dropdown') {
+        if (form.prefill_source === 'organization' && prefillOrgId) {
+          newValues[field.id] = prefillOrgId;
+        } else if (form.prefill_source === 'member' && entity.organization_id) {
+          newValues[field.id] = entity.organization_id;
+        }
+        continue;
+      }
+      
+      if (field.prefill_field) {
+        // Check if custom field (prefixed with 'custom:')
+        if (field.prefill_field.startsWith('custom:')) {
+          const customFieldId = field.prefill_field.replace('custom:', '');
+          const cfv = prefillCustomFieldValues.find(v => v.field_id === customFieldId);
+          if (cfv && cfv.value !== undefined && cfv.value !== null) {
+            let parsedValue = cfv.value;
+            // For list fields, custom field values are stored as JSON strings
+            if (field.type === 'list') {
+              try {
+                const parsed = JSON.parse(cfv.value);
+                parsedValue = Array.isArray(parsed) ? parsed : [cfv.value];
+              } catch {
+                parsedValue = cfv.value ? [cfv.value] : [];
+              }
+            }
+            newValues[field.id] = parsedValue;
+          }
+        } else {
+          // Core field - get value from entity
+          if (entity[field.prefill_field] !== undefined) {
+            newValues[field.id] = entity[field.prefill_field];
+          }
+        }
+      }
+    }
+    
+    if (Object.keys(newValues).length > 0) {
       setFormValues(prev => {
         const merged = { ...prev };
-        for (const [fieldId, defaultVal] of Object.entries(booleanDefaults)) {
-          if (merged[fieldId] === undefined) {
-            merged[fieldId] = defaultVal;
+        for (const [key, value] of Object.entries(newValues)) {
+          const field = form.fields?.find(f => f.id === key);
+          // For boolean fields, always allow prefill to override defaults
+          if (field?.type === 'boolean') {
+            merged[key] = value;
+          }
+          // For non-boolean fields, only prefill if empty/null/undefined
+          else if (prev[key] === undefined || prev[key] === '' || prev[key] === null) {
+            merged[key] = value;
           }
         }
         return merged;
       });
+      setPrefillApplied(true);
     }
-  }, [form?.fields]);
+  }, [form, prefillMember, prefillOrg, prefillCustomFieldValues, prefillApplied, defaultsInitialized, prefillOrgId]);
 
   // Helper to evaluate a rule condition
   const evaluateCondition = (triggerValue, operator, value) => {
