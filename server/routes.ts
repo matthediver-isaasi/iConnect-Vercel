@@ -298,8 +298,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const isWorkflowEntity = entity === 'Organization' || entity === 'Member';
       if (isWorkflowEntity && data) {
         const entityType = entity.toLowerCase() as 'organization' | 'member';
+        const baseUrl = `${req.protocol}://${req.get('host')}`;
         // Run asynchronously to not block the response
-        evaluateWorkflows(entityType, data.id, null, data, 'record_create').catch(err => {
+        evaluateWorkflows(entityType, data.id, null, data, 'record_create', baseUrl).catch(err => {
           console.error('[Entity POST] Workflow evaluation error:', err);
         });
       }
@@ -388,8 +389,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Trigger workflow evaluation for Organization and Member updates
       if (isWorkflowEntity && beforeData && data) {
         const entityType = entity.toLowerCase() as 'organization' | 'member';
+        const baseUrl = `${req.protocol}://${req.get('host')}`;
         // Run asynchronously to not block the response
-        evaluateWorkflows(entityType, id, beforeData, data, 'field_change').catch(err => {
+        evaluateWorkflows(entityType, id, beforeData, data, 'field_change', baseUrl).catch(err => {
           console.error('[Entity PATCH] Workflow evaluation error:', err);
         });
       }

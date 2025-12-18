@@ -3,6 +3,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { sendEmail as sendMailgunEmail } from "./emailService";
+import crypto from "crypto";
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -215,8 +216,77 @@ function replacePlaceholders(template: string, entityType: string, entityData: a
   return result;
 }
 
+// Generate a password setup token and URL for a member
+// This uses the same mechanism as password reset but for new users setting initial password
+async function generatePasswordSetupUrl(memberId: string, memberEmail: string, baseUrl: string): Promise<string | null> {
+  if (!supabase) return null;
+  
+  try {
+    const resetToken = crypto.randomUUID();
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days for new users
+    
+    // Check if credentials record exists
+    const { data: existingCreds } = await supabase
+      .from('member_credentials')
+      .select('id')
+      .eq('member_id', memberId)
+      .single();
+    
+    if (existingCreds) {
+      await supabase
+        .from('member_credentials')
+        .update({
+          reset_token: resetToken,
+          reset_token_expires: expiresAt.toISOString()
+        })
+        .eq('id', existingCreds.id);
+    } else {
+      await supabase
+        .from('member_credentials')
+        .insert({
+          member_id: memberId,
+          email: memberEmail.toLowerCase(),
+          reset_token: resetToken,
+          reset_token_expires: expiresAt.toISOString()
+        });
+    }
+    
+    const resetUrl = `${baseUrl}/auth/reset-password?token=${resetToken}&email=${encodeURIComponent(memberEmail)}`;
+    console.log(`[Workflow Engine] Generated password setup URL for ${memberEmail}`);
+    return resetUrl;
+  } catch (error) {
+    console.error('[Workflow Engine] Failed to generate password setup URL:', error);
+    return null;
+  }
+}
+
+// Process special placeholders like {{set_password_url}} that require dynamic generation
+async function processSpecialPlaceholders(
+  template: string,
+  entityType: string,
+  entityId: string,
+  entityData: any,
+  baseUrl: string
+): Promise<string> {
+  let result = template;
+  
+  // Handle {{set_password_url}} placeholder - only for member entities
+  if (entityType === 'member' && (template.includes('{{set_password_url}}') || template.includes('[[set_password_url]]'))) {
+    const memberEmail = entityData?.email;
+    if (memberEmail) {
+      const passwordUrl = await generatePasswordSetupUrl(entityId, memberEmail, baseUrl);
+      if (passwordUrl) {
+        result = result.replace(/\{\{set_password_url\}\}/g, passwordUrl);
+        result = result.replace(/\[\[set_password_url\]\]/g, passwordUrl);
+      }
+    }
+  }
+  
+  return result;
+}
+
 // Execute email action
-async function executeEmailAction(config: EmailActionConfig, entityType: string, entityId: string, entityData: any): Promise<ExecutionResult> {
+async function executeEmailAction(config: EmailActionConfig, entityType: string, entityId: string, entityData: any, baseUrl?: string): Promise<ExecutionResult> {
   let subject = config.subject || '';
   let body = config.body || '';
   
@@ -249,10 +319,16 @@ async function executeEmailAction(config: EmailActionConfig, entityType: string,
   }
 
   const to = replacePlaceholders(config.to, entityType, entityData);
-  const resolvedSubject = replacePlaceholders(subject, entityType, entityData);
-  const resolvedBody = replacePlaceholders(body, entityType, entityData);
+  let resolvedSubject = replacePlaceholders(subject, entityType, entityData);
+  let resolvedBody = replacePlaceholders(body, entityType, entityData);
   const cc = config.cc ? replacePlaceholders(config.cc, entityType, entityData) : undefined;
   const bcc = config.bcc ? replacePlaceholders(config.bcc, entityType, entityData) : undefined;
+
+  // Process special placeholders that require dynamic generation (like {{set_password_url}})
+  if (baseUrl) {
+    resolvedSubject = await processSpecialPlaceholders(resolvedSubject, entityType, entityId, entityData, baseUrl);
+    resolvedBody = await processSpecialPlaceholders(resolvedBody, entityType, entityId, entityData, baseUrl);
+  }
 
   console.log(`[Workflow Engine] Sending email to: ${to}`);
   console.log(`[Workflow Engine] Subject: ${resolvedSubject}`);
@@ -383,7 +459,8 @@ export async function evaluateWorkflows(
   entityId: string,
   beforeData: any,
   afterData: any,
-  triggerType: 'field_change' | 'record_create' | 'record_update'
+  triggerType: 'field_change' | 'record_create' | 'record_update',
+  baseUrl?: string
 ): Promise<void> {
   if (!supabase) {
     console.log('[Workflow Engine] Supabase not configured, skipping workflow evaluation');
@@ -466,7 +543,7 @@ export async function evaluateWorkflows(
           let result: ExecutionResult;
 
           if (action.type === 'send_email') {
-            result = await executeEmailAction(action.config as EmailActionConfig, entityType, entityId, afterData);
+            result = await executeEmailAction(action.config as EmailActionConfig, entityType, entityId, afterData, baseUrl);
           } else if (action.type === 'update_field') {
             result = await executeUpdateFieldAction(action.config as UpdateFieldActionConfig, entityType, entityId, afterData);
           } else {
