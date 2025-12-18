@@ -1,7 +1,7 @@
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { base44 } from "@/api/base44Client";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -9,12 +9,13 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { Loader2, Ticket, AlertCircle, PoundSterling, Wallet, CreditCard, Tag, Gift, CheckCircle, Users } from "lucide-react";
+import { Loader2, Ticket, AlertCircle, PoundSterling, Wallet, CreditCard, Tag, Gift, CheckCircle, Users, Wifi } from "lucide-react";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
 import VoucherSelector from "./VoucherSelector";
+import { useBalancesRealtime } from "@/hooks/useBalancesRealtime";
 
 // Stripe promise will be initialized dynamically
 let stripePromise = null;
@@ -145,6 +146,42 @@ export default function PaymentOptions({
   const [showDuplicateWarning, setShowDuplicateWarning] = useState(false);
   const [duplicateAttendees, setDuplicateAttendees] = useState([]);
   const [checkingDuplicates, setCheckingDuplicates] = useState(false);
+
+  const queryClient = useQueryClient();
+
+  // Realtime callbacks for balance updates during booking
+  const handleVoucherUpdated = useCallback(({ eventType, voucher }) => {
+    console.log('[PaymentOptions] Voucher updated via realtime:', eventType, voucher?.id);
+    queryClient.invalidateQueries({ queryKey: ['vouchers', organizationInfo?.id] });
+    
+    if (selectedVouchers.includes(voucher?.id)) {
+      toast.warning('Voucher balance changed', {
+        description: 'A voucher you selected has been used. Please review your payment options.',
+        duration: 5000
+      });
+    }
+  }, [queryClient, organizationInfo?.id, selectedVouchers]);
+
+  const handleTrainingFundUpdated = useCallback(({ oldBalance, newBalance }) => {
+    console.log('[PaymentOptions] Training fund updated via realtime:', oldBalance, '->', newBalance);
+    if (refreshOrganizationInfo) {
+      refreshOrganizationInfo();
+    }
+    
+    if (trainingFundAmount > 0 && newBalance < trainingFundAmount) {
+      toast.warning('Training fund balance changed', {
+        description: `Available balance is now £${(newBalance || 0).toFixed(2)}. Please adjust your payment.`,
+        duration: 5000
+      });
+      setTrainingFundAmount(Math.min(trainingFundAmount, newBalance || 0));
+    }
+  }, [refreshOrganizationInfo, trainingFundAmount]);
+
+  // Subscribe to realtime updates for vouchers and training fund
+  const { isConnected: realtimeConnected } = useBalancesRealtime(organizationInfo?.id, {
+    onVoucherUpdated: handleVoucherUpdated,
+    onTrainingFundUpdated: handleTrainingFundUpdated
+  });
 
   // Initialize Stripe by fetching the publishable key from the backend
   useEffect(() => {
@@ -609,6 +646,14 @@ export default function PaymentOptions({
         {/* Payment Options */}
         {totalCost > 0 && ticketsRequired > 0 && (
           <div className="space-y-4">
+            {/* Live updates indicator */}
+            {realtimeConnected && memberInfo && (
+              <div className="flex items-center gap-1.5 text-xs text-green-600" title="Live balance updates enabled">
+                <Wifi className="w-3 h-3" />
+                <span>Live balance updates</span>
+              </div>
+            )}
+            
             {/* Vouchers - only for logged-in members */}
             {memberInfo && !isFeatureExcluded('element_EventUseVouchers') && (
               <div className="p-4 rounded-lg border border-slate-200 bg-blue-50">

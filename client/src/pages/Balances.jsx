@@ -1,16 +1,19 @@
 
-import React, { useMemo, useEffect } from "react";
+import React, { useMemo, useEffect, useCallback } from "react";
 import { base44 } from "@/api/base44Client";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Wallet, Ticket, Calendar, AlertCircle } from "lucide-react";
+import { Wallet, Ticket, Calendar, AlertCircle, Wifi, WifiOff } from "lucide-react";
 import { format, differenceInDays } from "date-fns";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { useBalancesRealtime } from "@/hooks/useBalancesRealtime";
+import { toast } from "sonner";
 
 export default function BalancesPage({ hasBanner }) {
   const { memberInfo, organizationInfo, isFeatureExcluded, refreshOrganizationInfo } = useMemberAccess();
+  const queryClient = useQueryClient();
   
   // Refresh organization info on mount to get latest training fund balance
   useEffect(() => {
@@ -18,6 +21,32 @@ export default function BalancesPage({ hasBanner }) {
       refreshOrganizationInfo();
     }
   }, [refreshOrganizationInfo]);
+
+  // Realtime callbacks for balance updates
+  const handleVoucherUpdated = useCallback(({ eventType, voucher }) => {
+    console.log('[BalancesPage] Voucher updated via realtime:', eventType, voucher?.id);
+    toast.info('Voucher balance updated', {
+      description: 'Another booking has used voucher funds.',
+      duration: 3000
+    });
+  }, []);
+
+  const handleTrainingFundUpdated = useCallback(({ oldBalance, newBalance }) => {
+    console.log('[BalancesPage] Training fund updated via realtime:', oldBalance, '->', newBalance);
+    if (refreshOrganizationInfo) {
+      refreshOrganizationInfo();
+    }
+    toast.info('Training fund updated', {
+      description: `Balance changed from £${(oldBalance || 0).toFixed(2)} to £${(newBalance || 0).toFixed(2)}`,
+      duration: 3000
+    });
+  }, [refreshOrganizationInfo]);
+
+  // Subscribe to realtime updates for vouchers and training fund
+  const { isConnected: realtimeConnected } = useBalancesRealtime(organizationInfo?.id, {
+    onVoucherUpdated: handleVoucherUpdated,
+    onTrainingFundUpdated: handleTrainingFundUpdated
+  });
   
   // Check feature exclusions for each section
   const hideTrainingFundCard = isFeatureExcluded('commerce.balances.training-fund-card');
@@ -90,9 +119,17 @@ export default function BalancesPage({ hasBanner }) {
         {/* Header - hidden when custom banner is present */}
         {!hasBanner && (
           <div className="mb-8">
-            <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-2">
-              Account Balances
-            </h1>
+            <div className="flex items-center justify-between">
+              <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-2">
+                Account Balances
+              </h1>
+              {realtimeConnected && (
+                <div className="flex items-center gap-1.5 text-xs text-green-600" title="Live updates enabled">
+                  <Wifi className="w-3 h-3" />
+                  <span>Live</span>
+                </div>
+              )}
+            </div>
             <p className="text-slate-600">
               View your organisation's training fund and voucher balances
             </p>
