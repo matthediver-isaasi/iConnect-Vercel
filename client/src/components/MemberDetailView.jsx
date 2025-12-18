@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -163,6 +163,48 @@ export default function MemberDetailView({
       }
     }
   });
+
+  // Fetch role segmentation field setting
+  const { data: segmentationFieldSetting } = useQuery({
+    queryKey: ['role-segmentation-field-setting'],
+    queryFn: async () => {
+      const allSettings = await base44.entities.SystemSettings.list();
+      return allSettings.find(s => s.setting_key === 'role_segmentation_field_id');
+    }
+  });
+
+  const segmentationFieldId = segmentationFieldSetting?.setting_value || null;
+
+  // Get the member's organization to check its segment value
+  const memberOrganization = React.useMemo(() => {
+    const orgId = formData.organization_id || member?.organization_id;
+    if (!orgId) return null;
+    return organizations.find(org => org.id === orgId);
+  }, [formData.organization_id, member?.organization_id, organizations]);
+
+  // Filter roles based on organization's segmentation field value
+  const filteredRoles = React.useMemo(() => {
+    // If no segmentation is configured, show all roles
+    if (!segmentationFieldId) return roles;
+    
+    // Get the organization's value for the segmentation field
+    const orgSegmentValue = memberOrganization?.[segmentationFieldId] || null;
+    
+    // Filter roles:
+    // - Show roles with no segment_values (apply globally)
+    // - Show roles whose segment_values includes the org's segment value
+    return roles.filter(role => {
+      const roleSegments = role.segment_values || [];
+      // If role has no segment restrictions, show it
+      if (roleSegments.length === 0) return true;
+      // If org has a segment value, check if role includes it
+      if (orgSegmentValue) {
+        return roleSegments.includes(orgSegmentValue);
+      }
+      // If org has no segment value, only show roles with no restrictions
+      return roleSegments.length === 0;
+    });
+  }, [roles, segmentationFieldId, memberOrganization]);
 
   useEffect(() => {
     // Only populate form from member data when editing an existing member (has id)
@@ -973,7 +1015,7 @@ export default function MemberDetailView({
                         <p className="font-medium text-sm text-slate-500">No role</p>
                       </Label>
                     </div>
-                    {roles.map(role => (
+                    {filteredRoles.map(role => (
                       <div 
                         key={role.id} 
                         className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg cursor-pointer"
