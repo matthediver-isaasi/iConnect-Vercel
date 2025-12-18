@@ -14,6 +14,18 @@ async function generatePasswordSetupUrl(memberId, baseUrl) {
   if (!supabase || !memberId) return null;
   
   try {
+    // First fetch the member's email
+    const { data: member, error: memberError } = await supabase
+      .from('member')
+      .select('email')
+      .eq('id', memberId)
+      .single();
+    
+    if (memberError || !member?.email) {
+      console.error('[Workflows] Could not fetch member email for password setup URL:', memberError);
+      return null;
+    }
+    
     const resetToken = crypto.randomUUID();
     const resetTokenExpires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
     
@@ -45,8 +57,8 @@ async function generatePasswordSetupUrl(memberId, baseUrl) {
         });
     }
     
-    console.log(`[Workflows] Generated password setup token for member ${memberId}`);
-    return `${baseUrl}/auth/reset-password?token=${resetToken}`;
+    console.log(`[Workflows] Generated password setup token for member ${memberId} (${member.email})`);
+    return `${baseUrl}/auth/reset-password?token=${resetToken}&email=${encodeURIComponent(member.email)}`;
   } catch (error) {
     console.error('[Workflows] Error generating password setup URL:', error);
     return null;
