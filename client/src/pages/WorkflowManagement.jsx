@@ -183,24 +183,57 @@ export default function WorkflowManagementPage() {
   const orgCustomFields = customFields.filter(f => f.entity_scope === 'organization');
   const memberCustomFields = customFields.filter(f => !f.entity_scope || f.entity_scope === 'member');
 
-  const getAvailableFields = (entityType) => {
+  // Returns all member and organization fields (core and custom) for conditions
+  // Both entity types' fields are always available since workflows may need cross-entity conditions
+  const getAvailableFields = () => {
+    return {
+      memberCore: MEMBER_CORE_FIELDS.map(f => ({ ...f, field_type: 'member_core', entity: 'member', options: f.options || null })),
+      memberCustom: memberCustomFields.map(f => ({ 
+        id: f.id, 
+        label: f.label, 
+        type: f.field_type,
+        field_type: 'member_custom',
+        entity: 'member',
+        options: f.options || null
+      })),
+      orgCore: ORGANIZATION_CORE_FIELDS.map(f => ({ ...f, field_type: 'org_core', entity: 'organization', options: f.options || null })),
+      orgCustom: orgCustomFields.map(f => ({ 
+        id: f.id, 
+        label: f.label, 
+        type: f.field_type,
+        field_type: 'org_custom',
+        entity: 'organization',
+        options: f.options || null
+      })),
+    };
+  };
+  
+  // Flatten all fields for lookups
+  const getAllFieldsFlat = () => {
+    const fields = getAvailableFields();
+    return [...fields.memberCore, ...fields.memberCustom, ...fields.orgCore, ...fields.orgCustom];
+  };
+  
+  // Get entity-specific fields for triggers and update actions
+  const getEntitySpecificFields = (entityType) => {
     const coreFields = entityType === 'organization' ? ORGANIZATION_CORE_FIELDS : MEMBER_CORE_FIELDS;
     const customFieldsList = entityType === 'organization' ? orgCustomFields : memberCustomFields;
     
-    return [
-      ...coreFields.map(f => ({ ...f, field_type: 'core', options: f.options || null })),
-      ...customFieldsList.map(f => ({ 
+    return {
+      core: coreFields.map(f => ({ ...f, field_type: 'core', options: f.options || null })),
+      custom: customFieldsList.map(f => ({ 
         id: f.id, 
         label: f.label, 
         type: f.field_type,
         field_type: 'custom',
         options: f.options || null
       }))
-    ];
+    };
   };
 
   const getSelectedField = (fieldType, fieldId) => {
-    return availableFields.find(f => f.field_type === fieldType && f.id === fieldId);
+    const allFields = getAllFieldsFlat();
+    return allFields.find(f => f.field_type === fieldType && f.id === fieldId);
   };
 
   const createMutation = useMutation({
@@ -374,7 +407,8 @@ export default function WorkflowManagementPage() {
     }));
   };
 
-  const availableFields = getAvailableFields(formData.entity_type);
+  const availableFieldsGrouped = getAvailableFields();
+  const availableFieldsFlat = getAllFieldsFlat();
 
   if (!accessChecked) {
     return (
@@ -743,19 +777,19 @@ export default function WorkflowManagementPage() {
                         <SelectTrigger data-testid="select-trigger-field">
                           <SelectValue placeholder="Select a field" />
                         </SelectTrigger>
-                        <SelectContent>
+                        <SelectContent className="max-h-[300px] overflow-y-auto">
                           <SelectGroup>
                             <SelectLabel>Core Fields</SelectLabel>
-                            {availableFields.filter(f => f.field_type === 'core').map((field) => (
+                            {getEntitySpecificFields(formData.entity_type).core.map((field) => (
                               <SelectItem key={`core:${field.id}`} value={`core:${field.id}`}>
                                 {field.label}
                               </SelectItem>
                             ))}
                           </SelectGroup>
-                          {availableFields.filter(f => f.field_type === 'custom').length > 0 && (
+                          {getEntitySpecificFields(formData.entity_type).custom.length > 0 && (
                             <SelectGroup>
                               <SelectLabel>Custom Fields</SelectLabel>
-                              {availableFields.filter(f => f.field_type === 'custom').map((field) => (
+                              {getEntitySpecificFields(formData.entity_type).custom.map((field) => (
                                 <SelectItem key={`custom:${field.id}`} value={`custom:${field.id}`}>
                                   {field.label}
                                 </SelectItem>
@@ -883,20 +917,38 @@ export default function WorkflowManagementPage() {
                                 <SelectTrigger>
                                   <SelectValue placeholder="Select field" />
                                 </SelectTrigger>
-                                <SelectContent>
+                                <SelectContent className="max-h-[300px] overflow-y-auto">
                                   <SelectGroup>
-                                    <SelectLabel>Core Fields</SelectLabel>
-                                    {availableFields.filter(f => f.field_type === 'core').map((field) => (
-                                      <SelectItem key={`core:${field.id}`} value={`core:${field.id}`}>
+                                    <SelectLabel>Member Core Fields</SelectLabel>
+                                    {availableFieldsGrouped.memberCore.map((field) => (
+                                      <SelectItem key={`member_core:${field.id}`} value={`member_core:${field.id}`}>
                                         {field.label}
                                       </SelectItem>
                                     ))}
                                   </SelectGroup>
-                                  {availableFields.filter(f => f.field_type === 'custom').length > 0 && (
+                                  {availableFieldsGrouped.memberCustom.length > 0 && (
                                     <SelectGroup>
-                                      <SelectLabel>Custom Fields</SelectLabel>
-                                      {availableFields.filter(f => f.field_type === 'custom').map((field) => (
-                                        <SelectItem key={`custom:${field.id}`} value={`custom:${field.id}`}>
+                                      <SelectLabel>Member Custom Fields</SelectLabel>
+                                      {availableFieldsGrouped.memberCustom.map((field) => (
+                                        <SelectItem key={`member_custom:${field.id}`} value={`member_custom:${field.id}`}>
+                                          {field.label}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectGroup>
+                                  )}
+                                  <SelectGroup>
+                                    <SelectLabel>Organisation Core Fields</SelectLabel>
+                                    {availableFieldsGrouped.orgCore.map((field) => (
+                                      <SelectItem key={`org_core:${field.id}`} value={`org_core:${field.id}`}>
+                                        {field.label}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectGroup>
+                                  {availableFieldsGrouped.orgCustom.length > 0 && (
+                                    <SelectGroup>
+                                      <SelectLabel>Organisation Custom Fields</SelectLabel>
+                                      {availableFieldsGrouped.orgCustom.map((field) => (
+                                        <SelectItem key={`org_custom:${field.id}`} value={`org_custom:${field.id}`}>
                                           {field.label}
                                         </SelectItem>
                                       ))}
@@ -1122,20 +1174,20 @@ export default function WorkflowManagementPage() {
                                                 <SelectTrigger className="flex-1" data-testid={`select-mapping-${placeholder}-${index}`}>
                                                   <SelectValue placeholder="Select field" />
                                                 </SelectTrigger>
-                                                <SelectContent>
+                                                <SelectContent className="max-h-[300px] overflow-y-auto">
                                                   <SelectItem value="_auto">Auto (use placeholder name)</SelectItem>
                                                   <SelectGroup>
                                                     <SelectLabel>Core Fields</SelectLabel>
-                                                    {availableFields.filter(f => f.field_type === 'core').map((field) => (
+                                                    {getEntitySpecificFields(formData.entity_type).core.map((field) => (
                                                       <SelectItem key={`core-${field.id}`} value={`core:${field.id}`}>
                                                         {field.label}
                                                       </SelectItem>
                                                     ))}
                                                   </SelectGroup>
-                                                  {availableFields.filter(f => f.field_type === 'custom').length > 0 && (
+                                                  {getEntitySpecificFields(formData.entity_type).custom.length > 0 && (
                                                     <SelectGroup>
                                                       <SelectLabel>Custom Fields</SelectLabel>
-                                                      {availableFields.filter(f => f.field_type === 'custom').map((field) => (
+                                                      {getEntitySpecificFields(formData.entity_type).custom.map((field) => (
                                                         <SelectItem key={`custom-${field.id}`} value={`custom:${field.id}`}>
                                                           {field.label}
                                                         </SelectItem>
@@ -1191,10 +1243,10 @@ export default function WorkflowManagementPage() {
                                       <SelectTrigger className="flex-1" data-testid={`select-to-field-${index}`}>
                                         <SelectValue placeholder="Select email field" />
                                       </SelectTrigger>
-                                      <SelectContent>
+                                      <SelectContent className="max-h-[300px] overflow-y-auto">
                                         <SelectItem value="_none">-- Select field --</SelectItem>
-                                        {availableFields.filter(f => f.type === 'email').map(f => (
-                                          <SelectItem key={f.id} value={`{{${f.id}}}`}>{f.label}</SelectItem>
+                                        {availableFieldsFlat.filter(f => f.type === 'email').map(f => (
+                                          <SelectItem key={`${f.field_type}-${f.id}`} value={`{{${f.id}}}`}>{f.label}</SelectItem>
                                         ))}
                                       </SelectContent>
                                     </Select>
@@ -1240,10 +1292,10 @@ export default function WorkflowManagementPage() {
                                       <SelectTrigger className="flex-1" data-testid={`select-cc-field-${index}`}>
                                         <SelectValue placeholder="Select email field" />
                                       </SelectTrigger>
-                                      <SelectContent>
+                                      <SelectContent className="max-h-[300px] overflow-y-auto">
                                         <SelectItem value="_none">-- Select field --</SelectItem>
-                                        {availableFields.filter(f => f.type === 'email').map(f => (
-                                          <SelectItem key={f.id} value={`{{${f.id}}}`}>{f.label}</SelectItem>
+                                        {availableFieldsFlat.filter(f => f.type === 'email').map(f => (
+                                          <SelectItem key={`${f.field_type}-${f.id}`} value={`{{${f.id}}}`}>{f.label}</SelectItem>
                                         ))}
                                       </SelectContent>
                                     </Select>
@@ -1289,10 +1341,10 @@ export default function WorkflowManagementPage() {
                                       <SelectTrigger className="flex-1" data-testid={`select-bcc-field-${index}`}>
                                         <SelectValue placeholder="Select email field" />
                                       </SelectTrigger>
-                                      <SelectContent>
+                                      <SelectContent className="max-h-[300px] overflow-y-auto">
                                         <SelectItem value="_none">-- Select field --</SelectItem>
-                                        {availableFields.filter(f => f.type === 'email').map(f => (
-                                          <SelectItem key={f.id} value={`{{${f.id}}}`}>{f.label}</SelectItem>
+                                        {availableFieldsFlat.filter(f => f.type === 'email').map(f => (
+                                          <SelectItem key={`${f.field_type}-${f.id}`} value={`{{${f.id}}}`}>{f.label}</SelectItem>
                                         ))}
                                       </SelectContent>
                                     </Select>
@@ -1346,19 +1398,19 @@ export default function WorkflowManagementPage() {
                                   <SelectTrigger data-testid={`select-action-field-${index}`}>
                                     <SelectValue placeholder="Select field" />
                                   </SelectTrigger>
-                                  <SelectContent>
+                                  <SelectContent className="max-h-[300px] overflow-y-auto">
                                     <SelectGroup>
                                       <SelectLabel>Core Fields</SelectLabel>
-                                      {availableFields.filter(f => f.field_type === 'core').map((field) => (
+                                      {getEntitySpecificFields(formData.entity_type).core.map((field) => (
                                         <SelectItem key={`core:${field.id}`} value={`core:${field.id}`}>
                                           {field.label}
                                         </SelectItem>
                                       ))}
                                     </SelectGroup>
-                                    {availableFields.filter(f => f.field_type === 'custom').length > 0 && (
+                                    {getEntitySpecificFields(formData.entity_type).custom.length > 0 && (
                                       <SelectGroup>
                                         <SelectLabel>Custom Fields</SelectLabel>
-                                        {availableFields.filter(f => f.field_type === 'custom').map((field) => (
+                                        {getEntitySpecificFields(formData.entity_type).custom.map((field) => (
                                           <SelectItem key={`custom:${field.id}`} value={`custom:${field.id}`}>
                                             {field.label}
                                           </SelectItem>
