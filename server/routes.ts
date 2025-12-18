@@ -8622,7 +8622,7 @@ AGCAS Events Team
         return res.status(401).json({ error: 'Unauthorized - inviter email required' });
       }
 
-      // Get base URL for invite link
+      // Get base URL for signup link
       let baseUrl = process.env.SITE_URL;
       if (!baseUrl && process.env.VERCEL_URL) {
         baseUrl = `https://${process.env.VERCEL_URL}`;
@@ -8634,11 +8634,6 @@ AGCAS Events Team
         console.error('[sendTeamMemberInvite] Base URL could not be determined');
         return res.status(500).json({ error: 'Server configuration error: site URL not set' });
       }
-
-      // Generate a unique invite token
-      const crypto = require('crypto');
-      const inviteToken = crypto.randomBytes(32).toString('hex');
-      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
 
       // Check if the invitee already has a member record
       const { data: existingMember } = await supabase
@@ -8656,11 +8651,9 @@ AGCAS Events Team
 
       const organizationId = inviter?.organization_id;
 
-      let memberId = existingMember?.id;
-
-      // If member doesn't exist, we'll create a pending member record
+      // If member doesn't exist, create a pending member record
       if (!existingMember && organizationId) {
-        const { data: newMember, error: createError } = await supabase
+        const { error: createError } = await supabase
           .from('member')
           .insert({
             email: email.toLowerCase(),
@@ -8674,50 +8667,24 @@ AGCAS Events Team
 
         if (createError) {
           console.error('[sendTeamMemberInvite] Failed to create member:', createError);
-        } else {
-          memberId = newMember?.id;
+          // Continue anyway - the invite can still be sent
         }
       }
 
-      // Create a magic link for the invite (delete existing unused links first)
-      if (memberId) {
-        // Delete any existing unused magic links for this email
-        await supabase
-          .from('magic_link')
-          .delete()
-          .eq('email', email.toLowerCase())
-          .eq('used', false);
-
-        // Insert new magic link
-        const { error: linkError } = await supabase.from('magic_link').insert({
-          member_id: memberId,
-          email: email.toLowerCase(),
-          token: inviteToken,
-          expires_at: expiresAt.toISOString(),
-          used: false
-        });
-
-        if (linkError) {
-          console.error('[sendTeamMemberInvite] Failed to create magic link:', linkError);
-          return res.status(500).json({ error: 'Failed to create invitation link' });
-        }
-      }
-
-      // Build the invite link
-      const inviteLink = `${baseUrl}/VerifyMagicLink?token=${inviteToken}&invite=true`;
+      // Build the signup/login link (no magic link - user will use password auth)
+      const signupLink = `${baseUrl}/login?email=${encodeURIComponent(email)}`;
 
       // Build the email content
       let finalSubject = emailSubject || `You're invited to join our team`;
       let finalBody = emailBody || `
         <p>Hi,</p>
         <p>${inviterName} has invited you to join the team.</p>
-        <p>Click the link below to accept the invitation and set up your account:</p>
+        <p>Click the link below to sign up and set up your account:</p>
         <p><a href="{{invite_link}}" style="background-color: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">Accept Invitation</a></p>
-        <p>This link will expire in 7 days.</p>
       `;
 
       // Replace placeholders in the body
-      finalBody = finalBody.replace(/\{\{invite_link\}\}/gi, inviteLink);
+      finalBody = finalBody.replace(/\{\{invite_link\}\}/gi, signupLink);
       finalBody = finalBody.replace(/\{\{inviter_name\}\}/gi, inviterName || '');
       finalBody = finalBody.replace(/\{\{invitee_email\}\}/gi, email);
 
