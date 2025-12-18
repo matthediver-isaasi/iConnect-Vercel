@@ -279,6 +279,7 @@ export default function RoleManagementPage() {
     ViewPage: "View Page",
     ParamTest: "Parameter Test",
     UnpackedInternationalEmployability: "Unpacked Int'l Employability",
+    AboutMe: "About Me",
   };
 
   // Define page categories based on page name patterns

@@ -347,6 +347,8 @@ const PAGES = {
     
     Preferences: Preferences,
     
+    AboutMe: Preferences,
+    
     MyArticles: MyArticles,
     
     PublicArticles: PublicArticles,
@@ -618,6 +620,7 @@ function PagesContent() {
                 <Route path="/NavigationManagement" element={<NavigationManagement />} />
                 
                 <Route path="/about-me" element={<Preferences />} />
+                <Route path="/AboutMe" element={<Preferences />} />
                 <Route path="/Preferences" element={<Preferences />} />
                 <Route path="/preferences" element={<Preferences />} />
                 

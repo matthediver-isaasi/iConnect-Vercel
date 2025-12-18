@@ -99,7 +99,7 @@ const hardcodedPublicPages = [
   { name: "PortalNavigationManagement", label: "Portal Navigation Management" },
   { name: "PostJob", label: "Post Job" },
   { name: "PreferenceSettings", label: "Preference Settings" },
-  { name: "Preferences", label: "Preferences" },
+  { name: "AboutMe", label: "About Me" },
   { name: "PublicAbout", label: "Public - About" },
   { name: "PublicArticles", label: "Public - Articles" },
   { name: "PublicContact", label: "Public - Contact" },

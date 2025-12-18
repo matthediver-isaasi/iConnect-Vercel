@@ -44,7 +44,7 @@ export const PAGE_NAMES = [
   "IEditPageEditor",
   "testpage",
   "NavigationManagement",
-  "Preferences",
+  "AboutMe",
   "MyOrganisation",
   "MyArticles",
   "PublicArticles",
