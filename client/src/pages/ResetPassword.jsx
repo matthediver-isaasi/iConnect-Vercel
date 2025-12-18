@@ -85,21 +85,8 @@ export default function ResetPasswordPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
-        {/* Logo/Header */}
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-white rounded-2xl shadow-lg mb-4 p-2">
-            <img 
-              src="https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/68efc20f3e0a30fafad6dde7/6cfe73a57_agcasRoundall.jpg"
-              alt="AGCAS"
-              className="w-full h-full object-contain"
-            />
-          </div>
-          <h1 className="text-3xl font-bold text-slate-900 mb-2">AGCAS Events</h1>
-          <p className="text-slate-600">Professional Development & Training Portal</p>
-        </div>
-
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 flex justify-center p-4">
+      <div className="w-full max-w-md" style={{ marginTop: '50px' }}>
         <Card className="shadow-xl border-slate-200">
           <CardHeader className="space-y-1 pb-4">
             <CardTitle className="text-2xl font-bold text-center">
