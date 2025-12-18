@@ -162,8 +162,15 @@ export default async function handler(req, res) {
 
       // Derive base URL for workflow email placeholders
       const protocol = req.headers['x-forwarded-proto'] || 'https';
-      const host = req.headers['x-forwarded-host'] || req.headers.host || '';
-      const baseUrl = `${protocol}://${host}`;
+      let host = req.headers['x-forwarded-host'] || req.headers.host || '';
+      
+      // Fallback to VERCEL_URL or configured APP_URL if host is missing
+      if (!host && process.env.VERCEL_URL) {
+        host = process.env.VERCEL_URL;
+      }
+      
+      const baseUrl = host ? `${protocol}://${host}` : (process.env.APP_URL || '');
+      console.log(`[Entity PATCH] Derived baseUrl: "${baseUrl}"`);
 
       // Trigger workflow evaluation (non-blocking)
       if (isWorkflowEntity && data) {

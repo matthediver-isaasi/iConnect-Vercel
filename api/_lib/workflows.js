@@ -68,7 +68,7 @@ async function generatePasswordSetupUrl(memberId, baseUrl) {
     }
     
     console.log(`[Workflows] Generated password setup token for member ${memberId} (${member.email})`);
-    return `${baseUrl}/reset-password?token=${resetToken}&email=${encodeURIComponent(member.email)}`;
+    return `${baseUrl}/auth/reset-password?token=${resetToken}&email=${encodeURIComponent(member.email)}`;
   } catch (error) {
     console.error('[Workflows] Error generating password setup URL:', error);
     return null;
