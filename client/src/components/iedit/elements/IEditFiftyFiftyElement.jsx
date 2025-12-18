@@ -83,6 +83,8 @@ export default function IEditFiftyFiftyElement({ content, variant, settings }) {
     column_border_radius = 0,
     button,
     button_column = 'left',
+    button_align = 'right',
+    button_top_padding = 0,
     button_inset_right = 0,
     button_inset_bottom = 0,
     left_vertical_alignment = 'center',
@@ -407,8 +409,9 @@ export default function IEditFiftyFiftyElement({ content, variant, settings }) {
                 </div>
                 {(button?.text || button?.show_arrow) && button_column === 'left' && (
                   <div 
-                    className="flex justify-end"
+                    className={`flex ${button_align === 'left' ? 'justify-start' : button_align === 'center' ? 'justify-center' : 'justify-end'}`}
                     style={{
+                      marginTop: `${button_top_padding}px`,
                       marginRight: left_column_bg_color ? `${-left_column_padding + button_inset_right}px` : `${button_inset_right}px`,
                       marginBottom: left_column_bg_color ? `${-left_column_padding + button_inset_bottom}px` : `${button_inset_bottom}px`
                     }}
@@ -476,8 +479,9 @@ export default function IEditFiftyFiftyElement({ content, variant, settings }) {
                 </div>
                 {(button?.text || button?.show_arrow) && button_column === 'right' && (
                   <div 
-                    className="flex justify-end"
+                    className={`flex ${button_align === 'left' ? 'justify-start' : button_align === 'center' ? 'justify-center' : 'justify-end'}`}
                     style={{
+                      marginTop: `${button_top_padding}px`,
                       marginRight: right_column_bg_color ? `${-right_column_padding + button_inset_right}px` : `${button_inset_right}px`,
                       marginBottom: right_column_bg_color ? `${-right_column_padding + button_inset_bottom}px` : `${button_inset_bottom}px`
                     }}
@@ -1461,7 +1465,45 @@ export function IEditFiftyFiftyElementEditor({ element, onChange }) {
                 <option value="left">Left Column</option>
                 <option value="right">Right Column</option>
               </select>
-              <p className="text-xs text-slate-500 mt-1">Button appears at bottom-right of the selected text column</p>
+            </div>
+
+            <div>
+              <Label className="text-sm">Horizontal Alignment</Label>
+              <div className="flex gap-1 mt-1">
+                {[
+                  { val: 'left', Icon: AlignLeft },
+                  { val: 'center', Icon: AlignCenter },
+                  { val: 'right', Icon: AlignRight }
+                ].map(({ val, Icon }) => (
+                  <button
+                    key={val}
+                    type="button"
+                    onClick={() => updateContent('button_align', val)}
+                    className={`p-2 rounded border ${
+                      (content.button_align || 'right') === val 
+                        ? 'bg-blue-600 text-white border-blue-600' 
+                        : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
+                    }`}
+                    data-testid={`button-align-${val}`}
+                  >
+                    <Icon className="w-4 h-4" />
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <Label className="text-xs">Top Padding: {content.button_top_padding || 0}px</Label>
+              <input
+                type="range"
+                min="0"
+                max="64"
+                value={content.button_top_padding || 0}
+                onChange={(e) => updateContent('button_top_padding', parseInt(e.target.value))}
+                className="w-full"
+                data-testid="slider-button-top-padding"
+              />
+              <p className="text-xs text-slate-500 mt-1">Gap between button and content above</p>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
