@@ -127,7 +127,7 @@ export default function BookingsPage() {
         });
         
         const updatedMemberInfo = { ...memberInfo, page_tours_seen: updatedTours };
-        sessionStorage.setItem('agcas_member', JSON.stringify(updatedMemberInfo));
+        localStorage.setItem('agcas_member', JSON.stringify(updatedMemberInfo));
       } catch (error) {
         console.error('Failed to update tour status:', error);
       }

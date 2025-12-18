@@ -45,7 +45,7 @@ export default function LoginPage() {
     // Store member info for backward compatibility (but session is authoritative now)
     const sessionExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
     const memberInfo = { ...member, sessionExpiry };
-    sessionStorage.setItem('agcas_member', JSON.stringify(memberInfo));
+    localStorage.setItem('agcas_member', JSON.stringify(memberInfo));
     
     // If there's a returnTo parameter, use it instead of the role's landing page
     if (returnTo) {
@@ -89,7 +89,7 @@ export default function LoginPage() {
         // Store member info for backward compatibility
         const sessionExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
         const memberInfo = { ...data.member, sessionExpiry };
-        sessionStorage.setItem('agcas_member', JSON.stringify(memberInfo));
+        localStorage.setItem('agcas_member', JSON.stringify(memberInfo));
         
         // Check if temporary password
         if (data.requiresPasswordChange) {
@@ -145,7 +145,7 @@ export default function LoginPage() {
         // Store member info
         const sessionExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
         const memberInfo = { ...data.member, sessionExpiry };
-        sessionStorage.setItem('agcas_member', JSON.stringify(memberInfo));
+        localStorage.setItem('agcas_member', JSON.stringify(memberInfo));
         
         redirectToLandingPage(data.member);
       } else {

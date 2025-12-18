@@ -67,7 +67,7 @@ export default function ResetPasswordPage() {
         if (data.member) {
           const sessionExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
           const memberInfo = { ...data.member, sessionExpiry };
-          sessionStorage.setItem('agcas_member', JSON.stringify(memberInfo));
+          localStorage.setItem('agcas_member', JSON.stringify(memberInfo));
         }
         
         // Determine landing page based on user's role

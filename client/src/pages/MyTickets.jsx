@@ -129,7 +129,7 @@ export default function MyTicketsPage({ hasBanner }) {
           });
 
           const updatedMemberInfo = { ...memberInfo, page_tours_seen: updatedTours };
-          sessionStorage.setItem('agcas_member', JSON.stringify(updatedMemberInfo));
+          localStorage.setItem('agcas_member', JSON.stringify(updatedMemberInfo));
           
           if (reloadMemberInfo) {
             reloadMemberInfo();

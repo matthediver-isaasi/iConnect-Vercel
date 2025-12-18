@@ -7,21 +7,24 @@ export function useMemberAccess() {
   const queryClient = useQueryClient();
   
   const [memberInfo, setMemberInfo] = useState(() => {
-    const stored = sessionStorage.getItem('agcas_member');
+    const stored = localStorage.getItem('agcas_member');
     return stored ? JSON.parse(stored) : null;
   });
 
   const [organizationInfo, setOrganizationInfo] = useState(() => {
-    const stored = sessionStorage.getItem('agcas_organization');
+    const stored = localStorage.getItem('agcas_organization');
     return stored ? JSON.parse(stored) : null;
   });
 
   useEffect(() => {
-    const handleStorageChange = () => {
-      const storedMember = sessionStorage.getItem('agcas_member');
-      const storedOrg = sessionStorage.getItem('agcas_organization');
-      setMemberInfo(storedMember ? JSON.parse(storedMember) : null);
-      setOrganizationInfo(storedOrg ? JSON.parse(storedOrg) : null);
+    const handleStorageChange = (e) => {
+      // Only respond to our specific keys
+      if (e.key === 'agcas_member' || e.key === 'agcas_organization' || e.key === null) {
+        const storedMember = localStorage.getItem('agcas_member');
+        const storedOrg = localStorage.getItem('agcas_organization');
+        setMemberInfo(storedMember ? JSON.parse(storedMember) : null);
+        setOrganizationInfo(storedOrg ? JSON.parse(storedOrg) : null);
+      }
     };
 
     window.addEventListener('storage', handleStorageChange);
@@ -58,7 +61,7 @@ export function useMemberAccess() {
     try {
       const updatedMember = await base44.entities.Member.get(memberInfo.id);
       if (updatedMember) {
-        sessionStorage.setItem('agcas_member', JSON.stringify(updatedMember));
+        localStorage.setItem('agcas_member', JSON.stringify(updatedMember));
         setMemberInfo(updatedMember);
         if (updatedMember.role_id !== memberInfo.role_id) {
           queryClient.invalidateQueries({ queryKey: ['memberRole'] });
@@ -74,7 +77,7 @@ export function useMemberAccess() {
     try {
       const updatedOrg = await base44.entities.Organization.get(organizationInfo.id);
       if (updatedOrg) {
-        sessionStorage.setItem('agcas_organization', JSON.stringify(updatedOrg));
+        localStorage.setItem('agcas_organization', JSON.stringify(updatedOrg));
         setOrganizationInfo(updatedOrg);
       }
     } catch (error) {

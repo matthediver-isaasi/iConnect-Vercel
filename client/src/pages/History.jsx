@@ -125,7 +125,7 @@ export default function HistoryPage({ hasBanner }) {
           });
 
           const updatedMemberInfo = { ...memberInfo, page_tours_seen: updatedTours };
-          sessionStorage.setItem('agcas_member', JSON.stringify(updatedMemberInfo));
+          localStorage.setItem('agcas_member', JSON.stringify(updatedMemberInfo));
           
           // Notify Layout to reload memberInfo
           if (reloadMemberInfo) {

@@ -57,7 +57,7 @@ export default function PublicHeader() {
   useEffect(() => {
     // Check if user is logged in and fetch their role's landing page
     const checkLoginStatus = async () => {
-      const storedMember = sessionStorage.getItem('agcas_member');
+      const storedMember = localStorage.getItem('agcas_member');
       setIsLoggedIn(!!storedMember);
       
       if (storedMember) {
@@ -152,7 +152,8 @@ export default function PublicHeader() {
   }, []);
 
   const handleLogout = () => {
-    sessionStorage.removeItem('agcas_member');
+    localStorage.removeItem('agcas_member');
+    localStorage.removeItem('agcas_organization');
     setMobileMenuOpen(false);
     window.location.href = createPageUrl('Home');
   };

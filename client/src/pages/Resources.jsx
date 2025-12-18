@@ -23,7 +23,7 @@ export default function ResourcesPage() {
     if (memberInfo) return true;
     
     // Fallback to sessionStorage check for initial render
-    const storedMember = sessionStorage.getItem('agcas_member');
+    const storedMember = localStorage.getItem('agcas_member');
     if (!storedMember) return false;
     try {
       const member = JSON.parse(storedMember);

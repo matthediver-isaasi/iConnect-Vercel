@@ -439,11 +439,11 @@ export default function Layout({ children, currentPageName }) {
   
   // Initialize from sessionStorage immediately to prevent flicker
   const [memberInfo, setMemberInfo] = useState(() => {
-    const stored = sessionStorage.getItem('agcas_member');
+    const stored = localStorage.getItem('agcas_member');
     return stored ? JSON.parse(stored) : null;
   });
   const [organizationInfo, setOrganizationInfo] = useState(() => {
-    const stored = sessionStorage.getItem('agcas_organization');
+    const stored = localStorage.getItem('agcas_organization');
     return stored ? JSON.parse(stored) : null;
   });
 
@@ -837,7 +837,7 @@ useEffect(() => {
 
   // Function to reload member info from sessionStorage
   const reloadMemberInfo = () => {
-    const storedMember = sessionStorage.getItem('agcas_member');
+    const storedMember = localStorage.getItem('agcas_member');
     if (storedMember) {
       const member = JSON.parse(storedMember);
       setMemberInfo(member);
@@ -853,7 +853,7 @@ useEffect(() => {
     
     // Check if cached organization matches the requested orgId (skip if force refresh)
     if (!forceRefresh) {
-      const cachedOrg = sessionStorage.getItem('agcas_organization');
+      const cachedOrg = localStorage.getItem('agcas_organization');
       if (cachedOrg) {
         try {
           const parsed = JSON.parse(cachedOrg);
@@ -866,11 +866,11 @@ useEffect(() => {
           } else {
             // Cached org doesn't match member's org - clear it
             console.log('[Layout] Cached organization mismatch, clearing cache');
-            sessionStorage.removeItem('agcas_organization');
+            localStorage.removeItem('agcas_organization');
           }
         } catch (e) {
           console.warn('Failed to parse cached organization, ignoring cache:', e);
-          sessionStorage.removeItem('agcas_organization');
+          localStorage.removeItem('agcas_organization');
         }
       }
     }
@@ -881,7 +881,7 @@ useEffect(() => {
       const org = orgs && orgs.length > 0 ? orgs[0] : null;
 
       if (org) {
-        sessionStorage.setItem('agcas_organization', JSON.stringify(org));
+        localStorage.setItem('agcas_organization', JSON.stringify(org));
         setOrganizationInfo(org);
         console.log('[Layout] Fetched and cached organization:', org.name, 'balances:', org.program_ticket_balances);
       } else {
@@ -913,7 +913,7 @@ useEffect(() => {
   // Update context with reloadMemberInfo function
   useEffect(() => {
     const reloadFn = () => {
-      const storedMember = sessionStorage.getItem('agcas_member');
+      const storedMember = localStorage.getItem('agcas_member');
       if (storedMember) {
         const member = JSON.parse(storedMember);
         setMemberInfo(member);
@@ -953,7 +953,7 @@ useEffect(() => {
     
     // For hybrid pages, check if member is logged in
     if (visibility === 'hybrid') {
-      const storedMember = sessionStorage.getItem('agcas_member');
+      const storedMember = localStorage.getItem('agcas_member');
       return !storedMember; // Public if no member logged in
     }
     
@@ -973,7 +973,7 @@ useEffect(() => {
             // Sync server session to sessionStorage for backwards compatibility
             const sessionExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
             const memberData = { ...member, sessionExpiry };
-            sessionStorage.setItem('agcas_member', JSON.stringify(memberData));
+            localStorage.setItem('agcas_member', JSON.stringify(memberData));
             setMemberInfo(memberData);
             
             // Fetch organization info for regular members
@@ -1012,7 +1012,7 @@ useEffect(() => {
 
       // Handle hybrid pages - check sessionStorage
       if (visibility === 'hybrid') {
-        const storedMember = sessionStorage.getItem('agcas_member');
+        const storedMember = localStorage.getItem('agcas_member');
         if (!storedMember) {
           // No member logged in, treat as public
           return;
@@ -1021,7 +1021,7 @@ useEffect(() => {
       }
 
       // Fall back to sessionStorage for backward compatibility
-      const storedMember = sessionStorage.getItem('agcas_member');
+      const storedMember = localStorage.getItem('agcas_member');
       if (!storedMember) {
         window.location.href = createPageUrl('Home');
         return;
@@ -1030,7 +1030,7 @@ useEffect(() => {
       const member = JSON.parse(storedMember);
 
       if (member.sessionExpiry && new Date(member.sessionExpiry) < new Date()) {
-        sessionStorage.removeItem('agcas_member');
+        localStorage.removeItem('agcas_member');
         window.location.href = createPageUrl('Home');
         return;
       }
@@ -1159,8 +1159,8 @@ useEffect(() => {
       console.log('[Layout] Server logout error (may not have server session):', error);
     }
     // Always clear local storage
-    sessionStorage.removeItem('agcas_member');
-    sessionStorage.removeItem('agcas_organization');
+    localStorage.removeItem('agcas_member');
+    localStorage.removeItem('agcas_organization');
     window.location.href = createPageUrl('Home');
   };
 

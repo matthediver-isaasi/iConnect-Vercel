@@ -339,7 +339,7 @@ export default function PostJobPage() {
       setSelectedOrganization(null);
     } else {
       // Public mode - check sessionStorage
-      const member = sessionStorage.getItem('agcas_member');
+      const member = localStorage.getItem('agcas_member');
       if (member) {
         const memberData = JSON.parse(member);
         setIsLoggedIn(true);

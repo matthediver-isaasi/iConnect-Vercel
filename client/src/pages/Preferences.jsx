@@ -198,7 +198,7 @@ export default function PreferencesPage() {
   const [sessionLoading, setSessionLoading] = useState(true);
 
   useEffect(() => {
-    const storedMember = sessionStorage.getItem('agcas_member');
+    const storedMember = localStorage.getItem('agcas_member');
     if (storedMember) {
       try {
         const parsed = JSON.parse(storedMember);
@@ -950,12 +950,12 @@ export default function PreferencesPage() {
     onSuccess: (updatedMember) => {
       // Update session storage with new member data so it persists on page refresh
       if (updatedMember) {
-        const storedMember = sessionStorage.getItem('agcas_member');
+        const storedMember = localStorage.getItem('agcas_member');
         if (storedMember) {
           try {
             const parsed = JSON.parse(storedMember);
             const updatedSession = { ...parsed, ...updatedMember };
-            sessionStorage.setItem('agcas_member', JSON.stringify(updatedSession));
+            localStorage.setItem('agcas_member', JSON.stringify(updatedSession));
             // Also update the local state
             setSessionMember(updatedSession);
           } catch {

@@ -79,7 +79,7 @@ export default function ArticleViewPage() {
   });
 
   // Determine if user is logged in by checking session storage
-  const isLoggedIn = !!sessionStorage.getItem('agcas_member');
+  const isLoggedIn = !!localStorage.getItem('agcas_member');
 
   // Generate or retrieve user identifier
   useEffect(() => {

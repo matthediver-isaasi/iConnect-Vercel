@@ -444,7 +444,7 @@ export default function EventSettingsPage() {
     setUploadingImage(true);
     try {
       // Get user email from session storage
-      const storedMember = sessionStorage.getItem('agcas_member');
+      const storedMember = localStorage.getItem('agcas_member');
       const memberInfo = storedMember ? JSON.parse(storedMember) : null;
       
       if (!memberInfo || !memberInfo.email) {
@@ -647,7 +647,7 @@ export default function EventSettingsPage() {
     setUploadingProgram(true);
     try {
       // Get user email from session storage
-      const storedMember = sessionStorage.getItem('agcas_member');
+      const storedMember = localStorage.getItem('agcas_member');
       const memberInfo = storedMember ? JSON.parse(storedMember) : null;
       
       if (!memberInfo || !memberInfo.email) {
@@ -826,7 +826,7 @@ export default function EventSettingsPage() {
           reader.readAsDataURL(newProgramImage);
         });
 
-        const storedMember = sessionStorage.getItem('agcas_member');
+        const storedMember = localStorage.getItem('agcas_member');
         const memberInfo = storedMember ? JSON.parse(storedMember) : null;
         
         if (memberInfo?.email) {

@@ -335,7 +335,7 @@ export default function EventsPage({
       await base44.entities.Member.update(memberInfo.id, { page_tours_seen: updatedTours });
 
       const updatedMemberInfo = { ...memberInfo, page_tours_seen: updatedTours };
-      sessionStorage.setItem("agcas_member", JSON.stringify(updatedMemberInfo));
+      localStorage.setItem("agcas_member", JSON.stringify(updatedMemberInfo));
 
       // Notify Layout to reload memberInfo
       if (typeof reloadMemberInfo === "function") {

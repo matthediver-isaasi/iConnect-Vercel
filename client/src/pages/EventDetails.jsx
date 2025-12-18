@@ -103,7 +103,7 @@ export default function EventDetailsPage() {
 
   useEffect(() => {
     if (!memberInfo) {
-      const storedMember = sessionStorage.getItem('agcas_member');
+      const storedMember = localStorage.getItem('agcas_member');
       if (storedMember) {
         setMemberInfoState(JSON.parse(storedMember));
       } else {
@@ -758,7 +758,7 @@ export default function EventDetailsPage() {
           });
           
           const updatedMemberInfo = { ...currentMemberInfo, page_tours_seen: updatedTours };
-          sessionStorage.setItem('agcas_member', JSON.stringify(updatedMemberInfo));
+          localStorage.setItem('agcas_member', JSON.stringify(updatedMemberInfo));
           
           // Notify Layout to reload memberInfo
           if (reloadMemberInfo) {

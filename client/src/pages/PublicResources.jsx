@@ -21,7 +21,7 @@ export default function PublicResourcesPage() {
 
   // Check if user is logged in
   const isLoggedIn = useMemo(() => {
-    const storedMember = sessionStorage.getItem('agcas_member');
+    const storedMember = localStorage.getItem('agcas_member');
     if (!storedMember) return false;
     
     const member = JSON.parse(storedMember);

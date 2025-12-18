@@ -114,10 +114,10 @@ export default function TestLoginPage() {
       }
 
       // Store in sessionStorage for backwards compatibility
-      sessionStorage.setItem("agcas_member", JSON.stringify(memberData));
+      localStorage.setItem("agcas_member", JSON.stringify(memberData));
       
       // Clear old organization cache and store new one from validated data
-      sessionStorage.removeItem("agcas_organization");
+      localStorage.removeItem("agcas_organization");
       if (validateResult.member.organization_id) {
         // Fetch and cache the organization
         try {
@@ -125,7 +125,7 @@ export default function TestLoginPage() {
             filter: { id: validateResult.member.organization_id } 
           });
           if (orgs && orgs.length > 0) {
-            sessionStorage.setItem("agcas_organization", JSON.stringify(orgs[0]));
+            localStorage.setItem("agcas_organization", JSON.stringify(orgs[0]));
             console.log("[TestLogin] Cached organization:", orgs[0].name);
           }
         } catch (orgErr) {
