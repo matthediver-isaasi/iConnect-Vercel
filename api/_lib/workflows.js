@@ -100,8 +100,9 @@ async function processSpecialPlaceholders(content, entityType, entityId, baseUrl
   
   // Use flexible regex that handles whitespace and is case-insensitive
   // Matches: {{set_password_url}}, {{ set_password_url }}, {{SET_PASSWORD_URL}}, etc.
-  const placeholderRegex = /\{\{\s*set_password_url\s*\}\}/gi;
-  const hasPlaceholder = placeholderRegex.test(decodedContent) || placeholderRegex.test(result);
+  // Note: Use separate regex instances to avoid lastIndex issues with global flag
+  const hasPlaceholder = /\{\{\s*set_password_url\s*\}\}/gi.test(decodedContent) || 
+                         /\{\{\s*set_password_url\s*\}\}/gi.test(result);
   
   // Also check URL-encoded version
   const hasUrlEncodedPlaceholder = result.includes('%7B%7Bset_password_url%7D%7D') || 
