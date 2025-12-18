@@ -142,9 +142,28 @@ export default function MembersListPage() {
     }
   }, [location.pathname]);
 
+  // Fetch specific member directly when we have an ID in URL (avoids loading all members)
+  const { data: directMember, isLoading: directMemberLoading } = useQuery({
+    queryKey: ['member-direct', pendingMemberId],
+    enabled: accessChecked && !!pendingMemberId && !selectedMember,
+    queryFn: async () => {
+      return await base44.entities.Member.get(pendingMemberId);
+    }
+  });
+
+  // Set selected member from direct fetch
+  useEffect(() => {
+    if (directMember && pendingMemberId && !selectedMember) {
+      setSelectedMember(directMember);
+      setPendingMemberId(null);
+      window.history.replaceState({}, '', '/members');
+    }
+  }, [directMember, pendingMemberId, selectedMember]);
+
+  // Only load all members when we don't have a pending member ID (or after it's resolved)
   const { data: members = [], isLoading: membersLoading } = useQuery({
     queryKey: ['members-crm-list'],
-    enabled: accessChecked,
+    enabled: accessChecked && !pendingMemberId,
     queryFn: async () => {
       return await base44.entities.Member.listAll();
     }
@@ -336,19 +355,6 @@ export default function MembersListPage() {
       batchDeleteMutation.mutate(selectedMembers);
     }
   };
-
-  // Handle URL parameter to open specific member
-  useEffect(() => {
-    if (pendingMemberId && members.length > 0 && !selectedMember) {
-      const member = members.find(m => m.id === pendingMemberId);
-      if (member) {
-        setSelectedMember(member);
-        setPendingMemberId(null);
-        // Clear URL parameter
-        window.history.replaceState({}, '', '/members');
-      }
-    }
-  }, [pendingMemberId, members, selectedMember]);
 
   const orgMap = useMemo(() => {
     const map = {};
@@ -615,6 +621,15 @@ export default function MembersListPage() {
     );
   }
 
+  // Show loading state when fetching a specific member by ID
+  if (pendingMemberId && directMemberLoading) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+      </div>
+    );
+  }
+
   if (selectedMember) {
     return (
       <MemberDetailView
@@ -628,7 +643,7 @@ export default function MembersListPage() {
   }
 
   return (
-    <div className="h-screen flex flex-col bg-slate-50">
+    <div className="min-h-screen flex flex-col bg-slate-50">
       <div className="flex flex-1 overflow-hidden">
         <aside 
           className={`bg-white border-r border-slate-200 flex flex-col transition-all duration-300 ease-in-out ${
