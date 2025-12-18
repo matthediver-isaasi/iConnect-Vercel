@@ -72,7 +72,7 @@ export default function MemberDetailView({
     return [m?.first_name, m?.last_name].filter(Boolean).join(' ') || '';
   };
   const [customFieldValues, setCustomFieldValues] = useState({});
-  const [selectedRoles, setSelectedRoles] = useState([]);
+  const [selectedRoleId, setSelectedRoleId] = useState(null);
   // selectedSubcategories: Array of {category_id, subcategory_name} pairs
   const [selectedSubcategories, setSelectedSubcategories] = useState([]);
   const [isSavingCategories, setIsSavingCategories] = useState(false);
@@ -179,7 +179,7 @@ export default function MemberDetailView({
         organization_id: member.organization_id || '',
         login_enabled: member.login_enabled !== false
       });
-      setSelectedRoles(member.roles || (member.role_id ? [member.role_id] : []));
+      setSelectedRoleId(member.role_id || null);
     }
   }, [member]);
 
@@ -249,7 +249,7 @@ export default function MemberDetailView({
       
       createMutation.mutate({
         ...formData,
-        roles: selectedRoles
+        role_id: selectedRoleId
       }, {
         onSuccess: async (createdMember) => {
           const currentCustomFieldValues = { ...customFieldValues };
@@ -273,7 +273,7 @@ export default function MemberDetailView({
     } else {
       updateMutation.mutate({
         ...formData,
-        roles: selectedRoles
+        role_id: selectedRoleId
       });
     }
   };
@@ -295,16 +295,8 @@ export default function MemberDetailView({
       organization_id: member.organization_id || '',
       login_enabled: member.login_enabled !== false
     });
-    setSelectedRoles(member.roles || (member.role_id ? [member.role_id] : []));
+    setSelectedRoleId(member.role_id || null);
     setIsEditing(false);
-  };
-
-  const toggleRole = (roleId) => {
-    setSelectedRoles(prev => 
-      prev.includes(roleId) 
-        ? prev.filter(r => r !== roleId)
-        : [...prev, roleId]
-    );
   };
 
   // Toggle a subcategory selection by category_id + subcategory_name pair
@@ -378,8 +370,9 @@ export default function MemberDetailView({
     return organizations.find(o => o.id === member?.organization_id);
   };
 
-  const getRoleNames = (roleIds) => {
-    return roleIds.map(id => roles.find(r => r.id === id)?.name || id);
+  const getRoleName = (roleId) => {
+    if (!roleId) return null;
+    return roles.find(r => r.id === roleId)?.name || roleId;
   };
 
   if (!member && !isNew) return null;
@@ -675,17 +668,13 @@ export default function MemberDetailView({
                           <div>
                             <p className="text-xs text-slate-500">Role</p>
                             <div className="flex flex-wrap gap-1 mt-1">
-                              {(() => {
-                                const memberRoles = member.roles || (member.role_id ? [member.role_id] : []);
-                                if (memberRoles.length === 0) {
-                                  return <span className="text-sm text-slate-500">No role assigned</span>;
-                                }
-                                return getRoleNames(memberRoles).map((roleName, idx) => (
-                                  <Badge key={idx} variant="secondary" className="text-xs">
-                                    {roleName}
-                                  </Badge>
-                                ));
-                              })()}
+                              {member.role_id ? (
+                                <Badge variant="secondary" className="text-xs">
+                                  {getRoleName(member.role_id)}
+                                </Badge>
+                              ) : (
+                                <span className="text-sm text-slate-500">No role assigned</span>
+                              )}
                             </div>
                           </div>
                         </div>
@@ -969,15 +958,35 @@ export default function MemberDetailView({
               <CardContent>
                 {isEditing ? (
                   <div className="space-y-3">
+                    <div 
+                      className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg cursor-pointer"
+                      onClick={() => setSelectedRoleId(null)}
+                    >
+                      <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+                        selectedRoleId === null ? 'border-blue-600 bg-blue-600' : 'border-slate-300'
+                      }`}>
+                        {selectedRoleId === null && (
+                          <div className="w-2 h-2 bg-white rounded-full" />
+                        )}
+                      </div>
+                      <Label className="flex-1 cursor-pointer">
+                        <p className="font-medium text-sm text-slate-500">No role</p>
+                      </Label>
+                    </div>
                     {roles.map(role => (
-                      <div key={role.id} className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg">
-                        <Checkbox
-                          id={`role-${role.id}`}
-                          checked={selectedRoles.includes(role.id)}
-                          onCheckedChange={() => toggleRole(role.id)}
-                          data-testid={`checkbox-role-${role.id}`}
-                        />
-                        <Label htmlFor={`role-${role.id}`} className="flex-1 cursor-pointer">
+                      <div 
+                        key={role.id} 
+                        className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg cursor-pointer"
+                        onClick={() => setSelectedRoleId(role.id)}
+                      >
+                        <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+                          selectedRoleId === role.id ? 'border-blue-600 bg-blue-600' : 'border-slate-300'
+                        }`}>
+                          {selectedRoleId === role.id && (
+                            <div className="w-2 h-2 bg-white rounded-full" />
+                          )}
+                        </div>
+                        <Label className="flex-1 cursor-pointer">
                           <p className="font-medium text-sm">{role.name}</p>
                           {role.description && (
                             <p className="text-xs text-slate-500">{role.description}</p>
@@ -988,15 +997,13 @@ export default function MemberDetailView({
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    {(member.roles || (member.role_id ? [member.role_id] : [])).length === 0 ? (
-                      <p className="text-sm text-slate-500">No roles assigned</p>
+                    {!member.role_id ? (
+                      <p className="text-sm text-slate-500">No role assigned</p>
                     ) : (
                       <div className="flex flex-wrap gap-2">
-                        {getRoleNames(member.roles || (member.role_id ? [member.role_id] : [])).map((roleName, idx) => (
-                          <Badge key={idx} variant="secondary" className="text-sm">
-                            {roleName}
-                          </Badge>
-                        ))}
+                        <Badge variant="secondary" className="text-sm">
+                          {getRoleName(member.role_id)}
+                        </Badge>
                       </div>
                     )}
                   </div>
