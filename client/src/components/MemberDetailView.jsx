@@ -1025,21 +1025,6 @@ export default function MemberDetailView({
               <CardContent>
                 {isEditing ? (
                   <div className="space-y-3">
-                    <div 
-                      className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg cursor-pointer"
-                      onClick={() => setSelectedRoleId(null)}
-                    >
-                      <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
-                        selectedRoleId === null ? 'border-blue-600 bg-blue-600' : 'border-slate-300'
-                      }`}>
-                        {selectedRoleId === null && (
-                          <div className="w-2 h-2 bg-white rounded-full" />
-                        )}
-                      </div>
-                      <Label className="flex-1 cursor-pointer">
-                        <p className="font-medium text-sm text-slate-500">No role</p>
-                      </Label>
-                    </div>
                     {filteredRoles.map(role => (
                       <div 
                         key={role.id} 
