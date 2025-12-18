@@ -4042,18 +4042,30 @@ const functionHandlers = {
       .eq('email', email.toLowerCase())
       .maybeSingle();
     
-    // Get the inviter's organization
+    // Get the inviter's details including organization
     const { data: inviter } = await supabase
       .from('member')
-      .select('organization_id')
+      .select('id, first_name, last_name, organization_id')
       .eq('email', inviterEmail.toLowerCase())
       .maybeSingle();
     
     const organizationId = inviter?.organization_id;
+    const inviterFullName = inviter ? `${inviter.first_name || ''} ${inviter.last_name || ''}`.trim() : inviterName || '';
+    
+    // Fetch organization details
+    let organizationName = '';
+    if (organizationId) {
+      const { data: org } = await supabase
+        .from('organization')
+        .select('id, name')
+        .eq('id', organizationId)
+        .maybeSingle();
+      organizationName = org?.name || '';
+    }
     
     // If member doesn't exist, create a pending member record
     if (!existingMember && organizationId) {
-      const { data: newMember, error: createError } = await supabase
+      const { error: createError } = await supabase
         .from('member')
         .insert({
           email: email.toLowerCase(),
@@ -4071,22 +4083,38 @@ const functionHandlers = {
       }
     }
     
-    // Build the signup/login link (no magic link - user will use password auth)
-    const signupLink = `${baseUrl}/login?email=${encodeURIComponent(email)}`;
+    // Build the signup/login link with organization_id parameter
+    const signupLink = `${baseUrl}/login?email=${encodeURIComponent(email)}${organizationId ? `&organization_id=${organizationId}` : ''}`;
     
     // Build the email content
     let finalSubject = emailSubject || `You're invited to join our team`;
     let finalBody = emailBody || `
       <p>Hi,</p>
-      <p>${inviterName} has invited you to join the team.</p>
+      <p>${inviterFullName} has invited you to join the team.</p>
       <p>Click the link below to sign up and set up your account:</p>
       <p><a href="{{invite_link}}" style="background-color: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">Accept Invitation</a></p>
     `;
     
-    // Replace placeholders
+    // Replace {{placeholder}} syntax
     finalBody = finalBody.replace(/\{\{invite_link\}\}/gi, signupLink);
-    finalBody = finalBody.replace(/\{\{inviter_name\}\}/gi, inviterName || '');
+    finalBody = finalBody.replace(/\{\{inviter_name\}\}/gi, inviterFullName);
     finalBody = finalBody.replace(/\{\{invitee_email\}\}/gi, email);
+    finalBody = finalBody.replace(/\{\{organization_name\}\}/gi, organizationName);
+    finalBody = finalBody.replace(/\{\{organization_id\}\}/gi, organizationId || '');
+    
+    // Replace [[placeholder]] syntax (core database values)
+    finalBody = finalBody.replace(/\[\[member\.full_name\]\]/gi, inviterFullName);
+    finalBody = finalBody.replace(/\[\[member\.first_name\]\]/gi, inviter?.first_name || '');
+    finalBody = finalBody.replace(/\[\[member\.last_name\]\]/gi, inviter?.last_name || '');
+    finalBody = finalBody.replace(/\[\[member\.email\]\]/gi, inviterEmail);
+    finalBody = finalBody.replace(/\[\[organization\.id\]\]/gi, organizationId || '');
+    finalBody = finalBody.replace(/\[\[organization\.name\]\]/gi, organizationName);
+    
+    // Also replace in subject
+    finalSubject = finalSubject.replace(/\{\{inviter_name\}\}/gi, inviterFullName);
+    finalSubject = finalSubject.replace(/\{\{organization_name\}\}/gi, organizationName);
+    finalSubject = finalSubject.replace(/\[\[member\.full_name\]\]/gi, inviterFullName);
+    finalSubject = finalSubject.replace(/\[\[organization\.name\]\]/gi, organizationName);
     
     // Send email via Mailgun
     const emailResult = await sendEmail({
@@ -4100,7 +4128,7 @@ const functionHandlers = {
       return { success: false, error: 'Failed to send invitation email: ' + emailResult.error };
     }
     
-    console.log(`[sendTeamMemberInvite] Invitation sent to ${email} by ${inviterName}`);
+    console.log(`[sendTeamMemberInvite] Invitation sent to ${email} by ${inviterFullName} (org: ${organizationId})`);
     
     return { success: true, message: 'Invitation sent successfully' };
   },
