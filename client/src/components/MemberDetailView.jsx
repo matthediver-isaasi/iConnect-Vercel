@@ -175,20 +175,33 @@ export default function MemberDetailView({
 
   const segmentationFieldId = segmentationFieldSetting?.setting_value || null;
 
-  // Get the member's organization to check its segment value
-  const memberOrganization = React.useMemo(() => {
-    const orgId = formData.organization_id || member?.organization_id;
-    if (!orgId) return null;
-    return organizations.find(org => org.id === orgId);
-  }, [formData.organization_id, member?.organization_id, organizations]);
+  // Get the member's organization ID
+  const memberOrgId = formData.organization_id || member?.organization_id;
+
+  // Fetch the organization's preference values to get the segmentation field value
+  const { data: orgPreferenceValues = [] } = useQuery({
+    queryKey: ['org-preference-values-for-role-filter', memberOrgId],
+    enabled: !!memberOrgId && !!segmentationFieldId,
+    queryFn: async () => {
+      try {
+        const values = await base44.entities.OrganizationPreferenceValue.list({
+          filter: { organization_id: memberOrgId }
+        });
+        return values || [];
+      } catch {
+        return [];
+      }
+    }
+  });
 
   // Filter roles based on organization's segmentation field value
   const filteredRoles = React.useMemo(() => {
     // If no segmentation is configured, show all roles
     if (!segmentationFieldId) return roles;
     
-    // Get the organization's value for the segmentation field
-    const orgSegmentValue = memberOrganization?.[segmentationFieldId] || null;
+    // Get the organization's value for the segmentation field from preference values
+    const segmentPrefValue = orgPreferenceValues.find(pv => pv.field_id === segmentationFieldId);
+    const orgSegmentValue = segmentPrefValue?.value || null;
     
     // Filter roles:
     // - Show roles with no segment_values (apply globally)
@@ -204,7 +217,7 @@ export default function MemberDetailView({
       // If org has no segment value, only show roles with no restrictions
       return roleSegments.length === 0;
     });
-  }, [roles, segmentationFieldId, memberOrganization]);
+  }, [roles, segmentationFieldId, orgPreferenceValues]);
 
   useEffect(() => {
     // Only populate form from member data when editing an existing member (has id)
