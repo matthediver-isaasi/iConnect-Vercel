@@ -8702,13 +8702,19 @@ AGCAS Events Team
       finalBody = finalBody.replace(/\{\{organization_name\}\}/gi, organizationName);
       finalBody = finalBody.replace(/\{\{organization_id\}\}/gi, organizationId || '');
 
-      // Replace [[placeholder]] syntax (core database values)
+      // Replace [[placeholder]] syntax (core database values) - support both dot and underscore separators
       finalBody = finalBody.replace(/\[\[member\.full_name\]\]/gi, inviterFullName);
+      finalBody = finalBody.replace(/\[\[member_full_name\]\]/gi, inviterFullName);
       finalBody = finalBody.replace(/\[\[member\.first_name\]\]/gi, inviter?.first_name || '');
+      finalBody = finalBody.replace(/\[\[member_first_name\]\]/gi, inviter?.first_name || '');
       finalBody = finalBody.replace(/\[\[member\.last_name\]\]/gi, inviter?.last_name || '');
+      finalBody = finalBody.replace(/\[\[member_last_name\]\]/gi, inviter?.last_name || '');
       finalBody = finalBody.replace(/\[\[member\.email\]\]/gi, inviterEmail);
+      finalBody = finalBody.replace(/\[\[member_email\]\]/gi, inviterEmail);
       finalBody = finalBody.replace(/\[\[organization\.id\]\]/gi, organizationId || '');
+      finalBody = finalBody.replace(/\[\[organization_id\]\]/gi, organizationId || '');
       finalBody = finalBody.replace(/\[\[organization\.name\]\]/gi, organizationName);
+      finalBody = finalBody.replace(/\[\[organization_name\]\]/gi, organizationName);
 
       // Also replace in subject
       finalSubject = finalSubject.replace(/\{\{inviter_name\}\}/gi, inviterFullName);
