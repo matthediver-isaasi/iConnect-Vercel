@@ -149,10 +149,15 @@ export default async function handler(req, res) {
 
       if (error) return res.status(500).json({ error: error.message });
 
+      // Derive base URL for workflow email placeholders
+      const protocol = req.headers['x-forwarded-proto'] || 'https';
+      const host = req.headers['x-forwarded-host'] || req.headers.host || '';
+      const baseUrl = `${protocol}://${host}`;
+
       // Trigger workflow evaluation (non-blocking)
       if (isWorkflowEntity && data) {
         const entityType = entity.toLowerCase();
-        triggerWorkflows(entityType, id, beforeData, data, 'field_change').catch(err => {
+        triggerWorkflows(entityType, id, beforeData, data, 'field_change', baseUrl).catch(err => {
           console.error('[Entity PATCH] Workflow error:', err);
         });
       }
@@ -177,7 +182,7 @@ export default async function handler(req, res) {
           console.log(`[Entity PATCH] Calling triggerPreferenceWorkflows with entityType=${entityType}, entityId=${entityId}, fieldId=${fieldId}, value=${newValue}`);
           // Await the workflow trigger to ensure it completes before returning
           try {
-            await triggerPreferenceWorkflows(entityType, entityId, fieldId, newValue);
+            await triggerPreferenceWorkflows(entityType, entityId, fieldId, newValue, baseUrl);
             console.log(`[Entity PATCH] triggerPreferenceWorkflows completed`);
           } catch (err) {
             console.error('[Entity PATCH] Preference workflow error:', err);

@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { sendEmail, replacePlaceholders } from './emailService.js';
+import crypto from 'crypto';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -7,6 +8,70 @@ const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
 const supabase = supabaseUrl && supabaseServiceKey 
   ? createClient(supabaseUrl, supabaseServiceKey)
   : null;
+
+// Generate a password setup URL for new members (7 day validity)
+async function generatePasswordSetupUrl(memberId, baseUrl) {
+  if (!supabase || !memberId) return null;
+  
+  try {
+    const resetToken = crypto.randomUUID();
+    const resetTokenExpires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+    
+    // Check if credentials record exists
+    const { data: existingCreds } = await supabase
+      .from('member_credentials')
+      .select('id')
+      .eq('member_id', memberId)
+      .single();
+    
+    if (existingCreds) {
+      // Update existing record
+      await supabase
+        .from('member_credentials')
+        .update({
+          reset_token: resetToken,
+          reset_token_expires: resetTokenExpires.toISOString()
+        })
+        .eq('member_id', memberId);
+    } else {
+      // Create new credentials record
+      await supabase
+        .from('member_credentials')
+        .insert({
+          member_id: memberId,
+          password_hash: '',
+          reset_token: resetToken,
+          reset_token_expires: resetTokenExpires.toISOString()
+        });
+    }
+    
+    console.log(`[Workflows] Generated password setup token for member ${memberId}`);
+    return `${baseUrl}/auth/reset-password?token=${resetToken}`;
+  } catch (error) {
+    console.error('[Workflows] Error generating password setup URL:', error);
+    return null;
+  }
+}
+
+// Process special placeholders like {{set_password_url}}
+async function processSpecialPlaceholders(content, entityType, entityId, baseUrl) {
+  if (!content || entityType !== 'member') return content;
+  
+  let result = content;
+  
+  // Handle {{set_password_url}} placeholder
+  if (result.includes('{{set_password_url}}')) {
+    const passwordUrl = await generatePasswordSetupUrl(entityId, baseUrl);
+    if (passwordUrl) {
+      result = result.replace(/\{\{set_password_url\}\}/g, passwordUrl);
+      console.log(`[Workflows] Replaced {{set_password_url}} with ${passwordUrl}`);
+    } else {
+      console.warn('[Workflows] Failed to generate password setup URL, placeholder not replaced');
+    }
+  }
+  
+  return result;
+}
 
 // Apply field mappings to template - replaces placeholders with actual field values
 async function applyFieldMappings(template, fieldMappings, entityType, entityId, entityData) {
@@ -87,7 +152,7 @@ async function resolveFieldIdPlaceholder(template, entityType, entityId) {
   return result;
 }
 
-async function executeWorkflowActions(workflow, entityType, entityId, entityData) {
+async function executeWorkflowActions(workflow, entityType, entityId, entityData, baseUrl) {
   const results = [];
   
   for (const action of (workflow.actions || [])) {
@@ -157,6 +222,12 @@ async function executeWorkflowActions(workflow, entityType, entityId, entityData
       subject = replacePlaceholders(subject, entityType, entityData);
       body = replacePlaceholders(body, entityType, entityData);
       
+      // Process special placeholders like {{set_password_url}}
+      if (baseUrl) {
+        subject = await processSpecialPlaceholders(subject, entityType, entityId, baseUrl);
+        body = await processSpecialPlaceholders(body, entityType, entityId, baseUrl);
+      }
+      
       console.log(`[Workflows] Sending email - to: "${to}", subject: "${subject}", body length: ${body?.length}`);
       if (cc) console.log(`[Workflows] CC: "${cc}"`);
       if (bcc) console.log(`[Workflows] BCC: "${bcc}"`);
@@ -203,7 +274,7 @@ async function logWorkflowExecution(workflow, entityType, entityId, triggerData,
   console.log(`[Workflows] Logged execution for ${workflow.name}`);
 }
 
-export async function triggerWorkflows(entityType, entityId, beforeData, afterData, triggerType) {
+export async function triggerWorkflows(entityType, entityId, beforeData, afterData, triggerType, baseUrl) {
   if (!supabase) return;
   
   try {
@@ -260,7 +331,7 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
 
       console.log(`[Workflows] Executing workflow: ${workflow.name} (trigger_mode=${workflow.trigger_mode || 'every_time'})`);
 
-      const results = await executeWorkflowActions(workflow, entityType, entityId, afterData || {});
+      const results = await executeWorkflowActions(workflow, entityType, entityId, afterData || {}, baseUrl);
       await logWorkflowExecution(workflow, entityType, entityId, { before: beforeData, after: afterData, trigger_type: triggerType }, results);
     }
   } catch (err) {
@@ -268,7 +339,7 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
   }
 }
 
-export async function triggerPreferenceWorkflows(entityType, entityId, fieldId, value) {
+export async function triggerPreferenceWorkflows(entityType, entityId, fieldId, value, baseUrl) {
   if (!supabase) return;
   
   try {
@@ -319,7 +390,7 @@ export async function triggerPreferenceWorkflows(entityType, entityId, fieldId, 
       const table = entityType === 'organization' ? 'organization' : 'member';
       const { data: entityData } = await supabase.from(table).select('*').eq('id', entityId).single();
       
-      const results = await executeWorkflowActions(workflow, entityType, entityId, entityData || {});
+      const results = await executeWorkflowActions(workflow, entityType, entityId, entityData || {}, baseUrl);
       await logWorkflowExecution(workflow, entityType, entityId, { field_id: fieldId, value: value, trigger_type: 'field_change' }, results);
     }
   } catch (err) {

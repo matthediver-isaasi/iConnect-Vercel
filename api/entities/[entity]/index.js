@@ -244,10 +244,15 @@ export default async function handler(req, res) {
       // Normalize entity name for comparison (handles both PascalCase and slug-case)
       const entityNormalized = entity.replace(/[-_]/g, '').toLowerCase();
 
+      // Derive base URL for workflow email placeholders
+      const protocol = req.headers['x-forwarded-proto'] || 'https';
+      const host = req.headers['x-forwarded-host'] || req.headers.host || '';
+      const baseUrl = `${protocol}://${host}`;
+
       // Trigger workflow evaluation for new Organization/Member (non-blocking)
       if ((entityNormalized === 'organization' || entityNormalized === 'member') && data) {
         const entityType = entityNormalized;
-        triggerWorkflows(entityType, data.id, null, data, 'record_create').catch(err => {
+        triggerWorkflows(entityType, data.id, null, data, 'record_create', baseUrl).catch(err => {
           console.error('[Entity POST] Workflow error:', err);
         });
       }
@@ -262,7 +267,7 @@ export default async function handler(req, res) {
         console.log(`[Entity POST] Preference value created - entityId: ${entityId}, fieldId: ${fieldId}, value: ${data.value}`);
         
         if (entityId && fieldId) {
-          triggerPreferenceWorkflows(entityType, entityId, fieldId, data.value).catch(err => {
+          triggerPreferenceWorkflows(entityType, entityId, fieldId, data.value, baseUrl).catch(err => {
             console.error('[Entity POST] Preference workflow error:', err);
           });
         }
