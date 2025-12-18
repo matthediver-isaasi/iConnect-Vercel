@@ -12,6 +12,7 @@ import { Link } from "react-router-dom";
 import { useLayoutContext } from "@/contexts/LayoutContext";
 import { useBelowFirstElementBanners } from "@/contexts/BannerContext";
 import PortalHeroBanner from "@/components/banners/PortalHeroBanner";
+import PageBannerDisplay from "@/components/banners/PageBannerDisplay";
 
 export default function JobBoardPage() {
   const { hasBanner } = useLayoutContext();
@@ -154,7 +155,9 @@ export default function JobBoardPage() {
         {belowFirstElementBanners.length > 0 && (
           <div className="w-full mb-8 -mx-4 md:-mx-8">
             {belowFirstElementBanners.map((banner) => (
-              <PortalHeroBanner key={banner.id} banner={banner} />
+              banner.banner_type === 'image'
+                ? <PageBannerDisplay key={banner.id} banner={banner} />
+                : <PortalHeroBanner key={banner.id} banner={banner} />
             ))}
           </div>
         )}

@@ -269,7 +269,9 @@ export default function PublicLayout({ children, currentPageName }) {
         {!loadingBanners && topBanners.length > 0 && (
           <div className="w-full">
             {topBanners.map((banner) => (
-              <PortalHeroBanner key={banner.id} banner={banner} />
+              banner.banner_type === 'image' 
+                ? <PageBannerDisplay key={banner.id} banner={banner} />
+                : <PortalHeroBanner key={banner.id} banner={banner} />
             ))}
           </div>
         )}

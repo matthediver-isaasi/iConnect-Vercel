@@ -8,6 +8,7 @@ import { useLayoutContext } from "@/contexts/LayoutContext";
 import { useArticleUrl } from "@/contexts/ArticleUrlContext";
 import { useBelowFirstElementBanners } from "@/contexts/BannerContext";
 import PortalHeroBanner from "@/components/banners/PortalHeroBanner";
+import PageBannerDisplay from "@/components/banners/PageBannerDisplay";
 import Articles from "./Articles";
 import ArticleView from "./ArticleView";
 import ArticleEditor from "./ArticleEditor";
@@ -319,7 +320,9 @@ export default function DynamicPage() {
           {index === 0 && belowFirstElementBanners.length > 0 && (
             <div className="w-full">
               {belowFirstElementBanners.map((banner) => (
-                <PortalHeroBanner key={banner.id} banner={banner} />
+                banner.banner_type === 'image'
+                  ? <PageBannerDisplay key={banner.id} banner={banner} />
+                  : <PortalHeroBanner key={banner.id} banner={banner} />
               ))}
             </div>
           )}
