@@ -394,7 +394,7 @@ export default function PublicLayout({ children, currentPageName }) {
                     </li>
                     <li className="flex items-center gap-3">
                       <Mail className="w-4 h-4 shrink-0" />
-                      <span>info@graduatefutures.org.uk</span>
+                      <span>hello@graduatefutures.org.uk</span>
                     </li>
                   </ul>
                 </div>
