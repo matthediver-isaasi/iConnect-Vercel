@@ -48,6 +48,24 @@ export default async function handler(req, res) {
     }
 
     if (token) {
+      console.log(`[Auth] Validating token for member ${member.id}, token prefix: ${token.substring(0, 8)}...`);
+      
+      // First check if credentials exist for this member
+      const { data: allCreds, error: allCredsError } = await supabase
+        .from('member_credentials')
+        .select('id, member_id, reset_token, reset_token_expires')
+        .eq('member_id', member.id);
+      
+      if (allCredsError) {
+        console.error('[Auth] Error fetching credentials:', allCredsError);
+      } else {
+        console.log(`[Auth] Found ${allCreds?.length || 0} credential records for member ${member.id}`);
+        if (allCreds?.length > 0) {
+          const cred = allCreds[0];
+          console.log(`[Auth] Stored token prefix: ${cred.reset_token?.substring(0, 8) || 'null'}..., expires: ${cred.reset_token_expires}`);
+        }
+      }
+      
       const { data: credentials, error: credError } = await supabase
         .from('member_credentials')
         .select('*')
@@ -56,12 +74,32 @@ export default async function handler(req, res) {
         .single();
 
       if (credError || !credentials) {
-        return res.status(401).json({ success: false, error: 'Invalid or expired reset token' });
+        const storedToken = allCreds?.[0]?.reset_token;
+        const tokenMatch = storedToken === token;
+        console.error('[Auth] Token validation failed:', {
+          error: credError?.message || 'No matching credentials found',
+          providedTokenPrefix: token?.substring(0, 8),
+          storedTokenPrefix: storedToken?.substring(0, 8),
+          tokensMatch: tokenMatch,
+          hasCredentials: allCreds?.length > 0
+        });
+        
+        // Provide more helpful error message
+        if (allCreds?.length === 0) {
+          return res.status(401).json({ success: false, error: 'No password setup was initiated for this account. Please contact support.' });
+        } else if (!storedToken) {
+          return res.status(401).json({ success: false, error: 'This password reset link has already been used. Please request a new one.' });
+        } else {
+          return res.status(401).json({ success: false, error: 'Invalid or expired reset token' });
+        }
       }
 
       if (credentials.reset_token_expires && new Date(credentials.reset_token_expires) < new Date()) {
+        console.log('[Auth] Token expired at:', credentials.reset_token_expires);
         return res.status(401).json({ success: false, error: 'Reset token has expired' });
       }
+      
+      console.log('[Auth] Token validated successfully');
     }
 
     const passwordHash = await bcrypt.hash(password, 12);

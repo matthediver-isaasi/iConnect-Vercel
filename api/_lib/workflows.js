@@ -38,23 +38,34 @@ async function generatePasswordSetupUrl(memberId, baseUrl) {
     
     if (existingCreds) {
       // Update existing record
-      await supabase
+      const { error: updateError } = await supabase
         .from('member_credentials')
         .update({
           reset_token: resetToken,
           reset_token_expires: resetTokenExpires.toISOString()
         })
         .eq('member_id', memberId);
+      
+      if (updateError) {
+        console.error('[Workflows] Error updating reset token:', updateError);
+        return null;
+      }
     } else {
-      // Create new credentials record
-      await supabase
+      // Create new credentials record - include email for the record
+      const { error: insertError } = await supabase
         .from('member_credentials')
         .insert({
           member_id: memberId,
+          email: member.email.toLowerCase(),
           password_hash: '',
           reset_token: resetToken,
           reset_token_expires: resetTokenExpires.toISOString()
         });
+      
+      if (insertError) {
+        console.error('[Workflows] Error inserting credentials with reset token:', insertError);
+        return null;
+      }
     }
     
     console.log(`[Workflows] Generated password setup token for member ${memberId} (${member.email})`);
