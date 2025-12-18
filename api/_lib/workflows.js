@@ -77,19 +77,43 @@ async function generatePasswordSetupUrl(memberId, baseUrl) {
 
 // Process special placeholders like {{set_password_url}}
 async function processSpecialPlaceholders(content, entityType, entityId, baseUrl) {
-  if (!content || entityType !== 'member') return content;
+  console.log(`[processSpecialPlaceholders] Called with entityType="${entityType}", entityId="${entityId}", baseUrl="${baseUrl}"`);
+  
+  if (!content) {
+    console.log(`[processSpecialPlaceholders] No content provided, returning`);
+    return content;
+  }
+  
+  if (entityType !== 'member') {
+    console.log(`[processSpecialPlaceholders] entityType is "${entityType}", not "member", returning unchanged`);
+    return content;
+  }
   
   let result = content;
   
-  // Handle {{set_password_url}} placeholder
-  if (result.includes('{{set_password_url}}')) {
+  // Check for various forms of the placeholder (normal and HTML-encoded)
+  const hasNormalPlaceholder = result.includes('{{set_password_url}}');
+  const hasHtmlEncodedPlaceholder = result.includes('&#123;&#123;set_password_url&#125;&#125;');
+  const hasUrlEncodedPlaceholder = result.includes('%7B%7Bset_password_url%7D%7D');
+  
+  console.log(`[processSpecialPlaceholders] Placeholder checks - normal: ${hasNormalPlaceholder}, htmlEncoded: ${hasHtmlEncodedPlaceholder}, urlEncoded: ${hasUrlEncodedPlaceholder}`);
+  
+  // Handle {{set_password_url}} placeholder in all forms
+  if (hasNormalPlaceholder || hasHtmlEncodedPlaceholder || hasUrlEncodedPlaceholder) {
     const passwordUrl = await generatePasswordSetupUrl(entityId, baseUrl);
+    console.log(`[processSpecialPlaceholders] Generated passwordUrl: "${passwordUrl}"`);
+    
     if (passwordUrl) {
+      // Replace all forms of the placeholder
       result = result.replace(/\{\{set_password_url\}\}/g, passwordUrl);
+      result = result.replace(/&#123;&#123;set_password_url&#125;&#125;/g, passwordUrl);
+      result = result.replace(/%7B%7Bset_password_url%7D%7D/g, passwordUrl);
       console.log(`[Workflows] Replaced {{set_password_url}} with ${passwordUrl}`);
     } else {
       console.warn('[Workflows] Failed to generate password setup URL, placeholder not replaced');
     }
+  } else {
+    console.log(`[processSpecialPlaceholders] No set_password_url placeholder found in content`);
   }
   
   return result;
