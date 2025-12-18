@@ -57,15 +57,34 @@ const ORGANIZATION_CORE_FIELDS = [
   { id: 'invoicing_address', label: 'Invoicing Address', type: 'text' },
   { id: 'website_url', label: 'Website URL', type: 'url' },
   { id: 'training_fund_balance', label: 'Training Fund Balance', type: 'number' },
+  { id: 'address_line_1', label: 'Address Line 1', type: 'text' },
+  { id: 'address_line_2', label: 'Address Line 2', type: 'text' },
+  { id: 'city', label: 'City', type: 'text' },
+  { id: 'region', label: 'Region', type: 'text' },
+  { id: 'postcode', label: 'Postcode', type: 'text' },
+  { id: 'country', label: 'Country', type: 'text' },
+  { id: 'description', label: 'Description', type: 'text' },
+  { id: 'logo_url', label: 'Logo URL', type: 'url' },
+  { id: 'account_owner_id', label: 'Account Owner ID', type: 'text' },
 ];
 
 const MEMBER_CORE_FIELDS = [
   { id: 'id', label: 'ID', type: 'text' },
-  { id: 'full_name', label: 'Full Name', type: 'text' },
   { id: 'email', label: 'Email', type: 'email' },
+  { id: 'first_name', label: 'First Name', type: 'text' },
+  { id: 'last_name', label: 'Last Name', type: 'text' },
+  { id: 'full_name', label: 'Full Name', type: 'text' },
   { id: 'phone', label: 'Phone', type: 'text' },
-  { id: 'status', label: 'Status', type: 'text' },
+  { id: 'mobile', label: 'Mobile', type: 'text' },
+  { id: 'landline', label: 'Landline', type: 'text' },
   { id: 'job_title', label: 'Job Title', type: 'text' },
+  { id: 'status', label: 'Status', type: 'text' },
+  { id: 'organization_id', label: 'Organisation ID', type: 'text' },
+  { id: 'role_id', label: 'Role ID', type: 'text' },
+  { id: 'bio', label: 'Biography', type: 'text' },
+  { id: 'profile_photo_url', label: 'Profile Photo URL', type: 'url' },
+  { id: 'show_in_directory', label: 'Show in Directory', type: 'boolean' },
+  { id: 'is_admin', label: 'Is Admin', type: 'boolean' },
 ];
 
 // Extract placeholders from template content - both {{placeholder}} and [[placeholder]] syntax
