@@ -239,6 +239,17 @@ export default function MemberDetailView({
     }
   }, [member]);
 
+  // Preselect the default role when creating a new member
+  useEffect(() => {
+    if (isNew && filteredRoles.length > 0 && selectedRoleId === null) {
+      // Find the default role from the filtered roles
+      const defaultRole = filteredRoles.find(role => role.is_default);
+      if (defaultRole) {
+        setSelectedRoleId(defaultRole.id);
+      }
+    }
+  }, [isNew, filteredRoles, selectedRoleId]);
+
   useEffect(() => {
     if (memberValues.length > 0) {
       const valuesMap = {};
