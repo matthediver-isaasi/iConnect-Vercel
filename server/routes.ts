@@ -8605,14 +8605,14 @@ AGCAS Events Team
     }
   });
 
-  // Send Team Member Invite - sends invitation via webhook
+  // Send Team Member Invite - sends invitation via Mailgun with custom email template
   app.post('/api/functions/sendTeamMemberInvite', async (req: Request, res: Response) => {
     if (!supabase) {
       return res.status(503).json({ error: 'Supabase not configured' });
     }
 
     try {
-      const { email, inviterName, inviterEmail } = req.body;
+      const { email, inviterName, inviterEmail, emailSubject, emailBody } = req.body;
 
       if (!email) {
         return res.status(400).json({ error: 'Email is required' });
@@ -8622,70 +8622,120 @@ AGCAS Events Team
         return res.status(401).json({ error: 'Unauthorized - inviter email required' });
       }
 
-      // First check for environment variable (more secure)
-      let webhookUrl = process.env.TEAM_INVITE_WEBHOOK_URL;
-
-      // Fall back to system settings if not in env
-      if (!webhookUrl) {
-        const { data: allSettings } = await supabase
-          .from('system_settings')
-          .select('*')
-          .eq('setting_key', 'team_invite_webhook_url');
-
-        const webhookSetting = allSettings?.[0];
-
-        if (!webhookSetting || !webhookSetting.setting_value) {
-          return res.status(500).json({
-            error: 'Team invite webhook not configured. Please contact an administrator.'
-          });
-        }
-
-        webhookUrl = webhookSetting.setting_value;
+      // Get base URL for invite link
+      let baseUrl = process.env.SITE_URL;
+      if (!baseUrl && process.env.VERCEL_URL) {
+        baseUrl = `https://${process.env.VERCEL_URL}`;
+      }
+      if (!baseUrl) {
+        baseUrl = `${req.protocol}://${req.get('host')}`;
+      }
+      if (!baseUrl || baseUrl === 'undefined://undefined') {
+        console.error('[sendTeamMemberInvite] Base URL could not be determined');
+        return res.status(500).json({ error: 'Server configuration error: site URL not set' });
       }
 
-      // Security: Validate webhook URL is HTTPS and from trusted domains
-      try {
-        const url = new URL(webhookUrl);
-        if (url.protocol !== 'https:') {
-          console.error('[sendTeamMemberInvite] Webhook URL must use HTTPS');
-          return res.status(500).json({ error: 'Invalid webhook configuration' });
+      // Generate a unique invite token
+      const crypto = require('crypto');
+      const inviteToken = crypto.randomBytes(32).toString('hex');
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+
+      // Check if the invitee already has a member record
+      const { data: existingMember } = await supabase
+        .from('member')
+        .select('id, organization_id')
+        .eq('email', email.toLowerCase())
+        .maybeSingle();
+
+      // Get the inviter's organization
+      const { data: inviter } = await supabase
+        .from('member')
+        .select('organization_id')
+        .eq('email', inviterEmail.toLowerCase())
+        .maybeSingle();
+
+      const organizationId = inviter?.organization_id;
+
+      let memberId = existingMember?.id;
+
+      // If member doesn't exist, we'll create a pending member record
+      if (!existingMember && organizationId) {
+        const { data: newMember, error: createError } = await supabase
+          .from('member')
+          .insert({
+            email: email.toLowerCase(),
+            organization_id: organizationId,
+            login_enabled: false, // Will be enabled when they set password
+            first_name: '',
+            last_name: ''
+          })
+          .select()
+          .single();
+
+        if (createError) {
+          console.error('[sendTeamMemberInvite] Failed to create member:', createError);
+        } else {
+          memberId = newMember?.id;
         }
-        // Block internal/private network URLs
-        const hostname = url.hostname.toLowerCase();
-        if (hostname === 'localhost' || 
-            hostname === '127.0.0.1' || 
-            hostname.startsWith('192.168.') ||
-            hostname.startsWith('10.') ||
-            hostname.endsWith('.local')) {
-          console.error('[sendTeamMemberInvite] Webhook URL cannot point to internal network');
-          return res.status(500).json({ error: 'Invalid webhook configuration' });
-        }
-      } catch (urlError) {
-        console.error('[sendTeamMemberInvite] Invalid webhook URL:', urlError);
-        return res.status(500).json({ error: 'Invalid webhook configuration' });
       }
 
-      // Call the webhook
-      const webhookResponse = await fetch(webhookUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          email,
-          inviterName,
-          inviterEmail,
-          timestamp: new Date().toISOString()
-        })
+      // Create a magic link for the invite (delete existing unused links first)
+      if (memberId) {
+        // Delete any existing unused magic links for this email
+        await supabase
+          .from('magic_link')
+          .delete()
+          .eq('email', email.toLowerCase())
+          .eq('used', false);
+
+        // Insert new magic link
+        const { error: linkError } = await supabase.from('magic_link').insert({
+          member_id: memberId,
+          email: email.toLowerCase(),
+          token: inviteToken,
+          expires_at: expiresAt.toISOString(),
+          used: false
+        });
+
+        if (linkError) {
+          console.error('[sendTeamMemberInvite] Failed to create magic link:', linkError);
+          return res.status(500).json({ error: 'Failed to create invitation link' });
+        }
+      }
+
+      // Build the invite link
+      const inviteLink = `${baseUrl}/VerifyMagicLink?token=${inviteToken}&invite=true`;
+
+      // Build the email content
+      let finalSubject = emailSubject || `You're invited to join our team`;
+      let finalBody = emailBody || `
+        <p>Hi,</p>
+        <p>${inviterName} has invited you to join the team.</p>
+        <p>Click the link below to accept the invitation and set up your account:</p>
+        <p><a href="{{invite_link}}" style="background-color: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">Accept Invitation</a></p>
+        <p>This link will expire in 7 days.</p>
+      `;
+
+      // Replace placeholders in the body
+      finalBody = finalBody.replace(/\{\{invite_link\}\}/gi, inviteLink);
+      finalBody = finalBody.replace(/\{\{inviter_name\}\}/gi, inviterName || '');
+      finalBody = finalBody.replace(/\{\{invitee_email\}\}/gi, email);
+
+      // Send email via Mailgun
+      const emailResult = await sendEmail({
+        to: email,
+        subject: finalSubject,
+        html: finalBody
       });
 
-      if (!webhookResponse.ok) {
-        const errorText = await webhookResponse.text();
-        console.error('[sendTeamMemberInvite] Webhook call failed:', errorText);
+      if (!emailResult.success) {
+        console.error('[sendTeamMemberInvite] Email send failed:', emailResult.error);
         return res.status(500).json({
-          error: 'Failed to send invitation'
+          error: 'Failed to send invitation email: ' + emailResult.error
         });
       }
+
+      console.log(`[sendTeamMemberInvite] Invitation sent to ${email} by ${inviterName}`);
 
       res.json({
         success: true,

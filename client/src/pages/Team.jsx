@@ -14,6 +14,8 @@ import { formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
 import { sendTeamMemberInvite } from "@/api/functions";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import ReactQuill from 'react-quill';
+import 'react-quill/dist/quill.snow.css';
 
 export default function TeamPage({ hasBanner }) {
   const { memberInfo, organizationInfo, isAdmin, isFeatureExcluded } = useMemberAccess();
@@ -25,8 +27,64 @@ export default function TeamPage({ hasBanner }) {
   const [editingMember, setEditingMember] = useState(null);
   const [showInviteDialog, setShowInviteDialog] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteSubject, setInviteSubject] = useState("");
+  const [inviteBody, setInviteBody] = useState("");
   const [editForm, setEditForm] = useState({ first_name: "", last_name: "", job_title: "", email: "", profile_photo_url: "", linkedin_url: "" });
   const queryClient = useQueryClient();
+
+  const { data: inviteTemplateSetting } = useQuery({
+    queryKey: ['team-invite-template-setting'],
+    queryFn: async () => {
+      const allSettings = await base44.entities.SystemSettings.list();
+      return allSettings.find(s => s.setting_key === 'team_invite_email_template') || null;
+    }
+  });
+
+  const inviteTemplateId = useMemo(() => {
+    if (inviteTemplateSetting?.setting_value) {
+      try {
+        const parsed = JSON.parse(inviteTemplateSetting.setting_value);
+        return parsed.template_id || null;
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }, [inviteTemplateSetting]);
+
+  const { data: inviteTemplate } = useQuery({
+    queryKey: ['email-template', inviteTemplateId],
+    queryFn: async () => {
+      if (!inviteTemplateId) return null;
+      const templates = await base44.entities.EmailTemplate.list();
+      return templates.find(t => t.id === inviteTemplateId) || null;
+    },
+    enabled: !!inviteTemplateId
+  });
+
+  useEffect(() => {
+    if (showInviteDialog && inviteTemplate) {
+      const inviterName = memberInfo ? `${memberInfo.first_name} ${memberInfo.last_name}` : '';
+      const orgName = organizationInfo?.name || '';
+      
+      let subject = inviteTemplate.subject || 'You have been invited to join our team';
+      let body = inviteTemplate.body || '';
+      
+      subject = subject.replace(/\{\{inviter_name\}\}/gi, inviterName);
+      subject = subject.replace(/\{\{organization_name\}\}/gi, orgName);
+      
+      body = body.replace(/\{\{inviter_name\}\}/gi, inviterName);
+      body = body.replace(/\{\{organization_name\}\}/gi, orgName);
+      
+      setInviteSubject(subject);
+      setInviteBody(body);
+    } else if (showInviteDialog && !inviteTemplate) {
+      const inviterName = memberInfo ? `${memberInfo.first_name} ${memberInfo.last_name}` : '';
+      const orgName = organizationInfo?.name || '';
+      setInviteSubject(`You're invited to join ${orgName || 'our team'}`);
+      setInviteBody(`<p>Hi,</p><p>${inviterName} has invited you to join ${orgName || 'our team'}.</p><p>Click the link below to accept the invitation and set up your account.</p>`);
+    }
+  }, [showInviteDialog, inviteTemplate, memberInfo, organizationInfo]);
 
   // Fetch members from the same organization directly via server-side filter
   const { data: teamMembers = [], isLoading: membersLoading } = useQuery({
@@ -187,10 +245,13 @@ export default function TeamPage({ hasBanner }) {
 
   // Send invite mutation
   const sendInviteMutation = useMutation({
-    mutationFn: async (email) => {
+    mutationFn: async ({ email, subject, body }) => {
       const response = await sendTeamMemberInvite({
         email,
-        inviterName: `${memberInfo.first_name} ${memberInfo.last_name}`
+        inviterName: `${memberInfo.first_name} ${memberInfo.last_name}`,
+        inviterEmail: memberInfo.email,
+        emailSubject: subject,
+        emailBody: body
       });
       return response.data;
     },
@@ -198,6 +259,8 @@ export default function TeamPage({ hasBanner }) {
       toast.success('Invitation sent successfully');
       setShowInviteDialog(false);
       setInviteEmail("");
+      setInviteSubject("");
+      setInviteBody("");
     },
     onError: (error) => {
       toast.error(error.response?.data?.error || 'Failed to send invitation');
@@ -361,7 +424,12 @@ export default function TeamPage({ hasBanner }) {
       return;
     }
 
-    sendInviteMutation.mutate(inviteEmail);
+    const finalBody = inviteBody.replace(/\{\{invitee_email\}\}/gi, inviteEmail);
+    sendInviteMutation.mutate({ 
+      email: inviteEmail, 
+      subject: inviteSubject, 
+      body: finalBody 
+    });
   };
 
   const isLoading = membersLoading;
@@ -812,27 +880,64 @@ export default function TeamPage({ hasBanner }) {
 
       {/* Invite Member Dialog */}
       <Dialog open={showInviteDialog} onOpenChange={setShowInviteDialog}>
-        <DialogContent>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Invite Team Member</DialogTitle>
             <DialogDescription>
-              Send an invitation to a new team member with a matching email domain.
+              Send an invitation to a new team member. You can customize the email before sending.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="invite_email">Email Address *</Label>
+              <Label htmlFor="invite_email">Recipient Email Address *</Label>
               <Input
                 id="invite_email"
                 type="email"
                 value={inviteEmail}
                 onChange={(e) => setInviteEmail(e.target.value)}
                 placeholder={`user@${userDomain}`}
+                data-testid="input-invite-email"
               />
               <p className="text-xs text-slate-500">
                 Email domain must match: @{userDomain}
               </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="invite_subject">Email Subject</Label>
+              <Input
+                id="invite_subject"
+                type="text"
+                value={inviteSubject}
+                onChange={(e) => setInviteSubject(e.target.value)}
+                placeholder="Enter email subject"
+                data-testid="input-invite-subject"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Email Body</Label>
+              <p className="text-xs text-slate-500 mb-2">
+                Available placeholders: {"{{invitee_email}}"}, {"{{inviter_name}}"}, {"{{organization_name}}"}, {"{{invite_link}}"}
+              </p>
+              <div className="border rounded-md">
+                <ReactQuill
+                  theme="snow"
+                  value={inviteBody}
+                  onChange={setInviteBody}
+                  className="min-h-[200px]"
+                  modules={{
+                    toolbar: [
+                      [{ 'header': [1, 2, 3, false] }],
+                      ['bold', 'italic', 'underline'],
+                      [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+                      ['link'],
+                      ['clean']
+                    ]
+                  }}
+                />
+              </div>
             </div>
           </div>
 
@@ -842,8 +947,9 @@ export default function TeamPage({ hasBanner }) {
             </Button>
             <Button 
               onClick={handleSendInvite}
-              disabled={sendInviteMutation.isPending}
+              disabled={sendInviteMutation.isPending || !inviteEmail}
               className="bg-blue-600 hover:bg-blue-700"
+              data-testid="button-send-invite"
             >
               {sendInviteMutation.isPending ? (
                 <>

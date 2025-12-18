@@ -5,7 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Settings, Loader2, User, Mail, Briefcase, Shield, Clock, Calendar, FileText, Trophy, ToggleLeft } from "lucide-react";
+import { Settings, Loader2, User, Mail, Briefcase, Shield, Clock, Calendar, FileText, Trophy, ToggleLeft, UserPlus } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
@@ -26,7 +27,59 @@ export default function TeamSettingsPage() {
   const { isAdmin, isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
+  const [inviteTemplateId, setInviteTemplateId] = useState(null);
   const queryClient = useQueryClient();
+
+  const { data: emailTemplates = [] } = useQuery({
+    queryKey: ['email-templates-list'],
+    queryFn: async () => {
+      const templates = await base44.entities.EmailTemplate.list();
+      return templates.filter(t => t.is_active !== false);
+    }
+  });
+
+  const { data: inviteTemplateSetting } = useQuery({
+    queryKey: ['team-invite-template-setting'],
+    queryFn: async () => {
+      const allSettings = await base44.entities.SystemSettings.list();
+      return allSettings.find(s => s.setting_key === 'team_invite_email_template') || null;
+    }
+  });
+
+  useEffect(() => {
+    if (inviteTemplateSetting?.setting_value) {
+      try {
+        const parsed = JSON.parse(inviteTemplateSetting.setting_value);
+        setInviteTemplateId(parsed.template_id || null);
+      } catch {
+        setInviteTemplateId(null);
+      }
+    }
+  }, [inviteTemplateSetting]);
+
+  const updateInviteTemplateMutation = useMutation({
+    mutationFn: async (templateId) => {
+      const settingValue = JSON.stringify({ template_id: templateId });
+      if (inviteTemplateSetting) {
+        return await base44.entities.SystemSettings.update(inviteTemplateSetting.id, {
+          setting_value: settingValue
+        });
+      } else {
+        return await base44.entities.SystemSettings.create({
+          setting_key: 'team_invite_email_template',
+          setting_value: settingValue,
+          description: 'Email template used for team member invitations'
+        });
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['team-invite-template-setting'] });
+      toast.success('Invite email template updated');
+    },
+    onError: (error) => {
+      toast.error('Failed to update invite template: ' + error.message);
+    }
+  });
 
   useEffect(() => {
     if (isAccessReady) {
@@ -233,6 +286,55 @@ export default function TeamSettingsPage() {
                     </div>
                   );
                 })}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <UserPlus className="w-5 h-5" />
+                  Invite Email Template
+                </CardTitle>
+                <CardDescription>
+                  Select the email template to use when inviting new team members. The template can include placeholders like {"{{invitee_email}}"}, {"{{inviter_name}}"}, and {"{{invite_link}}"}.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="invite-template">Email Template</Label>
+                    <Select
+                      value={inviteTemplateId || ""}
+                      onValueChange={(value) => {
+                        const newId = value || null;
+                        setInviteTemplateId(newId);
+                        updateInviteTemplateMutation.mutate(newId);
+                      }}
+                    >
+                      <SelectTrigger id="invite-template" className="w-full" data-testid="select-invite-template">
+                        <SelectValue placeholder="Select an email template..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="">None (use default)</SelectItem>
+                        {emailTemplates.map((template) => (
+                          <SelectItem key={template.id} value={template.id}>
+                            {template.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-slate-500">
+                      The selected template will be pre-loaded in the invite modal, allowing the sender to preview and customize before sending.
+                    </p>
+                  </div>
+                  {inviteTemplateId && (
+                    <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                      <p className="text-sm text-green-700">
+                        Template selected: <strong>{emailTemplates.find(t => t.id === inviteTemplateId)?.name || 'Unknown'}</strong>
+                      </p>
+                    </div>
+                  )}
+                </div>
               </CardContent>
             </Card>
 
