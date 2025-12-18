@@ -4,7 +4,7 @@ import 'react-quill/dist/quill.snow.css';
 import DOMPurify from 'dompurify';
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ChevronDown, ChevronUp, Upload, X, AlignLeft, AlignCenter, AlignRight, ArrowUpToLine, AlignVerticalSpaceAround, ArrowDownToLine } from "lucide-react";
+import { ChevronDown, ChevronUp, Upload, X, AlignLeft, AlignCenter, AlignRight } from "lucide-react";
 import AGCASButton from "../../ui/AGCASButton";
 import TypographyStyleSelector, { applyTypographyStyle } from "../TypographyStyleSelector";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -691,56 +691,19 @@ export function IEditFiftyFiftyElementEditor({ element, onChange }) {
   };
 
   const renderTextControls = (side) => {
-    const verticalAlignmentKey = `${side}_vertical_alignment`;
-    
     return (
       <div className="space-y-4">
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <Label className="text-xs">Text Alignment</Label>
-            <select
-              value={content[`${side}_text_alignment`] || 'left'}
-              onChange={(e) => updateContent(`${side}_text_alignment`, e.target.value)}
-              className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
-              data-testid={`select-${side}-text-alignment`}
-            >
-              <option value="left">Left</option>
-              <option value="center">Center</option>
-              <option value="right">Right</option>
-            </select>
-          </div>
-          <div>
-            <Label className="text-xs">Vertical Alignment</Label>
-            <div className="flex border border-slate-300 rounded-md overflow-hidden h-[38px]">
-              <button
-                type="button"
-                onClick={() => updateContent(verticalAlignmentKey, 'top')}
-                className={`flex-1 flex items-center justify-center ${content[verticalAlignmentKey] === 'top' ? 'bg-slate-200' : 'bg-white hover:bg-slate-50'}`}
-                title="Align to top"
-                data-testid={`button-${side}-valign-top`}
-              >
-                <ArrowUpToLine className="w-4 h-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => updateContent(verticalAlignmentKey, 'center')}
-                className={`flex-1 flex items-center justify-center border-x border-slate-300 ${(!content[verticalAlignmentKey] || content[verticalAlignmentKey] === 'center') ? 'bg-slate-200' : 'bg-white hover:bg-slate-50'}`}
-                title="Align to middle"
-                data-testid={`button-${side}-valign-center`}
-              >
-                <AlignVerticalSpaceAround className="w-4 h-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => updateContent(verticalAlignmentKey, 'bottom')}
-                className={`flex-1 flex items-center justify-center ${content[verticalAlignmentKey] === 'bottom' ? 'bg-slate-200' : 'bg-white hover:bg-slate-50'}`}
-                title="Align to bottom"
-                data-testid={`button-${side}-valign-bottom`}
-              >
-                <ArrowDownToLine className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
+        <div>
+          <Label className="text-xs">Text Alignment</Label>
+          <select
+            value={content[`${side}_text_alignment`] || 'left'}
+            onChange={(e) => updateContent(`${side}_text_alignment`, e.target.value)}
+            className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+          >
+            <option value="left">Left</option>
+            <option value="center">Center</option>
+            <option value="right">Right</option>
+          </select>
         </div>
 
         <div className="border-b pb-4">
