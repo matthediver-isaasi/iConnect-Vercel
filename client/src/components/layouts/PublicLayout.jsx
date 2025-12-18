@@ -269,9 +269,7 @@ export default function PublicLayout({ children, currentPageName }) {
         {!loadingBanners && topBanners.length > 0 && (
           <div className="w-full">
             {topBanners.map((banner) => (
-              banner.banner_type === 'image' 
-                ? <PageBannerDisplay key={banner.id} banner={banner} />
-                : <PortalHeroBanner key={banner.id} banner={banner} />
+              <PortalHeroBanner key={banner.id} banner={banner} />
             ))}
           </div>
         )}
@@ -396,7 +394,7 @@ export default function PublicLayout({ children, currentPageName }) {
                     </li>
                     <li className="flex items-center gap-3">
                       <Mail className="w-4 h-4 shrink-0" />
-                      <span>hello@graduatefutures.org.uk</span>
+                      <span>hello@graduatefutures.org</span>
                     </li>
                   </ul>
                 </div>
