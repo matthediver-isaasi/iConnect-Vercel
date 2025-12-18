@@ -489,8 +489,8 @@ export default function MemberDetailView({
   const org = getOrganization();
 
   return (
-    <div className="h-screen flex flex-col bg-slate-50">
-      <header className="bg-white border-b border-slate-200 px-6 py-4">
+    <div className="min-h-screen bg-slate-50">
+      <header className="bg-white border-b border-slate-200 px-6 py-4 sticky top-0 z-10">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
             <Button variant="ghost" size="icon" onClick={onBack} data-testid="button-back-to-members">
@@ -562,7 +562,7 @@ export default function MemberDetailView({
         </div>
       </header>
 
-      <div className="flex-1 overflow-auto p-6">
+      <main className="p-6">
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList className="mb-6">
             <TabsTrigger value="overview" className="gap-1" data-testid="tab-member-overview">
@@ -1282,7 +1282,7 @@ export default function MemberDetailView({
             </Card>
           </TabsContent>
         </Tabs>
-      </div>
+      </main>
     </div>
   );
 }
