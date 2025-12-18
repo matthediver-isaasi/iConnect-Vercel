@@ -194,6 +194,23 @@ export default function MemberDetailView({
     }
   });
 
+  // Fetch verified domains for the selected organization
+  const { data: orgDomainsData } = useQuery({
+    queryKey: ['org-verified-domains', memberOrgId],
+    enabled: !!memberOrgId,
+    queryFn: async () => {
+      try {
+        const response = await fetch(`/api/public/organisation/${memberOrgId}/domains`);
+        if (!response.ok) return { verified_domains: [] };
+        return response.json();
+      } catch {
+        return { verified_domains: [] };
+      }
+    }
+  });
+
+  const verifiedDomains = orgDomainsData?.verified_domains || [];
+
   // Filter roles based on organization's segmentation field value
   const filteredRoles = React.useMemo(() => {
     // If no segmentation is configured, show all roles
@@ -311,6 +328,31 @@ export default function MemberDetailView({
       
       if (!formData.email?.trim()) {
         toast.error('Email is required');
+        return;
+      }
+
+      const email = formData.email.trim().toLowerCase();
+      const emailDomain = email.split('@')[1];
+
+      // Validate domain adherence if organization has verified domains
+      if (verifiedDomains.length > 0) {
+        if (!verifiedDomains.includes(emailDomain)) {
+          const domainList = verifiedDomains.map(d => `@${d}`).join(', ');
+          toast.error(`Email domain must be one of: ${domainList}`);
+          return;
+        }
+      }
+
+      // Check email uniqueness
+      try {
+        const existingMembers = await base44.entities.Member.filter({ email: email });
+        if (existingMembers && existingMembers.length > 0) {
+          toast.error('A member with this email already exists');
+          return;
+        }
+      } catch (err) {
+        console.error('Failed to check email uniqueness:', err);
+        toast.error('Failed to validate email. Please try again.');
         return;
       }
       
