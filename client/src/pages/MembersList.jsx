@@ -49,6 +49,7 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 import MemberDetailView from "@/components/MemberDetailView";
 import { useToast } from "@/components/ui/use-toast";
+import { useLocation } from "react-router-dom";
 
 const DEFAULT_COLUMNS = [
   { id: 'name', label: 'Member', visible: true, locked: true },
@@ -95,6 +96,7 @@ const getInitials = (name) => {
 export default function MembersListPage() {
   const { isAdmin, isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
   const queryClient = useQueryClient();
+  const location = useLocation();
   const [accessChecked, setAccessChecked] = useState(false);
   
   const [viewMode, setViewMode] = useState('list');
@@ -131,6 +133,14 @@ export default function MembersListPage() {
       }
     }
   }, [isAdmin, isAccessReady, isFeatureExcluded]);
+
+  // Reset detail view state when navigating away from this page
+  useEffect(() => {
+    if (location.pathname !== '/members') {
+      setSelectedMember(null);
+      setIsCreatingNew(false);
+    }
+  }, [location.pathname]);
 
   const { data: members = [], isLoading: membersLoading } = useQuery({
     queryKey: ['members-crm-list'],

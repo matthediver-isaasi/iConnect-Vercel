@@ -52,6 +52,7 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 import OrganisationDetailView from "@/components/OrganisationDetailView";
 import { useToast } from "@/components/ui/use-toast";
+import { useLocation } from "react-router-dom";
 
 const DEFAULT_COLUMNS = [
   { id: 'name', label: 'Organisation', visible: true, locked: true },
@@ -81,6 +82,7 @@ const saveLocalColumns = (columns) => {
 export default function OrganisationsListPage() {
   const { isAdmin, isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
   const queryClient = useQueryClient();
+  const location = useLocation();
   const [accessChecked, setAccessChecked] = useState(false);
   
   const [viewMode, setViewMode] = useState('list');
@@ -114,6 +116,15 @@ export default function OrganisationsListPage() {
       }
     }
   }, [isAdmin, isAccessReady, isFeatureExcluded]);
+
+  // Reset detail view state when navigating away from this page
+  useEffect(() => {
+    // Only reset if we're no longer on /organisations
+    if (location.pathname !== '/organisations') {
+      setSelectedOrg(null);
+      setIsCreatingNew(false);
+    }
+  }, [location.pathname]);
 
   const { data: organizations = [], isLoading: orgsLoading } = useQuery({
     queryKey: ['organizations-crm-list'],
