@@ -203,19 +203,20 @@ export default function MemberDetailView({
     const segmentPrefValue = orgPreferenceValues.find(pv => pv.field_id === segmentationFieldId);
     const orgSegmentValue = segmentPrefValue?.value || null;
     
-    // Filter roles:
-    // - Show roles with no segment_values (apply globally)
-    // - Show roles whose segment_values includes the org's segment value
+    // When segmentation is enabled, only show roles that:
+    // - Have segment_values defined AND
+    // - Those segment_values include the org's segment value
+    // Roles with no segment_values are NOT shown when segmentation is enabled
     return roles.filter(role => {
       const roleSegments = role.segment_values || [];
-      // If role has no segment restrictions, show it
-      if (roleSegments.length === 0) return true;
+      // If role has no segment restrictions, hide it when segmentation is enabled
+      if (roleSegments.length === 0) return false;
       // If org has a segment value, check if role includes it
       if (orgSegmentValue) {
         return roleSegments.includes(orgSegmentValue);
       }
-      // If org has no segment value, only show roles with no restrictions
-      return roleSegments.length === 0;
+      // If org has no segment value set, don't show any segmented roles
+      return false;
     });
   }, [roles, segmentationFieldId, orgPreferenceValues]);
 
