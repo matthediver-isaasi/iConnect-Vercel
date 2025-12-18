@@ -1848,15 +1848,19 @@ const functionHandlers = {
       
       // Process voucher deductions if any - with ownership validation
       if (selectedVoucherIds && selectedVoucherIds.length > 0) {
+        console.log('[createOneOffEventBooking] Processing vouchers:', selectedVoucherIds);
         for (const voucherId of selectedVoucherIds) {
+          console.log('[createOneOffEventBooking] Looking up voucher:', voucherId, 'for org:', org.id);
           // Fetch voucher from the voucher table and validate it belongs to the member's organization
-          const { data: voucher } = await supabase
+          const { data: voucher, error: voucherError } = await supabase
             .from('voucher')
             .select('*')
             .eq('id', voucherId)
             .eq('organization_id', org.id)
             .eq('status', 'active')
             .single();
+          
+          console.log('[createOneOffEventBooking] Voucher lookup result:', voucher ? { id: voucher.id, value: voucher.value, status: voucher.status } : 'not found', 'error:', voucherError?.message);
           
           if (voucher && voucher.value > 0) {
             // Clamp amount to remaining cost
@@ -1867,7 +1871,8 @@ const functionHandlers = {
               
               // Update voucher balance in the voucher table
               const newValue = voucher.value - amountToUse;
-              await supabase
+              console.log('[createOneOffEventBooking] Updating voucher', voucherId, 'from', voucher.value, 'to', newValue);
+              const { error: updateError } = await supabase
                 .from('voucher')
                 .update({
                   value: newValue,
@@ -1875,6 +1880,12 @@ const functionHandlers = {
                   notes: `${voucher.notes || ''} | Used £${amountToUse.toFixed(2)} for ${event.title || 'event'} (${bookingReference})`
                 })
                 .eq('id', voucherId);
+              
+              if (updateError) {
+                console.error('[createOneOffEventBooking] Failed to update voucher:', updateError.message);
+              } else {
+                console.log('[createOneOffEventBooking] Voucher updated successfully');
+              }
             }
           } else {
             console.warn('[createOneOffEventBooking] Voucher not found or not owned by org:', voucherId);
