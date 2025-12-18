@@ -81,7 +81,7 @@ const MEMBER_CORE_FIELDS = [
   { id: 'status', label: 'Status', type: 'text' },
   { id: 'organization_id', label: 'Organisation ID', type: 'text' },
   { id: 'role_id', label: 'Role ID', type: 'text' },
-  { id: 'bio', label: 'Biography', type: 'text' },
+  { id: 'biography', label: 'Biography', type: 'text' },
   { id: 'profile_photo_url', label: 'Profile Photo URL', type: 'url' },
   { id: 'show_in_directory', label: 'Show in Directory', type: 'boolean' },
   { id: 'is_admin', label: 'Is Admin', type: 'boolean' },

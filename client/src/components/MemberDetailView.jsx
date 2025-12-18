@@ -63,7 +63,7 @@ export default function MemberDetailView({
     mobile: '',
     landline: '',
     job_title: '',
-    bio: '',
+    biography: '',
     organization_id: defaultOrganizationId,
     disabled: false,
     login_enabled: true
@@ -176,7 +176,7 @@ export default function MemberDetailView({
         mobile: member.mobile || '',
         landline: member.landline || '',
         job_title: member.job_title || '',
-        bio: member.bio || '',
+        biography: member.biography || '',
         organization_id: member.organization_id || '',
         disabled: member.disabled || false,
         login_enabled: member.login_enabled !== false
@@ -293,7 +293,7 @@ export default function MemberDetailView({
       mobile: member.mobile || '',
       landline: member.landline || '',
       job_title: member.job_title || '',
-      bio: member.bio || '',
+      biography: member.biography || '',
       organization_id: member.organization_id || '',
       disabled: member.disabled || false,
       login_enabled: member.login_enabled !== false
@@ -730,21 +730,21 @@ export default function MemberDetailView({
               </div>
             </div>
 
-            {(isEditing || member?.bio) && (
+            {(isEditing || member?.biography) && (
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-lg">Bio</CardTitle>
+                  <CardTitle className="text-lg">Biography</CardTitle>
                 </CardHeader>
                 <CardContent>
                   {isEditing ? (
                     <Textarea
-                      value={formData.bio}
-                      onChange={(e) => setFormData(prev => ({ ...prev, bio: e.target.value }))}
+                      value={formData.biography}
+                      onChange={(e) => setFormData(prev => ({ ...prev, biography: e.target.value }))}
                       rows={4}
-                      data-testid="textarea-member-bio"
+                      data-testid="textarea-member-biography"
                     />
                   ) : (
-                    <p className="text-sm text-slate-600 whitespace-pre-wrap">{member.bio}</p>
+                    <p className="text-sm text-slate-600 whitespace-pre-wrap">{member.biography}</p>
                   )}
                 </CardContent>
               </Card>
