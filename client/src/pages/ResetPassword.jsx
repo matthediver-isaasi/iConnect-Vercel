@@ -70,9 +70,23 @@ export default function ResetPasswordPage() {
           sessionStorage.setItem('agcas_member', JSON.stringify(memberInfo));
         }
         
+        // Determine landing page based on user's role
+        let landingPage = 'about-me';
+        if (data.member?.role_id) {
+          try {
+            const allRoles = await base44.entities.Role.list();
+            const userRole = allRoles.find(r => r.id === data.member.role_id);
+            if (userRole && userRole.default_landing_page) {
+              landingPage = userRole.default_landing_page;
+            }
+          } catch (err) {
+            console.warn('[ResetPassword] Could not fetch role for landing page:', err);
+          }
+        }
+        
         // Redirect after short delay
         setTimeout(() => {
-          window.location.href = createPageUrl('Preferences');
+          window.location.href = createPageUrl(landingPage);
         }, 2000);
       } else {
         setError(data.error || "Failed to reset password");
