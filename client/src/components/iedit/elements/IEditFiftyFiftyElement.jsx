@@ -183,7 +183,19 @@ export default function IEditFiftyFiftyElement({ content, variant, settings }) {
     letterSpacing: `${content_letter_spacing}px`
   });
 
-  const hasHeaderContent = header_title || header_subtitle || header_content;
+  // Helper to check if a text value has actual content (not empty/whitespace/empty HTML tags)
+  const hasContent = (value) => {
+    if (!value) return false;
+    // Strip HTML tags and check if there's actual text content
+    const stripped = value.replace(/<[^>]*>/g, '').trim();
+    return stripped.length > 0;
+  };
+
+  // Check section header content using the helper
+  const hasHeaderTitle = hasContent(header_title);
+  const hasHeaderSubtitle = hasContent(header_subtitle);
+  const hasHeaderContentText = hasContent(header_content);
+  const hasHeaderContent = hasHeaderTitle || hasHeaderSubtitle || hasHeaderContentText;
 
   const headerAlignmentClass = {
     left: 'text-left',
@@ -197,6 +209,17 @@ export default function IEditFiftyFiftyElement({ content, variant, settings }) {
     const textContent = content?.[`${side}_content`];
     const alignment = content?.[`${side}_text_alignment`] || 'left';
 
+    // Check if any text content actually exists
+    const hasHeading = hasContent(heading);
+    const hasSubheading = hasContent(subheading);
+    const hasTextContent = hasContent(textContent);
+    const hasAnyContent = hasHeading || hasSubheading || hasTextContent;
+
+    // Don't render the container if there's no content
+    if (!hasAnyContent) {
+      return null;
+    }
+
     const alignmentClass = {
       left: 'text-left',
       center: 'text-center',
@@ -205,21 +228,21 @@ export default function IEditFiftyFiftyElement({ content, variant, settings }) {
 
     return (
       <div className={`space-y-4 ${alignmentClass} flex-1`}>
-        {heading && (
+        {hasHeading && (
           <div 
             style={getTextStyle(`${side}_heading`)} 
             className="m-0 fifty-fifty-heading"
             dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(heading) }}
           />
         )}
-        {subheading && (
+        {hasSubheading && (
           <div 
             style={getTextStyle(`${side}_subheading`)} 
             className="m-0 prose max-w-none"
             dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(subheading) }}
           />
         )}
-        {textContent && (
+        {hasTextContent && (
           <div 
             className="prose max-w-none" 
             style={getTextStyle(`${side}_content`)}
@@ -297,30 +320,30 @@ export default function IEditFiftyFiftyElement({ content, variant, settings }) {
         className="relative max-w-7xl mx-auto px-4"
         style={{ paddingTop: `${vertical_padding}px`, paddingBottom: `${vertical_padding}px` }}
       >
-        {/* Section Header */}
+        {/* Section Header - only render if there's actual content */}
         {hasHeaderContent && (
-          <div className="mb-8">
-            {header_title && (
+          <div className="mb-8 space-y-2">
+            {hasHeaderTitle && (
               <div 
                 style={{
                   ...getHeaderTitleStyle(),
                   textAlign: content?.header_title_text_align || 'center'
                 }} 
-                className="mb-2 section-header-title"
+                className="section-header-title"
                 dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(header_title) }}
               />
             )}
-            {header_subtitle && (
+            {hasHeaderSubtitle && (
               <div 
                 style={{
                   ...getSubtitleStyle(),
                   textAlign: content?.header_subtitle_text_align || 'center'
                 }} 
-                className="mb-4 section-header-subtitle"
+                className="section-header-subtitle"
                 dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(header_subtitle) }}
               />
             )}
-            {header_content && (
+            {hasHeaderContentText && (
               <div 
                 style={{
                   ...getContentStyle(),
