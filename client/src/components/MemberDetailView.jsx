@@ -65,7 +65,6 @@ export default function MemberDetailView({
     job_title: '',
     biography: '',
     organization_id: defaultOrganizationId,
-    disabled: false,
     login_enabled: true
   });
 
@@ -178,7 +177,6 @@ export default function MemberDetailView({
         job_title: member.job_title || '',
         biography: member.biography || '',
         organization_id: member.organization_id || '',
-        disabled: member.disabled || false,
         login_enabled: member.login_enabled !== false
       });
       setSelectedRoles(member.roles || (member.role_id ? [member.role_id] : []));
@@ -295,7 +293,6 @@ export default function MemberDetailView({
       job_title: member.job_title || '',
       biography: member.biography || '',
       organization_id: member.organization_id || '',
-      disabled: member.disabled || false,
       login_enabled: member.login_enabled !== false
     });
     setSelectedRoles(member.roles || (member.role_id ? [member.role_id] : []));
@@ -427,8 +424,8 @@ export default function MemberDetailView({
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {!isNew && (member?.disabled ? (
-              <Badge variant="secondary" className="bg-red-100 text-red-700">Disabled</Badge>
+            {!isNew && (member?.login_enabled === false ? (
+              <Badge variant="secondary" className="bg-red-100 text-red-700">Login Disabled</Badge>
             ) : (
               <Badge variant="secondary" className="bg-green-100 text-green-700">Active</Badge>
             ))}
@@ -544,15 +541,6 @@ export default function MemberDetailView({
                           onChange={(e) => setFormData(prev => ({ ...prev, job_title: e.target.value }))}
                           data-testid="input-member-job-title"
                         />
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Checkbox
-                          id="disabled"
-                          checked={formData.disabled}
-                          onCheckedChange={(checked) => setFormData(prev => ({ ...prev, disabled: checked }))}
-                          data-testid="checkbox-member-disabled"
-                        />
-                        <Label htmlFor="disabled" className="text-sm">Account Disabled</Label>
                       </div>
                     </>
                   ) : (
