@@ -232,11 +232,12 @@ export default async function handler(req, res) {
       console.log(`POST to ${tableName}:`, JSON.stringify(req.body));
       
       // Sanitize empty strings to null for UUID fields to avoid "invalid input syntax for type uuid" errors
+      // Only modify fields that are already present in the request body
       const sanitizedBody = { ...req.body };
       const uuidFields = ['role_id', 'organization_id', 'member_id', 'parent_id', 'form_id', 'event_id', 
                           'category_id', 'template_id', 'workflow_id', 'speaker_id', 'created_by', 'updated_by'];
       for (const field of uuidFields) {
-        if (sanitizedBody[field] === '' || sanitizedBody[field] === undefined) {
+        if (field in sanitizedBody && sanitizedBody[field] === '') {
           sanitizedBody[field] = null;
         }
       }
