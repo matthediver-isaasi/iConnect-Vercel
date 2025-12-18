@@ -76,7 +76,7 @@ export default function RoleManagementPage() {
   useEffect(() => {
     if (isAccessReady) {
       if (!isAdmin || isFeatureExcluded('page_RoleManagement')) {
-        window.location.href = createPageUrl('Events');
+        window.location.href = createPageUrl('about-me');
       } else {
         setAccessChecked(true);
       }
@@ -294,7 +294,7 @@ export default function RoleManagementPage() {
     // Member-facing pages (user-facing)
     const memberPages = ['Events', 'Dashboard', 'Bookings', 'MyTickets', 'Balances', 'History', 
       'BuyProgramTickets', 'Resources', 'Articles', 'MyArticles', 'News', 'MyJobPostings', 
-      'JobBoard', 'Team', 'MemberDirectory', 'OrganisationDirectory', 'MyOrganisation', 'Preferences', 'Support', 
+      'JobBoard', 'Team', 'MemberDirectory', 'OrganisationDirectory', 'MyOrganisation', 'AboutMe', 'Support', 
       'Home', 'EventDetails', 'ArticleEditor', 'ArticleView', 'NewsEditor', 'NewsView', 
       'PostJob', 'JobDetails', 'JobPostSuccess', 'FormView', 'DynamicPage', 'ViewPage', 
       'UnpackedInternationalEmployability'];
@@ -401,7 +401,7 @@ export default function RoleManagementPage() {
       is_default: false,
       is_admin: false,
       show_tours: true,
-      default_landing_page: "Events",
+      default_landing_page: "about-me",
       layout_theme: "default",
       segment_values: []  // Initialize empty for new roles
     });
@@ -448,7 +448,7 @@ export default function RoleManagementPage() {
       is_default: editingRole.is_default,
       is_admin: editingRole.is_admin,
       show_tours: editingRole.show_tours,
-      default_landing_page: editingRole.default_landing_page || "Events",
+      default_landing_page: editingRole.default_landing_page || "about-me",
       layout_theme: editingRole.layout_theme || "default",
       requires_effective_from_date: editingRole.requires_effective_from_date || false,
       badge_image_url: editingRole.badge_image_url || null,
@@ -713,7 +713,7 @@ export default function RoleManagementPage() {
                 <div className="space-y-2">
                   <Label htmlFor="landing-page">Default Landing Page</Label>
                   <Select
-                    value={editingRole.default_landing_page || "Events"}
+                    value={editingRole.default_landing_page || "about-me"}
                     onValueChange={(value) => setEditingRole({ ...editingRole, default_landing_page: value })}
                   >
                     <SelectTrigger>
