@@ -1876,8 +1876,7 @@ const functionHandlers = {
                 .from('voucher')
                 .update({
                   value: newValue,
-                  status: newValue <= 0 ? 'used' : 'active',
-                  notes: `${voucher.notes || ''} | Used £${amountToUse.toFixed(2)} for ${event.title || 'event'} (${bookingReference})`
+                  status: newValue <= 0 ? 'used' : 'active'
                 })
                 .eq('id', voucherId);
               
