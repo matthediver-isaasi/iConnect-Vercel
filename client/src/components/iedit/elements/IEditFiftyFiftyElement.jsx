@@ -227,7 +227,7 @@ export default function IEditFiftyFiftyElement({ content, variant, settings }) {
     }[alignment] || 'text-left';
 
     return (
-      <div className={`space-y-4 ${alignmentClass} flex-1`}>
+      <div className={`space-y-4 ${alignmentClass}`}>
         {hasHeading && (
           <div 
             style={getTextStyle(`${side}_heading`)} 
