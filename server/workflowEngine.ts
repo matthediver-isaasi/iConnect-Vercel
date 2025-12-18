@@ -251,7 +251,7 @@ async function generatePasswordSetupUrl(memberId: string, memberEmail: string, b
         });
     }
     
-    const resetUrl = `${baseUrl}/auth/reset-password?token=${resetToken}&email=${encodeURIComponent(memberEmail)}`;
+    const resetUrl = `${baseUrl}/reset-password?token=${resetToken}&email=${encodeURIComponent(memberEmail)}`;
     console.log(`[Workflow Engine] Generated password setup URL for ${memberEmail}`);
     return resetUrl;
   } catch (error) {
