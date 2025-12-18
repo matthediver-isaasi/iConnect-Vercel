@@ -446,17 +446,7 @@ export default function TeamPage({ hasBanner }) {
     });
   };
 
-  const isLoading = membersLoading;
-
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
-      </div>
-    );
-  }
-
-  // Get organization's verified domains for display
+  // Get organization's verified domains for display (must be before early returns)
   const orgVerifiedDomains = useMemo(() => {
     const domains = [];
     if (organizationInfo?.domain) {
@@ -473,6 +463,16 @@ export default function TeamPage({ hasBanner }) {
   }, [organizationInfo, memberInfo]);
 
   const primaryDomain = orgVerifiedDomains[0] || '';
+
+  const isLoading = membersLoading;
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+      </div>
+    );
+  }
 
   return (
     <TooltipProvider delayDuration={100}>
