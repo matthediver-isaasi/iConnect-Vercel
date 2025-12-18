@@ -19,6 +19,7 @@ const panelQuillModules = {
 export default function IEditImagePanelElement({ content, variant, settings }) {
   const {
     anchor,
+    full_width = false,
     background_type = 'color',
     background_color = '#1a1a2e',
     gradient_start_color = '#3b82f6',
@@ -193,7 +194,9 @@ export default function IEditImagePanelElement({ content, variant, settings }) {
             gridRow: '1 / -1',
             display: 'flex',
             width: '100%',
-            height: '100%'
+            height: '100%',
+            maxWidth: full_width ? '80rem' : undefined,
+            margin: full_width ? '0 auto' : undefined
           }}
         >
           {renderPanels()}
@@ -235,7 +238,11 @@ export default function IEditImagePanelElement({ content, variant, settings }) {
       <div 
         className="relative h-full flex"
         style={{
-          minHeight: `${min_height}px`
+          minHeight: `${min_height}px`,
+          maxWidth: full_width ? '80rem' : undefined,
+          margin: full_width ? '0 auto' : undefined,
+          paddingLeft: full_width ? '1rem' : undefined,
+          paddingRight: full_width ? '1rem' : undefined
         }}
       >
         {renderPanels()}
@@ -259,6 +266,7 @@ export function IEditImagePanelElementEditor({ element, onChange }) {
   const [buttonStyles, setButtonStyles] = useState([]);
   const [expandedPanels, setExpandedPanels] = useState({ 0: true });
   const [expandedSections, setExpandedSections] = useState({
+    settings: false,
     background: false,
     layout: false,
     dividers: false,
@@ -475,6 +483,39 @@ export function IEditImagePanelElementEditor({ element, onChange }) {
         <p className="text-xs text-slate-500 mt-1">
           Used for linking directly to this section (e.g., /page#anchor-id)
         </p>
+      </div>
+
+      {/* Settings Section */}
+      <div className="border rounded-lg overflow-hidden">
+        <button
+          type="button"
+          onClick={() => toggleSection('settings')}
+          className="w-full flex items-center justify-between p-3 bg-slate-100 hover:bg-slate-200 text-left"
+        >
+          <span className="font-semibold text-sm">Settings</span>
+          {expandedSections.settings ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+        </button>
+        
+        {expandedSections.settings && (
+          <div className="p-4 space-y-4">
+            <div className="flex items-center gap-3">
+              <input
+                type="checkbox"
+                id="full_width"
+                checked={content.full_width || false}
+                onChange={(e) => updateContent('full_width', e.target.checked)}
+                className="w-4 h-4 rounded border-slate-300"
+                data-testid="checkbox-imagepanel-fullwidth"
+              />
+              <label htmlFor="full_width" className="text-sm font-medium">
+                Full Width Background
+              </label>
+            </div>
+            <p className="text-xs text-slate-500">
+              When enabled, the background extends to full width while content remains constrained to the page width.
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Background & Layout Section */}
