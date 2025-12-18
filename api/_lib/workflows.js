@@ -26,21 +26,31 @@ async function generatePasswordSetupUrl(memberId, baseUrl) {
       return null;
     }
     
+    const memberEmail = member.email.toLowerCase();
     const resetToken = crypto.randomUUID();
     const resetTokenExpires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
     
-    // Check if credentials record exists
-    const { data: existingCreds } = await supabase
+    // Check if credentials record exists for this member_id
+    const { data: existingCredsByMember } = await supabase
       .from('member_credentials')
-      .select('id')
+      .select('id, email')
       .eq('member_id', memberId)
       .single();
     
-    if (existingCreds) {
-      // Update existing record
+    // Also check if credentials exist for this email (potentially different member)
+    const { data: existingCredsByEmail } = await supabase
+      .from('member_credentials')
+      .select('id, member_id')
+      .eq('email', memberEmail)
+      .single();
+    
+    if (existingCredsByMember) {
+      // Update existing record for this member
+      console.log(`[Workflows] Updating existing credentials for member_id ${memberId}`);
       const { error: updateError } = await supabase
         .from('member_credentials')
         .update({
+          email: memberEmail, // Update email in case it changed
           reset_token: resetToken,
           reset_token_expires: resetTokenExpires.toISOString()
         })
@@ -50,13 +60,31 @@ async function generatePasswordSetupUrl(memberId, baseUrl) {
         console.error('[Workflows] Error updating reset token:', updateError);
         return null;
       }
+    } else if (existingCredsByEmail) {
+      // Credentials exist with this email but different member_id
+      // Update the existing record to point to the new member
+      console.log(`[Workflows] Found credentials by email, updating member_id from ${existingCredsByEmail.member_id} to ${memberId}`);
+      const { error: updateError } = await supabase
+        .from('member_credentials')
+        .update({
+          member_id: memberId,
+          reset_token: resetToken,
+          reset_token_expires: resetTokenExpires.toISOString()
+        })
+        .eq('email', memberEmail);
+      
+      if (updateError) {
+        console.error('[Workflows] Error updating credentials by email:', updateError);
+        return null;
+      }
     } else {
-      // Create new credentials record - don't include password_hash (column allows null)
+      // No existing credentials - create new record
+      console.log(`[Workflows] Creating new credentials for member ${memberId}`);
       const { error: insertError } = await supabase
         .from('member_credentials')
         .insert({
           member_id: memberId,
-          email: member.email.toLowerCase(),
+          email: memberEmail,
           reset_token: resetToken,
           reset_token_expires: resetTokenExpires.toISOString()
         });
@@ -67,8 +95,8 @@ async function generatePasswordSetupUrl(memberId, baseUrl) {
       }
     }
     
-    console.log(`[Workflows] Generated password setup token for member ${memberId} (${member.email})`);
-    return `${baseUrl}/auth/reset-password?token=${resetToken}&email=${encodeURIComponent(member.email)}`;
+    console.log(`[Workflows] Generated password setup token for member ${memberId} (${memberEmail})`);
+    return `${baseUrl}/auth/reset-password?token=${resetToken}&email=${encodeURIComponent(memberEmail)}`;
   } catch (error) {
     console.error('[Workflows] Error generating password setup URL:', error);
     return null;
