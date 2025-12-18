@@ -245,9 +245,13 @@ async function executeWorkflowActions(workflow, entityType, entityId, entityData
       body = replacePlaceholders(body, entityType, entityData);
       
       // Process special placeholders like {{set_password_url}}
+      console.log(`[Workflows] baseUrl: "${baseUrl}", entityType: "${entityType}", entityId: "${entityId}"`);
+      console.log(`[Workflows] Body contains set_password_url: ${body?.includes('set_password_url')}`);
       if (baseUrl) {
         subject = await processSpecialPlaceholders(subject, entityType, entityId, baseUrl);
         body = await processSpecialPlaceholders(body, entityType, entityId, baseUrl);
+      } else {
+        console.warn(`[Workflows] baseUrl is empty/undefined, cannot process special placeholders`);
       }
       
       console.log(`[Workflows] Sending email - to: "${to}", subject: "${subject}", body length: ${body?.length}`);

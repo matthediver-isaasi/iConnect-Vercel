@@ -256,9 +256,22 @@ export default async function handler(req, res) {
       const entityNormalized = entity.replace(/[-_]/g, '').toLowerCase();
 
       // Derive base URL for workflow email placeholders
+      // On Vercel, use VERCEL_URL env var as fallback
       const protocol = req.headers['x-forwarded-proto'] || 'https';
-      const host = req.headers['x-forwarded-host'] || req.headers.host || '';
-      const baseUrl = `${protocol}://${host}`;
+      let host = req.headers['x-forwarded-host'] || req.headers.host || '';
+      
+      // Fallback to VERCEL_URL or configured app URL if host is missing
+      if (!host && process.env.VERCEL_URL) {
+        host = process.env.VERCEL_URL;
+      }
+      
+      const baseUrl = host ? `${protocol}://${host}` : (process.env.APP_URL || '');
+      console.log(`[Entity POST] Derived baseUrl: "${baseUrl}" (protocol: ${protocol}, host: ${host})`);
+      console.log(`[Entity POST] Request headers:`, JSON.stringify({
+        'x-forwarded-proto': req.headers['x-forwarded-proto'],
+        'x-forwarded-host': req.headers['x-forwarded-host'],
+        'host': req.headers.host
+      }));
 
       // Trigger workflow evaluation for new Organization/Member (non-blocking)
       if ((entityNormalized === 'organization' || entityNormalized === 'member') && data) {
