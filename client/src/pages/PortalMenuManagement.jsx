@@ -122,7 +122,7 @@ const builtInPages = [
   { value: "PostJob", label: "Post Job" },
   { value: "Preferences", label: "User Preferences" },
   { value: "PreferenceSettings", label: "Preference Settings" },
-  { value: "About-me", label: "About Me" },
+  { value: "about-me", label: "About Me" },
   { value: "PublicAbout", label: "Public - About" },
   { value: "PublicArticles", label: "Public - Articles" },
   { value: "PublicContact", label: "Public - Contact" },
