@@ -96,23 +96,24 @@ export default function PageBannerDisplay({ banner }) {
 
   return (
     <div className={`${containerClass} ${alignmentClass} ${paddingTopClass} ${paddingBottomClass} overflow-hidden`}>
-      <div className={`${heightClass} w-full relative`}>
+      {/* Header Text Above Image */}
+      {hasHeader && (
+        <div className={`${textAlignmentClass} px-4 md:px-8 lg:px-16 py-4 md:py-6`}>
+          <div 
+            className="max-w-4xl mx-auto"
+            style={getHeaderStyle()}
+            dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(banner.header_title) }}
+          />
+        </div>
+      )}
+      
+      {/* Banner Image */}
+      <div className={`${heightClass} w-full`}>
         <img
           src={banner.image_url}
           alt={banner.alt_text || banner.name}
           className={`w-full h-full object-cover ${positionClass}`}
         />
-        
-        {/* Header Text Overlay */}
-        {hasHeader && (
-          <div className={`absolute inset-0 flex flex-col justify-center ${textAlignmentClass} px-4 md:px-8 lg:px-16`}>
-            <div 
-              className="max-w-4xl"
-              style={getHeaderStyle()}
-              dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(banner.header_title) }}
-            />
-          </div>
-        )}
       </div>
     </div>
   );
