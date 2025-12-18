@@ -1034,6 +1034,24 @@ export function IEditHeroElementEditor({ element, onChange }) {
                         max="20"
                       />
                     </div>
+                    <div className="col-span-2">
+                      <label className="block text-sm font-medium mb-1">Font Color</label>
+                      <div className="flex gap-2">
+                        <input
+                          type="color"
+                          value={content.text_color || '#ffffff'}
+                          onChange={(e) => updateContent('text_color', e.target.value)}
+                          className="w-12 h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+                        />
+                        <input
+                          type="text"
+                          value={content.text_color || '#ffffff'}
+                          onChange={(e) => updateContent('text_color', e.target.value)}
+                          className="flex-1 px-3 py-2 border border-slate-300 rounded-md font-mono text-sm"
+                          placeholder="#ffffff"
+                        />
+                      </div>
+                    </div>
                   </div>
                 </div>
               </details>
