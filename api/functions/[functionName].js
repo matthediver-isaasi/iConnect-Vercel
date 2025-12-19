@@ -914,7 +914,7 @@ const functionHandlers = {
       metadata
     });
 
-    return { clientSecret: paymentIntent.client_secret };
+    return { success: true, clientSecret: paymentIntent.client_secret, paymentIntentId: paymentIntent.id };
   },
 
   async refreshMemberBalance(params) {
@@ -3601,7 +3601,7 @@ const functionHandlers = {
       metadata: { ...metadata, member_email: memberEmail }
     });
 
-    return { clientSecret: paymentIntent.client_secret, paymentIntentId: paymentIntent.id };
+    return { success: true, clientSecret: paymentIntent.client_secret, paymentIntentId: paymentIntent.id };
   },
 
   async getStripePublishableKey() {
