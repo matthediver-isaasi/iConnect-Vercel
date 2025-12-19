@@ -233,14 +233,16 @@ export default function PaymentOptions({
   // Check if we have enough tickets (for program events)
   const hasEnoughTickets = isOneOffEvent ? true : availableProgramTickets >= ticketsRequired;
 
-  // Calculate voucher amount from selected vouchers - capped at totalCost
+  // Calculate voucher amount from selected vouchers - capped at (totalCost - trainingFundAmount)
+  // This ensures vouchers only cover the remaining cost after training fund is applied
   const voucherAmountRaw = selectedVouchers.reduce((sum, voucherId) => {
     const voucher = vouchers.find((v) => v.id === voucherId);
     return sum + (voucher?.value || 0);
   }, 0);
-  const voucherAmount = isFeatureExcluded('element_EventUseVouchers') ? 0 : Math.min(voucherAmountRaw, totalCost);
+  const voucherAmount = isFeatureExcluded('element_EventUseVouchers') ? 0 : Math.min(voucherAmountRaw, totalCost - trainingFundAmount);
 
-  // Max available for training fund
+  // Max available for training fund - capped at (totalCost - voucherAmount)
+  // This ensures training fund only covers remaining cost after vouchers are applied
   const maxTrainingFund = isFeatureExcluded('element_EventUseTrainingFund') ? 0 : Math.min(
     organizationInfo?.training_fund_balance || 0,
     totalCost - voucherAmount
