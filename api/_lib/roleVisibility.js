@@ -200,19 +200,26 @@ export function isResourceExcluded(excludedResources, resourceId) {
     return false;
   }
 
+  // Normalize the input resourceId
   const normalizedId = migrateLegacyFeatureId(resourceId);
   
-  if (excludedResources.includes(normalizedId)) {
+  // Normalize all excluded resources to ensure legacy IDs are converted
+  const normalizedExcluded = excludedResources.map(id => migrateLegacyFeatureId(id));
+  
+  // Check if the resource itself is excluded
+  if (normalizedExcluded.includes(normalizedId)) {
     return true;
   }
 
+  // Check if the parent page is excluded (makes all child features excluded)
   const pageId = getPageForResource(normalizedId);
-  if (pageId && excludedResources.includes(pageId)) {
+  if (pageId && normalizedExcluded.includes(pageId)) {
     return true;
   }
 
+  // Check if the parent module is excluded (makes all pages and features excluded)
   const moduleId = getModuleForResource(normalizedId);
-  if (moduleId && excludedResources.includes(moduleId)) {
+  if (moduleId && normalizedExcluded.includes(moduleId)) {
     return true;
   }
 
