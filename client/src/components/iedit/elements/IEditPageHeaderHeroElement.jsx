@@ -171,7 +171,9 @@ export default function IEditPageHeaderHeroElement({ content, variant, settings,
             font-family: ${header_font_family};
             font-size: ${header_font_size}px;
             color: ${header_color};
-            line-height: ${line_spacing};
+            line-height: ${content?.header_line_height || line_spacing};
+            ${content?.header_font_weight ? `font-weight: ${content.header_font_weight};` : ''}
+            ${content?.header_letter_spacing ? `letter-spacing: ${content.header_letter_spacing}px;` : ''}
           }
           
           .${instanceId} .hero-subheading {
