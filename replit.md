@@ -40,6 +40,8 @@ An admin-only CRM-style page for managing organizations, featuring search, filte
 
 The role management system uses a hierarchical Module→Page→Feature structure to control visibility. Roles store `excluded_features` arrays. Dynamic configuration of this hierarchy is managed via an Admin UI, storing data in a `role_access_item` Supabase table.
 
+**Admin Status Derivation (Dec 2025):** Admin status is now derived from feature exclusions rather than the deprecated `is_admin` database flag. Specifically, a user is considered an admin if `admin.role-management` is NOT in their role's `excluded_features` array. All access control checks throughout the application use `isFeatureExcluded()` from the `useMemberAccess` hook. The `is_admin` field is still written to the database for backward compatibility but is derived from exclusions when saving roles.
+
 ## Email Template Placeholder System
 
 The platform supports dynamic email templates with placeholder substitution for form submissions. Forms can send multiple emails per submission with independent configurations, allowing for system and custom placeholders mapped to form fields. The backend handles placeholder replacement and supports backward compatibility with legacy single email fields.
