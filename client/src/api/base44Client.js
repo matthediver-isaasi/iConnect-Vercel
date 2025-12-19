@@ -242,6 +242,7 @@ class EntitiesProxy {
   get CardDeck() { return this._getEntity('CardDeck'); }
   get DynamicDirectory() { return this._getEntity('DynamicDirectory'); }
   get TrainingFundTransaction() { return this._getEntity('TrainingFundTransaction'); }
+  get VoucherTransaction() { return this._getEntity('VoucherTransaction'); }
   get Workflow() { return this._getEntity('Workflow'); }
   get WorkflowLog() { return this._getEntity('WorkflowLog'); }
   get EmailTemplate() { return this._getEntity('EmailTemplate'); }
