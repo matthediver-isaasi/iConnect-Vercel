@@ -179,6 +179,7 @@ export default function VoucherManagementPage() {
     mutationFn: ({ id, data }) => base44.entities.Voucher.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['vouchers-admin'] });
+      queryClient.invalidateQueries({ queryKey: ['voucher-transactions'] });
       setShowDialog(false);
       setEditingVoucher(null);
       toast.success('Voucher updated successfully');
@@ -216,7 +217,8 @@ export default function VoucherManagementPage() {
   const handleEdit = (voucher) => {
     setEditingVoucher({
       ...voucher,
-      expires_at: voucher.expires_at ? format(new Date(voucher.expires_at), "yyyy-MM-dd") : ""
+      expires_at: voucher.expires_at ? format(new Date(voucher.expires_at), "yyyy-MM-dd") : "",
+      _originalValue: voucher.value
     });
     setShowDialog(true);
   };
@@ -230,7 +232,7 @@ export default function VoucherManagementPage() {
     setShowDeleteConfirm(true);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!editingVoucher.organization_id) {
       toast.error('Organisation is required');
       return;
@@ -248,16 +250,38 @@ export default function VoucherManagementPage() {
       return;
     }
 
+    const newValue = parseFloat(editingVoucher.value);
     const data = {
       organization_id: editingVoucher.organization_id,
       code: editingVoucher.code.toUpperCase().trim(),
-      value: parseFloat(editingVoucher.value),
+      value: newValue,
       description: editingVoucher.description || "",
       expires_at: new Date(editingVoucher.expires_at).toISOString(),
       status: editingVoucher.status
     };
 
     if (editingVoucher.id) {
+      const originalValue = editingVoucher._originalValue || 0;
+      const valueChanged = Math.abs(newValue - originalValue) > 0.001;
+      
+      if (valueChanged) {
+        const adjustmentAmount = newValue - originalValue;
+        const transactionData = {
+          voucher_id: editingVoucher.id,
+          organization_id: editingVoucher.organization_id,
+          amount: Math.abs(adjustmentAmount),
+          balance_before: originalValue,
+          balance_after: newValue,
+          type: adjustmentAmount > 0 ? 'credit_adjustment' : 'debit_adjustment'
+        };
+        
+        try {
+          await base44.entities.VoucherTransaction.create(transactionData);
+        } catch (err) {
+          console.error('Failed to record adjustment transaction:', err);
+        }
+      }
+      
       updateMutation.mutate({ id: editingVoucher.id, data });
     } else {
       createMutation.mutate(data);
@@ -290,6 +314,8 @@ export default function VoucherManagementPage() {
   const formatTransactionType = (type) => {
     switch (type) {
       case 'booking_usage': return { label: 'Booking', color: 'bg-blue-100 text-blue-800' };
+      case 'credit_adjustment': return { label: 'Credit', color: 'bg-green-100 text-green-800' };
+      case 'debit_adjustment': return { label: 'Debit', color: 'bg-amber-100 text-amber-800' };
       case 'adjustment': return { label: 'Adjustment', color: 'bg-amber-100 text-amber-800' };
       default: return { label: type, color: 'bg-slate-100 text-slate-800' };
     }
