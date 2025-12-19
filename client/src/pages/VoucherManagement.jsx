@@ -462,9 +462,15 @@ export default function VoucherManagementPage() {
                         </div>
                         
                         <div className="text-right flex-shrink-0">
-                          <span className="text-lg font-bold text-red-600">
-                            -£{(transaction.amount || 0).toFixed(2)}
-                          </span>
+                          {transaction.type === 'credit_adjustment' ? (
+                            <span className="text-lg font-bold text-green-600">
+                              +£{(transaction.amount || 0).toFixed(2)}
+                            </span>
+                          ) : (
+                            <span className="text-lg font-bold text-red-600">
+                              -£{(transaction.amount || 0).toFixed(2)}
+                            </span>
+                          )}
                         </div>
                       </div>
                     </CardContent>
