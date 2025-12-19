@@ -26,6 +26,7 @@ export function useAdminBalancesRealtime(options = {}) {
 
   const invalidateTransactionQueries = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ['training-fund-transactions'] });
+    queryClient.invalidateQueries({ queryKey: ['voucher-transactions'] });
   }, [queryClient]);
 
   const invalidateOrganizationQueries = useCallback(() => {
@@ -111,6 +112,32 @@ export function useAdminBalancesRealtime(options = {}) {
         console.log('[useAdminBalancesRealtime] Transaction subscription status:', status);
       });
 
+    const voucherTransactionChannel = supabase
+      .channel(`admin-voucher-tx-${uniqueId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'voucher_transaction'
+        },
+        (payload) => {
+          const newData = payload.new;
+          const eventType = payload.eventType;
+
+          console.log('[useAdminBalancesRealtime] Voucher transaction change detected:', {
+            eventType,
+            transactionId: newData?.id
+          });
+
+          invalidateTransactionQueries();
+          invalidateVoucherQueries();
+        }
+      )
+      .subscribe((status) => {
+        console.log('[useAdminBalancesRealtime] Voucher transaction subscription status:', status);
+      });
+
     const orgChannel = supabase
       .channel(`admin-org-changes-${uniqueId}`)
       .on(
@@ -151,6 +178,7 @@ export function useAdminBalancesRealtime(options = {}) {
       console.log('[useAdminBalancesRealtime] Cleaning up admin realtime subscriptions');
       supabase.removeChannel(voucherChannel);
       supabase.removeChannel(transactionChannel);
+      supabase.removeChannel(voucherTransactionChannel);
       supabase.removeChannel(orgChannel);
       setIsConnected(false);
     };

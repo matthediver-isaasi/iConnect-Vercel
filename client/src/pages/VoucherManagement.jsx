@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { Ticket, Plus, Pencil, Trash2, Search, ChevronLeft, ChevronRight, Building2, Calendar, EyeOff, Eye, AlertCircle, Check, ChevronsUpDown, Wifi } from "lucide-react";
+import { Ticket, Plus, Pencil, Trash2, Search, ChevronLeft, ChevronRight, Building2, Calendar, EyeOff, Eye, AlertCircle, Check, ChevronsUpDown, Wifi, ArrowLeft, History } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { createPageUrl } from "@/utils";
@@ -34,6 +34,7 @@ export default function VoucherManagementPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [voucherToDelete, setVoucherToDelete] = useState(null);
   const [orgSearchOpen, setOrgSearchOpen] = useState(false);
+  const [selectedVoucher, setSelectedVoucher] = useState(null);
   
   const queryClient = useQueryClient();
 
@@ -81,6 +82,34 @@ export default function VoucherManagementPage() {
     staleTime: 0,
     refetchOnMount: true,
   });
+
+  // Fetch voucher transactions for selected voucher
+  const { data: voucherTransactions = [], isLoading: loadingTransactions } = useQuery({
+    queryKey: ['voucher-transactions', selectedVoucher?.id],
+    queryFn: async () => {
+      if (!selectedVoucher?.id) return [];
+      const allTransactions = await base44.entities.VoucherTransaction.list();
+      return allTransactions
+        .filter(tx => tx.voucher_id === selectedVoucher.id)
+        .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    },
+    enabled: !!selectedVoucher?.id,
+    staleTime: 0,
+  });
+
+  // Keep selectedVoucher in sync with the latest data from vouchers query
+  useEffect(() => {
+    if (selectedVoucher && vouchers.length > 0) {
+      const updatedVoucher = vouchers.find(v => v.id === selectedVoucher.id);
+      if (updatedVoucher && (
+        updatedVoucher.value !== selectedVoucher.value ||
+        updatedVoucher.status !== selectedVoucher.status
+      )) {
+        console.log('[VoucherManagement] Syncing selectedVoucher with latest data');
+        setSelectedVoucher(updatedVoucher);
+      }
+    }
+  }, [vouchers, selectedVoucher]);
 
   // Sort organizations alphabetically for better UX
   const sortedOrganizations = useMemo(() => {
@@ -250,10 +279,175 @@ export default function VoucherManagementPage() {
     return <Badge className="bg-slate-200 text-slate-700">{status}</Badge>;
   };
 
+  const handleVoucherClick = (voucher) => {
+    setSelectedVoucher(voucher);
+  };
+
+  const handleBackToList = () => {
+    setSelectedVoucher(null);
+  };
+
+  const formatTransactionType = (type) => {
+    switch (type) {
+      case 'booking_usage': return { label: 'Booking', color: 'bg-blue-100 text-blue-800' };
+      case 'adjustment': return { label: 'Adjustment', color: 'bg-amber-100 text-amber-800' };
+      default: return { label: type, color: 'bg-slate-100 text-slate-800' };
+    }
+  };
+
   if (!accessChecked) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
         <div className="animate-pulse text-slate-600">Loading...</div>
+      </div>
+    );
+  }
+
+  // Voucher detail view with transaction history
+  if (selectedVoucher) {
+    const org = organizations.find(o => o.id === selectedVoucher.organization_id);
+    
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+        <div className="max-w-4xl mx-auto">
+          <div className="mb-6">
+            <Button 
+              variant="ghost" 
+              onClick={handleBackToList}
+              className="mb-4"
+              data-testid="button-back-to-vouchers"
+            >
+              <ArrowLeft className="w-4 h-4 mr-2" />
+              Back to Vouchers
+            </Button>
+            
+            <div className="flex items-start justify-between gap-4 flex-wrap">
+              <div>
+                <div className="flex items-center gap-3 mb-1">
+                  <h1 className="text-2xl md:text-3xl font-bold text-slate-900">
+                    {selectedVoucher.code}
+                  </h1>
+                  {getStatusBadge(selectedVoucher.status, selectedVoucher.expires_at)}
+                </div>
+                <p className="text-slate-600">{org?.name || 'Unknown Organisation'}</p>
+                {selectedVoucher.description && (
+                  <p className="text-slate-500 text-sm mt-1">{selectedVoucher.description}</p>
+                )}
+              </div>
+              <div className="text-right">
+                <p className="text-sm text-slate-500">Current Value</p>
+                <p className={`text-3xl font-bold ${(selectedVoucher.value || 0) > 0 ? 'text-green-600' : 'text-slate-400'}`}>
+                  £{(selectedVoucher.value || 0).toFixed(2)}
+                </p>
+                {selectedVoucher.expires_at && (
+                  <p className="text-xs text-slate-400 mt-1">
+                    Expires: {format(new Date(selectedVoucher.expires_at), 'dd MMM yyyy')}
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <Card className="border-slate-200 shadow-sm mb-6">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <History className="w-5 h-5 text-slate-500" />
+                  <span className="font-medium text-slate-700">
+                    {voucherTransactions.length} {voucherTransactions.length === 1 ? 'transaction' : 'transactions'}
+                  </span>
+                </div>
+                <Button
+                  onClick={() => handleEdit(selectedVoucher)}
+                  variant="outline"
+                  data-testid="button-edit-from-history"
+                >
+                  <Pencil className="w-4 h-4 mr-2" />
+                  Edit Voucher
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          {loadingTransactions ? (
+            <div className="text-center py-12">Loading transaction history...</div>
+          ) : voucherTransactions.length === 0 ? (
+            <Card className="border-slate-200 shadow-sm">
+              <CardContent className="p-12 text-center">
+                <History className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+                <h3 className="text-xl font-semibold text-slate-900 mb-2">
+                  No Transaction History
+                </h3>
+                <p className="text-slate-600">
+                  This voucher hasn't been used yet
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-3">
+              {voucherTransactions.map((transaction) => {
+                const typeInfo = formatTransactionType(transaction.type);
+                
+                return (
+                  <Card 
+                    key={transaction.id} 
+                    className="border-slate-200 shadow-sm"
+                    data-testid={`card-voucher-transaction-${transaction.id}`}
+                  >
+                    <CardContent className="p-4">
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-2 flex-wrap">
+                            <Badge className={typeInfo.color}>
+                              {typeInfo.label}
+                            </Badge>
+                            <span className="text-sm text-slate-500">
+                              {transaction.created_at ? format(new Date(transaction.created_at), 'dd MMM yyyy, HH:mm') : 'Unknown date'}
+                            </span>
+                          </div>
+                          
+                          {transaction.event_title && (
+                            <p className="text-slate-700 mb-2">
+                              Event: {transaction.event_title}
+                            </p>
+                          )}
+                          
+                          {transaction.booking_reference && (
+                            <p className="text-sm text-slate-500 mb-2">
+                              Booking: {transaction.booking_reference}
+                            </p>
+                          )}
+                          
+                          <div className="flex items-center gap-4 text-sm text-slate-500">
+                            <span>
+                              Before: <span className="font-medium text-slate-700">£{(transaction.balance_before || 0).toFixed(2)}</span>
+                            </span>
+                            <span>→</span>
+                            <span>
+                              After: <span className="font-medium text-slate-700">£{(transaction.balance_after || 0).toFixed(2)}</span>
+                            </span>
+                          </div>
+                          
+                          {transaction.member_email && (
+                            <p className="text-xs text-slate-400 mt-2">
+                              Used by: {transaction.member_email}
+                            </p>
+                          )}
+                        </div>
+                        
+                        <div className="text-right flex-shrink-0">
+                          <span className="text-lg font-bold text-red-600">
+                            -£{(transaction.amount || 0).toFixed(2)}
+                          </span>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
     );
   }
@@ -389,11 +583,12 @@ export default function VoucherManagementPage() {
               return (
                 <Card 
                   key={voucher.id} 
-                  className={`border-2 ${
+                  className={`border-2 cursor-pointer transition-shadow hover:shadow-md ${
                     voucher.status === 'used' ? 'border-slate-200 bg-slate-50' : 
                     isExpired ? 'border-red-200 bg-red-50' :
                     'border-slate-200'
                   }`}
+                  onClick={() => handleVoucherClick(voucher)}
                   data-testid={`card-voucher-${voucher.id}`}
                 >
                   <CardContent className="p-4">
@@ -438,7 +633,7 @@ export default function VoucherManagementPage() {
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => handleEdit(voucher)}
+                          onClick={(e) => { e.stopPropagation(); handleEdit(voucher); }}
                           data-testid={`button-edit-voucher-${voucher.id}`}
                         >
                           <Pencil className="w-3 h-3 mr-1" />
@@ -448,7 +643,7 @@ export default function VoucherManagementPage() {
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => handleDelete(voucher)}
+                            onClick={(e) => { e.stopPropagation(); handleDelete(voucher); }}
                             className="text-red-600 hover:text-red-700 hover:bg-red-50"
                             data-testid={`button-delete-voucher-${voucher.id}`}
                           >

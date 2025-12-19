@@ -1884,6 +1884,30 @@ const functionHandlers = {
                 console.error('[createOneOffEventBooking] Failed to update voucher:', updateError.message);
               } else {
                 console.log('[createOneOffEventBooking] Voucher updated successfully');
+                
+                // Create voucher transaction record for history tracking
+                const { error: vtxError } = await supabase
+                  .from('voucher_transaction')
+                  .insert({
+                    voucher_id: voucherId,
+                    organization_id: org.id,
+                    booking_reference: bookingReference,
+                    event_id: event.id,
+                    event_title: event.title || 'One-off Event',
+                    member_id: member?.id || null,
+                    member_email: memberEmail,
+                    amount: amountToUse,
+                    balance_before: voucher.value,
+                    balance_after: newValue,
+                    type: 'booking_usage',
+                    created_at: new Date().toISOString()
+                  });
+                
+                if (vtxError) {
+                  console.error('[createOneOffEventBooking] Failed to create voucher transaction:', vtxError.message);
+                } else {
+                  console.log('[createOneOffEventBooking] Voucher transaction created successfully');
+                }
               }
             }
           } else {
