@@ -128,13 +128,13 @@ export default function HistoryPage({ hasBanner }) {
       }
       groups[ref].push(booking);
     });
-    // Convert to array and sort by first booking's created_date (handle null dates)
+    // Convert to array and sort by first booking's created_date or created_at (handle null dates)
     return Object.entries(groups)
       .map(([ref, items]) => ({
         reference: ref,
         bookings: items,
         firstBooking: items[0],
-        created_date: items[0].created_date,
+        created_date: items[0].created_date || items[0].created_at,
         event: events.find(e => e.id === items[0].event_id)
       }))
       .sort((a, b) => {
@@ -556,7 +556,8 @@ export default function HistoryPage({ hasBanner }) {
     const attendeeCount = bookings.length;
     // Check both xero_invoice_number and xero_invoice_id for invoice availability (matching Bookings page logic)
     const hasInvoice = !!(firstBooking.xero_invoice_number || firstBooking.xero_invoice_id);
-    const transactionDate = firstBooking.created_date ? new Date(firstBooking.created_date) : null;
+    const dateValue = firstBooking.created_date || firstBooking.created_at;
+    const transactionDate = dateValue ? new Date(dateValue) : null;
 
     return (
       <div className="flex flex-col gap-3 p-4 bg-slate-50 rounded-lg border border-slate-200">
