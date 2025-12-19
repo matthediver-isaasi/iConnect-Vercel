@@ -1498,7 +1498,8 @@ const functionHandlers = {
           booking_reference: attendeeBookingRef,
           booking_group_reference: bookingReference, // Base reference to group all attendees
           status: bookingStatus,
-          payment_method: 'program_ticket'
+          payment_method: 'program_ticket',
+          created_at: new Date().toISOString()
         };
 
         // Add Zoom registrant ID if available
@@ -1536,7 +1537,8 @@ const functionHandlers = {
             booking_group_reference: bookingReference, // Base reference to group all links
             status: 'pending',
             payment_method: 'program_ticket',
-            confirmation_token: confirmationToken
+            confirmation_token: confirmationToken,
+            created_at: new Date().toISOString()
           })
           .select()
           .single();
@@ -1990,7 +1992,8 @@ const functionHandlers = {
         is_one_off_event: true,
         ticket_class_id: ticketClassId,
         ticket_class_name: ticketClassName,
-        is_guest_booking: isGuestBooking
+        is_guest_booking: isGuestBooking,
+        created_at: new Date().toISOString()
       };
 
       console.log('[createOneOffEventBooking] Inserting booking:', JSON.stringify(bookingData));
