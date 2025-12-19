@@ -1,5 +1,6 @@
 import { getSessionMember } from '../_lib/session.js';
 import { createClient } from '@supabase/supabase-js';
+import { isResourceExcluded } from '../_lib/roleVisibility.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -25,7 +26,7 @@ async function verifyAdminPermission(req) {
   try {
     const { data: role, error: roleError } = await supabase
       .from('role')
-      .select('is_admin')
+      .select('excluded_features')
       .eq('id', sessionMember.role_id)
       .single();
 
@@ -33,7 +34,9 @@ async function verifyAdminPermission(req) {
       return { isAdmin: false };
     }
 
-    return { isAdmin: role.is_admin === true };
+    // Derive admin status from whether admin.role-management is NOT excluded
+    const excludedFeatures = role.excluded_features || [];
+    return { isAdmin: !isResourceExcluded(excludedFeatures, 'admin.role-management') };
   } catch (error) {
     console.error('[Admin Verify] Error:', error);
     return { isAdmin: false, error: 'Verification failed' };

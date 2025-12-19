@@ -37,12 +37,15 @@ export default async function handler(req, res) {
     if (member.role_id && supabase) {
       const { data: role } = await supabase
         .from('role')
-        .select('is_admin, excluded_features')
+        .select('excluded_features')
         .eq('id', member.role_id)
         .single();
       
-      isAdmin = role?.is_admin === true;
       const excludedFeatures = role?.excluded_features || [];
+      
+      // Derive admin status from whether admin.role-management is NOT excluded
+      // This replaces the deprecated is_admin flag
+      isAdmin = !isResourceExcluded(excludedFeatures, 'admin.role-management');
       
       // Admin role has all permissions
       if (isAdmin) {

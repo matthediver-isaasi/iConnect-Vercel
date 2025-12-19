@@ -26,7 +26,7 @@ async function verifyPermission(req, permissionId) {
   try {
     const { data: role, error: roleError } = await supabase
       .from('role')
-      .select('is_admin, excluded_features')
+      .select('excluded_features')
       .eq('id', sessionMember.role_id)
       .single();
 
@@ -34,11 +34,14 @@ async function verifyPermission(req, permissionId) {
       return { hasPermission: false, memberId: sessionMember.id };
     }
 
-    if (role.is_admin === true) {
+    const excludedFeatures = role.excluded_features || [];
+    
+    // Derive admin status from whether admin.role-management is NOT excluded
+    const isAdmin = !isResourceExcluded(excludedFeatures, 'admin.role-management');
+    if (isAdmin) {
       return { hasPermission: true, memberId: sessionMember.id };
     }
 
-    const excludedFeatures = role.excluded_features || [];
     const hasPermission = !isResourceExcluded(excludedFeatures, permissionId);
 
     return { hasPermission, memberId: sessionMember.id };

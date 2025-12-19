@@ -1,5 +1,6 @@
 import { getSessionMember } from '../../_lib/session.js';
 import { createClient } from '@supabase/supabase-js';
+import { isResourceExcluded } from '../../_lib/roleVisibility.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -29,11 +30,15 @@ export default async function handler(req, res) {
 
   const { data: memberRole, error: roleError } = await supabase
     .from('role')
-    .select('is_admin')
+    .select('excluded_features')
     .eq('id', sessionMember.role_id)
     .single();
 
-  if (roleError || !memberRole?.is_admin) {
+  // Derive admin status from whether admin.role-management is NOT excluded
+  const excludedFeatures = memberRole?.excluded_features || [];
+  const isAdmin = !isResourceExcluded(excludedFeatures, 'admin.role-management');
+  
+  if (roleError || !isAdmin) {
     return res.status(403).json({ error: 'Admin access required' });
   }
 
