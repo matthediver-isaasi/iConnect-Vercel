@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Ticket, ShoppingCart, Calendar, ArrowUpCircle, ArrowDownCircle, FileText, Download, Eye, Loader2, CreditCard, User, Building2 } from "lucide-react";
+import { Ticket, ShoppingCart, Calendar, ArrowUpCircle, ArrowDownCircle, FileText, Download, Eye, Loader2, CreditCard, User, Building2, Wallet, Gift } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { format } from "date-fns";
 import { toast } from "sonner";
@@ -75,6 +75,34 @@ export default function HistoryPage({ hasBanner }) {
     staleTime: 60000,
   });
 
+  // Fetch training fund transactions for the organization
+  const { data: trainingFundTransactions = [], isLoading: trainingFundLoading } = useQuery({
+    queryKey: ['training-fund-transactions', organizationInfo?.id],
+    queryFn: async () => {
+      if (!organizationInfo?.id) return [];
+      const allTransactions = await base44.entities.TrainingFundTransaction.list();
+      return allTransactions
+        .filter(t => t.organization_id === organizationInfo.id)
+        .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    },
+    enabled: !!organizationInfo?.id,
+    staleTime: 0,
+  });
+
+  // Fetch voucher transactions for the organization
+  const { data: voucherTransactions = [], isLoading: voucherTransactionsLoading } = useQuery({
+    queryKey: ['voucher-transactions-org', organizationInfo?.id],
+    queryFn: async () => {
+      if (!organizationInfo?.id) return [];
+      const allTransactions = await base44.entities.VoucherTransaction.list();
+      return allTransactions
+        .filter(t => t.organization_id === organizationInfo.id)
+        .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    },
+    enabled: !!organizationInfo?.id,
+    staleTime: 0,
+  });
+
   // Group bookings by booking_group_reference for display
   const bookingGroups = React.useMemo(() => {
     const groups = {};
@@ -101,7 +129,7 @@ export default function HistoryPage({ hasBanner }) {
       });
   }, [bookings, events]);
 
-  const isLoading = transactionsLoading || bookingsLoading;
+  const isLoading = transactionsLoading || bookingsLoading || trainingFundLoading || voucherTransactionsLoading;
 
   if (!memberInfo || !organizationInfo) {
     return (
@@ -513,6 +541,133 @@ export default function HistoryPage({ hasBanner }) {
     );
   };
 
+  // Component for training fund transaction
+  const TrainingFundTransactionCard = ({ transaction }) => {
+    const isCredit = transaction.type === 'credit' || transaction.type === 'credit_adjustment';
+    const isDebit = transaction.type === 'usage' || transaction.type === 'debit_adjustment';
+    
+    const getTypeInfo = () => {
+      switch (transaction.type) {
+        case 'credit':
+        case 'credit_adjustment':
+          return { label: 'Credit', color: 'bg-green-100 text-green-600', icon: ArrowUpCircle };
+        case 'usage':
+          return { label: 'Booking Usage', color: 'bg-blue-100 text-blue-600', icon: Calendar };
+        case 'debit_adjustment':
+          return { label: 'Debit', color: 'bg-amber-100 text-amber-600', icon: ArrowDownCircle };
+        default:
+          return { label: transaction.type, color: 'bg-slate-100 text-slate-600', icon: Wallet };
+      }
+    };
+    
+    const typeInfo = getTypeInfo();
+    const Icon = typeInfo.icon;
+
+    return (
+      <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-lg border border-slate-200">
+        <div className={`p-3 rounded-lg ${typeInfo.color}`}>
+          <Wallet className="w-5 h-5" />
+        </div>
+        
+        <div className="flex-1">
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
+            <h3 className="font-semibold text-slate-900">Training Fund {typeInfo.label}</h3>
+            <Badge variant="outline" className={`text-xs ${typeInfo.color}`}>
+              {typeInfo.label}
+            </Badge>
+          </div>
+          
+          {transaction.event_title && (
+            <p className="text-sm text-slate-600">Event: {transaction.event_title}</p>
+          )}
+          {transaction.booking_reference && (
+            <p className="text-xs text-slate-500">Ref: {transaction.booking_reference}</p>
+          )}
+          
+          <div className="flex items-center gap-4 text-xs text-slate-500 mt-1">
+            <span>Before: £{(transaction.balance_before || 0).toFixed(2)}</span>
+            <span>→</span>
+            <span>After: £{(transaction.balance_after || 0).toFixed(2)}</span>
+          </div>
+          
+          {transaction.created_at && (
+            <p className="text-xs text-slate-500 mt-1">
+              {format(new Date(transaction.created_at), 'MMM d, yyyy • h:mm a')}
+            </p>
+          )}
+        </div>
+        
+        <div className="flex items-center gap-1">
+          <span className={`text-lg font-semibold ${isCredit ? 'text-green-600' : 'text-red-600'}`}>
+            {isCredit ? '+' : '-'}£{(transaction.amount || 0).toFixed(2)}
+          </span>
+        </div>
+      </div>
+    );
+  };
+
+  // Component for voucher transaction
+  const VoucherTransactionCard = ({ transaction }) => {
+    const isCredit = transaction.type === 'credit_adjustment';
+    
+    const getTypeInfo = () => {
+      switch (transaction.type) {
+        case 'credit_adjustment':
+          return { label: 'Credit', color: 'bg-green-100 text-green-600' };
+        case 'debit_adjustment':
+          return { label: 'Debit', color: 'bg-amber-100 text-amber-600' };
+        case 'booking_usage':
+          return { label: 'Booking', color: 'bg-blue-100 text-blue-600' };
+        default:
+          return { label: transaction.type || 'Usage', color: 'bg-slate-100 text-slate-600' };
+      }
+    };
+    
+    const typeInfo = getTypeInfo();
+
+    return (
+      <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-lg border border-slate-200">
+        <div className={`p-3 rounded-lg ${typeInfo.color}`}>
+          <Gift className="w-5 h-5" />
+        </div>
+        
+        <div className="flex-1">
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
+            <h3 className="font-semibold text-slate-900">Training Voucher</h3>
+            <Badge variant="outline" className={`text-xs ${typeInfo.color}`}>
+              {typeInfo.label}
+            </Badge>
+          </div>
+          
+          {transaction.event_title && (
+            <p className="text-sm text-slate-600">Event: {transaction.event_title}</p>
+          )}
+          {transaction.booking_reference && (
+            <p className="text-xs text-slate-500">Ref: {transaction.booking_reference}</p>
+          )}
+          
+          <div className="flex items-center gap-4 text-xs text-slate-500 mt-1">
+            <span>Before: £{(transaction.balance_before || 0).toFixed(2)}</span>
+            <span>→</span>
+            <span>After: £{(transaction.balance_after || 0).toFixed(2)}</span>
+          </div>
+          
+          {transaction.created_at && (
+            <p className="text-xs text-slate-500 mt-1">
+              {format(new Date(transaction.created_at), 'MMM d, yyyy • h:mm a')}
+            </p>
+          )}
+        </div>
+        
+        <div className="flex items-center gap-1">
+          <span className={`text-lg font-semibold ${isCredit ? 'text-green-600' : 'text-red-600'}`}>
+            {isCredit ? '+' : '-'}£{(transaction.amount || 0).toFixed(2)}
+          </span>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
       {showTour && shouldShowTours &&
@@ -550,20 +705,26 @@ export default function HistoryPage({ hasBanner }) {
           <CardContent className="pt-6">
             {isLoading ? (
               <div className="text-center py-8 text-slate-600">Loading transactions...</div>
-            ) : (transactions.length === 0 && bookingGroups.length === 0) ? (
+            ) : (transactions.length === 0 && bookingGroups.length === 0 && trainingFundTransactions.length === 0 && voucherTransactions.length === 0) ? (
               <div className="text-center py-8">
                 <Ticket className="w-12 h-12 text-slate-300 mx-auto mb-3" />
                 <p className="text-slate-600">No transactions yet</p>
               </div>
             ) : (
               <Tabs value={activeTab} onValueChange={setActiveTab}>
-                <TabsList className="mb-4">
+                <TabsList className="mb-4 flex-wrap">
                   <TabsTrigger value="all" data-testid="tab-all">All</TabsTrigger>
                   <TabsTrigger value="tickets" data-testid="tab-tickets">
                     Standard Tickets ({bookingGroups.length})
                   </TabsTrigger>
                   <TabsTrigger value="program" data-testid="tab-program">
                     Program Tickets ({transactions.length})
+                  </TabsTrigger>
+                  <TabsTrigger value="training-fund" data-testid="tab-training-fund">
+                    Training Fund ({trainingFundTransactions.length})
+                  </TabsTrigger>
+                  <TabsTrigger value="vouchers" data-testid="tab-vouchers">
+                    Vouchers ({voucherTransactions.length})
                   </TabsTrigger>
                 </TabsList>
 
@@ -605,6 +766,38 @@ export default function HistoryPage({ hasBanner }) {
                       ))}
                     </div>
                   )}
+
+                  {/* Training Fund Transactions Section */}
+                  {trainingFundTransactions.length > 0 && (
+                    <div className="space-y-3">
+                      <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                        <Wallet className="w-4 h-4" />
+                        Training Fund Transactions
+                      </h3>
+                      {trainingFundTransactions.map((transaction) => (
+                        <TrainingFundTransactionCard
+                          key={transaction.id}
+                          transaction={transaction}
+                        />
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Voucher Transactions Section */}
+                  {voucherTransactions.length > 0 && (
+                    <div className="space-y-3">
+                      <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                        <Gift className="w-4 h-4" />
+                        Training Voucher Transactions
+                      </h3>
+                      {voucherTransactions.map((transaction) => (
+                        <VoucherTransactionCard
+                          key={transaction.id}
+                          transaction={transaction}
+                        />
+                      ))}
+                    </div>
+                  )}
                 </TabsContent>
 
                 {/* Standard Tickets Tab */}
@@ -641,6 +834,40 @@ export default function HistoryPage({ hasBanner }) {
                         transaction={transaction}
                         downloadingInvoice={downloadingInvoice}
                         handleViewInvoice={handleViewInvoice}
+                      />
+                    ))
+                  )}
+                </TabsContent>
+
+                {/* Training Fund Tab */}
+                <TabsContent value="training-fund" className="space-y-3">
+                  {trainingFundTransactions.length === 0 ? (
+                    <div className="text-center py-8">
+                      <Wallet className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                      <p className="text-slate-600">No training fund transactions</p>
+                    </div>
+                  ) : (
+                    trainingFundTransactions.map((transaction) => (
+                      <TrainingFundTransactionCard
+                        key={transaction.id}
+                        transaction={transaction}
+                      />
+                    ))
+                  )}
+                </TabsContent>
+
+                {/* Vouchers Tab */}
+                <TabsContent value="vouchers" className="space-y-3">
+                  {voucherTransactions.length === 0 ? (
+                    <div className="text-center py-8">
+                      <Gift className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                      <p className="text-slate-600">No voucher transactions</p>
+                    </div>
+                  ) : (
+                    voucherTransactions.map((transaction) => (
+                      <VoucherTransactionCard
+                        key={transaction.id}
+                        transaction={transaction}
                       />
                     ))
                   )}
