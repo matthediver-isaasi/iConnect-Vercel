@@ -578,6 +578,9 @@ export default function HistoryPage({ hasBanner }) {
             </Badge>
           </div>
           
+          {transaction.reason && (
+            <p className="text-sm text-slate-600">{transaction.reason}</p>
+          )}
           {transaction.event_title && (
             <p className="text-sm text-slate-600">Event: {transaction.event_title}</p>
           )}
@@ -591,9 +594,9 @@ export default function HistoryPage({ hasBanner }) {
             <span>After: £{(transaction.balance_after || 0).toFixed(2)}</span>
           </div>
           
-          {transaction.created_at && (
+          {(transaction.created_at || transaction.created_date) && (
             <p className="text-xs text-slate-500 mt-1">
-              {format(new Date(transaction.created_at), 'MMM d, yyyy • h:mm a')}
+              {format(new Date(transaction.created_at || transaction.created_date), 'MMM d, yyyy • h:mm a')}
             </p>
           )}
         </div>
