@@ -395,12 +395,12 @@ export default function RoleManagementPage() {
   });
 
   const handleCreateNew = () => {
+    // Note: is_admin is now derived from excluded_features when saving (based on admin.role-management exclusion)
     setEditingRole({
       name: "",
       description: "",
       excluded_features: [],
       is_default: false,
-      is_admin: false,
       show_tours: true,
       default_landing_page: "about-me",
       layout_theme: "default",

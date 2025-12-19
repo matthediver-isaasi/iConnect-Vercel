@@ -36,8 +36,6 @@ const iconMap = {
 export default function ButtonElementsPage() {
   const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
-  // Derive admin status from feature exclusion - admins can access button styles
-  const isAdmin = !isFeatureExcluded('site-builder.buttons');
 
   useEffect(() => {
     if (isAccessReady) {
@@ -183,7 +181,8 @@ export default function ButtonElementsPage() {
   }
 
   // If in creation/edit mode, show the style builder
-  if (isCreating && isAdmin) {
+  // Access is already verified via isFeatureExcluded check in useEffect above
+  if (isCreating) {
     const canProceed = selectedCardType && (selectedCardType === 'article' || (selectedCardType === 'resource' && selectedResourceType));
 
     return (
