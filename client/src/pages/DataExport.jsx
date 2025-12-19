@@ -8,7 +8,7 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 
 export default function DataExportPage() {
-  const { isAdmin, memberInfo, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, memberInfo, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [downloadUrl, setDownloadUrl] = useState(null);
@@ -17,13 +17,13 @@ export default function DataExportPage() {
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin) {
+      if (isFeatureExcluded('admin.data-export')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady]);
+  }, [isFeatureExcluded, isAccessReady]);
 
   if (!accessChecked) {
     return (

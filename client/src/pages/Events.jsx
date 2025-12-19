@@ -49,7 +49,9 @@ export default function EventsPage({
   const memberInfo = contextMemberInfo || propsMemberInfo;
   // Use context isFeatureExcluded if available, otherwise use prop
   const resolvedIsFeatureExcluded = contextIsFeatureExcluded || isFeatureExcluded || (() => false);
-  const { isAdmin } = useMemberAccess();
+  const { isFeatureExcluded: hookIsFeatureExcluded } = useMemberAccess();
+  // Derive admin status from feature exclusion - admins can create/manage events
+  const isAdmin = !hookIsFeatureExcluded('events.browse-events.create');
   const { eventTypes } = useEventTypes();
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedFilterTags, setSelectedFilterTags] = useState([]);

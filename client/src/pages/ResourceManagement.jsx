@@ -18,7 +18,7 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 
 export default function ResourceManagementPage() {
-  const { isAdmin, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const [editingResource, setEditingResource] = useState(null);
   const [showDialog, setShowDialog] = useState(false);
@@ -65,13 +65,13 @@ export default function ResourceManagementPage() {
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin) {
+      if (isFeatureExcluded('content.resource-management')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady]);
+  }, [isFeatureExcluded, isAccessReady]);
 
   const { data: resources = [], isLoading } = useQuery({
     queryKey: ['admin-resources'],

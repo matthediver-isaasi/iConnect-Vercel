@@ -40,19 +40,19 @@ import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 
 export default function AwardManagementPage() {
-  const { isAdmin, memberInfo, isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const { memberInfo, isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const [activeTab, setActiveTab] = useState("online");
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin || isFeatureExcluded('page_AwardManagement')) {
+      if (isFeatureExcluded('page_AwardManagement')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady, isFeatureExcluded]);
+  }, [isFeatureExcluded, isAccessReady]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [classificationDialogOpen, setClassificationDialogOpen] = useState(false);
   const [sublevelDialogOpen, setSublevelDialogOpen] = useState(false);

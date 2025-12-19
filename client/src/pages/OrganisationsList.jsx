@@ -80,7 +80,7 @@ const saveLocalColumns = (columns) => {
 
 
 export default function OrganisationsListPage() {
-  const { isAdmin, isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
   const queryClient = useQueryClient();
   const location = useLocation();
   const [accessChecked, setAccessChecked] = useState(false);
@@ -109,13 +109,13 @@ export default function OrganisationsListPage() {
   useEffect(() => {
     if (isAccessReady) {
       // Admin-only page, also check OrganisationDirectory feature exclusion for consistency
-      if (!isAdmin || isFeatureExcluded('page_OrganisationsList') || isFeatureExcluded('page_OrganisationDirectory')) {
+      if (isFeatureExcluded('page_OrganisationsList') || isFeatureExcluded('page_OrganisationDirectory')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady, isFeatureExcluded]);
+  }, [isFeatureExcluded, isAccessReady]);
 
   // Reset detail view state when navigating away from this page
   useEffect(() => {

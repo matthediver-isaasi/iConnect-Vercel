@@ -13,7 +13,7 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 
 export default function TagManagementPage() {
-  const { isAdmin, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const [newTagName, setNewTagName] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -24,13 +24,13 @@ export default function TagManagementPage() {
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin) {
+      if (isFeatureExcluded('content.tags')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady]);
+  }, [isFeatureExcluded, isAccessReady]);
 
   const { data: resources = [], isLoading } = useQuery({
     queryKey: ['admin-resources'],

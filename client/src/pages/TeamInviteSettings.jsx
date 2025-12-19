@@ -12,7 +12,7 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 
 export default function TeamInviteSettingsPage() {
-  const { isAdmin, isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const [webhookUrl, setWebhookUrl] = useState("");
   const [hasLoaded, setHasLoaded] = useState(false);
@@ -21,13 +21,13 @@ export default function TeamInviteSettingsPage() {
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin || isFeatureExcluded('page_TeamInviteSettings')) {
+      if (isFeatureExcluded('page_TeamInviteSettings')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady]);
+  }, [isFeatureExcluded, isAccessReady]);
 
   const { data: settings, isLoading } = useQuery({
     queryKey: ['teamInviteSettings'],

@@ -11,20 +11,20 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 
 export default function BorderRadiusSettingsPage() {
-  const { isAdmin, isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const queryClient = useQueryClient();
   const [borderRadius, setBorderRadius] = useState("");
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin || isFeatureExcluded('page_BorderRadiusSettings')) {
+      if (isFeatureExcluded('page_BorderRadiusSettings')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady]);
+  }, [isFeatureExcluded, isAccessReady]);
 
   const { data: settings, isLoading } = useQuery({
     queryKey: ['borderRadiusSettings'],

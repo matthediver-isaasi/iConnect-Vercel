@@ -126,7 +126,7 @@ const BUILT_IN_PORTAL_PAGES = [
 ];
 
 export default function PageBannerManagementPage() {
-  const { isAdmin, isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const [showDialog, setShowDialog] = useState(false);
   const [editingBanner, setEditingBanner] = useState(null);
@@ -139,13 +139,13 @@ export default function PageBannerManagementPage() {
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin || isFeatureExcluded('page_PageBannerManagement')) {
+      if (isFeatureExcluded('page_PageBannerManagement')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady, isFeatureExcluded]);
+  }, [isFeatureExcluded, isAccessReady]);
 
   const { data: banners = [], isLoading } = useQuery({
     queryKey: ['page-banners'],

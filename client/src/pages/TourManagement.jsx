@@ -17,7 +17,7 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 
 export default function TourManagementPage() {
-  const { isAdmin, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const [selectedGroup, setSelectedGroup] = useState(null);
   const [editingGroup, setEditingGroup] = useState(null);
@@ -36,13 +36,13 @@ export default function TourManagementPage() {
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin) {
+      if (isFeatureExcluded('system.tours')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady]);
+  }, [isFeatureExcluded, isAccessReady]);
 
   // Define available pages for the dropdown
   const availablePages = [

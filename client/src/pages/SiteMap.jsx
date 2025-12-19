@@ -11,20 +11,20 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useArticleUrl } from "@/contexts/ArticleUrlContext";
 
 export default function SiteMapPage() {
-  const { isAdmin, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const { getArticleViewUrl, getPublicArticlesUrl } = useArticleUrl();
   const [accessChecked, setAccessChecked] = useState(false);
   const appBaseUrl = window.location.origin;
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin) {
+      if (isFeatureExcluded('system.site-map')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady]);
+  }, [isFeatureExcluded, isAccessReady]);
 
   const { data: articles = [] } = useQuery({
     queryKey: ['published-articles'],

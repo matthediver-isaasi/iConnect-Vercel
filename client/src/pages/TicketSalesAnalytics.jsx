@@ -13,7 +13,7 @@ import OrganizationTransactionsModal from "../components/analytics/OrganizationT
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 
 export default function TicketSalesAnalyticsPage() {
-  const { isAdmin, memberInfo, isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const { memberInfo, isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedProgram, setSelectedProgram] = useState("all");
@@ -22,13 +22,13 @@ export default function TicketSalesAnalyticsPage() {
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin || isFeatureExcluded('page_TicketSalesAnalytics')) {
+      if (isFeatureExcluded('page_TicketSalesAnalytics')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady, isFeatureExcluded]);
+  }, [isFeatureExcluded, isAccessReady]);
 
   const { data: transactions = [], isLoading: loadingTransactions } = useQuery({
     queryKey: ['all-transactions'],

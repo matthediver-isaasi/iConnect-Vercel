@@ -93,13 +93,13 @@ export default function WallOfFameManagementPage() {
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin || isFeatureExcluded('page_WallOfFameManagement')) {
+      if (isFeatureExcluded('page_WallOfFameManagement')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady]);
+  }, [isFeatureExcluded, isAccessReady]);
 
   useEffect(() => {
     if (photoSizeSetting?.value) {

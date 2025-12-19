@@ -18,7 +18,7 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 
 export default function MemberGroupManagementPage() {
-  const { isAdmin, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const [showGroupDialog, setShowGroupDialog] = useState(false);
   const [showAssignDialog, setShowAssignDialog] = useState(false);
@@ -59,13 +59,13 @@ export default function MemberGroupManagementPage() {
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin) {
+      if (isFeatureExcluded('membership.member-groups')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady]);
+  }, [isFeatureExcluded, isAccessReady]);
 
   const { data: groups = [], isLoading: loadingGroups } = useQuery({
     queryKey: ['member-groups'],

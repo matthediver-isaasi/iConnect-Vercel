@@ -110,7 +110,7 @@ const extractPlaceholders = (template) => {
 };
 
 export default function WorkflowManagementPage() {
-  const { isAdmin, isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [showDialog, setShowDialog] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [workflowToDelete, setWorkflowToDelete] = useState(null);
@@ -136,13 +136,13 @@ export default function WorkflowManagementPage() {
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin) {
+      if (isFeatureExcluded('communication.workflows')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady]);
+  }, [isFeatureExcluded, isAccessReady]);
 
   const { data: workflows = [], isLoading } = useQuery({
     queryKey: ['workflows'],

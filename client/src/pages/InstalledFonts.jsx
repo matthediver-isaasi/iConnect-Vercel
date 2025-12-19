@@ -453,7 +453,7 @@ function TypographyStyleCard({ style, onEdit, onDelete, onSetDefault }) {
 }
 
 export default function InstalledFontsPage() {
-  const { isAdmin, isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const { toast } = useToast();
   const [accessChecked, setAccessChecked] = useState(false);
   const [fontLoadStatus, setFontLoadStatus] = useState({});
@@ -469,13 +469,13 @@ export default function InstalledFontsPage() {
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin || isFeatureExcluded('page_InstalledFonts')) {
+      if (isFeatureExcluded('page_InstalledFonts')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady]);
+  }, [isFeatureExcluded, isAccessReady]);
 
   useEffect(() => {
     if ('fonts' in document) {

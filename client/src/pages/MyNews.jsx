@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 
 export default function MyNewsPage() {
-  const { memberInfo, isAdmin } = useMemberAccess();
+  const { memberInfo, isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [selectedSubcategories, setSelectedSubcategories] = useState([]);
@@ -25,7 +25,7 @@ export default function MyNewsPage() {
       const allNews = await base44.entities.NewsPost.list('-created_at');
       return allNews;
     },
-    enabled: isAdmin,
+    enabled: !isFeatureExcluded('content.news-management'),
     staleTime: 0, // Admin views need instant freshness after edits
   });
 
@@ -103,7 +103,7 @@ export default function MyNewsPage() {
 
   const isLoading = newsLoading || categoriesLoading;
 
-  if (!isAdmin) {
+  if (isFeatureExcluded('content.news-management')) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
         <Card className="border-red-200">

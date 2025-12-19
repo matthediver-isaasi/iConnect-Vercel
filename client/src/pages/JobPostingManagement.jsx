@@ -62,13 +62,13 @@ export default function JobPostingManagementPage() {
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin || isFeatureExcluded('page_JobPostingManagement')) {
+      if (isFeatureExcluded('page_JobPostingManagement')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady, isFeatureExcluded]);
+  }, [isFeatureExcluded, isAccessReady]);
 
   const { data: jobs = [], isLoading } = useQuery({
     queryKey: ['admin-job-postings'],

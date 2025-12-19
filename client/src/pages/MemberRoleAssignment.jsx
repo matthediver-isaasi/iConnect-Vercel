@@ -16,7 +16,7 @@ import { format } from "date-fns";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 
 export default function MemberRoleAssignmentPage() {
-  const { memberRole, isAdmin, isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const { memberRole, isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [searchQuery, setSearchQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState("all");
   const [pendingRoleChange, setPendingRoleChange] = useState(null); // { memberId, roleId, requiresDate }
@@ -29,13 +29,13 @@ export default function MemberRoleAssignmentPage() {
   // Redirect non-admins or those without access to this feature
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin || isFeatureExcluded('page_MemberRoleAssignment')) {
+      if (isFeatureExcluded('page_MemberRoleAssignment')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady, isFeatureExcluded]);
+  }, [isFeatureExcluded, isAccessReady]);
 
   const { data: members = [], isLoading: loadingMembers } = useQuery({
     queryKey: ['members'],
@@ -177,7 +177,7 @@ export default function MemberRoleAssignmentPage() {
   }
 
   // Don't render anything for users without access (will redirect)
-  if (!isAdmin || isFeatureExcluded('page_MemberRoleAssignment')) {
+  if (isFeatureExcluded('page_MemberRoleAssignment')) {
     return null;
   }
 

@@ -12,7 +12,7 @@ import { createPageUrl } from "@/utils";
 const MEMBERS_PER_PAGE = 25;
 
 export default function MemberRoleReportPage() {
-  const { isAdmin, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const [expandedRoles, setExpandedRoles] = useState({});
   const [rolePages, setRolePages] = useState({});
@@ -20,13 +20,13 @@ export default function MemberRoleReportPage() {
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin) {
+      if (isFeatureExcluded('admin.member-role-assignment')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady]);
+  }, [isFeatureExcluded, isAccessReady]);
 
   useEffect(() => {
     setRolePages({});

@@ -66,7 +66,7 @@ const defaultTermsContent = `<h3>1. Introduction</h3>
 <p>Graduate Futures reserves the right to amend these Terms at any time.</p>`;
 
 export default function JobBoardSettingsPage() {
-  const { isAdmin, isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const [price, setPrice] = useState('50');
   const [jobTypes, setJobTypes] = useState(['Full-time', 'Part-time', 'Contract', 'Temporary', 'Internship']);
@@ -80,13 +80,13 @@ export default function JobBoardSettingsPage() {
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin || isFeatureExcluded('page_JobBoardSettings')) {
+      if (isFeatureExcluded('page_JobBoardSettings')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady, isFeatureExcluded]);
+  }, [isFeatureExcluded, isAccessReady]);
 
   const { data: priceSettings } = useQuery({
     queryKey: ['job-board-price-settings'],

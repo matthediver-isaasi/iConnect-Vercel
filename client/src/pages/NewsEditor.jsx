@@ -20,7 +20,7 @@ import SEOSettings from "../components/blog/SEOSettings";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 
 export default function NewsEditorPage() {
-  const { memberInfo, isAdmin } = useMemberAccess();
+  const { memberInfo, isFeatureExcluded, isAccessReady } = useMemberAccess();
   const urlParams = new URLSearchParams(window.location.search);
   const newsId = urlParams.get('id');
   const isEditing = !!newsId;
@@ -251,7 +251,7 @@ export default function NewsEditorPage() {
     }
   };
 
-  if (!isAdmin) {
+  if (isFeatureExcluded('content.news-editor')) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
         <Card className="border-red-200">

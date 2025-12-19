@@ -64,13 +64,13 @@ export default function TrainingFundManagementPage() {
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin || isFeatureExcluded('page_TrainingFundManagement')) {
+      if (isFeatureExcluded('page_TrainingFundManagement')) {
         window.location.href = createPageUrl('Dashboard');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady, isFeatureExcluded]);
+  }, [isFeatureExcluded, isAccessReady]);
 
   const { data: organizations = [], isLoading: loadingOrgs } = useQuery({
     queryKey: ['organizations'],

@@ -31,7 +31,7 @@ function generateSlug(name) {
 }
 
 export default function DynamicDirectoryManagementPage() {
-  const { isAdmin, isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const queryClient = useQueryClient();
 
@@ -48,13 +48,13 @@ export default function DynamicDirectoryManagementPage() {
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin || isFeatureExcluded('page_DynamicDirectoryManagement')) {
+      if (isFeatureExcluded('page_DynamicDirectoryManagement')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady]);
+  }, [isFeatureExcluded, isAccessReady]);
 
   const { data: directories = [], isLoading: isLoadingDirectories } = useQuery({
     queryKey: ['/api/entities/DynamicDirectory'],

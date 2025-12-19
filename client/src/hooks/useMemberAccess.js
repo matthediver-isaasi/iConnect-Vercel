@@ -46,7 +46,9 @@ export function useMemberAccess() {
     },
   });
 
-  const isAdmin = memberRole?.is_admin === true;
+  // Derive admin status from whether admin features are accessible (not excluded)
+  // This replaces the deprecated is_admin flag - now all access is controlled via Role Management exclusions
+  const isAdmin = memberRole ? !isResourceExcluded(memberRole.excluded_features, 'admin.role-management') : false;
 
   const isFeatureExcluded = useCallback((featureId) => {
     if (!memberInfo || !featureId) return false;

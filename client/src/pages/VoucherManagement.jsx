@@ -61,13 +61,13 @@ export default function VoucherManagementPage() {
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin || isFeatureExcluded('page_VoucherManagement')) {
+      if (isFeatureExcluded('page_VoucherManagement')) {
         window.location.href = createPageUrl('Dashboard');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady, isFeatureExcluded]);
+  }, [isFeatureExcluded, isAccessReady]);
 
   const { data: vouchers = [], isLoading: loadingVouchers } = useQuery({
     queryKey: ['vouchers-admin'],

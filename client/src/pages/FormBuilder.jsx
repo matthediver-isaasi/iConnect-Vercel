@@ -2282,7 +2282,7 @@ function FieldCard({
 }
 
 export default function FormBuilderPage() {
-  const { isAdmin, isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const [formData, setFormData] = useState({
     name: "",
@@ -2428,13 +2428,13 @@ export default function FormBuilderPage() {
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin || isFeatureExcluded('page_FormBuilder')) {
+      if (isFeatureExcluded('page_FormBuilder')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady]);
+  }, [isFeatureExcluded, isAccessReady]);
 
   // Migration function: Convert legacy format to unified entity_pipelines
   const migrateToEntityPipelines = (form) => {

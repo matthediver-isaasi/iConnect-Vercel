@@ -37,7 +37,7 @@ async function apiRequest(url, options = {}) {
 }
 
 export default function ZoomWebinarProvisioning() {
-  const { isAdmin, isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const queryClient = useQueryClient();
   
@@ -198,13 +198,13 @@ export default function ZoomWebinarProvisioning() {
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin || isFeatureExcluded('page_ZoomWebinarProvisioning')) {
+      if (isFeatureExcluded('page_ZoomWebinarProvisioning')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady, isFeatureExcluded]);
+  }, [isFeatureExcluded, isAccessReady]);
 
   const { data: webinars = [], isLoading: loadingWebinars, refetch: refetchWebinars } = useQuery({
     queryKey: ['/api/zoom/webinars'],

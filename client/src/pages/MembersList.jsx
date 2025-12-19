@@ -126,13 +126,13 @@ export default function MembersListPage() {
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin || isFeatureExcluded('page_MembersList')) {
+      if (isFeatureExcluded('page_MembersList')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady, isFeatureExcluded]);
+  }, [isFeatureExcluded, isAccessReady]);
 
   // Reset detail view state when navigating away from this page
   useEffect(() => {

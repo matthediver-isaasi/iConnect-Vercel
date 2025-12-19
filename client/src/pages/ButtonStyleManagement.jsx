@@ -23,19 +23,19 @@ const iconMap = {
 };
 
 export default function ButtonStyleManagementPage() {
-  const { isAdmin, isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const queryClient = useQueryClient();
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin || isFeatureExcluded('page_ButtonStyleManagement')) {
+      if (isFeatureExcluded('page_ButtonStyleManagement')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady]);
+  }, [isFeatureExcluded, isAccessReady]);
 
   const { data: buttonStyles = [], isLoading } = useQuery({
     queryKey: ['buttonStyles'],

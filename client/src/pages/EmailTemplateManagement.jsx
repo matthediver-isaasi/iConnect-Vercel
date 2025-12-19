@@ -185,13 +185,13 @@ export default function EmailTemplateManagement() {
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin || isFeatureExcluded('page_EmailTemplateManagement')) {
+      if (isFeatureExcluded('page_EmailTemplateManagement')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady]);
+  }, [isFeatureExcluded, isAccessReady]);
 
   const { data: templates = [], isLoading } = useQuery({
     queryKey: ['email-templates'],

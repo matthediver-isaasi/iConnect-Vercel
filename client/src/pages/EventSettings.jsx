@@ -81,13 +81,13 @@ export default function EventSettingsPage() {
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin || isFeatureExcluded('page_EventSettings')) {
+      if (isFeatureExcluded('page_EventSettings')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady, isFeatureExcluded]);
+  }, [isFeatureExcluded, isAccessReady]);
 
   const { data: events = [], isLoading: loadingEvents } = useQuery({
     queryKey: ['events'],

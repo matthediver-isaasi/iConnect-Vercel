@@ -69,13 +69,13 @@ export default function MemberDirectorySettingsPage() {
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin || isFeatureExcluded('page_MemberDirectorySettings')) {
+      if (isFeatureExcluded('page_MemberDirectorySettings')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady]);
+  }, [isFeatureExcluded, isAccessReady]);
 
   useEffect(() => {
     if (displaySettings) {

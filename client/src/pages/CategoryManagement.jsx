@@ -24,18 +24,18 @@ const CONTENT_TYPE_OPTIONS = [
 ];
 
 export default function CategoryManagementPage() {
-  const { isAdmin, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin) {
+      if (isFeatureExcluded('content.categories')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady]);
+  }, [isFeatureExcluded, isAccessReady]);
   const [editingCategory, setEditingCategory] = useState(null);
   const [showCategoryDialog, setShowCategoryDialog] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);

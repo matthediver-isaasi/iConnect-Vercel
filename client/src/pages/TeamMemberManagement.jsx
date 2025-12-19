@@ -16,7 +16,7 @@ import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 
 export default function TeamMemberManagementPage() {
-  const { isAdmin, isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const [editingTeamMember, setEditingTeamMember] = useState(null);
   const [showDialog, setShowDialog] = useState(false);
@@ -28,13 +28,13 @@ export default function TeamMemberManagementPage() {
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin || isFeatureExcluded('page_TeamMemberManagement')) {
+      if (isFeatureExcluded('page_TeamMemberManagement')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady, isFeatureExcluded]);
+  }, [isFeatureExcluded, isAccessReady]);
 
   const { data: teamMembers = [], isLoading: loadingTeamMembers } = useQuery({
     queryKey: ['team-members'],

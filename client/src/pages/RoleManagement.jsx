@@ -60,7 +60,7 @@ const MODULE_ICONS = {
 };
 
 export default function RoleManagementPage() {
-  const { isAdmin, isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [editingRole, setEditingRole] = useState(null);
   const [showDialog, setShowDialog] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -75,13 +75,13 @@ export default function RoleManagementPage() {
   // Redirect non-super-admins (check both isAdmin and feature exclusion)
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin || isFeatureExcluded('page_RoleManagement')) {
+      if (isFeatureExcluded('page_RoleManagement')) {
         window.location.href = createPageUrl('about-me');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady]);
+  }, [isFeatureExcluded, isAccessReady]);
 
   const { data: roles = [], isLoading } = useQuery({
     queryKey: ['roles'],

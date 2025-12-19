@@ -16,7 +16,7 @@ import { format } from "date-fns";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 
 export default function FileManagementPage() {
-  const { isAdmin, memberInfo, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, memberInfo, isAccessReady } = useMemberAccess();
   const [uploadingFile, setUploadingFile] = useState(false);
   const [editingFile, setEditingFile] = useState(null);
   const [showEditDialog, setShowEditDialog] = useState(false);
@@ -706,7 +706,7 @@ export default function FileManagementPage() {
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
   };
 
-  if (!isAdmin) {
+  if (isFeatureExcluded('content.files')) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
         <Card className="border-red-200">

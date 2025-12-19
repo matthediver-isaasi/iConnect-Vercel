@@ -155,7 +155,7 @@ const builtInPages = [
 ];
 
 export default function PortalMenuManagementPage() {
-  const { isAdmin, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [showDialog, setShowDialog] = useState(false);
@@ -167,13 +167,13 @@ export default function PortalMenuManagementPage() {
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin) {
+      if (isFeatureExcluded('system.portal-menu')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady]);
+  }, [isFeatureExcluded, isAccessReady]);
 
   const { data: menuItems = [], isLoading } = useQuery({
     queryKey: ['portal-menu'],

@@ -19,7 +19,7 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 const ITEMS_PER_PAGE = 10;
 
 export default function DiscountCodeManagementPage() {
-  const { isAdmin, isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const [editingCode, setEditingCode] = useState(null);
   
@@ -29,13 +29,13 @@ export default function DiscountCodeManagementPage() {
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin || isFeatureExcluded('page_DiscountCodeManagement')) {
+      if (isFeatureExcluded('page_DiscountCodeManagement')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady, isFeatureExcluded]);
+  }, [isFeatureExcluded, isAccessReady]);
   const [showDialog, setShowDialog] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [codeToDelete, setCodeToDelete] = useState(null);

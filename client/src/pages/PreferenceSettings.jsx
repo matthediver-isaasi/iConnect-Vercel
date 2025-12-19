@@ -28,7 +28,7 @@ const DEFAULT_SECTION_ORDER = [
 ];
 
 export default function PreferenceSettingsPage() {
-  const { isAdmin, isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const [sections, setSections] = useState(DEFAULT_SECTION_ORDER);
   const [hasChanges, setHasChanges] = useState(false);
@@ -44,13 +44,13 @@ export default function PreferenceSettingsPage() {
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin || isFeatureExcluded('page_PreferenceSettings')) {
+      if (isFeatureExcluded('page_PreferenceSettings')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady]);
+  }, [isFeatureExcluded, isAccessReady]);
 
   const { data: savedOrder, isLoading } = useQuery({
     queryKey: ['preferences-section-order'],

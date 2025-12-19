@@ -83,13 +83,13 @@ export default function TeamSettingsPage() {
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin || isFeatureExcluded('page_TeamSettings')) {
+      if (isFeatureExcluded('page_TeamSettings')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady]);
+  }, [isFeatureExcluded, isAccessReady]);
 
   const { data: savedSettings, isLoading } = useQuery({
     queryKey: ['team-card-settings'],

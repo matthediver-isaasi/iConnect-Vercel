@@ -133,13 +133,13 @@ export default function FloaterManagementPage() {
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin || isFeatureExcluded('page_FloaterManagement')) {
+      if (isFeatureExcluded('page_FloaterManagement')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady]);
+  }, [isFeatureExcluded, isAccessReady]);
 
   const handleOpenDialog = (floater = null) => {
     if (floater) {

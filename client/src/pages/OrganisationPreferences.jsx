@@ -33,7 +33,7 @@ const PERMISSION_OPTIONS = [
 ];
 
 export default function OrganisationPreferencesPage() {
-  const { isAdmin, isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const [selectedRoleId, setSelectedRoleId] = useState(null);
   const [permissions, setPermissions] = useState({});
@@ -44,13 +44,13 @@ export default function OrganisationPreferencesPage() {
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin || isFeatureExcluded('page_admin_OrganisationPreferences')) {
+      if (isFeatureExcluded('page_admin_OrganisationPreferences')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady, isFeatureExcluded]);
+  }, [isFeatureExcluded, isAccessReady]);
 
   const { data: roles = [], isLoading: rolesLoading } = useQuery({
     queryKey: ['roles'],

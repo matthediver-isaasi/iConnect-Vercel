@@ -34,18 +34,20 @@ const iconMap = {
 };
 
 export default function ButtonElementsPage() {
-  const { isAdmin, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
+  // Derive admin status from feature exclusion - admins can access button styles
+  const isAdmin = !isFeatureExcluded('site-builder.buttons');
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin) {
+      if (isFeatureExcluded('site-builder.buttons')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady]);
+  }, [isFeatureExcluded, isAccessReady]);
   // Memoize URL params to prevent re-reading on every render
   const urlParams = useMemo(() => new URLSearchParams(window.location.search), []);
   const mode = urlParams.get('mode');

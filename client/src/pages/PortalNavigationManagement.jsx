@@ -21,18 +21,18 @@ const availableIcons = {
 };
 
 export default function PortalNavigationManagementPage() {
-  const { isAdmin, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin) {
+      if (isFeatureExcluded('system.portal-navigation')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady]);
+  }, [isFeatureExcluded, isAccessReady]);
   const [editingItem, setEditingItem] = useState(null);
   const [showDialog, setShowDialog] = useState(false);
   const [isReordering, setIsReordering] = useState(false);

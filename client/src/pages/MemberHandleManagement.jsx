@@ -10,7 +10,7 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 
 export default function MemberHandleManagementPage() {
-  const { isAdmin, memberInfo, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, memberInfo, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const [generationResult, setGenerationResult] = useState(null);
 
@@ -50,13 +50,13 @@ export default function MemberHandleManagementPage() {
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin) {
+      if (isFeatureExcluded('admin.member-handle-management')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady]);
+  }, [isFeatureExcluded, isAccessReady]);
 
   if (!accessChecked) {
     return (

@@ -120,13 +120,13 @@ export default function MemberGroupGuestManagementPage() {
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin || isFeatureExcluded('page_MemberGroupGuestManagement')) {
+      if (isFeatureExcluded('page_MemberGroupGuestManagement')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady]);
+  }, [isFeatureExcluded, isAccessReady]);
 
   const filteredGuests = guests.filter(guest => {
     const searchLower = searchQuery.toLowerCase();
