@@ -544,24 +544,22 @@ export default function HistoryPage({ hasBanner }) {
   // Component for training fund transaction
   const TrainingFundTransactionCard = ({ transaction }) => {
     const isCredit = transaction.type === 'credit' || transaction.type === 'credit_adjustment';
-    const isDebit = transaction.type === 'usage' || transaction.type === 'debit_adjustment';
     
     const getTypeInfo = () => {
       switch (transaction.type) {
         case 'credit':
         case 'credit_adjustment':
-          return { label: 'Credit', color: 'bg-green-100 text-green-600', icon: ArrowUpCircle };
+          return { label: 'Credit', color: 'bg-green-100 text-green-600' };
         case 'usage':
-          return { label: 'Booking Usage', color: 'bg-blue-100 text-blue-600', icon: Calendar };
+          return { label: 'Booking', color: 'bg-blue-100 text-blue-600' };
         case 'debit_adjustment':
-          return { label: 'Debit', color: 'bg-amber-100 text-amber-600', icon: ArrowDownCircle };
+          return { label: 'Debit', color: 'bg-amber-100 text-amber-600' };
         default:
-          return { label: transaction.type, color: 'bg-slate-100 text-slate-600', icon: Wallet };
+          return { label: transaction.type || 'Usage', color: 'bg-slate-100 text-slate-600' };
       }
     };
     
     const typeInfo = getTypeInfo();
-    const Icon = typeInfo.icon;
 
     return (
       <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-lg border border-slate-200">
@@ -571,7 +569,7 @@ export default function HistoryPage({ hasBanner }) {
         
         <div className="flex-1">
           <div className="flex items-center gap-2 mb-1 flex-wrap">
-            <h3 className="font-semibold text-slate-900">Training Fund {typeInfo.label}</h3>
+            <h3 className="font-semibold text-slate-900">Training Fund</h3>
             <Badge variant="outline" className={`text-xs ${typeInfo.color}`}>
               {typeInfo.label}
             </Badge>
