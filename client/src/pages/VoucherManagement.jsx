@@ -376,21 +376,11 @@ export default function VoucherManagementPage() {
 
           <Card className="border-slate-200 shadow-sm mb-6">
             <CardContent className="p-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <History className="w-5 h-5 text-slate-500" />
-                  <span className="font-medium text-slate-700">
-                    {voucherTransactions.length} {voucherTransactions.length === 1 ? 'transaction' : 'transactions'}
-                  </span>
-                </div>
-                <Button
-                  onClick={() => handleEdit(selectedVoucher)}
-                  variant="outline"
-                  data-testid="button-edit-from-history"
-                >
-                  <Pencil className="w-4 h-4 mr-2" />
-                  Edit Voucher
-                </Button>
+              <div className="flex items-center gap-2">
+                <History className="w-5 h-5 text-slate-500" />
+                <span className="font-medium text-slate-700">
+                  {voucherTransactions.length} {voucherTransactions.length === 1 ? 'transaction' : 'transactions'}
+                </span>
               </div>
             </CardContent>
           </Card>
