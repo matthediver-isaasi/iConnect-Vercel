@@ -10,13 +10,6 @@ import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
-import { isResourceExcluded } from "@/lib/roleVisibility";
-
-const isRoleAdmin = (role) => {
-  if (!role) return false;
-  return !isResourceExcluded(role.excluded_features, 'admin.role-management');
-};
-
 const HEADER_FIELDS = [
   { key: 'name', label: 'Organisation Name', description: 'The name of the organisation (shown in header)' },
   { key: 'description', label: 'Description', description: 'Organisation description/about (shown in header)' },
@@ -318,7 +311,6 @@ export default function OrganisationPreferencesPage() {
                   {roles.map((role) => (
                     <SelectItem key={role.id} value={role.id}>
                       {role.name}
-                      {isRoleAdmin(role) && <Badge className="ml-2" variant="secondary">Admin</Badge>}
                     </SelectItem>
                   ))}
                 </SelectContent>
