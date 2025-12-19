@@ -543,17 +543,20 @@ export default function HistoryPage({ hasBanner }) {
 
   // Component for training fund transaction
   const TrainingFundTransactionCard = ({ transaction }) => {
-    const isCredit = transaction.type === 'credit' || transaction.type === 'credit_adjustment';
+    const isCredit = transaction.type === 'add' || transaction.type === 'credit' || transaction.type === 'credit_adjustment';
     
     const getTypeInfo = () => {
       switch (transaction.type) {
+        case 'add':
         case 'credit':
         case 'credit_adjustment':
           return { label: 'Credit', color: 'bg-green-100 text-green-600' };
-        case 'usage':
-          return { label: 'Booking', color: 'bg-blue-100 text-blue-600' };
+        case 'deduct':
         case 'debit_adjustment':
           return { label: 'Debit', color: 'bg-amber-100 text-amber-600' };
+        case 'usage':
+        case 'booking_usage':
+          return { label: 'Booking', color: 'bg-blue-100 text-blue-600' };
         default:
           return { label: transaction.type || 'Usage', color: 'bg-slate-100 text-slate-600' };
       }
