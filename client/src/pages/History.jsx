@@ -1,18 +1,22 @@
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Ticket, ShoppingCart, Calendar, ArrowUpCircle, ArrowDownCircle, FileText, Download, Eye, Loader2, CreditCard, User, Building2, Wallet, Gift } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Ticket, ShoppingCart, Calendar, ArrowUpCircle, ArrowDownCircle, FileText, Download, Eye, Loader2, CreditCard, User, Building2, Wallet, Gift, Search, ChevronLeft, ChevronRight, ArrowUpDown, X } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import PageTour from "../components/tour/PageTour";
 import TourButton from "../components/tour/TourButton";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+
+const ITEMS_PER_PAGE = 10;
 
 export default function HistoryPage({ hasBanner }) {
   const { memberInfo, organizationInfo, memberRole, isFeatureExcluded, reloadMemberInfo, refreshOrganizationInfo } = useMemberAccess();
@@ -24,6 +28,17 @@ export default function HistoryPage({ hasBanner }) {
   const [showTour, setShowTour] = useState(false);
   const [tourAutoShow, setTourAutoShow] = useState(false);
   const [activeTab, setActiveTab] = useState("all");
+
+  // Search, filter, sort, and pagination state
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sortOrder, setSortOrder] = useState("newest");
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [currentPage, setCurrentPage] = useState(1);
+
+  // Reset page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, sortOrder, typeFilter, activeTab]);
 
   // Determine if tours should be shown for this user
   const shouldShowTours = memberRole?.show_tours !== false;
@@ -104,7 +119,7 @@ export default function HistoryPage({ hasBanner }) {
   });
 
   // Group bookings by booking_group_reference for display
-  const bookingGroups = React.useMemo(() => {
+  const bookingGroups = useMemo(() => {
     const groups = {};
     bookings.forEach(booking => {
       const ref = booking.booking_group_reference || booking.booking_reference || booking.id;
@@ -128,6 +143,151 @@ export default function HistoryPage({ hasBanner }) {
         return dateB - dateA;
       });
   }, [bookings, events]);
+
+  // Filter and sort functions
+  const filterAndSortData = (data, searchFields, dateField = 'created_date') => {
+    let filtered = data;
+
+    // Apply search filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      filtered = data.filter(item => {
+        return searchFields.some(field => {
+          const value = field.split('.').reduce((obj, key) => obj?.[key], item);
+          return value && String(value).toLowerCase().includes(query);
+        });
+      });
+    }
+
+    // Apply sort
+    const sorted = [...filtered].sort((a, b) => {
+      const dateA = new Date(a[dateField] || a.created_at || 0).getTime();
+      const dateB = new Date(b[dateField] || b.created_at || 0).getTime();
+      return sortOrder === 'newest' ? dateB - dateA : dateA - dateB;
+    });
+
+    return sorted;
+  };
+
+  // Filter booking groups
+  const filteredBookingGroups = useMemo(() => {
+    let filtered = bookingGroups;
+
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      filtered = bookingGroups.filter(group => {
+        const eventTitle = group.event?.title || group.firstBooking.event_name || '';
+        const reference = group.reference || '';
+        const invoiceNumber = group.firstBooking.xero_invoice_number || '';
+        const poNumber = group.firstBooking.purchase_order_number || '';
+        const attendees = group.bookings.map(b => 
+          `${b.attendee_first_name || ''} ${b.attendee_last_name || ''} ${b.attendee_email || ''}`
+        ).join(' ');
+        
+        return eventTitle.toLowerCase().includes(query) ||
+               reference.toLowerCase().includes(query) ||
+               invoiceNumber.toLowerCase().includes(query) ||
+               poNumber.toLowerCase().includes(query) ||
+               attendees.toLowerCase().includes(query);
+      });
+    }
+
+    // Apply sort
+    const sorted = [...filtered].sort((a, b) => {
+      const dateA = new Date(a.created_date || 0).getTime();
+      const dateB = new Date(b.created_date || 0).getTime();
+      return sortOrder === 'newest' ? dateB - dateA : dateA - dateB;
+    });
+
+    return sorted;
+  }, [bookingGroups, searchQuery, sortOrder]);
+
+  // Filter program transactions
+  const filteredTransactions = useMemo(() => {
+    let filtered = transactions;
+
+    if (typeFilter !== 'all') {
+      filtered = transactions.filter(t => t.transaction_type === typeFilter);
+    }
+
+    return filterAndSortData(
+      filtered, 
+      ['program_name', 'event_name', 'booking_reference', 'purchase_order_number', 'xero_invoice_number']
+    );
+  }, [transactions, searchQuery, sortOrder, typeFilter]);
+
+  // Filter training fund transactions
+  const filteredTrainingFundTransactions = useMemo(() => {
+    let filtered = trainingFundTransactions;
+
+    if (typeFilter !== 'all') {
+      filtered = trainingFundTransactions.filter(t => {
+        if (typeFilter === 'credit') return t.type === 'add' || t.type === 'credit' || t.type === 'credit_adjustment';
+        if (typeFilter === 'debit') return t.type === 'deduct' || t.type === 'debit_adjustment' || t.type === 'usage' || t.type === 'booking_usage';
+        return true;
+      });
+    }
+
+    return filterAndSortData(
+      filtered, 
+      ['reason', 'event_title', 'booking_reference'],
+      'created_at'
+    );
+  }, [trainingFundTransactions, searchQuery, sortOrder, typeFilter]);
+
+  // Filter voucher transactions
+  const filteredVoucherTransactions = useMemo(() => {
+    let filtered = voucherTransactions;
+
+    if (typeFilter !== 'all') {
+      filtered = voucherTransactions.filter(t => {
+        if (typeFilter === 'credit') return t.type === 'credit_adjustment';
+        if (typeFilter === 'debit') return t.type === 'debit_adjustment' || t.type === 'booking_usage';
+        return true;
+      });
+    }
+
+    return filterAndSortData(
+      filtered, 
+      ['event_title', 'booking_reference'],
+      'created_at'
+    );
+  }, [voucherTransactions, searchQuery, sortOrder, typeFilter]);
+
+  // Pagination helper
+  const paginateData = (data) => {
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    const endIndex = startIndex + ITEMS_PER_PAGE;
+    return {
+      items: data.slice(startIndex, endIndex),
+      totalItems: data.length,
+      totalPages: Math.ceil(data.length / ITEMS_PER_PAGE),
+      startIndex: startIndex + 1,
+      endIndex: Math.min(endIndex, data.length)
+    };
+  };
+
+  // Get current tab's data length for filter options
+  const getTypeFilterOptions = () => {
+    switch (activeTab) {
+      case 'program':
+        return [
+          { value: 'all', label: 'All Types' },
+          { value: 'purchase', label: 'Purchases' },
+          { value: 'usage', label: 'Usage' },
+          { value: 'refund', label: 'Returns' }
+        ];
+      case 'training-fund':
+      case 'vouchers':
+        return [
+          { value: 'all', label: 'All Types' },
+          { value: 'credit', label: 'Credits' },
+          { value: 'debit', label: 'Debits' }
+        ];
+      default:
+        return [];
+    }
+  };
 
   const isLoading = transactionsLoading || bookingsLoading || trainingFundLoading || voucherTransactionsLoading;
 
@@ -316,7 +476,79 @@ export default function HistoryPage({ hasBanner }) {
     setInvoiceModalOpen(open);
   };
 
-  // Component for standard ticket booking group
+  // Clear filters
+  const clearFilters = () => {
+    setSearchQuery("");
+    setTypeFilter("all");
+    setSortOrder("newest");
+    setCurrentPage(1);
+  };
+
+  const hasActiveFilters = searchQuery.trim() || typeFilter !== 'all' || sortOrder !== 'newest';
+
+  // Pagination Controls Component
+  const PaginationControls = ({ pagination }) => {
+    if (pagination.totalPages <= 1) return null;
+
+    return (
+      <div className="flex items-center justify-between pt-4 border-t border-slate-200 mt-4">
+        <p className="text-sm text-slate-600">
+          Showing {pagination.startIndex}-{pagination.endIndex} of {pagination.totalItems}
+        </p>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+            disabled={currentPage === 1}
+            data-testid="button-prev-page"
+          >
+            <ChevronLeft className="w-4 h-4" />
+            Previous
+          </Button>
+          <div className="flex items-center gap-1">
+            {Array.from({ length: Math.min(5, pagination.totalPages) }, (_, i) => {
+              let pageNum;
+              if (pagination.totalPages <= 5) {
+                pageNum = i + 1;
+              } else if (currentPage <= 3) {
+                pageNum = i + 1;
+              } else if (currentPage >= pagination.totalPages - 2) {
+                pageNum = pagination.totalPages - 4 + i;
+              } else {
+                pageNum = currentPage - 2 + i;
+              }
+              
+              return (
+                <Button
+                  key={pageNum}
+                  variant={currentPage === pageNum ? "default" : "outline"}
+                  size="sm"
+                  className="w-8 h-8 p-0"
+                  onClick={() => setCurrentPage(pageNum)}
+                  data-testid={`button-page-${pageNum}`}
+                >
+                  {pageNum}
+                </Button>
+              );
+            })}
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setCurrentPage(p => Math.min(pagination.totalPages, p + 1))}
+            disabled={currentPage === pagination.totalPages}
+            data-testid="button-next-page"
+          >
+            Next
+            <ChevronRight className="w-4 h-4" />
+          </Button>
+        </div>
+      </div>
+    );
+  };
+
+  // Component for standard ticket booking group with date column
   const BookingGroupCard = ({ group, loadingBookingInvoice, handleViewBookingInvoice, handleDownloadBookingInvoice }) => {
     const { reference, bookings, firstBooking, event } = group;
     const eventTitle = event?.title || firstBooking.event_name || 'Event';
@@ -324,10 +556,24 @@ export default function HistoryPage({ hasBanner }) {
     const attendeeCount = bookings.length;
     // Check both xero_invoice_number and xero_invoice_id for invoice availability (matching Bookings page logic)
     const hasInvoice = !!(firstBooking.xero_invoice_number || firstBooking.xero_invoice_id);
+    const transactionDate = firstBooking.created_date ? new Date(firstBooking.created_date) : null;
 
     return (
       <div className="flex flex-col gap-3 p-4 bg-slate-50 rounded-lg border border-slate-200">
         <div className="flex items-start gap-4">
+          {/* Date Column */}
+          <div className="w-20 shrink-0 text-center">
+            {transactionDate ? (
+              <div className="flex flex-col">
+                <span className="text-lg font-bold text-slate-900">{format(transactionDate, 'd')}</span>
+                <span className="text-xs text-slate-600 uppercase">{format(transactionDate, 'MMM yyyy')}</span>
+                <span className="text-xs text-slate-500">{format(transactionDate, 'h:mm a')}</span>
+              </div>
+            ) : (
+              <span className="text-xs text-slate-400">No date</span>
+            )}
+          </div>
+          
           <div className="p-3 rounded-lg bg-blue-100 text-blue-600">
             <CreditCard className="w-5 h-5" />
           </div>
@@ -358,12 +604,6 @@ export default function HistoryPage({ hasBanner }) {
                 </p>
               )}
             </div>
-            
-            {firstBooking.created_date && (
-              <p className="text-xs text-slate-500 mt-1">
-                {format(new Date(firstBooking.created_date), 'MMM d, yyyy • h:mm a')}
-              </p>
-            )}
           </div>
           
           <div className="flex items-center gap-2 shrink-0">
@@ -374,7 +614,7 @@ export default function HistoryPage({ hasBanner }) {
         </div>
         
         {/* Attendees list */}
-        <div className="pl-[52px]">
+        <div className="pl-24">
           <div className="text-xs text-slate-500 mb-2">Attendees:</div>
           <div className="flex flex-wrap gap-2">
             {bookings.slice(0, 5).map((booking, idx) => (
@@ -434,7 +674,7 @@ export default function HistoryPage({ hasBanner }) {
     );
   };
 
-  // Component for program ticket transaction
+  // Component for program ticket transaction with date column
   const ProgramTransactionCard = ({ transaction, downloadingInvoice, handleViewInvoice }) => {
     let icon, colorClass, label;
     if (transaction.transaction_type === 'purchase') {
@@ -452,9 +692,23 @@ export default function HistoryPage({ hasBanner }) {
     }
 
     const Icon = icon;
+    const transactionDate = transaction.created_date ? new Date(transaction.created_date) : null;
 
     return (
       <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-lg border border-slate-200">
+        {/* Date Column */}
+        <div className="w-20 shrink-0 text-center">
+          {transactionDate ? (
+            <div className="flex flex-col">
+              <span className="text-lg font-bold text-slate-900">{format(transactionDate, 'd')}</span>
+              <span className="text-xs text-slate-600 uppercase">{format(transactionDate, 'MMM yyyy')}</span>
+              <span className="text-xs text-slate-500">{format(transactionDate, 'h:mm a')}</span>
+            </div>
+          ) : (
+            <span className="text-xs text-slate-400">No date</span>
+          )}
+        </div>
+        
         <div className={`p-3 rounded-lg ${colorClass}`}>
           <Icon className="w-5 h-5" />
         </div>
@@ -488,12 +742,6 @@ export default function HistoryPage({ hasBanner }) {
             <p className="text-sm text-slate-600">
               {transaction.event_name} • {transaction.quantity} ticket{transaction.quantity > 1 ? 's' : ''}
               {transaction.booking_reference && ` • ${transaction.booking_reference}`}
-            </p>
-          )}
-          
-          {transaction.created_date && (
-            <p className="text-xs text-slate-500 mt-1">
-              {format(new Date(transaction.created_date), 'MMM d, yyyy • h:mm a')}
             </p>
           )}
         </div>
@@ -541,7 +789,7 @@ export default function HistoryPage({ hasBanner }) {
     );
   };
 
-  // Component for training fund transaction
+  // Component for training fund transaction with date column
   const TrainingFundTransactionCard = ({ transaction }) => {
     const isCredit = transaction.type === 'add' || transaction.type === 'credit' || transaction.type === 'credit_adjustment';
     
@@ -563,9 +811,25 @@ export default function HistoryPage({ hasBanner }) {
     };
     
     const typeInfo = getTypeInfo();
+    const transactionDate = transaction.created_at || transaction.created_date 
+      ? new Date(transaction.created_at || transaction.created_date) 
+      : null;
 
     return (
       <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-lg border border-slate-200">
+        {/* Date Column */}
+        <div className="w-20 shrink-0 text-center">
+          {transactionDate ? (
+            <div className="flex flex-col">
+              <span className="text-lg font-bold text-slate-900">{format(transactionDate, 'd')}</span>
+              <span className="text-xs text-slate-600 uppercase">{format(transactionDate, 'MMM yyyy')}</span>
+              <span className="text-xs text-slate-500">{format(transactionDate, 'h:mm a')}</span>
+            </div>
+          ) : (
+            <span className="text-xs text-slate-400">No date</span>
+          )}
+        </div>
+        
         <div className={`p-3 rounded-lg ${typeInfo.color}`}>
           <Wallet className="w-5 h-5" />
         </div>
@@ -593,12 +857,6 @@ export default function HistoryPage({ hasBanner }) {
             <span>→</span>
             <span>After: £{(transaction.balance_after || 0).toFixed(2)}</span>
           </div>
-          
-          {(transaction.created_at || transaction.created_date) && (
-            <p className="text-xs text-slate-500 mt-1">
-              {format(new Date(transaction.created_at || transaction.created_date), 'MMM d, yyyy • h:mm a')}
-            </p>
-          )}
         </div>
         
         <div className="flex items-center gap-1">
@@ -610,7 +868,7 @@ export default function HistoryPage({ hasBanner }) {
     );
   };
 
-  // Component for voucher transaction
+  // Component for voucher transaction with date column
   const VoucherTransactionCard = ({ transaction }) => {
     const isCredit = transaction.type === 'credit_adjustment';
     
@@ -628,9 +886,23 @@ export default function HistoryPage({ hasBanner }) {
     };
     
     const typeInfo = getTypeInfo();
+    const transactionDate = transaction.created_at ? new Date(transaction.created_at) : null;
 
     return (
       <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-lg border border-slate-200">
+        {/* Date Column */}
+        <div className="w-20 shrink-0 text-center">
+          {transactionDate ? (
+            <div className="flex flex-col">
+              <span className="text-lg font-bold text-slate-900">{format(transactionDate, 'd')}</span>
+              <span className="text-xs text-slate-600 uppercase">{format(transactionDate, 'MMM yyyy')}</span>
+              <span className="text-xs text-slate-500">{format(transactionDate, 'h:mm a')}</span>
+            </div>
+          ) : (
+            <span className="text-xs text-slate-400">No date</span>
+          )}
+        </div>
+        
         <div className={`p-3 rounded-lg ${typeInfo.color}`}>
           <Gift className="w-5 h-5" />
         </div>
@@ -655,18 +927,73 @@ export default function HistoryPage({ hasBanner }) {
             <span>→</span>
             <span>After: £{(transaction.balance_after || 0).toFixed(2)}</span>
           </div>
-          
-          {transaction.created_at && (
-            <p className="text-xs text-slate-500 mt-1">
-              {format(new Date(transaction.created_at), 'MMM d, yyyy • h:mm a')}
-            </p>
-          )}
         </div>
         
         <div className="flex items-center gap-1">
           <span className={`text-lg font-semibold ${isCredit ? 'text-green-600' : 'text-red-600'}`}>
             {isCredit ? '+' : '-'}£{(transaction.amount || 0).toFixed(2)}
           </span>
+        </div>
+      </div>
+    );
+  };
+
+  // Search and Filter Bar Component
+  const SearchFilterBar = () => {
+    const typeFilterOptions = getTypeFilterOptions();
+    const showTypeFilter = typeFilterOptions.length > 0;
+
+    return (
+      <div className="flex flex-col sm:flex-row gap-3 mb-4">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <Input
+            placeholder="Search transactions..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-9"
+            data-testid="input-search"
+          />
+        </div>
+        
+        <div className="flex gap-2">
+          {showTypeFilter && (
+            <Select value={typeFilter} onValueChange={setTypeFilter}>
+              <SelectTrigger className="w-[140px]" data-testid="select-type-filter">
+                <SelectValue placeholder="Filter by type" />
+              </SelectTrigger>
+              <SelectContent>
+                {typeFilterOptions.map(option => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          
+          <Select value={sortOrder} onValueChange={setSortOrder}>
+            <SelectTrigger className="w-[140px]" data-testid="select-sort-order">
+              <ArrowUpDown className="w-4 h-4 mr-2" />
+              <SelectValue placeholder="Sort by" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="newest">Newest First</SelectItem>
+              <SelectItem value="oldest">Oldest First</SelectItem>
+            </SelectContent>
+          </Select>
+          
+          {hasActiveFilters && (
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={clearFilters}
+              title="Clear filters"
+              data-testid="button-clear-filters"
+            >
+              <X className="w-4 h-4" />
+            </Button>
+          )}
         </div>
       </div>
     );
@@ -732,16 +1059,19 @@ export default function HistoryPage({ hasBanner }) {
                   </TabsTrigger>
                 </TabsList>
 
+                {/* Search and Filter Bar */}
+                <SearchFilterBar />
+
                 {/* All Transactions Tab */}
                 <TabsContent value="all" className="space-y-6">
                   {/* Standard Ticket Purchases Section */}
-                  {bookingGroups.length > 0 && (
+                  {filteredBookingGroups.length > 0 && (
                     <div className="space-y-3">
                       <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
                         <CreditCard className="w-4 h-4" />
-                        Standard Ticket Purchases
+                        Standard Ticket Purchases ({filteredBookingGroups.length})
                       </h3>
-                      {bookingGroups.map((group) => (
+                      {filteredBookingGroups.slice(0, 5).map((group) => (
                         <BookingGroupCard
                           key={group.reference}
                           group={group}
@@ -750,17 +1080,26 @@ export default function HistoryPage({ hasBanner }) {
                           handleDownloadBookingInvoice={handleDownloadBookingInvoice}
                         />
                       ))}
+                      {filteredBookingGroups.length > 5 && (
+                        <Button 
+                          variant="link" 
+                          onClick={() => setActiveTab('tickets')}
+                          className="text-sm"
+                        >
+                          View all {filteredBookingGroups.length} standard ticket transactions
+                        </Button>
+                      )}
                     </div>
                   )}
 
                   {/* Program Ticket Transactions Section */}
-                  {transactions.length > 0 && (
+                  {filteredTransactions.length > 0 && (
                     <div className="space-y-3">
                       <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
                         <Ticket className="w-4 h-4" />
-                        Program Ticket Transactions
+                        Program Ticket Transactions ({filteredTransactions.length})
                       </h3>
-                      {transactions.map((transaction) => (
+                      {filteredTransactions.slice(0, 5).map((transaction) => (
                         <ProgramTransactionCard
                           key={transaction.id}
                           transaction={transaction}
@@ -768,113 +1107,207 @@ export default function HistoryPage({ hasBanner }) {
                           handleViewInvoice={handleViewInvoice}
                         />
                       ))}
+                      {filteredTransactions.length > 5 && (
+                        <Button 
+                          variant="link" 
+                          onClick={() => setActiveTab('program')}
+                          className="text-sm"
+                        >
+                          View all {filteredTransactions.length} program ticket transactions
+                        </Button>
+                      )}
                     </div>
                   )}
 
                   {/* Training Fund Transactions Section */}
-                  {trainingFundTransactions.length > 0 && (
+                  {filteredTrainingFundTransactions.length > 0 && (
                     <div className="space-y-3">
                       <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
                         <Wallet className="w-4 h-4" />
-                        Training Fund Transactions
+                        Training Fund Transactions ({filteredTrainingFundTransactions.length})
                       </h3>
-                      {trainingFundTransactions.map((transaction) => (
+                      {filteredTrainingFundTransactions.slice(0, 5).map((transaction) => (
                         <TrainingFundTransactionCard
                           key={transaction.id}
                           transaction={transaction}
                         />
                       ))}
+                      {filteredTrainingFundTransactions.length > 5 && (
+                        <Button 
+                          variant="link" 
+                          onClick={() => setActiveTab('training-fund')}
+                          className="text-sm"
+                        >
+                          View all {filteredTrainingFundTransactions.length} training fund transactions
+                        </Button>
+                      )}
                     </div>
                   )}
 
                   {/* Voucher Transactions Section */}
-                  {voucherTransactions.length > 0 && (
+                  {filteredVoucherTransactions.length > 0 && (
                     <div className="space-y-3">
                       <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
                         <Gift className="w-4 h-4" />
-                        Training Voucher Transactions
+                        Training Voucher Transactions ({filteredVoucherTransactions.length})
                       </h3>
-                      {voucherTransactions.map((transaction) => (
+                      {filteredVoucherTransactions.slice(0, 5).map((transaction) => (
                         <VoucherTransactionCard
                           key={transaction.id}
                           transaction={transaction}
                         />
                       ))}
+                      {filteredVoucherTransactions.length > 5 && (
+                        <Button 
+                          variant="link" 
+                          onClick={() => setActiveTab('vouchers')}
+                          className="text-sm"
+                        >
+                          View all {filteredVoucherTransactions.length} voucher transactions
+                        </Button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* No results message */}
+                  {filteredBookingGroups.length === 0 && 
+                   filteredTransactions.length === 0 && 
+                   filteredTrainingFundTransactions.length === 0 && 
+                   filteredVoucherTransactions.length === 0 && 
+                   searchQuery.trim() && (
+                    <div className="text-center py-8">
+                      <Search className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                      <p className="text-slate-600">No transactions match your search</p>
+                      <Button variant="link" onClick={clearFilters} className="mt-2">
+                        Clear filters
+                      </Button>
                     </div>
                   )}
                 </TabsContent>
 
                 {/* Standard Tickets Tab */}
                 <TabsContent value="tickets" className="space-y-3">
-                  {bookingGroups.length === 0 ? (
-                    <div className="text-center py-8">
-                      <CreditCard className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-                      <p className="text-slate-600">No standard ticket purchases</p>
-                    </div>
-                  ) : (
-                    bookingGroups.map((group) => (
-                      <BookingGroupCard
-                        key={group.reference}
-                        group={group}
-                        loadingBookingInvoice={loadingBookingInvoice}
-                        handleViewBookingInvoice={handleViewBookingInvoice}
-                        handleDownloadBookingInvoice={handleDownloadBookingInvoice}
-                      />
-                    ))
-                  )}
+                  {(() => {
+                    const pagination = paginateData(filteredBookingGroups);
+                    return filteredBookingGroups.length === 0 ? (
+                      <div className="text-center py-8">
+                        <CreditCard className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                        <p className="text-slate-600">
+                          {searchQuery.trim() ? 'No matching standard ticket purchases' : 'No standard ticket purchases'}
+                        </p>
+                        {searchQuery.trim() && (
+                          <Button variant="link" onClick={clearFilters} className="mt-2">
+                            Clear filters
+                          </Button>
+                        )}
+                      </div>
+                    ) : (
+                      <>
+                        {pagination.items.map((group) => (
+                          <BookingGroupCard
+                            key={group.reference}
+                            group={group}
+                            loadingBookingInvoice={loadingBookingInvoice}
+                            handleViewBookingInvoice={handleViewBookingInvoice}
+                            handleDownloadBookingInvoice={handleDownloadBookingInvoice}
+                          />
+                        ))}
+                        <PaginationControls pagination={pagination} />
+                      </>
+                    );
+                  })()}
                 </TabsContent>
 
                 {/* Program Tickets Tab */}
                 <TabsContent value="program" className="space-y-3">
-                  {transactions.length === 0 ? (
-                    <div className="text-center py-8">
-                      <Ticket className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-                      <p className="text-slate-600">No program ticket transactions</p>
-                    </div>
-                  ) : (
-                    transactions.map((transaction) => (
-                      <ProgramTransactionCard
-                        key={transaction.id}
-                        transaction={transaction}
-                        downloadingInvoice={downloadingInvoice}
-                        handleViewInvoice={handleViewInvoice}
-                      />
-                    ))
-                  )}
+                  {(() => {
+                    const pagination = paginateData(filteredTransactions);
+                    return filteredTransactions.length === 0 ? (
+                      <div className="text-center py-8">
+                        <Ticket className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                        <p className="text-slate-600">
+                          {searchQuery.trim() || typeFilter !== 'all' ? 'No matching program ticket transactions' : 'No program ticket transactions'}
+                        </p>
+                        {(searchQuery.trim() || typeFilter !== 'all') && (
+                          <Button variant="link" onClick={clearFilters} className="mt-2">
+                            Clear filters
+                          </Button>
+                        )}
+                      </div>
+                    ) : (
+                      <>
+                        {pagination.items.map((transaction) => (
+                          <ProgramTransactionCard
+                            key={transaction.id}
+                            transaction={transaction}
+                            downloadingInvoice={downloadingInvoice}
+                            handleViewInvoice={handleViewInvoice}
+                          />
+                        ))}
+                        <PaginationControls pagination={pagination} />
+                      </>
+                    );
+                  })()}
                 </TabsContent>
 
                 {/* Training Fund Tab */}
                 <TabsContent value="training-fund" className="space-y-3">
-                  {trainingFundTransactions.length === 0 ? (
-                    <div className="text-center py-8">
-                      <Wallet className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-                      <p className="text-slate-600">No training fund transactions</p>
-                    </div>
-                  ) : (
-                    trainingFundTransactions.map((transaction) => (
-                      <TrainingFundTransactionCard
-                        key={transaction.id}
-                        transaction={transaction}
-                      />
-                    ))
-                  )}
+                  {(() => {
+                    const pagination = paginateData(filteredTrainingFundTransactions);
+                    return filteredTrainingFundTransactions.length === 0 ? (
+                      <div className="text-center py-8">
+                        <Wallet className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                        <p className="text-slate-600">
+                          {searchQuery.trim() || typeFilter !== 'all' ? 'No matching training fund transactions' : 'No training fund transactions'}
+                        </p>
+                        {(searchQuery.trim() || typeFilter !== 'all') && (
+                          <Button variant="link" onClick={clearFilters} className="mt-2">
+                            Clear filters
+                          </Button>
+                        )}
+                      </div>
+                    ) : (
+                      <>
+                        {pagination.items.map((transaction) => (
+                          <TrainingFundTransactionCard
+                            key={transaction.id}
+                            transaction={transaction}
+                          />
+                        ))}
+                        <PaginationControls pagination={pagination} />
+                      </>
+                    );
+                  })()}
                 </TabsContent>
 
                 {/* Vouchers Tab */}
                 <TabsContent value="vouchers" className="space-y-3">
-                  {voucherTransactions.length === 0 ? (
-                    <div className="text-center py-8">
-                      <Gift className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-                      <p className="text-slate-600">No voucher transactions</p>
-                    </div>
-                  ) : (
-                    voucherTransactions.map((transaction) => (
-                      <VoucherTransactionCard
-                        key={transaction.id}
-                        transaction={transaction}
-                      />
-                    ))
-                  )}
+                  {(() => {
+                    const pagination = paginateData(filteredVoucherTransactions);
+                    return filteredVoucherTransactions.length === 0 ? (
+                      <div className="text-center py-8">
+                        <Gift className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                        <p className="text-slate-600">
+                          {searchQuery.trim() || typeFilter !== 'all' ? 'No matching voucher transactions' : 'No voucher transactions'}
+                        </p>
+                        {(searchQuery.trim() || typeFilter !== 'all') && (
+                          <Button variant="link" onClick={clearFilters} className="mt-2">
+                            Clear filters
+                          </Button>
+                        )}
+                      </div>
+                    ) : (
+                      <>
+                        {pagination.items.map((transaction) => (
+                          <VoucherTransactionCard
+                            key={transaction.id}
+                            transaction={transaction}
+                          />
+                        ))}
+                        <PaginationControls pagination={pagination} />
+                      </>
+                    );
+                  })()}
                 </TabsContent>
               </Tabs>
             )}
