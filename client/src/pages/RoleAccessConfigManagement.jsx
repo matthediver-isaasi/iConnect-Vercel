@@ -33,6 +33,10 @@ const extractDefaultKeys = () => {
   
   for (const mod of ROLE_ACCESS_MAP) {
     modules.push({ id: mod.id, label: mod.label });
+    // Extract module-level features
+    for (const feature of mod.features || []) {
+      features.push({ id: feature.id, label: feature.label, parentId: mod.id, parentLabel: mod.label });
+    }
     for (const page of mod.pages || []) {
       pages.push({ id: page.id, label: page.label, parentId: mod.id, parentLabel: mod.label });
       for (const feature of page.features || []) {
