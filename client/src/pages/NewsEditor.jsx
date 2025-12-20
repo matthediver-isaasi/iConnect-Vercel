@@ -340,7 +340,8 @@ export default function NewsEditorPage() {
                     placeholder="Enter news title..."
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
-                    className="text-2xl font-bold border-0 px-0 focus-visible:ring-0"
+                    className="text-xl font-semibold"
+                    data-testid="input-news-title"
                   />
                 </div>
 
