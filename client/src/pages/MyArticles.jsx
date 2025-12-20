@@ -98,28 +98,36 @@ export default function MyArticlesPage() {
     }
   });
 
-  // Fetch member handles for URL construction - only for article authors
-  const { data: authorHandles = {} } = useQuery({
-    queryKey: ['member-handles-for-articles', articles?.map(a => a.author_id).filter(Boolean).join(',')],
+  // Fetch member data (handles and names) for article authors
+  const { data: authorData = { handles: {}, names: {} } } = useQuery({
+    queryKey: ['author-data-for-articles', articles?.map(a => a.author_id).filter(Boolean).join(',')],
     queryFn: async () => {
       const uniqueAuthorIds = [...new Set(articles.filter(a => a.author_id).map(a => a.author_id))];
-      const handleMap = {};
+      const handles = {};
+      const names = {};
       await Promise.all(uniqueAuthorIds.map(async (authorId) => {
         try {
           const member = await base44.entities.Member.get(authorId);
           if (member) {
             const memberHandle = member.handle || member.blog_handle;
             if (memberHandle) {
-              handleMap[String(authorId)] = memberHandle;
+              handles[String(authorId)] = memberHandle;
+            }
+            const fullName = `${member.first_name || ''} ${member.last_name || ''}`.trim();
+            if (fullName) {
+              names[String(authorId)] = fullName;
             }
           }
         } catch (e) { /* skip */ }
       }));
-      return handleMap;
+      return { handles, names };
     },
     enabled: !!articles?.length,
     staleTime: 60000
   });
+  
+  const authorHandles = authorData.handles;
+  const authorNames = authorData.names;
 
   // Fetch all reactions for sorting
   const { data: allReactions = [] } = useQuery({
@@ -324,7 +332,7 @@ export default function MyArticlesPage() {
                             </Badge>
                           )}
                         </div>
-                        <ArticleCard article={article} buttonStyles={buttonStyles} showActions={false} displayName={displayName} authorHandles={authorHandles} />
+                        <ArticleCard article={article} buttonStyles={buttonStyles} showActions={false} displayName={displayName} authorHandles={authorHandles} authorNames={authorNames} />
                       </div>
                       <div className="flex gap-2 mt-3">
                         <Link to={getArticleEditorUrl(article.id)} className="flex-1">

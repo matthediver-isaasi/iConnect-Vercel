@@ -345,7 +345,6 @@ export default function ArticleEditorPage() {
             // Reverting to original author
             autoSaveData.author_id = persistedOriginalAuthorId;
             autoSaveData.guest_writer_id = null;
-            autoSaveData.author_name = persistedOriginalAuthorName || originalAuthorName;
           } else if (authorType === "other_member" && originalAuthorId) {
             // Keeping current author - no changes to author_id or original_author_id
             autoSaveData.author_id = originalAuthorId;
@@ -354,7 +353,6 @@ export default function ArticleEditorPage() {
             // authorType === "member" - takeover
             autoSaveData.author_id = currentMember.id;
             autoSaveData.guest_writer_id = null;
-            autoSaveData.author_name = `${memberInfo.first_name} ${memberInfo.last_name}`;
             // Set original_author_id if not already set (first takeover)
             if (!persistedOriginalAuthorId && originalAuthorId) {
               autoSaveData.original_author_id = originalAuthorId;
@@ -406,7 +404,6 @@ export default function ArticleEditorPage() {
           slug: finalSlug,
           author_id: null,
           guest_writer_id: selectedGuestWriterId,
-          author_name: guestWriter.full_name,
           summary,
           content,
           feature_image_url: featureImage,
@@ -419,13 +416,12 @@ export default function ArticleEditorPage() {
         };
         // Guest writers don't have original_author_id
       } else if (authorType === "other_member" && originalAuthorId) {
-        // Keep the current author - don't change author_id or author_name
+        // Keep the current author - don't change author_id
         articleData = {
           title,
           slug: finalSlug,
           author_id: originalAuthorId,
           guest_writer_id: null,
-          author_name: originalAuthorName,
           summary,
           content,
           feature_image_url: featureImage,
@@ -448,7 +444,6 @@ export default function ArticleEditorPage() {
           slug: finalSlug,
           author_id: persistedOriginalAuthorId,
           guest_writer_id: null,
-          author_name: persistedOriginalAuthorName || originalAuthorName,
           summary,
           content,
           feature_image_url: featureImage,
@@ -471,7 +466,6 @@ export default function ArticleEditorPage() {
           slug: finalSlug,
           author_id: currentMember.id,
           guest_writer_id: null,
-          author_name: `${memberInfo.first_name} ${memberInfo.last_name}`,
           summary,
           content,
           feature_image_url: featureImage,

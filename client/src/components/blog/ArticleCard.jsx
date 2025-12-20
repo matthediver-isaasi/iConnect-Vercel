@@ -18,7 +18,8 @@ export default function ArticleCard({
   hasAdminDeletePermission = false,
   currentMemberId = null,
   showImage = true,
-  authorHandles = {} // Map of author_id to handle
+  authorHandles = {}, // Map of author_id to handle
+  authorNames = {} // Map of author_id (or guest_gwId) to full name
 }) {
   const { getArticleViewUrl } = useArticleUrl();
   
@@ -132,12 +133,24 @@ export default function ArticleCard({
           </div>
         )}
         
-        {showActions && article.author_name && (
-          <div className="flex items-center gap-1.5 text-xs text-slate-600 pb-3">
-            <User className="w-3 h-3" />
-            <span>by {article.author_name}</span>
-          </div>
-        )}
+        {showActions && (() => {
+          // Look up author name from props, falling back to article.author_name for backwards compatibility
+          let displayAuthorName = null;
+          if (article.author_id) {
+            displayAuthorName = authorNames[String(article.author_id)];
+          } else if (article.guest_writer_id) {
+            displayAuthorName = authorNames[`guest_${article.guest_writer_id}`];
+          }
+          // Fallback to legacy author_name field
+          if (!displayAuthorName) displayAuthorName = article.author_name;
+          
+          return displayAuthorName ? (
+            <div className="flex items-center gap-1.5 text-xs text-slate-600 pb-3">
+              <User className="w-3 h-3" />
+              <span>by {displayAuthorName}</span>
+            </div>
+          ) : null;
+        })()}
         
         {article.summary && (
           <p className="text-sm text-slate-600 line-clamp-3">

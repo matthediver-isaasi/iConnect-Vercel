@@ -116,15 +116,16 @@ export default function ArticlesPage() {
     refetchOnWindowFocus: true
   });
 
-  // Fetch member handles for URL construction - only for article authors
-  const { data: authorHandles = {} } = useQuery({
-    queryKey: ['member-handles-for-articles', articles?.map(a => a.author_id).filter(Boolean).join(',')],
+  // Fetch member data (handles and names) for article authors
+  const { data: authorData = { handles: {}, names: {} } } = useQuery({
+    queryKey: ['author-data-for-articles', articles?.map(a => a.author_id).filter(Boolean).join(',')],
     queryFn: async () => {
       // Get unique author IDs from articles
       const uniqueAuthorIds = [...new Set(articles.filter(a => a.author_id).map(a => a.author_id))];
-      console.log('[Articles] Fetching handles for', uniqueAuthorIds.length, 'unique authors');
+      console.log('[Articles] Fetching author data for', uniqueAuthorIds.length, 'unique authors');
       
-      const handleMap = {};
+      const handles = {};
+      const names = {};
       // Fetch each author individually (much smaller than 5000 members)
       await Promise.all(uniqueAuthorIds.map(async (authorId) => {
         try {
@@ -132,7 +133,11 @@ export default function ArticlesPage() {
           if (member) {
             const memberHandle = member.handle || member.blog_handle;
             if (memberHandle) {
-              handleMap[String(authorId)] = memberHandle;
+              handles[String(authorId)] = memberHandle;
+            }
+            const fullName = `${member.first_name || ''} ${member.last_name || ''}`.trim();
+            if (fullName) {
+              names[String(authorId)] = fullName;
             }
           }
         } catch (e) {
@@ -140,12 +145,28 @@ export default function ArticlesPage() {
         }
       }));
       
-      console.log('[Articles] authorHandles map built with', Object.keys(handleMap).length, 'entries');
-      return handleMap;
+      // Also fetch guest writer names
+      const guestWriterIds = [...new Set(articles.filter(a => a.guest_writer_id).map(a => a.guest_writer_id))];
+      if (guestWriterIds.length > 0) {
+        const guestWriters = await base44.entities.GuestWriter.list();
+        guestWriterIds.forEach(gwId => {
+          const gw = guestWriters.find(w => w.id === gwId);
+          if (gw) {
+            names[`guest_${gwId}`] = gw.full_name;
+          }
+        });
+      }
+      
+      console.log('[Articles] authorData built with', Object.keys(handles).length, 'handles and', Object.keys(names).length, 'names');
+      return { handles, names };
     },
     enabled: !!articles?.length,
     staleTime: 60000 // Cache for 1 minute
   });
+  
+  // Backwards compatibility
+  const authorHandles = authorData.handles;
+  const authorNames = authorData.names;
 
   const { data: articleDisplayName, isLoading: displayNameLoading } = useQuery({
     queryKey: ['article-display-name'],
@@ -512,6 +533,7 @@ export default function ArticlesPage() {
                       onEdit={handleEditArticle}
                       onDelete={handleDeleteArticle}
                       authorHandles={authorHandles}
+                      authorNames={authorNames}
                     />
                   ))}
                 </div>

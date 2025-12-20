@@ -66,28 +66,49 @@ export default function PublicArticlesPage() {
     }
   });
 
-  // Fetch member handles for URL construction - only for article authors
-  const { data: authorHandles = {} } = useQuery({
-    queryKey: ['member-handles-for-articles', articles?.map(a => a.author_id).filter(Boolean).join(',')],
+  // Fetch member data (handles and names) for article authors
+  const { data: authorData = { handles: {}, names: {} } } = useQuery({
+    queryKey: ['author-data-for-articles', articles?.map(a => a.author_id).filter(Boolean).join(',')],
     queryFn: async () => {
       const uniqueAuthorIds = [...new Set(articles.filter(a => a.author_id).map(a => a.author_id))];
-      const handleMap = {};
+      const handles = {};
+      const names = {};
       await Promise.all(uniqueAuthorIds.map(async (authorId) => {
         try {
           const member = await base44.entities.Member.get(authorId);
           if (member) {
             const memberHandle = member.handle || member.blog_handle;
             if (memberHandle) {
-              handleMap[String(authorId)] = memberHandle;
+              handles[String(authorId)] = memberHandle;
+            }
+            const fullName = `${member.first_name || ''} ${member.last_name || ''}`.trim();
+            if (fullName) {
+              names[String(authorId)] = fullName;
             }
           }
         } catch (e) { /* skip */ }
       }));
-      return handleMap;
+      
+      // Also fetch guest writer names
+      const guestWriterIds = [...new Set(articles.filter(a => a.guest_writer_id).map(a => a.guest_writer_id))];
+      if (guestWriterIds.length > 0) {
+        const guestWriters = await base44.entities.GuestWriter.list();
+        guestWriterIds.forEach(gwId => {
+          const gw = guestWriters.find(w => w.id === gwId);
+          if (gw) {
+            names[`guest_${gwId}`] = gw.full_name;
+          }
+        });
+      }
+      
+      return { handles, names };
     },
     enabled: !!articles?.length,
     staleTime: 60000
   });
+  
+  const authorHandles = authorData.handles;
+  const authorNames = authorData.names;
 
   // Calculate view and like counts per article
   const articleStats = useMemo(() => {
@@ -283,6 +304,7 @@ export default function PublicArticlesPage() {
                       article={article}
                       displayName={articleDisplayName}
                       authorHandles={authorHandles}
+                      authorNames={authorNames}
                     />
                   ))}
                 </div>

@@ -75,28 +75,49 @@ export default function ArticleManagementPage() {
     }
   });
 
-  // Fetch member handles for URL construction - only for article authors
-  const { data: authorHandles = {} } = useQuery({
-    queryKey: ['member-handles-for-articles', articles?.map(a => a.author_id).filter(Boolean).join(',')],
+  // Fetch member data (handles and names) for article authors
+  const { data: authorData = { handles: {}, names: {} } } = useQuery({
+    queryKey: ['author-data-for-articles', articles?.map(a => a.author_id).filter(Boolean).join(',')],
     queryFn: async () => {
       const uniqueAuthorIds = [...new Set(articles.filter(a => a.author_id).map(a => a.author_id))];
-      const handleMap = {};
+      const handles = {};
+      const names = {};
       await Promise.all(uniqueAuthorIds.map(async (authorId) => {
         try {
           const member = await base44.entities.Member.get(authorId);
           if (member) {
             const memberHandle = member.handle || member.blog_handle;
             if (memberHandle) {
-              handleMap[String(authorId)] = memberHandle;
+              handles[String(authorId)] = memberHandle;
+            }
+            const fullName = `${member.first_name || ''} ${member.last_name || ''}`.trim();
+            if (fullName) {
+              names[String(authorId)] = fullName;
             }
           }
         } catch (e) { /* skip */ }
       }));
-      return handleMap;
+      
+      // Also fetch guest writer names
+      const guestWriterIds = [...new Set(articles.filter(a => a.guest_writer_id).map(a => a.guest_writer_id))];
+      if (guestWriterIds.length > 0) {
+        const guestWriters = await base44.entities.GuestWriter.list();
+        guestWriterIds.forEach(gwId => {
+          const gw = guestWriters.find(w => w.id === gwId);
+          if (gw) {
+            names[`guest_${gwId}`] = gw.full_name;
+          }
+        });
+      }
+      
+      return { handles, names };
     },
     enabled: !!articles?.length,
     staleTime: 60000
   });
+  
+  const authorHandles = authorData.handles;
+  const authorNames = authorData.names;
 
   const articleStats = useMemo(() => {
     const stats = {};
@@ -111,10 +132,18 @@ export default function ArticleManagementPage() {
 
   const filteredArticles = useMemo(() => {
     return articles.filter(article => {
+      // Get author name from authorNames map
+      let authorName = '';
+      if (article.author_id) {
+        authorName = authorNames[String(article.author_id)] || '';
+      } else if (article.guest_writer_id) {
+        authorName = authorNames[`guest_${article.guest_writer_id}`] || '';
+      }
+      
       const matchesSearch = article.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
                            article.summary?.toLowerCase().includes(searchQuery.toLowerCase()) ||
                            article.tags?.some(tag => tag.toLowerCase().includes(searchQuery.toLowerCase())) ||
-                           article.author_name?.toLowerCase().includes(searchQuery.toLowerCase());
+                           authorName?.toLowerCase().includes(searchQuery.toLowerCase());
       const matchesStatus = statusFilter === "all" || article.status === statusFilter;
       
       const matchesSubcategory = selectedSubcategories.length === 0 || 
@@ -122,7 +151,7 @@ export default function ArticleManagementPage() {
       
       return matchesSearch && matchesStatus && matchesSubcategory;
     });
-  }, [articles, searchQuery, statusFilter, selectedSubcategories]);
+  }, [articles, searchQuery, statusFilter, selectedSubcategories, authorNames]);
 
   const sortedArticles = useMemo(() => {
     const sorted = [...filteredArticles];
@@ -305,14 +334,22 @@ export default function ArticleManagementPage() {
                             </Badge>
                           )}
                         </div>
-                        <ArticleCard article={article} buttonStyles={buttonStyles} showActions={false} displayName={articleDisplayName} authorHandles={authorHandles} />
+                        <ArticleCard article={article} buttonStyles={buttonStyles} showActions={false} displayName={articleDisplayName} authorHandles={authorHandles} authorNames={authorNames} />
                       </div>
-                      {article.author_name && (
-                        <div className="flex items-center gap-2 mt-2 text-sm text-slate-600">
-                          <User className="w-3 h-3" />
-                          <span>By {article.author_name}</span>
-                        </div>
-                      )}
+                      {(() => {
+                        let authorName = '';
+                        if (article.author_id) {
+                          authorName = authorNames[String(article.author_id)] || '';
+                        } else if (article.guest_writer_id) {
+                          authorName = authorNames[`guest_${article.guest_writer_id}`] || '';
+                        }
+                        return authorName ? (
+                          <div className="flex items-center gap-2 mt-2 text-sm text-slate-600">
+                            <User className="w-3 h-3" />
+                            <span>By {authorName}</span>
+                          </div>
+                        ) : null;
+                      })()}
                       <div className="flex gap-2 mt-2">
                         <Link to={getArticleEditorUrl(article.id)} className="flex-1">
                           <Button variant="outline" size="sm" className="w-full gap-2">
