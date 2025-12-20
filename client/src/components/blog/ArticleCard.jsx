@@ -12,6 +12,7 @@ export default function ArticleCard({
   viewPageUrl = 'ArticleView', 
   showActions = true, 
   displayName = 'Articles',
+  singularDisplayName = null,
   onEdit,
   onDelete,
   hasAdminEditPermission = false,
@@ -26,6 +27,9 @@ export default function ArticleCard({
   // Use String() for type-safe comparison
   const isAuthor = currentMemberId && String(article.author_id) === String(currentMemberId);
   const isDraft = article.status === 'draft';
+  
+  // Derive singular name for "My X" badge
+  const singular = singularDisplayName || (displayName.endsWith('s') ? displayName.slice(0, -1) : displayName);
   
   // Determine author handle for URL construction
   let authorHandle = "guest"; // Default for guest writers
@@ -177,6 +181,11 @@ export default function ArticleCard({
       <div className="mt-auto flex items-end justify-end">
         <div className="mr-auto flex items-center gap-2">
           <ActionButtons />
+          {!isDraft && isAuthor && (
+            <Badge variant="secondary" className="bg-blue-100 text-blue-800 border-blue-200" data-testid={`badge-my-article-${article.id}`}>
+              My {singular}
+            </Badge>
+          )}
           {isDraft && (
             <Badge variant="secondary" className="bg-amber-100 text-amber-800 border-amber-300">
               Draft
