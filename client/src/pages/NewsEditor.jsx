@@ -57,9 +57,9 @@ export default function NewsEditorPage() {
     enabled: !!memberInfo?.id || !!memberInfo?.email
   });
 
-  // Fetch categories
-  const { data: categories = [] } = useQuery({
-    queryKey: ['resourceCategories'],
+  // Fetch categories for News content type
+  const { data: categories = [], isLoading: categoriesLoading } = useQuery({
+    queryKey: ['resourceCategories', 'News'],
     queryFn: async () => {
       const cats = await base44.entities.ResourceCategory.list();
       return cats
@@ -67,6 +67,9 @@ export default function NewsEditorPage() {
         .sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
     }
   });
+  
+  // Check if we have any categories with subcategories
+  const hasCategories = categories.length > 0 && categories.some(c => c.subcategories?.length > 0);
 
   // Fetch existing news if editing
   const { data: news, isLoading: newsLoading } = useQuery({
@@ -430,19 +433,23 @@ export default function NewsEditorPage() {
               </CardContent>
             </Card>
 
-            <Card className="border-slate-200 shadow-sm">
-              <CardHeader>
-                <CardTitle className="text-base">Organisation</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <SubcategorySelector 
-                  categories={categories}
-                  selectedSubcategories={subcategories}
-                  onChange={setSubcategories}
-                />
-                <TagInput tags={tags} onChange={setTags} />
-              </CardContent>
-            </Card>
+            {/* Only show Organisation card if there are categories or tags functionality is needed */}
+            {(categoriesLoading || hasCategories) && (
+              <Card className="border-slate-200 shadow-sm">
+                <CardHeader>
+                  <CardTitle className="text-base">Organisation</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <SubcategorySelector 
+                    categories={categories}
+                    selectedSubcategories={subcategories}
+                    onChange={setSubcategories}
+                    isLoading={categoriesLoading}
+                  />
+                  <TagInput tags={tags} onChange={setTags} />
+                </CardContent>
+              </Card>
+            )}
 
             <Card className="border-slate-200 shadow-sm">
               <CardHeader>
