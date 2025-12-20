@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { FileQuestion, Search, X, Filter, User, Plus } from "lucide-react";
+import { FileQuestion, Search, X, Filter, User, Plus, ArrowLeft } from "lucide-react";
 import { Link } from "react-router-dom";
 import NewsCard from "../components/news/NewsCard";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -321,13 +321,23 @@ export default function NewsPage() {
 
         {/* My News header */}
         {showMyNewsOnly && (
-          <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-            <h2 className="text-lg font-semibold text-blue-900 flex items-center gap-2">
-              <User className="w-5 h-5" />
-              My News Articles
-            </h2>
-            <p className="text-sm text-blue-700 mt-1">Viewing your authored articles including drafts</p>
-          </div>
+          <>
+            <button
+              onClick={() => setShowMyNewsOnly(false)}
+              className="inline-flex items-center gap-2 text-slate-600 hover:text-slate-900 mb-4"
+              data-testid="button-back-to-all-news"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              Back to All News
+            </button>
+            <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+              <h2 className="text-lg font-semibold text-blue-900 flex items-center gap-2">
+                <User className="w-5 h-5" />
+                My News Articles
+              </h2>
+              <p className="text-sm text-blue-700 mt-1">Viewing your authored articles including drafts</p>
+            </div>
+          </>
         )}
 
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-6">
