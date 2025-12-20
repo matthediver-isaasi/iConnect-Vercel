@@ -260,6 +260,10 @@ export const ROLE_ACCESS_MAP: Module[] = [
     icon: "Briefcase",
     pages: [
       {
+        id: "jobs.job-board",
+        label: "Job Board"
+      },
+      {
         id: "jobs.my-postings",
         label: "My Job Postings",
         features: [
@@ -682,6 +686,7 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_MyArticles": "content.my-articles",
   "page_Articles": "content.articles",
   "page_ArticlesSection": "content",
+  "page_JobBoard": "jobs.job-board",
   "page_MyJobPostings": "jobs.my-postings",
   "page_Preferences": "user.about-me",
   "page_Support": "support.help",
