@@ -42,9 +42,9 @@ export default function ArticlesPage() {
   const { data: authorInfo, isLoading: authorLoading, isError: authorNotFound } = useQuery({
     queryKey: ['author-by-handle', authorHandle],
     queryFn: async () => {
-      // Try to find member by handle first
+      // Try to find member by handle first (check both handle and blog_handle fields)
       const members = await base44.entities.Member.list();
-      const member = members.find(m => m.handle === authorHandle);
+      const member = members.find(m => m.handle === authorHandle || m.blog_handle === authorHandle);
       if (member) {
         // Fetch organization for member if they have one
         let organizationName = null;
