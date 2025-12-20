@@ -81,9 +81,33 @@ export default async function handler(req, res) {
   try {
     console.log('[Fix Blog Handles] Starting...');
 
-    const { data: allMembersForHandles } = await supabase
-      .from('member')
-      .select('id, handle, first_name, last_name, email');
+    // Fetch all members with pagination to avoid Supabase's 1000 row limit
+    let allMembersForHandles = [];
+    let offset = 0;
+    const pageSize = 1000;
+    let hasMore = true;
+    
+    while (hasMore) {
+      const { data: memberBatch, error: memberError } = await supabase
+        .from('member')
+        .select('id, handle, first_name, last_name, email')
+        .range(offset, offset + pageSize - 1);
+      
+      if (memberError) {
+        console.error('[Fix Blog Handles] Error fetching members:', memberError);
+        return res.status(500).json({ error: 'Failed to fetch members: ' + memberError.message });
+      }
+      
+      if (memberBatch && memberBatch.length > 0) {
+        allMembersForHandles = allMembersForHandles.concat(memberBatch);
+        offset += pageSize;
+        hasMore = memberBatch.length === pageSize;
+      } else {
+        hasMore = false;
+      }
+    }
+
+    console.log(`[Fix Blog Handles] Fetched ${allMembersForHandles.length} members total`);
     
     const existingHandles = new Set(
       (allMembersForHandles || [])
@@ -93,6 +117,8 @@ export default async function handler(req, res) {
 
     const memberMap = new Map();
     (allMembersForHandles || []).forEach((m) => memberMap.set(m.id, m));
+    
+    console.log(`[Fix Blog Handles] Member map has ${memberMap.size} entries`);
 
     const { data: blogPosts, error: blogError } = await supabase
       .from('blog_post')

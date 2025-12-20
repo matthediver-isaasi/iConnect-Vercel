@@ -3178,10 +3178,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
           .replace(/^-+|-+$/g, '');
       };
 
-      // Get all existing handles to ensure uniqueness
-      const { data: allMembersForHandles } = await supabase
-        .from('member')
-        .select('id, handle, first_name, last_name, email');
+      // Fetch all members with pagination to avoid Supabase's 1000 row limit
+      let allMembersForHandles: any[] = [];
+      let offset = 0;
+      const pageSize = 1000;
+      let hasMore = true;
+      
+      while (hasMore) {
+        const { data: memberBatch, error: memberError } = await supabase
+          .from('member')
+          .select('id, handle, first_name, last_name, email')
+          .range(offset, offset + pageSize - 1);
+        
+        if (memberError) {
+          console.error('[Fix Blog Handles] Error fetching members:', memberError);
+          return res.status(500).json({ error: 'Failed to fetch members: ' + memberError.message });
+        }
+        
+        if (memberBatch && memberBatch.length > 0) {
+          allMembersForHandles = allMembersForHandles.concat(memberBatch);
+          offset += pageSize;
+          hasMore = memberBatch.length === pageSize;
+        } else {
+          hasMore = false;
+        }
+      }
+
+      console.log(`[Fix Blog Handles] Fetched ${allMembersForHandles.length} members total`);
       
       const existingHandles = new Set<string>(
         (allMembersForHandles || [])
@@ -3191,6 +3214,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const memberMap = new Map<string, any>();
       (allMembersForHandles || []).forEach((m: any) => memberMap.set(m.id, m));
+      
+      console.log(`[Fix Blog Handles] Member map has ${memberMap.size} entries`);
 
       // Get all blog posts with author_id
       const { data: blogPosts, error: blogError } = await supabase
