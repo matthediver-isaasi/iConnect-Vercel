@@ -39,10 +39,10 @@ export default function NewsPage() {
   const { data: currentMember } = useQuery({
     queryKey: ['current-member', memberInfo?.email],
     queryFn: async () => {
-      const allMembers = await base44.entities.Member.listAll();
-      return allMembers.find(m => m.email === memberInfo?.email);
+      const members = await base44.entities.Member.filter({ email: memberInfo?.email });
+      return members[0] || null;
     },
-    enabled: !!memberInfo
+    enabled: !!memberInfo?.email
   });
 
   // Fetch news display settings
