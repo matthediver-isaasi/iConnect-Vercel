@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { Menu, Plus, Pencil, GripVertical, Users, Shield, Calendar, CreditCard, Ticket, Wallet, ShoppingCart, History, Sparkles, FileText, Briefcase, Settings, BookOpen, Building, HelpCircle, BarChart3, FileEdit, AtSign, FolderTree, Trophy, MousePointer2, Mail, Download, LayoutGrid, Table, Search, Trash2 } from "lucide-react";
+import { Menu, Plus, Pencil, GripVertical, Users, Shield, Calendar, CreditCard, Ticket, Wallet, ShoppingCart, History, Sparkles, FileText, Briefcase, Settings, BookOpen, Building, HelpCircle, BarChart3, FileEdit, AtSign, FolderTree, Trophy, MousePointer2, Mail, Download, LayoutGrid, Table, Search, Trash2, Newspaper, PenLine, Home, Globe, Folder, Image, MessageSquare, Bell, Star, Heart, Eye, Link, ExternalLink, Tag, Award, Bookmark, Clock, Phone, MapPin, Video, Music, Camera, Mic, Headphones, Tv, Radio, Rss, Share2, Gift, Zap, Target, Flag, Layers, Grid, List, Layout, Monitor, Smartphone, Tablet, Laptop, Server, Database, Cloud, Lock, Key, UserCheck, UserPlus, UserMinus, Users2, MessageCircle, Send, Inbox, Archive } from "lucide-react";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -17,7 +17,11 @@ import { createPageUrl } from "@/utils";
 
 const availableIcons = {
   Menu, Calendar, CreditCard, Ticket, Wallet, ShoppingCart, History, Sparkles, FileText, Briefcase, Settings, 
-  BookOpen, Building, HelpCircle, Users, Shield, BarChart3, FileEdit, AtSign, FolderTree, Trophy, MousePointer2, Mail, Download
+  BookOpen, Building, HelpCircle, Users, Shield, BarChart3, FileEdit, AtSign, FolderTree, Trophy, MousePointer2, Mail, Download,
+  Newspaper, PenLine, Home, Globe, Folder, Image, MessageSquare, Bell, Star, Heart, Eye, Link, ExternalLink, Tag, 
+  Award, Bookmark, Clock, Phone, MapPin, Video, Music, Camera, Mic, Headphones, Tv, Radio, Rss, Share2, Gift, 
+  Zap, Target, Flag, Layers, Grid, List, Layout, Monitor, Smartphone, Tablet, Laptop, Server, Database, Cloud, Lock, Key,
+  UserCheck, UserPlus, UserMinus, Users2, MessageCircle, Send, Inbox, Archive
 };
 
 export default function PortalNavigationManagementPage() {

@@ -2,7 +2,7 @@
 import React, { useEffect, useState, useRef, useMemo } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { createPageUrl } from "@/utils";
-import { Calendar, User, CreditCard, LogOut, Ticket, Wallet, Shield, Users, Settings, Sparkles, ShoppingCart, History, BarChart3, Briefcase, FileEdit, Image, FileText, AtSign, FolderTree, Square, Trophy, BookOpen, Mail, MousePointer2, Building, Download, HelpCircle, Menu, ChevronRight, Video, Bell } from "lucide-react";
+import { Calendar, User, CreditCard, LogOut, Ticket, Wallet, Shield, Users, Settings, Sparkles, ShoppingCart, History, BarChart3, Briefcase, FileEdit, Image, FileText, AtSign, FolderTree, Square, Trophy, BookOpen, Mail, MousePointer2, Building, Download, HelpCircle, Menu, ChevronRight, Video, Bell, Newspaper, PenLine, Home, Globe, Folder, MessageSquare, Star, Heart, Eye, Link as LinkIcon, ExternalLink, Tag, Award, Bookmark, Clock, Search, Phone, MapPin, Music, Camera, Mic, Headphones, Tv, Radio, Rss, Share2, Gift, Zap, Target, Flag, Layers, Grid, List, Layout as LayoutIcon, Monitor, Smartphone, Tablet, Laptop, Server, Database, Cloud, Lock, Key, UserCheck, UserPlus, UserMinus, Users2, MessageCircle, Send, Inbox, Archive, Navigation } from "lucide-react";
 import { useLayoutContext } from "@/contexts/LayoutContext";
 import { useArticleUrl } from "@/contexts/ArticleUrlContext";
 import { isResourceExcluded } from "@/lib/roleVisibility";
@@ -1162,7 +1162,12 @@ useEffect(() => {
   const iconMap = {
     Menu, Calendar, CreditCard, Ticket, Wallet, ShoppingCart, History, Sparkles, FileText, 
     Briefcase, Settings, BookOpen, Building, HelpCircle, Users, Shield, BarChart3, FileEdit, 
-    AtSign, FolderTree, Trophy, MousePointer2, Mail, Download
+    AtSign, FolderTree, Trophy, MousePointer2, Mail, Download, Newspaper, PenLine, Home, Globe, 
+    Folder, Image, MessageSquare, Bell, Star, Heart, Eye, Link: LinkIcon, ExternalLink, Tag, Award, 
+    Bookmark, Clock, Search, Phone, MapPin, Video, Music, Camera, Mic, Headphones, Tv, Radio, Rss, 
+    Share2, Gift, Zap, Target, Flag, Layers, Grid, List, Layout: LayoutIcon, Monitor, Smartphone, 
+    Tablet, Laptop, Server, Database, Cloud, Lock, Key, UserCheck, UserPlus, UserMinus, Users2, 
+    MessageCircle, Send, Inbox, Archive, Navigation
   };
 
   // Build navigation structure from dynamic items
