@@ -88,9 +88,16 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'prompt exceeds maximum length of 10000 characters' });
     }
     
-    const messages = [
-      { role: 'user', content: prompt }
-    ];
+    const messages = [];
+    
+    if (response_json_schema) {
+      messages.push({ 
+        role: 'system', 
+        content: 'You are a helpful assistant. Always respond with valid JSON.' 
+      });
+    }
+    
+    messages.push({ role: 'user', content: prompt });
     
     const completionParams = {
       model: 'gpt-4o-mini',
@@ -150,8 +157,7 @@ export default async function handler(req, res) {
     return res.json({ 
       is_safe: true,
       reason: '',
-      warning: 'Content moderation temporarily unavailable',
-      debug_error: error.message || String(error)
+      warning: 'Content moderation temporarily unavailable'
     });
   }
 }
