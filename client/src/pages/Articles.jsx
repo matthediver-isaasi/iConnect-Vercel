@@ -397,7 +397,7 @@ export default function ArticlesPage() {
               </div>
 
               <div className="flex items-center gap-2">
-                {memberInfo && (
+                {memberInfo && !isFeatureExcluded('content.article-editor') && (
                   <Button
                     variant={showMyArticlesOnly ? "default" : "outline"}
                     size="sm"
