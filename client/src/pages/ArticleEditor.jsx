@@ -542,24 +542,9 @@ export default function ArticleEditorPage() {
 
                 {/* Author Type Selector */}
                 <div className="space-y-2">
-                  <Label className="text-sm">{singularDisplayName} Author</Label>
-                  
-                  {/* Show original author info for existing articles */}
-                  {isEditing && originalAuthorName && (
-                    <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg mb-2">
-                      <p className="text-sm text-slate-700">
-                        <strong>Original Author:</strong> {originalAuthorName}
-                      </p>
-                      {(authorType === "member" || authorType === "guest") && originalAuthorId && originalAuthorId !== currentMember?.id && (
-                        <p className="text-xs text-amber-600 mt-1">
-                          Ownership will change when you save. Select "Original Author" to keep current author.
-                        </p>
-                      )}
-                    </div>
-                  )}
-                  
+                  <Label className="text-sm">Show author as</Label>
                   <div className="flex flex-wrap gap-4">
-                    {/* Show Original Author option for existing articles with a different author */}
+                    {/* Original Author option - only for existing articles with a different author */}
                     {isEditing && originalAuthorId && originalAuthorId !== currentMember?.id && (
                       <label className="flex items-center gap-2 cursor-pointer">
                         <input
@@ -571,7 +556,7 @@ export default function ArticleEditorPage() {
                           className="w-4 h-4"
                           data-testid="radio-author-original"
                         />
-                        <span className="text-sm">Original Author</span>
+                        <span className="text-sm">{originalAuthorName}</span>
                       </label>
                     )}
                     <label className="flex items-center gap-2 cursor-pointer">
@@ -584,9 +569,7 @@ export default function ArticleEditorPage() {
                         className="w-4 h-4"
                         data-testid="radio-author-me"
                       />
-                      <span className="text-sm">
-                        {isEditing && originalAuthorId && originalAuthorId !== currentMember?.id ? "Take Ownership" : "Me"} ({memberInfo.first_name} {memberInfo.last_name})
-                      </span>
+                      <span className="text-sm">Myself ({memberInfo.first_name} {memberInfo.last_name})</span>
                     </label>
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input
