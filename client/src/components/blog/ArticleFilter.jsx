@@ -18,6 +18,16 @@ export default function ArticleFilter({
   const [expandedSubcategories, setExpandedSubcategories] = React.useState({});
   const [searchOpen, setSearchOpen] = React.useState(true);
 
+  // Expand all categories when search is focused
+  const expandAllCategories = () => {
+    if (!categories || categories.length === 0) return;
+    const allOpen = {};
+    categories.forEach(cat => {
+      allOpen[cat.name] = true;
+    });
+    setOpenCategories(allOpen);
+  };
+
   const toggleCategory = (categoryName) => {
     setOpenCategories(prev => ({
       ...prev,
@@ -132,7 +142,9 @@ export default function ArticleFilter({
                 placeholder="Search..."
                 value={searchQuery}
                 onChange={(e) => onSearchChange(e.target.value)}
+                onFocus={expandAllCategories}
                 className="pl-10 pr-10"
+                data-testid="input-search-articles"
               />
               {searchQuery && (
                 <button
