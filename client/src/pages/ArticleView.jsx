@@ -329,6 +329,59 @@ export default function ArticleViewPage() {
     }
   }, [article, userIdentifier, viewRecorded, isPreviewMode]);
 
+  // Set SEO meta tags when article loads
+  useEffect(() => {
+    if (article) {
+      document.title = article.seo_title || article.title || 'Article';
+      
+      let metaDescription = document.querySelector('meta[name="description"]');
+      if (!metaDescription) {
+        metaDescription = document.createElement('meta');
+        metaDescription.name = 'description';
+        document.head.appendChild(metaDescription);
+      }
+      metaDescription.content = article.seo_description || article.summary || '';
+
+      let ogTitle = document.querySelector('meta[property="og:title"]');
+      if (!ogTitle) {
+        ogTitle = document.createElement('meta');
+        ogTitle.setAttribute('property', 'og:title');
+        document.head.appendChild(ogTitle);
+      }
+      ogTitle.content = article.seo_title || article.title || '';
+
+      let ogDescription = document.querySelector('meta[property="og:description"]');
+      if (!ogDescription) {
+        ogDescription = document.createElement('meta');
+        ogDescription.setAttribute('property', 'og:description');
+        document.head.appendChild(ogDescription);
+      }
+      ogDescription.content = article.seo_description || article.summary || '';
+
+      if (article.feature_image_url) {
+        let ogImage = document.querySelector('meta[property="og:image"]');
+        if (!ogImage) {
+          ogImage = document.createElement('meta');
+          ogImage.setAttribute('property', 'og:image');
+          document.head.appendChild(ogImage);
+        }
+        ogImage.content = article.feature_image_url;
+      }
+
+      let ogType = document.querySelector('meta[property="og:type"]');
+      if (!ogType) {
+        ogType = document.createElement('meta');
+        ogType.setAttribute('property', 'og:type');
+        document.head.appendChild(ogType);
+      }
+      ogType.content = 'article';
+    }
+
+    return () => {
+      document.title = 'AGCAS';
+    };
+  }, [article]);
+
   // Share handlers
   const handleLinkedInShare = () => {
     const articleUrl = encodeURIComponent(window.location.href);
