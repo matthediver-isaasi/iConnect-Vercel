@@ -423,6 +423,9 @@ export default function ArticleEditorPage() {
       // New folder-based URL structure: slugs are stored clean (no handle suffix)
       // The URL is constructed as: {basePath}/{authorHandle}/{slug}
       finalSlug = slug; // Always store clean slug
+      
+      // When publishing, update published_date to current time so followers get notified
+      const effectivePublishedDate = publishNow ? new Date().toISOString() : publishedDate;
 
       if (authorType === "guest") {
         if (!selectedGuestWriterId) {
@@ -445,7 +448,7 @@ export default function ArticleEditorPage() {
           subcategories,
           tags,
           status: publishNow ? 'published' : status,
-          published_date: publishedDate,
+          published_date: effectivePublishedDate,
           seo_title: seoTitle,
           seo_description: seoDescription,
         };
@@ -463,7 +466,7 @@ export default function ArticleEditorPage() {
           subcategories,
           tags,
           status: publishNow ? 'published' : status,
-          published_date: publishedDate,
+          published_date: effectivePublishedDate,
           seo_title: seoTitle,
           seo_description: seoDescription,
         };
@@ -485,7 +488,7 @@ export default function ArticleEditorPage() {
           subcategories,
           tags,
           status: publishNow ? 'published' : status,
-          published_date: publishedDate,
+          published_date: effectivePublishedDate,
           seo_title: seoTitle,
           seo_description: seoDescription,
         };
@@ -507,7 +510,7 @@ export default function ArticleEditorPage() {
           subcategories,
           tags,
           status: publishNow ? 'published' : status,
-          published_date: publishedDate,
+          published_date: effectivePublishedDate,
           seo_title: seoTitle,
           seo_description: seoDescription,
         };
