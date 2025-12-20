@@ -569,49 +569,54 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
               </div>
             )}
 
-            {isEventPast ? (
-              <Button 
-                className="w-full"
-                variant="secondary"
-                disabled
-                data-testid={`button-event-ended-${event.id}`}
-              >
-                Event Ended
-              </Button>
-            ) : needsTickets ? (
-              <Button 
-                className="w-full bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700"
-                onClick={() => window.location.href = createPageUrl('BuyProgramTickets')}
-                data-testid={`button-buy-tickets-${event.id}`}
-              >
-                <ShoppingCart className="w-4 h-4 mr-2" />
-                Buy Tickets
-              </Button>
-            ) : (() => {
-              const ctaConfig = getCtaButtonConfig(systemSettings);
-              const isSoldOut = !hasUnlimitedCapacity && event.available_seats === 0;
-              const buttonLabel = isSoldOut ? "Sold Out" : ctaConfig.label;
-              const isGradient = ctaConfig.style === 'gradient';
-              
-              return (
-                <Button 
-                  className={`w-full ${isGradient 
-                    ? 'bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:from-indigo-700 hover:via-purple-700 hover:to-pink-700 text-white shadow-lg' 
-                    : 'bg-blue-600 hover:bg-blue-700'}`}
-                  disabled={isSoldOut}
-                  onClick={() => {
-                    if (event.cta_override_url) {
-                      window.location.href = event.cta_override_url;
-                    } else {
-                      window.location.href = createPageUrl('EventDetails') + '?id=' + event.id;
-                    }
-                  }}
-                  data-testid={`button-register-event-${event.id}`}
-                >
-                  {buttonLabel}
-                </Button>
-              );
-            })()}
+            {/* Hide CTA button if event-details page is excluded */}
+            {!isFeatureExcluded?.('events.event-details') && (
+              <>
+                {isEventPast ? (
+                  <Button 
+                    className="w-full"
+                    variant="secondary"
+                    disabled
+                    data-testid={`button-event-ended-${event.id}`}
+                  >
+                    Event Ended
+                  </Button>
+                ) : needsTickets ? (
+                  <Button 
+                    className="w-full bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700"
+                    onClick={() => window.location.href = createPageUrl('BuyProgramTickets')}
+                    data-testid={`button-buy-tickets-${event.id}`}
+                  >
+                    <ShoppingCart className="w-4 h-4 mr-2" />
+                    Buy Tickets
+                  </Button>
+                ) : (() => {
+                  const ctaConfig = getCtaButtonConfig(systemSettings);
+                  const isSoldOut = !hasUnlimitedCapacity && event.available_seats === 0;
+                  const buttonLabel = isSoldOut ? "Sold Out" : ctaConfig.label;
+                  const isGradient = ctaConfig.style === 'gradient';
+                  
+                  return (
+                    <Button 
+                      className={`w-full ${isGradient 
+                        ? 'bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:from-indigo-700 hover:via-purple-700 hover:to-pink-700 text-white shadow-lg' 
+                        : 'bg-blue-600 hover:bg-blue-700'}`}
+                      disabled={isSoldOut}
+                      onClick={() => {
+                        if (event.cta_override_url) {
+                          window.location.href = event.cta_override_url;
+                        } else {
+                          window.location.href = createPageUrl('EventDetails') + '?id=' + event.id;
+                        }
+                      }}
+                      data-testid={`button-register-event-${event.id}`}
+                    >
+                      {buttonLabel}
+                    </Button>
+                  );
+                })()}
+              </>
+            )}
           </div>
         </CardContent>
       </Card>
