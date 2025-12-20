@@ -24,9 +24,9 @@ export default async function handler(req, res) {
     return res.json({ following: false, followId: null });
   }
 
-  const { member_id, guest_writer_id } = req.query;
+  const { author_id, guest_writer_id } = req.query;
 
-  if (!member_id && !guest_writer_id) {
+  if (!author_id && !guest_writer_id) {
     return res.status(400).json({ error: 'Author ID required' });
   }
 
@@ -36,8 +36,8 @@ export default async function handler(req, res) {
       .select('id')
       .eq('follower_member_id', memberId);
 
-    if (member_id) {
-      query = query.eq('followed_member_id', member_id);
+    if (author_id) {
+      query = query.eq('followed_member_id', author_id);
     } else {
       query = query.eq('followed_guest_writer_id', guest_writer_id);
     }
