@@ -252,18 +252,12 @@ export function getPageExclusionState(
     return 'none';
   }
 
-  let hasExcluded = false;
-  let allExcluded = true;
+  // Check if any features are excluded
+  const hasExcludedFeature = page.features.some(feature => 
+    normalizedExcluded.includes(feature.id)
+  );
 
-  for (const feature of page.features) {
-    if (normalizedExcluded.includes(feature.id)) {
-      hasExcluded = true;
-    } else {
-      allExcluded = false;
-    }
-  }
-
-  if (hasExcluded && !allExcluded) return 'some';
-  if (hasExcluded && allExcluded) return 'all';
-  return 'none';
+  // Return 'some' if any features are excluded
+  // Only return 'all' if the page or module itself is directly excluded (checked above)
+  return hasExcludedFeature ? 'some' : 'none';
 }
