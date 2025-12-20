@@ -29,7 +29,6 @@ const pageToPortalPageMap = {
   'PublicResources': 'portal_resources',
   'Articles': 'portal_articles',
   'PublicArticles': 'portal_articles',
-  'MyArticles': 'portal_my_articles',
   'Team': 'portal_team',
   'Balances': 'portal_balances',
   'History': 'portal_history',

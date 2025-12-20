@@ -148,7 +148,6 @@ const hardcodedPublicPages = [
   { name: "MemberHandleManagement", label: "Member Handle Management" },
   { name: "MemberRoleAssignment", label: "Member Role Assignment" },
   { name: "members", label: "Members (CRM)" },
-  { name: "MyArticles", label: "My Articles" },
   { name: "MyJobPostings", label: "My Job Postings" },
   { name: "MyTickets", label: "My Tickets" },
   { name: "NavigationManagement", label: "Navigation Items" },

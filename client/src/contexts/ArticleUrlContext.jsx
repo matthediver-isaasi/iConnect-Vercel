@@ -56,7 +56,7 @@ const ArticleUrlContext = createContext({
     return `/articles/${authorHandle}/${cleanSlug}`;
   },
   getArticleEditorUrl: (articleId) => articleId ? `${createPageUrl('ArticleEditor')}?id=${articleId}` : createPageUrl('ArticleEditor'),
-  getMyArticlesUrl: () => createPageUrl('MyArticles'),
+  getMyArticlesUrl: () => createPageUrl('Articles'),
   getPublicArticlesUrl: () => createPageUrl('PublicArticles')
 });
 
@@ -115,7 +115,8 @@ export function ArticleUrlProvider({ children }) {
       getArticleEditorUrl: (articleId) => isCustomSlug
         ? (articleId ? `/${editorSlug}?id=${articleId}` : `/${editorSlug}`)
         : (articleId ? `${createPageUrl('ArticleEditor')}?id=${articleId}` : createPageUrl('ArticleEditor')),
-      getMyArticlesUrl: () => isCustomSlug ? `/${mySlug}` : createPageUrl('MyArticles'),
+      // MyArticles is now integrated into Articles page - redirect there
+      getMyArticlesUrl: () => isCustomSlug ? `/${urlSlug}` : createPageUrl('Articles'),
       getPublicArticlesUrl: () => isCustomSlug ? `/${publicSlug}` : createPageUrl('PublicArticles')
     };
   }, [settings, isLoading]);

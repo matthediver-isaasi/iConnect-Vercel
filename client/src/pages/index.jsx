@@ -108,7 +108,6 @@ import NavigationManagement from "./NavigationManagement";
 
 import Preferences from "./Preferences";
 
-import MyArticles from "./MyArticles";
 
 import PublicArticles from "./PublicArticles";
 
@@ -346,8 +345,6 @@ const PAGES = {
     Preferences: Preferences,
     
     AboutMe: Preferences,
-    
-    MyArticles: MyArticles,
     
     PublicArticles: PublicArticles,
     
@@ -619,8 +616,6 @@ function PagesContent() {
                 <Route path="/AboutMe" element={<Preferences />} />
                 <Route path="/Preferences" element={<Preferences />} />
                 <Route path="/preferences" element={<Preferences />} />
-                
-                <Route path="/MyArticles" element={<MyArticles />} />
                 
                 <Route path="/PublicArticles" element={<PublicArticles />} />
                 

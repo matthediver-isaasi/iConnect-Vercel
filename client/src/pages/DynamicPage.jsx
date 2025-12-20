@@ -12,7 +12,6 @@ import PageBannerDisplay from "@/components/banners/PageBannerDisplay";
 import Articles from "./Articles";
 import ArticleView from "./ArticleView";
 import ArticleEditor from "./ArticleEditor";
-import MyArticles from "./MyArticles";
 import PublicArticles from "./PublicArticles";
 
 export default function DynamicPage() {
@@ -49,7 +48,8 @@ export default function DynamicPage() {
       return { component: 'ArticleEditor', displayName: articleDisplayName };
     }
     if (slugLower === mySlug.toLowerCase()) {
-      return { component: 'MyArticles', displayName: articleDisplayName };
+      // MyArticles is now integrated into Articles page - redirect there
+      return { component: 'Articles', displayName: articleDisplayName };
     }
     if (slugLower === publicSlug.toLowerCase()) {
       return { component: 'PublicArticles', displayName: articleDisplayName };
@@ -225,8 +225,6 @@ export default function DynamicPage() {
         return <ArticleView />;
       case 'ArticleEditor':
         return <ArticleEditor />;
-      case 'MyArticles':
-        return <MyArticles />;
       case 'PublicArticles':
         return <PublicArticles />;
       default:

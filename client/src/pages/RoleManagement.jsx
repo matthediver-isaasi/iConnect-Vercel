@@ -207,7 +207,6 @@ export default function RoleManagementPage() {
     MemberDirectory: "Member Directory",
     OrganisationDirectory: "Organisation Directory",
     MyOrganisation: "My Organisation",
-    MyArticles: "My Articles",
     MyJobPostings: "My Job Postings",
     JobBoard: "Job Board",
     PublicEvents: "Public Events",
@@ -292,7 +291,7 @@ export default function RoleManagementPage() {
     
     // Member-facing pages (user-facing)
     const memberPages = ['Events', 'Dashboard', 'Bookings', 'MyTickets', 'Balances', 'History', 
-      'BuyProgramTickets', 'Resources', 'Articles', 'MyArticles', 'News', 'MyJobPostings', 
+      'BuyProgramTickets', 'Resources', 'Articles', 'News', 'MyJobPostings', 
       'JobBoard', 'Team', 'MemberDirectory', 'OrganisationDirectory', 'MyOrganisation', 'AboutMe', 'Support', 
       'Home', 'EventDetails', 'ArticleEditor', 'ArticleView', 'NewsEditor', 'NewsView', 
       'PostJob', 'JobDetails', 'JobPostSuccess', 'FormView', 'DynamicPage', 'ViewPage', 

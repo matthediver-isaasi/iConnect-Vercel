@@ -105,23 +105,10 @@ const navigationItems = [
   },
   {
     title: "Articles",
+    url: createPageUrl("Articles"),
     icon: FileText,
-    featureId: "page_ArticlesSection",
-    isDynamicArticleSection: true,
-    subItems: [
-      {
-        title: "My Articles",
-        url: createPageUrl("MyArticles"),
-        featureId: "page_MyArticles",
-        isDynamicMyArticles: true
-      },
-      {
-        title: "Articles",
-        url: createPageUrl("Articles"),
-        featureId: "page_Articles",
-        isDynamicArticles: true
-      }
-    ]
+    featureId: "page_Articles",
+    isDynamicArticles: true
   },
   {
     title: "News",
@@ -601,7 +588,6 @@ const pageToPortalPageMap = {
   'OrganisationDirectory': 'portal_org_directory',
   'Resources': 'portal_resources',
   'Articles': 'portal_articles',
-  'MyArticles': 'portal_my_articles',
   'Team': 'portal_team',
   'Balances': 'portal_balances',
   'History': 'portal_history',
@@ -762,7 +748,6 @@ useEffect(() => {
     'OrganisationDirectory': 'page_user_OrganisationDirectory',
     'MyOrganisation': 'page_user_MyOrganisation',
     'Resources': 'page_user_Resources',
-    'MyArticles': 'page_user_MyArticles',
     'Articles': 'page_user_Articles',
     'News': 'page_user_News',
     'MyJobPostings': 'page_user_MyJobPostings',
@@ -1458,7 +1443,7 @@ useEffect(() => {
         return 'ArticleView';
       }
       if (slug === mySlug?.toLowerCase()) {
-        return 'MyArticles';
+        return 'Articles'; // MyArticles is now integrated into Articles page
       }
       if (slug === editorSlug?.toLowerCase()) {
         return 'ArticleEditor';

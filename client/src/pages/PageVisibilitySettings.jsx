@@ -45,7 +45,6 @@ const CONFIGURABLE_PAGES = [
   // User Navigation - Account
   { id: "Team", name: "Team", category: "Account", description: "Team management" },
   { id: "Preferences", name: "Preferences", category: "Account", description: "User preferences" },
-  { id: "MyArticles", name: "My Articles", category: "Account", description: "Member's articles" },
   { id: "Support", name: "Support", category: "Account", description: "Support requests" },
   
   // Forms

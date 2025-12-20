@@ -50,7 +50,7 @@ export function useDynamicArticleRouting() {
       [`/${customSlug}`]: '/Articles',
       [`/${customSlug}view`]: '/ArticleView',
       [`/${customSlug}editor`]: '/ArticleEditor',
-      [`/my${customSlug}`]: '/MyArticles',
+      [`/my${customSlug}`]: '/Articles',
       [`/public${customSlug}`]: '/PublicArticles'
     };
 
