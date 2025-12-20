@@ -146,6 +146,65 @@ export default async function handler(req, res) {
       }
     }
 
+    // Auto-generate handle if member doesn't have one
+    if (!member.handle && (member.first_name || member.last_name || member.email)) {
+      console.log('[Auth Login] Member has no handle, generating one...');
+      
+      try {
+        const generateSlug = (text) => {
+          return text
+            .toLowerCase()
+            .trim()
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-+|-+$/g, '');
+        };
+
+        const { data: allMembersForHandles } = await supabase
+          .from('member')
+          .select('handle');
+        
+        const existingHandles = new Set(
+          (allMembersForHandles || [])
+            .map((m) => m.handle)
+            .filter((h) => h !== null)
+        );
+
+        let baseHandle = '';
+        if (member.first_name && member.last_name) {
+          baseHandle = `${generateSlug(member.first_name)}-${generateSlug(member.last_name)}`;
+        } else if (member.first_name) {
+          baseHandle = generateSlug(member.first_name);
+        } else if (member.last_name) {
+          baseHandle = generateSlug(member.last_name);
+        } else if (member.email) {
+          baseHandle = generateSlug(member.email.split('@')[0]);
+        }
+        
+        if (baseHandle.length < 3) baseHandle = 'member';
+        if (baseHandle.length > 30) baseHandle = baseHandle.substring(0, 30);
+
+        let handle = baseHandle;
+        let counter = 1;
+        while (existingHandles.has(handle)) {
+          const suffix = `-${counter}`;
+          handle = baseHandle.substring(0, 30 - suffix.length) + suffix;
+          counter++;
+        }
+
+        const { error: updateError } = await supabase
+          .from('member')
+          .update({ handle })
+          .eq('id', member.id);
+
+        if (!updateError) {
+          member.handle = handle;
+          console.log('[Auth Login] Generated and saved handle:', handle);
+        }
+      } catch (handleError) {
+        console.error('[Auth Login] Error generating handle:', handleError.message);
+      }
+    }
+
     // Create PostgreSQL-backed session
     await createSession(res, {
       memberId: member.id,

@@ -153,6 +153,65 @@ export default async function handler(req, res) {
       .eq('id', member.id)
       .single();
 
+    // Auto-generate handle if member doesn't have one
+    if (fullMember && !fullMember.handle && (fullMember.first_name || fullMember.last_name || fullMember.email)) {
+      console.log('[Auth SetPassword] Member has no handle, generating one...');
+      
+      try {
+        const generateSlug = (text) => {
+          return text
+            .toLowerCase()
+            .trim()
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-+|-+$/g, '');
+        };
+
+        const { data: allMembersForHandles } = await supabase
+          .from('member')
+          .select('handle');
+        
+        const existingHandles = new Set(
+          (allMembersForHandles || [])
+            .map((m) => m.handle)
+            .filter((h) => h !== null)
+        );
+
+        let baseHandle = '';
+        if (fullMember.first_name && fullMember.last_name) {
+          baseHandle = `${generateSlug(fullMember.first_name)}-${generateSlug(fullMember.last_name)}`;
+        } else if (fullMember.first_name) {
+          baseHandle = generateSlug(fullMember.first_name);
+        } else if (fullMember.last_name) {
+          baseHandle = generateSlug(fullMember.last_name);
+        } else if (fullMember.email) {
+          baseHandle = generateSlug(fullMember.email.split('@')[0]);
+        }
+        
+        if (baseHandle.length < 3) baseHandle = 'member';
+        if (baseHandle.length > 30) baseHandle = baseHandle.substring(0, 30);
+
+        let handle = baseHandle;
+        let counter = 1;
+        while (existingHandles.has(handle)) {
+          const suffix = `-${counter}`;
+          handle = baseHandle.substring(0, 30 - suffix.length) + suffix;
+          counter++;
+        }
+
+        const { error: updateError } = await supabase
+          .from('member')
+          .update({ handle })
+          .eq('id', fullMember.id);
+
+        if (!updateError) {
+          fullMember.handle = handle;
+          console.log('[Auth SetPassword] Generated and saved handle:', handle);
+        }
+      } catch (handleError) {
+        console.error('[Auth SetPassword] Error generating handle:', handleError.message);
+      }
+    }
+
     res.setHeader('Set-Cookie', `memberId=${member.id}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${7 * 24 * 60 * 60}`);
 
     console.log('[Auth] Password set for:', email);
