@@ -869,71 +869,73 @@ export default function ArticleEditorPage() {
                   )}
                 </div>
 
-                {/* Author Type Selector */}
-                <div className="space-y-2">
-                  <Label className="text-sm">Show author as</Label>
-                  <div className="flex flex-wrap gap-4">
-                    {/* Current Author option - shown only when article was taken over (author_id differs from original_author_id) */}
-                    {isEditing && originalAuthorId && originalAuthorId !== currentMember?.id && originalAuthorId !== persistedOriginalAuthorId && (
+                {/* Author Type Selector - only shown if feature not excluded */}
+                {!isFeatureExcluded('content.articles.author-takeover') && (
+                  <div className="space-y-2">
+                    <Label className="text-sm">Show author as</Label>
+                    <div className="flex flex-wrap gap-4">
+                      {/* Current Author option - shown only when article was taken over (author_id differs from original_author_id) */}
+                      {isEditing && originalAuthorId && originalAuthorId !== currentMember?.id && originalAuthorId !== persistedOriginalAuthorId && (
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="radio"
+                            name="authorType"
+                            value="other_member"
+                            checked={authorType === "other_member"}
+                            onChange={(e) => setAuthorType(e.target.value)}
+                            className="w-4 h-4"
+                            data-testid="radio-author-current"
+                          />
+                          <span className="text-sm">Current Author</span>
+                        </label>
+                      )}
+                      {/* Original Author option - always shown when article has an original_author_id */}
+                      {isEditing && persistedOriginalAuthorId && (
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="radio"
+                            name="authorType"
+                            value="revert_original"
+                            checked={authorType === "revert_original"}
+                            onChange={(e) => setAuthorType(e.target.value)}
+                            className="w-4 h-4"
+                            data-testid="radio-author-original"
+                          />
+                          <span className="text-sm text-green-700">
+                            Original Author
+                          </span>
+                        </label>
+                      )}
                       <label className="flex items-center gap-2 cursor-pointer">
                         <input
                           type="radio"
                           name="authorType"
-                          value="other_member"
-                          checked={authorType === "other_member"}
+                          value="member"
+                          checked={authorType === "member"}
                           onChange={(e) => setAuthorType(e.target.value)}
                           className="w-4 h-4"
-                          data-testid="radio-author-current"
+                          data-testid="radio-author-me"
                         />
-                        <span className="text-sm">Current Author</span>
+                        <span className="text-sm">Myself</span>
                       </label>
-                    )}
-                    {/* Original Author option - always shown when article has an original_author_id */}
-                    {isEditing && persistedOriginalAuthorId && (
                       <label className="flex items-center gap-2 cursor-pointer">
                         <input
                           type="radio"
                           name="authorType"
-                          value="revert_original"
-                          checked={authorType === "revert_original"}
+                          value="guest"
+                          checked={authorType === "guest"}
                           onChange={(e) => setAuthorType(e.target.value)}
                           className="w-4 h-4"
-                          data-testid="radio-author-original"
+                          data-testid="radio-author-guest"
                         />
-                        <span className="text-sm text-green-700">
-                          Original Author
-                        </span>
+                        <span className="text-sm">Guest Writer</span>
                       </label>
-                    )}
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="authorType"
-                        value="member"
-                        checked={authorType === "member"}
-                        onChange={(e) => setAuthorType(e.target.value)}
-                        className="w-4 h-4"
-                        data-testid="radio-author-me"
-                      />
-                      <span className="text-sm">Myself</span>
-                    </label>
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="authorType"
-                        value="guest"
-                        checked={authorType === "guest"}
-                        onChange={(e) => setAuthorType(e.target.value)}
-                        className="w-4 h-4"
-                        data-testid="radio-author-guest"
-                      />
-                      <span className="text-sm">Guest Writer</span>
-                    </label>
+                    </div>
                   </div>
-                </div>
+                )}
 
-                {/* Guest Writer Selector */}
-                {authorType === "guest" && (
+                {/* Guest Writer Selector - only shown if feature not excluded */}
+                {!isFeatureExcluded('content.articles.author-takeover') && authorType === "guest" && (
                   <div className="space-y-2">
                     <Label htmlFor="guestWriter">Select Guest Writer</Label>
                     <select
