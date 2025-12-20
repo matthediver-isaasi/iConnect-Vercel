@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { User, UserMinus, BellRing } from "lucide-react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
@@ -101,9 +102,14 @@ export default function FollowedAuthorsCard({ memberInfo, articleDisplayName = "
               className="flex items-center gap-2 flex-1 min-w-0"
               onClick={() => handleAuthorClick(follow)}
             >
-              <div className="w-7 h-7 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center flex-shrink-0">
-                <User className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
-              </div>
+              <Avatar className="w-7 h-7 flex-shrink-0">
+                {follow.author_profile_photo && (
+                  <AvatarImage src={follow.author_profile_photo} alt={follow.author_name} />
+                )}
+                <AvatarFallback className="bg-slate-200 dark:bg-slate-700">
+                  <User className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
+                </AvatarFallback>
+              </Avatar>
               <div className="flex flex-col min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-medium truncate" data-testid={`text-author-${follow.id}`}>

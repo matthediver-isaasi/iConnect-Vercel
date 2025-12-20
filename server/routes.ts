@@ -703,6 +703,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const results = await Promise.all(follows.map(async (follow: any) => {
         let authorName = 'Unknown Author';
         let authorHandle = null;
+        let authorProfilePhoto = null;
 
         // Get author details
         let authorOrganization = null;
@@ -718,14 +719,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
           if (member && !memberError) {
             authorName = `${member.first_name || ''} ${member.last_name || ''}`.trim() || 'Unknown Author';
             authorHandle = member.handle;
+            authorProfilePhoto = member.profile_photo_url;
             
-            // Fetch organization if member has one
+            // Fetch organization if member has one - try by id first, then by zoho_account_id
             if (member.organization_id) {
-              const { data: org } = await supabase
+              // Try lookup by primary id first
+              let { data: org } = await supabase
                 .from('organization')
                 .select('name')
-                .eq('zoho_account_id', member.organization_id)
+                .eq('id', member.organization_id)
                 .single();
+              
+              // If not found, try by zoho_account_id
+              if (!org) {
+                const { data: orgByZoho } = await supabase
+                  .from('organization')
+                  .select('name')
+                  .eq('zoho_account_id', member.organization_id)
+                  .single();
+                org = orgByZoho;
+              }
               
               if (org) {
                 authorOrganization = org.name;
@@ -735,7 +748,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         } else if (follow.followed_guest_writer_id) {
           const { data: guestWriter, error: gwError } = await supabase
             .from('guest_writer')
-            .select('id, full_name, handle, organization')
+            .select('id, full_name, handle, organization, profile_photo_url')
             .eq('id', follow.followed_guest_writer_id)
             .single();
           
@@ -745,12 +758,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
             authorName = guestWriter.full_name || 'Unknown Author';
             authorHandle = guestWriter.handle;
             authorOrganization = guestWriter.organization;
+            authorProfilePhoto = guestWriter.profile_photo_url;
           }
         }
 
-        // Count unread articles (published after last_read_at)
+        // Count unread articles (published after last_read_at, or after follow created_at if never read)
         let unreadCount = 0;
-        const lastReadAt = follow.last_read_at;
+        // Use last_read_at if available, otherwise use created_at as the baseline
+        const compareDate = follow.last_read_at || follow.created_at;
         
         if (follow.followed_member_id) {
           let query = supabase
@@ -759,8 +774,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             .eq('author_id', follow.followed_member_id)
             .eq('status', 'published');
           
-          if (lastReadAt) {
-            query = query.gt('published_date', lastReadAt);
+          if (compareDate) {
+            query = query.gt('published_date', compareDate);
           }
           
           const { count } = await query;
@@ -772,8 +787,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             .eq('guest_writer_id', follow.followed_guest_writer_id)
             .eq('status', 'published');
           
-          if (lastReadAt) {
-            query = query.gt('published_date', lastReadAt);
+          if (compareDate) {
+            query = query.gt('published_date', compareDate);
           }
           
           const { count } = await query;
@@ -787,6 +802,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           author_name: authorName,
           author_handle: authorHandle,
           author_organization: authorOrganization,
+          author_profile_photo: authorProfilePhoto,
           unread_count: unreadCount,
           created_at: follow.created_at,
           last_read_at: follow.last_read_at

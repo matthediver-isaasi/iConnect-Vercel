@@ -36,11 +36,17 @@ export default async function handler(req, res) {
         (follows || []).map(async (follow) => {
           let unreadCount = 0;
           
+          // Use last_read_at if available, otherwise use created_at as the baseline
+          const compareDate = follow.last_read_at || follow.created_at;
+          
           let query = supabase
             .from('blog_post')
             .select('id', { count: 'exact', head: true })
-            .eq('status', 'published')
-            .gt('published_date', follow.last_read_at);
+            .eq('status', 'published');
+
+          if (compareDate) {
+            query = query.gt('published_date', compareDate);
+          }
 
           if (follow.followed_member_id) {
             query = query.eq('author_id', follow.followed_member_id);
@@ -53,6 +59,7 @@ export default async function handler(req, res) {
 
           let authorName = 'Unknown Author';
           let authorHandle = null;
+          let authorProfilePhoto = null;
           let debugInfo = null;
           
           let authorOrganization = null;
@@ -60,7 +67,7 @@ export default async function handler(req, res) {
           if (follow.followed_member_id) {
             const { data: member, error: memberError } = await supabase
               .from('member')
-              .select('first_name, last_name, handle, organization_id')
+              .select('first_name, last_name, handle, organization_id, profile_photo_url')
               .eq('id', follow.followed_member_id)
               .single();
             
@@ -73,14 +80,26 @@ export default async function handler(req, res) {
             if (member && !memberError) {
               authorName = `${member.first_name || ''} ${member.last_name || ''}`.trim() || 'Unknown Author';
               authorHandle = member.handle;
+              authorProfilePhoto = member.profile_photo_url;
               
-              // Fetch organization if member has one
+              // Fetch organization if member has one - try by id first, then by zoho_account_id
               if (member.organization_id) {
-                const { data: org } = await supabase
+                // Try lookup by primary id first
+                let { data: org } = await supabase
                   .from('organization')
                   .select('name')
-                  .eq('zoho_account_id', member.organization_id)
+                  .eq('id', member.organization_id)
                   .single();
+                
+                // If not found, try by zoho_account_id
+                if (!org) {
+                  const { data: orgByZoho } = await supabase
+                    .from('organization')
+                    .select('name')
+                    .eq('zoho_account_id', member.organization_id)
+                    .single();
+                  org = orgByZoho;
+                }
                 
                 if (org) {
                   authorOrganization = org.name;
@@ -96,7 +115,7 @@ export default async function handler(req, res) {
           } else if (follow.followed_guest_writer_id) {
             const { data: guestWriter, error: gwError } = await supabase
               .from('guest_writer')
-              .select('full_name, handle, organization')
+              .select('full_name, handle, organization, profile_photo_url')
               .eq('id', follow.followed_guest_writer_id)
               .single();
             
@@ -104,6 +123,7 @@ export default async function handler(req, res) {
               authorName = guestWriter.full_name || 'Unknown Author';
               authorHandle = guestWriter.handle;
               authorOrganization = guestWriter.organization;
+              authorProfilePhoto = guestWriter.profile_photo_url;
             } else {
               debugInfo = { 
                 lookup_failed: true, 
@@ -119,6 +139,7 @@ export default async function handler(req, res) {
             author_name: authorName,
             author_handle: authorHandle,
             author_organization: authorOrganization,
+            author_profile_photo: authorProfilePhoto,
             _debug: debugInfo
           };
         })
