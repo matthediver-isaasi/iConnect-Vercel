@@ -18,7 +18,7 @@ function formatCommentDate(dateValue) {
   try {
     const date = new Date(dateValue);
     if (isNaN(date.getTime())) return 'Just now';
-    return format(date, 'MMM d, yyyy');
+    return format(date, 'MMM d, yyyy h:mm a');
   } catch {
     return 'Just now';
   }
