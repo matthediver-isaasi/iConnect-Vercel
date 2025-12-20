@@ -394,6 +394,7 @@ export default function ArticlesPage() {
         {showMyArticlesOnly && (
           <>
             <button
+              type="button"
               onClick={() => setShowMyArticlesOnly(false)}
               className="inline-flex items-center gap-2 text-slate-600 hover:text-slate-900 mb-4"
               data-testid="button-back-to-all-articles"
