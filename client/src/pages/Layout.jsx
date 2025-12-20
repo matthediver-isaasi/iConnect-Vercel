@@ -156,11 +156,6 @@ const adminNavigationItems = [
     featureId: "page_NewsAdmin",
     subItems: [
       {
-        title: "News Management",
-        url: createPageUrl("MyNews"),
-        featureId: "page_MyNews"
-      },
-      {
         title: "Settings",
         url: createPageUrl("NewsSettings"),
         featureId: "page_NewsSettings"
@@ -780,7 +775,6 @@ useEffect(() => {
     'about-me': 'user.about-me',
     'Support': 'page_user_Support',
     // Admin navigation pages use page_admin_* pattern  
-    'MyNews': 'page_admin_MyNews',
     'NewsSettings': 'page_admin_NewsSettings',
     'ArticleManagement': 'page_admin_ArticleManagement',
     'ArticlesSettings': 'page_admin_ArticlesSettings',

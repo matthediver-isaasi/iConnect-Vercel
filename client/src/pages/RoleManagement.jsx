@@ -233,7 +233,6 @@ export default function RoleManagementPage() {
     ArticleManagement: "Article Management",
     ArticlesSettings: "Articles Settings",
     GuestWriterManagement: "Guest Writer Management",
-    MyNews: "News Management",
     NewsSettings: "News Settings",
     ResourceManagement: "Resource Management",
     ResourceSettings: "Resource Settings",

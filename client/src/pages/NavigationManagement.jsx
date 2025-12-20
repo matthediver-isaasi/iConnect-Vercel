@@ -83,7 +83,6 @@ const hardcodedPublicPages = [
   { name: "members", label: "Members (CRM)" },
   { name: "MyArticles", label: "My Articles" },
   { name: "MyJobPostings", label: "My Job Postings" },
-  { name: "MyNews", label: "My News" },
   { name: "MyTickets", label: "My Tickets" },
   { name: "NavigationManagement", label: "Navigation Items" },
   { name: "News", label: "News" },

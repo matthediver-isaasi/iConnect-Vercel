@@ -71,7 +71,6 @@ export const PAGE_NAMES = [
   "MemberDirectorySettings",
   "FormSubmissions",
   "NewsEditor",
-  "MyNews",
   "NewsView",
   "News",
   "PublicNews",

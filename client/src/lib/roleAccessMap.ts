@@ -223,7 +223,6 @@ export const ROLE_ACCESS_MAP: Module[] = [
         id: "content.news",
         label: "News",
         features: [
-          { id: "content.news-management", label: "News Management" },
           { id: "content.news-settings", label: "News Settings" },
           { id: "content.news-editor", label: "News Editor" },
           { id: "content.news.edit", label: "Edit News" },
@@ -596,7 +595,6 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_user_Preferences": "user.about-me",
   "page_user_Support": "support.help",
   "page_admin_NewsSection": "content",
-  "page_admin_MyNews": "content.news-management",
   "page_admin_NewsSettings": "content.news-settings",
   "page_admin_ArticlesSection": "content",
   "page_admin_ArticleManagement": "content.article-management",
@@ -731,7 +729,6 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_MemberGroupGuestManagement": "membership.member-groups-guests",
   "page_PageVisibilitySettings": "system.page-visibility",
   "page_NewsAdmin": "content",
-  "page_MyNews": "content.news-management",
   "page_NewsSettings": "content.news-settings",
   "page_ArticlesAdmin": "content",
   "page_CategoryManagement": "content.categories",

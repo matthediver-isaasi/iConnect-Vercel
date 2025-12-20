@@ -162,8 +162,6 @@ import FormSubmissions from "./FormSubmissions";
 
 import NewsEditor from "./NewsEditor";
 
-import MyNews from "./MyNews";
-
 import NewsView from "./NewsView";
 
 import News from "./News";
@@ -403,8 +401,6 @@ const PAGES = {
     FormSubmissions: FormSubmissions,
     
     NewsEditor: NewsEditor,
-    
-    MyNews: MyNews,
     
     NewsView: NewsView,
     
@@ -681,8 +677,6 @@ function PagesContent() {
                 <Route path="/FormSubmissions" element={<FormSubmissions />} />
                 
                 <Route path="/NewsEditor" element={<NewsEditor />} />
-                
-                <Route path="/MyNews" element={<MyNews />} />
                 
                 <Route path="/NewsView" element={<NewsView />} />
                 
