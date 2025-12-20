@@ -5,6 +5,7 @@ import session from "express-session";
 import pgSession from "connect-pg-simple";
 import multer from "multer";
 import bcrypt from "bcryptjs";
+import OpenAI from "openai";
 import { evaluateWorkflows } from "./workflowEngine";
 import { sendEmail } from "./emailService";
 
@@ -12682,6 +12683,100 @@ AGCAS Events Team
     } catch (error: any) {
       console.error('Signed URL error:', error);
       res.status(500).json({ error: 'Failed to create signed URL: ' + (error.message || 'Unknown error') });
+    }
+  });
+
+  // ============ LLM Integration API ============
+  
+  // Initialize OpenAI client lazily
+  let openaiClient: OpenAI | null = null;
+  
+  function getOpenAIClient(): OpenAI | null {
+    if (openaiClient) return openaiClient;
+    
+    // Check for Replit AI Integrations first (development), then fall back to direct API key (production)
+    const apiKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
+    const baseURL = process.env.AI_INTEGRATIONS_OPENAI_BASE_URL;
+    
+    if (!apiKey) {
+      console.warn('[LLM] No OpenAI API key configured');
+      return null;
+    }
+    
+    openaiClient = new OpenAI({
+      apiKey,
+      ...(baseURL && { baseURL })
+    });
+    
+    return openaiClient;
+  }
+  
+  // LLM invocation endpoint for content moderation and other AI features
+  app.post('/api/integrations/invoke-llm', async (req: Request, res: Response) => {
+    try {
+      const client = getOpenAIClient();
+      
+      if (!client) {
+        return res.status(503).json({ 
+          error: 'LLM service not configured. Please add OPENAI_API_KEY to your environment.' 
+        });
+      }
+      
+      const { prompt, response_json_schema } = req.body;
+      
+      if (!prompt || typeof prompt !== 'string') {
+        return res.status(400).json({ error: 'prompt is required and must be a string' });
+      }
+      
+      // Limit prompt length for safety
+      if (prompt.length > 10000) {
+        return res.status(400).json({ error: 'prompt exceeds maximum length of 10000 characters' });
+      }
+      
+      // Build messages for chat completion
+      const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
+        { role: 'user', content: prompt }
+      ];
+      
+      // Call OpenAI with optional JSON schema response
+      const completionParams: OpenAI.Chat.ChatCompletionCreateParamsNonStreaming = {
+        model: 'gpt-4o-mini',
+        messages,
+        max_completion_tokens: 1024,
+      };
+      
+      // Add response format if JSON schema is provided
+      if (response_json_schema) {
+        completionParams.response_format = { type: 'json_object' };
+      }
+      
+      const completion = await client.chat.completions.create(completionParams);
+      
+      const responseContent = completion.choices[0]?.message?.content || '';
+      
+      // If JSON response was requested, parse it
+      if (response_json_schema) {
+        try {
+          const jsonResponse = JSON.parse(responseContent);
+          return res.json(jsonResponse);
+        } catch (parseError) {
+          console.error('[LLM] Failed to parse JSON response:', responseContent);
+          return res.json({ response: responseContent });
+        }
+      }
+      
+      res.json({ response: responseContent });
+    } catch (error: any) {
+      console.error('[LLM] Error invoking LLM:', error);
+      
+      // Handle rate limiting
+      if (error.status === 429) {
+        return res.status(429).json({ error: 'Rate limit exceeded. Please try again later.' });
+      }
+      
+      res.status(500).json({ 
+        error: 'Failed to invoke LLM: ' + (error.message || 'Unknown error') 
+      });
     }
   });
 
