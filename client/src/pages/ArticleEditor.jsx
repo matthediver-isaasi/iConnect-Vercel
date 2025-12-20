@@ -49,6 +49,9 @@ export default function ArticleEditorPage() {
   const [originalAuthorName, setOriginalAuthorName] = useState(null);
   const [originalAuthorHandle, setOriginalAuthorHandle] = useState(null);
   const [isOtherMemberArticle, setIsOtherMemberArticle] = useState(false);
+  // Persisted original_author_id from database - never changes after first set
+  const [persistedOriginalAuthorId, setPersistedOriginalAuthorId] = useState(null);
+  const [persistedOriginalAuthorName, setPersistedOriginalAuthorName] = useState(null);
   const [slugError, setSlugError] = useState(null);
   const [checkingSlug, setCheckingSlug] = useState(false);
 
@@ -151,27 +154,48 @@ export default function ArticleEditorPage() {
     }
   }, [article]);
 
-  // Fetch original author's handle if article has an author_id
-  const { data: originalAuthorMember } = useQuery({
-    queryKey: ['original-author', article?.author_id],
+  // Fetch current author's handle if article has an author_id
+  const { data: currentAuthorMember } = useQuery({
+    queryKey: ['current-author', article?.author_id],
     queryFn: async () => {
       if (!article?.author_id) return null;
       try {
         const member = await base44.entities.Member.get(article.author_id);
         return member || null;
       } catch (error) {
-        console.error('Error fetching original author:', error);
+        console.error('Error fetching current author:', error);
         return null;
       }
     },
     enabled: !!article?.author_id
   });
 
+  // Fetch the persisted original author's details (from original_author_id column)
+  const { data: persistedOriginalAuthorMember } = useQuery({
+    queryKey: ['persisted-original-author', article?.original_author_id],
+    queryFn: async () => {
+      if (!article?.original_author_id) return null;
+      try {
+        const member = await base44.entities.Member.get(article.original_author_id);
+        return member || null;
+      } catch (error) {
+        console.error('Error fetching persisted original author:', error);
+        return null;
+      }
+    },
+    enabled: !!article?.original_author_id
+  });
+
   // Determine author type and fetch original author handle - run when article loads
   useEffect(() => {
     if (!article) return;
     
-    // Determine author type and preserve original author
+    // Set persisted original author from database column
+    if (article.original_author_id) {
+      setPersistedOriginalAuthorId(article.original_author_id);
+    }
+    
+    // Determine author type and preserve current author
     if (article.guest_writer_id) {
       setAuthorType("guest");
       setSelectedGuestWriterId(article.guest_writer_id);
@@ -180,12 +204,12 @@ export default function ArticleEditorPage() {
       setOriginalAuthorHandle(null);
       setIsOtherMemberArticle(false);
     } else if (article.author_id || article.author_name) {
-      // Article has an author - always default to keeping original author
+      // Article has an author - always default to keeping current author
       setAuthorType("other_member");
       setOriginalAuthorId(article.author_id);
       setOriginalAuthorName(article.author_name || "Unknown Author");
       setIsOtherMemberArticle(true);
-      // Handle will be set from originalAuthorMember query
+      // Handle will be set from currentAuthorMember query
     } else {
       // No author - set as member (logged-in user becomes author)
       setAuthorType("member");
@@ -196,12 +220,20 @@ export default function ArticleEditorPage() {
     }
   }, [article]);
 
-  // Set original author handle from member query (if not already extracted from legacy slug)
+  // Set persisted original author name when query loads
   useEffect(() => {
-    if (originalAuthorMember?.handle && !originalAuthorHandle) {
-      setOriginalAuthorHandle(originalAuthorMember.handle);
+    if (persistedOriginalAuthorMember) {
+      const fullName = `${persistedOriginalAuthorMember.first_name || ''} ${persistedOriginalAuthorMember.last_name || ''}`.trim();
+      setPersistedOriginalAuthorName(fullName || "Original Author");
     }
-  }, [originalAuthorMember, originalAuthorHandle]);
+  }, [persistedOriginalAuthorMember]);
+
+  // Set current author handle from member query (if not already extracted from legacy slug)
+  useEffect(() => {
+    if (currentAuthorMember?.handle && !originalAuthorHandle) {
+      setOriginalAuthorHandle(currentAuthorMember.handle);
+    }
+  }, [currentAuthorMember, originalAuthorHandle]);
 
   // Auto-generate slug from title
   useEffect(() => {
@@ -372,8 +404,9 @@ export default function ArticleEditorPage() {
           seo_title: seoTitle,
           seo_description: seoDescription,
         };
+        // Guest writers don't have original_author_id
       } else if (authorType === "other_member" && originalAuthorId) {
-        // Keep the original author - don't change author_id or author_name
+        // Keep the current author - don't change author_id or author_name
         articleData = {
           title,
           slug: finalSlug,
@@ -390,8 +423,32 @@ export default function ArticleEditorPage() {
           seo_title: seoTitle,
           seo_description: seoDescription,
         };
+        // Preserve existing original_author_id, or set it if this is the first save
+        if (!isEditing) {
+          articleData.original_author_id = originalAuthorId;
+        }
+        // When editing, don't change original_author_id - it's already set in DB
+      } else if (authorType === "revert_original" && persistedOriginalAuthorId) {
+        // Revert to the persisted original author
+        articleData = {
+          title,
+          slug: finalSlug,
+          author_id: persistedOriginalAuthorId,
+          guest_writer_id: null,
+          author_name: persistedOriginalAuthorName || originalAuthorName,
+          summary,
+          content,
+          feature_image_url: featureImage,
+          subcategories,
+          tags,
+          status: publishNow ? 'published' : status,
+          published_date: publishedDate,
+          seo_title: seoTitle,
+          seo_description: seoDescription,
+        };
+        // original_author_id stays unchanged
       } else {
-        // authorType === "member" - set current member as author
+        // authorType === "member" - set current member as author (TAKEOVER)
         if (!currentMember.handle) {
           throw new Error(`You need a handle to publish ${articleDisplayName.toLowerCase()}. Please contact an administrator.`);
         }
@@ -412,6 +469,17 @@ export default function ArticleEditorPage() {
           seo_title: seoTitle,
           seo_description: seoDescription,
         };
+        
+        // For new articles: set original_author_id to the creating member
+        // For takeover (editing): preserve existing original_author_id, or set it if not already set
+        if (!isEditing) {
+          articleData.original_author_id = currentMember.id;
+        } else if (!persistedOriginalAuthorId && originalAuthorId) {
+          // Taking over an article that doesn't have original_author_id set yet
+          // Set it to the previous author before takeover
+          articleData.original_author_id = originalAuthorId;
+        }
+        // If persistedOriginalAuthorId already exists, don't change it
       }
 
       if (isEditing) {
@@ -568,8 +636,11 @@ export default function ArticleEditorPage() {
   if (authorType === "guest") {
     // Guest writers use "guest" folder
     authorHandleForUrl = "guest";
+  } else if (authorType === "revert_original" && persistedOriginalAuthorMember?.handle) {
+    // Reverting to original author - use their handle
+    authorHandleForUrl = persistedOriginalAuthorMember.handle;
   } else if (authorType === "other_member" && originalAuthorHandle) {
-    // Use the original author's handle
+    // Use the current author's handle
     authorHandleForUrl = originalAuthorHandle;
   } else {
     // Use current member's handle
@@ -643,7 +714,7 @@ export default function ArticleEditorPage() {
                 <div className="space-y-2">
                   <Label className="text-sm">Show author as</Label>
                   <div className="flex flex-wrap gap-4">
-                    {/* Original Author option - shown when editing any existing article with an author */}
+                    {/* Current Author option - shown when editing any existing article with an author */}
                     {isEditing && article?.author_name && (
                       <label className="flex items-center gap-2 cursor-pointer">
                         <input
@@ -653,9 +724,26 @@ export default function ArticleEditorPage() {
                           checked={authorType === "other_member"}
                           onChange={(e) => setAuthorType(e.target.value)}
                           className="w-4 h-4"
-                          data-testid="radio-author-original"
+                          data-testid="radio-author-current"
                         />
                         <span className="text-sm">{article.author_name}</span>
+                      </label>
+                    )}
+                    {/* Revert to Original Author option - shown when article has been taken over */}
+                    {isEditing && persistedOriginalAuthorId && persistedOriginalAuthorId !== article?.author_id && (
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="authorType"
+                          value="revert_original"
+                          checked={authorType === "revert_original"}
+                          onChange={(e) => setAuthorType(e.target.value)}
+                          className="w-4 h-4"
+                          data-testid="radio-author-revert"
+                        />
+                        <span className="text-sm text-green-700">
+                          Revert to Original ({persistedOriginalAuthorName || "Original Author"})
+                        </span>
                       </label>
                     )}
                     <label className="flex items-center gap-2 cursor-pointer">
