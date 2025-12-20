@@ -42,18 +42,21 @@ export default function ArticlesPage() {
   const { data: authorInfo, isLoading: authorLoading, isError: authorNotFound } = useQuery({
     queryKey: ['author-by-handle', authorHandle],
     queryFn: async () => {
-      // Try to find member by handle first (check both handle and blog_handle fields)
-      const members = await base44.entities.Member.list();
-      const member = members.find(m => m.handle === authorHandle || m.blog_handle === authorHandle);
+      // Try to find member by handle using filter query (more efficient than listing all)
+      console.log('[Articles] Author lookup - searching for handle:', authorHandle);
+      
+      const members = await base44.entities.Member.filter({ handle: authorHandle });
+      console.log('[Articles] Author lookup - members found by filter:', members?.length, members);
+      
+      const member = members?.[0];
       if (member) {
         // Fetch organization for member if they have one
         let organizationName = null;
         if (member.organization_id) {
           try {
-            const orgs = await base44.entities.Organization.list();
-            const org = orgs.find(o => o.zoho_account_id === member.organization_id);
-            if (org) {
-              organizationName = org.name;
+            const orgs = await base44.entities.Organization.filter({ zoho_account_id: member.organization_id });
+            if (orgs?.[0]) {
+              organizationName = orgs[0].name;
             }
           } catch (e) {
             console.log('[Articles] Failed to fetch organization:', e);
@@ -68,9 +71,11 @@ export default function ArticlesPage() {
         };
       }
       
-      // Try guest writer
-      const guestWriters = await base44.entities.GuestWriter.list();
-      const guestWriter = guestWriters.find(gw => gw.handle === authorHandle);
+      // Try guest writer by handle
+      const guestWriters = await base44.entities.GuestWriter.filter({ handle: authorHandle });
+      console.log('[Articles] Author lookup - guest writers found by filter:', guestWriters?.length);
+      
+      const guestWriter = guestWriters?.[0];
       if (guestWriter) {
         return {
           type: 'guest_writer',
