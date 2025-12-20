@@ -18,13 +18,13 @@ import { useLayoutContext } from "@/contexts/LayoutContext";
 export default function ArticlesPage() {
   useBlogPostRealtime(['published-articles']);
   const { hasBanner } = useLayoutContext();
-  const { memberInfo, memberRole, isAdmin, isFeatureExcluded } = useMemberAccess();
+  const { memberInfo, isFeatureExcluded } = useMemberAccess();
   const { getArticleEditorUrl } = useArticleUrl();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [articleToDelete, setArticleToDelete] = useState(null);
 
-  const hasAdminEditPermission = isAdmin && !isFeatureExcluded('action_article_edit');
-  const hasAdminDeletePermission = isAdmin && !isFeatureExcluded('action_article_delete');
+  const hasAdminEditPermission = !isFeatureExcluded('content.articles.edit');
+  const hasAdminDeletePermission = !isFeatureExcluded('content.articles.delete');
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedSubcategories, setSelectedSubcategories] = useState([]);
   const [currentPage, setCurrentPage] = useState(1);
