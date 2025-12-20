@@ -20,7 +20,7 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useArticleUrl } from "@/contexts/ArticleUrlContext";
 
 export default function ArticleEditorPage() {
-  const { memberInfo } = useMemberAccess();
+  const { memberInfo, isFeatureExcluded } = useMemberAccess();
   const { getArticleListUrl, getArticleEditorUrl, baseUrlPath } = useArticleUrl();
   const urlParams = new URLSearchParams(window.location.search);
   const articleId = urlParams.get('id');
@@ -1001,13 +1001,17 @@ export default function ArticleEditorPage() {
               onSeoDescriptionChange={setSeoDescription}
             />
 
-            {/* Delete Button */}
+            {/* Delete Button - show if user has admin delete permission OR is the author */}
             {isEditing && (
+              !isFeatureExcluded('content.articles.delete') || 
+              (memberInfo?.id && article?.author_id && String(article.author_id) === String(memberInfo.id))
+            ) && (
               <Button
                 variant="destructive"
                 onClick={handleDelete}
                 disabled={deleteMutation.isPending}
                 className="w-full gap-2"
+                data-testid="button-delete-article"
               >
                 <Trash2 className="w-4 h-4" />
                 Delete {singularDisplayName}
