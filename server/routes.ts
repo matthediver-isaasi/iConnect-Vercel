@@ -708,7 +708,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (follow.followed_member_id) {
           const { data: member, error: memberError } = await supabase
             .from('member')
-            .select('id, first_name, last_name, handle, blog_handle, profile_photo_url')
+            .select('id, first_name, last_name, handle, profile_photo_url')
             .eq('id', follow.followed_member_id)
             .single();
           
@@ -716,7 +716,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           
           if (member && !memberError) {
             authorName = `${member.first_name || ''} ${member.last_name || ''}`.trim() || 'Unknown Author';
-            authorHandle = member.handle || member.blog_handle;
+            authorHandle = member.handle;
           }
         } else if (follow.followed_guest_writer_id) {
           const { data: guestWriter, error: gwError } = await supabase

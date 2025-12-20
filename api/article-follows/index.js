@@ -58,7 +58,7 @@ export default async function handler(req, res) {
           if (follow.followed_member_id) {
             const { data: member, error: memberError } = await supabase
               .from('member')
-              .select('first_name, last_name, handle, blog_handle')
+              .select('first_name, last_name, handle')
               .eq('id', follow.followed_member_id)
               .single();
             
@@ -70,7 +70,7 @@ export default async function handler(req, res) {
             
             if (member && !memberError) {
               authorName = `${member.first_name || ''} ${member.last_name || ''}`.trim() || 'Unknown Author';
-              authorHandle = member.handle || member.blog_handle;
+              authorHandle = member.handle;
             } else {
               debugInfo = { 
                 lookup_failed: true, 
