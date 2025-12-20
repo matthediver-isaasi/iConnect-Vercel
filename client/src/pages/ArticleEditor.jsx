@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { ArrowLeft, Save, Eye, Trash2, Upload, X, Loader2, CheckCircle2, Clock } from "lucide-react";
+import { ArrowLeft, Save, Eye, Trash2, Upload, X, Loader2, CheckCircle2, Clock, User } from "lucide-react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { format } from "date-fns";
@@ -21,7 +21,7 @@ import { useArticleUrl } from "@/contexts/ArticleUrlContext";
 
 export default function ArticleEditorPage() {
   const { memberInfo, isFeatureExcluded } = useMemberAccess();
-  const { getArticleListUrl, getArticleEditorUrl, baseUrlPath } = useArticleUrl();
+  const { getArticleListUrl, getArticleEditorUrl, getMyArticlesUrl, baseUrlPath } = useArticleUrl();
   const urlParams = new URLSearchParams(window.location.search);
   const articleId = urlParams.get('id');
   const isEditing = !!articleId;
@@ -682,16 +682,36 @@ export default function ArticleEditorPage() {
   const fullUrlPreview = `${baseUrlPath}/${authorHandleForUrl}/${slug}`;
   const selectedGuestWriter = guestWriters.find(w => w.id === selectedGuestWriterId);
 
+  // Check if current user is the author of this article
+  const isOwnArticle = isEditing && article?.author_id && memberInfo?.id && 
+    String(article.author_id) === String(memberInfo.id);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <Link to={getArticleListUrl()} className="inline-flex items-center gap-2 text-slate-600 hover:text-slate-900">
-            <ArrowLeft className="w-4 h-4" />
-            Back to {articleDisplayName}
-          </Link>
-          
+        {/* Breadcrumb navigation */}
+        <Link 
+          to={isOwnArticle ? getMyArticlesUrl() : getArticleListUrl()} 
+          className="inline-flex items-center gap-2 text-slate-600 hover:text-slate-900 mb-4"
+          data-testid="button-back-to-articles"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          Back to {isOwnArticle ? `My ${articleDisplayName}` : articleDisplayName}
+        </Link>
+
+        {/* My Article header card - show when editing own article */}
+        {isOwnArticle && (
+          <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+            <h2 className="text-lg font-semibold text-blue-900 flex items-center gap-2">
+              <User className="w-5 h-5" />
+              My {singularDisplayName}
+            </h2>
+            <p className="text-sm text-blue-700 mt-1">Editing your authored {singularDisplayName.toLowerCase()}</p>
+          </div>
+        )}
+
+        {/* Header actions */}
+        <div className="flex items-center justify-end mb-6">
           <div className="flex items-center gap-3">
             {autoSaving && (
               <span className="text-sm text-slate-500 flex items-center gap-2">
