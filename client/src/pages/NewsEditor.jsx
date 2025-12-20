@@ -565,12 +565,14 @@ export default function NewsEditorPage() {
               </CardContent>
             </Card>
 
-            <SEOSettings
-              seoTitle={seoTitle}
-              seoDescription={seoDescription}
-              onSeoTitleChange={setSeoTitle}
-              onSeoDescriptionChange={setSeoDescription}
-            />
+            {!isFeatureExcluded('content.news-editor.seo-settings') && (
+              <SEOSettings
+                seoTitle={seoTitle}
+                seoDescription={seoDescription}
+                onSeoTitleChange={setSeoTitle}
+                onSeoDescriptionChange={setSeoDescription}
+              />
+            )}
 
             {isEditing && (
               <Button
