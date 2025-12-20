@@ -763,16 +763,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
 
         // Count unread articles (published after last_read_at, or after follow created_at if never read)
+        // Also filter out scheduled articles that haven't gone live yet (published_date <= now)
         let unreadCount = 0;
         // Use last_read_at if available, otherwise use created_at as the baseline
         const compareDate = follow.last_read_at || follow.created_at;
+        const nowIso = new Date().toISOString();
         
         if (follow.followed_member_id) {
           let query = supabase
             .from('blog_post')
             .select('id', { count: 'exact', head: true })
             .eq('author_id', follow.followed_member_id)
-            .eq('status', 'published');
+            .eq('status', 'published')
+            .lte('published_date', nowIso); // Only count articles that have gone live
           
           if (compareDate) {
             query = query.gt('published_date', compareDate);
@@ -785,7 +788,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             .from('blog_post')
             .select('id', { count: 'exact', head: true })
             .eq('guest_writer_id', follow.followed_guest_writer_id)
-            .eq('status', 'published');
+            .eq('status', 'published')
+            .lte('published_date', nowIso); // Only count articles that have gone live
           
           if (compareDate) {
             query = query.gt('published_date', compareDate);

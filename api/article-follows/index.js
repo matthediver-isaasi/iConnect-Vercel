@@ -38,11 +38,13 @@ export default async function handler(req, res) {
           
           // Use last_read_at if available, otherwise use created_at as the baseline
           const compareDate = follow.last_read_at || follow.created_at;
+          const nowIso = new Date().toISOString();
           
           let query = supabase
             .from('blog_post')
             .select('id', { count: 'exact', head: true })
-            .eq('status', 'published');
+            .eq('status', 'published')
+            .lte('published_date', nowIso); // Only count articles that have gone live
 
           if (compareDate) {
             query = query.gt('published_date', compareDate);
