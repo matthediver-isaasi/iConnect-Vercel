@@ -905,30 +905,34 @@ export default function ArticleEditorPage() {
                         </span>
                       </label>
                     )}
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="authorType"
-                        value="member"
-                        checked={authorType === "member"}
-                        onChange={(e) => setAuthorType(e.target.value)}
-                        className="w-4 h-4"
-                        data-testid="radio-author-me"
-                      />
-                      <span className="text-sm">Myself</span>
-                    </label>
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="authorType"
-                        value="guest"
-                        checked={authorType === "guest"}
-                        onChange={(e) => setAuthorType(e.target.value)}
-                        className="w-4 h-4"
-                        data-testid="radio-author-guest"
-                      />
-                      <span className="text-sm">Guest Writer</span>
-                    </label>
+                    {!isFeatureExcluded('content.article-author.myself') && (
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="authorType"
+                          value="member"
+                          checked={authorType === "member"}
+                          onChange={(e) => setAuthorType(e.target.value)}
+                          className="w-4 h-4"
+                          data-testid="radio-author-me"
+                        />
+                        <span className="text-sm">Myself</span>
+                      </label>
+                    )}
+                    {!isFeatureExcluded('content.article-author.guest-writer') && (
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="authorType"
+                          value="guest"
+                          checked={authorType === "guest"}
+                          onChange={(e) => setAuthorType(e.target.value)}
+                          className="w-4 h-4"
+                          data-testid="radio-author-guest"
+                        />
+                        <span className="text-sm">Guest Writer</span>
+                      </label>
+                    )}
                   </div>
                 </div>
 
