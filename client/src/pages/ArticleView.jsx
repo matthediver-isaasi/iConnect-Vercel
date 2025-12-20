@@ -129,11 +129,20 @@ export default function ArticleViewPage() {
           // Guest writer articles
           found = articles.find(a => slugMatches(a.slug, slug) && a.guest_writer_id);
         } else {
-          // Member articles - need to match author's handle
-          const members = await base44.entities.Member.listAll();
-          const authorMember = members.find(m => m.blog_handle === authorHandle);
-          if (authorMember) {
-            found = articles.find(a => slugMatches(a.slug, slug) && a.author_id === authorMember.id);
+          // Member articles - find by matching handle OR blog_handle
+          // First try to find the article directly by checking all articles with member lookup
+          for (const article of articles) {
+            if (!slugMatches(article.slug, slug) || !article.author_id) continue;
+            // Fetch just this one member to check their handle
+            try {
+              const member = await base44.entities.Member.get(article.author_id);
+              if (member && (member.handle === authorHandle || member.blog_handle === authorHandle)) {
+                found = article;
+                break;
+              }
+            } catch (e) {
+              // Member not found, continue
+            }
           }
         }
       } else if (slug) {
@@ -159,16 +168,20 @@ export default function ArticleViewPage() {
     staleTime: 10 * 1000,
   });
 
-  // Fetch author details (either member or guest writer)
+  // Fetch author details (either member or guest writer) - fetch single member by ID
   const { data: authorMember } = useQuery({
     queryKey: ['author-member', article?.author_id],
     queryFn: async () => {
       if (!article?.author_id) return null;
-      const members = await base44.entities.Member.listAll();
-      const found = members.find(m => m.id === article.author_id);
-      console.log('[ArticleView] authorMember found:', found);
-      console.log('[ArticleView] authorMember.organization_id:', found?.organization_id);
-      return found;
+      try {
+        const found = await base44.entities.Member.get(article.author_id);
+        console.log('[ArticleView] authorMember found:', found);
+        console.log('[ArticleView] authorMember.organization_id:', found?.organization_id);
+        return found;
+      } catch (e) {
+        console.log('[ArticleView] Failed to fetch author member:', e);
+        return null;
+      }
     },
     enabled: !!article?.author_id,
   });

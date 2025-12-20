@@ -116,23 +116,34 @@ export default function ArticlesPage() {
     refetchOnWindowFocus: true
   });
 
-  // Fetch member handles for URL construction
+  // Fetch member handles for URL construction - only for article authors
   const { data: authorHandles = {} } = useQuery({
-    queryKey: ['member-handles-for-articles'],
+    queryKey: ['member-handles-for-articles', articles?.map(a => a.author_id).filter(Boolean).join(',')],
     queryFn: async () => {
-      const members = await base44.entities.Member.listAll();
+      // Get unique author IDs from articles
+      const uniqueAuthorIds = [...new Set(articles.filter(a => a.author_id).map(a => a.author_id))];
+      console.log('[Articles] Fetching handles for', uniqueAuthorIds.length, 'unique authors');
+      
       const handleMap = {};
-      members.forEach(m => {
-        // Use handle (like ArticleEditor does) with blog_handle as fallback
-        const memberHandle = m.handle || m.blog_handle;
-        if (m.id && memberHandle) {
-          // Use String() for consistent key type matching with article.author_id lookups
-          handleMap[String(m.id)] = memberHandle;
+      // Fetch each author individually (much smaller than 5000 members)
+      await Promise.all(uniqueAuthorIds.map(async (authorId) => {
+        try {
+          const member = await base44.entities.Member.get(authorId);
+          if (member) {
+            const memberHandle = member.handle || member.blog_handle;
+            if (memberHandle) {
+              handleMap[String(authorId)] = memberHandle;
+            }
+          }
+        } catch (e) {
+          // Member not found, skip
         }
-      });
+      }));
+      
       console.log('[Articles] authorHandles map built with', Object.keys(handleMap).length, 'entries');
       return handleMap;
     },
+    enabled: !!articles?.length,
     staleTime: 60000 // Cache for 1 minute
   });
 
