@@ -3,7 +3,7 @@ import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { FileQuestion, ChevronLeft, ChevronRight, SlidersHorizontal, Save, User, Plus } from "lucide-react";
+import { FileQuestion, ChevronLeft, ChevronRight, SlidersHorizontal, Save, User, Plus, ArrowLeft } from "lucide-react";
 import { Link } from "react-router-dom";
 import ArticleFilter from "../components/blog/ArticleFilter";
 import ArticleCard from "../components/blog/ArticleCard";
@@ -382,10 +382,36 @@ export default function ArticlesPage() {
     );
   }
 
+  // Derive singular display name for header card
+  const singularDisplayName = articleDisplayName.endsWith('s') 
+    ? articleDisplayName.slice(0, -1) 
+    : articleDisplayName;
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
-        {!hasBanner && (
+        {/* My Articles header - shown when viewing own articles */}
+        {showMyArticlesOnly && (
+          <>
+            <button
+              onClick={() => setShowMyArticlesOnly(false)}
+              className="inline-flex items-center gap-2 text-slate-600 hover:text-slate-900 mb-4"
+              data-testid="button-back-to-all-articles"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              Back to All {articleDisplayName}
+            </button>
+            <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+              <h2 className="text-lg font-semibold text-blue-900 flex items-center gap-2">
+                <User className="w-5 h-5" />
+                My {articleDisplayName}
+              </h2>
+              <p className="text-sm text-blue-700 mt-1">Viewing your authored {articleDisplayName.toLowerCase()} including drafts</p>
+            </div>
+          </>
+        )}
+
+        {!hasBanner && !showMyArticlesOnly && (
           <div className="mb-8">
             <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-2">
               {articleDisplayName}
