@@ -211,7 +211,8 @@ Respond with a JSON object containing exactly two fields:
         author_member_id: memberInfo?.id || null,
         is_member: !!memberInfo,
         thumbs_up_count: 0,
-        thumbs_down_count: 0
+        thumbs_down_count: 0,
+        created_date: new Date().toISOString()
       };
 
       addCommentMutation.mutate(commentData);
@@ -358,7 +359,7 @@ Respond with a JSON object containing exactly two fields:
                           </span>
                         )}
                         <span className="text-sm text-slate-500">
-                          • {format(new Date(comment.created_date), 'MMM d, yyyy')}
+                          • {comment.created_date ? format(new Date(comment.created_date), 'MMM d, yyyy') : 'Just now'}
                         </span>
                       </div>
 
