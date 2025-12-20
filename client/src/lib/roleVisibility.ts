@@ -132,6 +132,34 @@ export function toggleResourceExclusion(
     
     const moduleId = getModuleForResource(normalizedResourceId);
     
+    // When enabling a module, also clear all page and feature exclusions within it
+    if (isModuleId(normalizedResourceId)) {
+      const module = ROLE_ACCESS_MAP.find(m => m.id === normalizedResourceId);
+      if (module) {
+        for (const page of module.pages) {
+          normalizedExcluded.delete(page.id);
+          if (page.features) {
+            for (const feature of page.features) {
+              normalizedExcluded.delete(feature.id);
+            }
+          }
+        }
+      }
+    }
+    
+    // When enabling a page, also clear all feature exclusions within it
+    if (isPageId(normalizedResourceId)) {
+      const module = ROLE_ACCESS_MAP.find(m => m.id === moduleId);
+      if (module) {
+        const page = module.pages.find(p => p.id === normalizedResourceId);
+        if (page && page.features) {
+          for (const feature of page.features) {
+            normalizedExcluded.delete(feature.id);
+          }
+        }
+      }
+    }
+    
     // When enabling a page that was blocked by module exclusion,
     // remove the module exclusion and add all OTHER pages to maintain block
     if (moduleId && normalizedExcluded.has(moduleId) && isPageId(normalizedResourceId)) {
