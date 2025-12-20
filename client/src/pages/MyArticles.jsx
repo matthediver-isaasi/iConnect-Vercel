@@ -98,6 +98,22 @@ export default function MyArticlesPage() {
     }
   });
 
+  // Fetch member handles for URL construction
+  const { data: authorHandles = {} } = useQuery({
+    queryKey: ['member-handles-for-articles'],
+    queryFn: async () => {
+      const members = await base44.entities.Member.listAll();
+      const handleMap = {};
+      members.forEach(m => {
+        if (m.id && m.blog_handle) {
+          handleMap[m.id] = m.blog_handle;
+        }
+      });
+      return handleMap;
+    },
+    staleTime: 60000 // Cache for 1 minute
+  });
+
   // Fetch all reactions for sorting
   const { data: allReactions = [] } = useQuery({
     queryKey: ['all-article-reactions'],
@@ -301,7 +317,7 @@ export default function MyArticlesPage() {
                             </Badge>
                           )}
                         </div>
-                        <ArticleCard article={article} buttonStyles={buttonStyles} showActions={false} displayName={displayName} />
+                        <ArticleCard article={article} buttonStyles={buttonStyles} showActions={false} displayName={displayName} authorHandles={authorHandles} />
                       </div>
                       <div className="flex gap-2 mt-3">
                         <Link to={getArticleEditorUrl(article.id)} className="flex-1">

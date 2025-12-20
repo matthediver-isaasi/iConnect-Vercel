@@ -75,6 +75,22 @@ export default function ArticleManagementPage() {
     }
   });
 
+  // Fetch member handles for URL construction
+  const { data: authorHandles = {} } = useQuery({
+    queryKey: ['member-handles-for-articles'],
+    queryFn: async () => {
+      const members = await base44.entities.Member.listAll();
+      const handleMap = {};
+      members.forEach(m => {
+        if (m.id && m.blog_handle) {
+          handleMap[m.id] = m.blog_handle;
+        }
+      });
+      return handleMap;
+    },
+    staleTime: 60000 // Cache for 1 minute
+  });
+
   const articleStats = useMemo(() => {
     const stats = {};
     articles.forEach(article => {
@@ -282,7 +298,7 @@ export default function ArticleManagementPage() {
                             </Badge>
                           )}
                         </div>
-                        <ArticleCard article={article} buttonStyles={buttonStyles} showActions={false} displayName={articleDisplayName} />
+                        <ArticleCard article={article} buttonStyles={buttonStyles} showActions={false} displayName={articleDisplayName} authorHandles={authorHandles} />
                       </div>
                       {article.author_name && (
                         <div className="flex items-center gap-2 mt-2 text-sm text-slate-600">

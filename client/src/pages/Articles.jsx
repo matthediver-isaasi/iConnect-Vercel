@@ -120,11 +120,11 @@ export default function ArticlesPage() {
   const { data: authorHandles = {} } = useQuery({
     queryKey: ['member-handles-for-articles'],
     queryFn: async () => {
-      const members = await base44.entities.Member.list();
+      const members = await base44.entities.Member.listAll();
       const handleMap = {};
       members.forEach(m => {
-        if (m.id && m.handle) {
-          handleMap[m.id] = m.handle;
+        if (m.id && m.blog_handle) {
+          handleMap[m.id] = m.blog_handle;
         }
       });
       return handleMap;
