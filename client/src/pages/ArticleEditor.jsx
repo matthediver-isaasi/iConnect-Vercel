@@ -544,20 +544,23 @@ export default function ArticleEditorPage() {
                 <div className="space-y-2">
                   <Label className="text-sm">{singularDisplayName} Author</Label>
                   
-                  {/* Show original author info if editing another member's article */}
-                  {isEditing && authorType === "other_member" && originalAuthorName && (
-                    <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg mb-2">
-                      <p className="text-sm text-amber-800">
+                  {/* Show original author info for existing articles */}
+                  {isEditing && originalAuthorName && (
+                    <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg mb-2">
+                      <p className="text-sm text-slate-700">
                         <strong>Original Author:</strong> {originalAuthorName}
                       </p>
-                      <p className="text-xs text-amber-600 mt-1">
-                        You can take ownership or assign to a guest writer below.
-                      </p>
+                      {(authorType === "member" || authorType === "guest") && originalAuthorId && originalAuthorId !== currentMember?.id && (
+                        <p className="text-xs text-amber-600 mt-1">
+                          Ownership will change when you save. Select "Original Author" to keep current author.
+                        </p>
+                      )}
                     </div>
                   )}
                   
                   <div className="flex flex-wrap gap-4">
-                    {authorType === "other_member" && (
+                    {/* Show Original Author option for existing articles with a different author */}
+                    {isEditing && originalAuthorId && originalAuthorId !== currentMember?.id && (
                       <label className="flex items-center gap-2 cursor-pointer">
                         <input
                           type="radio"
@@ -566,8 +569,9 @@ export default function ArticleEditorPage() {
                           checked={authorType === "other_member"}
                           onChange={(e) => setAuthorType(e.target.value)}
                           className="w-4 h-4"
+                          data-testid="radio-author-original"
                         />
-                        <span className="text-sm">Keep Original Author ({originalAuthorName})</span>
+                        <span className="text-sm">Original Author</span>
                       </label>
                     )}
                     <label className="flex items-center gap-2 cursor-pointer">
@@ -578,9 +582,10 @@ export default function ArticleEditorPage() {
                         checked={authorType === "member"}
                         onChange={(e) => setAuthorType(e.target.value)}
                         className="w-4 h-4"
+                        data-testid="radio-author-me"
                       />
                       <span className="text-sm">
-                        {authorType === "other_member" ? "Take Ownership" : "Me"} ({memberInfo.first_name} {memberInfo.last_name})
+                        {isEditing && originalAuthorId && originalAuthorId !== currentMember?.id ? "Take Ownership" : "Me"} ({memberInfo.first_name} {memberInfo.last_name})
                       </span>
                     </label>
                     <label className="flex items-center gap-2 cursor-pointer">
@@ -591,6 +596,7 @@ export default function ArticleEditorPage() {
                         checked={authorType === "guest"}
                         onChange={(e) => setAuthorType(e.target.value)}
                         className="w-4 h-4"
+                        data-testid="radio-author-guest"
                       />
                       <span className="text-sm">Guest Writer</span>
                     </label>
