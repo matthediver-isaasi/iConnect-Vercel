@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { FileQuestion, ChevronLeft, ChevronRight, SlidersHorizontal, Save, User, Plus, ArrowLeft } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useParams, useNavigate } from "react-router-dom";
 import ArticleFilter from "../components/blog/ArticleFilter";
 import ArticleCard from "../components/blog/ArticleCard";
 import FollowedAuthorsCard from "../components/blog/FollowedAuthorsCard";
@@ -21,6 +21,8 @@ export default function ArticlesPage() {
   const { hasBanner } = useLayoutContext();
   const { memberInfo, isFeatureExcluded } = useMemberAccess();
   const { getArticleEditorUrl } = useArticleUrl();
+  const { authorHandle } = useParams();
+  const navigate = useNavigate();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [articleToDelete, setArticleToDelete] = useState(null);
 
@@ -35,6 +37,56 @@ export default function ArticlesPage() {
   const [showMyArticlesOnly, setShowMyArticlesOnly] = useState(false);
 
   const queryClient = useQueryClient();
+  
+  // Lookup author by handle when filtering by author
+  const { data: authorInfo, isLoading: authorLoading, isError: authorNotFound } = useQuery({
+    queryKey: ['author-by-handle', authorHandle],
+    queryFn: async () => {
+      // Try to find member by handle first
+      const members = await base44.entities.Member.list();
+      const member = members.find(m => m.handle === authorHandle);
+      if (member) {
+        // Fetch organization for member if they have one
+        let organizationName = null;
+        if (member.organization_id) {
+          try {
+            const orgs = await base44.entities.Organization.list();
+            const org = orgs.find(o => o.zoho_account_id === member.organization_id);
+            if (org) {
+              organizationName = org.name;
+            }
+          } catch (e) {
+            console.log('[Articles] Failed to fetch organization:', e);
+          }
+        }
+        
+        return {
+          type: 'member',
+          id: member.id,
+          name: `${member.first_name || ''} ${member.last_name || ''}`.trim() || 'Unknown Author',
+          organization: organizationName
+        };
+      }
+      
+      // Try guest writer
+      const guestWriters = await base44.entities.GuestWriter.list();
+      const guestWriter = guestWriters.find(gw => gw.handle === authorHandle);
+      if (guestWriter) {
+        return {
+          type: 'guest_writer',
+          id: guestWriter.id,
+          name: guestWriter.full_name || 'Unknown Author',
+          organization: guestWriter.organization
+        };
+      }
+      
+      // Author not found - throw error to trigger error state
+      throw new Error('Author not found');
+    },
+    enabled: !!authorHandle,
+    staleTime: 60000,
+    retry: false, // Don't retry if author not found
+  });
 
   // Fetch current user's preferences
   const { data: currentUser } = useQuery({
@@ -72,9 +124,33 @@ export default function ArticlesPage() {
     staleTime: 0,
   });
 
-  // Use the appropriate article list based on filter
-  const articles = showMyArticlesOnly ? myArticles : publishedArticles;
-  const articlesLoading = showMyArticlesOnly ? myArticlesLoading : publishedLoading;
+  // Fetch articles by specific author when filtering by author handle
+  const { data: authorArticles = [], isLoading: authorArticlesLoading } = useQuery({
+    queryKey: ['articles-by-author', authorHandle, authorInfo?.id, authorInfo?.type],
+    queryFn: async () => {
+      const allArticles = await base44.entities.BlogPost.list('-published_date');
+      // Filter by author - only published articles
+      return allArticles.filter(article => {
+        if (article.status !== 'published') return false;
+        if (authorInfo?.type === 'member') {
+          return String(article.author_id) === String(authorInfo.id);
+        } else if (authorInfo?.type === 'guest_writer') {
+          return String(article.guest_writer_id) === String(authorInfo.id);
+        }
+        return false;
+      });
+    },
+    enabled: !!authorHandle && !!authorInfo,
+    staleTime: 0,
+  });
+
+  // Use the appropriate article list based on filter mode
+  const articles = authorHandle && authorInfo 
+    ? authorArticles 
+    : (showMyArticlesOnly ? myArticles : publishedArticles);
+  const articlesLoading = authorHandle 
+    ? (authorLoading || authorArticlesLoading)
+    : (showMyArticlesOnly ? myArticlesLoading : publishedLoading);
 
   const { data: categories = [], isLoading: categoriesLoading } = useQuery({
     queryKey: ['resourceCategories-articles'], // Updated queryKey
@@ -413,7 +489,51 @@ export default function ArticlesPage() {
           </>
         )}
 
-        {!hasBanner && !showMyArticlesOnly && (
+        {/* Author filter header - shown when viewing articles by specific author */}
+        {authorHandle && (
+          <>
+            <button
+              type="button"
+              onClick={() => navigate('/Articles')}
+              className="inline-flex items-center gap-2 text-slate-600 hover:text-slate-900 mb-4"
+              data-testid="button-back-to-all-articles-from-author"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              Back to All {articleDisplayName}
+            </button>
+            {authorNotFound ? (
+              <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+                <h2 className="text-lg font-semibold text-red-900 flex items-center gap-2">
+                  <FileQuestion className="w-5 h-5" />
+                  Author Not Found
+                </h2>
+                <p className="text-sm text-red-700 mt-1">
+                  No author with the handle "{authorHandle}" was found.
+                </p>
+              </div>
+            ) : authorLoading ? (
+              <div className="mb-4 p-4 bg-slate-50 border border-slate-200 rounded-lg animate-pulse">
+                <div className="h-6 bg-slate-200 rounded w-1/3 mb-2" />
+                <div className="h-4 bg-slate-200 rounded w-1/4" />
+              </div>
+            ) : authorInfo ? (
+              <div className="mb-4 p-4 bg-slate-50 border border-slate-200 rounded-lg">
+                <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
+                  <User className="w-5 h-5" />
+                  {articleDisplayName} by {authorInfo.name}
+                </h2>
+                {authorInfo.organization && (
+                  <p className="text-sm text-slate-600 mt-1">{authorInfo.organization}</p>
+                )}
+                <p className="text-sm text-slate-500 mt-1">
+                  {authorArticles.length} {authorArticles.length === 1 ? singularDisplayName.toLowerCase() : articleDisplayName.toLowerCase()} published
+                </p>
+              </div>
+            ) : null}
+          </>
+        )}
+
+        {!hasBanner && !showMyArticlesOnly && !authorHandle && (
           <div className="mb-8">
             <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-2">
               {articleDisplayName}

@@ -97,26 +97,33 @@ export default function FollowedAuthorsCard({ memberInfo, articleDisplayName = "
             data-testid={`followed-author-${follow.id}`}
           >
             <Link
-              to={follow.author_handle ? `/articles/${follow.author_handle}` : '/articles'}
+              to={follow.author_handle ? `/articles/author/${follow.author_handle}` : '/articles'}
               className="flex items-center gap-2 flex-1 min-w-0"
               onClick={() => handleAuthorClick(follow)}
             >
               <div className="w-7 h-7 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center flex-shrink-0">
                 <User className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
               </div>
-              <div className="flex items-center gap-2 min-w-0 flex-1">
-                <span className="text-sm font-medium truncate" data-testid={`text-author-${follow.id}`}>
-                  {follow.author_name}
-                </span>
-                {follow.unread_count > 0 && (
-                  <Badge 
-                    variant="default" 
-                    className="bg-blue-600 text-white flex items-center gap-1 flex-shrink-0"
-                    data-testid={`badge-unread-${follow.id}`}
-                  >
-                    <BellRing className="w-3 h-3" />
-                    {follow.unread_count}
-                  </Badge>
+              <div className="flex flex-col min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium truncate" data-testid={`text-author-${follow.id}`}>
+                    {follow.author_name}
+                  </span>
+                  {follow.unread_count > 0 && (
+                    <Badge 
+                      variant="default" 
+                      className="bg-blue-600 text-white flex items-center gap-1 flex-shrink-0"
+                      data-testid={`badge-unread-${follow.id}`}
+                    >
+                      <BellRing className="w-3 h-3" />
+                      {follow.unread_count}
+                    </Badge>
+                  )}
+                </div>
+                {follow.author_organization && (
+                  <span className="text-xs text-slate-500 dark:text-slate-400 truncate" data-testid={`text-org-${follow.id}`}>
+                    {follow.author_organization}
+                  </span>
                 )}
               </div>
             </Link>

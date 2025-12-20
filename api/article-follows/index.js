@@ -55,10 +55,12 @@ export default async function handler(req, res) {
           let authorHandle = null;
           let debugInfo = null;
           
+          let authorOrganization = null;
+          
           if (follow.followed_member_id) {
             const { data: member, error: memberError } = await supabase
               .from('member')
-              .select('first_name, last_name, handle')
+              .select('first_name, last_name, handle, organization_id')
               .eq('id', follow.followed_member_id)
               .single();
             
@@ -71,6 +73,19 @@ export default async function handler(req, res) {
             if (member && !memberError) {
               authorName = `${member.first_name || ''} ${member.last_name || ''}`.trim() || 'Unknown Author';
               authorHandle = member.handle;
+              
+              // Fetch organization if member has one
+              if (member.organization_id) {
+                const { data: org } = await supabase
+                  .from('organization')
+                  .select('name')
+                  .eq('zoho_account_id', member.organization_id)
+                  .single();
+                
+                if (org) {
+                  authorOrganization = org.name;
+                }
+              }
             } else {
               debugInfo = { 
                 lookup_failed: true, 
@@ -81,13 +96,14 @@ export default async function handler(req, res) {
           } else if (follow.followed_guest_writer_id) {
             const { data: guestWriter, error: gwError } = await supabase
               .from('guest_writer')
-              .select('full_name, handle')
+              .select('full_name, handle, organization')
               .eq('id', follow.followed_guest_writer_id)
               .single();
             
             if (guestWriter && !gwError) {
               authorName = guestWriter.full_name || 'Unknown Author';
               authorHandle = guestWriter.handle;
+              authorOrganization = guestWriter.organization;
             } else {
               debugInfo = { 
                 lookup_failed: true, 
@@ -102,6 +118,7 @@ export default async function handler(req, res) {
             unread_count: unreadCount,
             author_name: authorName,
             author_handle: authorHandle,
+            author_organization: authorOrganization,
             _debug: debugInfo
           };
         })
