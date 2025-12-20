@@ -3560,7 +3560,8 @@ const functionHandlers = {
             const excludedFeatures = Array.isArray(role.excluded_features) 
               ? role.excluded_features 
               : [];
-            has_job_posting_access = !isResourceExcluded(excludedFeatures, 'page_PostJob');
+            // Check if the member's role has access to jobs.post-job (not excluded)
+            has_job_posting_access = !isResourceExcluded(excludedFeatures, 'jobs.post-job');
           }
         }
 
