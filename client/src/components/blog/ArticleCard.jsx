@@ -32,13 +32,21 @@ export default function ArticleCard({
     // Use String() for consistent type matching with authorHandles map keys
     const authorIdStr = String(article.author_id);
     // Try to get handle from props, or extract from legacy slug
-    if (authorHandles[authorIdStr]) {
-      authorHandle = authorHandles[authorIdStr];
+    const foundHandle = authorHandles[authorIdStr];
+    console.log('[ArticleCard] Looking up handle for author_id:', authorIdStr, 
+      'authorHandles keys:', Object.keys(authorHandles).slice(0, 5), 
+      'found:', foundHandle,
+      'total keys:', Object.keys(authorHandles).length);
+    if (foundHandle) {
+      authorHandle = foundHandle;
     } else {
       // Fallback: extract from legacy slug format "-by-{handle}"
       const byHandleMatch = (article.slug || "").match(/-by-([a-z0-9-]+)$/i);
       if (byHandleMatch) {
         authorHandle = byHandleMatch[1];
+        console.log('[ArticleCard] Using legacy slug fallback:', authorHandle);
+      } else {
+        console.log('[ArticleCard] No handle found, using guest default');
       }
     }
   }

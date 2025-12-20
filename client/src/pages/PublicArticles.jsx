@@ -73,9 +73,11 @@ export default function PublicArticlesPage() {
       const members = await base44.entities.Member.listAll();
       const handleMap = {};
       members.forEach(m => {
-        if (m.id && m.blog_handle) {
+        // Use handle (like ArticleEditor does) with blog_handle as fallback
+        const memberHandle = m.handle || m.blog_handle;
+        if (m.id && memberHandle) {
           // Use String() for consistent key type matching with article.author_id lookups
-          handleMap[String(m.id)] = m.blog_handle;
+          handleMap[String(m.id)] = memberHandle;
         }
       });
       return handleMap;
