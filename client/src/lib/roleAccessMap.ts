@@ -668,8 +668,6 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "view_member_biography": "membership.member-directory.view-biography",
   "payment_training_vouchers": "commerce.buy-tickets.use-vouchers",
   "payment_training_fund": "commerce.buy-tickets.use-training-fund",
-  "action_news_edit": "content.news.edit",
-  "action_news_delete": "content.news.delete",
   "action_org_logo_edit": "membership.organisation-directory.edit-logo",
   "admin_can_edit_members": "admin.member-role-assignment.edit-members",
   "admin_can_manage_communications": "communication",

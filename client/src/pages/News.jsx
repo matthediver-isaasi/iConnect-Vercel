@@ -17,7 +17,7 @@ import { useLayoutContext } from "@/contexts/LayoutContext";
 
 export default function NewsPage() {
   const { hasBanner } = useLayoutContext();
-  const { memberInfo, isFeatureExcluded, isAdmin } = useMemberAccess();
+  const { memberInfo, isFeatureExcluded } = useMemberAccess();
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedSubcategories, setSelectedSubcategories] = useState([]);
   const [sortBy, setSortBy] = useState("newest");
@@ -30,9 +30,9 @@ export default function NewsPage() {
 
   const queryClient = useQueryClient();
 
-  // Admin permissions - can edit/delete any article
-  const hasAdminEditPermission = isAdmin && !isFeatureExcluded('action_news_edit');
-  const hasAdminDeletePermission = isAdmin && !isFeatureExcluded('action_news_delete');
+  // Edit/delete permissions based on role access control
+  const hasAdminEditPermission = !isFeatureExcluded('content.news.edit');
+  const hasAdminDeletePermission = !isFeatureExcluded('content.news.delete');
 
   // Fetch current user's preferences
   const { data: currentMember } = useQuery({
