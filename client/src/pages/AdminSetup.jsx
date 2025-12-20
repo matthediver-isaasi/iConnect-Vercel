@@ -45,6 +45,10 @@ export default function AdminSetupPage() {
   const [backfillLoading, setBackfillLoading] = useState(false);
   const [backfillResult, setBackfillResult] = useState(null);
   
+  // Fix blog handles state
+  const [fixBlogHandlesLoading, setFixBlogHandlesLoading] = useState(false);
+  const [fixBlogHandlesResult, setFixBlogHandlesResult] = useState(null);
+  
   // Date format state
   const [dateDisplayFormat, setDateDisplayFormat] = useState("dd MMM yyyy");
   const [dateFormatSaving, setDateFormatSaving] = useState(false);
@@ -608,6 +612,39 @@ export default function AdminSetupPage() {
       toast.error(error.message);
     } finally {
       setBackfillLoading(false);
+    }
+  };
+
+  // Handle fix blog handles
+  const handleFixBlogHandles = async () => {
+    setFixBlogHandlesLoading(true);
+    setFixBlogHandlesResult(null);
+    try {
+      const response = await fetch('/api/admin/fix-blog-handles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include'
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to fix blog handles');
+      }
+      setFixBlogHandlesResult({
+        success: true,
+        handlesCreated: data.handlesCreated,
+        slugsUpdated: data.slugsUpdated,
+        totalBlogs: data.totalBlogs,
+        errors: data.errors
+      });
+      toast.success(`Fixed ${data.slugsUpdated} blog slugs, created ${data.handlesCreated} member handles`);
+    } catch (error) {
+      setFixBlogHandlesResult({
+        success: false,
+        error: error.message
+      });
+      toast.error(error.message);
+    } finally {
+      setFixBlogHandlesLoading(false);
     }
   };
 
@@ -1635,6 +1672,86 @@ export default function AdminSetupPage() {
                   )}
                 </div>
               )}
+            </div>
+
+            {/* Divider */}
+            <div className="border-t border-slate-200 my-6" />
+
+            {/* Fix Blog Handles Section */}
+            <div className="space-y-4">
+              <div>
+                <h3 className="font-medium text-slate-900 mb-2">Fix Blog Author Handles</h3>
+                <p className="text-sm text-slate-600 mb-4">
+                  Generate unique handles for blog authors who don't have one, and update blog slugs to include the author's handle (e.g., "my-article-by-john-smith").
+                </p>
+              </div>
+
+              <Button
+                onClick={handleFixBlogHandles}
+                disabled={fixBlogHandlesLoading}
+                className="w-full"
+                data-testid="button-fix-blog-handles"
+              >
+                {fixBlogHandlesLoading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Processing Blogs...
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="w-4 h-4 mr-2" />
+                    Fix Blog Handles & Slugs
+                  </>
+                )}
+              </Button>
+
+              {fixBlogHandlesResult && (
+                <div className={`p-3 rounded-lg border ${
+                  fixBlogHandlesResult.success 
+                    ? 'bg-green-50 border-green-200' 
+                    : 'bg-red-50 border-red-200'
+                }`}>
+                  {fixBlogHandlesResult.success ? (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 text-green-700">
+                        <CheckCircle2 className="w-4 h-4" />
+                        <span className="text-sm font-medium">
+                          Processed {fixBlogHandlesResult.totalBlogs} blogs
+                        </span>
+                      </div>
+                      <ul className="text-sm text-green-700 ml-6 list-disc">
+                        <li>Member handles created: {fixBlogHandlesResult.handlesCreated}</li>
+                        <li>Blog slugs updated: {fixBlogHandlesResult.slugsUpdated}</li>
+                      </ul>
+                      {fixBlogHandlesResult.errors && fixBlogHandlesResult.errors.length > 0 && (
+                        <div className="mt-2 p-2 bg-amber-50 rounded border border-amber-200">
+                          <p className="text-xs text-amber-800 font-medium">Warnings ({fixBlogHandlesResult.errors.length}):</p>
+                          <ul className="text-xs text-amber-700 mt-1 max-h-32 overflow-y-auto">
+                            {fixBlogHandlesResult.errors.slice(0, 5).map((err, i) => (
+                              <li key={i}>{err}</li>
+                            ))}
+                            {fixBlogHandlesResult.errors.length > 5 && (
+                              <li>...and {fixBlogHandlesResult.errors.length - 5} more</li>
+                            )}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 text-red-700">
+                      <AlertTriangle className="w-4 h-4" />
+                      <span className="text-sm">{fixBlogHandlesResult.error}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                <p className="text-xs text-blue-800">
+                  <strong>Note:</strong> This will only affect blogs with member authors. Guest writer blogs are not modified. 
+                  Slugs that already have the correct "-by-handle" suffix will be skipped.
+                </p>
+              </div>
             </div>
           </CardContent>
         </Card>

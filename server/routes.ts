@@ -3154,6 +3154,168 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Fix blog post handles - generate handles for authors and update slugs
+  app.post('/api/admin/fix-blog-handles', async (req: Request, res: Response) => {
+    // Verify admin status via session
+    const sessionMemberId = (req.session as any)?.memberId;
+    if (!sessionMemberId) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    if (!supabase) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+
+    try {
+      console.log('[Fix Blog Handles] Starting...');
+      
+      // Helper function to generate slug
+      const generateSlug = (text: string): string => {
+        return text
+          .toLowerCase()
+          .trim()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-+|-+$/g, '');
+      };
+
+      // Get all existing handles to ensure uniqueness
+      const { data: allMembersForHandles } = await supabase
+        .from('member')
+        .select('id, handle, first_name, last_name, email');
+      
+      const existingHandles = new Set<string>(
+        (allMembersForHandles || [])
+          .map((m: any) => m.handle)
+          .filter((h: string | null) => h !== null)
+      );
+
+      const memberMap = new Map<string, any>();
+      (allMembersForHandles || []).forEach((m: any) => memberMap.set(m.id, m));
+
+      // Get all blog posts with author_id
+      const { data: blogPosts, error: blogError } = await supabase
+        .from('blog_post')
+        .select('id, slug, author_id, author_name')
+        .not('author_id', 'is', null);
+
+      if (blogError) {
+        console.error('[Fix Blog Handles] Error fetching blogs:', blogError);
+        return res.status(500).json({ error: blogError.message });
+      }
+
+      let handlesCreated = 0;
+      let slugsUpdated = 0;
+      const errors: string[] = [];
+
+      for (const blog of blogPosts || []) {
+        try {
+          const member = memberMap.get(blog.author_id);
+          if (!member) {
+            errors.push(`Blog ${blog.id}: Author ${blog.author_id} not found`);
+            continue;
+          }
+
+          let handle = member.handle;
+
+          // Generate handle if member doesn't have one
+          if (!handle && (member.first_name || member.last_name || member.email)) {
+            let baseHandle = '';
+            if (member.first_name && member.last_name) {
+              baseHandle = `${generateSlug(member.first_name)}-${generateSlug(member.last_name)}`;
+            } else if (member.first_name) {
+              baseHandle = generateSlug(member.first_name);
+            } else if (member.last_name) {
+              baseHandle = generateSlug(member.last_name);
+            } else if (member.email) {
+              baseHandle = generateSlug(member.email.split('@')[0]);
+            }
+            
+            if (baseHandle.length < 3) {
+              baseHandle = 'member';
+            }
+            if (baseHandle.length > 30) {
+              baseHandle = baseHandle.substring(0, 30);
+            }
+
+            // Make handle unique
+            handle = baseHandle;
+            let counter = 1;
+            while (existingHandles.has(handle)) {
+              const suffix = `-${counter}`;
+              const maxBaseLength = 30 - suffix.length;
+              handle = baseHandle.substring(0, maxBaseLength) + suffix;
+              counter++;
+            }
+
+            // Save the handle to the member record
+            const { error: updateMemberError } = await supabase
+              .from('member')
+              .update({ handle })
+              .eq('id', member.id);
+
+            if (updateMemberError) {
+              errors.push(`Member ${member.id}: Failed to save handle - ${updateMemberError.message}`);
+              continue;
+            }
+
+            existingHandles.add(handle);
+            member.handle = handle;
+            handlesCreated++;
+            console.log(`[Fix Blog Handles] Created handle "${handle}" for member ${member.id}`);
+          }
+
+          if (!handle) {
+            errors.push(`Blog ${blog.id}: Could not generate handle for author ${blog.author_id}`);
+            continue;
+          }
+
+          // Check if slug needs updating (doesn't end with -by-{handle})
+          const currentSlug = blog.slug || '';
+          const expectedSuffix = `-by-${handle}`;
+          
+          if (!currentSlug.endsWith(expectedSuffix)) {
+            // Remove any existing -by-* suffix first
+            let baseSlug = currentSlug;
+            const byMatch = currentSlug.match(/-by-[a-z0-9-]+$/i);
+            if (byMatch) {
+              baseSlug = currentSlug.slice(0, -byMatch[0].length);
+            }
+            
+            const newSlug = `${baseSlug}${expectedSuffix}`;
+            
+            const { error: updateBlogError } = await supabase
+              .from('blog_post')
+              .update({ slug: newSlug })
+              .eq('id', blog.id);
+
+            if (updateBlogError) {
+              errors.push(`Blog ${blog.id}: Failed to update slug - ${updateBlogError.message}`);
+              continue;
+            }
+
+            slugsUpdated++;
+            console.log(`[Fix Blog Handles] Updated blog ${blog.id} slug: "${currentSlug}" -> "${newSlug}"`);
+          }
+        } catch (blogErr: any) {
+          errors.push(`Blog ${blog.id}: ${blogErr.message}`);
+        }
+      }
+
+      console.log(`[Fix Blog Handles] Complete. Handles created: ${handlesCreated}, Slugs updated: ${slugsUpdated}, Errors: ${errors.length}`);
+      
+      res.json({ 
+        success: true, 
+        handlesCreated,
+        slugsUpdated,
+        totalBlogs: blogPosts?.length || 0,
+        errors: errors.length > 0 ? errors : undefined
+      });
+    } catch (error: any) {
+      console.error('[Fix Blog Handles] Error:', error);
+      res.status(500).json({ error: 'Failed to fix blog handles: ' + error.message });
+    }
+  });
+
   // Update own organization (for members to edit their organization details)
   app.patch('/api/my-organization', async (req: Request, res: Response) => {
     if (!supabase) {
