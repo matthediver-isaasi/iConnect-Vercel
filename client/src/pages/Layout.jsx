@@ -169,11 +169,6 @@ const adminNavigationItems = [
     isDynamicArticleSection: true,
     subItems: [
       {
-        title: "All Articles",
-        url: createPageUrl("ArticleManagement"),
-        featureId: "page_ArticleManagement"
-      },
-      {
         title: "Settings",
         url: createPageUrl("ArticlesSettings"),
         featureId: "page_ArticlesSettings"
@@ -776,7 +771,6 @@ useEffect(() => {
     'Support': 'page_user_Support',
     // Admin navigation pages use page_admin_* pattern  
     'NewsSettings': 'page_admin_NewsSettings',
-    'ArticleManagement': 'page_admin_ArticleManagement',
     'ArticlesSettings': 'page_admin_ArticlesSettings',
     'RoleManagement': 'page_admin_RoleManagement',
     'RoleAccessConfigManagement': 'page_RoleAccessConfigManagement',

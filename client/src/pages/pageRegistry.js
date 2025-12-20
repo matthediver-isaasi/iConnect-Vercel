@@ -76,7 +76,6 @@ export const PAGE_NAMES = [
   "PublicNews",
   "NewsSettings",
   "DataExport",
-  "ArticleManagement",
   "SiteMap",
   "Support",
   "SupportManagement",

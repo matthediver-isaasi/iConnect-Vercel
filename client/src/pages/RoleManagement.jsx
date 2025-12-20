@@ -230,7 +230,6 @@ export default function RoleManagementPage() {
     EventSettings: "Event Settings",
     TicketSalesAnalytics: "Ticket Sales Analytics",
     DiscountCodeManagement: "Discount Codes",
-    ArticleManagement: "Article Management",
     ArticlesSettings: "Articles Settings",
     GuestWriterManagement: "Guest Writer Management",
     NewsSettings: "News Settings",

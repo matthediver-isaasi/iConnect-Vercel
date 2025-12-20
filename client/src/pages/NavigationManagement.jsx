@@ -103,7 +103,6 @@ const availableIcons = [
 const hardcodedPublicPages = [
   { name: "AdminSetup", label: "Admin Setup" },
   { name: "Articles", label: "Articles" },
-  { name: "ArticleManagement", label: "Article Management" },
   { name: "ArticlesSettings", label: "Articles Settings" },
   { name: "ArticleEditor", label: "Article Editor" },
   { name: "ArticleView", label: "Article View" },

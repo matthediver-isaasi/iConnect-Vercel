@@ -174,8 +174,6 @@ import NewsPreview from "./NewsPreview";
 
 import DataExport from "./DataExport";
 
-import ArticleManagement from "./ArticleManagement";
-
 import SiteMap from "./SiteMap";
 
 import Support from "./Support";
@@ -413,8 +411,6 @@ const PAGES = {
     NewsPreview: NewsPreview,
     
     DataExport: DataExport,
-    
-    ArticleManagement: ArticleManagement,
     
     SiteMap: SiteMap,
     
@@ -689,8 +685,6 @@ function PagesContent() {
                 <Route path="/news-preview/:id" element={<NewsPreview />} />
                 
                 <Route path="/DataExport" element={<DataExport />} />
-                
-                <Route path="/ArticleManagement" element={<ArticleManagement />} />
                 
                 <Route path="/SiteMap" element={<SiteMap />} />
                 

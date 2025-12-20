@@ -212,7 +212,6 @@ export const ROLE_ACCESS_MAP: Module[] = [
         features: [
           { id: "content.my-articles", label: "My Articles" },
           { id: "content.article-editor", label: "Article Editor" },
-          { id: "content.article-management", label: "Article Management" },
           { id: "content.articles-settings", label: "Articles Settings" },
           { id: "content.guest-writers", label: "Guest Writer Management" },
           { id: "content.articles.edit", label: "Edit Articles" },
@@ -598,7 +597,6 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_admin_NewsSection": "content",
   "page_admin_NewsSettings": "content.news-settings",
   "page_admin_ArticlesSection": "content",
-  "page_admin_ArticleManagement": "content.article-management",
   "page_admin_ArticlesSettings": "content.articles-settings",
   "page_admin_RoleManagement": "admin.role-management",
   "page_admin_MemberRoleAssignment": "admin.member-role-assignment",
@@ -714,7 +712,6 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_TourManagement": "system.tours",
   "page_ZoomWebinarProvisioning": "events.zoom-webinars",
   "page_SpeakerManagement": "events.speakers",
-  "page_ArticleManagement": "content.article-management",
   "page_ArticlesSettings": "content.articles-settings",
   "page_VoucherManagement": "commerce.voucher-management",
   "page_TrainingFundManagement": "commerce.training-fund-management",
