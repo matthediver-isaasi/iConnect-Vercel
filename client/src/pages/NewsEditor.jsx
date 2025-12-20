@@ -43,14 +43,18 @@ export default function NewsEditorPage() {
   const [autoSaving, setAutoSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState(null);
 
-  // Fetch current member
+  // Fetch current member by ID (efficient single record fetch)
   const { data: currentMember, isLoading: memberLoading } = useQuery({
-    queryKey: ['current-member', memberInfo?.email],
+    queryKey: ['current-member', memberInfo?.id],
     queryFn: async () => {
-      const allMembers = await base44.entities.Member.listAll();
-      return allMembers.find(m => m.email === memberInfo?.email) || null;
+      if (memberInfo?.id) {
+        return await base44.entities.Member.get(memberInfo.id);
+      }
+      // Fallback to filter by email if no ID
+      const members = await base44.entities.Member.filter({ email: memberInfo.email });
+      return members[0] || null;
     },
-    enabled: !!memberInfo
+    enabled: !!memberInfo?.id || !!memberInfo?.email
   });
 
   // Fetch categories
