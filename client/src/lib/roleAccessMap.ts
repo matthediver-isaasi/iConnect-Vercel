@@ -13,6 +13,7 @@ export interface Module {
   id: string;
   label: string;
   icon?: string;
+  features?: Feature[];
   pages: Page[];
 }
 
@@ -258,6 +259,9 @@ export const ROLE_ACCESS_MAP: Module[] = [
     id: "jobs",
     label: "Job Board",
     icon: "Briefcase",
+    features: [
+      { id: "jobs.post-on-behalf", label: "Post on Behalf of Organisation" }
+    ],
     pages: [
       {
         id: "jobs.job-board",
@@ -671,7 +675,8 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "action_org_logo_edit": "membership.organisation-directory.edit-logo",
   "admin_can_edit_members": "admin.member-role-assignment.edit-members",
   "admin_can_manage_communications": "communication",
-  "feature_PostJobOnBehalfOfOrg": "jobs.my-postings.post-for-others",
+  "feature_PostJobOnBehalfOfOrg": "jobs.post-on-behalf",
+  "feature_PostJobsForOtherOrgs": "jobs.my-postings.post-for-others",
   "page_Events": "events.browse-events",
   "page_Bookings": "commerce.bookings",
   "page_MyTickets": "events.my-tickets",
