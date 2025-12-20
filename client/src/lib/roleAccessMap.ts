@@ -60,7 +60,6 @@ export const ROLE_ACCESS_MAP: Module[] = [
         id: "events.event-details",
         label: "Event Details",
         features: [
-          { id: "events.event-details.description", label: "Event Description" },
           { id: "events.event-details.self-registration", label: "Self Registration" },
           { id: "events.event-details.add-colleagues", label: "Add Team Members to Events" },
           { id: "events.event-details.register-external", label: "Register External Attendees" },
@@ -652,7 +651,6 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_IEditPageEditor": "site-builder.page-editor",
   "page_GuestWriterManagement": "content.guest-writers",
   "page_OrganisationDirectorySettings": "membership.organisation-directory-settings",
-  "element_EventDescription": "events.event-details.description",
   "element_EventsSearch": "events.browse-events.search-filters",
   "element_SelfRegistration": "events.event-details.self-registration",
   "element_AddColleaguesToEvents": "events.event-details.add-colleagues",
