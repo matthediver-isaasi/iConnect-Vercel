@@ -88,11 +88,18 @@ export default function NewsCard({
       <CardHeader className="pb-3 flex-grow">
         <div className="flex items-start justify-between gap-2">
           <CardTitle className="text-lg line-clamp-2 flex-1">{article.title}</CardTitle>
-          {showDraftBadge && article.status === 'draft' && (
-            <Badge variant="secondary" className="bg-amber-100 text-amber-800 border-amber-200 shrink-0">
-              Draft
-            </Badge>
-          )}
+          <div className="flex gap-1 shrink-0">
+            {!showDraftBadge && isAuthor && (
+              <Badge variant="secondary" className="bg-blue-100 text-blue-800 border-blue-200">
+                My Article
+              </Badge>
+            )}
+            {showDraftBadge && article.status === 'draft' && (
+              <Badge variant="secondary" className="bg-amber-100 text-amber-800 border-amber-200">
+                Draft
+              </Badge>
+            )}
+          </div>
         </div>
         
         {article.published_date && (
