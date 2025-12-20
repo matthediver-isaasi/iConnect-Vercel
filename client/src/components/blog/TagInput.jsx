@@ -14,26 +14,26 @@ export default function TagInput({ tags, onChange }) {
   const inputRef = useRef(null);
   const suggestionsRef = useRef(null);
 
-  const { data: resources = [], isLoading } = useQuery({
-    queryKey: ['/api/resources/tags'],
+  const { data: articles = [], isLoading } = useQuery({
+    queryKey: ['/api/blog-posts/tags'],
     queryFn: async () => {
-      const resources = await base44.entities.Resource.list();
-      return resources;
+      const articles = await base44.entities.BlogPost.list();
+      return articles;
     },
     staleTime: 5 * 60 * 1000,
   });
 
   const existingTags = useMemo(() => {
     const tagSet = new Set();
-    resources.forEach(resource => {
-      if (resource.tags && Array.isArray(resource.tags)) {
-        resource.tags.forEach(tag => tagSet.add(tag));
+    articles.forEach(article => {
+      if (article.tags && Array.isArray(article.tags)) {
+        article.tags.forEach(tag => tagSet.add(tag));
       }
     });
     return Array.from(tagSet).sort((a, b) => 
       a.toLowerCase().localeCompare(b.toLowerCase())
     );
-  }, [resources]);
+  }, [articles]);
 
   const filteredSuggestions = useMemo(() => {
     if (!inputValue.trim()) return [];
