@@ -136,14 +136,15 @@ export default function FollowedAuthorsCard({ memberInfo, articleDisplayName = "
                     {follow.author_organization}
                   </span>
                 )}
-                <button
+                <span
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    unfollowMutation.mutate(follow.id);
+                    if (!unfollowMutation.isPending) {
+                      unfollowMutation.mutate(follow.id);
+                    }
                   }}
-                  disabled={unfollowMutation.isPending}
-                  className="mt-1 text-slate-400 hover:text-red-500 transition-colors"
+                  className="mt-1 inline-flex cursor-pointer text-slate-400 hover:text-red-500 transition-colors"
                   title="Unfollow"
                   data-testid={`button-unfollow-${follow.id}`}
                 >
@@ -152,7 +153,7 @@ export default function FollowedAuthorsCard({ memberInfo, articleDisplayName = "
                   ) : (
                     <Trash2 className="w-3.5 h-3.5" />
                   )}
-                </button>
+                </span>
               </div>
             </Link>
           </div>
