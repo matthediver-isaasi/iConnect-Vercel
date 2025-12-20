@@ -29,9 +29,11 @@ export default function ArticleCard({
   // Determine author handle for URL construction
   let authorHandle = "guest"; // Default for guest writers
   if (article.author_id) {
+    // Use String() for consistent type matching with authorHandles map keys
+    const authorIdStr = String(article.author_id);
     // Try to get handle from props, or extract from legacy slug
-    if (authorHandles[article.author_id]) {
-      authorHandle = authorHandles[article.author_id];
+    if (authorHandles[authorIdStr]) {
+      authorHandle = authorHandles[authorIdStr];
     } else {
       // Fallback: extract from legacy slug format "-by-{handle}"
       const byHandleMatch = (article.slug || "").match(/-by-([a-z0-9-]+)$/i);

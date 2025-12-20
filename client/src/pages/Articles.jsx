@@ -124,9 +124,11 @@ export default function ArticlesPage() {
       const handleMap = {};
       members.forEach(m => {
         if (m.id && m.blog_handle) {
-          handleMap[m.id] = m.blog_handle;
+          // Use String() for consistent key type matching with article.author_id lookups
+          handleMap[String(m.id)] = m.blog_handle;
         }
       });
+      console.log('[Articles] authorHandles map built with', Object.keys(handleMap).length, 'entries');
       return handleMap;
     },
     staleTime: 60000 // Cache for 1 minute

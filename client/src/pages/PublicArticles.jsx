@@ -74,7 +74,8 @@ export default function PublicArticlesPage() {
       const handleMap = {};
       members.forEach(m => {
         if (m.id && m.blog_handle) {
-          handleMap[m.id] = m.blog_handle;
+          // Use String() for consistent key type matching with article.author_id lookups
+          handleMap[String(m.id)] = m.blog_handle;
         }
       });
       return handleMap;
