@@ -200,14 +200,14 @@ export default function ArticleEditorPage() {
       setAuthorType("guest");
       setSelectedGuestWriterId(article.guest_writer_id);
       setOriginalAuthorId(null);
-      setOriginalAuthorName(article.author_name || "Guest Writer");
+      setOriginalAuthorName(null); // Will be set from guest writer lookup
       setOriginalAuthorHandle(null);
       setIsOtherMemberArticle(false);
-    } else if (article.author_id || article.author_name) {
+    } else if (article.author_id) {
       // Article has an author - always default to keeping current author
       setAuthorType("other_member");
       setOriginalAuthorId(article.author_id);
-      setOriginalAuthorName(article.author_name || "Unknown Author");
+      setOriginalAuthorName(null); // Will be set from currentAuthorMember lookup
       setIsOtherMemberArticle(true);
       // Handle will be set from currentAuthorMember query
     } else {
@@ -228,10 +228,17 @@ export default function ArticleEditorPage() {
     }
   }, [persistedOriginalAuthorMember]);
 
-  // Set current author handle from member query (if not already extracted from legacy slug)
+  // Set current author details from member query
   useEffect(() => {
-    if (currentAuthorMember?.handle && !originalAuthorHandle) {
-      setOriginalAuthorHandle(currentAuthorMember.handle);
+    if (currentAuthorMember) {
+      if (currentAuthorMember.handle && !originalAuthorHandle) {
+        setOriginalAuthorHandle(currentAuthorMember.handle);
+      }
+      // Set author name from looked-up member data
+      const fullName = `${currentAuthorMember.first_name || ''} ${currentAuthorMember.last_name || ''}`.trim();
+      if (fullName) {
+        setOriginalAuthorName(fullName);
+      }
     }
   }, [currentAuthorMember, originalAuthorHandle]);
 
@@ -721,8 +728,8 @@ export default function ArticleEditorPage() {
                 <div className="space-y-2">
                   <Label className="text-sm">Show author as</Label>
                   <div className="flex flex-wrap gap-4">
-                    {/* Current Author option - shown when editing any existing article with an author */}
-                    {isEditing && article?.author_name && (
+                    {/* Current Author option - shown when editing an article with a different author */}
+                    {isEditing && originalAuthorId && originalAuthorId !== currentMember?.id && (
                       <label className="flex items-center gap-2 cursor-pointer">
                         <input
                           type="radio"
@@ -733,11 +740,11 @@ export default function ArticleEditorPage() {
                           className="w-4 h-4"
                           data-testid="radio-author-current"
                         />
-                        <span className="text-sm">{article.author_name}</span>
+                        <span className="text-sm">{originalAuthorName || "Current Author"}</span>
                       </label>
                     )}
-                    {/* Revert to Original Author option - shown when article has been taken over */}
-                    {isEditing && persistedOriginalAuthorId && persistedOriginalAuthorId !== article?.author_id && (
+                    {/* Original Author option - always shown when article has an original_author_id */}
+                    {isEditing && persistedOriginalAuthorId && (
                       <label className="flex items-center gap-2 cursor-pointer">
                         <input
                           type="radio"
@@ -746,10 +753,10 @@ export default function ArticleEditorPage() {
                           checked={authorType === "revert_original"}
                           onChange={(e) => setAuthorType(e.target.value)}
                           className="w-4 h-4"
-                          data-testid="radio-author-revert"
+                          data-testid="radio-author-original"
                         />
                         <span className="text-sm text-green-700">
-                          Revert to Original ({persistedOriginalAuthorName || "Original Author"})
+                          Original Author ({persistedOriginalAuthorName || "Original Author"})
                         </span>
                       </label>
                     )}
