@@ -336,16 +336,29 @@ export default function ArticleEditorPage() {
           };
 
           // New folder-based URL structure: store clean slugs
+          autoSaveData.slug = slug;
+          
           if (authorType === "guest") {
-            autoSaveData.slug = slug;
             autoSaveData.author_id = null;
             autoSaveData.guest_writer_id = selectedGuestWriterId;
+          } else if (authorType === "revert_original" && persistedOriginalAuthorId) {
+            // Reverting to original author
+            autoSaveData.author_id = persistedOriginalAuthorId;
+            autoSaveData.guest_writer_id = null;
+            autoSaveData.author_name = persistedOriginalAuthorName || originalAuthorName;
           } else if (authorType === "other_member" && originalAuthorId) {
-            autoSaveData.slug = slug;
+            // Keeping current author - no changes to author_id or original_author_id
             autoSaveData.author_id = originalAuthorId;
+            autoSaveData.guest_writer_id = null;
           } else {
-            autoSaveData.slug = slug;
+            // authorType === "member" - takeover
             autoSaveData.author_id = currentMember.id;
+            autoSaveData.guest_writer_id = null;
+            autoSaveData.author_name = `${memberInfo.first_name} ${memberInfo.last_name}`;
+            // Set original_author_id if not already set (first takeover)
+            if (!persistedOriginalAuthorId && originalAuthorId) {
+              autoSaveData.original_author_id = originalAuthorId;
+            }
           }
           
           await base44.entities.BlogPost.update(articleId, autoSaveData);
@@ -359,7 +372,7 @@ export default function ArticleEditorPage() {
     }, 3000);
 
     return () => clearTimeout(autoSaveTimer);
-  }, [title, slug, summary, content, featureImage, subcategories, tags, status, publishedDate, seoTitle, seoDescription, isEditing, articleId, memberInfo, currentMember, authorType, selectedGuestWriterId, originalAuthorId, article]);
+  }, [title, slug, summary, content, featureImage, subcategories, tags, status, publishedDate, seoTitle, seoDescription, isEditing, articleId, memberInfo, currentMember, authorType, selectedGuestWriterId, originalAuthorId, originalAuthorName, persistedOriginalAuthorId, persistedOriginalAuthorName, article]);
 
   const saveMutation = useMutation({
     mutationFn: async (publishNow = false) => {
