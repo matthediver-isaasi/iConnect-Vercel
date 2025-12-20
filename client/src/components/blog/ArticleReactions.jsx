@@ -54,15 +54,21 @@ export default function ArticleReactions({ articleId, memberInfo, showThumbsUp =
   // Reaction mutation
   const reactionMutation = useMutation({
     mutationFn: async (reactionType) => {
+      // Fetch fresh user reaction to avoid stale closure data
+      const allReactions = await base44.entities.ArticleReaction.list();
+      const currentUserReaction = allReactions.find(
+        r => r.article_id === articleId && r.user_identifier === userIdentifier
+      );
+
       // If user already has this reaction, remove it
-      if (userReaction && userReaction.reaction_type === reactionType) {
-        await base44.entities.ArticleReaction.delete(userReaction.id);
+      if (currentUserReaction && currentUserReaction.reaction_type === reactionType) {
+        await base44.entities.ArticleReaction.delete(currentUserReaction.id);
         return { action: 'removed' };
       }
 
       // If user has opposite reaction, update it
-      if (userReaction && userReaction.reaction_type !== reactionType) {
-        await base44.entities.ArticleReaction.update(userReaction.id, {
+      if (currentUserReaction && currentUserReaction.reaction_type !== reactionType) {
+        await base44.entities.ArticleReaction.update(currentUserReaction.id, {
           reaction_type: reactionType
         });
         return { action: 'switched' };
