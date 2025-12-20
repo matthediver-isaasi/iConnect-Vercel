@@ -871,13 +871,15 @@ export default function ArticleViewPage() {
           </CardContent>
         </Card>
 
-        {/* Comments Section */}
-        <ArticleComments 
-          articleId={article.id} 
-          memberInfo={memberInfo}
-          showThumbsUp={articleSettings?.showThumbsUp}
-          showThumbsDown={articleSettings?.showThumbsDown}
-        />
+        {/* Comments Section - only shown if feature not excluded */}
+        {!isFeatureExcluded('content.articles.comments') && (
+          <ArticleComments 
+            articleId={article.id} 
+            memberInfo={memberInfo}
+            showThumbsUp={articleSettings?.showThumbsUp}
+            showThumbsDown={articleSettings?.showThumbsDown}
+          />
+        )}
       </div>
     </div>
   );
