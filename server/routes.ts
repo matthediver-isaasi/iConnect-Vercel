@@ -708,7 +708,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (follow.followed_member_id) {
           const { data: member, error: memberError } = await supabase
             .from('member')
-            .select('id, first_name, last_name, blog_author_handle, profile_photo_url')
+            .select('id, first_name, last_name, handle, blog_handle, profile_photo_url')
             .eq('id', follow.followed_member_id)
             .single();
           
@@ -716,19 +716,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
           
           if (member && !memberError) {
             authorName = `${member.first_name || ''} ${member.last_name || ''}`.trim() || 'Unknown Author';
-            authorHandle = member.blog_author_handle;
+            authorHandle = member.handle || member.blog_handle;
           }
         } else if (follow.followed_guest_writer_id) {
           const { data: guestWriter, error: gwError } = await supabase
             .from('guest_writer')
-            .select('id, name, handle')
+            .select('id, full_name, handle')
             .eq('id', follow.followed_guest_writer_id)
             .single();
           
           console.log('[Article Follows] Guest writer lookup for', follow.followed_guest_writer_id, ':', guestWriter, 'error:', gwError);
           
           if (guestWriter && !gwError) {
-            authorName = guestWriter.name || 'Unknown Author';
+            authorName = guestWriter.full_name || 'Unknown Author';
             authorHandle = guestWriter.handle;
           }
         }

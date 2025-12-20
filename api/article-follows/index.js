@@ -53,28 +53,47 @@ export default async function handler(req, res) {
 
           let authorName = 'Unknown Author';
           let authorHandle = null;
+          let debugInfo = null;
           
           if (follow.followed_member_id) {
             const { data: member, error: memberError } = await supabase
               .from('member')
-              .select('first_name, last_name, blog_author_handle')
+              .select('first_name, last_name, handle, blog_handle')
               .eq('id', follow.followed_member_id)
               .single();
             
+            console.log('[article-follows] Member lookup result:', { 
+              followed_member_id: follow.followed_member_id, 
+              member, 
+              memberError 
+            });
+            
             if (member && !memberError) {
               authorName = `${member.first_name || ''} ${member.last_name || ''}`.trim() || 'Unknown Author';
-              authorHandle = member.blog_author_handle;
+              authorHandle = member.handle || member.blog_handle;
+            } else {
+              debugInfo = { 
+                lookup_failed: true, 
+                followed_member_id: follow.followed_member_id,
+                error: memberError?.message || 'No member found'
+              };
             }
           } else if (follow.followed_guest_writer_id) {
             const { data: guestWriter, error: gwError } = await supabase
               .from('guest_writer')
-              .select('name, handle')
+              .select('full_name, handle')
               .eq('id', follow.followed_guest_writer_id)
               .single();
             
             if (guestWriter && !gwError) {
-              authorName = guestWriter.name || 'Unknown Author';
+              authorName = guestWriter.full_name || 'Unknown Author';
               authorHandle = guestWriter.handle;
+            } else {
+              debugInfo = { 
+                lookup_failed: true, 
+                followed_guest_writer_id: follow.followed_guest_writer_id,
+                error: gwError?.message || 'No guest writer found'
+              };
             }
           }
 
@@ -82,7 +101,8 @@ export default async function handler(req, res) {
             ...follow,
             unread_count: unreadCount,
             author_name: authorName,
-            author_handle: authorHandle
+            author_handle: authorHandle,
+            _debug: debugInfo
           };
         })
       );
