@@ -26,7 +26,7 @@ export default function ArticleReactions({ articleId, memberInfo, showThumbsUp =
     }
   }, [memberInfo]);
 
-  // Fetch all reactions for this article
+  // Single query to fetch all reactions for this article
   const { data: allReactions = [] } = useQuery({
     queryKey: ['article-reactions', articleId],
     queryFn: async () => {
@@ -36,34 +36,25 @@ export default function ArticleReactions({ articleId, memberInfo, showThumbsUp =
     enabled: !!articleId,
   });
 
-  // Fetch user's reaction
-  const { data: userReaction } = useQuery({
-    queryKey: ['user-article-reaction', articleId, userIdentifier],
-    queryFn: async () => {
-      if (!userIdentifier) return null;
-      const reactions = await base44.entities.ArticleReaction.list();
-      return reactions.find(r => r.article_id === articleId && r.user_identifier === userIdentifier);
-    },
-    enabled: !!articleId && !!userIdentifier,
-  });
+  // Derive user reaction from allReactions (no separate fetch)
+  const userReaction = userIdentifier 
+    ? allReactions.find(r => r.user_identifier === userIdentifier)
+    : null;
 
   // Calculate counts
   const thumbsUpCount = allReactions.filter(r => r.reaction_type === 'up').length;
   const thumbsDownCount = allReactions.filter(r => r.reaction_type === 'down').length;
 
-  // Reaction mutation
+  // Reaction mutation with optimistic updates
   const reactionMutation = useMutation({
     mutationFn: async (reactionType) => {
-      // Fetch fresh user reaction to avoid stale closure data
-      const allReactions = await base44.entities.ArticleReaction.list();
-      const currentUserReaction = allReactions.find(
-        r => r.article_id === articleId && r.user_identifier === userIdentifier
-      );
+      // Use current userReaction from derived state
+      const currentUserReaction = userReaction;
 
       // If user already has this reaction, remove it
       if (currentUserReaction && currentUserReaction.reaction_type === reactionType) {
         await base44.entities.ArticleReaction.delete(currentUserReaction.id);
-        return { action: 'removed' };
+        return { action: 'removed', reactionType };
       }
 
       // If user has opposite reaction, update it
@@ -71,7 +62,7 @@ export default function ArticleReactions({ articleId, memberInfo, showThumbsUp =
         await base44.entities.ArticleReaction.update(currentUserReaction.id, {
           reaction_type: reactionType
         });
-        return { action: 'switched' };
+        return { action: 'switched', reactionType };
       }
 
       // Add new reaction
@@ -81,14 +72,50 @@ export default function ArticleReactions({ articleId, memberInfo, showThumbsUp =
         user_identifier: userIdentifier,
         is_member: !!memberInfo
       });
-      return { action: 'added' };
+      return { action: 'added', reactionType };
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['article-reactions', articleId] });
-      queryClient.invalidateQueries({ queryKey: ['user-article-reaction', articleId, userIdentifier] });
+    onMutate: async (reactionType) => {
+      // Cancel outgoing refetches
+      await queryClient.cancelQueries({ queryKey: ['article-reactions', articleId] });
+      
+      // Snapshot previous value
+      const previousReactions = queryClient.getQueryData(['article-reactions', articleId]);
+      
+      // Optimistically update
+      queryClient.setQueryData(['article-reactions', articleId], (old) => {
+        if (!old) return old;
+        const existing = old.find(r => r.user_identifier === userIdentifier);
+        
+        if (existing && existing.reaction_type === reactionType) {
+          // Remove reaction
+          return old.filter(r => r.id !== existing.id);
+        } else if (existing) {
+          // Switch reaction
+          return old.map(r => r.id === existing.id ? { ...r, reaction_type: reactionType } : r);
+        } else {
+          // Add reaction
+          return [...old, { 
+            id: `temp-${Date.now()}`, 
+            article_id: articleId, 
+            reaction_type: reactionType, 
+            user_identifier: userIdentifier,
+            is_member: !!memberInfo
+          }];
+        }
+      });
+      
+      return { previousReactions };
     },
-    onError: () => {
+    onError: (err, reactionType, context) => {
+      // Rollback on error
+      if (context?.previousReactions) {
+        queryClient.setQueryData(['article-reactions', articleId], context.previousReactions);
+      }
       toast.error('Failed to update reaction');
+    },
+    onSettled: () => {
+      // Refetch once to sync with server
+      queryClient.invalidateQueries({ queryKey: ['article-reactions', articleId] });
     },
   });
 
