@@ -706,24 +706,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         // Get author details
         if (follow.followed_member_id) {
-          const { data: member } = await supabase
+          const { data: member, error: memberError } = await supabase
             .from('member')
             .select('id, first_name, last_name, blog_author_handle, profile_photo_url')
             .eq('id', follow.followed_member_id)
             .single();
           
-          if (member) {
+          console.log('[Article Follows] Member lookup for', follow.followed_member_id, ':', member, 'error:', memberError);
+          
+          if (member && !memberError) {
             authorName = `${member.first_name || ''} ${member.last_name || ''}`.trim() || 'Unknown Author';
             authorHandle = member.blog_author_handle;
           }
         } else if (follow.followed_guest_writer_id) {
-          const { data: guestWriter } = await supabase
+          const { data: guestWriter, error: gwError } = await supabase
             .from('guest_writer')
             .select('id, name, handle')
             .eq('id', follow.followed_guest_writer_id)
             .single();
           
-          if (guestWriter) {
+          console.log('[Article Follows] Guest writer lookup for', follow.followed_guest_writer_id, ':', guestWriter, 'error:', gwError);
+          
+          if (guestWriter && !gwError) {
             authorName = guestWriter.name || 'Unknown Author';
             authorHandle = guestWriter.handle;
           }
