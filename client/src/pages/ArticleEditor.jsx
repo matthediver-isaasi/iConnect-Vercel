@@ -121,48 +121,10 @@ export default function ArticleEditorPage() {
     enabled: isEditing,
   });
 
-  // Load article data into form
+  // Load article data into form - only set non-author fields initially
   useEffect(() => {
     if (article) {
       setTitle(article.title || "");
-      
-      // Determine author type and preserve original author
-      if (article.guest_writer_id) {
-        setAuthorType("guest");
-        setSelectedGuestWriterId(article.guest_writer_id);
-        setSlug(article.slug || "");
-        setOriginalAuthorId(null);
-        setOriginalAuthorName(article.author_name || "Guest Writer");
-      } else if (article.author_id) {
-        // Always store original author info
-        setOriginalAuthorId(article.author_id);
-        setOriginalAuthorName(article.author_name || "Unknown Author");
-        
-        // Check if the article's author is the current logged-in member
-        if (article.author_id === currentMember?.id) {
-          setAuthorType("member");
-          setIsOtherMemberArticle(false);
-        } else {
-          // Article belongs to a different member
-          setAuthorType("other_member");
-          setIsOtherMemberArticle(true);
-        }
-        
-        // Extract slug without the "-by-handle" suffix
-        let displaySlug = article.slug || "";
-        const byHandleMatch = displaySlug.match(/-by-[a-z0-9-]+$/i);
-        if (byHandleMatch) {
-          displaySlug = displaySlug.slice(0, -byHandleMatch[0].length);
-        }
-        setSlug(displaySlug);
-      } else {
-        // No author_id or guest_writer_id - set as member (logged-in user becomes author)
-        setAuthorType("member");
-        setOriginalAuthorId(null);
-        setOriginalAuthorName(null);
-        setSlug(article.slug || "");
-      }
-      
       setSummary(article.summary || "");
       setContent(article.content || "");
       setFeatureImage(article.feature_image_url || "");
@@ -172,8 +134,54 @@ export default function ArticleEditorPage() {
       setPublishedDate(article.published_date || new Date().toISOString());
       setSeoTitle(article.seo_title || "");
       setSeoDescription(article.seo_description || "");
+      
+      // Handle slug extraction for member-authored articles
+      if (article.author_id && !article.guest_writer_id) {
+        let displaySlug = article.slug || "";
+        const byHandleMatch = displaySlug.match(/-by-[a-z0-9-]+$/i);
+        if (byHandleMatch) {
+          displaySlug = displaySlug.slice(0, -byHandleMatch[0].length);
+        }
+        setSlug(displaySlug);
+      } else {
+        setSlug(article.slug || "");
+      }
     }
-  }, [article, currentMember?.id]);
+  }, [article]);
+
+  // Determine author type - only run when both article AND currentMember are loaded
+  useEffect(() => {
+    if (!article || !currentMember) return;
+    
+    // Determine author type and preserve original author
+    if (article.guest_writer_id) {
+      setAuthorType("guest");
+      setSelectedGuestWriterId(article.guest_writer_id);
+      setOriginalAuthorId(null);
+      setOriginalAuthorName(article.author_name || "Guest Writer");
+      setIsOtherMemberArticle(false);
+    } else if (article.author_id) {
+      // Always store original author info
+      setOriginalAuthorId(article.author_id);
+      setOriginalAuthorName(article.author_name || "Unknown Author");
+      
+      // Check if the article's author is the current logged-in member
+      if (article.author_id === currentMember.id) {
+        setAuthorType("member");
+        setIsOtherMemberArticle(false);
+      } else {
+        // Article belongs to a different member
+        setAuthorType("other_member");
+        setIsOtherMemberArticle(true);
+      }
+    } else {
+      // No author_id or guest_writer_id - set as member (logged-in user becomes author)
+      setAuthorType("member");
+      setOriginalAuthorId(null);
+      setOriginalAuthorName(null);
+      setIsOtherMemberArticle(false);
+    }
+  }, [article, currentMember]);
 
   // Auto-generate slug from title
   useEffect(() => {
