@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { ArrowLeft, Save, Eye, Trash2, Upload, X, Loader2, CheckCircle2, Clock, User, Share2, Copy, Check } from "lucide-react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { format } from "date-fns";
@@ -60,6 +60,8 @@ export default function ArticleEditorPage() {
   const [sharePassword, setSharePassword] = useState("");
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedPassword, setCopiedPassword] = useState(false);
+  // Delete confirmation dialog
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   // Fetch current member's full record to get the handle
   // First check if memberInfo already has handle (from login), otherwise fetch by ID
@@ -552,10 +554,12 @@ export default function ArticleEditorPage() {
       queryClient.invalidateQueries({ queryKey: ['my-articles'] });
       queryClient.invalidateQueries({ queryKey: ['all-articles-admin'] });
       queryClient.invalidateQueries({ queryKey: ['published-articles'] });
+      setDeleteDialogOpen(false);
       toast.success(`${singularDisplayName} deleted successfully`);
       window.location.href = getArticleListUrl();
     },
     onError: () => {
+      setDeleteDialogOpen(false);
       toast.error(`Failed to delete ${singularDisplayName.toLowerCase()}`);
     },
   });
@@ -677,9 +681,11 @@ export default function ArticleEditorPage() {
   }), []);
 
   const handleDelete = () => {
-    if (window.confirm(`Are you sure you want to delete this ${singularDisplayName.toLowerCase()}? This action cannot be undone.`)) {
-      deleteMutation.mutate();
-    }
+    setDeleteDialogOpen(true);
+  };
+
+  const confirmDelete = () => {
+    deleteMutation.mutate();
   };
 
   if (!memberInfo) {
@@ -1198,6 +1204,35 @@ export default function ArticleEditorPage() {
               </p>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete {singularDisplayName}</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete "{title}"? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setDeleteDialogOpen(false)}
+              disabled={deleteMutation.isPending}
+              data-testid="button-cancel-delete"
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={confirmDelete}
+              disabled={deleteMutation.isPending}
+              data-testid="button-confirm-delete"
+            >
+              {deleteMutation.isPending ? 'Deleting...' : 'Delete'}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
