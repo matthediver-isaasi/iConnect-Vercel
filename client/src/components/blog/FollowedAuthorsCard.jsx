@@ -94,60 +94,62 @@ export default function FollowedAuthorsCard({ memberInfo, articleDisplayName = "
         {followedAuthors.map((follow) => (
           <div
             key={follow.id}
-            className="flex items-center justify-between gap-2 p-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+            className="flex items-start gap-2 p-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
             data-testid={`followed-author-${follow.id}`}
           >
             <Link
               to={follow.author_handle ? `/articles/author/${follow.author_handle}` : '/articles'}
-              className="flex items-center gap-2 flex-1 min-w-0"
+              className="flex items-start gap-2 flex-1 min-w-0"
               onClick={() => handleAuthorClick(follow)}
             >
-              <Avatar className="w-7 h-7 flex-shrink-0">
-                {follow.author_profile_photo && (
-                  <AvatarImage src={follow.author_profile_photo} alt={follow.author_name} />
-                )}
-                <AvatarFallback className="bg-slate-200 dark:bg-slate-700">
-                  <User className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
-                </AvatarFallback>
-              </Avatar>
-              <div className="flex flex-col min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium truncate" data-testid={`text-author-${follow.id}`}>
-                    {follow.author_name}
-                  </span>
-                  {follow.unread_count > 0 && (
-                    <Badge 
-                      variant="default" 
-                      className="bg-blue-600 text-white flex items-center gap-1 flex-shrink-0"
-                      data-testid={`badge-unread-${follow.id}`}
-                    >
-                      <BellRing className="w-3 h-3" />
-                      {follow.unread_count}
-                    </Badge>
-                  )}
+              {/* Avatar or notification badge */}
+              {follow.unread_count > 0 ? (
+                <div 
+                  className="w-7 h-7 flex-shrink-0 rounded-full bg-blue-600 flex items-center justify-center"
+                  data-testid={`badge-unread-${follow.id}`}
+                >
+                  <BellRing className="w-3.5 h-3.5 text-white" />
                 </div>
+              ) : (
+                <Avatar className="w-7 h-7 flex-shrink-0">
+                  {follow.author_profile_photo && (
+                    <AvatarImage src={follow.author_profile_photo} alt={follow.author_name} />
+                  )}
+                  <AvatarFallback className="bg-slate-200 dark:bg-slate-700">
+                    <User className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
+                  </AvatarFallback>
+                </Avatar>
+              )}
+              <div className="flex flex-col min-w-0 flex-1">
+                <span className="text-sm font-medium truncate" data-testid={`text-author-${follow.id}`}>
+                  {follow.author_name}
+                </span>
                 {follow.author_organization && (
                   <span className="text-xs text-slate-500 dark:text-slate-400 truncate" data-testid={`text-org-${follow.id}`}>
                     {follow.author_organization}
                   </span>
                 )}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    unfollowMutation.mutate(follow.id);
+                  }}
+                  disabled={unfollowMutation.isPending}
+                  className="h-6 px-2 mt-1 w-fit text-xs text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
+                  data-testid={`button-unfollow-${follow.id}`}
+                >
+                  {unfollowMutation.isPending ? (
+                    <div className="w-3 h-3 border-2 border-slate-400 border-t-transparent rounded-full animate-spin mr-1" />
+                  ) : (
+                    <UserMinus className="w-3 h-3 mr-1" />
+                  )}
+                  Unfollow
+                </Button>
               </div>
             </Link>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => unfollowMutation.mutate(follow.id)}
-              disabled={unfollowMutation.isPending}
-              className="flex-shrink-0 h-7 w-7 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
-              title="Unfollow"
-              data-testid={`button-unfollow-${follow.id}`}
-            >
-              {unfollowMutation.isPending ? (
-                <div className="w-3.5 h-3.5 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
-              ) : (
-                <UserMinus className="w-3.5 h-3.5" />
-              )}
-            </Button>
           </div>
         ))}
       </div>
