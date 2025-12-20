@@ -50,30 +50,35 @@ export default function NewsPreview() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
-        <div className="animate-pulse text-slate-600">Loading...</div>
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+        <div className="max-w-md mx-auto pt-8">
+          <div className="animate-pulse text-slate-600 text-center">Loading...</div>
+        </div>
       </div>
     );
   }
 
   if (error || !news) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
-        <Card className="max-w-md w-full border-red-200">
-          <CardContent className="p-8 text-center">
-            <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
-            <h2 className="text-xl font-semibold text-slate-900 mb-2">Article Not Found</h2>
-            <p className="text-slate-600">The article you're looking for doesn't exist or has been removed.</p>
-          </CardContent>
-        </Card>
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+        <div className="max-w-md mx-auto">
+          <Card className="border-red-200">
+            <CardContent className="p-8 text-center">
+              <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+              <h2 className="text-xl font-semibold text-slate-900 mb-2">Article Not Found</h2>
+              <p className="text-slate-600">The article you're looking for doesn't exist or has been removed.</p>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     );
   }
 
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
-        <Card className="max-w-md w-full">
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+        <div className="max-w-md mx-auto">
+          <Card>
           <CardHeader className="text-center">
             <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4">
               <Lock className="w-8 h-8 text-slate-600" />
@@ -118,6 +123,7 @@ export default function NewsPreview() {
             </form>
           </CardContent>
         </Card>
+        </div>
       </div>
     );
   }
