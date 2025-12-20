@@ -172,6 +172,8 @@ import PublicNews from "./PublicNews";
 
 import NewsSettings from "./NewsSettings";
 
+import NewsPreview from "./NewsPreview";
+
 import DataExport from "./DataExport";
 
 import ArticleManagement from "./ArticleManagement";
@@ -411,6 +413,8 @@ const PAGES = {
     PublicNews: PublicNews,
     
     NewsSettings: NewsSettings,
+
+    NewsPreview: NewsPreview,
     
     DataExport: DataExport,
     
@@ -687,6 +691,8 @@ function PagesContent() {
                 <Route path="/PublicNews" element={<PublicNews />} />
                 
                 <Route path="/NewsSettings" element={<NewsSettings />} />
+                
+                <Route path="/news-preview/:id" element={<NewsPreview />} />
                 
                 <Route path="/DataExport" element={<DataExport />} />
                 
