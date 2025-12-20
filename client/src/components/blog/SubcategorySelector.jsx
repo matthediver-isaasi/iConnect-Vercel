@@ -57,6 +57,17 @@ export default function SubcategorySelector({ categories, selectedSubcategories,
     setOpenCategories(prev => ({ ...prev, ...newOpenCategories }));
   }, [categories, selectedSubcategories]);
 
+  // Expand all categories when search input is focused
+  const handleSearchFocus = () => {
+    const allOpen = {};
+    categories.forEach(cat => {
+      if (cat.subcategories && cat.subcategories.length > 0) {
+        allOpen[cat.name] = true;
+      }
+    });
+    setOpenCategories(allOpen);
+  };
+
   // Show loading state only when actually loading
   if (isLoading) {
     return (
@@ -82,7 +93,9 @@ export default function SubcategorySelector({ categories, selectedSubcategories,
           placeholder="Search categories..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
+          onFocus={handleSearchFocus}
           className="pl-10 pr-10"
+          data-testid="input-category-search"
         />
         {searchQuery && (
           <button
