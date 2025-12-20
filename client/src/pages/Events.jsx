@@ -401,7 +401,7 @@ export default function EventsPage({
         )}
 
         {/* Search and Filters */}
-        {!isFeatureExcluded?.("element_EventsSearch") && (
+        {!resolvedIsFeatureExcluded('events.browse-events.search-filters') && (
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-8">
             <div className="flex flex-col md:flex-row gap-4">
               <div className="flex-1 relative">
