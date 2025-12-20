@@ -43,8 +43,10 @@ export default function ArticleEditorPage() {
   const [uploadingImage, setUploadingImage] = useState(false);
   const [autoSaving, setAutoSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState(null);
-  const [authorType, setAuthorType] = useState("member"); // "member" or "guest"
+  const [authorType, setAuthorType] = useState("member"); // "member", "guest", or "other_member"
   const [selectedGuestWriterId, setSelectedGuestWriterId] = useState(null);
+  const [originalAuthorId, setOriginalAuthorId] = useState(null);
+  const [originalAuthorName, setOriginalAuthorName] = useState(null);
 
   // Fetch current member's full record to get the handle
   // First check if memberInfo already has handle (from login), otherwise fetch by ID
@@ -123,19 +125,39 @@ export default function ArticleEditorPage() {
     if (article) {
       setTitle(article.title || "");
       
-      // Determine author type and set slug accordingly
+      // Determine author type and preserve original author
       if (article.guest_writer_id) {
         setAuthorType("guest");
         setSelectedGuestWriterId(article.guest_writer_id);
         setSlug(article.slug || "");
-      } else if (currentMember?.handle) {
-        setAuthorType("member");
-        const handleSuffix = `-by-${currentMember.handle}`;
+        setOriginalAuthorId(null);
+        setOriginalAuthorName(article.author_name || "Guest Writer");
+      } else if (article.author_id) {
+        // Check if the article's author is the current logged-in member
+        if (article.author_id === currentMember?.id) {
+          setAuthorType("member");
+          setOriginalAuthorId(article.author_id);
+          setOriginalAuthorName(article.author_name || null);
+        } else {
+          // Article belongs to a different member
+          setAuthorType("other_member");
+          setOriginalAuthorId(article.author_id);
+          setOriginalAuthorName(article.author_name || "Another Member");
+        }
+        
+        // Extract slug without the "-by-handle" suffix
         let displaySlug = article.slug || "";
-        if (displaySlug.endsWith(handleSuffix)) {
-          displaySlug = displaySlug.slice(0, -handleSuffix.length);
+        const byHandleMatch = displaySlug.match(/-by-[a-z0-9-]+$/i);
+        if (byHandleMatch) {
+          displaySlug = displaySlug.slice(0, -byHandleMatch[0].length);
         }
         setSlug(displaySlug);
+      } else {
+        // No author_id or guest_writer_id - set as member (logged-in user becomes author)
+        setAuthorType("member");
+        setOriginalAuthorId(null);
+        setOriginalAuthorName(null);
+        setSlug(article.slug || "");
       }
       
       setSummary(article.summary || "");
@@ -148,7 +170,7 @@ export default function ArticleEditorPage() {
       setSeoTitle(article.seo_title || "");
       setSeoDescription(article.seo_description || "");
     }
-  }, [article, currentMember]);
+  }, [article, currentMember?.id]);
 
   // Auto-generate slug from title
   useEffect(() => {
@@ -163,18 +185,17 @@ export default function ArticleEditorPage() {
 
   // Auto-save functionality
   useEffect(() => {
-    if (!memberInfo || !title || !currentMember?.handle) return;
+    if (!memberInfo || !title) return;
+    // For member type, require handle. For other types, no handle required.
+    if (authorType === "member" && !currentMember?.handle) return;
 
     const autoSaveTimer = setTimeout(async () => {
       if (isEditing) {
         setAutoSaving(true);
         try {
-          // Append handle to slug before saving
-          const fullSlug = `${slug}-by-${currentMember.handle}`;
-          
-          await base44.entities.BlogPost.update(articleId, {
+          let fullSlug;
+          let autoSaveData = {
             title,
-            slug: fullSlug,
             summary,
             content,
             feature_image_url: featureImage,
@@ -184,7 +205,24 @@ export default function ArticleEditorPage() {
             published_date: publishedDate,
             seo_title: seoTitle,
             seo_description: seoDescription,
-          });
+          };
+
+          if (authorType === "guest") {
+            fullSlug = slug;
+            autoSaveData.slug = fullSlug;
+            autoSaveData.author_id = null;
+            autoSaveData.guest_writer_id = selectedGuestWriterId;
+          } else if (authorType === "other_member" && originalAuthorId) {
+            fullSlug = article?.slug || slug;
+            autoSaveData.slug = fullSlug;
+            autoSaveData.author_id = originalAuthorId;
+          } else {
+            fullSlug = `${slug}-by-${currentMember.handle}`;
+            autoSaveData.slug = fullSlug;
+            autoSaveData.author_id = currentMember.id;
+          }
+          
+          await base44.entities.BlogPost.update(articleId, autoSaveData);
           setLastSaved(new Date());
         } catch (error) {
           console.error('Auto-save failed:', error);
@@ -195,7 +233,7 @@ export default function ArticleEditorPage() {
     }, 3000);
 
     return () => clearTimeout(autoSaveTimer);
-  }, [title, slug, summary, content, featureImage, subcategories, tags, status, publishedDate, seoTitle, seoDescription, isEditing, articleId, memberInfo, currentMember]);
+  }, [title, slug, summary, content, featureImage, subcategories, tags, status, publishedDate, seoTitle, seoDescription, isEditing, articleId, memberInfo, currentMember, authorType, selectedGuestWriterId, originalAuthorId, article]);
 
   const saveMutation = useMutation({
     mutationFn: async (publishNow = false) => {
@@ -237,7 +275,28 @@ export default function ArticleEditorPage() {
           seo_title: seoTitle,
           seo_description: seoDescription,
         };
+      } else if (authorType === "other_member" && originalAuthorId) {
+        // Keep the original author - don't change author_id or author_name
+        // Just preserve the existing slug structure
+        finalSlug = article?.slug || slug;
+        articleData = {
+          title,
+          slug: finalSlug,
+          author_id: originalAuthorId,
+          guest_writer_id: null,
+          author_name: originalAuthorName,
+          summary,
+          content,
+          feature_image_url: featureImage,
+          subcategories,
+          tags,
+          status: publishNow ? 'published' : status,
+          published_date: publishedDate,
+          seo_title: seoTitle,
+          seo_description: seoDescription,
+        };
       } else {
+        // authorType === "member" - set current member as author
         if (!currentMember.handle) {
           throw new Error(`You need a handle to publish ${articleDisplayName.toLowerCase()}. Please contact an administrator.`);
         }
@@ -410,7 +469,14 @@ export default function ArticleEditorPage() {
   }
 
   // Construct the full URL preview
-  const fullSlugPreview = authorType === "guest" ? slug : `${slug}-by-${currentMember.handle}`;
+  let fullSlugPreview;
+  if (authorType === "guest") {
+    fullSlugPreview = slug;
+  } else if (authorType === "other_member" && article?.slug) {
+    fullSlugPreview = article.slug;
+  } else {
+    fullSlugPreview = currentMember?.handle ? `${slug}-by-${currentMember.handle}` : slug;
+  }
   const selectedGuestWriter = guestWriters.find(w => w.id === selectedGuestWriterId);
 
   return (
@@ -477,7 +543,33 @@ export default function ArticleEditorPage() {
                 {/* Author Type Selector */}
                 <div className="space-y-2">
                   <Label className="text-sm">{singularDisplayName} Author</Label>
-                  <div className="flex gap-4">
+                  
+                  {/* Show original author info if editing another member's article */}
+                  {isEditing && authorType === "other_member" && originalAuthorName && (
+                    <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg mb-2">
+                      <p className="text-sm text-amber-800">
+                        <strong>Original Author:</strong> {originalAuthorName}
+                      </p>
+                      <p className="text-xs text-amber-600 mt-1">
+                        You can take ownership or assign to a guest writer below.
+                      </p>
+                    </div>
+                  )}
+                  
+                  <div className="flex flex-wrap gap-4">
+                    {authorType === "other_member" && (
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="authorType"
+                          value="other_member"
+                          checked={authorType === "other_member"}
+                          onChange={(e) => setAuthorType(e.target.value)}
+                          className="w-4 h-4"
+                        />
+                        <span className="text-sm">Keep Original Author ({originalAuthorName})</span>
+                      </label>
+                    )}
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input
                         type="radio"
@@ -487,7 +579,9 @@ export default function ArticleEditorPage() {
                         onChange={(e) => setAuthorType(e.target.value)}
                         className="w-4 h-4"
                       />
-                      <span className="text-sm">Me ({memberInfo.first_name} {memberInfo.last_name})</span>
+                      <span className="text-sm">
+                        {authorType === "other_member" ? "Take Ownership" : "Me"} ({memberInfo.first_name} {memberInfo.last_name})
+                      </span>
                     </label>
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input
