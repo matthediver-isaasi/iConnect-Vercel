@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Calendar, User, Edit, Tag, Eye, Linkedin, Mail, Trophy, ChevronDown, ChevronUp, UserPlus, UserCheck } from "lucide-react";
+import { ArrowLeft, Calendar, User, Edit, Tag, Eye, Linkedin, Mail, Trophy, ChevronDown, ChevronUp, UserPlus, UserMinus } from "lucide-react";
 import { format } from "date-fns";
 import { Link, useParams } from "react-router-dom";
 import ArticleComments from "../components/blog/ArticleComments";
@@ -717,8 +717,8 @@ export default function ArticleViewPage() {
                             <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
                           ) : followStatus.following ? (
                             <>
-                              <UserCheck className="w-4 h-4" />
-                              Following
+                              <UserMinus className="w-4 h-4" />
+                              Unfollow
                             </>
                           ) : (
                             <>
