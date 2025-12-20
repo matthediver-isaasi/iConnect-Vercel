@@ -158,11 +158,13 @@ export default function ArticleComments({ articleId, memberInfo, showThumbsUp = 
     
     try {
       const moderationResult = await base44.integrations.Core.InvokeLLM({
-        prompt: `You are a content moderation system. Analyze the following comment for inappropriate content including profanity, hate speech, sexually explicit material, threats, or harassment. 
+        prompt: `You are a content moderation system. Analyze the following comment for inappropriate content including profanity, hate speech, sexually explicit material, threats, or harassment.
 
 Comment to analyze: "${newComment.trim()}"
 
-Respond with your analysis.`,
+Respond with a JSON object containing exactly two fields:
+- "is_safe": true if the content is appropriate for posting, false if it contains inappropriate content
+- "reason": a brief explanation if flagged, or empty string if safe`,
         response_json_schema: {
           type: "object",
           properties: {
@@ -179,7 +181,12 @@ Respond with your analysis.`,
       });
 
       // Step 2: Check if content is safe
-      if (!moderationResult.is_safe) {
+      // Handle nested response structure if LLM returns unexpected format
+      const isSafe = typeof moderationResult.is_safe === 'boolean' 
+        ? moderationResult.is_safe 
+        : moderationResult.analysis?.is_safe ?? true;
+      
+      if (!isSafe) {
         setIsCheckingContent(false);
         toast.error(
           <>
