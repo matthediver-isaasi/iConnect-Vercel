@@ -66,6 +66,22 @@ export default function PublicArticlesPage() {
     }
   });
 
+  // Fetch member handles for URL construction
+  const { data: authorHandles = {} } = useQuery({
+    queryKey: ['member-handles-for-articles'],
+    queryFn: async () => {
+      const members = await base44.entities.Member.list();
+      const handleMap = {};
+      members.forEach(m => {
+        if (m.id && m.handle) {
+          handleMap[m.id] = m.handle;
+        }
+      });
+      return handleMap;
+    },
+    staleTime: 60000 // Cache for 1 minute
+  });
+
   // Calculate view and like counts per article
   const articleStats = useMemo(() => {
     const stats = {};
@@ -259,6 +275,7 @@ export default function PublicArticlesPage() {
                       key={article.id} 
                       article={article}
                       displayName={articleDisplayName}
+                      authorHandles={authorHandles}
                     />
                   ))}
                 </div>

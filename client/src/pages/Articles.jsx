@@ -116,6 +116,22 @@ export default function ArticlesPage() {
     refetchOnWindowFocus: true
   });
 
+  // Fetch member handles for URL construction
+  const { data: authorHandles = {} } = useQuery({
+    queryKey: ['member-handles-for-articles'],
+    queryFn: async () => {
+      const members = await base44.entities.Member.list();
+      const handleMap = {};
+      members.forEach(m => {
+        if (m.id && m.handle) {
+          handleMap[m.id] = m.handle;
+        }
+      });
+      return handleMap;
+    },
+    staleTime: 60000 // Cache for 1 minute
+  });
+
   const { data: articleDisplayName, isLoading: displayNameLoading } = useQuery({
     queryKey: ['article-display-name'],
     queryFn: async () => {
@@ -480,6 +496,7 @@ export default function ArticlesPage() {
                       currentMemberId={currentMemberId}
                       onEdit={handleEditArticle}
                       onDelete={handleDeleteArticle}
+                      authorHandles={authorHandles}
                     />
                   ))}
                 </div>

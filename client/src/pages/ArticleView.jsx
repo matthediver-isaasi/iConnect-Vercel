@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, Calendar, User, Edit, Tag, Eye, Linkedin, Mail, Trophy, ChevronDown, ChevronUp } from "lucide-react";
 import { format } from "date-fns";
-import { Link } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import ArticleComments from "../components/blog/ArticleComments";
 import ArticleReactions from "../components/blog/ArticleReactions";
 import { toast } from "sonner";
@@ -16,18 +16,24 @@ import { useArticleUrl } from "@/contexts/ArticleUrlContext";
 export default function ArticleViewPage() {
   const { memberInfo, isAdmin } = useMemberAccess();
   const { getArticleListUrl, getArticleEditorUrl, getPublicArticlesUrl } = useArticleUrl();
+  
+  // Get route params for new folder-based URLs: /articles/:authorHandle/:articleSlug
+  const { authorHandle: routeAuthorHandle, articleSlug: routeArticleSlug } = useParams();
+  
   console.log('[ArticleView] Component initialized');
-  console.log('[ArticleView] window.location.href:', window.location.href);
-  console.log('[ArticleView] window.location.search:', window.location.search);
-  console.log('[ArticleView] window.location.hash:', window.location.hash);
+  console.log('[ArticleView] Route params - authorHandle:', routeAuthorHandle, 'articleSlug:', routeArticleSlug);
   console.log('[ArticleView] window.location.pathname:', window.location.pathname);
   
+  // Legacy query params support
   const urlParams = new URLSearchParams(window.location.search);
-  console.log('[ArticleView] urlParams created from window.location.search');
-  
-  const slug = urlParams.get('slug');
+  const legacySlug = urlParams.get('slug');
   const isPreviewMode = urlParams.get('preview') === 'true';
-  console.log('[ArticleView] slug extracted from urlParams:', slug);
+  
+  // Use route params if available, otherwise fall back to legacy query params
+  const authorHandle = routeAuthorHandle || null;
+  const slug = routeArticleSlug || legacySlug;
+  
+  console.log('[ArticleView] Resolved - authorHandle:', authorHandle, 'slug:', slug);
   console.log('[ArticleView] isPreviewMode:', isPreviewMode);
   
   const [userIdentifier, setUserIdentifier] = useState("");
@@ -96,11 +102,45 @@ export default function ArticleViewPage() {
   }, [memberInfo]);
 
   const { data: article, isLoading } = useQuery({
-    queryKey: ['article-by-slug', slug],
+    queryKey: ['article-by-slug', authorHandle, slug],
     queryFn: async () => {
-      console.log('[ArticleView] Fetching article for slug:', slug);
+      console.log('[ArticleView] Fetching article for authorHandle:', authorHandle, 'slug:', slug);
       const articles = await base44.entities.BlogPost.list();
-      const found = articles.find(a => a.slug === slug);
+      
+      let found = null;
+      
+      // Helper to check if article slug matches (handles both clean and legacy formats)
+      const slugMatches = (articleSlug, targetSlug) => {
+        if (!articleSlug || !targetSlug) return false;
+        // Exact match
+        if (articleSlug === targetSlug) return true;
+        // Legacy format: article slug contains "-by-{handle}" suffix
+        // Check if the legacy slug starts with the clean slug
+        if (articleSlug.includes('-by-')) {
+          const cleanSlug = articleSlug.replace(/-by-[^-]+$/, '');
+          return cleanSlug === targetSlug;
+        }
+        return false;
+      };
+      
+      if (authorHandle && slug) {
+        // New folder-based URL: /articles/{authorHandle}/{slug}
+        if (authorHandle === 'guest') {
+          // Guest writer articles
+          found = articles.find(a => slugMatches(a.slug, slug) && a.guest_writer_id);
+        } else {
+          // Member articles - need to match author's handle
+          const members = await base44.entities.Member.listAll();
+          const authorMember = members.find(m => m.blog_handle === authorHandle);
+          if (authorMember) {
+            found = articles.find(a => slugMatches(a.slug, slug) && a.author_id === authorMember.id);
+          }
+        }
+      } else if (slug) {
+        // Legacy query param support - find by slug only (exact match or legacy format)
+        found = articles.find(a => a.slug === slug || slugMatches(a.slug, slug));
+      }
+      
       console.log('[ArticleView] Article found:', !!found);
       console.log('[ArticleView] Article author_id:', found?.author_id);
       return found;

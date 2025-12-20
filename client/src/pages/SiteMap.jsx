@@ -12,7 +12,7 @@ import { useArticleUrl } from "@/contexts/ArticleUrlContext";
 
 export default function SiteMapPage() {
   const { isFeatureExcluded, isAccessReady } = useMemberAccess();
-  const { getArticleViewUrl, getPublicArticlesUrl } = useArticleUrl();
+  const { getArticleViewUrlFromArticle, getPublicArticlesUrl } = useArticleUrl();
   const [accessChecked, setAccessChecked] = useState(false);
   const appBaseUrl = window.location.origin;
 
@@ -70,14 +70,17 @@ export default function SiteMapPage() {
   ];
 
   const articleUrls = useMemo(() => {
-    return articles.map(article => ({
-      title: article.title,
-      url: getArticleViewUrl(article.slug),
-      fullUrl: `${appBaseUrl}${getArticleViewUrl(article.slug)}`,
-      author: article.author_name,
-      date: article.published_date
-    }));
-  }, [articles, appBaseUrl, getArticleViewUrl]);
+    return articles.map(article => {
+      const articleUrl = getArticleViewUrlFromArticle(article);
+      return {
+        title: article.title,
+        url: articleUrl,
+        fullUrl: `${appBaseUrl}${articleUrl}`,
+        author: article.author_name,
+        date: article.published_date
+      };
+    });
+  }, [articles, appBaseUrl, getArticleViewUrlFromArticle]);
 
   const newsUrls = useMemo(() => {
     return news.map(post => ({

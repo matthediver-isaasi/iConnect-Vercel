@@ -21,7 +21,7 @@ import { useArticleUrl } from "@/contexts/ArticleUrlContext";
 
 export default function ArticleEditorPage() {
   const { memberInfo } = useMemberAccess();
-  const { getArticleListUrl, getArticleEditorUrl } = useArticleUrl();
+  const { getArticleListUrl, getArticleEditorUrl, baseUrlPath } = useArticleUrl();
   const urlParams = new URLSearchParams(window.location.search);
   const articleId = urlParams.get('id');
   const isEditing = !!articleId;
@@ -49,6 +49,8 @@ export default function ArticleEditorPage() {
   const [originalAuthorName, setOriginalAuthorName] = useState(null);
   const [originalAuthorHandle, setOriginalAuthorHandle] = useState(null);
   const [isOtherMemberArticle, setIsOtherMemberArticle] = useState(false);
+  const [slugError, setSlugError] = useState(null);
+  const [checkingSlug, setCheckingSlug] = useState(false);
 
   // Fetch current member's full record to get the handle
   // First check if memberInfo already has handle (from login), otherwise fetch by ID
@@ -136,24 +138,36 @@ export default function ArticleEditorPage() {
       setSeoTitle(article.seo_title || "");
       setSeoDescription(article.seo_description || "");
       
-      // Handle slug extraction for member-authored articles
-      if (article.author_id && !article.guest_writer_id) {
-        let displaySlug = article.slug || "";
-        const byHandleMatch = displaySlug.match(/-by-([a-z0-9-]+)$/i);
-        if (byHandleMatch) {
-          displaySlug = displaySlug.slice(0, -byHandleMatch[0].length);
-          // Extract and store the original author's handle
-          setOriginalAuthorHandle(byHandleMatch[1]);
-        }
-        setSlug(displaySlug);
-      } else {
-        setSlug(article.slug || "");
-        setOriginalAuthorHandle(null);
+      // Handle slug - new structure stores clean slugs without handle suffix
+      // For legacy articles, extract the base slug from "-by-{handle}" format
+      let displaySlug = article.slug || "";
+      const byHandleMatch = displaySlug.match(/-by-([a-z0-9-]+)$/i);
+      if (byHandleMatch) {
+        // Legacy format: extract clean slug and handle
+        displaySlug = displaySlug.slice(0, -byHandleMatch[0].length);
+        setOriginalAuthorHandle(byHandleMatch[1]);
       }
+      setSlug(displaySlug);
     }
   }, [article]);
 
-  // Determine author type - run when article loads
+  // Fetch original author's handle if article has an author_id
+  const { data: originalAuthorMember } = useQuery({
+    queryKey: ['original-author', article?.author_id],
+    queryFn: async () => {
+      if (!article?.author_id) return null;
+      try {
+        const member = await base44.entities.Member.get(article.author_id);
+        return member || null;
+      } catch (error) {
+        console.error('Error fetching original author:', error);
+        return null;
+      }
+    },
+    enabled: !!article?.author_id
+  });
+
+  // Determine author type and fetch original author handle - run when article loads
   useEffect(() => {
     if (!article) return;
     
@@ -163,6 +177,7 @@ export default function ArticleEditorPage() {
       setSelectedGuestWriterId(article.guest_writer_id);
       setOriginalAuthorId(null);
       setOriginalAuthorName(article.author_name || "Guest Writer");
+      setOriginalAuthorHandle(null);
       setIsOtherMemberArticle(false);
     } else if (article.author_id || article.author_name) {
       // Article has an author - always default to keeping original author
@@ -170,14 +185,23 @@ export default function ArticleEditorPage() {
       setOriginalAuthorId(article.author_id);
       setOriginalAuthorName(article.author_name || "Unknown Author");
       setIsOtherMemberArticle(true);
+      // Handle will be set from originalAuthorMember query
     } else {
       // No author - set as member (logged-in user becomes author)
       setAuthorType("member");
       setOriginalAuthorId(null);
       setOriginalAuthorName(null);
+      setOriginalAuthorHandle(null);
       setIsOtherMemberArticle(false);
     }
   }, [article]);
+
+  // Set original author handle from member query (if not already extracted from legacy slug)
+  useEffect(() => {
+    if (originalAuthorMember?.handle && !originalAuthorHandle) {
+      setOriginalAuthorHandle(originalAuthorMember.handle);
+    }
+  }, [originalAuthorMember, originalAuthorHandle]);
 
   // Auto-generate slug from title
   useEffect(() => {
@@ -190,6 +214,72 @@ export default function ArticleEditorPage() {
     }
   }, [title, isEditing]);
 
+  // Per-author slug uniqueness validation
+  useEffect(() => {
+    if (!slug) {
+      setSlugError(null);
+      return;
+    }
+
+    // Determine the author ID for uniqueness check
+    let authorIdToCheck = null;
+    let guestWriterIdToCheck = null;
+    
+    if (authorType === "guest") {
+      guestWriterIdToCheck = selectedGuestWriterId;
+    } else if (authorType === "other_member" && originalAuthorId) {
+      authorIdToCheck = originalAuthorId;
+    } else if (currentMember?.id) {
+      authorIdToCheck = currentMember.id;
+    }
+
+    const checkSlugUniqueness = async () => {
+      setCheckingSlug(true);
+      try {
+        const allArticles = await base44.entities.BlogPost.list();
+        
+        // Find articles with the same slug from the same author
+        const duplicates = allArticles.filter(a => {
+          // Skip the current article when editing
+          if (isEditing && a.id === articleId) return false;
+          
+          // Extract base slug from legacy format if needed
+          let articleSlug = a.slug || "";
+          const byHandleMatch = articleSlug.match(/-by-([a-z0-9-]+)$/i);
+          if (byHandleMatch) {
+            articleSlug = articleSlug.slice(0, -byHandleMatch[0].length);
+          }
+          
+          // Check if slug matches
+          if (articleSlug !== slug) return false;
+          
+          // Check if same author
+          if (authorType === "guest" && guestWriterIdToCheck) {
+            return a.guest_writer_id === guestWriterIdToCheck;
+          } else if (authorIdToCheck) {
+            return a.author_id === authorIdToCheck;
+          }
+          
+          return false;
+        });
+
+        if (duplicates.length > 0) {
+          setSlugError("This URL is already in use. Please choose a different title or slug.");
+        } else {
+          setSlugError(null);
+        }
+      } catch (error) {
+        console.error('Error checking slug uniqueness:', error);
+      } finally {
+        setCheckingSlug(false);
+      }
+    };
+
+    // Debounce the check
+    const timer = setTimeout(checkSlugUniqueness, 500);
+    return () => clearTimeout(timer);
+  }, [slug, authorType, originalAuthorId, selectedGuestWriterId, currentMember?.id, isEditing, articleId]);
+
   // Auto-save functionality
   useEffect(() => {
     if (!memberInfo || !title) return;
@@ -200,7 +290,6 @@ export default function ArticleEditorPage() {
       if (isEditing) {
         setAutoSaving(true);
         try {
-          let fullSlug;
           let autoSaveData = {
             title,
             summary,
@@ -214,18 +303,16 @@ export default function ArticleEditorPage() {
             seo_description: seoDescription,
           };
 
+          // New folder-based URL structure: store clean slugs
           if (authorType === "guest") {
-            fullSlug = slug;
-            autoSaveData.slug = fullSlug;
+            autoSaveData.slug = slug;
             autoSaveData.author_id = null;
             autoSaveData.guest_writer_id = selectedGuestWriterId;
           } else if (authorType === "other_member" && originalAuthorId) {
-            fullSlug = article?.slug || slug;
-            autoSaveData.slug = fullSlug;
+            autoSaveData.slug = slug;
             autoSaveData.author_id = originalAuthorId;
           } else {
-            fullSlug = `${slug}-by-${currentMember.handle}`;
-            autoSaveData.slug = fullSlug;
+            autoSaveData.slug = slug;
             autoSaveData.author_id = currentMember.id;
           }
           
@@ -255,6 +342,10 @@ export default function ArticleEditorPage() {
       let finalSlug;
       let articleData;
 
+      // New folder-based URL structure: slugs are stored clean (no handle suffix)
+      // The URL is constructed as: {basePath}/{authorHandle}/{slug}
+      finalSlug = slug; // Always store clean slug
+
       if (authorType === "guest") {
         if (!selectedGuestWriterId) {
           throw new Error('Please select a guest writer');
@@ -265,7 +356,6 @@ export default function ArticleEditorPage() {
           throw new Error('Selected guest writer not found');
         }
 
-        finalSlug = slug;
         articleData = {
           title,
           slug: finalSlug,
@@ -284,8 +374,6 @@ export default function ArticleEditorPage() {
         };
       } else if (authorType === "other_member" && originalAuthorId) {
         // Keep the original author - don't change author_id or author_name
-        // Use the slug with original author's handle
-        finalSlug = originalAuthorHandle ? `${slug}-by-${originalAuthorHandle}` : slug;
         articleData = {
           title,
           slug: finalSlug,
@@ -308,7 +396,6 @@ export default function ArticleEditorPage() {
           throw new Error(`You need a handle to publish ${articleDisplayName.toLowerCase()}. Please contact an administrator.`);
         }
 
-        finalSlug = `${slug}-by-${currentMember.handle}`;
         articleData = {
           title,
           slug: finalSlug,
@@ -476,17 +563,19 @@ export default function ArticleEditorPage() {
   }
 
   // Construct the full URL preview based on author type
-  let fullSlugPreview;
+  // New folder-based structure: {baseUrlPath}/{handle}/{slug}
+  let authorHandleForUrl;
   if (authorType === "guest") {
-    // Guest writers don't have handles, use just the slug
-    fullSlugPreview = slug;
+    // Guest writers use "guest" folder
+    authorHandleForUrl = "guest";
   } else if (authorType === "other_member" && originalAuthorHandle) {
     // Use the original author's handle
-    fullSlugPreview = `${slug}-by-${originalAuthorHandle}`;
+    authorHandleForUrl = originalAuthorHandle;
   } else {
     // Use current member's handle
-    fullSlugPreview = currentMember?.handle ? `${slug}-by-${currentMember.handle}` : slug;
+    authorHandleForUrl = currentMember?.handle || "unknown";
   }
+  const fullUrlPreview = `${baseUrlPath}/${authorHandleForUrl}/${slug}`;
   const selectedGuestWriter = guestWriters.find(w => w.id === selectedGuestWriterId);
 
   return (
@@ -516,7 +605,7 @@ export default function ArticleEditorPage() {
             <Button
               variant="outline"
               onClick={() => saveMutation.mutate(false)}
-              disabled={saveMutation.isPending || !title || !slug}
+              disabled={saveMutation.isPending || !title || !slug || !!slugError}
               className="gap-2"
             >
               <Save className="w-4 h-4" />
@@ -525,7 +614,7 @@ export default function ArticleEditorPage() {
             
             <Button
               onClick={() => saveMutation.mutate(true)}
-              disabled={saveMutation.isPending || !title || !slug}
+              disabled={saveMutation.isPending || !title || !slug || !!slugError}
               className="bg-blue-600 hover:bg-blue-700 gap-2"
             >
               {status === 'published' ? 'Update' : 'Publish'}
@@ -625,15 +714,15 @@ export default function ArticleEditorPage() {
                 <div className="space-y-2">
                   <Label htmlFor="slug" className="text-sm">
                     URL Slug
-                    {authorType === "member" && currentMember?.handle && (
+                    {authorType !== "guest" && (
                       <span className="text-slate-500 font-normal ml-2">
-                        (Your handle: @{currentMember.handle})
+                        (Author: @{authorHandleForUrl})
                       </span>
                     )}
                   </Label>
                   <div className="space-y-2">
                     <div className="flex items-center gap-2">
-                      <span className="text-sm text-slate-500">/articles/</span>
+                      <span className="text-sm text-slate-500 whitespace-nowrap">{baseUrlPath}/{authorHandleForUrl}/</span>
                       <Input
                         id="slug"
                         placeholder="url-slug"
@@ -642,9 +731,17 @@ export default function ArticleEditorPage() {
                         className="flex-1"
                       />
                     </div>
-                    <p className="text-xs text-slate-500">
-                      Final URL: <span className="font-mono text-blue-600">/articles/{fullSlugPreview}</span>
-                    </p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-xs text-slate-500">
+                        Final URL: <span className="font-mono text-blue-600">{fullUrlPreview}</span>
+                      </p>
+                      {checkingSlug && (
+                        <Loader2 className="w-3 h-3 animate-spin text-slate-400" />
+                      )}
+                    </div>
+                    {slugError && (
+                      <p className="text-xs text-red-600">{slugError}</p>
+                    )}
                   </div>
                 </div>
 

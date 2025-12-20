@@ -11,10 +11,38 @@ function slugify(text) {
     .trim();
 }
 
+// Helper to extract author handle and clean slug from an article object
+function getArticleUrlParts(article, authorHandles = {}) {
+  // Determine author handle
+  let authorHandle = "guest"; // Default for guest writers
+  if (article.author_id) {
+    // Try to get handle from lookup map
+    if (authorHandles[article.author_id]) {
+      authorHandle = authorHandles[article.author_id];
+    } else {
+      // Fallback: extract from legacy slug format "-by-{handle}"
+      const byHandleMatch = (article.slug || "").match(/-by-([a-z0-9-]+)$/i);
+      if (byHandleMatch) {
+        authorHandle = byHandleMatch[1];
+      }
+    }
+  }
+  
+  // Get clean slug without handle suffix
+  let cleanSlug = article.slug || "";
+  const byHandleMatch = cleanSlug.match(/-by-([a-z0-9-]+)$/i);
+  if (byHandleMatch) {
+    cleanSlug = cleanSlug.slice(0, -byHandleMatch[0].length);
+  }
+  
+  return { authorHandle, cleanSlug };
+}
+
 const ArticleUrlContext = createContext({
   displayName: 'Articles',
   articleDisplayName: 'Articles',
   urlSlug: 'Articles',
+  baseUrlPath: '/articles',
   viewSlug: 'ArticleView',
   editorSlug: 'ArticleEditor',
   mySlug: 'MyArticles',
@@ -22,7 +50,11 @@ const ArticleUrlContext = createContext({
   isLoading: true,
   isCustomSlug: false,
   getArticleListUrl: () => createPageUrl('Articles'),
-  getArticleViewUrl: (articleSlug) => `${createPageUrl('ArticleView')}?slug=${articleSlug}`,
+  getArticleViewUrl: (authorHandle, articleSlug) => `/articles/${authorHandle}/${articleSlug}`,
+  getArticleViewUrlFromArticle: (article, authorHandles) => {
+    const { authorHandle, cleanSlug } = getArticleUrlParts(article, authorHandles);
+    return `/articles/${authorHandle}/${cleanSlug}`;
+  },
   getArticleEditorUrl: (articleId) => articleId ? `${createPageUrl('ArticleEditor')}?id=${articleId}` : createPageUrl('ArticleEditor'),
   getMyArticlesUrl: () => createPageUrl('MyArticles'),
   getPublicArticlesUrl: () => createPageUrl('PublicArticles')
@@ -57,11 +89,15 @@ export function ArticleUrlProvider({ children }) {
     const editorSlug = isCustomSlug ? `${baseSlug}editor` : 'ArticleEditor';
     const mySlug = isCustomSlug ? `my${baseSlug}` : 'MyArticles';
     const publicSlug = isCustomSlug ? `public${baseSlug}` : 'PublicArticles';
+    
+    // Base URL path for article viewing (e.g., /articles or /blogs)
+    const baseUrlPath = isCustomSlug ? `/${baseSlug}` : '/articles';
 
     return {
       displayName,
       articleDisplayName: displayName,
       urlSlug,
+      baseUrlPath,
       viewSlug,
       editorSlug,
       mySlug,
@@ -69,9 +105,13 @@ export function ArticleUrlProvider({ children }) {
       isLoading,
       isCustomSlug,
       getArticleListUrl: () => isCustomSlug ? `/${urlSlug}` : createPageUrl('Articles'),
-      getArticleViewUrl: (articleSlug) => isCustomSlug 
-        ? `/${viewSlug}?slug=${articleSlug}` 
-        : `${createPageUrl('ArticleView')}?slug=${articleSlug}`,
+      // New folder-based URL structure: /{basePath}/{authorHandle}/{articleSlug}
+      getArticleViewUrl: (authorHandle, articleSlug) => `${baseUrlPath}/${authorHandle}/${articleSlug}`,
+      // Helper that constructs URL from article object
+      getArticleViewUrlFromArticle: (article, authorHandles = {}) => {
+        const { authorHandle, cleanSlug } = getArticleUrlParts(article, authorHandles);
+        return `${baseUrlPath}/${authorHandle}/${cleanSlug}`;
+      },
       getArticleEditorUrl: (articleId) => isCustomSlug
         ? (articleId ? `/${editorSlug}?id=${articleId}` : `/${editorSlug}`)
         : (articleId ? `${createPageUrl('ArticleEditor')}?id=${articleId}` : createPageUrl('ArticleEditor')),

@@ -17,7 +17,8 @@ export default function ArticleCard({
   hasAdminEditPermission = false,
   hasAdminDeletePermission = false,
   currentMemberId = null,
-  showImage = true
+  showImage = true,
+  authorHandles = {} // Map of author_id to handle
 }) {
   const { getArticleViewUrl } = useArticleUrl();
   
@@ -25,8 +26,30 @@ export default function ArticleCard({
   const isAuthor = currentMemberId && String(article.author_id) === String(currentMemberId);
   const isDraft = article.status === 'draft';
   
+  // Determine author handle for URL construction
+  let authorHandle = "guest"; // Default for guest writers
+  if (article.author_id) {
+    // Try to get handle from props, or extract from legacy slug
+    if (authorHandles[article.author_id]) {
+      authorHandle = authorHandles[article.author_id];
+    } else {
+      // Fallback: extract from legacy slug format "-by-{handle}"
+      const byHandleMatch = (article.slug || "").match(/-by-([a-z0-9-]+)$/i);
+      if (byHandleMatch) {
+        authorHandle = byHandleMatch[1];
+      }
+    }
+  }
+  
+  // Get clean slug without handle suffix
+  let cleanSlug = article.slug || "";
+  const byHandleMatch = cleanSlug.match(/-by-([a-z0-9-]+)$/i);
+  if (byHandleMatch) {
+    cleanSlug = cleanSlug.slice(0, -byHandleMatch[0].length);
+  }
+  
   // For drafts, add preview=true to the URL so the author can view them
-  const baseArticleUrl = getArticleViewUrl(article.slug);
+  const baseArticleUrl = getArticleViewUrl(authorHandle, cleanSlug);
   const articleUrl = isDraft ? `${baseArticleUrl}${baseArticleUrl.includes('?') ? '&' : '?'}preview=true` : baseArticleUrl;
   
   const canEdit = hasAdminEditPermission || isAuthor;
