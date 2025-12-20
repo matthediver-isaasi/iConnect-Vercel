@@ -27,6 +27,7 @@ export default function NewsPage() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [newsToDelete, setNewsToDelete] = useState(null);
   const [showMyNewsOnly, setShowMyNewsOnly] = useState(false);
+  const [statusFilter, setStatusFilter] = useState("all"); // 'all', 'published', 'draft'
 
   const queryClient = useQueryClient();
 
@@ -66,8 +67,8 @@ export default function NewsPage() {
   const showImage = displaySettings?.showImage ?? true;
   const showAuthor = displaySettings?.showAuthor ?? true;
 
-  // Fetch published news
-  const { data: news = [], isLoading: newsLoading } = useQuery({
+  // Fetch published news (for general view)
+  const { data: publishedNews = [], isLoading: publishedNewsLoading } = useQuery({
     queryKey: ['published-news'],
     queryFn: async () => {
       const allNews = await base44.entities.NewsPost.list('-published_date');
@@ -79,6 +80,21 @@ export default function NewsPage() {
     },
     staleTime: 0,
   });
+
+  // Fetch user's own news (including drafts) for "My News" view
+  const { data: myNews = [], isLoading: myNewsLoading } = useQuery({
+    queryKey: ['my-news', currentMember?.id],
+    queryFn: async () => {
+      const allNews = await base44.entities.NewsPost.list('-published_date');
+      return allNews.filter(n => n.author_id === currentMember?.id);
+    },
+    enabled: !!currentMember?.id && showMyNewsOnly,
+    staleTime: 0,
+  });
+
+  // Use appropriate news list based on view mode
+  const news = showMyNewsOnly ? myNews : publishedNews;
+  const newsLoading = showMyNewsOnly ? myNewsLoading : publishedNewsLoading;
 
   // Fetch categories
   const { data: categories = [], isLoading: categoriesLoading } = useQuery({
@@ -139,6 +155,7 @@ export default function NewsPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['published-news'] });
+      queryClient.invalidateQueries({ queryKey: ['my-news'] });
       setDeleteDialogOpen(false);
       setNewsToDelete(null);
       toast.success('News article deleted successfully');
@@ -173,11 +190,12 @@ export default function NewsPage() {
       const matchesSubcategory = selectedSubcategories.length === 0 || 
         (item.subcategories && item.subcategories.some(sub => selectedSubcategories.includes(sub)));
       
-      const matchesAuthor = !showMyNewsOnly || item.author_id === currentMember?.id;
+      // Status filter only applies in "My News" view
+      const matchesStatus = !showMyNewsOnly || statusFilter === 'all' || item.status === statusFilter;
       
-      return matchesSearch && matchesSubcategory && matchesAuthor;
+      return matchesSearch && matchesSubcategory && matchesStatus;
     });
-  }, [news, searchQuery, selectedSubcategories, showMyNewsOnly, currentMember?.id]);
+  }, [news, searchQuery, selectedSubcategories, showMyNewsOnly, statusFilter]);
 
   // Sort news
   const sortedNews = useMemo(() => {
@@ -254,7 +272,14 @@ export default function NewsPage() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, selectedSubcategories, sortBy, itemsPerPage, showMyNewsOnly]);
+  }, [searchQuery, selectedSubcategories, sortBy, itemsPerPage, showMyNewsOnly, statusFilter]);
+
+  // Reset status filter when leaving "My News" view
+  useEffect(() => {
+    if (!showMyNewsOnly) {
+      setStatusFilter('all');
+    }
+  }, [showMyNewsOnly]);
 
   const hasUnsavedChanges = useMemo(() => {
     if (!currentMember?.news_filter_preferences) return false;
@@ -317,7 +342,7 @@ export default function NewsPage() {
                 )}
               </div>
               
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 {memberInfo && hasAdminEditPermission && (
                   <Button
                     variant={showMyNewsOnly ? "default" : "outline"}
@@ -329,6 +354,19 @@ export default function NewsPage() {
                     <User className="w-4 h-4" />
                     My News
                   </Button>
+                )}
+                
+                {showMyNewsOnly && (
+                  <Select value={statusFilter} onValueChange={setStatusFilter}>
+                    <SelectTrigger className="w-[130px] h-9" data-testid="select-status-filter">
+                      <SelectValue placeholder="Status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Status</SelectItem>
+                      <SelectItem value="published">Published</SelectItem>
+                      <SelectItem value="draft">Draft</SelectItem>
+                    </SelectContent>
+                  </Select>
                 )}
                 
                 {showMyNewsOnly && hasAdminEditPermission && (
