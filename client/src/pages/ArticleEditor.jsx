@@ -665,18 +665,31 @@ export default function ArticleEditorPage() {
 
   // Construct the full URL preview based on author type
   // New folder-based structure: {baseUrlPath}/{handle}/{slug}
+  // IMPORTANT: Derive handle directly from data to avoid stale state issues
   let authorHandleForUrl;
-  if (authorType === "guest") {
-    // Guest writers use "guest" folder
-    authorHandleForUrl = "guest";
-  } else if (authorType === "revert_original" && persistedOriginalAuthorMember?.handle) {
-    // Reverting to original author - use their handle
-    authorHandleForUrl = persistedOriginalAuthorMember.handle;
-  } else if (authorType === "other_member" && originalAuthorHandle) {
-    // Use the current author's handle
-    authorHandleForUrl = originalAuthorHandle;
+  if (isEditing && article) {
+    // For existing articles, derive from article data directly
+    if (article.guest_writer_id) {
+      // Guest writers use "guest" folder
+      authorHandleForUrl = "guest";
+    } else if (authorType === "revert_original" && persistedOriginalAuthorMember?.handle) {
+      // User explicitly chose to revert to original author
+      authorHandleForUrl = persistedOriginalAuthorMember.handle;
+    } else if (authorType === "member" && article.author_id !== currentMember?.id) {
+      // User explicitly chose to take over - use current member's handle
+      authorHandleForUrl = currentMember?.handle || "unknown";
+    } else if (article.author_id && article.author_id !== currentMember?.id && currentAuthorMember?.handle) {
+      // Article belongs to another member - use their handle from the query
+      authorHandleForUrl = currentAuthorMember.handle;
+    } else if (article.author_id === currentMember?.id) {
+      // Article belongs to logged-in user
+      authorHandleForUrl = currentMember?.handle || "unknown";
+    } else {
+      // Fallback - use current author's handle if available, otherwise current member
+      authorHandleForUrl = currentAuthorMember?.handle || currentMember?.handle || "unknown";
+    }
   } else {
-    // Use current member's handle
+    // New articles always use current member's handle
     authorHandleForUrl = currentMember?.handle || "unknown";
   }
   const fullUrlPreview = `${baseUrlPath}/${authorHandleForUrl}/${slug}`;
