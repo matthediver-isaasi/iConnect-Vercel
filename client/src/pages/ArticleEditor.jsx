@@ -47,6 +47,7 @@ export default function ArticleEditorPage() {
   const [selectedGuestWriterId, setSelectedGuestWriterId] = useState(null);
   const [originalAuthorId, setOriginalAuthorId] = useState(null);
   const [originalAuthorName, setOriginalAuthorName] = useState(null);
+  const [isOtherMemberArticle, setIsOtherMemberArticle] = useState(false);
 
   // Fetch current member's full record to get the handle
   // First check if memberInfo already has handle (from login), otherwise fetch by ID
@@ -133,16 +134,18 @@ export default function ArticleEditorPage() {
         setOriginalAuthorId(null);
         setOriginalAuthorName(article.author_name || "Guest Writer");
       } else if (article.author_id) {
+        // Always store original author info
+        setOriginalAuthorId(article.author_id);
+        setOriginalAuthorName(article.author_name || "Unknown Author");
+        
         // Check if the article's author is the current logged-in member
         if (article.author_id === currentMember?.id) {
           setAuthorType("member");
-          setOriginalAuthorId(article.author_id);
-          setOriginalAuthorName(article.author_name || null);
+          setIsOtherMemberArticle(false);
         } else {
           // Article belongs to a different member
           setAuthorType("other_member");
-          setOriginalAuthorId(article.author_id);
-          setOriginalAuthorName(article.author_name || "Another Member");
+          setIsOtherMemberArticle(true);
         }
         
         // Extract slug without the "-by-handle" suffix
@@ -472,7 +475,7 @@ export default function ArticleEditorPage() {
   let fullSlugPreview;
   if (authorType === "guest") {
     fullSlugPreview = slug;
-  } else if (authorType === "other_member" && article?.slug) {
+  } else if (authorType === "other_member" && isOtherMemberArticle && article?.slug) {
     fullSlugPreview = article.slug;
   } else {
     fullSlugPreview = currentMember?.handle ? `${slug}-by-${currentMember.handle}` : slug;
@@ -544,8 +547,8 @@ export default function ArticleEditorPage() {
                 <div className="space-y-2">
                   <Label className="text-sm">Show author as</Label>
                   <div className="flex flex-wrap gap-4">
-                    {/* Original Author option - only for existing articles with a different author */}
-                    {isEditing && originalAuthorId && originalAuthorId !== currentMember?.id && (
+                    {/* Original Author option - shown when editing another member's article */}
+                    {isEditing && isOtherMemberArticle && originalAuthorName && (
                       <label className="flex items-center gap-2 cursor-pointer">
                         <input
                           type="radio"
