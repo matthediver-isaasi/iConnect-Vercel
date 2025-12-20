@@ -223,8 +223,7 @@ Respond with a JSON object containing exactly two fields:
         author_member_id: memberInfo?.id || null,
         is_member: !!memberInfo,
         thumbs_up_count: 0,
-        thumbs_down_count: 0,
-        created_date: new Date().toISOString()
+        thumbs_down_count: 0
       };
 
       addCommentMutation.mutate(commentData);
