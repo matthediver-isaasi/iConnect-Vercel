@@ -319,6 +319,17 @@ export default function NewsPage() {
           </div>
         )}
 
+        {/* My News header */}
+        {showMyNewsOnly && (
+          <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+            <h2 className="text-lg font-semibold text-blue-900 flex items-center gap-2">
+              <User className="w-5 h-5" />
+              My News Articles
+            </h2>
+            <p className="text-sm text-blue-700 mt-1">Viewing your authored articles including drafts</p>
+          </div>
+        )}
+
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-6">
           <div className="flex flex-col gap-4">
             <div className="flex flex-col sm:flex-row gap-3">
@@ -515,6 +526,7 @@ export default function NewsPage() {
                   onDelete={handleDeleteNews}
                   showImage={showImage}
                   showAuthor={showAuthor}
+                  showDraftBadge={showMyNewsOnly}
                 />
               ))}
             </div>

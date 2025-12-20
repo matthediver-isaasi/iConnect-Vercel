@@ -15,7 +15,8 @@ export default function NewsCard({
   hasAdminDeletePermission = false,
   currentMemberId = null,
   showImage = true,
-  showAuthor = true
+  showAuthor = true,
+  showDraftBadge = false
 }) {
   const articleUrl = `${createPageUrl('NewsView')}?slug=${article.slug}`;
 
@@ -85,7 +86,14 @@ export default function NewsCard({
       )}
       
       <CardHeader className="pb-3 flex-grow">
-        <CardTitle className="text-lg line-clamp-2">{article.title}</CardTitle>
+        <div className="flex items-start justify-between gap-2">
+          <CardTitle className="text-lg line-clamp-2 flex-1">{article.title}</CardTitle>
+          {showDraftBadge && article.status === 'draft' && (
+            <Badge variant="secondary" className="bg-amber-100 text-amber-800 border-amber-200 shrink-0">
+              Draft
+            </Badge>
+          )}
+        </div>
         
         {article.published_date && (
           <div className="flex items-center gap-1 text-xs text-slate-500 py-2">
