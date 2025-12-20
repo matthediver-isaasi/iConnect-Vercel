@@ -574,7 +574,7 @@ export default function NewsEditorPage() {
               />
             )}
 
-            {isEditing && (
+            {isEditing && !isFeatureExcluded('content.news.delete') && (
               <Button
                 variant="destructive"
                 onClick={handleDelete}
