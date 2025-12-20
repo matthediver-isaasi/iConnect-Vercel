@@ -859,7 +859,8 @@ export default function ArticleEditorPage() {
                     placeholder={`Enter your ${singularDisplayName.toLowerCase()} title...`}
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
-                    className="text-2xl font-bold border-0 px-0 focus-visible:ring-0"
+                    className="text-2xl font-bold"
+                    data-testid="input-article-title"
                   />
                   {/* Original Author Display */}
                   {isEditing && persistedOriginalAuthorName && (
