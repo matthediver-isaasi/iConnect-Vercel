@@ -424,8 +424,15 @@ export default function ArticleEditorPage() {
       // The URL is constructed as: {basePath}/{authorHandle}/{slug}
       finalSlug = slug; // Always store clean slug
       
-      // When publishing, update published_date to current time so followers get notified
-      const effectivePublishedDate = publishNow ? new Date().toISOString() : publishedDate;
+      // When publishing, update published_date to current time ONLY if selected date is in the past
+      // This ensures: 1) followers get notified for immediate publishes, 2) scheduled future dates are preserved
+      let effectivePublishedDate = publishedDate;
+      if (publishNow) {
+        const now = new Date();
+        const selectedDate = new Date(publishedDate);
+        // If selected date is in the past, use current time; otherwise keep future date for scheduling
+        effectivePublishedDate = selectedDate > now ? publishedDate : now.toISOString();
+      }
 
       if (authorType === "guest") {
         if (!selectedGuestWriterId) {
