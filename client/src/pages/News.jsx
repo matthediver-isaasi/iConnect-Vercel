@@ -31,7 +31,8 @@ export default function NewsPage() {
   const queryClient = useQueryClient();
 
   // Edit/delete permissions based on role access control
-  const hasAdminEditPermission = !isFeatureExcluded('content.news.edit');
+  // Edit also requires access to the news-editor page
+  const hasAdminEditPermission = !isFeatureExcluded('content.news.edit') && !isFeatureExcluded('content.news-editor');
   const hasAdminDeletePermission = !isFeatureExcluded('content.news.delete');
 
   // Fetch current user's preferences
