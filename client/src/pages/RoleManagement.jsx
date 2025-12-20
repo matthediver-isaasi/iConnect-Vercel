@@ -368,11 +368,13 @@ export default function RoleManagementPage() {
 
   const updateRoleMutation = useMutation({
     mutationFn: ({ id, roleData }) => base44.entities.Role.update(id, roleData),
-    onSuccess: () => {
+    onSuccess: (updatedRole) => {
       queryClient.invalidateQueries({ queryKey: ['roles'] });
-      setShowDialog(false);
-      setEditingRole(null);
-      toast.success('Role updated successfully');
+      // Keep dialog open for continued editing - update editingRole with fresh data
+      if (updatedRole) {
+        setEditingRole({ ...updatedRole, segment_values: updatedRole.segment_values || [] });
+      }
+      toast.success('Role saved successfully');
     },
     onError: (error) => {
       toast.error('Failed to update role: ' + error.message);
