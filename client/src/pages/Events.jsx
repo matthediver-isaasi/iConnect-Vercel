@@ -49,7 +49,9 @@ export default function EventsPage({
   const memberInfo = contextMemberInfo || propsMemberInfo;
   // Use context isFeatureExcluded if available, otherwise use prop
   const resolvedIsFeatureExcluded = contextIsFeatureExcluded || isFeatureExcluded || (() => false);
-  const { isFeatureExcluded: hookIsFeatureExcluded } = useMemberAccess();
+  const { isFeatureExcluded: hookIsFeatureExcluded, memberRole: hookMemberRole } = useMemberAccess();
+  // Use prop memberRole if available, otherwise fall back to hook
+  const resolvedMemberRole = memberRole || hookMemberRole;
   // Derive admin status from feature exclusion - admins can create/manage events
   const isAdmin = !hookIsFeatureExcluded('events.browse-events.create');
   const { eventTypes } = useEventTypes();
@@ -61,8 +63,8 @@ export default function EventsPage({
   const [showTour, setShowTour] = useState(false);
   const [tourAutoShow, setTourAutoShow] = useState(false);
 
-  // Determine if tours should be shown for this user
-  const shouldShowTours = memberRole?.show_tours !== false;
+  // Determine if tours should be shown for this user based on role setting
+  const shouldShowTours = resolvedMemberRole?.show_tours !== false;
 
   // Check if user has seen this page's tour
   const hasSeenTour = memberInfo?.page_tours_seen?.Events === true;

@@ -21,6 +21,7 @@ import PageTour from "../components/tour/PageTour";
 import TourButton from "../components/tour/TourButton";
 import { useLayoutContext } from "@/contexts/LayoutContext";
 import { useProgramTicketRealtime } from "@/hooks/useProgramTicketRealtime";
+import { useMemberAccess } from "@/hooks/useMemberAccess";
 
 // Load Stripe outside component to avoid recreating on every render
 let stripePromise = null;
@@ -136,10 +137,13 @@ export default function BuyProgramTicketsPage({
     reloadMemberInfo: contextReloadMemberInfo,
   } = useLayoutContext();
 
-  // Use context values if available, otherwise fall back to props
+  // Get memberRole from useMemberAccess hook as additional fallback
+  const { memberRole: hookMemberRole } = useMemberAccess();
+  
+  // Use context values if available, otherwise fall back to props, then hook
   const memberInfo = contextMemberInfo || propsMemberInfo;
   const organizationInfo = contextOrganizationInfo || propsOrganizationInfo;
-  const memberRole = contextMemberRole || propsMemberRole;
+  const memberRole = contextMemberRole || propsMemberRole || hookMemberRole;
   const isFeatureExcluded = contextIsFeatureExcluded || propsIsFeatureExcluded || (() => false);
   const refreshOrganizationInfo = contextRefreshOrganizationInfo || propsRefreshOrganizationInfo || (() => {});
   const reloadMemberInfo = contextReloadMemberInfo || propsReloadMemberInfo || (() => {});
