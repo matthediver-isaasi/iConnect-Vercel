@@ -2380,6 +2380,80 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
+      // Auto-generate handle if member doesn't have one
+      if (!member.handle && (member.first_name || member.last_name || member.email)) {
+        console.log('[Auth Login] Member has no handle, generating one...');
+        
+        try {
+          // Helper function to generate slug
+          const generateSlug = (text: string): string => {
+            return text
+              .toLowerCase()
+              .trim()
+              .replace(/[^a-z0-9]+/g, '-')
+              .replace(/^-+|-+$/g, '');
+          };
+
+          // Get all existing handles to ensure uniqueness
+          const { data: allMembersForHandles } = await supabase
+            .from('member')
+            .select('handle');
+          
+          const existingHandles = new Set<string>(
+            (allMembersForHandles || [])
+              .map((m: any) => m.handle)
+              .filter((h: string | null) => h !== null)
+          );
+
+          // Generate base handle from name, or fall back to email prefix
+          let baseHandle = '';
+          if (member.first_name && member.last_name) {
+            baseHandle = `${generateSlug(member.first_name)}-${generateSlug(member.last_name)}`;
+          } else if (member.first_name) {
+            baseHandle = generateSlug(member.first_name);
+          } else if (member.last_name) {
+            baseHandle = generateSlug(member.last_name);
+          } else if (member.email) {
+            // Use email prefix (before @) as fallback
+            baseHandle = generateSlug(member.email.split('@')[0]);
+          }
+          
+          if (baseHandle.length < 3) {
+            baseHandle = 'member';
+          }
+          if (baseHandle.length > 30) {
+            baseHandle = baseHandle.substring(0, 30);
+          }
+
+          // Make handle unique
+          let handle = baseHandle;
+          let counter = 1;
+
+          while (existingHandles.has(handle)) {
+            const suffix = `-${counter}`;
+            const maxBaseLength = 30 - suffix.length;
+            handle = baseHandle.substring(0, maxBaseLength) + suffix;
+            counter++;
+          }
+
+          // Save the handle to the member record
+          const { error: updateError } = await supabase
+            .from('member')
+            .update({ handle })
+            .eq('id', member.id);
+
+          if (updateError) {
+            console.error('[Auth Login] Failed to save handle:', updateError);
+          } else {
+            member.handle = handle;
+            console.log('[Auth Login] Generated and saved handle:', handle);
+          }
+        } catch (handleError: any) {
+          console.error('[Auth Login] Error generating handle:', handleError.message);
+          // Don't fail the login if handle generation fails
+        }
+      }
+
       // Set session
       req.session.memberId = member.id;
       req.session.memberEmail = member.email;
@@ -2552,6 +2626,65 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .select('*')
         .eq('id', member.id)
         .single();
+
+      // Auto-generate handle if member doesn't have one
+      if (fullMember && !fullMember.handle && (fullMember.first_name || fullMember.last_name || fullMember.email)) {
+        console.log('[Auth SetPassword] Member has no handle, generating one...');
+        
+        try {
+          const generateSlug = (text: string): string => {
+            return text
+              .toLowerCase()
+              .trim()
+              .replace(/[^a-z0-9]+/g, '-')
+              .replace(/^-+|-+$/g, '');
+          };
+
+          const { data: allMembersForHandles } = await supabase
+            .from('member')
+            .select('handle');
+          
+          const existingHandles = new Set<string>(
+            (allMembersForHandles || [])
+              .map((m: any) => m.handle)
+              .filter((h: string | null) => h !== null)
+          );
+
+          let baseHandle = '';
+          if (fullMember.first_name && fullMember.last_name) {
+            baseHandle = `${generateSlug(fullMember.first_name)}-${generateSlug(fullMember.last_name)}`;
+          } else if (fullMember.first_name) {
+            baseHandle = generateSlug(fullMember.first_name);
+          } else if (fullMember.last_name) {
+            baseHandle = generateSlug(fullMember.last_name);
+          } else if (fullMember.email) {
+            baseHandle = generateSlug(fullMember.email.split('@')[0]);
+          }
+          
+          if (baseHandle.length < 3) baseHandle = 'member';
+          if (baseHandle.length > 30) baseHandle = baseHandle.substring(0, 30);
+
+          let handle = baseHandle;
+          let counter = 1;
+          while (existingHandles.has(handle)) {
+            const suffix = `-${counter}`;
+            handle = baseHandle.substring(0, 30 - suffix.length) + suffix;
+            counter++;
+          }
+
+          const { error: updateError } = await supabase
+            .from('member')
+            .update({ handle })
+            .eq('id', fullMember.id);
+
+          if (!updateError) {
+            fullMember.handle = handle;
+            console.log('[Auth SetPassword] Generated and saved handle:', handle);
+          }
+        } catch (handleError: any) {
+          console.error('[Auth SetPassword] Error generating handle:', handleError.message);
+        }
+      }
 
       // Explicitly save session for serverless environments
       req.session.save((err) => {
