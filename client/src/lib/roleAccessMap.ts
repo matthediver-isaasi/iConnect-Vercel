@@ -216,7 +216,8 @@ export const ROLE_ACCESS_MAP: Module[] = [
           { id: "content.guest-writers", label: "Guest Writer Management" },
           { id: "content.articles.edit", label: "Edit Articles" },
           { id: "content.articles.delete", label: "Delete Articles" },
-          { id: "content.articles.follow-author", label: "Follow Author" }
+          { id: "content.articles.follow-author", label: "Follow Author" },
+          { id: "content.articles.author-takeover", label: "Show Author As Controls" }
         ]
       },
       {
