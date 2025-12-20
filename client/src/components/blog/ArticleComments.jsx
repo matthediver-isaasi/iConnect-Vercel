@@ -208,7 +208,7 @@ Respond with a JSON object containing exactly two fields:
         article_id: articleId,
         content: newComment.trim(),
         author_name: memberInfo ? `${memberInfo.first_name} ${memberInfo.last_name}` : publicUserName.trim(),
-        author_member_id: memberInfo?.email || null,
+        author_member_id: memberInfo?.id || null,
         is_member: !!memberInfo,
         thumbs_up_count: 0,
         thumbs_down_count: 0
