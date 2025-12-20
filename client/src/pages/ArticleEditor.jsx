@@ -186,7 +186,7 @@ export default function ArticleEditorPage() {
     enabled: !!article?.original_author_id
   });
 
-  // Determine author type and fetch original author handle - run when article loads
+  // Set persisted original author ID from article - run when article loads
   useEffect(() => {
     if (!article) return;
     
@@ -195,30 +195,49 @@ export default function ArticleEditorPage() {
       setPersistedOriginalAuthorId(article.original_author_id);
     }
     
-    // Determine author type and preserve current author
+    // Set basic article author data
     if (article.guest_writer_id) {
-      setAuthorType("guest");
       setSelectedGuestWriterId(article.guest_writer_id);
       setOriginalAuthorId(null);
-      setOriginalAuthorName(null); // Will be set from guest writer lookup
+      setOriginalAuthorName(null);
       setOriginalAuthorHandle(null);
       setIsOtherMemberArticle(false);
     } else if (article.author_id) {
-      // Article has an author - always default to keeping current author
-      setAuthorType("other_member");
       setOriginalAuthorId(article.author_id);
       setOriginalAuthorName(null); // Will be set from currentAuthorMember lookup
       setIsOtherMemberArticle(true);
-      // Handle will be set from currentAuthorMember query
     } else {
-      // No author - set as member (logged-in user becomes author)
-      setAuthorType("member");
       setOriginalAuthorId(null);
       setOriginalAuthorName(null);
       setOriginalAuthorHandle(null);
       setIsOtherMemberArticle(false);
     }
   }, [article]);
+
+  // Determine authorType based on article, currentMember, and original author - runs after all data is loaded
+  useEffect(() => {
+    if (!article) return;
+    
+    if (article.guest_writer_id) {
+      setAuthorType("guest");
+    } else if (article.author_id) {
+      // Check if the current author is the logged-in member
+      if (currentMember?.id && article.author_id === currentMember.id) {
+        setAuthorType("member");
+      }
+      // Check if the current author is the original author
+      else if (article.original_author_id && article.author_id === article.original_author_id) {
+        setAuthorType("revert_original");
+      }
+      // Otherwise it's a different member (takeover happened)
+      else {
+        setAuthorType("other_member");
+      }
+    } else {
+      // No author - set as member (logged-in user becomes author)
+      setAuthorType("member");
+    }
+  }, [article, currentMember?.id]);
 
   // Set persisted original author name when query loads
   useEffect(() => {
