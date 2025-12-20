@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { ChevronRight, ChevronDown, Plus, Pencil, Trash2, GripVertical, Users, Shield, Menu, Calendar, CreditCard, Ticket, Wallet, ShoppingCart, History, Sparkles, FileText, Briefcase, Settings, BookOpen, Building, HelpCircle, BarChart3, FileEdit, AtSign, FolderTree, Trophy, MousePointer2, Mail, Download, Check, ChevronsUpDown } from "lucide-react";
+import { ChevronRight, ChevronDown, Plus, Pencil, Trash2, GripVertical, Users, Shield, Menu, Calendar, CreditCard, Ticket, Wallet, ShoppingCart, History, Sparkles, FileText, Briefcase, Settings, BookOpen, Building, HelpCircle, BarChart3, FileEdit, AtSign, FolderTree, Trophy, MousePointer2, Mail, Download, Check, ChevronsUpDown, Newspaper, PenLine, Home, Globe, Folder, Image, MessageSquare, Bell, Star, Heart, Eye, Link, ExternalLink, Tag, Award, Bookmark, Clock, Search, Phone, MapPin, Video, Music, Camera, Mic, Headphones, Tv, Radio, Rss, Share2, Gift, Zap, Target, Flag, Layers, Grid, List, Layout, Monitor, Smartphone, Tablet, Laptop, Server, Database, Cloud, Lock, Key, UserCheck, UserPlus, UserMinus, Users2, MessageCircle, Send, Inbox, Archive } from "lucide-react";
 import { toast } from "sonner";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -44,7 +44,11 @@ const groupedRoleAccessOptions = (() => {
 
 const availableIcons = {
   Menu, Calendar, CreditCard, Ticket, Wallet, ShoppingCart, History, Sparkles, FileText, Briefcase, Settings, 
-  BookOpen, Building, HelpCircle, Users, Shield, BarChart3, FileEdit, AtSign, FolderTree, Trophy, MousePointer2, Mail, Download
+  BookOpen, Building, HelpCircle, Users, Shield, BarChart3, FileEdit, AtSign, FolderTree, Trophy, MousePointer2, Mail, Download,
+  Newspaper, PenLine, Home, Globe, Folder, Image, MessageSquare, Bell, Star, Heart, Eye, Link, ExternalLink, Tag, 
+  Award, Bookmark, Clock, Search, Phone, MapPin, Video, Music, Camera, Mic, Headphones, Tv, Radio, Rss, Share2, Gift, 
+  Zap, Target, Flag, Layers, Grid, List, Layout, Monitor, Smartphone, Tablet, Laptop, Server, Database, Cloud, Lock, Key,
+  UserCheck, UserPlus, UserMinus, Users2, MessageCircle, Send, Inbox, Archive
 };
 
 const builtInPages = [
