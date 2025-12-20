@@ -95,6 +95,7 @@ const entityToTable: Record<string, string> = {
   'MemberResourceCategory': 'member_resource_category',
   'RoleOrganizationFieldPermission': 'role_organization_field_permission',
   'RoleAccessItem': 'role_access_item',
+  'ArticleFollow': 'article_follow',
 };
 
 // Extend session type
@@ -666,6 +667,314 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('[Member Categories] Error:', error);
       res.status(500).json({ error: 'Failed to fetch member categories' });
+    }
+  });
+
+  // ============ Article Follow Routes ============
+
+  // Get current user's followed authors with unread counts
+  app.get('/api/article-follows', async (req: Request, res: Response) => {
+    if (!supabase) {
+      return res.status(503).json({ error: 'Supabase not configured' });
+    }
+
+    try {
+      const memberId = req.session?.memberId;
+      if (!memberId) {
+        return res.status(401).json({ error: 'Authentication required' });
+      }
+
+      // Fetch all follows for this member
+      const { data: follows, error: followsError } = await supabase
+        .from('article_follow')
+        .select('*')
+        .eq('follower_member_id', memberId);
+
+      if (followsError) {
+        console.error('[Article Follows] Fetch error:', followsError);
+        return res.status(500).json({ error: 'Failed to fetch follows' });
+      }
+
+      if (!follows || follows.length === 0) {
+        return res.json([]);
+      }
+
+      // For each follow, get author details and unread count
+      const results = await Promise.all(follows.map(async (follow: any) => {
+        let authorName = 'Unknown Author';
+        let authorHandle = null;
+
+        // Get author details
+        if (follow.followed_member_id) {
+          const { data: member } = await supabase
+            .from('member')
+            .select('id, first_name, last_name, handle, blog_handle, profile_photo_url')
+            .eq('id', follow.followed_member_id)
+            .single();
+          
+          if (member) {
+            authorName = `${member.first_name || ''} ${member.last_name || ''}`.trim();
+            authorHandle = member.handle || member.blog_handle;
+          }
+        } else if (follow.followed_guest_writer_id) {
+          const { data: guestWriter } = await supabase
+            .from('guest_writer')
+            .select('id, full_name')
+            .eq('id', follow.followed_guest_writer_id)
+            .single();
+          
+          if (guestWriter) {
+            authorName = guestWriter.full_name;
+            authorHandle = 'guest';
+          }
+        }
+
+        // Count unread articles (published after last_read_at)
+        let unreadCount = 0;
+        const lastReadAt = follow.last_read_at;
+        
+        if (follow.followed_member_id) {
+          let query = supabase
+            .from('blog_post')
+            .select('id', { count: 'exact', head: true })
+            .eq('author_id', follow.followed_member_id)
+            .eq('status', 'published');
+          
+          if (lastReadAt) {
+            query = query.gt('published_date', lastReadAt);
+          }
+          
+          const { count } = await query;
+          unreadCount = count || 0;
+        } else if (follow.followed_guest_writer_id) {
+          let query = supabase
+            .from('blog_post')
+            .select('id', { count: 'exact', head: true })
+            .eq('guest_writer_id', follow.followed_guest_writer_id)
+            .eq('status', 'published');
+          
+          if (lastReadAt) {
+            query = query.gt('published_date', lastReadAt);
+          }
+          
+          const { count } = await query;
+          unreadCount = count || 0;
+        }
+
+        return {
+          id: follow.id,
+          followed_member_id: follow.followed_member_id,
+          followed_guest_writer_id: follow.followed_guest_writer_id,
+          author_name: authorName,
+          author_handle: authorHandle,
+          unread_count: unreadCount,
+          created_at: follow.created_at,
+          last_read_at: follow.last_read_at
+        };
+      }));
+
+      res.json(results);
+    } catch (error) {
+      console.error('[Article Follows] Error:', error);
+      res.status(500).json({ error: 'Failed to fetch follows' });
+    }
+  });
+
+  // Follow an author
+  app.post('/api/article-follows', async (req: Request, res: Response) => {
+    if (!supabase) {
+      return res.status(503).json({ error: 'Supabase not configured' });
+    }
+
+    try {
+      const memberId = req.session?.memberId;
+      if (!memberId) {
+        return res.status(401).json({ error: 'Authentication required' });
+      }
+
+      const { followed_member_id, followed_guest_writer_id } = req.body;
+
+      if (!followed_member_id && !followed_guest_writer_id) {
+        return res.status(400).json({ error: 'Author ID required' });
+      }
+
+      // Ensure exactly one target type is provided
+      if (followed_member_id && followed_guest_writer_id) {
+        return res.status(400).json({ error: 'Cannot specify both member and guest writer' });
+      }
+
+      // Prevent following yourself
+      if (followed_member_id && followed_member_id === memberId) {
+        return res.status(400).json({ error: 'Cannot follow yourself' });
+      }
+
+      // Verify target author exists
+      if (followed_member_id) {
+        const { data: member, error: memberError } = await supabase
+          .from('member')
+          .select('id')
+          .eq('id', followed_member_id)
+          .single();
+        
+        if (memberError || !member) {
+          return res.status(404).json({ error: 'Author not found' });
+        }
+      } else if (followed_guest_writer_id) {
+        const { data: guestWriter, error: gwError } = await supabase
+          .from('guest_writer')
+          .select('id')
+          .eq('id', followed_guest_writer_id)
+          .single();
+        
+        if (gwError || !guestWriter) {
+          return res.status(404).json({ error: 'Guest writer not found' });
+        }
+      }
+
+      // Check if already following
+      let checkQuery = supabase
+        .from('article_follow')
+        .select('id')
+        .eq('follower_member_id', memberId);
+      
+      if (followed_member_id) {
+        checkQuery = checkQuery.eq('followed_member_id', followed_member_id);
+      } else {
+        checkQuery = checkQuery.eq('followed_guest_writer_id', followed_guest_writer_id);
+      }
+
+      const { data: existing } = await checkQuery.single();
+
+      if (existing) {
+        return res.status(409).json({ error: 'Already following this author' });
+      }
+
+      // Create follow record
+      const { data, error } = await supabase
+        .from('article_follow')
+        .insert({
+          follower_member_id: memberId,
+          followed_member_id: followed_member_id || null,
+          followed_guest_writer_id: followed_guest_writer_id || null
+        })
+        .select()
+        .single();
+
+      if (error) {
+        console.error('[Article Follows] Insert error:', error);
+        return res.status(500).json({ error: 'Failed to follow author' });
+      }
+
+      res.status(201).json(data);
+    } catch (error) {
+      console.error('[Article Follows] Error:', error);
+      res.status(500).json({ error: 'Failed to follow author' });
+    }
+  });
+
+  // Unfollow an author
+  app.delete('/api/article-follows/:id', async (req: Request, res: Response) => {
+    if (!supabase) {
+      return res.status(503).json({ error: 'Supabase not configured' });
+    }
+
+    try {
+      const memberId = req.session?.memberId;
+      if (!memberId) {
+        return res.status(401).json({ error: 'Authentication required' });
+      }
+
+      const { id } = req.params;
+
+      // Delete the follow record (only if owned by current user)
+      const { error } = await supabase
+        .from('article_follow')
+        .delete()
+        .eq('id', id)
+        .eq('follower_member_id', memberId);
+
+      if (error) {
+        console.error('[Article Follows] Delete error:', error);
+        return res.status(500).json({ error: 'Failed to unfollow author' });
+      }
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error('[Article Follows] Error:', error);
+      res.status(500).json({ error: 'Failed to unfollow author' });
+    }
+  });
+
+  // Check if following a specific author
+  app.get('/api/article-follows/check', async (req: Request, res: Response) => {
+    if (!supabase) {
+      return res.status(503).json({ error: 'Supabase not configured' });
+    }
+
+    try {
+      const memberId = req.session?.memberId;
+      if (!memberId) {
+        return res.json({ following: false, followId: null });
+      }
+
+      const { author_id, guest_writer_id } = req.query;
+
+      if (!author_id && !guest_writer_id) {
+        return res.status(400).json({ error: 'Author ID required' });
+      }
+
+      let query = supabase
+        .from('article_follow')
+        .select('id')
+        .eq('follower_member_id', memberId);
+      
+      if (author_id) {
+        query = query.eq('followed_member_id', author_id);
+      } else {
+        query = query.eq('followed_guest_writer_id', guest_writer_id);
+      }
+
+      const { data } = await query.single();
+
+      res.json({ 
+        following: !!data, 
+        followId: data?.id || null 
+      });
+    } catch (error) {
+      console.error('[Article Follows] Check error:', error);
+      res.json({ following: false, followId: null });
+    }
+  });
+
+  // Mark author's articles as read (update last_read_at)
+  app.patch('/api/article-follows/:id/mark-read', async (req: Request, res: Response) => {
+    if (!supabase) {
+      return res.status(503).json({ error: 'Supabase not configured' });
+    }
+
+    try {
+      const memberId = req.session?.memberId;
+      if (!memberId) {
+        return res.status(401).json({ error: 'Authentication required' });
+      }
+
+      const { id } = req.params;
+
+      const { error } = await supabase
+        .from('article_follow')
+        .update({ last_read_at: new Date().toISOString() })
+        .eq('id', id)
+        .eq('follower_member_id', memberId);
+
+      if (error) {
+        console.error('[Article Follows] Mark read error:', error);
+        return res.status(500).json({ error: 'Failed to mark as read' });
+      }
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error('[Article Follows] Error:', error);
+      res.status(500).json({ error: 'Failed to mark as read' });
     }
   });
 

@@ -7,6 +7,7 @@ import { FileQuestion, ChevronLeft, ChevronRight, SlidersHorizontal, Save, User,
 import { Link } from "react-router-dom";
 import ArticleFilter from "../components/blog/ArticleFilter";
 import ArticleCard from "../components/blog/ArticleCard";
+import FollowedAuthorsCard from "../components/blog/FollowedAuthorsCard";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "sonner";
@@ -463,6 +464,11 @@ export default function ArticlesPage() {
                   </p>
                 </div>
               )}
+              
+              <FollowedAuthorsCard 
+                memberInfo={memberInfo} 
+                articleDisplayName={articleDisplayName}
+              />
             </div>
           </div>
 

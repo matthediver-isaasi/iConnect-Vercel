@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from "react";
 import { base44 } from "@/api/base44Client";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Calendar, User, Edit, Tag, Eye, Linkedin, Mail, Trophy, ChevronDown, ChevronUp } from "lucide-react";
+import { ArrowLeft, Calendar, User, Edit, Tag, Eye, Linkedin, Mail, Trophy, ChevronDown, ChevronUp, UserPlus, UserCheck } from "lucide-react";
 import { format } from "date-fns";
 import { Link, useParams } from "react-router-dom";
 import ArticleComments from "../components/blog/ArticleComments";
@@ -14,6 +14,7 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useArticleUrl } from "@/contexts/ArticleUrlContext";
 
 export default function ArticleViewPage() {
+  const queryClient = useQueryClient();
   const { memberInfo, isAdmin } = useMemberAccess();
   const { getArticleListUrl, getArticleEditorUrl, getPublicArticlesUrl } = useArticleUrl();
   
@@ -300,6 +301,122 @@ export default function ArticleViewPage() {
       .sort((a, b) => (a.level || 0) - (b.level || 0));
   }, [authorOfflineAssignments, offlineAwards]);
 
+  // Check if user is following the author
+  const authorId = article?.author_id || null;
+  const guestWriterId = article?.guest_writer_id || null;
+  
+  const { data: followStatus = { following: false, followId: null } } = useQuery({
+    queryKey: ['follow-status', authorId, guestWriterId],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (authorId) params.set('author_id', authorId);
+      if (guestWriterId) params.set('guest_writer_id', guestWriterId);
+      const response = await fetch(`/api/article-follows/check?${params.toString()}`, {
+        credentials: 'include'
+      });
+      if (!response.ok) return { following: false, followId: null };
+      return response.json();
+    },
+    enabled: !!memberInfo && (!!authorId || !!guestWriterId),
+  });
+
+  // Follow author mutation
+  const followMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch('/api/article-follows', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          followed_member_id: authorId || null,
+          followed_guest_writer_id: guestWriterId || null
+        })
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to follow author');
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['follow-status', authorId, guestWriterId] });
+      queryClient.invalidateQueries({ queryKey: ['article-follows'] });
+      toast.success('Now following this author');
+    },
+    onError: (error) => {
+      toast.error(error.message || 'Failed to follow author');
+    }
+  });
+
+  // Unfollow author mutation
+  const unfollowMutation = useMutation({
+    mutationFn: async (followId) => {
+      const response = await fetch(`/api/article-follows/${followId}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to unfollow author');
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['follow-status', authorId, guestWriterId] });
+      queryClient.invalidateQueries({ queryKey: ['article-follows'] });
+      toast.success('Unfollowed author');
+    },
+    onError: (error) => {
+      toast.error(error.message || 'Failed to unfollow author');
+    }
+  });
+
+  // Handler for follow/unfollow toggle
+  const handleFollowToggle = () => {
+    if (followStatus.following && followStatus.followId) {
+      unfollowMutation.mutate(followStatus.followId);
+    } else {
+      followMutation.mutate();
+    }
+  };
+
+  // Check if current user is the author (can't follow yourself)
+  const isCurrentUserAuthor = memberInfo && (authorId === memberInfo.id);
+
+  // Mark as read mutation (for followed authors)
+  const markAsReadMutation = useMutation({
+    mutationFn: async (followId) => {
+      const response = await fetch(`/api/article-follows/${followId}/mark-read`, {
+        method: 'PATCH',
+        credentials: 'include'
+      });
+      if (!response.ok) {
+        throw new Error('Failed to mark as read');
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['article-follows'] });
+    }
+  });
+
+  // Track if we've already marked as read for this article view
+  const [markedAsRead, setMarkedAsRead] = useState(false);
+
+  // Mark as read when viewing an article from a followed author (only once per page load)
+  useEffect(() => {
+    if (
+      followStatus.following && 
+      followStatus.followId && 
+      article && 
+      !isPreviewMode && 
+      !markedAsRead
+    ) {
+      markAsReadMutation.mutate(followStatus.followId);
+      setMarkedAsRead(true);
+    }
+  }, [followStatus.following, followStatus.followId, article?.id, isPreviewMode, markedAsRead]);
+
   // Record view mutation
   const recordViewMutation = useMutation({
     mutationFn: async () => {
@@ -571,7 +688,7 @@ export default function ArticleViewPage() {
 
                   {/* Author Info */}
                   <div className="flex-1">
-                    <div className="flex items-start justify-between">
+                    <div className="flex items-start justify-between gap-4">
                       <div>
                         <h3 className="text-lg font-semibold text-slate-900">
                           {isGuestWriter ? author.full_name : `${author.first_name} ${author.last_name}`}
@@ -586,6 +703,31 @@ export default function ArticleViewPage() {
                           <p className="text-sm text-slate-600 mt-1">{author.email}</p>
                         )}
                       </div>
+                      
+                      {memberInfo && !isCurrentUserAuthor && (
+                        <Button
+                          variant={followStatus.following ? "outline" : "default"}
+                          size="sm"
+                          onClick={handleFollowToggle}
+                          disabled={followMutation.isPending || unfollowMutation.isPending}
+                          className="gap-2 flex-shrink-0"
+                          data-testid="button-follow-author"
+                        >
+                          {followMutation.isPending || unfollowMutation.isPending ? (
+                            <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                          ) : followStatus.following ? (
+                            <>
+                              <UserCheck className="w-4 h-4" />
+                              Following
+                            </>
+                          ) : (
+                            <>
+                              <UserPlus className="w-4 h-4" />
+                              Follow
+                            </>
+                          )}
+                        </Button>
+                      )}
                     </div>
 
                     {/* Biography */}
