@@ -12712,13 +12712,53 @@ AGCAS Events Team
   }
   
   // LLM invocation endpoint for content moderation and other AI features
+  // Note: This endpoint is used for comment moderation which allows public users to comment
+  // We use rate limiting by IP instead of requiring authentication
+  const llmRateLimits = new Map<string, { count: number; resetTime: number }>();
+  const LLM_RATE_LIMIT = 10; // Max requests per window
+  const LLM_RATE_WINDOW = 60000; // 1 minute window
+  
   app.post('/api/integrations/invoke-llm', async (req: Request, res: Response) => {
     try {
+      // Rate limiting by IP address
+      const clientIp = req.ip || req.connection.remoteAddress || 'unknown';
+      const now = Date.now();
+      const rateData = llmRateLimits.get(clientIp);
+      
+      if (rateData) {
+        if (now < rateData.resetTime) {
+          if (rateData.count >= LLM_RATE_LIMIT) {
+            return res.status(429).json({ 
+              error: 'Too many requests. Please try again later.',
+              is_safe: true // Allow comment to proceed without moderation if rate limited
+            });
+          }
+          rateData.count++;
+        } else {
+          llmRateLimits.set(clientIp, { count: 1, resetTime: now + LLM_RATE_WINDOW });
+        }
+      } else {
+        llmRateLimits.set(clientIp, { count: 1, resetTime: now + LLM_RATE_WINDOW });
+      }
+      
+      // Clean up old rate limit entries periodically
+      if (llmRateLimits.size > 1000) {
+        for (const [ip, data] of llmRateLimits.entries()) {
+          if (now > data.resetTime) {
+            llmRateLimits.delete(ip);
+          }
+        }
+      }
+      
       const client = getOpenAIClient();
       
       if (!client) {
-        return res.status(503).json({ 
-          error: 'LLM service not configured. Please add OPENAI_API_KEY to your environment.' 
+        // If LLM not configured, allow comments through without moderation
+        console.warn('[LLM] No API key configured, skipping moderation');
+        return res.json({ 
+          is_safe: true,
+          reason: '',
+          warning: 'Content moderation unavailable'
         });
       }
       
