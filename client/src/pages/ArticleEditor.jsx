@@ -707,21 +707,13 @@ export default function ArticleEditorPage() {
             )}
             
             <Button
-              variant="outline"
               onClick={() => saveMutation.mutate(false)}
               disabled={saveMutation.isPending || !title || !slug || !!slugError}
-              className="gap-2"
+              className="bg-blue-600 hover:bg-blue-700 gap-2"
+              data-testid="button-save-article"
             >
               <Save className="w-4 h-4" />
-              Save Draft
-            </Button>
-            
-            <Button
-              onClick={() => saveMutation.mutate(true)}
-              disabled={saveMutation.isPending || !title || !slug || !!slugError}
-              className="bg-blue-600 hover:bg-blue-700 gap-2"
-            >
-              {status === 'published' ? 'Update' : 'Publish'}
+              Save
             </Button>
           </div>
         </div>
