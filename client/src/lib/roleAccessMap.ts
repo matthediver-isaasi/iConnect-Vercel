@@ -52,7 +52,6 @@ export const ROLE_ACCESS_MAP: Module[] = [
         label: "Browse Events",
         features: [
           { id: "events.browse-events.search-filters", label: "Search & Filters" },
-          { id: "events.browse-events.page-description", label: "Page Description" },
           { id: "events.browse-events.create", label: "Create, Edit & Delete Events" },
           { id: "events.browse-events.view-attendees", label: "View Attendees" }
         ]
@@ -655,7 +654,6 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_GuestWriterManagement": "content.guest-writers",
   "page_OrganisationDirectorySettings": "membership.organisation-directory-settings",
   "element_EventDescription": "events.event-details.description",
-  "element_EventsPageDescription": "events.browse-events.page-description",
   "element_EventsSearch": "events.browse-events.search-filters",
   "element_SelfRegistration": "events.event-details.self-registration",
   "element_AddColleaguesToEvents": "events.event-details.add-colleagues",
