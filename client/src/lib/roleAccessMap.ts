@@ -225,6 +225,7 @@ export const ROLE_ACCESS_MAP: Module[] = [
         features: [
           { id: "content.news-settings", label: "News Settings" },
           { id: "content.news-editor", label: "News Editor" },
+          { id: "content.news-editor.seo-settings", label: "SEO Settings" },
           { id: "content.news.edit", label: "Edit News" },
           { id: "content.news.delete", label: "Delete News" },
           { id: "content.news.my-news", label: "My News" }
