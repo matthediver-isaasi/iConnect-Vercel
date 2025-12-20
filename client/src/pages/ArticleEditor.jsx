@@ -47,6 +47,7 @@ export default function ArticleEditorPage() {
   const [selectedGuestWriterId, setSelectedGuestWriterId] = useState(null);
   const [originalAuthorId, setOriginalAuthorId] = useState(null);
   const [originalAuthorName, setOriginalAuthorName] = useState(null);
+  const [originalAuthorHandle, setOriginalAuthorHandle] = useState(null);
   const [isOtherMemberArticle, setIsOtherMemberArticle] = useState(false);
 
   // Fetch current member's full record to get the handle
@@ -138,13 +139,16 @@ export default function ArticleEditorPage() {
       // Handle slug extraction for member-authored articles
       if (article.author_id && !article.guest_writer_id) {
         let displaySlug = article.slug || "";
-        const byHandleMatch = displaySlug.match(/-by-[a-z0-9-]+$/i);
+        const byHandleMatch = displaySlug.match(/-by-([a-z0-9-]+)$/i);
         if (byHandleMatch) {
           displaySlug = displaySlug.slice(0, -byHandleMatch[0].length);
+          // Extract and store the original author's handle
+          setOriginalAuthorHandle(byHandleMatch[1]);
         }
         setSlug(displaySlug);
       } else {
         setSlug(article.slug || "");
+        setOriginalAuthorHandle(null);
       }
     }
   }, [article]);
@@ -280,8 +284,8 @@ export default function ArticleEditorPage() {
         };
       } else if (authorType === "other_member" && originalAuthorId) {
         // Keep the original author - don't change author_id or author_name
-        // Just preserve the existing slug structure
-        finalSlug = article?.slug || slug;
+        // Use the slug with original author's handle
+        finalSlug = originalAuthorHandle ? `${slug}-by-${originalAuthorHandle}` : slug;
         articleData = {
           title,
           slug: finalSlug,
@@ -471,13 +475,16 @@ export default function ArticleEditorPage() {
     );
   }
 
-  // Construct the full URL preview
+  // Construct the full URL preview based on author type
   let fullSlugPreview;
   if (authorType === "guest") {
+    // Guest writers don't have handles, use just the slug
     fullSlugPreview = slug;
-  } else if (authorType === "other_member" && isOtherMemberArticle && article?.slug) {
-    fullSlugPreview = article.slug;
+  } else if (authorType === "other_member" && originalAuthorHandle) {
+    // Use the original author's handle
+    fullSlugPreview = `${slug}-by-${originalAuthorHandle}`;
   } else {
+    // Use current member's handle
     fullSlugPreview = currentMember?.handle ? `${slug}-by-${currentMember.handle}` : slug;
   }
   const selectedGuestWriter = guestWriters.find(w => w.id === selectedGuestWriterId);
