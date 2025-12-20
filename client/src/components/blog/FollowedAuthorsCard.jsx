@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { User, UserMinus, BellRing } from "lucide-react";
+import { User, Trash2, BellRing } from "lucide-react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 
@@ -129,25 +129,23 @@ export default function FollowedAuthorsCard({ memberInfo, articleDisplayName = "
                     {follow.author_organization}
                   </span>
                 )}
-                <Button
-                  variant="ghost"
-                  size="sm"
+                <button
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
                     unfollowMutation.mutate(follow.id);
                   }}
                   disabled={unfollowMutation.isPending}
-                  className="h-6 px-2 mt-1 w-fit text-xs text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
+                  className="mt-1 text-slate-400 hover:text-red-500 transition-colors"
+                  title="Unfollow"
                   data-testid={`button-unfollow-${follow.id}`}
                 >
                   {unfollowMutation.isPending ? (
-                    <div className="w-3 h-3 border-2 border-slate-400 border-t-transparent rounded-full animate-spin mr-1" />
+                    <div className="w-3.5 h-3.5 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
                   ) : (
-                    <UserMinus className="w-3 h-3 mr-1" />
+                    <Trash2 className="w-3.5 h-3.5" />
                   )}
-                  Unfollow
-                </Button>
+                </button>
               </div>
             </Link>
           </div>
