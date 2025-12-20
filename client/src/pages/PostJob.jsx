@@ -644,7 +644,7 @@ export default function PostJobPage() {
   // Only show email check form if NOT logged in AND step is 'email'
   if (!isLoggedIn && step === 'email') {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+      <div className="bg-gradient-to-br from-slate-50 to-blue-50 flex items-start justify-center pt-12 px-4 pb-12">
         <Card className="max-w-md w-full border-slate-200 shadow-xl">
           <CardHeader>
             <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center mb-4">
@@ -694,7 +694,7 @@ export default function PostJobPage() {
 
   // All other cases: show the job posting form
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+    <div className="bg-gradient-to-br from-slate-50 to-blue-50 pt-12 px-4 pb-12">
       <div className="max-w-3xl mx-auto">
         {/* Back to Job Board link */}
         <Link 
