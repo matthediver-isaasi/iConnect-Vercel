@@ -150,7 +150,8 @@ export default async function handler(req, res) {
     return res.json({ 
       is_safe: true,
       reason: '',
-      warning: 'Content moderation temporarily unavailable'
+      warning: 'Content moderation temporarily unavailable',
+      debug_error: error.message || String(error)
     });
   }
 }
