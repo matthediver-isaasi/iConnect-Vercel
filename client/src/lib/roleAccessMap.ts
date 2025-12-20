@@ -220,14 +220,6 @@ export const ROLE_ACCESS_MAP: Module[] = [
         ]
       },
       {
-        id: "content.article-author",
-        label: "Article Author Options",
-        features: [
-          { id: "content.article-author.myself", label: "Show as Myself" },
-          { id: "content.article-author.guest-writer", label: "Show as Guest Writer" }
-        ]
-      },
-      {
         id: "content.news",
         label: "News",
         features: [
