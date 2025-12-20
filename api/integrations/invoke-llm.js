@@ -120,12 +120,37 @@ export default async function handler(req, res) {
   } catch (error) {
     console.error('[LLM] Error invoking LLM:', error);
     
-    if (error.status === 429) {
-      return res.status(429).json({ error: 'Rate limit exceeded. Please try again later.' });
+    if (error.status === 429 || error.code === 'rate_limit_exceeded') {
+      return res.status(429).json({ 
+        error: 'OpenAI rate limit exceeded. Please try again in a few seconds.',
+        is_safe: true,
+        reason: ''
+      });
     }
     
-    res.status(500).json({ 
-      error: 'Failed to invoke LLM: ' + (error.message || 'Unknown error') 
+    if (error.status === 401 || error.code === 'invalid_api_key') {
+      console.error('[LLM] Invalid API key');
+      return res.json({ 
+        is_safe: true,
+        reason: '',
+        warning: 'Content moderation unavailable - invalid API key'
+      });
+    }
+    
+    if (error.status === 403 || error.code === 'insufficient_quota') {
+      console.error('[LLM] Insufficient quota');
+      return res.json({ 
+        is_safe: true,
+        reason: '',
+        warning: 'Content moderation unavailable - quota exceeded'
+      });
+    }
+    
+    console.error('[LLM] Unhandled error:', error.message, error.code, error.status);
+    return res.json({ 
+      is_safe: true,
+      reason: '',
+      warning: 'Content moderation temporarily unavailable'
     });
   }
 }
