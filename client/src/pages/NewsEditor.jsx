@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { ArrowLeft, Save, Trash2, Upload, X, Loader2, CheckCircle2, Clock } from "lucide-react";
 import { createPageUrl } from "@/utils";
 import { Link } from "react-router-dom";
@@ -42,6 +43,7 @@ export default function NewsEditorPage() {
   const [uploadingImage, setUploadingImage] = useState(false);
   const [autoSaving, setAutoSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   // Fetch current member by ID (efficient single record fetch)
   const { data: currentMember, isLoading: memberLoading } = useQuery({
@@ -253,9 +255,12 @@ export default function NewsEditorPage() {
   }), []);
 
   const handleDelete = () => {
-    if (window.confirm('Are you sure you want to delete this news article? This action cannot be undone.')) {
-      deleteMutation.mutate();
-    }
+    setShowDeleteConfirm(true);
+  };
+
+  const confirmDelete = () => {
+    deleteMutation.mutate();
+    setShowDeleteConfirm(false);
   };
 
   if (isFeatureExcluded('content.news-editor')) {
@@ -495,6 +500,7 @@ export default function NewsEditorPage() {
                 onClick={handleDelete}
                 disabled={deleteMutation.isPending}
                 className="w-full gap-2"
+                data-testid="button-delete-news"
               >
                 <Trash2 className="w-4 h-4" />
                 Delete News
@@ -503,6 +509,27 @@ export default function NewsEditorPage() {
           </div>
         </div>
       </div>
+
+      <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete News Article</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this news article? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDelete}
+              className="bg-red-600 hover:bg-red-700"
+              data-testid="button-confirm-delete"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
