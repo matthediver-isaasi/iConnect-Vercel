@@ -38,55 +38,25 @@ export default function ArticlesPage() {
 
   const queryClient = useQueryClient();
   
-  // Lookup author by handle when filtering by author
+  // Lookup author by handle using server-side API (works in both dev and Vercel)
   const { data: authorInfo, isLoading: authorLoading, isError: authorNotFound } = useQuery({
     queryKey: ['author-by-handle', authorHandle],
     queryFn: async () => {
-      // Try to find member by handle using filter query (more efficient than listing all)
-      console.log('[Articles] Author lookup - searching for handle:', authorHandle);
+      console.log('[Articles] Author lookup - calling API for handle:', authorHandle);
       
-      const members = await base44.entities.Member.filter({ handle: authorHandle });
-      console.log('[Articles] Author lookup - members found by filter:', members?.length, members);
+      const response = await fetch(`/api/articles/lookup-author?handle=${encodeURIComponent(authorHandle)}`);
       
-      const member = members?.[0];
-      if (member) {
-        // Fetch organization for member if they have one
-        let organizationName = null;
-        if (member.organization_id) {
-          try {
-            const orgs = await base44.entities.Organization.filter({ zoho_account_id: member.organization_id });
-            if (orgs?.[0]) {
-              organizationName = orgs[0].name;
-            }
-          } catch (e) {
-            console.log('[Articles] Failed to fetch organization:', e);
-          }
-        }
-        
-        return {
-          type: 'member',
-          id: member.id,
-          name: `${member.first_name || ''} ${member.last_name || ''}`.trim() || 'Unknown Author',
-          organization: organizationName
-        };
+      if (response.status === 404) {
+        throw new Error('Author not found');
       }
       
-      // Try guest writer by handle
-      const guestWriters = await base44.entities.GuestWriter.filter({ handle: authorHandle });
-      console.log('[Articles] Author lookup - guest writers found by filter:', guestWriters?.length);
-      
-      const guestWriter = guestWriters?.[0];
-      if (guestWriter) {
-        return {
-          type: 'guest_writer',
-          id: guestWriter.id,
-          name: guestWriter.full_name || 'Unknown Author',
-          organization: guestWriter.organization
-        };
+      if (!response.ok) {
+        throw new Error('Failed to lookup author');
       }
       
-      // Author not found - throw error to trigger error state
-      throw new Error('Author not found');
+      const data = await response.json();
+      console.log('[Articles] Author lookup - API response:', data);
+      return data;
     },
     enabled: !!authorHandle,
     staleTime: 60000,
