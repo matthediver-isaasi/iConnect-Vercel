@@ -12,6 +12,18 @@ import { toast } from "sonner";
 import { useArticleCommentRealtime } from "@/hooks/useArticleCommentRealtime";
 import { useCommentReactionRealtime } from "@/hooks/useCommentReactionRealtime";
 
+// Safe date formatting helper to handle corrupted/missing dates
+function formatCommentDate(dateValue) {
+  if (!dateValue) return 'Just now';
+  try {
+    const date = new Date(dateValue);
+    if (isNaN(date.getTime())) return 'Just now';
+    return format(date, 'MMM d, yyyy');
+  } catch {
+    return 'Just now';
+  }
+}
+
 export default function ArticleComments({ articleId, memberInfo, showThumbsUp = true, showThumbsDown = true }) {
   const [newComment, setNewComment] = useState("");
   const [publicUserName, setPublicUserName] = useState("");
@@ -359,7 +371,7 @@ Respond with a JSON object containing exactly two fields:
                           </span>
                         )}
                         <span className="text-sm text-slate-500">
-                          • {comment.created_date ? format(new Date(comment.created_date), 'MMM d, yyyy') : 'Just now'}
+                          • {formatCommentDate(comment.created_date || comment.created_at)}
                         </span>
                       </div>
 
