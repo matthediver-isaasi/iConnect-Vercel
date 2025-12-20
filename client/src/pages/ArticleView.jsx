@@ -15,7 +15,7 @@ import { useArticleUrl } from "@/contexts/ArticleUrlContext";
 
 export default function ArticleViewPage() {
   const queryClient = useQueryClient();
-  const { memberInfo, isAdmin } = useMemberAccess();
+  const { memberInfo, isAdmin, isFeatureExcluded } = useMemberAccess();
   const { getArticleListUrl, getArticleEditorUrl, getPublicArticlesUrl } = useArticleUrl();
   
   // Get route params for new folder-based URLs: /articles/:authorHandle/:articleSlug
@@ -704,7 +704,7 @@ export default function ArticleViewPage() {
                         )}
                       </div>
                       
-                      {memberInfo && !isCurrentUserAuthor && (
+                      {memberInfo && !isCurrentUserAuthor && !isFeatureExcluded('content.articles.follow-author') && (
                         <Button
                           variant={followStatus.following ? "outline" : "default"}
                           size="sm"

@@ -5,8 +5,15 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { User, Trash2, BellRing } from "lucide-react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
+import { useMemberAccess } from "@/hooks/useMemberAccess";
 
 export default function FollowedAuthorsCard({ memberInfo, articleDisplayName = "Articles" }) {
+  const { isFeatureExcluded } = useMemberAccess();
+  
+  // Hide entire card if follow-author feature is excluded
+  if (isFeatureExcluded('content.articles.follow-author')) {
+    return null;
+  }
   const queryClient = useQueryClient();
 
   const { data: followedAuthors = [], isLoading } = useQuery({
