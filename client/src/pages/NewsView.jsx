@@ -24,6 +24,58 @@ export default function NewsViewPage() {
     enabled: !!slug,
   });
 
+  useEffect(() => {
+    if (news) {
+      document.title = news.seo_title || news.title || 'News';
+      
+      let metaDescription = document.querySelector('meta[name="description"]');
+      if (!metaDescription) {
+        metaDescription = document.createElement('meta');
+        metaDescription.name = 'description';
+        document.head.appendChild(metaDescription);
+      }
+      metaDescription.content = news.seo_description || news.summary || '';
+
+      let ogTitle = document.querySelector('meta[property="og:title"]');
+      if (!ogTitle) {
+        ogTitle = document.createElement('meta');
+        ogTitle.setAttribute('property', 'og:title');
+        document.head.appendChild(ogTitle);
+      }
+      ogTitle.content = news.seo_title || news.title || '';
+
+      let ogDescription = document.querySelector('meta[property="og:description"]');
+      if (!ogDescription) {
+        ogDescription = document.createElement('meta');
+        ogDescription.setAttribute('property', 'og:description');
+        document.head.appendChild(ogDescription);
+      }
+      ogDescription.content = news.seo_description || news.summary || '';
+
+      if (news.feature_image_url) {
+        let ogImage = document.querySelector('meta[property="og:image"]');
+        if (!ogImage) {
+          ogImage = document.createElement('meta');
+          ogImage.setAttribute('property', 'og:image');
+          document.head.appendChild(ogImage);
+        }
+        ogImage.content = news.feature_image_url;
+      }
+
+      let ogType = document.querySelector('meta[property="og:type"]');
+      if (!ogType) {
+        ogType = document.createElement('meta');
+        ogType.setAttribute('property', 'og:type');
+        document.head.appendChild(ogType);
+      }
+      ogType.content = 'article';
+    }
+
+    return () => {
+      document.title = 'AGCAS';
+    };
+  }, [news]);
+
   const handleLinkedInShare = () => {
     const newsUrl = encodeURIComponent(window.location.href);
     const linkedInUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${newsUrl}`;
