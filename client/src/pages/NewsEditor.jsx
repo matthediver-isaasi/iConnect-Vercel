@@ -393,21 +393,13 @@ export default function NewsEditorPage() {
             )}
             
             <Button
-              variant="outline"
               onClick={() => saveMutation.mutate({ publishNow: false })}
-              disabled={saveMutation.isPending || !title}
-              className="gap-2"
-            >
-              <Save className="w-4 h-4" />
-              Save Draft
-            </Button>
-            
-            <Button
-              onClick={() => saveMutation.mutate({ publishNow: true })}
               disabled={saveMutation.isPending || !title || !slug}
               className="bg-blue-600 hover:bg-blue-700 gap-2"
+              data-testid="button-save-news"
             >
-              {status === 'published' ? 'Update' : 'Publish'}
+              <Save className="w-4 h-4" />
+              Save
             </Button>
           </div>
         </div>

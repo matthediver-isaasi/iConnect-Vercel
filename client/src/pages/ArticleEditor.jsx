@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { ArrowLeft, Save, Eye, Trash2, Upload, X, Loader2, CheckCircle2, Clock, User } from "lucide-react";
+import { ArrowLeft, Save, Eye, Trash2, Upload, X, Loader2, CheckCircle2, Clock, User, Share2, Copy, Check } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { format } from "date-fns";
@@ -54,6 +55,11 @@ export default function ArticleEditorPage() {
   const [persistedOriginalAuthorName, setPersistedOriginalAuthorName] = useState(null);
   const [slugError, setSlugError] = useState(null);
   const [checkingSlug, setCheckingSlug] = useState(false);
+  // Share draft functionality
+  const [showShareDialog, setShowShareDialog] = useState(false);
+  const [sharePassword, setSharePassword] = useState("");
+  const [copiedLink, setCopiedLink] = useState(false);
+  const [copiedPassword, setCopiedPassword] = useState(false);
 
   // Fetch current member's full record to get the handle
   // First check if memberInfo already has handle (from login), otherwise fetch by ID
@@ -140,6 +146,7 @@ export default function ArticleEditorPage() {
       setPublishedDate(article.published_date || new Date().toISOString());
       setSeoTitle(article.seo_title || "");
       setSeoDescription(article.seo_description || "");
+      setSharePassword(article.share_password || "");
       
       // Handle slug - new structure stores clean slugs without handle suffix
       // For legacy articles, extract the base slug from "-by-{handle}" format
@@ -553,6 +560,65 @@ export default function ArticleEditorPage() {
     },
   });
 
+  // Generate a random 4-digit password
+  const generateSharePassword = () => {
+    return Math.floor(1000 + Math.random() * 9000).toString();
+  };
+
+  // Share mutation to save password
+  const shareMutation = useMutation({
+    mutationFn: async (password) => {
+      return await base44.entities.BlogPost.update(articleId, { share_password: password });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['article', articleId] });
+      toast.success('Share link generated!');
+    },
+    onError: () => {
+      toast.error('Failed to generate share link');
+    },
+  });
+
+  const handleShare = () => {
+    // Generate new password if none exists
+    const password = sharePassword || generateSharePassword();
+    if (!sharePassword) {
+      setSharePassword(password);
+      shareMutation.mutate(password);
+    }
+    setShowShareDialog(true);
+    setCopiedLink(false);
+    setCopiedPassword(false);
+  };
+
+  const regeneratePassword = () => {
+    const newPassword = generateSharePassword();
+    setSharePassword(newPassword);
+    shareMutation.mutate(newPassword);
+    setCopiedPassword(false);
+  };
+
+  const getShareUrl = () => {
+    const baseUrl = window.location.origin;
+    return `${baseUrl}/article-preview/${articleId}`;
+  };
+
+  const copyToClipboard = async (text, type) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      if (type === 'link') {
+        setCopiedLink(true);
+        setTimeout(() => setCopiedLink(false), 2000);
+      } else {
+        setCopiedPassword(true);
+        setTimeout(() => setCopiedPassword(false), 2000);
+      }
+      toast.success(`${type === 'link' ? 'Link' : 'Password'} copied!`);
+    } catch (err) {
+      toast.error('Failed to copy');
+    }
+  };
+
   const handleFeatureImageUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -737,6 +803,19 @@ export default function ArticleEditorPage() {
                 <CheckCircle2 className="w-4 h-4 text-green-600" />
                 Saved {format(lastSaved, 'h:mm a')}
               </span>
+            )}
+            
+            {isEditing && (
+              <Button
+                variant="outline"
+                onClick={handleShare}
+                disabled={shareMutation.isPending}
+                className="gap-2"
+                data-testid="button-share-article"
+              >
+                <Share2 className="w-4 h-4" />
+                Share Draft
+              </Button>
             )}
             
             <Button
@@ -1053,6 +1132,74 @@ export default function ArticleEditorPage() {
           </div>
         </div>
       </div>
+
+      <Dialog open={showShareDialog} onOpenChange={setShowShareDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Share Draft {singularDisplayName}</DialogTitle>
+            <DialogDescription>
+              Share this draft with others using the link and password below.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Preview Link</Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  readOnly
+                  value={getShareUrl()}
+                  className="flex-1 text-sm bg-slate-50"
+                  data-testid="input-share-link"
+                />
+                <Button
+                  size="icon"
+                  variant="outline"
+                  onClick={() => copyToClipboard(getShareUrl(), 'link')}
+                  data-testid="button-copy-link"
+                >
+                  {copiedLink ? <Check className="w-4 h-4 text-green-600" /> : <Copy className="w-4 h-4" />}
+                </Button>
+              </div>
+            </div>
+            
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Access Password</Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  readOnly
+                  value={sharePassword}
+                  className="flex-1 text-lg font-mono tracking-widest text-center bg-slate-50"
+                  data-testid="input-share-password"
+                />
+                <Button
+                  size="icon"
+                  variant="outline"
+                  onClick={() => copyToClipboard(sharePassword, 'password')}
+                  data-testid="button-copy-password"
+                >
+                  {copiedPassword ? <Check className="w-4 h-4 text-green-600" /> : <Copy className="w-4 h-4" />}
+                </Button>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={regeneratePassword}
+                disabled={shareMutation.isPending}
+                className="text-xs text-slate-500 hover:text-slate-700"
+                data-testid="button-regenerate-password"
+              >
+                Generate new password
+              </Button>
+            </div>
+
+            <div className="p-3 bg-amber-50 rounded-lg border border-amber-200">
+              <p className="text-sm text-amber-800">
+                Anyone with this link and password can view the draft {singularDisplayName.toLowerCase()}.
+              </p>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
