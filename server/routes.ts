@@ -708,24 +708,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (follow.followed_member_id) {
           const { data: member } = await supabase
             .from('member')
-            .select('id, first_name, last_name, handle, blog_handle, profile_photo_url')
+            .select('id, first_name, last_name, blog_author_handle, profile_photo_url')
             .eq('id', follow.followed_member_id)
             .single();
           
           if (member) {
-            authorName = `${member.first_name || ''} ${member.last_name || ''}`.trim();
-            authorHandle = member.handle || member.blog_handle;
+            authorName = `${member.first_name || ''} ${member.last_name || ''}`.trim() || 'Unknown Author';
+            authorHandle = member.blog_author_handle;
           }
         } else if (follow.followed_guest_writer_id) {
           const { data: guestWriter } = await supabase
             .from('guest_writer')
-            .select('id, full_name')
+            .select('id, name, handle')
             .eq('id', follow.followed_guest_writer_id)
             .single();
           
           if (guestWriter) {
-            authorName = guestWriter.full_name;
-            authorHandle = 'guest';
+            authorName = guestWriter.name || 'Unknown Author';
+            authorHandle = guestWriter.handle;
           }
         }
 

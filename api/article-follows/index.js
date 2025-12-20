@@ -55,24 +55,24 @@ export default async function handler(req, res) {
           let authorHandle = null;
           
           if (follow.followed_member_id) {
-            const { data: member } = await supabase
+            const { data: member, error: memberError } = await supabase
               .from('member')
               .select('first_name, last_name, blog_author_handle')
               .eq('id', follow.followed_member_id)
               .single();
             
-            if (member) {
+            if (member && !memberError) {
               authorName = `${member.first_name || ''} ${member.last_name || ''}`.trim() || 'Unknown Author';
               authorHandle = member.blog_author_handle;
             }
           } else if (follow.followed_guest_writer_id) {
-            const { data: guestWriter } = await supabase
+            const { data: guestWriter, error: gwError } = await supabase
               .from('guest_writer')
               .select('name, handle')
               .eq('id', follow.followed_guest_writer_id)
               .single();
             
-            if (guestWriter) {
+            if (guestWriter && !gwError) {
               authorName = guestWriter.name || 'Unknown Author';
               authorHandle = guestWriter.handle;
             }

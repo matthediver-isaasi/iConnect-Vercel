@@ -1,8 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { User, UserMinus, BellRing, Users } from "lucide-react";
+import { User, UserMinus, BellRing } from "lucide-react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 
@@ -68,19 +67,12 @@ export default function FollowedAuthorsCard({ memberInfo, articleDisplayName = "
 
   if (isLoading) {
     return (
-      <Card className="mt-6" data-testid="card-followed-authors-loading">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm font-semibold flex items-center gap-2">
-            <Users className="w-4 h-4" />
-            Following
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex justify-center py-4">
-            <div className="w-5 h-5 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
-          </div>
-        </CardContent>
-      </Card>
+      <div className="mt-6" data-testid="card-followed-authors-loading">
+        <h3 className="text-sm font-semibold mb-3">Authors You Follow</h3>
+        <div className="flex justify-center py-4">
+          <div className="w-5 h-5 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
+        </div>
+      </div>
     );
   }
 
@@ -95,18 +87,13 @@ export default function FollowedAuthorsCard({ memberInfo, articleDisplayName = "
   };
 
   return (
-    <Card className="mt-6" data-testid="card-followed-authors">
-      <CardHeader className="pb-3">
-        <CardTitle className="text-sm font-semibold flex items-center gap-2">
-          <Users className="w-4 h-4" />
-          Authors You Follow
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-2">
+    <div className="mt-6" data-testid="card-followed-authors">
+      <h3 className="text-sm font-semibold mb-3">Authors You Follow</h3>
+      <div className="space-y-1">
         {followedAuthors.map((follow) => (
           <div
             key={follow.id}
-            className="flex items-center justify-between gap-2 p-2 rounded-lg hover:bg-slate-50 transition-colors"
+            className="flex items-center justify-between gap-2 p-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
             data-testid={`followed-author-${follow.id}`}
           >
             <Link
@@ -114,11 +101,11 @@ export default function FollowedAuthorsCard({ memberInfo, articleDisplayName = "
               className="flex items-center gap-2 flex-1 min-w-0"
               onClick={() => handleAuthorClick(follow)}
             >
-              <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center flex-shrink-0">
-                <User className="w-4 h-4 text-slate-500" />
+              <div className="w-7 h-7 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center flex-shrink-0">
+                <User className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
               </div>
               <div className="flex items-center gap-2 min-w-0 flex-1">
-                <span className="text-sm font-medium text-slate-700 truncate" data-testid={`text-author-${follow.id}`}>
+                <span className="text-sm font-medium truncate" data-testid={`text-author-${follow.id}`}>
                   {follow.author_name}
                 </span>
                 {follow.unread_count > 0 && (
@@ -138,19 +125,19 @@ export default function FollowedAuthorsCard({ memberInfo, articleDisplayName = "
               size="icon"
               onClick={() => unfollowMutation.mutate(follow.id)}
               disabled={unfollowMutation.isPending}
-              className="flex-shrink-0 text-slate-400 hover:text-red-500 hover:bg-red-50"
+              className="flex-shrink-0 h-7 w-7 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
               title="Unfollow"
               data-testid={`button-unfollow-${follow.id}`}
             >
               {unfollowMutation.isPending ? (
-                <div className="w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
+                <div className="w-3.5 h-3.5 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
               ) : (
-                <UserMinus className="w-4 h-4" />
+                <UserMinus className="w-3.5 h-3.5" />
               )}
             </Button>
           </div>
         ))}
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }
