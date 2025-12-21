@@ -33,7 +33,9 @@ import BarePublicLayout from "@/components/layouts/BarePublicLayout";
 import FloaterDisplay from "@/components/floaters/FloaterDisplay";
 import NewsTickerBar from "@/components/news/NewsTickerBar";
 import PortalHeroBanner from "@/components/banners/PortalHeroBanner";
+import PageBannerDisplay from "@/components/banners/PageBannerDisplay";
 import NextEventCountdown from "@/components/navigation/NextEventCountdown";
+import { BannerProvider } from "@/contexts/BannerContext";
 import { usePendingPurchaseOrders } from "@/hooks/usePendingPurchaseOrders";
 
 import { useQuery } from '@tanstack/react-query';
@@ -631,9 +633,9 @@ const currentPortalPageId = getPortalPageId();
 // Debug logging for banner matching
 console.log('[Layout] currentPageName:', currentPageName, 'currentPortalPageId:', currentPortalPageId);
 
-// Fetch portal banner for the current page
-const { data: portalBanner } = useQuery({
-  queryKey: ['portal-banner', currentPortalPageId],
+// Fetch ALL portal banners for the current page (not just the first one)
+const { data: portalBanners = [] } = useQuery({
+  queryKey: ['portal-banners', currentPortalPageId],
   enabled: !!currentPortalPageId,
   refetchOnMount: false,
   queryFn: async () => {
@@ -644,31 +646,44 @@ const { data: portalBanner } = useQuery({
         sort: { display_order: 'asc' }
       });
       
-      // Debug: log all banners for MyOrganisation troubleshooting
-      if (currentPageName === 'MyOrganisation') {
-        console.log('[Layout] MyOrganisation DEBUG - looking for:', currentPortalPageId);
+      // Debug: log all banners for troubleshooting
+      if (currentPageName === 'MyOrganisation' || currentPageName === 'JobBoard') {
+        console.log('[Layout] DEBUG - looking for:', currentPortalPageId);
         console.log('[Layout] All banners:', banners?.length);
         banners?.forEach(b => {
-          console.log('[Layout] Banner:', b.name, 'associated_pages:', b.associated_pages);
+          console.log('[Layout] Banner:', b.name, 'type:', b.banner_type, 'position:', b.page_position, 'associated_pages:', b.associated_pages);
         });
       }
       
-      // Find first banner that includes this portal page in its associated_pages array
-      // Lower display_order takes priority
-      const matchingBanner = banners?.find(banner => 
+      // Find ALL banners that include this portal page in their associated_pages array
+      const matchingBanners = banners?.filter(banner => 
         banner.associated_pages && 
         Array.isArray(banner.associated_pages) && 
         banner.associated_pages.includes(currentPortalPageId)
-      );
+      ) || [];
       
-      console.log('[Layout] Matched banner for', currentPageName, ':', matchingBanner?.name || 'none');
-      return matchingBanner || null;
+      console.log('[Layout] Matched banners for', currentPageName, ':', matchingBanners.length);
+      return matchingBanners;
     } catch (error) {
-      console.error('Error loading portal banner:', error);
-      return null;
+      console.error('Error loading portal banners:', error);
+      return [];
     }
   },
 });
+
+// Split banners by page_position
+const topBanners = useMemo(() => 
+  portalBanners.filter(b => !b.page_position || b.page_position === 'top'),
+  [portalBanners]
+);
+
+const belowFirstElementBanners = useMemo(() => 
+  portalBanners.filter(b => b.page_position === 'below_first_element'),
+  [portalBanners]
+);
+
+// For backward compatibility - check if any banner exists for hasBanner state
+const portalBanner = topBanners[0] || null;
 
 // Get the layout context to update banner status and share member/org info
 // Note: isAdmin removed - access control now uses isFeatureExcluded() exclusively
@@ -2044,8 +2059,20 @@ useEffect(() => {
 
             {!isFeatureExcluded('element_NewsTickerBar') && <NewsTickerBar />}
             <main ref={mainContentRef} className="flex-1 overflow-y-auto overflow-x-hidden min-h-0 overscroll-contain">
-              {portalBanner && <PortalHeroBanner banner={portalBanner} />}
-              {childrenWithProps}
+              {/* Render ALL top banners with appropriate component based on banner_type */}
+              {topBanners.length > 0 && (
+                <div className="w-full">
+                  {topBanners.map((banner) => (
+                    banner.banner_type === 'image'
+                      ? <PageBannerDisplay key={banner.id} banner={banner} />
+                      : <PortalHeroBanner key={banner.id} banner={banner} />
+                  ))}
+                </div>
+              )}
+              {/* Wrap children in BannerProvider for below-first-element banners */}
+              <BannerProvider belowFirstElementBanners={belowFirstElementBanners}>
+                {childrenWithProps}
+              </BannerProvider>
             </main>
 
             <footer className="flex-shrink-0 flex-grow-0 bg-white border-t border-slate-200 py-6">
