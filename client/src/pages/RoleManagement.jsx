@@ -425,6 +425,11 @@ export default function RoleManagementPage() {
   };
 
   const handleDelete = (role) => {
+    // Protect the "Public" system role from deletion
+    if (role.name === 'Public') {
+      toast.error('The Public role cannot be deleted as it controls access for non-logged-in visitors');
+      return;
+    }
     setRoleToDelete(role);
     setShowDeleteConfirm(true);
   };
@@ -432,6 +437,15 @@ export default function RoleManagementPage() {
   const handleSave = () => {
     if (!editingRole.name.trim()) {
       toast.error('Role name is required');
+      return;
+    }
+
+    // Prevent creating or renaming any role to the reserved "Public" name
+    const originalRole = roles?.find(r => r.id === editingRole.id);
+    const isRenamingToPublic = editingRole.name.trim().toLowerCase() === 'public' && 
+                               (!originalRole || originalRole.name !== 'Public');
+    if (isRenamingToPublic) {
+      toast.error('"Public" is a reserved role name for non-logged-in visitors');
       return;
     }
 
@@ -575,6 +589,9 @@ export default function RoleManagementPage() {
                         <CardTitle className="text-lg">{role.name}</CardTitle>
                       </div>
                       <div className="flex gap-2 mt-2 flex-wrap">
+                        {role.name === 'Public' && (
+                          <Badge className="bg-purple-100 text-purple-700">System Role</Badge>
+                        )}
                         {role.is_default && (
                           <Badge className="bg-green-100 text-green-700">Default Role</Badge>
                         )}
@@ -663,14 +680,16 @@ export default function RoleManagementPage() {
                       <Pencil className="w-3 h-3 mr-1" />
                       Edit
                     </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleDelete(role)}
-                      className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </Button>
+                    {role.name !== 'Public' && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleDelete(role)}
+                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </Button>
+                    )}
                   </div>
                 </CardContent>
               </Card>
@@ -696,7 +715,13 @@ export default function RoleManagementPage() {
                     value={editingRole.name}
                     onChange={(e) => setEditingRole({ ...editingRole, name: e.target.value })}
                     placeholder="e.g., Standard Member"
+                    disabled={editingRole.name === 'Public' && editingRole.id}
                   />
+                  {editingRole.name === 'Public' && editingRole.id && (
+                    <p className="text-xs text-slate-500">
+                      The Public role name cannot be changed as it is a system role.
+                    </p>
+                  )}
                 </div>
 
                 <div className="space-y-2">

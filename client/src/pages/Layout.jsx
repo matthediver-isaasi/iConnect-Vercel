@@ -502,7 +502,7 @@ const { data: memberRecord } = useQuery({
   },
 });
 
-// Fetch member role
+// Fetch member role for logged-in users
 const { data: memberRole } = useQuery({
   queryKey: ['memberRole', memberInfo && memberInfo.role_id],
   enabled: !!(memberInfo && memberInfo.role_id),
@@ -518,6 +518,34 @@ const { data: memberRole } = useQuery({
     }
   },
 });
+
+// Fetch "Public" role exclusions for non-logged-in users via public API endpoint
+// This allows controlling what public visitors can see via RoleAccessConfigManagement
+const { data: publicRoleData } = useQuery({
+  queryKey: ['publicRoleExclusions'],
+  enabled: memberInfo === null, // Only load when not logged in
+  staleTime: 1000 * 60 * 5, // Cache for 5 minutes
+  queryFn: async () => {
+    try {
+      const response = await fetch('/api/public/role-exclusions');
+      if (!response.ok) {
+        console.error('Failed to load Public role exclusions:', response.status);
+        return { excluded_features: [] };
+      }
+      return await response.json();
+    } catch (error) {
+      console.error('Error loading Public role exclusions:', error);
+      return { excluded_features: [] };
+    }
+  },
+});
+
+// Create a publicRole-like object for access control
+const publicRole = publicRoleData ? { 
+  id: publicRoleData.role_id,
+  name: 'Public',
+  excluded_features: publicRoleData.excluded_features || []
+} : null;
 
 // Fetch dynamic navigation items from database
 const { data: dynamicNavItems = [] } = useQuery({
@@ -720,10 +748,17 @@ useEffect(() => {
 
   // Helper function to check if a feature is excluded for the current member
   // Uses the new hierarchical role visibility system
+  // For non-logged-in users, uses the "Public" role's exclusions
   const isFeatureExcluded = (featureId) => {
-    if (!memberInfo || !featureId) return false;
+    if (!featureId) return false;
     
-    // Combine role-level exclusions with member-specific exclusions
+    // For non-logged-in users, use Public role exclusions
+    if (!memberInfo) {
+      const publicExclusions = publicRole?.excluded_features || [];
+      return isResourceExcluded(publicExclusions, featureId);
+    }
+    
+    // For logged-in users, combine role-level exclusions with member-specific exclusions
     const roleExclusions = memberRole?.excluded_features || [];
     const memberExclusions = memberInfo.member_excluded_features || [];
     const allExclusions = [...new Set([...roleExclusions, ...memberExclusions])];

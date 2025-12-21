@@ -1334,6 +1334,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Public endpoint for Public role's excluded_features (used for non-logged-in access control)
+  // This allows Layout.jsx and useMemberAccess to apply feature exclusions to public visitors
+  app.get('/api/public/role-exclusions', async (req: Request, res: Response) => {
+    if (!supabase) {
+      return res.status(503).json({ error: 'Supabase not configured' });
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('role')
+        .select('id, name, excluded_features')
+        .eq('name', 'Public')
+        .single();
+
+      if (error) {
+        // If Public role doesn't exist, return empty exclusions (backward compatible)
+        if (error.code === 'PGRST116') {
+          return res.json({ excluded_features: [] });
+        }
+        console.error('Error fetching Public role:', error);
+        return res.status(500).json({ error: error.message });
+      }
+
+      // Return only the excluded_features array
+      res.json({ 
+        excluded_features: data?.excluded_features || [],
+        role_id: data?.id
+      });
+    } catch (error) {
+      console.error('Public role exclusions fetch error:', error);
+      res.status(500).json({ error: 'Failed to fetch public role exclusions' });
+    }
+  });
+
   // Public search endpoint for unified content search across multiple content types
   app.get('/api/public/search', async (req: Request, res: Response) => {
     if (!supabase) {

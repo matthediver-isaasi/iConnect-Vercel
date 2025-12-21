@@ -52,6 +52,15 @@ The role management system uses a hierarchical Module→Page→Feature structure
 
 All access control throughout the application now uses `isFeatureExcluded()` from the `useMemberAccess` hook.
 
+**Public Role for Non-Logged-In Visitors (Dec 2025):** A special "Public" system role controls what non-authenticated visitors can see and access:
+
+- **System Role Protection**: The "Public" role cannot be deleted or renamed in RoleManagement (identified by name, shown with "System Role" badge)
+- **Public Role Loading**: Both `useMemberAccess` hook and `Layout.jsx` load the Public role when `memberInfo === null`
+- **Feature Exclusions Apply**: The `isFeatureExcluded()` function uses Public role's `excluded_features` for non-logged-in users
+- **Configuration**: Admins configure Public role's exclusions via RoleAccessConfigManagement, same as any other role
+- **Navigation Filtering**: Public pages/navigation items are filtered based on Public role exclusions
+- **Fallback Behavior**: If Public role doesn't exist or has no exclusions, non-logged-in users have no restrictions (backward compatible)
+
 ## Email Template Placeholder System
 
 The platform supports dynamic email templates with placeholder substitution for form submissions. Forms can send multiple emails per submission with independent configurations, allowing for system and custom placeholders mapped to form fields. The backend handles placeholder replacement and supports backward compatibility with legacy single email fields.
