@@ -2790,6 +2790,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ success: false, error: 'Member not found' });
       }
 
+      // Check if login is enabled for this member
+      if (member.login_enabled === false) {
+        console.log('[Auth Login] Login disabled for member:', email);
+        return res.status(403).json({ success: false, error: 'Login is disabled for this account. Please contact an administrator.' });
+      }
+
       // Assign default role if needed
       if (!member.role_id) {
         const { data: allRoles } = await supabase.from('role').select('*');
@@ -4321,6 +4327,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .single();
 
       let member = memberData;
+
+      // Check if login is enabled for this member
+      if (member && member.login_enabled === false) {
+        console.log('[verifyMagicLink] Login disabled for member:', magicLink.email);
+        return res.status(403).json({ success: false, error: 'Login is disabled for this account. Please contact an administrator.' });
+      }
 
       // Assign default "Member" role if user has no role_id
       if (member && !member.role_id) {

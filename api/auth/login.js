@@ -95,6 +95,12 @@ export default async function handler(req, res) {
       return res.status(401).json({ success: false, error: 'Member not found' });
     }
 
+    // Check if login is enabled for this member
+    if (member.login_enabled === false) {
+      console.log('[Auth Login] Login disabled for member:', email);
+      return res.status(403).json({ success: false, error: 'Login is disabled for this account. Please contact an administrator.' });
+    }
+
     if (!member.role_id) {
       const { data: allRoles } = await supabase.from('role').select('*');
       
