@@ -794,6 +794,7 @@ export default function EventsPage({
                     joinLinkSettings={joinLinkSettings}
                     webinars={webinars}
                     systemSettings={systemSettings}
+                    memberInfo={memberInfo}
                   />
                 ))}
               </div>

@@ -147,7 +147,8 @@ const getCtaButtonConfig = (systemSettings) => {
 
 // Helper function to get the cheapest ticket price from an event's pricing_config
 // Returns null if no valid pricing is found (prevents showing "Free to attend" for missing data)
-const getCheapestTicketPrice = (event) => {
+// When isLoggedOut is true, only includes tickets visible to non-members unless allowGuestsToViewAllTickets is enabled
+const getCheapestTicketPrice = (event, isLoggedOut = false) => {
   if (!event) return null;
   
   // Parse pricing_config if it's a string
@@ -162,11 +163,30 @@ const getCheapestTicketPrice = (event) => {
   
   if (!pricingConfig) return null;
   
+  // Check if guests are allowed to view all tickets (event-level override)
+  // Handle both boolean and string "true" from JSON serialization
+  const allowGuestsToViewAllTickets = pricingConfig.allowGuestsToViewAllTickets === true || 
+    pricingConfig.allowGuestsToViewAllTickets === 'true';
+  
   // Check for ticket_classes array (new format)
   if (pricingConfig.ticket_classes && Array.isArray(pricingConfig.ticket_classes) && pricingConfig.ticket_classes.length > 0) {
+    // Filter ticket classes based on visibility when logged out
+    let ticketClasses = pricingConfig.ticket_classes;
+    
+    if (isLoggedOut && !allowGuestsToViewAllTickets) {
+      // Only include tickets visible to non-members
+      // visibility_mode: 'members_and_public' or 'public_only' are visible to guests
+      // 'members_only' (or undefined/null which defaults to members_only) should be excluded
+      ticketClasses = ticketClasses.filter(tc => {
+        const visibilityMode = tc.visibility_mode || 'members_only';
+        return visibilityMode === 'members_and_public' || visibilityMode === 'public_only';
+      });
+    }
+    // When allowGuestsToViewAllTickets is true, include all tickets for guests
+    
     // Only include prices that are explicitly set to valid numbers (including 0)
     // Do NOT convert undefined/null/NaN to 0 - that would incorrectly show "Free"
-    const prices = pricingConfig.ticket_classes
+    const prices = ticketClasses
       .map(tc => {
         // Only accept if price is explicitly defined as a number or numeric string
         if (tc.price === undefined || tc.price === null || tc.price === '') {
@@ -179,28 +199,36 @@ const getCheapestTicketPrice = (event) => {
     if (prices.length > 0) {
       return Math.min(...prices);
     }
-  }
-  
-  // Fallback to legacy ticket_price field - only if explicitly set
-  if (pricingConfig.ticket_price !== undefined && pricingConfig.ticket_price !== null && pricingConfig.ticket_price !== '') {
-    const price = Number(pricingConfig.ticket_price);
-    if (Number.isFinite(price)) {
-      return price;
+    
+    // If logged out and no public tickets found, return null (don't show price)
+    if (isLoggedOut && !allowGuestsToViewAllTickets) {
+      return null;
     }
   }
   
-  // Also check direct event.ticket_price for older events - only if explicitly set
-  if (event.ticket_price !== undefined && event.ticket_price !== null && event.ticket_price !== '') {
-    const price = Number(event.ticket_price);
-    if (Number.isFinite(price)) {
-      return price;
+  // Fallback to legacy ticket_price field - only if explicitly set
+  // For logged-out users: only show legacy prices if allowGuestsToViewAllTickets is enabled
+  if (!isLoggedOut || allowGuestsToViewAllTickets) {
+    if (pricingConfig.ticket_price !== undefined && pricingConfig.ticket_price !== null && pricingConfig.ticket_price !== '') {
+      const price = Number(pricingConfig.ticket_price);
+      if (Number.isFinite(price)) {
+        return price;
+      }
+    }
+    
+    // Also check direct event.ticket_price for older events - only if explicitly set
+    if (event.ticket_price !== undefined && event.ticket_price !== null && event.ticket_price !== '') {
+      const price = Number(event.ticket_price);
+      if (Number.isFinite(price)) {
+        return price;
+      }
     }
   }
   
   return null;
 };
 
-export default function EventCard({ event, organizationInfo, isFeatureExcluded, isAdmin, onEventDeleted, joinLinkSettings, webinars, systemSettings = [] }) {
+export default function EventCard({ event, organizationInfo, isFeatureExcluded, isAdmin, onEventDeleted, joinLinkSettings, webinars, systemSettings = [], memberInfo }) {
   const queryClient = useQueryClient();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
@@ -598,7 +626,9 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
             
             if (!showPrices) return null;
             
-            const cheapestPrice = getCheapestTicketPrice(event);
+            // When logged out, only show prices for non-member tickets
+            const isLoggedOut = !memberInfo;
+            const cheapestPrice = getCheapestTicketPrice(event, isLoggedOut);
             
             // Only show if we have pricing info
             if (cheapestPrice === null) return null;
