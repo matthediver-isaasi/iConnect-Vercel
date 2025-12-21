@@ -548,7 +548,8 @@ const { data: publicRoleData, isLoading: isPublicRoleLoading, isFetched: isPubli
 });
 
 // Determine if access control is ready - for public visitors, wait until Public role exclusions are loaded
-const isAccessReady = memberInfo !== null || isPublicRoleFetched;
+// Use publicRoleData !== undefined (persists during refetches) instead of isFetched (may reset during refetches)
+const isAccessReady = memberInfo !== null || publicRoleData !== undefined;
 
 // Create a publicRole-like object for access control
 const publicRole = publicRoleData ? { 
