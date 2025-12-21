@@ -564,13 +564,7 @@ export default function PublicLayout({ children, currentPageName }) {
                   >
                     Terms and Conditions
                   </a>
-                  <a 
-                    href="#" 
-                    className="text-white text-sm hover:opacity-80 transition-opacity"
-                    style={{ fontFamily: 'Poppins, sans-serif' }}
-                  >
-                    Graduate Futures Supporters
-                  </a>
+               
                 </div>
               </div>
               
