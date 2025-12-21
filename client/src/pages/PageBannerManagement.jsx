@@ -245,8 +245,8 @@ export default function PageBannerManagementPage() {
       height: "medium",
       position: "center",
       horizontal_alignment: "center",
-      padding_top: "none",
-      padding_bottom: "none",
+      padding_top: 0,
+      padding_bottom: 0,
       page_position: "top",
       associated_pages: [],
       display_order: 0,
@@ -355,8 +355,8 @@ export default function PageBannerManagementPage() {
       height: editingBanner.height,
       position: editingBanner.position,
       horizontal_alignment: bannerType === 'image' ? (editingBanner.horizontal_alignment || 'center') : null,
-      padding_top: bannerType === 'image' ? (editingBanner.padding_top || 'none') : null,
-      padding_bottom: bannerType === 'image' ? (editingBanner.padding_bottom || 'none') : null,
+      padding_top: bannerType === 'image' ? (editingBanner.padding_top ?? 0) : null,
+      padding_bottom: bannerType === 'image' ? (editingBanner.padding_bottom ?? 0) : null,
       page_position: bannerType === 'image' ? (editingBanner.page_position || 'top') : null,
       // Header configuration for image banners
       header_title: bannerType === 'image' ? (editingBanner.header_title || null) : null,
@@ -760,39 +760,31 @@ export default function PageBannerManagementPage() {
                     {/* Padding Top & Bottom */}
                     <div className="grid md:grid-cols-2 gap-4">
                       <div className="space-y-2">
-                        <Label htmlFor="padding-top">Padding Top</Label>
-                        <Select
-                          value={editingBanner.padding_top || 'none'}
-                          onValueChange={(value) => setEditingBanner({ ...editingBanner, padding_top: value })}
-                        >
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="none">None</SelectItem>
-                            <SelectItem value="small">Small</SelectItem>
-                            <SelectItem value="medium">Medium</SelectItem>
-                            <SelectItem value="large">Large</SelectItem>
-                          </SelectContent>
-                        </Select>
+                        <Label htmlFor="padding-top">Padding Top (px)</Label>
+                        <Input
+                          id="padding-top"
+                          type="number"
+                          min="0"
+                          value={editingBanner.padding_top || 0}
+                          onChange={(e) => setEditingBanner({ ...editingBanner, padding_top: parseInt(e.target.value) || 0 })}
+                          placeholder="0"
+                          data-testid="input-padding-top"
+                        />
+                        <p className="text-xs text-slate-500">Padding above the banner in pixels</p>
                       </div>
 
                       <div className="space-y-2">
-                        <Label htmlFor="padding-bottom">Padding Bottom</Label>
-                        <Select
-                          value={editingBanner.padding_bottom || 'none'}
-                          onValueChange={(value) => setEditingBanner({ ...editingBanner, padding_bottom: value })}
-                        >
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="none">None</SelectItem>
-                            <SelectItem value="small">Small</SelectItem>
-                            <SelectItem value="medium">Medium</SelectItem>
-                            <SelectItem value="large">Large</SelectItem>
-                          </SelectContent>
-                        </Select>
+                        <Label htmlFor="padding-bottom">Padding Bottom (px)</Label>
+                        <Input
+                          id="padding-bottom"
+                          type="number"
+                          min="0"
+                          value={editingBanner.padding_bottom || 0}
+                          onChange={(e) => setEditingBanner({ ...editingBanner, padding_bottom: parseInt(e.target.value) || 0 })}
+                          placeholder="0"
+                          data-testid="input-padding-bottom"
+                        />
+                        <p className="text-xs text-slate-500">Padding below the banner in pixels</p>
                       </div>
                     </div>
 
@@ -1180,8 +1172,8 @@ export default function PageBannerManagementPage() {
                       )}
                       <div>
                         <span className="font-medium text-slate-700">Padding:</span>
-                        <span className="ml-2 text-slate-600 capitalize">
-                          Top: {previewBanner.padding_top || 'none'}, Bottom: {previewBanner.padding_bottom || 'none'}
+                        <span className="ml-2 text-slate-600">
+                          Top: {previewBanner.padding_top || 0}px, Bottom: {previewBanner.padding_bottom || 0}px
                         </span>
                       </div>
                       <div>
