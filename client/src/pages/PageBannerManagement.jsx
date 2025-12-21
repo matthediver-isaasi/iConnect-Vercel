@@ -247,6 +247,8 @@ export default function PageBannerManagementPage() {
       horizontal_alignment: "center",
       padding_top: 0,
       padding_bottom: 0,
+      padding_left: 0,
+      padding_right: 0,
       page_position: "top",
       associated_pages: [],
       display_order: 0,
@@ -357,6 +359,8 @@ export default function PageBannerManagementPage() {
       horizontal_alignment: bannerType === 'image' ? (editingBanner.horizontal_alignment || 'center') : null,
       padding_top: bannerType === 'image' ? (editingBanner.padding_top ?? 0) : null,
       padding_bottom: bannerType === 'image' ? (editingBanner.padding_bottom ?? 0) : null,
+      padding_left: bannerType === 'image' ? (editingBanner.padding_left ?? 0) : null,
+      padding_right: bannerType === 'image' ? (editingBanner.padding_right ?? 0) : null,
       page_position: bannerType === 'image' ? (editingBanner.page_position || 'top') : null,
       // Header configuration for image banners
       header_title: bannerType === 'image' ? (editingBanner.header_title || null) : null,
@@ -757,10 +761,10 @@ export default function PageBannerManagementPage() {
                       </div>
                     )}
 
-                    {/* Padding Top & Bottom */}
-                    <div className="grid md:grid-cols-2 gap-4">
+                    {/* Padding */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                       <div className="space-y-2">
-                        <Label htmlFor="padding-top">Padding Top (px)</Label>
+                        <Label htmlFor="padding-top">Top (px)</Label>
                         <Input
                           id="padding-top"
                           type="number"
@@ -770,11 +774,10 @@ export default function PageBannerManagementPage() {
                           placeholder="0"
                           data-testid="input-padding-top"
                         />
-                        <p className="text-xs text-slate-500">Padding above the banner in pixels</p>
                       </div>
 
                       <div className="space-y-2">
-                        <Label htmlFor="padding-bottom">Padding Bottom (px)</Label>
+                        <Label htmlFor="padding-bottom">Bottom (px)</Label>
                         <Input
                           id="padding-bottom"
                           type="number"
@@ -784,9 +787,35 @@ export default function PageBannerManagementPage() {
                           placeholder="0"
                           data-testid="input-padding-bottom"
                         />
-                        <p className="text-xs text-slate-500">Padding below the banner in pixels</p>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="padding-left">Left (px)</Label>
+                        <Input
+                          id="padding-left"
+                          type="number"
+                          min="0"
+                          value={editingBanner.padding_left || 0}
+                          onChange={(e) => setEditingBanner({ ...editingBanner, padding_left: parseInt(e.target.value) || 0 })}
+                          placeholder="0"
+                          data-testid="input-padding-left"
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="padding-right">Right (px)</Label>
+                        <Input
+                          id="padding-right"
+                          type="number"
+                          min="0"
+                          value={editingBanner.padding_right || 0}
+                          onChange={(e) => setEditingBanner({ ...editingBanner, padding_right: parseInt(e.target.value) || 0 })}
+                          placeholder="0"
+                          data-testid="input-padding-right"
+                        />
                       </div>
                     </div>
+                    <p className="text-xs text-slate-500">Padding around the banner in pixels</p>
 
                     {/* Page Position */}
                     <div className="space-y-2">
@@ -1173,7 +1202,7 @@ export default function PageBannerManagementPage() {
                       <div>
                         <span className="font-medium text-slate-700">Padding:</span>
                         <span className="ml-2 text-slate-600">
-                          Top: {previewBanner.padding_top || 0}px, Bottom: {previewBanner.padding_bottom || 0}px
+                          T: {previewBanner.padding_top || 0}px, B: {previewBanner.padding_bottom || 0}px, L: {previewBanner.padding_left || 0}px, R: {previewBanner.padding_right || 0}px
                         </span>
                       </div>
                       <div>
