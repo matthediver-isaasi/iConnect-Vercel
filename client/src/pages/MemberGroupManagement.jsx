@@ -76,7 +76,7 @@ export default function MemberGroupManagementPage() {
 
   const { data: members = [], isLoading: loadingMembers } = useQuery({
     queryKey: ['members-list'],
-    queryFn: () => base44.entities.Member.list(),
+    queryFn: () => base44.entities.Member.listAll(),
     staleTime: 0,
     refetchOnMount: true,
   });
