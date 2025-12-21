@@ -169,6 +169,10 @@ export const ROLE_ACCESS_MAP: Module[] = [
         label: "Member Groups"
       },
       {
+        id: "membership.member-group-assignment-report",
+        label: "Member Group Assignment Report"
+      },
+      {
         id: "membership.member-directory-settings",
         label: "Member Directory Settings"
       },
