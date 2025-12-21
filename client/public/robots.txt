@@ -2,7 +2,7 @@
 User-agent: *
 Allow: /
 
-# Sitemap location (absolute URL required by robots.txt specification)
+# Sitemap location
 Sitemap: https://www.graduatefutures.org/sitemap.xml
 
 # Disallow admin/private areas

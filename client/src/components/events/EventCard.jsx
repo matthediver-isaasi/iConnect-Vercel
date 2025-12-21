@@ -5,7 +5,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Calendar, MapPin, Users, Clock, Ticket, AlertCircle, ShoppingCart, Pencil, Trash2, Video, Globe, UsersRound, Download, Search, ChevronLeft, ChevronRight } from "lucide-react";
-import { useLayoutContext } from "@/contexts/LayoutContext";
 import { format, parseISO } from "date-fns";
 import { formatInTimeZone, toZonedTime } from "date-fns-tz";
 import { createPageUrl } from "@/utils";
@@ -148,9 +147,6 @@ const getCtaButtonConfig = (systemSettings) => {
 
 export default function EventCard({ event, organizationInfo, isFeatureExcluded, isAdmin, onEventDeleted, joinLinkSettings, webinars, systemSettings = [] }) {
   const queryClient = useQueryClient();
-  // Get shouldShowFeature from context for public visibility checks
-  // Default is privacy-first (false) so no fallback needed
-  const { shouldShowFeature } = useLayoutContext();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [showAttendeesModal, setShowAttendeesModal] = useState(false);
@@ -539,10 +535,10 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
           )}
 
           <div className="pt-3 border-t border-slate-100">
-            {/* Event Controls - shown if features are visible (public or role allows) */}
-            {(shouldShowFeature('events.browse-events.create') || shouldShowFeature('events.browse-events.view-attendees')) && (
+            {/* Event Controls - shown unless features are excluded */}
+            {(!isFeatureExcluded?.('events.browse-events.create') || !isFeatureExcluded?.('events.browse-events.view-attendees')) && (
               <div className="flex items-center gap-2 mb-3">
-                {shouldShowFeature('events.browse-events.create') && (
+                {!isFeatureExcluded?.('events.browse-events.create') && (
                   <Button 
                     variant="outline" 
                     size="sm"
@@ -566,7 +562,7 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                     Attendees
                   </Button>
                 )}
-                {shouldShowFeature('events.browse-events.create') && (
+                {!isFeatureExcluded?.('events.browse-events.create') && (
                   <Button 
                     variant="outline" 
                     size="sm"
