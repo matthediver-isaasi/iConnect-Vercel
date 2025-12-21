@@ -359,10 +359,11 @@ export default function PublicLayout({ children, currentPageName }) {
                   />
                   <div className="text-slate-300 text-sm leading-relaxed" style={{ fontFamily: 'Poppins, sans-serif' }}>
                     <p>Graduate Futures Institute</p>
-                    <p>1st Floor, Velocity Tower</p>
-                    <p>10 St Mary's Gate</p>
-                    <p>Sheffield S1 4LR</p>
-                    <p>United Kingdom</p>
+                    <p>c/o Hawsons Chartered Accountants</p>
+                    <p>Pegasus House</p>
+                    <p>Sheffield</p>
+                    <p>South Yorkshire</p>
+                    <p>S10 2QD</p>
                   </div>
                 </div>
 
