@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo } from "react";
-import { useParams, useLocation } from "react-router-dom";
+import { useParams, useLocation, useNavigate } from "react-router-dom";
 import { base44 } from "@/api/base44Client";
 import { useQuery } from "@tanstack/react-query";
 import IEditElementRenderer from "../components/iedit/IEditElementRenderer";
@@ -17,7 +17,8 @@ import PublicArticles from "./PublicArticles";
 export default function DynamicPage() {
   const { slug } = useParams();
   const location = useLocation();
-  const { memberInfo, isAccessReady } = useMemberAccess();
+  const navigate = useNavigate();
+  const { memberInfo, memberRole, isAccessReady } = useMemberAccess();
   const { setForcePublicLayout } = useLayoutContext();
   
   // Use shared ArticleUrlContext instead of duplicating settings query
@@ -211,6 +212,30 @@ export default function DynamicPage() {
     };
   }, [page, pageLoading, isPublicPage, isHybridPage, isLoggedIn, setForcePublicLayout, dynamicArticleRoute]);
 
+  // Handle 404 - redirect based on authentication status
+  // We need to wait for access state to be determined:
+  // - For guests: memberInfo is null (from localStorage init, not undefined)
+  // - For logged-in users: isAccessReady will be true after role is loaded
+  // Note: memberInfo starts as null for guests (from useMemberAccess useState init)
+  const isGuest = memberInfo === null;
+  const authCheckComplete = isGuest || isAccessReady;
+  
+  useEffect(() => {
+    // Only redirect after page query has completed and we know the page doesn't exist
+    if (!pageLoading && !page && !dynamicArticleRoute && authCheckComplete) {
+      if (memberInfo) {
+        // Logged in user: redirect to role's default landing page
+        const landingPage = memberRole?.default_landing_page || 'Preferences';
+        console.log('[DynamicPage] 404 redirect - logged in user to:', landingPage);
+        navigate(`/${landingPage}`, { replace: true });
+      } else {
+        // Guest: redirect to home page
+        console.log('[DynamicPage] 404 redirect - guest to home');
+        navigate('/', { replace: true });
+      }
+    }
+  }, [page, pageLoading, dynamicArticleRoute, authCheckComplete, memberInfo, memberRole, navigate]);
+
   // Debug: Log what's being rendered
   console.log('[DynamicPage] slug:', slug);
   console.log('[DynamicPage] dynamicArticleRoute:', dynamicArticleRoute);
@@ -241,22 +266,10 @@ export default function DynamicPage() {
   }
 
   if (!page) {
+    // Show loading state while redirect is processing
     return (
-      <div className="min-h-screen flex items-center justify-center" data-testid="page-not-found">
-        <div className="text-center">
-          <h1 className="text-6xl font-bold text-slate-300 mb-4">404</h1>
-          <h2 className="text-2xl font-bold text-slate-900 mb-2">Page Not Found</h2>
-          <p className="text-slate-600 mb-6">
-            The page you're looking for doesn't exist.
-          </p>
-          <a 
-            href="/" 
-            className="inline-flex items-center justify-center px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            data-testid="link-home"
-          >
-            Go Home
-          </a>
-        </div>
+      <div className="min-h-screen flex items-center justify-center" data-testid="page-not-found-redirecting">
+        <div className="text-slate-600">Redirecting...</div>
       </div>
     );
   }
