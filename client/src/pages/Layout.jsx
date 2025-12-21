@@ -502,7 +502,7 @@ const { data: memberRecord } = useQuery({
   },
 });
 
-// Fetch member role for logged-in users
+// Fetch member role
 const { data: memberRole } = useQuery({
   queryKey: ['memberRole', memberInfo && memberInfo.role_id],
   enabled: !!(memberInfo && memberInfo.role_id),
@@ -518,45 +518,6 @@ const { data: memberRole } = useQuery({
     }
   },
 });
-
-// Fetch "Public" role exclusions for non-logged-in users via public API endpoint
-// This allows controlling what public visitors can see via RoleAccessConfigManagement
-const { data: publicRoleData, isLoading: isPublicRoleLoading, isFetched: isPublicRoleFetched } = useQuery({
-  queryKey: ['publicRoleExclusions'],
-  enabled: memberInfo === null, // Only load when not logged in
-  staleTime: 0, // Always fetch fresh data - Public role exclusions are critical for access control
-  refetchOnMount: true,
-  refetchOnWindowFocus: true,
-  queryFn: async () => {
-    try {
-      const response = await fetch('/api/public/role-exclusions', {
-        cache: 'no-store', // Bypass browser cache
-        headers: { 'Cache-Control': 'no-cache' }
-      });
-      if (!response.ok) {
-        console.error('Failed to load Public role exclusions:', response.status);
-        return { excluded_features: [] };
-      }
-      const data = await response.json();
-      console.log('[Layout] Public role exclusions loaded:', data.excluded_features?.length || 0, 'features excluded');
-      return data;
-    } catch (error) {
-      console.error('Error loading Public role exclusions:', error);
-      return { excluded_features: [] };
-    }
-  },
-});
-
-// Determine if access control is ready - for public visitors, wait until Public role exclusions are loaded
-// Use publicRoleData !== undefined (persists during refetches) instead of isFetched (may reset during refetches)
-const isAccessReady = memberInfo !== null || publicRoleData !== undefined;
-
-// Create a publicRole-like object for access control
-const publicRole = publicRoleData ? { 
-  id: publicRoleData.role_id,
-  name: 'Public',
-  excluded_features: publicRoleData.excluded_features || []
-} : null;
 
 // Fetch dynamic navigation items from database
 const { data: dynamicNavItems = [] } = useQuery({
@@ -759,17 +720,10 @@ useEffect(() => {
 
   // Helper function to check if a feature is excluded for the current member
   // Uses the new hierarchical role visibility system
-  // For non-logged-in users, uses the "Public" role's exclusions
   const isFeatureExcluded = (featureId) => {
-    if (!featureId) return false;
+    if (!memberInfo || !featureId) return false;
     
-    // For non-logged-in users, use Public role exclusions
-    if (!memberInfo) {
-      const publicExclusions = publicRole?.excluded_features || [];
-      return isResourceExcluded(publicExclusions, featureId);
-    }
-    
-    // For logged-in users, combine role-level exclusions with member-specific exclusions
+    // Combine role-level exclusions with member-specific exclusions
     const roleExclusions = memberRole?.excluded_features || [];
     const memberExclusions = memberInfo.member_excluded_features || [];
     const allExclusions = [...new Set([...roleExclusions, ...memberExclusions])];
@@ -913,27 +867,18 @@ useEffect(() => {
 
   // isAdmin context update removed - access control now uses isFeatureExcluded() exclusively
 
-  // Update context with isFeatureExcluded function when memberInfo, memberRole, or publicRole changes
+  // Update context with isFeatureExcluded function when memberInfo or memberRole changes
   // Uses the new hierarchical role visibility system
-  // For non-logged-in users, uses the "Public" role's exclusions
   useEffect(() => {
     const isFeatureExcludedFn = (featureId) => {
-      if (!featureId) return false;
-      
-      // For non-logged-in users, use Public role exclusions
-      if (!memberInfo) {
-        const publicExclusions = publicRole?.excluded_features || [];
-        return isResourceExcluded(publicExclusions, featureId);
-      }
-      
-      // For logged-in users, combine role-level and member-specific exclusions
+      if (!memberInfo || !featureId) return false;
       const roleExclusions = memberRole?.excluded_features || [];
       const memberExclusions = memberInfo.member_excluded_features || [];
       const allExclusions = [...new Set([...roleExclusions, ...memberExclusions])];
       return isResourceExcluded(allExclusions, featureId);
     };
     setContextIsFeatureExcluded(isFeatureExcludedFn);
-  }, [memberInfo, memberRole, publicRole, setContextIsFeatureExcluded]);
+  }, [memberInfo, memberRole, setContextIsFeatureExcluded]);
 
   // Update context with reloadMemberInfo function
   useEffect(() => {
@@ -1499,16 +1444,6 @@ useEffect(() => {
     
     return currentPageName;
   };
-
-  // Wait for access control to be ready before rendering
-  // This prevents excluded content from flashing while Public role exclusions load
-  if (!isAccessReady) {
-    return (
-      <div className="flex items-center justify-center h-screen">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-      </div>
-    );
-  }
 
   // Render public layout for truly public pages
   if (isPublicPage()) {
