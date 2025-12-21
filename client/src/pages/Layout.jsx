@@ -714,17 +714,9 @@ useEffect(() => {
   // Pages that should use the bare layout (no new header/footer)
   const bareLayoutPages = ["Home", "TestLogin"];
 
-  // Helper function to check if user has access to admin navigation
-  // Access is now controlled by feature exclusions - user can see admin nav if they have any admin features not excluded
-  const hasAdminNavAccess = () => {
-    if (!memberRole) return false;
-    const roleExclusions = memberRole.excluded_features || [];
-    // User has admin nav access if they have at least one admin feature not excluded
-    return !isResourceExcluded(roleExclusions, 'admin.role-management') ||
-           !isResourceExcluded(roleExclusions, 'admin.events') ||
-           !isResourceExcluded(roleExclusions, 'admin.programs') ||
-           !isResourceExcluded(roleExclusions, 'admin.members');
-  };
+  // Note: hasAdminNavAccess() removed - admin navigation visibility is now determined
+  // purely by whether any admin items remain after feature exclusion filtering.
+  // The admin section will show if filteredAdminNavigationItems.length > 0
 
   // Helper function to check if a feature is excluded for the current member
   // Uses the new hierarchical role visibility system
@@ -1064,7 +1056,9 @@ useEffect(() => {
     updateLastActivity();
   }, [location.pathname, memberInfo?.email]);
 
-  // Check if current page is excluded or admin-only and redirect if needed
+  // Check if current page is excluded and redirect if needed
+  // Note: Admin page access is now controlled via feature exclusions in isCurrentPageExcluded()
+  // Each admin page has a mapped featureId (e.g., page_admin_RoleManagement) that is checked
   useEffect(() => {
     if (!isPublicPage() && memberInfo && memberRole) {
       // Use role's default landing page or fallback to Preferences
@@ -1075,14 +1069,8 @@ useEffect(() => {
         return;
       }
       
-      // Check if page is excluded by role/member settings
+      // Check if page is excluded by role/member settings (covers both user and admin pages)
       if (isCurrentPageExcluded()) {
-        window.location.href = createPageUrl(fallbackPage);
-        return;
-      }
-      
-      // Check if page requires admin access (using feature-based check)
-      if (isCurrentPageAdminOnly() && !hasAdminNavAccess()) {
         window.location.href = createPageUrl(fallbackPage);
       }
     }
@@ -1357,25 +1345,24 @@ useEffect(() => {
     })
     .filter(Boolean);
 
-  // Filter admin navigation items (only show if user has admin nav access)
-  const filteredAdminNavigationItems = hasAdminNavAccess()
-    ? adminNavigationItemsSource
-        .map(item => {
-          if (item.subItems) {
-            // If it has sub-items, filter them individually
-            const filteredSubItems = item.subItems.filter(subItem => !isFeatureExcluded(subItem.featureId));
-            // Only include the parent if it's not excluded and has at least one filtered sub-item
-            if (filteredSubItems.length > 0 && !isFeatureExcluded(item.featureId)) {
-              return { ...item, subItems: filteredSubItems };
-            }
-            return null; // Exclude parent if no sub-items left or parent is excluded
-          } else {
-            // Regular item, filter if its own featureId is not excluded
-            return !isFeatureExcluded(item.featureId) ? item : null;
-          }
-        })
-        .filter(Boolean) // Remove any null entries
-    : [];
+  // Filter admin navigation items based purely on feature exclusions
+  // Admin section will render if any items remain after filtering (checked in JSX: filteredAdminNavigationItems.length > 0)
+  const filteredAdminNavigationItems = adminNavigationItemsSource
+    .map(item => {
+      if (item.subItems) {
+        // If it has sub-items, filter them individually
+        const filteredSubItems = item.subItems.filter(subItem => !isFeatureExcluded(subItem.featureId));
+        // Only include the parent if it's not excluded and has at least one filtered sub-item
+        if (filteredSubItems.length > 0 && !isFeatureExcluded(item.featureId)) {
+          return { ...item, subItems: filteredSubItems };
+        }
+        return null; // Exclude parent if no sub-items left or parent is excluded
+      } else {
+        // Regular item, filter if its own featureId is not excluded
+        return !isFeatureExcluded(item.featureId) ? item : null;
+      }
+    })
+    .filter(Boolean); // Remove any null entries
 
   const childrenWithProps = React.Children.map(children, child => {
     if (React.isValidElement(child)) {

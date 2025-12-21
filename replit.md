@@ -44,9 +44,10 @@ The role management system uses a hierarchical Module→Page→Feature structure
 
 - **Backend endpoints** check specific feature exclusions relevant to their function (e.g., data export checks `admin.data-export`, job postings check `admin.job-postings`)
 - **UI components** no longer display admin badges - roles are shown without special admin indicators
-- **Layout.jsx** uses `hasAdminNavAccess()` instead of `isAdmin()` - this checks multiple admin features to determine if user sees admin navigation
+- **Admin navigation visibility** is determined purely by feature exclusions - if any admin menu items remain after filtering, the admin section shows. No separate `hasAdminNavAccess()` gate exists.
 - **LayoutContext** no longer exposes `isAdmin` state - only `isFeatureExcluded()` is available
 - **RoleManagement** no longer persists the `is_admin` field when saving roles
+- **useMemberAccess hook** still exports `isAdmin` for backward compatibility - computed locally from role's excluded_features (not from context)
 - **Feature exclusion examples**: `admin.data-export`, `admin.member-handles`, `admin.program-tickets`, `admin.programs`, `admin.events`, `admin.job-postings`
 
 All access control throughout the application now uses `isFeatureExcluded()` from the `useMemberAccess` hook.
