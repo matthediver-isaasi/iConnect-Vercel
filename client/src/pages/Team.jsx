@@ -18,7 +18,7 @@ import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 
 export default function TeamPage({ hasBanner }) {
-  const { memberInfo, organizationInfo, isAdmin, isFeatureExcluded } = useMemberAccess();
+  const { memberInfo, organizationInfo, isFeatureExcluded } = useMemberAccess();
 
   const [searchQuery, setSearchQuery] = useState("");
   const [showDisabled, setShowDisabled] = useState(false);
@@ -515,7 +515,7 @@ export default function TeamPage({ hasBanner }) {
                     className="pl-10"
                   />
                 </div>
-                {isAdmin && (
+                {!isFeatureExcluded('element_ShowDisabledAccounts') && (
                   <div className="flex items-center gap-3">
                     <Label htmlFor="show-disabled" className="text-sm text-slate-700 whitespace-nowrap cursor-pointer">
                       Show inactive accounts
