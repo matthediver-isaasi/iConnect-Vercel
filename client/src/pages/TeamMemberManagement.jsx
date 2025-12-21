@@ -154,12 +154,10 @@ export default function TeamMemberManagementPage() {
     return role?.name || 'Unknown Role';
   };
 
-  // Admin status is derived from feature exclusions - role is admin if 'admin.role-management' is NOT excluded
+  // Deprecated - admin concept removed, access controlled by feature exclusions
+  // Kept for backwards compatibility but always returns false
   const getRoleIsAdmin = (roleId) => {
-    const role = roles.find(r => r.id === roleId);
-    if (!role) return false;
-    const excludedFeatures = role.excluded_features || [];
-    return !excludedFeatures.includes('admin.role-management');
+    return false;
   };
 
   const filteredTeamMembers = teamMembers.filter(tm => {
@@ -361,9 +359,6 @@ export default function TeamMemberManagementPage() {
                           <div className="flex items-center gap-2">
                             <Shield className="w-3 h-3" />
                             {role.name}
-                            {role.is_admin && (
-                              <span className="text-xs text-amber-600">(Admin)</span>
-                            )}
                           </div>
                         </SelectItem>
                       ))}

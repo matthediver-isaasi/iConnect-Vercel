@@ -441,16 +441,12 @@ export default function RoleManagementPage() {
       return;
     }
 
-    // Derive is_admin from whether admin.role-management is NOT excluded
-    // This replaces the old is_admin toggle - now admin status is controlled via Role Management exclusions
-    const derivedIsAdmin = !isResourceExcluded(editingRole.excluded_features || [], 'admin.role-management');
-    
+    // is_admin is deprecated - access is now controlled entirely via excluded_features
     const roleData = {
       name: editingRole.name,
       description: editingRole.description,
       excluded_features: editingRole.excluded_features,
       is_default: editingRole.is_default,
-      is_admin: derivedIsAdmin,
       show_tours: editingRole.show_tours,
       default_landing_page: editingRole.default_landing_page || "about-me",
       layout_theme: editingRole.layout_theme || "default",

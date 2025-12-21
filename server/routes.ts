@@ -1620,8 +1620,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(200).json(null);
       }
 
-      // Fetch role to determine permissions
-      let isAdmin = false;
+      // Fetch role to determine permissions via feature exclusions
       let canEditMembers = false;
       let canManageCommunications = false;
       let excludedFeatures: string[] = [];
@@ -1634,22 +1633,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
           .single();
         
         excludedFeatures = role?.excluded_features || [];
-        // Admin status is derived from feature exclusions - user is admin if 'admin.role-management' is NOT excluded
-        isAdmin = !excludedFeatures.includes('admin.role-management');
         
-        // Admin role has all permissions
-        if (isAdmin) {
-          canEditMembers = true;
-          canManageCommunications = true;
-        } else {
-          // Check if permissions are NOT in excluded_features (meaning they have access)
-          canEditMembers = !excludedFeatures.includes('admin_can_edit_members');
-          canManageCommunications = !excludedFeatures.includes('admin_can_manage_communications');
-        }
+        // Check if permissions are NOT in excluded_features (meaning they have access)
+        canEditMembers = !excludedFeatures.includes('admin_can_edit_members');
+        canManageCommunications = !excludedFeatures.includes('admin_can_manage_communications');
       }
 
-      // Return member with permission flags - extends Vercel API format
-      res.json({ ...data, isAdmin, canEditMembers, canManageCommunications });
+      // Return member with permission flags and excluded_features for client-side access control
+      res.json({ ...data, excludedFeatures, canEditMembers, canManageCommunications });
     } catch (error) {
       console.error('Auth me error:', error);
       res.status(500).json({ error: 'Failed to get user' });
@@ -3644,14 +3635,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // If NOT excluded, the role has this permission
       const excludedFeatures = role.excluded_features || [];
       
-      // Admin status is derived from feature exclusions - user is admin if 'admin.role-management' is NOT excluded
-      const isAdmin = !excludedFeatures.includes('admin.role-management');
-      
-      // If role is admin, they have all permissions
-      if (isAdmin) {
-        return { hasPermission: true, memberId: member.id };
-      }
-
       const hasPermission = !excludedFeatures.includes(permissionId);
 
       return { hasPermission, memberId: member.id };
@@ -9562,16 +9545,16 @@ AGCAS Events Team
         userRole = roles.find((r: any) => r.id === teamMember.role_id);
       }
 
-      // Admin status is derived from feature exclusions - user is admin if 'admin.role-management' is NOT excluded
+      // Check if user has access to data export feature
       const userExcludedFeatures = userRole?.excluded_features || [];
-      const isUserAdmin = userRole && !userExcludedFeatures.includes('admin.role-management');
+      const hasDataExportAccess = userRole && !userExcludedFeatures.includes('admin.data-export');
       
-      if (!isUserAdmin) {
-        console.log('Access denied - not an admin');
-        return res.status(403).json({ error: 'Admin access required' });
+      if (!hasDataExportAccess) {
+        console.log('Access denied - no data export access');
+        return res.status(403).json({ error: 'Data export access required' });
       }
 
-      console.log('Admin access confirmed, starting export...');
+      console.log('Data export access confirmed, starting export...');
 
       // List of all table names to export (snake_case for Supabase)
       const tableNames = [
@@ -9891,18 +9874,18 @@ AGCAS Events Team
         });
       }
 
-      // Admin status is derived from feature exclusions - user is admin if 'admin.role-management' is NOT excluded
+      // Check if user has access to member handles feature
       const currentExcludedFeatures = currentRole.excluded_features || [];
-      const isCurrentUserAdmin = !currentExcludedFeatures.includes('admin.role-management');
+      const hasMemberHandlesAccess = !currentExcludedFeatures.includes('admin.member-handles');
       
-      if (!isCurrentUserAdmin) {
+      if (!hasMemberHandlesAccess) {
         return res.status(403).json({
-          error: 'Forbidden - Admin access required',
-          details: 'This operation requires administrator privileges'
+          error: 'Forbidden - Access denied',
+          details: 'This operation requires member handles management access'
         });
       }
 
-      console.log('[generateMemberHandles] Admin check passed, proceeding with handle generation');
+      console.log('[generateMemberHandles] Access check passed, proceeding with handle generation');
 
       // Get all members
       const allMembers = members || [];
@@ -10282,26 +10265,26 @@ AGCAS Events Team
                 `
               });
 
-              // Notify admins - find roles where admin.role-management is NOT excluded
+              // Notify users with job posting management access
               const { data: allRoles } = await supabase
                 .from('role')
                 .select('*');
 
-              // Filter to roles that have admin access (admin.role-management NOT in excluded_features)
-              const adminRoles = allRoles?.filter((r: any) => {
+              // Filter to roles that have job posting management access
+              const jobManagementRoles = allRoles?.filter((r: any) => {
                 const excludedFeatures = r.excluded_features || [];
-                return !excludedFeatures.includes('admin.role-management');
+                return !excludedFeatures.includes('admin.job-postings');
               }) || [];
 
-              if (adminRoles.length > 0) {
-                const adminRoleIds = adminRoles.map((r: any) => r.id);
-                const { data: adminMembers } = await supabase.from('member').select('*');
-                const admins = adminMembers?.filter((m: any) => adminRoleIds.includes(m.role_id)) || [];
+              if (jobManagementRoles.length > 0) {
+                const roleIds = jobManagementRoles.map((r: any) => r.id);
+                const { data: allMembers } = await supabase.from('member').select('*');
+                const notifyMembers = allMembers?.filter((m: any) => roleIds.includes(m.role_id)) || [];
 
-                for (const admin of admins) {
+                for (const member of notifyMembers) {
                   await mg.messages.create(mailgunDomain, {
                     from: mailgunFromEmail,
-                    to: admin.email,
+                    to: member.email,
                     subject: 'New Paid Job Posting Awaiting Approval',
                     html: `
                       <h2>New Paid Job Posting Submitted</h2>
@@ -10759,18 +10742,18 @@ AGCAS Events Team
       const { data: allRoles } = await supabase.from('role').select('*');
       const adminRole = allRoles?.find((r: any) => r.id === adminMember.role_id);
 
-      // Admin status is derived from feature exclusions - user is admin if 'admin.role-management' is NOT excluded
+      // Check if user has access to program ticket management
       const roleExcludedFeatures = adminRole?.excluded_features || [];
-      const isRoleAdmin = adminRole && !roleExcludedFeatures.includes('admin.role-management');
+      const hasProgramTicketAccess = adminRole && !roleExcludedFeatures.includes('admin.program-tickets');
       
-      if (!isRoleAdmin) {
+      if (!hasProgramTicketAccess) {
         return res.status(403).json({
           success: false,
-          error: 'User does not have administrator privileges'
+          error: 'User does not have program ticket management access'
         });
       }
 
-      console.log('[reinstateProgramTicketTransaction] Admin authorization verified');
+      console.log('[reinstateProgramTicketTransaction] Access authorization verified');
 
       // Fetch the transaction
       const { data: allTransactions } = await supabase.from('program_ticket_transaction').select('*');
@@ -10936,18 +10919,18 @@ AGCAS Events Team
       const { data: allRoles } = await supabase.from('role').select('*');
       const adminRole = allRoles?.find((r: any) => r.id === adminMember.role_id);
 
-      // Admin status is derived from feature exclusions - user is admin if 'admin.role-management' is NOT excluded
+      // Check if user has access to program ticket management
       const cancelRoleExcludedFeatures = adminRole?.excluded_features || [];
-      const isCancelRoleAdmin = adminRole && !cancelRoleExcludedFeatures.includes('admin.role-management');
+      const hasCancelProgramTicketAccess = adminRole && !cancelRoleExcludedFeatures.includes('admin.program-tickets');
       
-      if (!isCancelRoleAdmin) {
+      if (!hasCancelProgramTicketAccess) {
         return res.status(403).json({
           success: false,
-          error: 'User does not have administrator privileges'
+          error: 'User does not have program ticket management access'
         });
       }
 
-      console.log('[cancelProgramTicketTransaction] Admin authorization verified');
+      console.log('[cancelProgramTicketTransaction] Access authorization verified');
 
       // Fetch the original transaction
       const { data: allTransactions } = await supabase.from('program_ticket_transaction').select('*');
@@ -11322,27 +11305,26 @@ AGCAS Events Team
 
       console.log('[updateProgramDetails] Processing request for user:', userEmail);
 
-      // Check if user is an admin
-      let isAdmin = false;
-
       const { data: allMembers } = await supabase
         .from('member')
         .select('*');
 
       const member = allMembers?.find((m: any) => m.email === userEmail);
 
+      let hasAccess = false;
+      
       if (member && member.role_id) {
         const { data: allRoles } = await supabase
           .from('role')
           .select('*');
 
         const role = allRoles?.find((r: any) => r.id === member.role_id);
-        // Admin status is derived from feature exclusions - user is admin if 'admin.role-management' is NOT excluded
+        // Check if user has access to program management feature
         const excludedFeatures = role?.excluded_features || [];
-        isAdmin = role && !excludedFeatures.includes('admin.role-management');
+        hasAccess = role && !excludedFeatures.includes('admin.programs');
       }
 
-      if (!isAdmin) {
+      if (!hasAccess) {
         const { data: allTeamMembers } = await supabase
           .from('team_member')
           .select('*');
@@ -11355,18 +11337,18 @@ AGCAS Events Team
             .select('*');
 
           const role = allRoles?.find((r: any) => r.id === teamMember.role_id);
-          // Admin status is derived from feature exclusions - user is admin if 'admin.role-management' is NOT excluded
+          // Check if user has access to program management feature
           const excludedFeatures = role?.excluded_features || [];
-          isAdmin = role && !excludedFeatures.includes('admin.role-management');
+          hasAccess = role && !excludedFeatures.includes('admin.programs');
         }
       }
 
-      if (!isAdmin) {
-        console.log('[updateProgramDetails] User is not admin:', userEmail);
-        return res.status(403).json({ error: 'Admin privileges required' });
+      if (!hasAccess) {
+        console.log('[updateProgramDetails] User does not have access:', userEmail);
+        return res.status(403).json({ error: 'Program management access required' });
       }
 
-      console.log('[updateProgramDetails] User verified as admin, proceeding with update');
+      console.log('[updateProgramDetails] User access verified, proceeding with update');
 
       const updatePayload: any = {};
 
@@ -11481,8 +11463,8 @@ AGCAS Events Team
 
       console.log('[updateEventImage] Processing request for user:', userEmail);
 
-      // Check if user is an admin (check both Member and TeamMember entities)
-      let isAdmin = false;
+      // Check if user has event management access
+      let hasAccess = false;
 
       // Check Member entity
       const { data: allMembers } = await supabase
@@ -11497,13 +11479,13 @@ AGCAS Events Team
           .select('*');
 
         const role = allRoles?.find((r: any) => r.id === member.role_id);
-        // Admin status is derived from feature exclusions - user is admin if 'admin.role-management' is NOT excluded
+        // Check if user has access to event management feature
         const excludedFeatures = role?.excluded_features || [];
-        isAdmin = role && !excludedFeatures.includes('admin.role-management');
+        hasAccess = role && !excludedFeatures.includes('admin.events');
       }
 
       // If not found in Member, check TeamMember entity
-      if (!isAdmin) {
+      if (!hasAccess) {
         const { data: allTeamMembers } = await supabase
           .from('team_member')
           .select('*');
@@ -11516,18 +11498,18 @@ AGCAS Events Team
             .select('*');
 
           const role = allRoles?.find((r: any) => r.id === teamMember.role_id);
-          // Admin status is derived from feature exclusions - user is admin if 'admin.role-management' is NOT excluded
+          // Check if user has access to event management feature
           const excludedFeatures = role?.excluded_features || [];
-          isAdmin = role && !excludedFeatures.includes('admin.role-management');
+          hasAccess = role && !excludedFeatures.includes('admin.events');
         }
       }
 
-      if (!isAdmin) {
-        console.log('[updateEventImage] User is not admin:', userEmail);
-        return res.status(403).json({ error: 'Admin privileges required' });
+      if (!hasAccess) {
+        console.log('[updateEventImage] User does not have access:', userEmail);
+        return res.status(403).json({ error: 'Event management access required' });
       }
 
-      console.log('[updateEventImage] User verified as admin, proceeding with update');
+      console.log('[updateEventImage] User access verified, proceeding with update');
 
       // Prepare update payload
       const updatePayload: any = {};

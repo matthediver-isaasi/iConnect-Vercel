@@ -208,9 +208,6 @@ export default function ResourceSettingsPage() {
                           >
                             <div className="flex items-center gap-2">
                               <span className="font-medium text-slate-900">{role.name}</span>
-                              {role.is_admin && (
-                                <Badge className="bg-amber-100 text-amber-700 text-xs">Admin</Badge>
-                              )}
                             </div>
                             {role.description && (
                               <p className="text-xs text-slate-500 mt-1">{role.description}</p>

@@ -13,8 +13,7 @@ const LayoutContext = createContext({
   setOrganizationInfo: () => {},
   memberRole: null,
   setMemberRole: () => {},
-  isAdmin: false,
-  setIsAdmin: () => {},
+  // isAdmin removed - access control now uses isFeatureExcluded() exclusively
   isFeatureExcluded: () => false,
   setIsFeatureExcluded: () => {},
   refreshOrganizationInfo: () => {},
@@ -30,7 +29,7 @@ export function LayoutProvider({ children }) {
   const [memberInfo, setMemberInfoState] = useState(null);
   const [organizationInfo, setOrganizationInfoState] = useState(null);
   const [memberRole, setMemberRoleState] = useState(null);
-  const [isAdmin, setIsAdminState] = useState(false);
+  // isAdmin state removed - access control now uses isFeatureExcluded() exclusively
   const [isFeatureExcludedFn, setIsFeatureExcludedFn] = useState(() => () => false);
   const [refreshOrganizationInfoFn, setRefreshOrganizationInfoFn] = useState(() => () => {});
   const [reloadMemberInfoFn, setReloadMemberInfoFn] = useState(() => () => {});
@@ -59,9 +58,7 @@ export function LayoutProvider({ children }) {
     setMemberRoleState(value);
   }, []);
 
-  const setIsAdmin = useCallback((value) => {
-    setIsAdminState(value);
-  }, []);
+  // setIsAdmin removed - access control now uses isFeatureExcluded() exclusively
 
   const setIsFeatureExcluded = useCallback((fn) => {
     setIsFeatureExcludedFn(() => fn);
@@ -89,8 +86,7 @@ export function LayoutProvider({ children }) {
       setOrganizationInfo,
       memberRole,
       setMemberRole,
-      isAdmin,
-      setIsAdmin,
+      // isAdmin removed - access control now uses isFeatureExcluded() exclusively
       isFeatureExcluded: isFeatureExcludedFn,
       setIsFeatureExcluded,
       refreshOrganizationInfo: refreshOrganizationInfoFn,

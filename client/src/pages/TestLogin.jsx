@@ -342,11 +342,6 @@ export default function TestLoginPage() {
                             <h3 className="font-semibold text-white truncate">
                               {role.name}
                             </h3>
-                            {role.is_admin && (
-                              <Badge className="bg-amber-600 text-white text-xs">
-                                Admin
-                              </Badge>
-                            )}
                             {role.is_default && (
                               <Badge className="bg-green-600 text-white text-xs">
                                 Default

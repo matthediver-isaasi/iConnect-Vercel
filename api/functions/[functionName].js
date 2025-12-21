@@ -4276,26 +4276,26 @@ const functionHandlers = {
               `
             });
             
-            // Notify admins - find roles where admin.role-management is NOT excluded
+            // Notify users with job posting management access
             const { data: allRoles } = await supabase
               .from('role')
               .select('*');
             
-            // Filter to roles that have admin access (admin.role-management NOT in excluded_features)
-            const adminRoles = allRoles?.filter(r => {
+            // Filter to roles that have job posting management access
+            const jobManagementRoles = allRoles?.filter(r => {
               const excludedFeatures = r.excluded_features || [];
-              return !excludedFeatures.includes('admin.role-management');
+              return !excludedFeatures.includes('admin.job-postings');
             }) || [];
             
-            if (adminRoles.length > 0) {
-              const adminRoleIds = adminRoles.map(r => r.id);
-              const { data: adminMembers } = await supabase.from('member').select('*');
-              const admins = adminMembers?.filter(m => adminRoleIds.includes(m.role_id)) || [];
+            if (jobManagementRoles.length > 0) {
+              const roleIds = jobManagementRoles.map(r => r.id);
+              const { data: allMembers } = await supabase.from('member').select('*');
+              const notifyMembers = allMembers?.filter(m => roleIds.includes(m.role_id)) || [];
               
-              for (const admin of admins) {
+              for (const member of notifyMembers) {
                 await mg.messages.create(mailgunDomain, {
                   from: mailgunFromEmail,
-                  to: admin.email,
+                  to: member.email,
                   subject: 'New Paid Job Posting Awaiting Approval',
                   html: `
                     <h2>New Paid Job Posting Submitted</h2>

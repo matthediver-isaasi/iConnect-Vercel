@@ -166,14 +166,13 @@ export default function MemberRoleReportPage() {
 
   const handleExportCSV = () => {
     const csvRows = [
-      ['Role Name', 'Is Admin', 'Member Count', 'Member Name', 'Member Email', 'Organisation']
+      ['Role Name', 'Member Count', 'Member Name', 'Member Email', 'Organisation']
     ];
 
     roleStats.forEach(stat => {
       if (stat.members.length === 0) {
         csvRows.push([
           stat.role.name,
-          stat.role.is_admin ? 'Yes' : 'No',
           '0',
           '',
           '',
@@ -184,7 +183,6 @@ export default function MemberRoleReportPage() {
           const org = orgMap[member.organization_id];
           csvRows.push([
             idx === 0 ? stat.role.name : '',
-            idx === 0 ? (stat.role.is_admin ? 'Yes' : 'No') : '',
             idx === 0 ? stat.memberCount.toString() : '',
             `${member.first_name || ''} ${member.last_name || ''}`.trim(),
             member.email || '',
@@ -377,11 +375,6 @@ export default function MemberRoleReportPage() {
                           <ChevronRight className="w-5 h-5 text-slate-400" />
                         )}
                         <span className="font-medium text-slate-800">{stat.role.name}</span>
-                        {stat.role.is_admin && (
-                          <Badge variant="secondary" className="bg-purple-100 text-purple-700">
-                            Admin
-                          </Badge>
-                        )}
                       </div>
                       <Badge 
                         variant="outline" 

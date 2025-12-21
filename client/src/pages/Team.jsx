@@ -586,9 +586,8 @@ export default function TeamPage({ hasBanner }) {
                               <div className="flex items-center gap-1 mb-1">
                                 <Badge 
                                   variant="secondary" 
-                                  className={role.is_admin ? "bg-amber-100 text-amber-700" : "bg-blue-100 text-blue-700"}
+                                  className="bg-blue-100 text-blue-700"
                                 >
-                                  {role.is_admin && <Shield className="w-3 h-3 mr-1" />}
                                   {role.name}
                                 </Badge>
                               </div>

@@ -671,13 +671,13 @@ const { data: portalBanner } = useQuery({
 });
 
 // Get the layout context to update banner status and share member/org info
+// Note: isAdmin removed - access control now uses isFeatureExcluded() exclusively
 const { 
   setHasBanner, 
   setPortalBanner,
   setMemberInfo: setContextMemberInfo,
   setOrganizationInfo: setContextOrganizationInfo,
   setMemberRole: setContextMemberRole,
-  setIsAdmin: setContextIsAdmin,
   setIsFeatureExcluded: setContextIsFeatureExcluded,
   setRefreshOrganizationInfo: setContextRefreshOrganizationInfo,
   setReloadMemberInfo: setContextReloadMemberInfo,
@@ -714,12 +714,16 @@ useEffect(() => {
   // Pages that should use the bare layout (no new header/footer)
   const bareLayoutPages = ["Home", "TestLogin"];
 
-  // Helper function to check if current user is an admin
-  // Admin status is derived from feature exclusions - user is admin if 'admin.role-management' is NOT excluded
-  const isAdmin = () => {
+  // Helper function to check if user has access to admin navigation
+  // Access is now controlled by feature exclusions - user can see admin nav if they have any admin features not excluded
+  const hasAdminNavAccess = () => {
     if (!memberRole) return false;
     const roleExclusions = memberRole.excluded_features || [];
-    return !isResourceExcluded(roleExclusions, 'admin.role-management');
+    // User has admin nav access if they have at least one admin feature not excluded
+    return !isResourceExcluded(roleExclusions, 'admin.role-management') ||
+           !isResourceExcluded(roleExclusions, 'admin.events') ||
+           !isResourceExcluded(roleExclusions, 'admin.programs') ||
+           !isResourceExcluded(roleExclusions, 'admin.members');
   };
 
   // Helper function to check if a feature is excluded for the current member
@@ -868,13 +872,7 @@ useEffect(() => {
     }
   };
 
-  // Update context with isAdmin status when memberRole changes
-  // Admin status is derived from feature exclusions - user is admin if 'admin.role-management' is NOT excluded
-  useEffect(() => {
-    const roleExclusions = memberRole?.excluded_features || [];
-    const derivedIsAdmin = memberRole ? !isResourceExcluded(roleExclusions, 'admin.role-management') : false;
-    setContextIsAdmin(derivedIsAdmin);
-  }, [memberRole, setContextIsAdmin]);
+  // isAdmin context update removed - access control now uses isFeatureExcluded() exclusively
 
   // Update context with isFeatureExcluded function when memberInfo or memberRole changes
   // Uses the new hierarchical role visibility system
@@ -1083,8 +1081,8 @@ useEffect(() => {
         return;
       }
       
-      // Check if page requires admin access
-      if (isCurrentPageAdminOnly() && !isAdmin()) {
+      // Check if page requires admin access (using feature-based check)
+      if (isCurrentPageAdminOnly() && !hasAdminNavAccess()) {
         window.location.href = createPageUrl(fallbackPage);
       }
     }
@@ -1359,8 +1357,8 @@ useEffect(() => {
     })
     .filter(Boolean);
 
-  // Filter admin navigation items (only show if user is admin)
-  const filteredAdminNavigationItems = isAdmin()
+  // Filter admin navigation items (only show if user has admin nav access)
+  const filteredAdminNavigationItems = hasAdminNavAccess()
     ? adminNavigationItemsSource
         .map(item => {
           if (item.subItems) {
@@ -1385,7 +1383,7 @@ useEffect(() => {
         memberInfo, 
         organizationInfo,
         memberRole,
-        isAdmin: isAdmin(),
+        // isAdmin removed - access control now uses isFeatureExcluded() exclusively
         refreshOrganizationInfo: () => { // Conditionally refresh org info for non-team members
           if (memberInfo && !memberInfo.is_team_member) {
             fetchOrganizationInfo(memberInfo.organization_id);

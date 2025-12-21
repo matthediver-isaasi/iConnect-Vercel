@@ -40,7 +40,16 @@ An admin-only CRM-style page for managing organizations, featuring search, filte
 
 The role management system uses a hierarchical Module→Page→Feature structure to control visibility. Roles store `excluded_features` arrays. Dynamic configuration of this hierarchy is managed via an Admin UI, storing data in a `role_access_item` Supabase table.
 
-**Admin Status Derivation (Dec 2025):** Admin status is now derived from feature exclusions rather than the deprecated `is_admin` database flag. Specifically, a user is considered an admin if `admin.role-management` is NOT in their role's `excluded_features` array. All access control checks throughout the application use `isFeatureExcluded()` from the `useMemberAccess` hook. The `is_admin` field is still written to the database for backward compatibility but is derived from exclusions when saving roles.
+**Admin Status Fully Deprecated (Dec 2025):** The binary `is_admin` concept has been completely removed from the application. Access control is now 100% feature-based using the `excluded_features` array:
+
+- **Backend endpoints** check specific feature exclusions relevant to their function (e.g., data export checks `admin.data-export`, job postings check `admin.job-postings`)
+- **UI components** no longer display admin badges - roles are shown without special admin indicators
+- **Layout.jsx** uses `hasAdminNavAccess()` instead of `isAdmin()` - this checks multiple admin features to determine if user sees admin navigation
+- **LayoutContext** no longer exposes `isAdmin` state - only `isFeatureExcluded()` is available
+- **RoleManagement** no longer persists the `is_admin` field when saving roles
+- **Feature exclusion examples**: `admin.data-export`, `admin.member-handles`, `admin.program-tickets`, `admin.programs`, `admin.events`, `admin.job-postings`
+
+All access control throughout the application now uses `isFeatureExcluded()` from the `useMemberAccess` hook.
 
 ## Email Template Placeholder System
 
