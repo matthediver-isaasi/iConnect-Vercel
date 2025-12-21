@@ -76,19 +76,33 @@ export default function TeamEngagementReportPage() {
       : teamMembers.filter(m => m.login_enabled !== false);
 
     return membersToProcess.map(member => {
-      const eventsAttended = allBookings.filter(
+      // Get opening balances from member record
+      const openingBalances = member.engagement_opening_balances || {};
+      const obEvents = openingBalances.eventsAttended || 0;
+      const obArticles = openingBalances.articlesPublished || 0;
+      const obJobs = openingBalances.jobsPosted || 0;
+      const obAwards = openingBalances.awards || 0;
+      const obEngagement = openingBalances.engagementAwards || 0;
+
+      // Calculate current activity metrics
+      const currentEventsAttended = allBookings.filter(
         b => b.member_id === member.id && b.status === 'confirmed'
       ).length;
 
-      const articlesPublished = allArticles.filter(
+      const currentArticlesPublished = allArticles.filter(
         a => a.author_id === member.id && a.status === 'published'
       ).length;
 
-      const jobsPosted = allJobPostings.filter(
+      const currentJobsPosted = allJobPostings.filter(
         j => j.posted_by_member_id === member.id
       ).length;
 
-      // Calculate online awards
+      // Add opening balances to get total metrics
+      const eventsAttended = currentEventsAttended + obEvents;
+      const articlesPublished = currentArticlesPublished + obArticles;
+      const jobsPosted = currentJobsPosted + obJobs;
+
+      // Calculate online awards (based on total metrics including opening balances)
       const earnedOnlineAwards = awards.filter(award => {
         const stat = award.award_type === 'events_attended' ? eventsAttended :
                      award.award_type === 'articles_published' ? articlesPublished :
@@ -102,8 +116,11 @@ export default function TeamEngagementReportPage() {
       // Calculate engagement awards
       const earnedEngagementAwards = engagementAssignments.filter(a => a.member_id === member.id).length;
 
-      const totalAwards = earnedOnlineAwards + earnedOfflineAwards;
-      const totalScore = eventsAttended + articlesPublished + jobsPosted + totalAwards + earnedEngagementAwards;
+      // Add opening balances to awards
+      const totalAwards = earnedOnlineAwards + earnedOfflineAwards + obAwards;
+      const engagementAwardsTotal = earnedEngagementAwards + obEngagement;
+      
+      const totalScore = eventsAttended + articlesPublished + jobsPosted + totalAwards + engagementAwardsTotal;
 
       return {
         id: member.id,
@@ -114,7 +131,7 @@ export default function TeamEngagementReportPage() {
         eventsAttended,
         articlesPublished,
         jobsPosted,
-        engagementAwards: earnedEngagementAwards,
+        engagementAwards: engagementAwardsTotal,
         totalAwards,
         totalScore,
         lastActivity: member.last_activity ? new Date(member.last_activity).getTime() : 0
