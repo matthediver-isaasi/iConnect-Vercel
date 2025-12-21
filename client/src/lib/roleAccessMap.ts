@@ -775,7 +775,10 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_AdminSetup": "system.admin-setup",
   "page_admin_AdminSetup": "system.admin-setup",
   "page_RoleAccessConfigManagement": "system.role-access-config",
-  "page_admin_RoleAccessConfigManagement": "system.role-access-config"
+  "page_admin_RoleAccessConfigManagement": "system.role-access-config",
+  "page_user_Directories": "membership.member-directory",
+  "page_user_directory/partner-directory": "membership.organisation-directory",
+  "page_admin_MemberRoleReport": "admin.member-role-assignment"
 };
 
 export function migrateLegacyFeatureId(legacyId: string): string {

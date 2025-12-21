@@ -521,24 +521,34 @@ const { data: memberRole } = useQuery({
 
 // Fetch "Public" role exclusions for non-logged-in users via public API endpoint
 // This allows controlling what public visitors can see via RoleAccessConfigManagement
-const { data: publicRoleData } = useQuery({
+const { data: publicRoleData, isLoading: isPublicRoleLoading, isFetched: isPublicRoleFetched } = useQuery({
   queryKey: ['publicRoleExclusions'],
   enabled: memberInfo === null, // Only load when not logged in
-  staleTime: 1000 * 60 * 5, // Cache for 5 minutes
+  staleTime: 0, // Always fetch fresh data - Public role exclusions are critical for access control
+  refetchOnMount: true,
+  refetchOnWindowFocus: true,
   queryFn: async () => {
     try {
-      const response = await fetch('/api/public/role-exclusions');
+      const response = await fetch('/api/public/role-exclusions', {
+        cache: 'no-store', // Bypass browser cache
+        headers: { 'Cache-Control': 'no-cache' }
+      });
       if (!response.ok) {
         console.error('Failed to load Public role exclusions:', response.status);
         return { excluded_features: [] };
       }
-      return await response.json();
+      const data = await response.json();
+      console.log('[Layout] Public role exclusions loaded:', data.excluded_features?.length || 0, 'features excluded');
+      return data;
     } catch (error) {
       console.error('Error loading Public role exclusions:', error);
       return { excluded_features: [] };
     }
   },
 });
+
+// Determine if access control is ready - for public visitors, wait until Public role exclusions are loaded
+const isAccessReady = memberInfo !== null || isPublicRoleFetched;
 
 // Create a publicRole-like object for access control
 const publicRole = publicRoleData ? { 
@@ -1479,6 +1489,16 @@ useEffect(() => {
     
     return currentPageName;
   };
+
+  // Wait for access control to be ready before rendering
+  // This prevents excluded content from flashing while Public role exclusions load
+  if (!isAccessReady) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
 
   // Render public layout for truly public pages
   if (isPublicPage()) {

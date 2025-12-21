@@ -1341,6 +1341,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(503).json({ error: 'Supabase not configured' });
     }
 
+    // Disable caching to ensure fresh data
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
+
     try {
       const { data, error } = await supabase
         .from('role')
@@ -1348,18 +1353,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .eq('name', 'Public')
         .single();
 
+      console.log('[Public Role Exclusions] Query result:', { data, error });
+
       if (error) {
         // If Public role doesn't exist, return empty exclusions (backward compatible)
         if (error.code === 'PGRST116') {
+          console.log('[Public Role Exclusions] Public role not found, returning empty exclusions');
           return res.json({ excluded_features: [] });
         }
         console.error('Error fetching Public role:', error);
         return res.status(500).json({ error: error.message });
       }
 
+      const exclusions = data?.excluded_features || [];
+      console.log('[Public Role Exclusions] Returning exclusions:', exclusions.length, 'features excluded');
+      
       // Return only the excluded_features array
       res.json({ 
-        excluded_features: data?.excluded_features || [],
+        excluded_features: exclusions,
         role_id: data?.id
       });
     } catch (error) {

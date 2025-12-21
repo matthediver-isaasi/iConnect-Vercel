@@ -52,15 +52,22 @@ export function useMemberAccess() {
   const { data: publicRoleData, isLoading: isPublicRoleLoading } = useQuery({
     queryKey: ['publicRoleExclusions'],
     enabled: memberInfo === null, // Only load when not logged in
-    staleTime: 1000 * 60 * 5, // Cache for 5 minutes
+    staleTime: 0, // Always fetch fresh data - Public role exclusions are critical for access control
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
     queryFn: async () => {
       try {
-        const response = await fetch('/api/public/role-exclusions');
+        const response = await fetch('/api/public/role-exclusions', {
+          cache: 'no-store', // Bypass browser cache
+          headers: { 'Cache-Control': 'no-cache' }
+        });
         if (!response.ok) {
           console.error('Failed to load Public role exclusions:', response.status);
           return { excluded_features: [] };
         }
-        return await response.json();
+        const data = await response.json();
+        console.log('[useMemberAccess] Public role exclusions loaded:', data.excluded_features?.length || 0, 'features excluded');
+        return data;
       } catch (error) {
         console.error('Error loading Public role exclusions:', error);
         return { excluded_features: [] };
