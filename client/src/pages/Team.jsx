@@ -489,7 +489,7 @@ export default function TeamPage({ hasBanner }) {
                     </p>
                   </div>
                 </div>
-                {isAdmin && !isFeatureExcluded('element_TeamInviteMember') && (
+                {!isFeatureExcluded('element_TeamInviteMember') && (
                   <Button
                     onClick={() => setShowInviteDialog(true)}
                     className="bg-blue-600 hover:bg-blue-700"
