@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, Building2, Globe, Users, Phone, Mail, MapPin, ClipboardList, ExternalLink, Save, X, Camera, Plus, Trash2 } from "lucide-react";
+import { Loader2, Building2, Globe, Users, Phone, Mail, MapPin, ClipboardList, ExternalLink, Save, X, Camera, Plus, Trash2, Trophy } from "lucide-react";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 import { useToast } from "@/components/ui/use-toast";
@@ -222,6 +222,51 @@ export default function MyOrganisationPage() {
         return response.json();
       } catch {
         return {};
+      }
+    }
+  });
+
+  // Fetch organisation award assignments for this organization
+  const { data: organisationAwardAssignments = [], isLoading: awardsLoading } = useQuery({
+    queryKey: ['myOrganisationAwards', memberInfo?.organization_id],
+    enabled: !!memberInfo?.organization_id && accessChecked,
+    queryFn: async () => {
+      if (!memberInfo?.organization_id) return [];
+      try {
+        const assignments = await base44.entities.OrganisationAwardAssignment.list({
+          filter: { organization_id: memberInfo.organization_id }
+        });
+        return assignments || [];
+      } catch {
+        return [];
+      }
+    }
+  });
+
+  // Fetch all organisation awards to get award details
+  const { data: organisationAwards = [] } = useQuery({
+    queryKey: ['allOrganisationAwards'],
+    enabled: organisationAwardAssignments.length > 0,
+    queryFn: async () => {
+      try {
+        const awards = await base44.entities.OrganisationAward.list();
+        return awards || [];
+      } catch {
+        return [];
+      }
+    }
+  });
+
+  // Fetch award sublevels for organisation awards
+  const { data: awardSublevels = [] } = useQuery({
+    queryKey: ['awardSublevels'],
+    enabled: organisationAwardAssignments.length > 0,
+    queryFn: async () => {
+      try {
+        const sublevels = await base44.entities.AwardSublevel.list();
+        return sublevels || [];
+      } catch {
+        return [];
       }
     }
   });
@@ -1108,6 +1153,70 @@ export default function MyOrganisationPage() {
                                 <ListFieldDisplay items={displayValue} />
                               ) : (
                                 displayValue || <span className="text-slate-400 italic font-normal">Not set</span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Organisation Awards Section */}
+            {organisationAwardAssignments.length > 0 && (
+              <Card className="border-slate-200">
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Trophy className="w-5 h-5 text-amber-500" />
+                    Organisation Awards
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {awardsLoading ? (
+                    <div className="flex items-center justify-center py-4">
+                      <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {organisationAwardAssignments.map((assignment) => {
+                        const award = organisationAwards.find(a => a.id === assignment.organisation_award_id);
+                        const sublevel = assignment.sublevel_id 
+                          ? awardSublevels.find(s => s.id === assignment.sublevel_id)
+                          : null;
+                        
+                        if (!award) return null;
+                        
+                        return (
+                          <div 
+                            key={assignment.id} 
+                            className="flex items-center gap-3 p-3 bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-200 rounded-lg"
+                            data-testid={`award-${assignment.id}`}
+                          >
+                            {(sublevel?.image_url || award.image_url) ? (
+                              <img 
+                                src={sublevel?.image_url || award.image_url} 
+                                alt={award.name} 
+                                className="w-12 h-12 object-contain"
+                              />
+                            ) : (
+                              <div className="w-12 h-12 bg-amber-100 rounded-full flex items-center justify-center">
+                                <Trophy className="w-6 h-6 text-amber-600" />
+                              </div>
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <p className="font-medium text-slate-900 truncate">
+                                {award.name}
+                                {sublevel && <span className="text-amber-700"> - {sublevel.name}</span>}
+                              </p>
+                              {award.period_text && (
+                                <p className="text-xs text-slate-600">{award.period_text}</p>
+                              )}
+                              {assignment.assigned_date && (
+                                <p className="text-xs text-slate-500">
+                                  Awarded: {new Date(assignment.assigned_date).toLocaleDateString()}
+                                </p>
                               )}
                             </div>
                           </div>

@@ -7,7 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Plus, Pencil, Trash2, Trophy, Upload, Calendar, FileText, Briefcase, UserPlus, Users, UserMinus } from "lucide-react";
+import { Loader2, Plus, Pencil, Trash2, Trophy, Upload, Calendar, FileText, Briefcase, UserPlus, Users, UserMinus, Building2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -115,6 +115,17 @@ export default function AwardManagementPage() {
     is_active: true
   });
 
+  // Organisation award form state (same structure as offline)
+  const [organisationFormData, setOrganisationFormData] = useState({
+    name: "",
+    description: "",
+    classification_id: "",
+    period_text: "",
+    level: "",
+    image_url: "",
+    is_active: true
+  });
+
   // Classification form state
   const [classificationFormData, setClassificationFormData] = useState({
     name: "",
@@ -168,6 +179,15 @@ export default function AwardManagementPage() {
     }
   });
 
+  // Fetch organisation awards
+  const { data: organisationAwards = [], isLoading: organisationLoading } = useQuery({
+    queryKey: ['organisationAwards'],
+    queryFn: async () => {
+      const allAwards = await base44.entities.OrganisationAward.list();
+      return allAwards.sort((a, b) => (a.level || 0) - (b.level || 0));
+    }
+  });
+
   // Fetch organizations for the assign dialog
   const { data: organizations = [], isLoading: organizationsLoading } = useQuery({
     queryKey: ['organizations'],
@@ -214,13 +234,32 @@ export default function AwardManagementPage() {
     }
   });
 
-  // Get the member IDs from assignments for the viewing award
+  // Fetch organisation award assignments
+  const { data: organisationAssignments = [] } = useQuery({
+    queryKey: ['organisationAwardAssignments'],
+    queryFn: async () => {
+      return await base44.entities.OrganisationAwardAssignment.list();
+    }
+  });
+
+  // Get the assignments for the viewing award (handles all award types)
   const viewingAwardAssignments = viewingAward 
     ? (viewingAward.type === 'engagement' 
         ? engagementAssignments.filter(a => a.engagement_award_id === viewingAward.id)
+        : viewingAward.type === 'organisation'
+        ? organisationAssignments.filter(a => a.organisation_award_id === viewingAward.id)
         : assignments.filter(a => a.offline_award_id === viewingAward.id))
     : [];
-  const assignedMemberIds = [...new Set(viewingAwardAssignments.map(a => a.member_id))];
+  
+  // For member-based awards (offline, engagement), get member IDs
+  const assignedMemberIds = viewingAward?.type !== 'organisation' 
+    ? [...new Set(viewingAwardAssignments.map(a => a.member_id))]
+    : [];
+  
+  // For organisation awards, get organization IDs
+  const assignedOrganizationIds = viewingAward?.type === 'organisation'
+    ? [...new Set(viewingAwardAssignments.map(a => a.organization_id))]
+    : [];
 
   // Fetch only the specific members that are assigned to this award
   const { data: assignedMembersData = [], isLoading: allMembersLoading } = useQuery({
@@ -234,7 +273,21 @@ export default function AwardManagementPage() {
       const members = await Promise.all(memberPromises);
       return members.filter(m => m !== null);
     },
-    enabled: viewAssignmentsDialogOpen && assignedMemberIds.length > 0
+    enabled: viewAssignmentsDialogOpen && assignedMemberIds.length > 0 && viewingAward?.type !== 'organisation'
+  });
+
+  // Fetch only the specific organizations that are assigned to this award
+  const { data: assignedOrganizationsData = [], isLoading: allOrganizationsLoading } = useQuery({
+    queryKey: ['assigned-organizations', viewingAward?.id, assignedOrganizationIds.join(',')],
+    queryFn: async () => {
+      if (assignedOrganizationIds.length === 0) return [];
+      const orgPromises = assignedOrganizationIds.map(id => 
+        base44.entities.Organization.get(id).catch(() => null)
+      );
+      const orgs = await Promise.all(orgPromises);
+      return orgs.filter(o => o !== null);
+    },
+    enabled: viewAssignmentsDialogOpen && assignedOrganizationIds.length > 0 && viewingAward?.type === 'organisation'
   });
 
   // Fetch classifications
@@ -480,6 +533,95 @@ export default function AwardManagementPage() {
     }
   });
 
+  // Create organisation award
+  const createOrganisationAwardMutation = useMutation({
+    mutationFn: async (awardData) => {
+      return await base44.entities.OrganisationAward.create(awardData);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['organisationAwards'] });
+      toast.success('Organisation award created successfully');
+      handleCloseDialog();
+    },
+    onError: (error) => {
+      toast.error('Failed to create organisation award');
+    }
+  });
+
+  // Update organisation award
+  const updateOrganisationAwardMutation = useMutation({
+    mutationFn: async ({ id, awardData }) => {
+      return await base44.entities.OrganisationAward.update(id, awardData);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['organisationAwards'] });
+      toast.success('Organisation award updated successfully');
+      handleCloseDialog();
+    },
+    onError: (error) => {
+      toast.error('Failed to update organisation award');
+    }
+  });
+
+  // Delete organisation award
+  const deleteOrganisationAwardMutation = useMutation({
+    mutationFn: async (id) => {
+      return await base44.entities.OrganisationAward.delete(id);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['organisationAwards'] });
+      toast.success('Organisation award deleted successfully');
+      setDeleteDialogOpen(false);
+      setDeletingAward(null);
+    },
+    onError: (error) => {
+      toast.error('Failed to delete organisation award');
+    }
+  });
+
+  // Assign organisation award
+  const assignOrganisationAwardMutation = useMutation({
+    mutationFn: async (assignmentData) => {
+      const existingAssignment = organisationAssignments.find(a => 
+        a.organization_id === assignmentData.organization_id && 
+        a.organisation_award_id === assignmentData.organisation_award_id &&
+        (a.sublevel_id || null) === (assignmentData.sublevel_id || null)
+      );
+      
+      if (existingAssignment) {
+        const sublevel = sublevels.find(s => s.id === assignmentData.sublevel_id);
+        const levelName = sublevel ? ` (${sublevel.name})` : '';
+        throw new Error(`This organisation already has this award${levelName} assigned`);
+      }
+      
+      return await base44.entities.OrganisationAwardAssignment.create(assignmentData);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['organisationAwardAssignments'] });
+      toast.success('Award assigned successfully');
+      handleCloseAssignDialog();
+    },
+    onError: (error) => {
+      toast.error(error.message || 'Failed to assign award');
+    }
+  });
+
+  // Remove organisation award assignment
+  const removeOrganisationAwardMutation = useMutation({
+    mutationFn: async (assignmentId) => {
+      return await base44.entities.OrganisationAwardAssignment.delete(assignmentId);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['organisationAwardAssignments'] });
+      toast.success('Award removed from organisation');
+      setRemoveAssignmentDialogOpen(false);
+      setRemovingAssignment(null);
+    },
+    onError: (error) => {
+      toast.error('Failed to remove award');
+    }
+  });
+
   // Classification mutations
   const createClassificationMutation = useMutation({
     mutationFn: async (data) => {
@@ -604,8 +746,18 @@ export default function AwardManagementPage() {
           image_url: award.image_url || "",
           is_active: award.is_active ?? true
         });
-      } else {
+      } else if (type === 'engagement') {
         setEngagementFormData({
+          name: award.name || "",
+          description: award.description || "",
+          classification_id: award.classification_id || "",
+          period_text: award.period_text || "",
+          level: award.level || "",
+          image_url: award.image_url || "",
+          is_active: award.is_active ?? true
+        });
+      } else if (type === 'organisation') {
+        setOrganisationFormData({
           name: award.name || "",
           description: award.description || "",
           classification_id: award.classification_id || "",
@@ -638,8 +790,18 @@ export default function AwardManagementPage() {
           image_url: "",
           is_active: true
         });
-      } else {
+      } else if (type === 'engagement') {
         setEngagementFormData({
+          name: "",
+          description: "",
+          classification_id: "",
+          period_text: "",
+          level: "",
+          image_url: "",
+          is_active: true
+        });
+      } else if (type === 'organisation') {
+        setOrganisationFormData({
           name: "",
           description: "",
           classification_id: "",
@@ -676,6 +838,15 @@ export default function AwardManagementPage() {
       is_active: true
     });
     setEngagementFormData({
+      name: "",
+      description: "",
+      classification_id: "",
+      period_text: "",
+      level: "",
+      image_url: "",
+      is_active: true
+    });
+    setOrganisationFormData({
       name: "",
       description: "",
       classification_id: "",
@@ -770,31 +941,49 @@ export default function AwardManagementPage() {
   };
 
   const handleAssignAward = () => {
-    if (!selectedMemberId) {
-      toast.error('Please select a member');
-      return;
-    }
+    if (assigningAward.type === 'organisation') {
+      // For organisation awards, assign to organization instead of member
+      if (!selectedOrganizationId || selectedOrganizationId === "__no_org__") {
+        toast.error('Please select an organisation');
+        return;
+      }
 
-    if (assigningAward.type === 'engagement') {
       const assignmentData = {
-        engagement_award_id: assigningAward.id,
-        member_id: selectedMemberId,
+        organisation_award_id: assigningAward.id,
+        organization_id: selectedOrganizationId,
         sublevel_id: selectedSublevelId || null,
         assigned_by: memberInfo?.email || "",
         notes: assignmentNotes,
         assigned_date: new Date().toISOString()
       };
-      assignEngagementAwardMutation.mutate(assignmentData);
+      assignOrganisationAwardMutation.mutate(assignmentData);
     } else {
-      const assignmentData = {
-        offline_award_id: assigningAward.id,
-        member_id: selectedMemberId,
-        sublevel_id: selectedSublevelId || null,
-        assigned_by: memberInfo?.email || "",
-        notes: assignmentNotes,
-        assigned_date: new Date().toISOString()
-      };
-      assignOfflineAwardMutation.mutate(assignmentData);
+      if (!selectedMemberId) {
+        toast.error('Please select a member');
+        return;
+      }
+
+      if (assigningAward.type === 'engagement') {
+        const assignmentData = {
+          engagement_award_id: assigningAward.id,
+          member_id: selectedMemberId,
+          sublevel_id: selectedSublevelId || null,
+          assigned_by: memberInfo?.email || "",
+          notes: assignmentNotes,
+          assigned_date: new Date().toISOString()
+        };
+        assignEngagementAwardMutation.mutate(assignmentData);
+      } else {
+        const assignmentData = {
+          offline_award_id: assigningAward.id,
+          member_id: selectedMemberId,
+          sublevel_id: selectedSublevelId || null,
+          assigned_by: memberInfo?.email || "",
+          notes: assignmentNotes,
+          assigned_date: new Date().toISOString()
+        };
+        assignOfflineAwardMutation.mutate(assignmentData);
+      }
     }
   };
 
@@ -802,6 +991,8 @@ export default function AwardManagementPage() {
     if (!removingAssignment) return;
     if (removingAssignment.type === 'engagement') {
       removeEngagementAwardMutation.mutate(removingAssignment.id);
+    } else if (removingAssignment.type === 'organisation') {
+      removeOrganisationAwardMutation.mutate(removingAssignment.id);
     } else {
       removeOfflineAwardMutation.mutate(removingAssignment.id);
     }
@@ -823,8 +1014,10 @@ export default function AwardManagementPage() {
         setOnlineFormData(prev => ({ ...prev, image_url: result.file_url }));
       } else if (type === 'offline') {
         setOfflineFormData(prev => ({ ...prev, image_url: result.file_url }));
-      } else {
+      } else if (type === 'engagement') {
         setEngagementFormData(prev => ({ ...prev, image_url: result.file_url }));
+      } else if (type === 'organisation') {
+        setOrganisationFormData(prev => ({ ...prev, image_url: result.file_url }));
       }
       toast.success('Image uploaded successfully');
     } catch (error) {
@@ -878,7 +1071,7 @@ export default function AwardManagementPage() {
       } else {
         createOfflineAwardMutation.mutate(awardData);
       }
-    } else {
+    } else if (type === 'engagement') {
       if (!engagementFormData.name || !engagementFormData.level) {
         toast.error('Please fill in all required fields');
         return;
@@ -898,6 +1091,27 @@ export default function AwardManagementPage() {
         updateEngagementAwardMutation.mutate({ id: editingAward.id, awardData });
       } else {
         createEngagementAwardMutation.mutate(awardData);
+      }
+    } else if (type === 'organisation') {
+      if (!organisationFormData.name || !organisationFormData.level) {
+        toast.error('Please fill in all required fields');
+        return;
+      }
+
+      const awardData = {
+        name: organisationFormData.name,
+        description: organisationFormData.description,
+        classification_id: organisationFormData.classification_id || null,
+        period_text: organisationFormData.period_text,
+        level: Number(organisationFormData.level),
+        image_url: organisationFormData.image_url,
+        is_active: organisationFormData.is_active
+      };
+
+      if (editingAward && editingAward.type === 'organisation') {
+        updateOrganisationAwardMutation.mutate({ id: editingAward.id, awardData });
+      } else {
+        createOrganisationAwardMutation.mutate(awardData);
       }
     }
   };
@@ -943,8 +1157,10 @@ export default function AwardManagementPage() {
       data.award_id = managingSublevelsForAward.id;
     } else if (managingSublevelsForAward.type === 'offline') {
       data.offline_award_id = managingSublevelsForAward.id;
-    } else {
+    } else if (managingSublevelsForAward.type === 'engagement') {
       data.engagement_award_id = managingSublevelsForAward.id;
+    } else if (managingSublevelsForAward.type === 'organisation') {
+      data.organisation_award_id = managingSublevelsForAward.id;
     }
 
     if (editingSublevel) {
@@ -961,8 +1177,10 @@ export default function AwardManagementPage() {
       deleteOnlineAwardMutation.mutate(deletingAward.id);
     } else if (deletingAward.type === 'offline') {
       deleteOfflineAwardMutation.mutate(deletingAward.id);
-    } else {
+    } else if (deletingAward.type === 'engagement') {
       deleteEngagementAwardMutation.mutate(deletingAward.id);
+    } else if (deletingAward.type === 'organisation') {
+      deleteOrganisationAwardMutation.mutate(deletingAward.id);
     }
   };
 
@@ -992,6 +1210,15 @@ export default function AwardManagementPage() {
     let awardAssignments;
     if (awardType === 'engagement') {
       awardAssignments = engagementAssignments.filter(a => a.engagement_award_id === awardId);
+    } else if (awardType === 'organisation') {
+      // For organisation awards, return organizations instead of members
+      awardAssignments = organisationAssignments.filter(a => a.organisation_award_id === awardId);
+      return awardAssignments.map(assignment => {
+        // Use assignedOrganizationsData for viewing, or organizations for assigning
+        const org = assignedOrganizationsData.find(o => o.id === assignment.organization_id) 
+          || organizations.find(o => o.id === assignment.organization_id);
+        return { ...assignment, organization: org, type: awardType };
+      }).filter(item => item.organization);
     } else {
       awardAssignments = assignments.filter(a => a.offline_award_id === awardId);
     }
@@ -1015,10 +1242,17 @@ export default function AwardManagementPage() {
   const filteredAssignedMembers = getAssignedMembers(viewingAward?.id, viewingAward?.type || 'offline').filter(item => {
     if (!assignedMembersSearchQuery) return true;
     const searchLower = assignedMembersSearchQuery.toLowerCase();
+    
+    // For organisation awards, filter by organization name
+    if (viewingAward?.type === 'organisation') {
+      return item.organization?.name?.toLowerCase().includes(searchLower);
+    }
+    
+    // For member awards, filter by member name/email
     return (
-      item.member.first_name?.toLowerCase().includes(searchLower) ||
-      item.member.last_name?.toLowerCase().includes(searchLower) ||
-      item.member.email?.toLowerCase().includes(searchLower)
+      item.member?.first_name?.toLowerCase().includes(searchLower) ||
+      item.member?.last_name?.toLowerCase().includes(searchLower) ||
+      item.member?.email?.toLowerCase().includes(searchLower)
     );
   });
 
@@ -1712,7 +1946,247 @@ export default function AwardManagementPage() {
     );
   };
 
-  const isLoading = onlineLoading || offlineLoading || engagementLoading;
+  const renderOrganisationAwards = () => {
+    const organisationClassifications = classifications.filter(c => c.award_category === 'organisation' && c.is_active);
+    const unclassifiedAwards = organisationAwards.filter(a => !a.classification_id);
+
+    const getOrganisationAssignmentCount = (awardId) => {
+      return organisationAssignments.filter(a => a.organisation_award_id === awardId).length;
+    };
+
+    return (
+      <div className="space-y-8">
+        {organisationClassifications.map(classification => {
+          const classificationAwards = organisationAwards.filter(a => a.classification_id === classification.id);
+
+          return (
+            <div key={classification.id} className="border-2 border-slate-200 rounded-lg p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h2 className="text-xl font-semibold text-slate-900">{classification.name}</h2>
+                  {classification.description && (
+                    <p className="text-sm text-slate-600 mt-1">{classification.description}</p>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleOpenClassificationDialog(classification)}
+                  >
+                    <Pencil className="w-3 h-3 mr-1" />
+                    Edit
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setDeletingClassification(classification);
+                      setDeleteClassificationDialogOpen(true);
+                    }}
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </Button>
+                </div>
+              </div>
+              {classificationAwards.length === 0 ? (
+                <div className="text-center py-8 text-slate-500">
+                  <p>No awards in this classification yet.</p>
+                  <p className="text-sm mt-1">Create an award and assign it to this classification.</p>
+                </div>
+              ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {classificationAwards.map(award => {
+                  const awardSublevels = getAwardSublevels(award.id, 'organisation');
+                  return (
+                    <Card key={award.id} className="border-slate-200 hover:shadow-md transition-shadow">
+                      <CardHeader className="pb-3">
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <CardTitle className="text-base">{award.name}</CardTitle>
+                            {award.description && (
+                              <p className="text-xs text-slate-600 mt-1">{award.description}</p>
+                            )}
+                          </div>
+                          {award.image_url && (
+                            <img src={award.image_url} alt={award.name} className="w-12 h-12 object-contain ml-2" />
+                          )}
+                        </div>
+                      </CardHeader>
+                      <CardContent className="space-y-2">
+                        {award.period_text && (
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-slate-600">Period:</span>
+                            <Badge variant="secondary">{award.period_text}</Badge>
+                          </div>
+                        )}
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-slate-600">Sublevels:</span>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleOpenSublevelDialog({ ...award, type: 'organisation' })}
+                            className="h-6 px-2"
+                          >
+                            <Badge variant="secondary">{awardSublevels.length}</Badge>
+                          </Button>
+                        </div>
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-slate-600">Assigned:</span>
+                          <button
+                            onClick={() => handleOpenViewAssignmentsDialog({ ...award, type: 'organisation' })}
+                            className="hover:opacity-80 transition-opacity"
+                          >
+                            <Badge variant="secondary" className="cursor-pointer">
+                              <Building2 className="w-3 h-3 mr-1" />
+                              {getOrganisationAssignmentCount(award.id)}
+                            </Badge>
+                          </button>
+                        </div>
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-slate-600">Status:</span>
+                          <Badge variant={award.is_active ? "default" : "secondary"}>
+                            {award.is_active ? 'Active' : 'Inactive'}
+                          </Badge>
+                        </div>
+                        <div className="flex gap-2 pt-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="flex-1"
+                            onClick={() => handleOpenAssignDialog({ ...award, type: 'organisation' })}
+                          >
+                            <Building2 className="w-3 h-3 mr-1" />
+                            Assign
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleOpenDialog(award, 'organisation')}
+                          >
+                            <Pencil className="w-3 h-3" />
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setDeletingAward({ ...award, type: 'organisation' });
+                              setDeleteDialogOpen(true);
+                            }}
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+              )}
+            </div>
+          );
+        })}
+
+        {unclassifiedAwards.length > 0 && (
+          <div className="border-2 border-dashed border-slate-300 rounded-lg p-6">
+            <h2 className="text-xl font-semibold text-slate-700 mb-4">Unclassified Awards</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {unclassifiedAwards.map(award => {
+                const awardSublevels = getAwardSublevels(award.id, 'organisation');
+                const getOrganisationAssignmentCount = (awardId) => {
+                  return organisationAssignments.filter(a => a.organisation_award_id === awardId).length;
+                };
+                return (
+                  <Card key={award.id} className="border-slate-200 hover:shadow-md transition-shadow">
+                    <CardHeader className="pb-3">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <CardTitle className="text-base">{award.name}</CardTitle>
+                          {award.description && (
+                            <p className="text-xs text-slate-600 mt-1">{award.description}</p>
+                          )}
+                        </div>
+                        {award.image_url && (
+                          <img src={award.image_url} alt={award.name} className="w-12 h-12 object-contain ml-2" />
+                        )}
+                      </div>
+                    </CardHeader>
+                    <CardContent className="space-y-2">
+                      {award.period_text && (
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-slate-600">Period:</span>
+                          <Badge variant="secondary">{award.period_text}</Badge>
+                        </div>
+                      )}
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-slate-600">Sublevels:</span>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleOpenSublevelDialog({ ...award, type: 'organisation' })}
+                          className="h-6 px-2"
+                        >
+                          <Badge variant="secondary">{awardSublevels.length}</Badge>
+                        </Button>
+                      </div>
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-slate-600">Assigned:</span>
+                        <button
+                          onClick={() => handleOpenViewAssignmentsDialog({ ...award, type: 'organisation' })}
+                          className="hover:opacity-80 transition-opacity"
+                        >
+                          <Badge variant="secondary" className="cursor-pointer">
+                            <Building2 className="w-3 h-3 mr-1" />
+                            {getOrganisationAssignmentCount(award.id)}
+                          </Badge>
+                        </button>
+                      </div>
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-slate-600">Status:</span>
+                        <Badge variant={award.is_active ? "default" : "secondary"}>
+                          {award.is_active ? 'Active' : 'Inactive'}
+                        </Badge>
+                      </div>
+                      <div className="flex gap-2 pt-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="flex-1"
+                          onClick={() => handleOpenAssignDialog({ ...award, type: 'organisation' })}
+                        >
+                          <Building2 className="w-3 h-3 mr-1" />
+                          Assign
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleOpenDialog(award, 'organisation')}
+                        >
+                          <Pencil className="w-3 h-3" />
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setDeletingAward({ ...award, type: 'organisation' });
+                            setDeleteDialogOpen(true);
+                          }}
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const isLoading = onlineLoading || offlineLoading || engagementLoading || organisationLoading;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
@@ -1732,6 +2206,7 @@ export default function AwardManagementPage() {
               <TabsTrigger value="online">Online Awards</TabsTrigger>
               <TabsTrigger value="offline">Offline Awards</TabsTrigger>
               <TabsTrigger value="engagement">Engagement</TabsTrigger>
+              <TabsTrigger value="organisation">Organisation Awards</TabsTrigger>
             </TabsList>
             <div className="flex gap-2">
               <Button
@@ -1747,7 +2222,7 @@ export default function AwardManagementPage() {
                 className="bg-blue-600 hover:bg-blue-700"
               >
                 <Plus className="w-4 h-4 mr-2" />
-                Add {activeTab === 'online' ? 'Online' : activeTab === 'offline' ? 'Offline' : 'Engagement'} Award
+                Add {activeTab === 'online' ? 'Online' : activeTab === 'offline' ? 'Offline' : activeTab === 'engagement' ? 'Engagement' : 'Organisation'} Award
               </Button>
             </div>
           </div>
@@ -1817,6 +2292,28 @@ export default function AwardManagementPage() {
               renderEngagementAwards()
             )}
           </TabsContent>
+
+          <TabsContent value="organisation">
+            {isLoading ? (
+              <div className="flex justify-center py-12">
+                <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+              </div>
+            ) : organisationAwards.length === 0 && classifications.filter(c => c.award_category === 'organisation' && c.is_active).length === 0 ? (
+              <Card className="border-slate-200">
+                <CardContent className="p-12 text-center">
+                  <Trophy className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+                  <h3 className="text-xl font-semibold text-slate-900 mb-2">No organisation awards yet</h3>
+                  <p className="text-slate-600 mb-6">Create your first organisation award to get started</p>
+                  <Button onClick={() => handleOpenDialog(null, 'organisation')} className="bg-blue-600 hover:bg-blue-700">
+                    <Plus className="w-4 h-4 mr-2" />
+                    Add Organisation Award
+                  </Button>
+                </CardContent>
+              </Card>
+            ) : (
+              renderOrganisationAwards()
+            )}
+          </TabsContent>
         </Tabs>
 
         {/* Award Dialog */}
@@ -1826,7 +2323,8 @@ export default function AwardManagementPage() {
               <DialogTitle>
                 {editingAward ? 'Edit' : 'Create'} {
                   editingAward?.type === 'offline' || (!editingAward && activeTab === 'offline') ? 'Offline' : 
-                  editingAward?.type === 'engagement' || (!editingAward && activeTab === 'engagement') ? 'Engagement' : 'Online'
+                  editingAward?.type === 'engagement' || (!editingAward && activeTab === 'engagement') ? 'Engagement' :
+                  editingAward?.type === 'organisation' || (!editingAward && activeTab === 'organisation') ? 'Organisation' : 'Online'
                 } Award
               </DialogTitle>
               <DialogDescription>
@@ -1834,6 +2332,8 @@ export default function AwardManagementPage() {
                   ? 'Create manually assigned awards for specific periods or achievements'
                   : editingAward?.type === 'engagement' || (!editingAward && activeTab === 'engagement')
                   ? 'Create engagement awards for recognizing member participation and involvement'
+                  : editingAward?.type === 'organisation' || (!editingAward && activeTab === 'organisation')
+                  ? 'Create organisation awards for recognizing organisation achievements'
                   : 'Awards are automatically earned when members reach the specified threshold'}
               </DialogDescription>
             </DialogHeader>
@@ -1939,6 +2439,111 @@ export default function AwardManagementPage() {
                     id="is_active"
                     checked={engagementFormData.is_active}
                     onCheckedChange={(checked) => setEngagementFormData({ ...engagementFormData, is_active: checked })}
+                  />
+                  <Label htmlFor="is_active">Active</Label>
+                </div>
+              </div>
+            ) : editingAward?.type === 'organisation' || (!editingAward && activeTab === 'organisation') ? (
+              // Organisation Award Form (same structure as offline)
+              <div className="space-y-4 py-4">
+                <div className="space-y-2">
+                  <Label htmlFor="name">Award Name *</Label>
+                  <Input
+                    id="name"
+                    value={organisationFormData.name}
+                    onChange={(e) => setOrganisationFormData({ ...organisationFormData, name: e.target.value })}
+                    placeholder="e.g., Organisation Excellence Award"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="description">Description</Label>
+                  <Textarea
+                    id="description"
+                    value={organisationFormData.description}
+                    onChange={(e) => setOrganisationFormData({ ...organisationFormData, description: e.target.value })}
+                    placeholder="What does this award represent?"
+                    rows={3}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="classification">Classification</Label>
+                  <Select
+                    value={organisationFormData.classification_id}
+                    onValueChange={(value) => setOrganisationFormData({ ...organisationFormData, classification_id: value })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select classification (optional)" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={null}>No Classification</SelectItem>
+                      {classifications.filter(c => c.award_category === 'organisation').map(c => (
+                        <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="period_text">Period / Achievement</Label>
+                  <Input
+                    id="period_text"
+                    value={organisationFormData.period_text}
+                    onChange={(e) => setOrganisationFormData({ ...organisationFormData, period_text: e.target.value })}
+                    placeholder="e.g., 2024, Annual, etc."
+                  />
+                  <p className="text-xs text-slate-500">Free text for the period or achievement</p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="level">Level *</Label>
+                  <Input
+                    id="level"
+                    type="number"
+                    value={organisationFormData.level}
+                    onChange={(e) => setOrganisationFormData({ ...organisationFormData, level: e.target.value })}
+                    placeholder="e.g., 1"
+                  />
+                  <p className="text-xs text-slate-500">Used for ordering awards (1 = first, 2 = second, etc.)</p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="image">Award Image</Label>
+                  <div className="flex items-center gap-4">
+                    {organisationFormData.image_url && (
+                      <img src={organisationFormData.image_url} alt="Award" className="w-16 h-16 object-contain border border-slate-200 rounded" />
+                    )}
+                    <div>
+                      <input
+                        type="file"
+                        id="organisation-image-upload"
+                        accept="image/*"
+                        onChange={(e) => handleImageUpload(e, 'organisation')}
+                        className="hidden"
+                      />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => document.getElementById('organisation-image-upload')?.click()}
+                        disabled={isUploadingImage}
+                      >
+                        {isUploadingImage ? (
+                          <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                        ) : (
+                          <Upload className="w-4 h-4 mr-2" />
+                        )}
+                        Upload Image
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Switch
+                    id="is_active"
+                    checked={organisationFormData.is_active}
+                    onCheckedChange={(checked) => setOrganisationFormData({ ...organisationFormData, is_active: checked })}
                   />
                   <Label htmlFor="is_active">Active</Label>
                 </div>
@@ -2205,93 +2810,123 @@ export default function AwardManagementPage() {
             <DialogHeader>
               <DialogTitle>Assign Award: {assigningAward?.name}</DialogTitle>
               <DialogDescription>
-                Select a member to receive this award
+                {assigningAward?.type === 'organisation' 
+                  ? 'Select an organisation to receive this award'
+                  : 'Select a member to receive this award'}
               </DialogDescription>
             </DialogHeader>
 
             <div className="space-y-4 py-4 flex-1 overflow-hidden flex flex-col">
-              {/* Step 1: Select Organization */}
-              <div className="space-y-2">
-                <Label htmlFor="organization-select">Step 1: Select Organisation *</Label>
-                <Select 
-                  value={selectedOrganizationId} 
-                  onValueChange={(val) => {
-                    setSelectedOrganizationId(val);
-                    setSelectedMemberId("");
-                    setMemberSearchQuery("");
-                  }}
-                >
-                  <SelectTrigger data-testid="select-organization">
-                    <SelectValue placeholder={organizationsLoading ? "Loading organisations..." : "Select an organisation..."} />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-[300px]">
-                    <SelectItem value="__no_org__">Members without organisation</SelectItem>
-                    {organizations.map(org => (
-                      <SelectItem key={org.id} value={org.id}>
-                        {org.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Step 2: Select Member (only shown after organization is selected) */}
-              {selectedOrganizationId && (
+              {assigningAward?.type === 'organisation' ? (
                 <>
+                  {/* Organisation Award: Select Organization Only */}
                   <div className="space-y-2">
-                    <Label htmlFor="member-search">Step 2: Search Members</Label>
-                    <Input
-                      id="member-search"
-                      value={memberSearchQuery}
-                      onChange={(e) => setMemberSearchQuery(e.target.value)}
-                      placeholder="Search by name or email..."
-                      data-testid="input-member-search"
-                    />
+                    <Label htmlFor="organization-select">Select Organisation *</Label>
+                    <Select 
+                      value={selectedOrganizationId} 
+                      onValueChange={(val) => {
+                        setSelectedOrganizationId(val);
+                      }}
+                    >
+                      <SelectTrigger data-testid="select-organization">
+                        <SelectValue placeholder={organizationsLoading ? "Loading organisations..." : "Select an organisation..."} />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-[300px]">
+                        {organizations.map(org => (
+                          <SelectItem key={org.id} value={org.id}>
+                            {org.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </>
+              ) : (
+                <>
+                  {/* Member Award: Select Organization then Member */}
+                  <div className="space-y-2">
+                    <Label htmlFor="organization-select">Step 1: Select Organisation *</Label>
+                    <Select 
+                      value={selectedOrganizationId} 
+                      onValueChange={(val) => {
+                        setSelectedOrganizationId(val);
+                        setSelectedMemberId("");
+                        setMemberSearchQuery("");
+                      }}
+                    >
+                      <SelectTrigger data-testid="select-organization">
+                        <SelectValue placeholder={organizationsLoading ? "Loading organisations..." : "Select an organisation..."} />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-[300px]">
+                        <SelectItem value="__no_org__">Members without organisation</SelectItem>
+                        {organizations.map(org => (
+                          <SelectItem key={org.id} value={org.id}>
+                            {org.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
 
-                  <div className="space-y-2 flex-1 overflow-hidden flex flex-col">
-                    <Label>Select Member * {membersLoading && <span className="text-slate-500">(Loading...)</span>}</Label>
-                    <div className="border border-slate-200 rounded-lg overflow-y-auto flex-1">
-                      {membersLoading ? (
-                        <div className="p-8 text-center text-slate-500">
-                          Loading members...
-                        </div>
-                      ) : filteredMembers.length === 0 ? (
-                        <div className="p-8 text-center text-slate-500">
-                          {memberSearchQuery ? 'No members match your search' : 'No members found in this organisation'}
-                        </div>
-                      ) : (
-                        <div className="divide-y divide-slate-200">
-                          {filteredMembers.map(member => (
-                            <button
-                              key={member.id}
-                              onClick={() => setSelectedMemberId(member.id)}
-                              className={`w-full p-3 text-left hover:bg-slate-50 transition-colors ${
-                                selectedMemberId === member.id ? 'bg-blue-50 hover:bg-blue-100' : ''
-                              }`}
-                              data-testid={`button-select-member-${member.id}`}
-                            >
-                              <div className="flex items-center justify-between">
-                                <div>
-                                  <div className="font-medium text-slate-900">
-                                    {member.first_name} {member.last_name}
+                  {/* Step 2: Select Member (only shown after organization is selected) */}
+                  {selectedOrganizationId && (
+                    <>
+                      <div className="space-y-2">
+                        <Label htmlFor="member-search">Step 2: Search Members</Label>
+                        <Input
+                          id="member-search"
+                          value={memberSearchQuery}
+                          onChange={(e) => setMemberSearchQuery(e.target.value)}
+                          placeholder="Search by name or email..."
+                          data-testid="input-member-search"
+                        />
+                      </div>
+
+                      <div className="space-y-2 flex-1 overflow-hidden flex flex-col">
+                        <Label>Select Member * {membersLoading && <span className="text-slate-500">(Loading...)</span>}</Label>
+                        <div className="border border-slate-200 rounded-lg overflow-y-auto flex-1">
+                          {membersLoading ? (
+                            <div className="p-8 text-center text-slate-500">
+                              Loading members...
+                            </div>
+                          ) : filteredMembers.length === 0 ? (
+                            <div className="p-8 text-center text-slate-500">
+                              {memberSearchQuery ? 'No members match your search' : 'No members found in this organisation'}
+                            </div>
+                          ) : (
+                            <div className="divide-y divide-slate-200">
+                              {filteredMembers.map(member => (
+                                <button
+                                  key={member.id}
+                                  onClick={() => setSelectedMemberId(member.id)}
+                                  className={`w-full p-3 text-left hover:bg-slate-50 transition-colors ${
+                                    selectedMemberId === member.id ? 'bg-blue-50 hover:bg-blue-100' : ''
+                                  }`}
+                                  data-testid={`button-select-member-${member.id}`}
+                                >
+                                  <div className="flex items-center justify-between">
+                                    <div>
+                                      <div className="font-medium text-slate-900">
+                                        {member.first_name} {member.last_name}
+                                      </div>
+                                      <div className="text-sm text-slate-600">{member.email}</div>
+                                    </div>
+                                    {selectedMemberId === member.id && (
+                                      <div className="w-5 h-5 rounded-full bg-blue-600 flex items-center justify-center flex-shrink-0">
+                                        <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                        </svg>
+                                      </div>
+                                    )}
                                   </div>
-                                  <div className="text-sm text-slate-600">{member.email}</div>
-                                </div>
-                                {selectedMemberId === member.id && (
-                                  <div className="w-5 h-5 rounded-full bg-blue-600 flex items-center justify-center flex-shrink-0">
-                                    <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                    </svg>
-                                  </div>
-                                )}
-                              </div>
-                            </button>
-                          ))}
+                                </button>
+                              ))}
+                            </div>
+                          )}
                         </div>
-                      )}
-                    </div>
-                  </div>
+                      </div>
+                    </>
+                  )}
                 </>
               )}
 
@@ -2331,7 +2966,9 @@ export default function AwardManagementPage() {
               <Button
                 onClick={handleAssignAward}
                 className="bg-blue-600 hover:bg-blue-700"
-                disabled={!selectedMemberId}
+                disabled={assigningAward?.type === 'organisation' 
+                  ? (!selectedOrganizationId || selectedOrganizationId === "__no_org__")
+                  : !selectedMemberId}
               >
                 Assign Award
               </Button>
@@ -2343,33 +2980,96 @@ export default function AwardManagementPage() {
         <Dialog open={viewAssignmentsDialogOpen} onOpenChange={setViewAssignmentsDialogOpen}>
           <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
             <DialogHeader>
-              <DialogTitle>Assigned Members: {viewingAward?.name}</DialogTitle>
+              <DialogTitle>
+                {viewingAward?.type === 'organisation' 
+                  ? `Assigned Organisations: ${viewingAward?.name}`
+                  : `Assigned Members: ${viewingAward?.name}`}
+              </DialogTitle>
               <DialogDescription>
-                View and manage members who have received this award
+                {viewingAward?.type === 'organisation'
+                  ? 'View and manage organisations that have received this award'
+                  : 'View and manage members who have received this award'}
               </DialogDescription>
             </DialogHeader>
 
             <div className="space-y-4 py-4 flex-1 overflow-hidden flex flex-col">
               <div className="space-y-2">
-                <Label htmlFor="assigned-search">Search Assigned Members</Label>
+                <Label htmlFor="assigned-search">
+                  {viewingAward?.type === 'organisation' ? 'Search Assigned Organisations' : 'Search Assigned Members'}
+                </Label>
                 <Input
                   id="assigned-search"
                   value={assignedMembersSearchQuery}
                   onChange={(e) => setAssignedMembersSearchQuery(e.target.value)}
-                  placeholder="Search by name or email..."
+                  placeholder={viewingAward?.type === 'organisation' ? "Search by organisation name..." : "Search by name or email..."}
                 />
               </div>
 
               <div className="space-y-2 flex-1 overflow-hidden flex flex-col">
-                <Label>Assigned Members {allMembersLoading ? '(Loading...)' : `(${filteredAssignedMembers.length})`}</Label>
+                <Label>
+                  {viewingAward?.type === 'organisation' 
+                    ? `Assigned Organisations ${allOrganizationsLoading ? '(Loading...)' : `(${filteredAssignedMembers.length})`}`
+                    : `Assigned Members ${allMembersLoading ? '(Loading...)' : `(${filteredAssignedMembers.length})`}`}
+                </Label>
                 <div className="border border-slate-200 rounded-lg overflow-y-auto flex-1">
-                  {allMembersLoading ? (
+                  {(viewingAward?.type === 'organisation' ? allOrganizationsLoading : allMembersLoading) ? (
                     <div className="p-8 text-center text-slate-500">
-                      Loading assigned members...
+                      {viewingAward?.type === 'organisation' ? 'Loading assigned organisations...' : 'Loading assigned members...'}
                     </div>
                   ) : filteredAssignedMembers.length === 0 ? (
                     <div className="p-8 text-center text-slate-500">
-                      {assignedMembersSearchQuery ? 'No matching members found' : 'No members assigned to this award yet'}
+                      {assignedMembersSearchQuery 
+                        ? (viewingAward?.type === 'organisation' ? 'No matching organisations found' : 'No matching members found')
+                        : (viewingAward?.type === 'organisation' ? 'No organisations assigned to this award yet' : 'No members assigned to this award yet')}
+                    </div>
+                  ) : viewingAward?.type === 'organisation' ? (
+                    <div className="divide-y divide-slate-200">
+                      {filteredAssignedMembers.map(({ id, organization, notes, assigned_date, assigned_by, sublevel_id }) => {
+                        const sublevel = sublevel_id ? sublevels.find(s => s.id === sublevel_id) : null;
+                        
+                        return (
+                          <div key={id} className="p-3 hover:bg-slate-50">
+                            <div className="flex items-start justify-between">
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2">
+                                  <Building2 className="w-4 h-4 text-slate-400" />
+                                  <div className="font-medium text-slate-900">
+                                    {organization?.name}
+                                  </div>
+                                  {sublevel && (
+                                    <Badge variant="secondary" className="flex items-center gap-1">
+                                      {sublevel.image_url && (
+                                        <img src={sublevel.image_url} alt={sublevel.name} className="w-3 h-3" />
+                                      )}
+                                      {sublevel.name}
+                                    </Badge>
+                                  )}
+                                </div>
+                                {notes && (
+                                  <div className="text-xs text-slate-500 mt-1 italic">
+                                    Note: {notes}
+                                  </div>
+                                )}
+                                <div className="text-xs text-slate-400 mt-1">
+                                  {assigned_date ? `Assigned ${new Date(assigned_date).toLocaleDateString()}` : 'Assigned'}
+                                  {assigned_by && ` by ${assigned_by}`}
+                                </div>
+                              </div>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => {
+                                  setRemovingAssignment({ id, organization, type: 'organisation' });
+                                  setRemoveAssignmentDialogOpen(true);
+                                }}
+                                className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                              >
+                                <UserMinus className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   ) : (
                     <div className="divide-y divide-slate-200">
@@ -2420,18 +3120,18 @@ export default function AwardManagementPage() {
                         );
                       })}
                     </div>
-                    )}
-                    </div>
-                    </div>
-                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
 
-                    <DialogFooter>
-                    <Button variant="outline" onClick={handleCloseViewAssignmentsDialog}>
-                    Close
-                    </Button>
-                    </DialogFooter>
-                    </DialogContent>
-                    </Dialog>
+            <DialogFooter>
+              <Button variant="outline" onClick={handleCloseViewAssignmentsDialog}>
+                Close
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         {/* Remove Assignment Confirmation Dialog */}
         <AlertDialog open={removeAssignmentDialogOpen} onOpenChange={setRemoveAssignmentDialogOpen}>
@@ -2439,9 +3139,19 @@ export default function AwardManagementPage() {
             <AlertDialogHeader>
               <AlertDialogTitle>Remove Award Assignment?</AlertDialogTitle>
               <AlertDialogDescription>
-                Are you sure you want to remove this award from{' '}
-                <strong>{removingAssignment?.member?.first_name} {removingAssignment?.member?.last_name}</strong>?
-                This action cannot be undone.
+                {removingAssignment?.type === 'organisation' ? (
+                  <>
+                    Are you sure you want to remove this award from{' '}
+                    <strong>{removingAssignment?.organization?.name}</strong>?
+                    This action cannot be undone.
+                  </>
+                ) : (
+                  <>
+                    Are you sure you want to remove this award from{' '}
+                    <strong>{removingAssignment?.member?.first_name} {removingAssignment?.member?.last_name}</strong>?
+                    This action cannot be undone.
+                  </>
+                )}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
@@ -2520,6 +3230,7 @@ export default function AwardManagementPage() {
                     <SelectItem value="online">Online Awards</SelectItem>
                     <SelectItem value="offline">Offline Awards</SelectItem>
                     <SelectItem value="engagement">Engagement Awards</SelectItem>
+                    <SelectItem value="organisation">Organisation Awards</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
