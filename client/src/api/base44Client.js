@@ -214,6 +214,8 @@ class EntitiesProxy {
   get OfflineAwardAssignment() { return this._getEntity('OfflineAwardAssignment'); }
   get EngagementAward() { return this._getEntity('EngagementAward'); }
   get EngagementAwardAssignment() { return this._getEntity('EngagementAwardAssignment'); }
+  get OrganisationAward() { return this._getEntity('OrganisationAward'); }
+  get OrganisationAwardAssignment() { return this._getEntity('OrganisationAwardAssignment'); }
   get WallOfFameSection() { return this._getEntity('WallOfFameSection'); }
   get WallOfFameCategory() { return this._getEntity('WallOfFameCategory'); }
   get WallOfFamePerson() { return this._getEntity('WallOfFamePerson'); }
