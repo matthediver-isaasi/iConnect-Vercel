@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Users, Calendar, AlertTriangle, Clock, Search, FileText } from "lucide-react";
+import { Users, Calendar, AlertTriangle, Clock, Search, FileText, Loader2 } from "lucide-react";
 import { format, addDays, isBefore, isAfter } from "date-fns";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
@@ -165,12 +165,17 @@ export default function MemberGroupAssignmentReportPage() {
     }
   };
 
-  const isLoading = loadingGroups || loadingMembers || loadingAssignments;
+  const isLoading = !accessChecked || loadingGroups || loadingMembers || loadingAssignments || loadingGuests;
 
-  if (!accessChecked) {
+  if (isLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
-        <div className="animate-pulse text-slate-600">Loading...</div>
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-8 flex items-center justify-center">
+        <Card className="max-w-md">
+          <CardContent className="p-12 text-center">
+            <Loader2 className="w-8 h-8 animate-spin text-blue-600 mx-auto mb-4" />
+            <p className="text-slate-600">Loading assignment report...</p>
+          </CardContent>
+        </Card>
       </div>
     );
   }
