@@ -15,8 +15,9 @@ import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { 
   Plus, Pencil, Trash2, ChevronDown, ChevronRight, GripVertical,
   FolderTree, Save, RotateCcw, RefreshCw, AlertTriangle,
-  Layers, Sparkles, Check, ChevronsUpDown, Info
+  Layers, Sparkles, Check, ChevronsUpDown, Info, Globe
 } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
 import { ROLE_ACCESS_MAP } from '@/lib/roleAccessMap';
 
 const ICON_OPTIONS = [
@@ -211,6 +212,24 @@ export default function RoleAccessConfigManagement() {
     }
   });
 
+  const togglePublicMutation = useMutation({
+    mutationFn: async ({ id, is_public }) => {
+      return base44.entities.RoleAccessItem.update(id, { is_public });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['role-access-items'] });
+    },
+    onError: (error) => {
+      toast.error('Failed to update public visibility: ' + error.message);
+    }
+  });
+
+  const handleTogglePublic = (item, e) => {
+    e.stopPropagation();
+    const newValue = !item.is_public;
+    togglePublicMutation.mutate({ id: item.id, is_public: newValue });
+  };
+
   const seedMutation = useMutation({
     mutationFn: async (items) => {
       for (const item of items) {
@@ -269,7 +288,8 @@ export default function RoleAccessConfigManagement() {
       icon: type === 'module' ? 'Settings' : null,
       parent_id: parentId || null,
       display_order: maxOrder + 1,
-      is_active: true
+      is_active: true,
+      is_public: false
     });
     setShowDialog(true);
   };
@@ -313,7 +333,8 @@ export default function RoleAccessConfigManagement() {
       icon: editingItem.icon || null,
       parent_id: editingItem.parent_id || null,
       display_order: editingItem.display_order || 0,
-      is_active: editingItem.is_active !== false
+      is_active: editingItem.is_active !== false,
+      is_public: editingItem.is_public || false
     };
 
     if (editingItem.id) {
@@ -618,6 +639,7 @@ export default function RoleAccessConfigManagement() {
   parent_id UUID REFERENCES role_access_item(id) ON DELETE CASCADE,
   display_order INTEGER DEFAULT 0,
   is_active BOOLEAN DEFAULT true,
+  is_public BOOLEAN DEFAULT false,
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now(),
   UNIQUE(item_key)
@@ -798,7 +820,18 @@ CREATE POLICY "Allow full access" ON role_access_item FOR ALL USING (true);`}
                                             </Badge>
                                             <span className="font-medium flex-1">{page.label}</span>
                                             <span className="text-xs text-muted-foreground font-mono">{page.item_key}</span>
-                                            <div className="flex gap-1" onClick={e => e.stopPropagation()}>
+                                            <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
+                                              <div 
+                                                className="flex items-center gap-1.5 px-2 py-1 rounded-md hover-elevate cursor-pointer"
+                                                onClick={(e) => handleTogglePublic(page, e)}
+                                                title={page.is_public ? "Visible to public (click to make private)" : "Private - login required (click to make public)"}
+                                                data-testid={`toggle-public-${page.item_key}`}
+                                              >
+                                                <Globe className={`h-3.5 w-3.5 ${page.is_public ? 'text-green-600 dark:text-green-400' : 'text-muted-foreground'}`} />
+                                                <span className={`text-xs ${page.is_public ? 'text-green-600 dark:text-green-400 font-medium' : 'text-muted-foreground'}`}>
+                                                  {page.is_public ? 'Public' : 'Private'}
+                                                </span>
+                                              </div>
                                               <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => handleEdit(page)}>
                                                 <Pencil className="h-3 w-3" />
                                               </Button>
@@ -845,7 +878,18 @@ CREATE POLICY "Allow full access" ON role_access_item FOR ALL USING (true);`}
                                                             </Badge>
                                                             <span className="text-sm flex-1">{feature.label}</span>
                                                             <span className="text-xs text-muted-foreground font-mono">{feature.item_key}</span>
-                                                            <div className="flex gap-1">
+                                                            <div className="flex items-center gap-2">
+                                                              <div 
+                                                                className="flex items-center gap-1 px-1.5 py-0.5 rounded hover-elevate cursor-pointer"
+                                                                onClick={(e) => handleTogglePublic(feature, e)}
+                                                                title={feature.is_public ? "Visible to public (click to make private)" : "Private - login required (click to make public)"}
+                                                                data-testid={`toggle-public-${feature.item_key}`}
+                                                              >
+                                                                <Globe className={`h-3 w-3 ${feature.is_public ? 'text-green-600 dark:text-green-400' : 'text-muted-foreground'}`} />
+                                                                <span className={`text-xs ${feature.is_public ? 'text-green-600 dark:text-green-400' : 'text-muted-foreground'}`}>
+                                                                  {feature.is_public ? 'Public' : 'Private'}
+                                                                </span>
+                                                              </div>
                                                               <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => handleEdit(feature)}>
                                                                 <Pencil className="h-3 w-3" />
                                                               </Button>
@@ -1005,6 +1049,28 @@ CREATE POLICY "Allow full access" ON role_access_item FOR ALL USING (true);`}
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+            )}
+
+            {(editingItem?.item_type === 'page' || editingItem?.item_type === 'feature') && (
+              <div className="flex items-center justify-between p-3 rounded-md border bg-muted/30">
+                <div className="flex items-center gap-2">
+                  <Globe className={`h-4 w-4 ${editingItem?.is_public ? 'text-green-600' : 'text-muted-foreground'}`} />
+                  <div>
+                    <Label htmlFor="is_public" className="cursor-pointer">Publicly Visible</Label>
+                    <p className="text-xs text-muted-foreground">
+                      {editingItem?.is_public 
+                        ? "This item is visible to visitors without login" 
+                        : "This item requires login to access"}
+                    </p>
+                  </div>
+                </div>
+                <Switch
+                  id="is_public"
+                  checked={editingItem?.is_public || false}
+                  onCheckedChange={(checked) => setEditingItem({ ...editingItem, is_public: checked })}
+                  data-testid="switch-is-public"
+                />
               </div>
             )}
           </div>
