@@ -625,7 +625,7 @@ export default function TeamPage({ hasBanner }) {
                                 </div>
                               ) : null;
                             case 'login_toggle':
-                              return showLoginToggle && isAdmin && !isFeatureExcluded('element_TeamLoginAccessToggle') ? (
+                              return showLoginToggle && !isFeatureExcluded('element_TeamLoginAccessToggle') ? (
                                 <div key="login_toggle" className="flex items-center justify-between pt-2 pb-2 border-y border-slate-200">
                                   <span className="text-sm font-medium text-slate-700">Login Access</span>
                                   <div className="flex items-center gap-2">
