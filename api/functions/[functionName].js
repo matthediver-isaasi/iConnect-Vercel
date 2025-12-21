@@ -4207,21 +4207,113 @@ const functionHandlers = {
     return { success: true, updated: resources.length };
   },
 
-  async handleJobPostingPaymentWebhook(params) {
+  async handleJobPostingPaymentWebhook(params, req) {
     if (!supabase) throw new Error('Supabase not configured');
     
-    const { paymentIntentId, status } = params;
+    const { paymentIntentId, jobPostingId, status } = params;
 
-    if (!paymentIntentId) {
-      return { success: false, error: 'Missing payment intent ID' };
+    // Can be called with either paymentIntentId (legacy) or jobPostingId (from payment_intent.succeeded metadata)
+    if (!paymentIntentId && !jobPostingId) {
+      return { success: false, error: 'Missing payment intent ID or job posting ID' };
     }
 
     if (status === 'succeeded') {
-      const { data: jobPostings } = await supabase.from('job_posting').select('*').eq('stripe_payment_intent_id', paymentIntentId);
+      let jobPosting = null;
+      
+      // First try to find by job_posting_id (preferred, from payment intent metadata)
+      if (jobPostingId) {
+        const { data } = await supabase.from('job_posting').select('*').eq('id', jobPostingId).single();
+        jobPosting = data;
+      }
+      
+      // Fallback to finding by stripe_payment_intent_id (legacy)
+      if (!jobPosting && paymentIntentId) {
+        const { data: jobPostings } = await supabase.from('job_posting').select('*').eq('stripe_payment_intent_id', paymentIntentId);
+        jobPosting = jobPostings?.[0];
+      }
 
-      if (jobPostings && jobPostings.length > 0) {
-        await supabase.from('job_posting').update({ payment_status: 'paid', status: 'active' }).eq('id', jobPostings[0].id);
-        return { success: true, job_posting_id: jobPostings[0].id };
+      if (jobPosting) {
+        // Update job posting status to pending_approval (not active - needs admin review)
+        await supabase.from('job_posting').update({ 
+          payment_status: 'paid', 
+          status: 'pending_approval',
+          stripe_payment_intent_id: paymentIntentId || jobPosting.stripe_payment_intent_id
+        }).eq('id', jobPosting.id);
+        
+        // Send email notifications
+        const mailgunApiKey = process.env.MAILGUN_API_KEY;
+        const mailgunDomain = process.env.MAILGUN_DOMAIN;
+        const mailgunFromEmail = process.env.MAILGUN_FROM_EMAIL;
+        
+        if (mailgunApiKey && mailgunDomain) {
+          try {
+            const FormData = (await import('form-data')).default;
+            const Mailgun = (await import('mailgun.js')).default;
+            const mailgun = new Mailgun(FormData);
+            const mg = mailgun.client({
+              username: 'api',
+              key: mailgunApiKey
+            });
+            
+            // Send confirmation to poster
+            await mg.messages.create(mailgunDomain, {
+              from: mailgunFromEmail,
+              to: jobPosting.contact_email,
+              subject: 'Job Posting Payment Confirmed - Pending Approval',
+              html: `
+                <h2>Payment Confirmed!</h2>
+                <p>Dear ${jobPosting.contact_name},</p>
+                <p>Your payment of £${jobPosting.amount_paid} for the job posting <strong>${jobPosting.title}</strong> at <strong>${jobPosting.company_name}</strong> has been received successfully.</p>
+                <p>Your job posting is now pending approval from our team. You'll receive another email once it's approved and live on the job board.</p>
+                <p><strong>Job Details:</strong></p>
+                <ul>
+                  <li>Title: ${jobPosting.title}</li>
+                  <li>Company: ${jobPosting.company_name}</li>
+                  <li>Location: ${jobPosting.location}</li>
+                  <li>Type: ${jobPosting.job_type}</li>
+                </ul>
+                <p>Best regards,<br>AGCAS Team</p>
+              `
+            });
+            
+            // Notify admins
+            const { data: adminRoles } = await supabase
+              .from('role')
+              .select('*')
+              .eq('is_admin', true);
+            
+            if (adminRoles && adminRoles.length > 0) {
+              const adminRoleIds = adminRoles.map(r => r.id);
+              const { data: adminMembers } = await supabase.from('member').select('*');
+              const admins = adminMembers?.filter(m => adminRoleIds.includes(m.role_id)) || [];
+              
+              for (const admin of admins) {
+                await mg.messages.create(mailgunDomain, {
+                  from: mailgunFromEmail,
+                  to: admin.email,
+                  subject: 'New Paid Job Posting Awaiting Approval',
+                  html: `
+                    <h2>New Paid Job Posting Submitted</h2>
+                    <p>A non-member has paid and submitted a new job posting that requires approval:</p>
+                    <p><strong>Job Details:</strong></p>
+                    <ul>
+                      <li>Title: ${jobPosting.title}</li>
+                      <li>Company: ${jobPosting.company_name}</li>
+                      <li>Location: ${jobPosting.location}</li>
+                      <li>Posted by: ${jobPosting.contact_name} (${jobPosting.contact_email})</li>
+                      <li>Amount Paid: £${jobPosting.amount_paid}</li>
+                    </ul>
+                    <p>Please log in to the admin portal to review and approve this posting.</p>
+                  `
+                });
+              }
+            }
+          } catch (emailError) {
+            console.error('[handleJobPostingPaymentWebhook] Email error:', emailError);
+          }
+        }
+        
+        return { success: true, job_posting_id: jobPosting.id };
       }
     }
 
