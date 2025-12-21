@@ -709,7 +709,7 @@ useEffect(() => {
   // "HomePageRedirect" handles the root path "/" and can show either a public IEdit page or Events
   const hybridPages = ["PostJob", "ArticleView", "NewsView", "icontent", "ViewPage", "OrganisationDirectory", "JobBoard", "JobDetails", "JobPostSuccess", "_DynamicPage", "HomePageRedirect", "Events", "EventDetails", "FormView"];
   
-  const adminPages = ["RoleManagement", "RoleAccessConfigManagement", "MemberRoleAssignment", "TeamMemberManagement", "DiscountCodeManagement", "EventSettings", "TicketSalesAnalytics", "ResourceSettings", "ResourceManagement", "TagManagement", "ResourceAuthorSettings", "TourManagement", "FileManagement", "JobPostingManagement", "JobBoardSettings", "IEditPageManagement", "IEditTemplateManagement", "PageBannerManagement", "NavigationManagement", "MemberHandleManagement", "ButtonElements", "ButtonStyleManagement", "AwardManagement", "WallOfFameManagement", "TeamInviteSettings", "FormManagement", "FormSubmissions", "FloaterManagement", "MemberDirectorySettings", "SupportManagement", "PageVisibilitySettings"];
+  const adminPages = ["AdminSetup", "RoleManagement", "RoleAccessConfigManagement", "MemberRoleAssignment", "TeamMemberManagement", "DiscountCodeManagement", "EventSettings", "TicketSalesAnalytics", "ResourceSettings", "ResourceManagement", "TagManagement", "ResourceAuthorSettings", "TourManagement", "FileManagement", "JobPostingManagement", "JobBoardSettings", "IEditPageManagement", "IEditTemplateManagement", "PageBannerManagement", "NavigationManagement", "MemberHandleManagement", "ButtonElements", "ButtonStyleManagement", "AwardManagement", "WallOfFameManagement", "TeamInviteSettings", "FormManagement", "FormSubmissions", "FloaterManagement", "MemberDirectorySettings", "SupportManagement", "PageVisibilitySettings"];
 
   // Pages that should use the bare layout (no new header/footer)
   const bareLayoutPages = ["Home", "TestLogin"];
@@ -754,10 +754,11 @@ useEffect(() => {
     'about-me': 'user.about-me',
     'Support': 'page_user_Support',
     // Admin navigation pages use page_admin_* pattern  
+    'AdminSetup': 'page_admin_AdminSetup',
     'NewsSettings': 'page_admin_NewsSettings',
     'ArticlesSettings': 'page_admin_ArticlesSettings',
     'RoleManagement': 'page_admin_RoleManagement',
-    'RoleAccessConfigManagement': 'page_RoleAccessConfigManagement',
+    'RoleAccessConfigManagement': 'page_admin_RoleAccessConfigManagement',
     'MemberRoleAssignment': 'page_admin_MemberRoleAssignment',
     'TeamMemberManagement': 'page_admin_TeamMemberManagement',
     'MemberHandleManagement': 'page_admin_MemberHandleManagement',

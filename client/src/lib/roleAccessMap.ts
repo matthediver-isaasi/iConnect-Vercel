@@ -477,6 +477,14 @@ export const ROLE_ACCESS_MAP: Module[] = [
     icon: "Settings",
     pages: [
       {
+        id: "system.admin-setup",
+        label: "Admin Setup"
+      },
+      {
+        id: "system.role-access-config",
+        label: "Role Access Configuration"
+      },
+      {
         id: "system.portal-navigation",
         label: "Portal Navigation"
       },
@@ -763,7 +771,11 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "membership.my-organisation": "organisation.my-organisation",
   "membership.organisation-preferences": "organisation.field-permissions",
   "page_CRMOrganisations": "crm.organisations",
-  "page_CRMMembers": "crm.members"
+  "page_CRMMembers": "crm.members",
+  "page_AdminSetup": "system.admin-setup",
+  "page_admin_AdminSetup": "system.admin-setup",
+  "page_RoleAccessConfigManagement": "system.role-access-config",
+  "page_admin_RoleAccessConfigManagement": "system.role-access-config"
 };
 
 export function migrateLegacyFeatureId(legacyId: string): string {
