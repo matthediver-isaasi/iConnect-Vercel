@@ -44,7 +44,11 @@ export default async function handler(req, res) {
     }
 
     for (const mapping of mappings) {
-      const sourcePattern = (mapping.source_pattern || '').replace(/\/+$/, '') || '/';
+      // Normalize source pattern: ensure leading slash, remove trailing slashes
+      let sourcePattern = (mapping.source_pattern || '').replace(/\/+$/, '') || '/';
+      if (sourcePattern !== '/' && !sourcePattern.startsWith('/')) {
+        sourcePattern = '/' + sourcePattern;
+      }
       const sourcePatternLower = sourcePattern.toLowerCase();
       
       if (mapping.match_type === 'exact') {
