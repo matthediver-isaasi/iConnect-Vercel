@@ -282,9 +282,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`[Entity POST] Creating ${entity} in table ${tableName}`);
       console.log(`[Entity POST] Payload:`, JSON.stringify(req.body, null, 2));
 
+      // Normalize email to lowercase for member, team_member, and magic_link entities
+      const payload = { ...req.body };
+      if ((entity === 'Member' || entity === 'TeamMember' || entity === 'MagicLink') && payload.email) {
+        payload.email = payload.email.toLowerCase();
+      }
+
       const { data, error } = await supabase
         .from(tableName)
-        .insert(req.body)
+        .insert(payload)
         .select()
         .single();
 
@@ -337,6 +343,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           .eq('id', id)
           .single();
         beforeData = existingData;
+      }
+
+      // Normalize email to lowercase for member, team_member, and magic_link entities
+      if ((entity === 'Member' || entity === 'TeamMember' || entity === 'MagicLink') && req.body.email) {
+        req.body.email = req.body.email.toLowerCase();
       }
 
       // Special validation for Event seat capacity changes
@@ -2205,7 +2216,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const orgIdForNewMember = createdOrganizationId || prefill_organization_id || null;
             
             const memberInsertData: any = {
-              email: memberData.email || `pending-${Date.now()}@example.com`,
+              email: (memberData.email || `pending-${Date.now()}@example.com`).toLowerCase(),
               first_name: memberData.first_name || '',
               last_name: memberData.last_name || '',
               organization_id: orgIdForNewMember,
@@ -4043,7 +4054,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { data: member, error: memberError } = await supabase
         .from('member')
         .select('role_id')
-        .eq('email', memberEmail)
+        .ilike('email', memberEmail)
         .single();
 
       if (memberError || !member) {
@@ -4399,7 +4410,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { data: localMembers } = await supabase
         .from('member')
         .select('*')
-        .eq('email', email)
+        .ilike('email', email)
         .limit(1);
 
       let member = localMembers && localMembers.length > 0 ? localMembers[0] : null;
@@ -4523,7 +4534,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 await supabase
                   .from('member')
                   .update({ 
-                    email: email,
+                    email: email.toLowerCase(),
                     first_name: contact.First_Name,
                     last_name: contact.Last_Name,
                     organization_id: crmOrganizationId,
@@ -4568,7 +4579,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 const defaultRole = allRoles?.find((r: any) => r.is_default === true);
 
                 const memberData: any = {
-                  email: email,
+                  email: email.toLowerCase(),
                   first_name: contact.First_Name,
                   last_name: contact.Last_Name,
                   zoho_contact_id: contact.id,
@@ -4931,10 +4942,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { data: existingMembers } = await supabase
         .from('member')
         .select('*')
-        .eq('email', email);
+        .ilike('email', email);
 
       const memberData = {
-        email: email,
+        email: email.toLowerCase(),
         first_name: contact.First_Name,
         last_name: contact.Last_Name,
         zoho_contact_id: contact.id,
@@ -5464,7 +5475,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }
 
             const memberData = {
-              email: contact.Email,
+              email: contact.Email.toLowerCase(),
               first_name: contact.First_Name || null,
               last_name: contact.Last_Name || null,
               zoho_contact_id: contact.id,
@@ -5497,7 +5508,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               const { data: existingByEmail } = await supabase
                 .from('member')
                 .select('id, organization_id')
-                .eq('email', contact.Email);
+                .ilike('email', contact.Email);
 
               if (existingByEmail && existingByEmail.length > 0) {
                 // Update existing member and set zoho_contact_id
@@ -5698,7 +5709,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
 
           const memberData = {
-            email: contact.Email,
+            email: contact.Email.toLowerCase(),
             first_name: contact.First_Name || null,
             last_name: contact.Last_Name || null,
             zoho_contact_id: contact.id,
@@ -5724,7 +5735,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const { data: existingByEmail } = await supabase
               .from('member')
               .select('id')
-              .eq('email', contact.Email);
+              .ilike('email', contact.Email);
 
             if (existingByEmail && existingByEmail.length > 0) {
               // Update existing member and set zoho_contact_id
@@ -6084,7 +6095,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { data: memberData, error: memberError } = await supabase
         .from('member')
         .select('*')
-        .eq('email', memberEmail)
+        .ilike('email', memberEmail)
         .single();
       
       if (memberError) {
@@ -6664,7 +6675,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const { data: memberData, error: memberError } = await supabase
           .from('member')
           .select('*')
-          .eq('email', memberEmail)
+          .ilike('email', memberEmail)
           .single();
         
         if (memberError) {
@@ -8010,12 +8021,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { data: teamMembers } = await supabase
         .from('team_member')
         .select('*')
-        .eq('email', email);
+        .ilike('email', email);
 
       const { data: members } = await supabase
         .from('member')
         .select('*')
-        .eq('email', email);
+        .ilike('email', email);
 
       const teamMember = teamMembers?.[0];
       const member = members?.[0];
@@ -8049,11 +8060,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await supabase
         .from('magic_link')
         .delete()
-        .eq('email', email);
+        .ilike('email', email);
 
       // Create new magic link
       await supabase.from('magic_link').insert({
-        email,
+        email: email.toLowerCase(),
         token,
         expires_at: expiresAt,
         used: false
