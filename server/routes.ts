@@ -1382,13 +1382,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
           .order('published_date', { ascending: false })
           .limit(resultLimit),
 
-        // Search Resources (active only)
+        // Search Resources (active and public only)
         supabase
           .from('resource')
-          .select('id, title, description, thumbnail_url, content_type')
+          .select('id, title, description, image_url, resource_type')
           .eq('status', 'active')
+          .eq('is_public', true)
           .or(`title.ilike.${searchPattern},description.ilike.${searchPattern}`)
-          .order('created_at', { ascending: false })
+          .order('release_date', { ascending: false })
           .limit(resultLimit),
 
         // Search CMS Pages (published only)
@@ -1465,8 +1466,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             id: resource.id,
             title: resource.title,
             description: resource.description?.substring(0, 150) || '',
-            image: resource.thumbnail_url,
-            url: `/resources/${resource.id}`
+            image: resource.image_url,
+            url: `/ResourceDetails?id=${resource.id}`
           });
         });
       }

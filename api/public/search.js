@@ -51,9 +51,10 @@ export default async function handler(req, res) {
       
       supabase
         .from('resource')
-        .select('id, title, description, thumbnail_url, content_type')
+        .select('id, title, description, image_url, resource_type')
         .or(`title.ilike.${searchPattern},description.ilike.${searchPattern}`)
         .eq('status', 'active')
+        .eq('is_public', true)
         .limit(limitNum),
       
       supabase
@@ -113,8 +114,8 @@ export default async function handler(req, res) {
           id: resource.id,
           title: resource.title,
           description: resource.description?.substring(0, 150) || '',
-          image: resource.thumbnail_url,
-          url: `/resources/${resource.id}`,
+          image: resource.image_url,
+          url: `/ResourceDetails?id=${resource.id}`,
           date: null
         });
       });
