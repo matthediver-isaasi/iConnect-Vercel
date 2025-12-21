@@ -7106,7 +7106,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Fetch booking with Xero invoice ID and verify ownership
       const { data: booking, error } = await supabase
         .from('booking')
-        .select('xero_invoice_id, xero_invoice_number, member_id')
+        .select('xero_invoice_id, xero_invoice_number, member_id, organization_id')
         .eq('booking_group_reference', bookingGroupRef)
         .not('xero_invoice_id', 'is', null)
         .limit(1)
@@ -7121,8 +7121,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: 'Invoice not found for this booking' });
       }
 
-      // Verify ownership - the logged-in member must be the one who made the booking
-      if (booking.member_id !== session.memberId) {
+      // Get logged-in member's organization to check authorization
+      const { data: member } = await supabase
+        .from('member')
+        .select('organization_id')
+        .eq('id', session.memberId)
+        .single();
+
+      // Verify authorization - member must be the one who made the booking OR from the same organization
+      const isSameMember = booking.member_id === session.memberId;
+      const isSameOrg = member?.organization_id && booking.organization_id && member.organization_id === booking.organization_id;
+      
+      if (!isSameMember && !isSameOrg) {
         return res.status(403).json({ error: 'Not authorized to view this invoice' });
       }
 
