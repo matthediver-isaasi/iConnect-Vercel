@@ -750,8 +750,8 @@ export default function PublicHeader() {
                 {/* Dynamic Main Nav Items */}
                 {navItems.mainNav?.map(item => renderNavItem(item, false))}
 
-                {/* Static Join Us Button */}
-                <Link to="/Membership">
+                {/* Static Events Button */}
+                <Link to="/events">
                   <Button 
                     className="text-white font-bold hover:opacity-90 transition-opacity px-6 py-5 rounded-none" 
                     style={{ 
@@ -759,7 +759,7 @@ export default function PublicHeader() {
                       background: 'linear-gradient(to top right, #5C0085, #BA0087, #EE00C3, #FF4229, #FFB000)'
                     }}
                   >
-                    Join Us
+                    Events
                     <ArrowUpRight className="ml-0.5 w-5 h-5" strokeWidth={2.5} />
                   </Button>
                 </Link>
@@ -830,9 +830,9 @@ export default function PublicHeader() {
             {/* Main Nav Items */}
             {navItems.mainNav?.map(item => renderMobileNavItem(item))}
             
-            {/* Join Us Button */}
+            {/* Events Button */}
             <Link 
-              to="/Membership"
+              to="/events"
               onClick={() => setMobileMenuOpen(false)}
             >
               <div 
@@ -841,7 +841,7 @@ export default function PublicHeader() {
                   background: 'linear-gradient(to top right, #5C0085, #BA0087, #EE00C3, #FF4229, #FFB000)'
                 }}
               >
-                Join Us
+                Events
                 <ArrowUpRight className="w-4 h-4" strokeWidth={2.5} />
               </div>
             </Link>
