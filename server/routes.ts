@@ -9938,19 +9938,20 @@ AGCAS Events Team
         return res.status(400).json({ error: 'Webhook signature verification failed' });
       }
 
-      // Handle checkout.session.completed event
-      if (event.type === 'checkout.session.completed') {
-        const session = event.data.object;
-        const jobPostingId = session.metadata?.job_posting_id;
+      // Handle payment_intent.succeeded event (for PaymentElement/Payment Intents API)
+      if (event.type === 'payment_intent.succeeded') {
+        const paymentIntent = event.data.object;
+        const jobPostingId = paymentIntent.metadata?.job_posting_id;
 
-        if (jobPostingId) {
+        // Only process if this is a job posting payment
+        if (jobPostingId && paymentIntent.metadata?.type === 'job_posting') {
           // Update job posting status
           await supabase
             .from('job_posting')
             .update({
               status: 'pending_approval',
               payment_status: 'paid',
-              stripe_payment_intent_id: session.payment_intent
+              stripe_payment_intent_id: paymentIntent.id
             })
             .eq('id', jobPostingId);
 
