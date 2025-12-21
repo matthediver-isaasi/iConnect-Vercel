@@ -1,0 +1,135 @@
+import { createClient } from '@supabase/supabase-js';
+
+export default async function handler(req, res) {
+  if (req.method !== 'GET') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
+
+  if (!supabaseUrl || !supabaseServiceKey) {
+    return res.status(503).json({ error: 'Supabase not configured' });
+  }
+
+  const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+  try {
+    const { q, limit = '20' } = req.query;
+    
+    if (!q || q.trim().length < 2) {
+      return res.json({ results: [], query: q || '', total: 0 });
+    }
+
+    const searchTerm = q.trim();
+    const searchPattern = `%${searchTerm}%`;
+    const limitNum = Math.min(parseInt(limit) || 20, 50);
+
+    const results = [];
+
+    const [eventsResult, articlesResult, newsResult, resourcesResult] = await Promise.all([
+      supabase
+        .from('event')
+        .select('id, name, description, start_date, end_date, image_url, status')
+        .or(`name.ilike.${searchPattern},description.ilike.${searchPattern}`)
+        .eq('status', 'active')
+        .limit(limitNum),
+      
+      supabase
+        .from('blog_post')
+        .select('id, title, excerpt, content, featured_image, published_at, handle')
+        .or(`title.ilike.${searchPattern},excerpt.ilike.${searchPattern},content.ilike.${searchPattern}`)
+        .eq('status', 'published')
+        .limit(limitNum),
+      
+      supabase
+        .from('news_post')
+        .select('id, title, content, image_url, published_at')
+        .or(`title.ilike.${searchPattern},content.ilike.${searchPattern}`)
+        .eq('status', 'published')
+        .limit(limitNum),
+      
+      supabase
+        .from('resource')
+        .select('id, title, description, file_url, image_url, category')
+        .or(`title.ilike.${searchPattern},description.ilike.${searchPattern}`)
+        .eq('is_published', true)
+        .limit(limitNum)
+    ]);
+
+    if (eventsResult.data) {
+      eventsResult.data.forEach(event => {
+        results.push({
+          type: 'event',
+          id: event.id,
+          title: event.name,
+          description: event.description,
+          image: event.image_url,
+          url: `/events/${event.id}`,
+          date: event.start_date
+        });
+      });
+    }
+
+    if (articlesResult.data) {
+      articlesResult.data.forEach(article => {
+        results.push({
+          type: 'article',
+          id: article.id,
+          title: article.title,
+          description: article.excerpt,
+          image: article.featured_image,
+          url: article.handle ? `/blogs/${article.handle}` : `/articles/${article.id}`,
+          date: article.published_at
+        });
+      });
+    }
+
+    if (newsResult.data) {
+      newsResult.data.forEach(news => {
+        results.push({
+          type: 'news',
+          id: news.id,
+          title: news.title,
+          description: news.content?.substring(0, 200),
+          image: news.image_url,
+          url: `/news/${news.id}`,
+          date: news.published_at
+        });
+      });
+    }
+
+    if (resourcesResult.data) {
+      resourcesResult.data.forEach(resource => {
+        results.push({
+          type: 'resource',
+          id: resource.id,
+          title: resource.title,
+          description: resource.description,
+          image: resource.image_url,
+          url: `/resources/${resource.id}`,
+          date: null
+        });
+      });
+    }
+
+    results.sort((a, b) => {
+      if (a.date && b.date) {
+        return new Date(b.date) - new Date(a.date);
+      }
+      if (a.date) return -1;
+      if (b.date) return 1;
+      return 0;
+    });
+
+    return res.json({
+      results: results.slice(0, limitNum),
+      query: searchTerm,
+      total: results.length
+    });
+
+  } catch (error) {
+    console.error('Search error:', error);
+    return res.status(500).json({ error: 'Search failed' });
+  }
+}
