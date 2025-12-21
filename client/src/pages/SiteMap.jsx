@@ -135,9 +135,41 @@ export default function SiteMapPage() {
           <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-2">
             Public Site Map
           </h1>
-          <p className="text-slate-600">
+          <p className="text-slate-600 mb-4">
             All public-facing URLs on your platform
           </p>
+          <div className="flex flex-wrap gap-3">
+            <a 
+              href="/sitemap.xml" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+              data-testid="link-sitemap-xml"
+            >
+              <ExternalLink className="w-4 h-4" />
+              View XML Sitemap
+            </a>
+            <a 
+              href="/robots.txt" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-700 transition-colors text-sm font-medium"
+              data-testid="link-robots-txt"
+            >
+              <FileText className="w-4 h-4" />
+              View robots.txt
+            </a>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => copyToClipboard(`${appBaseUrl}/sitemap.xml`)}
+              className="gap-2"
+              data-testid="button-copy-sitemap-url"
+            >
+              <Copy className="w-4 h-4" />
+              Copy Sitemap URL
+            </Button>
+          </div>
         </div>
 
         <div className="grid gap-6">
