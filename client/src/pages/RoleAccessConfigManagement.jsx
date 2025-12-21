@@ -820,18 +820,7 @@ CREATE POLICY "Allow full access" ON role_access_item FOR ALL USING (true);`}
                                             </Badge>
                                             <span className="font-medium flex-1">{page.label}</span>
                                             <span className="text-xs text-muted-foreground font-mono">{page.item_key}</span>
-                                            <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
-                                              <div 
-                                                className="flex items-center gap-1.5 px-2 py-1 rounded-md hover-elevate cursor-pointer"
-                                                onClick={(e) => handleTogglePublic(page, e)}
-                                                title={page.is_public ? "Visible to public (click to make private)" : "Private - login required (click to make public)"}
-                                                data-testid={`toggle-public-${page.item_key}`}
-                                              >
-                                                <Globe className={`h-3.5 w-3.5 ${page.is_public ? 'text-green-600 dark:text-green-400' : 'text-muted-foreground'}`} />
-                                                <span className={`text-xs ${page.is_public ? 'text-green-600 dark:text-green-400 font-medium' : 'text-muted-foreground'}`}>
-                                                  {page.is_public ? 'Public' : 'Private'}
-                                                </span>
-                                              </div>
+                                            <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
                                               <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => handleEdit(page)}>
                                                 <Pencil className="h-3 w-3" />
                                               </Button>
@@ -1052,7 +1041,7 @@ CREATE POLICY "Allow full access" ON role_access_item FOR ALL USING (true);`}
               </div>
             )}
 
-            {(editingItem?.item_type === 'page' || editingItem?.item_type === 'feature') && (
+            {editingItem?.item_type === 'feature' && (
               <div className="flex items-center justify-between p-3 rounded-md border bg-muted/30">
                 <div className="flex items-center gap-2">
                   <Globe className={`h-4 w-4 ${editingItem?.is_public ? 'text-green-600' : 'text-muted-foreground'}`} />
@@ -1060,8 +1049,8 @@ CREATE POLICY "Allow full access" ON role_access_item FOR ALL USING (true);`}
                     <Label htmlFor="is_public" className="cursor-pointer">Publicly Visible</Label>
                     <p className="text-xs text-muted-foreground">
                       {editingItem?.is_public 
-                        ? "This item is visible to visitors without login" 
-                        : "This item requires login to access"}
+                        ? "This feature is visible to visitors without login" 
+                        : "This feature requires login to access"}
                     </p>
                   </div>
                 </div>

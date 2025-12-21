@@ -16,6 +16,10 @@ const LayoutContext = createContext({
   // isAdmin removed - access control now uses isFeatureExcluded() exclusively
   isFeatureExcluded: () => false,
   setIsFeatureExcluded: () => {},
+  // shouldShowFeature combines role exclusions (for logged-in) and public visibility (for anonymous)
+  // Default to false (privacy-first) until explicitly set by Layout.jsx
+  shouldShowFeature: () => false,
+  setShouldShowFeature: () => {},
   refreshOrganizationInfo: () => {},
   setRefreshOrganizationInfo: () => {},
   reloadMemberInfo: () => {},
@@ -31,6 +35,8 @@ export function LayoutProvider({ children }) {
   const [memberRole, setMemberRoleState] = useState(null);
   // isAdmin state removed - access control now uses isFeatureExcluded() exclusively
   const [isFeatureExcludedFn, setIsFeatureExcludedFn] = useState(() => () => false);
+  // Default to false (privacy-first) until Layout.jsx sets the proper function
+  const [shouldShowFeatureFn, setShouldShowFeatureFn] = useState(() => () => false);
   const [refreshOrganizationInfoFn, setRefreshOrganizationInfoFn] = useState(() => () => {});
   const [reloadMemberInfoFn, setReloadMemberInfoFn] = useState(() => () => {});
   
@@ -64,6 +70,10 @@ export function LayoutProvider({ children }) {
     setIsFeatureExcludedFn(() => fn);
   }, []);
 
+  const setShouldShowFeature = useCallback((fn) => {
+    setShouldShowFeatureFn(() => fn);
+  }, []);
+
   const setRefreshOrganizationInfo = useCallback((fn) => {
     setRefreshOrganizationInfoFn(() => fn);
   }, []);
@@ -89,6 +99,9 @@ export function LayoutProvider({ children }) {
       // isAdmin removed - access control now uses isFeatureExcluded() exclusively
       isFeatureExcluded: isFeatureExcludedFn,
       setIsFeatureExcluded,
+      // shouldShowFeature combines role exclusions (for logged-in) and public visibility (for anonymous)
+      shouldShowFeature: shouldShowFeatureFn,
+      setShouldShowFeature,
       refreshOrganizationInfo: refreshOrganizationInfoFn,
       setRefreshOrganizationInfo,
       reloadMemberInfo: reloadMemberInfoFn,

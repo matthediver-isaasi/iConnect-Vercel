@@ -40,7 +40,8 @@ export default function EventsPage({
     refreshOrganizationInfo,
     organizationInfo: contextOrganizationInfo,
     memberInfo: contextMemberInfo,
-    isFeatureExcluded: contextIsFeatureExcluded
+    isFeatureExcluded: contextIsFeatureExcluded,
+    shouldShowFeature: contextShouldShowFeature
   } = useLayoutContext();
   
   // Use context values if available, otherwise fall back to props
@@ -49,6 +50,9 @@ export default function EventsPage({
   const memberInfo = contextMemberInfo || propsMemberInfo;
   // Use context isFeatureExcluded if available, otherwise use prop
   const resolvedIsFeatureExcluded = contextIsFeatureExcluded || isFeatureExcluded || (() => false);
+  // shouldShowFeature combines role exclusions (logged-in) and public visibility (anonymous)
+  // Default is privacy-first (false) so no fallback needed - context provides correct default
+  const shouldShowFeature = contextShouldShowFeature;
   const { isFeatureExcluded: hookIsFeatureExcluded, memberRole: hookMemberRole } = useMemberAccess();
   // Use prop memberRole if available, otherwise fall back to hook
   const resolvedMemberRole = memberRole || hookMemberRole;
@@ -696,8 +700,8 @@ export default function EventsPage({
                   </PopoverContent>
                 </Popover>
 
-                {/* Create Event Button - shown unless excluded */}
-                {!resolvedIsFeatureExcluded('events.browse-events.create') && (
+                {/* Create Event Button - shown if feature is visible (public or role allows) */}
+                {shouldShowFeature('events.browse-events.create') && (
                   <Button
                     onClick={() => window.location.href = createPageUrl('CreateEvent')}
                     className="bg-blue-600 hover:bg-blue-700 ml-auto"
@@ -710,8 +714,8 @@ export default function EventsPage({
               </div>
             )}
 
-            {/* Create Event Button - shown when no filter row, unless excluded */}
-            {!resolvedIsFeatureExcluded('events.browse-events.create') && !(eventCategories.length > 0 || eventTypes.length > 0) && (
+            {/* Create Event Button - shown when no filter row, if feature is visible */}
+            {shouldShowFeature('events.browse-events.create') && !(eventCategories.length > 0 || eventTypes.length > 0) && (
               <div className="flex justify-end mt-4">
                 <Button
                   onClick={() => window.location.href = createPageUrl('CreateEvent')}

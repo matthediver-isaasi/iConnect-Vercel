@@ -670,6 +670,33 @@ const { data: portalBanner } = useQuery({
   },
 });
 
+// Query for role access items to determine public visibility of features
+const { data: roleAccessItems = [] } = useQuery({
+  queryKey: ['role-access-items-layout'],
+  staleTime: 5 * 60 * 1000,
+  gcTime: 10 * 60 * 1000,
+  queryFn: async () => {
+    try {
+      const items = await base44.entities.RoleAccessItem.list();
+      return items || [];
+    } catch (error) {
+      console.error('Error loading role access items:', error);
+      return [];
+    }
+  },
+});
+
+// Build a set of public feature IDs from role access items
+const publicFeatureIds = useMemo(() => {
+  const publicSet = new Set();
+  for (const item of roleAccessItems) {
+    if (item.item_type === 'feature' && item.is_public === true && item.is_active !== false) {
+      publicSet.add(item.item_key);
+    }
+  }
+  return publicSet;
+}, [roleAccessItems]);
+
 // Get the layout context to update banner status and share member/org info
 // Note: isAdmin removed - access control now uses isFeatureExcluded() exclusively
 const { 
@@ -679,6 +706,7 @@ const {
   setOrganizationInfo: setContextOrganizationInfo,
   setMemberRole: setContextMemberRole,
   setIsFeatureExcluded: setContextIsFeatureExcluded,
+  setShouldShowFeature: setContextShouldShowFeature,
   setRefreshOrganizationInfo: setContextRefreshOrganizationInfo,
   setReloadMemberInfo: setContextReloadMemberInfo,
 } = useLayoutContext();
@@ -879,6 +907,28 @@ useEffect(() => {
     };
     setContextIsFeatureExcluded(isFeatureExcludedFn);
   }, [memberInfo, memberRole, setContextIsFeatureExcluded]);
+
+  // Update context with shouldShowFeature function
+  // This combines role-based exclusions (for logged-in users) and public visibility (for anonymous users)
+  useEffect(() => {
+    const shouldShowFeatureFn = (featureId) => {
+      if (!featureId) return true;
+      
+      // If user is logged in, use role-based exclusion logic
+      if (memberInfo) {
+        const roleExclusions = memberRole?.excluded_features || [];
+        const memberExclusions = memberInfo.member_excluded_features || [];
+        const allExclusions = [...new Set([...roleExclusions, ...memberExclusions])];
+        // Show if NOT excluded
+        return !isResourceExcluded(allExclusions, featureId);
+      }
+      
+      // If user is not logged in, check if feature is marked as public
+      // Default to NOT showing (private) if not explicitly marked public
+      return publicFeatureIds.has(featureId);
+    };
+    setContextShouldShowFeature(shouldShowFeatureFn);
+  }, [memberInfo, memberRole, publicFeatureIds, setContextShouldShowFeature]);
 
   // Update context with reloadMemberInfo function
   useEffect(() => {
