@@ -67,6 +67,8 @@ const entityToTable: Record<string, string> = {
   'OfflineAwardAssignment': 'offline_award_assignment',
   'EngagementAward': 'engagement_award',
   'EngagementAwardAssignment': 'engagement_award_assignment',
+  'OrganisationAward': 'organisation_award',
+  'OrganisationAwardAssignment': 'organisation_award_assignment',
   'WallOfFameSection': 'wall_of_fame_section',
   'WallOfFameCategory': 'wall_of_fame_category',
   'WallOfFamePerson': 'wall_of_fame_person',
