@@ -301,7 +301,7 @@ export default function PublicLayout({ children, currentPageName }) {
                 >
                   Become a member today
                 </h2>
-                <Link to={createPageUrl('Membership')}>
+                <Link to="/events">
                   <Button 
                     className="text-white font-bold hover:opacity-90 transition-opacity px-6 py-5 rounded-none" 
                     style={{ 
@@ -309,7 +309,7 @@ export default function PublicLayout({ children, currentPageName }) {
                       background: 'linear-gradient(to top right, #5C0085, #BA0087, #EE00C3, #FF4229, #FFB000)'
                     }}
                   >
-                    Join Us
+                    Events
                     <ArrowUpRight className="ml-0.5 w-5 h-5" strokeWidth={2.5} />
                   </Button>
                 </Link>
