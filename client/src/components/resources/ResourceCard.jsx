@@ -1,8 +1,9 @@
-import React from "react";
+import React, { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Download, ExternalLink, PlayCircle, Calendar, User, Share2, Mail, Lock, ArrowUpRight, Eye, FileText, Plus } from "lucide-react";
+import { Download, ExternalLink, PlayCircle, Calendar, User, Share2, Mail, Lock, ArrowUpRight, Eye, FileText, Plus, Copy, Check } from "lucide-react";
+import { toast } from "sonner";
 import { format } from "date-fns";
 import {
   DropdownMenu,
@@ -26,6 +27,8 @@ const iconMap = {
 };
 
 export default function ResourceCard({ resource, isLocked = false, buttonStyles = [], enabledSocialIcons = ['x', 'linkedin', 'email'], isAuthenticated = true }) {
+  const [copied, setCopied] = useState(false);
+  
   // Get button style from props instead of fetching
   const buttonStyle = buttonStyles.find(s => s.resource_type === resource.resource_type) || null;
   
@@ -66,7 +69,7 @@ export default function ResourceCard({ resource, isLocked = false, buttonStyles 
     window.open(resource.target_url, '_blank', 'noopener,noreferrer');
   };
 
-  const handleShare = (platform) => {
+  const handleShare = async (platform) => {
     const url = encodeURIComponent(resource.target_url);
     const title = encodeURIComponent(resource.title);
     const description = encodeURIComponent(resource.description || '');
@@ -80,6 +83,16 @@ export default function ResourceCard({ resource, isLocked = false, buttonStyles 
         break;
       case 'email':
         window.location.href = `mailto:?subject=${title}&body=${description}%0A%0A${url}`;
+        break;
+      case 'copy':
+        try {
+          await navigator.clipboard.writeText(resource.target_url);
+          setCopied(true);
+          toast.success('Link copied to clipboard');
+          setTimeout(() => setCopied(false), 2000);
+        } catch (err) {
+          toast.error('Failed to copy link');
+        }
         break;
     }
   };
@@ -141,6 +154,12 @@ export default function ResourceCard({ resource, isLocked = false, buttonStyles 
                     Share via Email
                   </DropdownMenuItem>
                 )}
+                {enabledSocialIcons.includes('copy') && (
+                  <DropdownMenuItem onClick={() => handleShare('copy')} className="cursor-pointer">
+                    {copied ? <Check className="w-4 h-4 mr-2 text-green-600" /> : <Copy className="w-4 h-4 mr-2" />}
+                    {copied ? 'Copied!' : 'Copy Link'}
+                  </DropdownMenuItem>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           )}
@@ -184,6 +203,12 @@ export default function ResourceCard({ resource, isLocked = false, buttonStyles 
                   <DropdownMenuItem onClick={() => handleShare('email')} className="cursor-pointer">
                     <Mail className="w-4 h-4 mr-2" />
                     Share via Email
+                  </DropdownMenuItem>
+                )}
+                {enabledSocialIcons.includes('copy') && (
+                  <DropdownMenuItem onClick={() => handleShare('copy')} className="cursor-pointer">
+                    {copied ? <Check className="w-4 h-4 mr-2 text-green-600" /> : <Copy className="w-4 h-4 mr-2" />}
+                    {copied ? 'Copied!' : 'Copy Link'}
                   </DropdownMenuItem>
                 )}
               </DropdownMenuContent>
@@ -232,6 +257,12 @@ export default function ResourceCard({ resource, isLocked = false, buttonStyles 
                     Share via Email
                   </DropdownMenuItem>
                 )}
+                {enabledSocialIcons.includes('copy') && (
+                  <DropdownMenuItem onClick={() => handleShare('copy')} className="cursor-pointer">
+                    {copied ? <Check className="w-4 h-4 mr-2 text-green-600" /> : <Copy className="w-4 h-4 mr-2" />}
+                    {copied ? 'Copied!' : 'Copy Link'}
+                  </DropdownMenuItem>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           )}
@@ -277,6 +308,12 @@ export default function ResourceCard({ resource, isLocked = false, buttonStyles 
                   <DropdownMenuItem onClick={() => handleShare('email')} className="cursor-pointer">
                     <Mail className="w-4 h-4 mr-2" />
                     Share via Email
+                  </DropdownMenuItem>
+                )}
+                {enabledSocialIcons.includes('copy') && (
+                  <DropdownMenuItem onClick={() => handleShare('copy')} className="cursor-pointer">
+                    {copied ? <Check className="w-4 h-4 mr-2 text-green-600" /> : <Copy className="w-4 h-4 mr-2" />}
+                    {copied ? 'Copied!' : 'Copy Link'}
                   </DropdownMenuItem>
                 )}
               </DropdownMenuContent>

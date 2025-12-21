@@ -376,6 +376,25 @@ export default function ResourceSettingsPage() {
                         <span className="font-medium text-slate-900">Email</span>
                       </Label>
                     </div>
+
+                    <div
+                      className="flex items-center gap-3 p-3 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors cursor-pointer"
+                      onClick={() => handleToggleSocialIcon('copy')}
+                    >
+                      <Checkbox
+                        id="icon-copy"
+                        checked={enabledSocialIcons.includes('copy')}
+                        onCheckedChange={() => handleToggleSocialIcon('copy')}
+                        className="data-[state=checked]:bg-blue-600 data-[state=checked]:border-blue-600"
+                      />
+                      <Label htmlFor="icon-copy" className="flex-1 cursor-pointer flex items-center gap-2">
+                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                        </svg>
+                        <span className="font-medium text-slate-900">Copy Link</span>
+                      </Label>
+                    </div>
                   </div>
 
                   {enabledSocialIcons.length > 0 && (
