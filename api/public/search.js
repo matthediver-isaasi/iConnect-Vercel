@@ -30,30 +30,30 @@ export default async function handler(req, res) {
     const [eventsResult, articlesResult, newsResult, resourcesResult, pagesResult] = await Promise.all([
       supabase
         .from('event')
-        .select('id, name, description, start_date, end_date, image_url, status')
-        .or(`name.ilike.${searchPattern},description.ilike.${searchPattern}`)
-        .eq('status', 'active')
+        .select('id, title, description, start_date, end_date, image_url, status')
+        .or(`title.ilike.${searchPattern},description.ilike.${searchPattern}`)
+        .gte('start_date', new Date().toISOString())
         .limit(limitNum),
       
       supabase
         .from('blog_post')
-        .select('id, title, excerpt, content, featured_image, published_at, handle')
-        .or(`title.ilike.${searchPattern},excerpt.ilike.${searchPattern},content.ilike.${searchPattern}`)
+        .select('id, title, summary, feature_image_url, published_date, slug')
+        .or(`title.ilike.${searchPattern},summary.ilike.${searchPattern}`)
         .eq('status', 'published')
         .limit(limitNum),
       
       supabase
         .from('news_post')
-        .select('id, title, content, image_url, published_at')
-        .or(`title.ilike.${searchPattern},content.ilike.${searchPattern}`)
+        .select('id, title, summary, feature_image_url, published_date, slug')
+        .or(`title.ilike.${searchPattern},summary.ilike.${searchPattern}`)
         .eq('status', 'published')
         .limit(limitNum),
       
       supabase
         .from('resource')
-        .select('id, title, description, file_url, image_url, category')
+        .select('id, title, description, thumbnail_url, content_type')
         .or(`title.ilike.${searchPattern},description.ilike.${searchPattern}`)
-        .eq('is_published', true)
+        .eq('status', 'active')
         .limit(limitNum),
       
       supabase
@@ -69,10 +69,10 @@ export default async function handler(req, res) {
         results.push({
           type: 'event',
           id: event.id,
-          title: event.name,
-          description: event.description,
+          title: event.title,
+          description: event.description?.substring(0, 150) || '',
           image: event.image_url,
-          url: `/events/${event.id}`,
+          url: `/EventDetails?id=${event.id}`,
           date: event.start_date
         });
       });
@@ -84,10 +84,10 @@ export default async function handler(req, res) {
           type: 'article',
           id: article.id,
           title: article.title,
-          description: article.excerpt,
-          image: article.featured_image,
-          url: article.handle ? `/blogs/${article.handle}` : `/articles/${article.id}`,
-          date: article.published_at
+          description: article.summary?.substring(0, 150) || '',
+          image: article.feature_image_url,
+          url: `/ArticleView?slug=${article.slug || article.id}`,
+          date: article.published_date
         });
       });
     }
@@ -98,10 +98,10 @@ export default async function handler(req, res) {
           type: 'news',
           id: news.id,
           title: news.title,
-          description: news.content?.substring(0, 200),
-          image: news.image_url,
-          url: `/news/${news.id}`,
-          date: news.published_at
+          description: news.summary?.substring(0, 150) || '',
+          image: news.feature_image_url,
+          url: `/NewsView?slug=${news.slug || news.id}`,
+          date: news.published_date
         });
       });
     }
@@ -112,8 +112,8 @@ export default async function handler(req, res) {
           type: 'resource',
           id: resource.id,
           title: resource.title,
-          description: resource.description,
-          image: resource.image_url,
+          description: resource.description?.substring(0, 150) || '',
+          image: resource.thumbnail_url,
           url: `/resources/${resource.id}`,
           date: null
         });

@@ -1367,26 +1367,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Search Articles/Blog Posts (published only)
         supabase
           .from('blog_post')
-          .select('id, title, description, featured_image, publish_date, slug')
+          .select('id, title, summary, feature_image_url, published_date, slug')
           .eq('status', 'published')
-          .or(`title.ilike.${searchPattern},description.ilike.${searchPattern}`)
-          .order('publish_date', { ascending: false })
+          .or(`title.ilike.${searchPattern},summary.ilike.${searchPattern}`)
+          .order('published_date', { ascending: false })
           .limit(resultLimit),
 
         // Search News Posts (published only)
         supabase
           .from('news_post')
-          .select('id, title, summary, featured_image, publish_date, slug')
+          .select('id, title, summary, feature_image_url, published_date, slug')
           .eq('status', 'published')
           .or(`title.ilike.${searchPattern},summary.ilike.${searchPattern}`)
-          .order('publish_date', { ascending: false })
+          .order('published_date', { ascending: false })
           .limit(resultLimit),
 
         // Search Resources (active only)
         supabase
           .from('resource')
           .select('id, title, description, thumbnail_url, content_type')
-          .eq('is_active', true)
+          .eq('status', 'active')
           .or(`title.ilike.${searchPattern},description.ilike.${searchPattern}`)
           .order('created_at', { ascending: false })
           .limit(resultLimit),
@@ -1434,10 +1434,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
             type: 'article',
             id: article.id,
             title: article.title,
-            description: article.description?.substring(0, 150) || '',
-            image: article.featured_image,
-            url: `/blog/${article.slug || article.id}`,
-            date: article.publish_date
+            description: article.summary?.substring(0, 150) || '',
+            image: article.feature_image_url,
+            url: `/ArticleView?slug=${article.slug || article.id}`,
+            date: article.published_date
           });
         });
       }
@@ -1450,9 +1450,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
             id: news.id,
             title: news.title,
             description: news.summary?.substring(0, 150) || '',
-            image: news.featured_image,
-            url: `/news/${news.slug || news.id}`,
-            date: news.publish_date
+            image: news.feature_image_url,
+            url: `/NewsView?slug=${news.slug || news.id}`,
+            date: news.published_date
           });
         });
       }
