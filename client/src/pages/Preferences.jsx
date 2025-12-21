@@ -2400,10 +2400,11 @@ export default function PreferencesPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <ClipboardList className="w-5 h-5 text-blue-600" />
-                Additional Info
+                Role Info
               </CardTitle>
+              
               <CardDescription>
-                Provide additional information about your preferences
+                Provide additional information about your role
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
