@@ -233,36 +233,51 @@ export default function DynamicPage() {
   const isGuest = memberInfo === null;
   const authCheckComplete = isGuest || isAccessReady;
   
+  // Determine if redirect check is complete:
+  // - If we should check redirects, wait for the result to be defined (not just not loading)
+  // - If we shouldn't check redirects, consider it complete
+  const redirectCheckComplete = shouldCheckRedirect 
+    ? (redirectResult !== undefined && !redirectLoading)
+    : true;
+  
   useEffect(() => {
-    // Wait for page and redirect lookup to complete
-    if (!pageLoading && !page && !dynamicArticleRoute && !redirectLoading) {
-      // Check if we have a redirect mapping
-      if (redirectResult?.found && redirectResult?.target_url) {
-        console.log('[DynamicPage] Redirect mapping found:', redirectResult.target_url);
-        // Handle external vs internal redirects
-        if (redirectResult.target_url.startsWith('http://') || redirectResult.target_url.startsWith('https://')) {
-          window.location.href = redirectResult.target_url;
-        } else {
-          navigate(redirectResult.target_url, { replace: true });
-        }
-        return;
+    // Wait for page loading to complete and we're in a 404 scenario
+    if (pageLoading || page || dynamicArticleRoute) {
+      return;
+    }
+    
+    // If we should check redirects, wait for that to complete
+    if (!redirectCheckComplete) {
+      console.log('[DynamicPage] Waiting for redirect check to complete...');
+      return;
+    }
+    
+    // Check if we have a redirect mapping
+    if (redirectResult?.found && redirectResult?.target_url) {
+      console.log('[DynamicPage] Redirect mapping found:', redirectResult.target_url);
+      // Handle external vs internal redirects
+      if (redirectResult.target_url.startsWith('http://') || redirectResult.target_url.startsWith('https://')) {
+        window.location.href = redirectResult.target_url;
+      } else {
+        navigate(redirectResult.target_url, { replace: true });
       }
-      
-      // No redirect mapping found - use default 404 behavior
-      if (authCheckComplete) {
-        if (memberInfo) {
-          // Logged in user: redirect to role's default landing page
-          const landingPage = memberRole?.default_landing_page || 'Preferences';
-          console.log('[DynamicPage] 404 redirect - logged in user to:', landingPage);
-          navigate(`/${landingPage}`, { replace: true });
-        } else {
-          // Guest: redirect to home page
-          console.log('[DynamicPage] 404 redirect - guest to home');
-          navigate('/', { replace: true });
-        }
+      return;
+    }
+    
+    // No redirect mapping found - use default 404 behavior
+    if (authCheckComplete) {
+      if (memberInfo) {
+        // Logged in user: redirect to role's default landing page
+        const landingPage = memberRole?.default_landing_page || 'Preferences';
+        console.log('[DynamicPage] 404 redirect - logged in user to:', landingPage);
+        navigate(`/${landingPage}`, { replace: true });
+      } else {
+        // Guest: redirect to home page
+        console.log('[DynamicPage] 404 redirect - guest to home');
+        navigate('/', { replace: true });
       }
     }
-  }, [page, pageLoading, dynamicArticleRoute, redirectLoading, redirectResult, authCheckComplete, memberInfo, memberRole, navigate]);
+  }, [page, pageLoading, dynamicArticleRoute, redirectCheckComplete, redirectResult, authCheckComplete, memberInfo, memberRole, navigate]);
 
   // Debug: Log what's being rendered
   console.log('[DynamicPage] slug:', slug);
