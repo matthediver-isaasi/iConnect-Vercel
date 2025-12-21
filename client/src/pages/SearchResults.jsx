@@ -10,21 +10,24 @@ const typeIconMap = {
   event: Calendar,
   article: BookOpen,
   news: Newspaper,
-  resource: FolderOpen
+  resource: FolderOpen,
+  page: FileText
 };
 
 const typeLabels = {
   event: 'Event',
   article: 'Article',
   news: 'News',
-  resource: 'Resource'
+  resource: 'Resource',
+  page: 'Page'
 };
 
 const typeColors = {
   event: 'bg-blue-100 text-blue-700',
   article: 'bg-purple-100 text-purple-700',
   news: 'bg-green-100 text-green-700',
-  resource: 'bg-orange-100 text-orange-700'
+  resource: 'bg-orange-100 text-orange-700',
+  page: 'bg-slate-100 text-slate-700'
 };
 
 export default function SearchResults() {
@@ -107,7 +110,7 @@ export default function SearchResults() {
             <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-slate-400" />
             <Input
               type="text"
-              placeholder="Search events, articles, news, resources..."
+              placeholder="Search events, articles, news, resources, pages..."
               className="pl-12 pr-4 py-6 text-lg"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
@@ -224,7 +227,7 @@ export default function SearchResults() {
             <Search className="w-16 h-16 mx-auto mb-4 text-slate-300" />
             <h2 className="text-xl font-semibold text-slate-700 mb-2">Search our content</h2>
             <p className="text-slate-500">
-              Find events, articles, news, and resources across our platform
+              Find events, articles, news, resources, and pages across our platform
             </p>
           </div>
         )}

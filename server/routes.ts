@@ -1354,7 +1354,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const searchPattern = `%${searchTerm}%`;
 
       // Execute parallel searches across multiple content types
-      const [eventsResult, articlesResult, newsResult, resourcesResult] = await Promise.all([
+      const [eventsResult, articlesResult, newsResult, resourcesResult, pagesResult] = await Promise.all([
         // Search Events (public, upcoming or published)
         supabase
           .from('event')
@@ -1389,6 +1389,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
           .eq('is_active', true)
           .or(`title.ilike.${searchPattern},description.ilike.${searchPattern}`)
           .order('created_at', { ascending: false })
+          .limit(resultLimit),
+
+        // Search CMS Pages (published only)
+        supabase
+          .from('i_edit_page')
+          .select('id, title, slug, description, published_at')
+          .eq('status', 'published')
+          .or(`title.ilike.${searchPattern},description.ilike.${searchPattern},slug.ilike.${searchPattern}`)
+          .order('published_at', { ascending: false })
           .limit(resultLimit)
       ]);
 
@@ -1458,6 +1467,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
             description: resource.description?.substring(0, 150) || '',
             image: resource.thumbnail_url,
             url: `/resources/${resource.id}`
+          });
+        });
+      }
+
+      // Add CMS pages
+      if (pagesResult.data) {
+        pagesResult.data.forEach(page => {
+          results.push({
+            type: 'page',
+            id: page.id,
+            title: page.title,
+            description: page.description?.substring(0, 150) || '',
+            url: `/${page.slug}`,
+            date: page.published_at
           });
         });
       }

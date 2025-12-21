@@ -27,7 +27,7 @@ export default async function handler(req, res) {
 
     const results = [];
 
-    const [eventsResult, articlesResult, newsResult, resourcesResult] = await Promise.all([
+    const [eventsResult, articlesResult, newsResult, resourcesResult, pagesResult] = await Promise.all([
       supabase
         .from('event')
         .select('id, name, description, start_date, end_date, image_url, status')
@@ -54,6 +54,13 @@ export default async function handler(req, res) {
         .select('id, title, description, file_url, image_url, category')
         .or(`title.ilike.${searchPattern},description.ilike.${searchPattern}`)
         .eq('is_published', true)
+        .limit(limitNum),
+      
+      supabase
+        .from('i_edit_page')
+        .select('id, title, slug, description, published_at')
+        .or(`title.ilike.${searchPattern},description.ilike.${searchPattern},slug.ilike.${searchPattern}`)
+        .eq('status', 'published')
         .limit(limitNum)
     ]);
 
@@ -109,6 +116,20 @@ export default async function handler(req, res) {
           image: resource.image_url,
           url: `/resources/${resource.id}`,
           date: null
+        });
+      });
+    }
+
+    if (pagesResult.data) {
+      pagesResult.data.forEach(page => {
+        results.push({
+          type: 'page',
+          id: page.id,
+          title: page.title,
+          description: page.description,
+          image: null,
+          url: `/${page.slug}`,
+          date: page.published_at
         });
       });
     }
