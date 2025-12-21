@@ -35,18 +35,12 @@ export default function PageBannerDisplay({ banner }) {
     'right': 'ml-auto'
   };
 
-  const paddingTopClasses = {
-    'none': 'pt-0',
-    'small': 'pt-4',
-    'medium': 'pt-8',
-    'large': 'pt-16'
-  };
-
-  const paddingBottomClasses = {
-    'none': 'pb-0',
-    'small': 'pb-4',
-    'medium': 'pb-8',
-    'large': 'pb-16'
+  // Helper to get padding value - supports both old preset strings and new numeric values
+  const getPaddingValue = (value) => {
+    if (typeof value === 'number') return value;
+    // Fallback for old preset values
+    const presetMap = { 'none': 0, 'small': 16, 'medium': 32, 'large': 64 };
+    return presetMap[value] ?? 0;
   };
 
   const containerClass = sizeClasses[banner.size] || sizeClasses['full'];
@@ -59,8 +53,13 @@ export default function PageBannerDisplay({ banner }) {
     ? (horizontalAlignmentClasses[banner.horizontal_alignment] || horizontalAlignmentClasses['center'])
     : '';
 
-  const paddingTopClass = paddingTopClasses[banner.padding_top] || paddingTopClasses['none'];
-  const paddingBottomClass = paddingBottomClasses[banner.padding_bottom] || paddingBottomClasses['none'];
+  // Get padding values as pixels
+  const paddingStyle = {
+    paddingTop: `${getPaddingValue(banner.padding_top)}px`,
+    paddingBottom: `${getPaddingValue(banner.padding_bottom)}px`,
+    paddingLeft: `${getPaddingValue(banner.padding_left)}px`,
+    paddingRight: `${getPaddingValue(banner.padding_right)}px`,
+  };
 
   // Check if header has actual content
   const hasHeaderContent = (value) => {
@@ -95,7 +94,7 @@ export default function PageBannerDisplay({ banner }) {
   }[banner.header_text_align || 'center'];
 
   return (
-    <div className={`${containerClass} ${alignmentClass} ${paddingTopClass} ${paddingBottomClass} overflow-hidden`}>
+    <div className={`${containerClass} ${alignmentClass} overflow-hidden`} style={paddingStyle}>
       {/* Header Text Above Image */}
       {hasHeader && (
         <div className={`${textAlignmentClass} px-4 md:px-8 lg:px-16 py-4 md:py-6`}>
