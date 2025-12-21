@@ -152,6 +152,12 @@ export default async function handler(req, res) {
         }
       }
 
+      // Normalize email to lowercase for member, team_member, and magic_link entities
+      // Use normalized entity name (already computed above) to handle both PascalCase and slug-case variants
+      if ((entityNormalized === 'member' || entityNormalized === 'teammember' || entityNormalized === 'magiclink') && sanitizedBody.email) {
+        sanitizedBody.email = sanitizedBody.email.toLowerCase();
+      }
+
       const { data, error } = await supabase
         .from(tableName)
         .update(sanitizedBody)

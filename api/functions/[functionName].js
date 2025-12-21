@@ -1039,7 +1039,7 @@ const functionHandlers = {
       const { data: member } = await supabase
         .from('member')
         .select('id, first_name, last_name')
-        .eq('email', member_email)
+        .ilike('email', member_email)
         .single();
       
       if (!member) {

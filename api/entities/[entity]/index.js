@@ -243,6 +243,13 @@ export default async function handler(req, res) {
         }
       }
       
+      // Normalize email to lowercase for member, team_member, and magic_link entities
+      // Use normalized entity name to handle both PascalCase and slug-case variants
+      const entityNormalized = entity.replace(/[-_]/g, '').toLowerCase();
+      if ((entityNormalized === 'member' || entityNormalized === 'teammember' || entityNormalized === 'magiclink') && sanitizedBody.email) {
+        sanitizedBody.email = sanitizedBody.email.toLowerCase();
+      }
+      
       const { data, error } = await supabase
         .from(tableName)
         .insert(sanitizedBody)
@@ -253,9 +260,6 @@ export default async function handler(req, res) {
         console.error(`Error inserting into ${tableName}:`, error);
         return res.status(500).json({ error: error.message, details: error.details, hint: error.hint, code: error.code });
       }
-
-      // Normalize entity name for comparison (handles both PascalCase and slug-case)
-      const entityNormalized = entity.replace(/[-_]/g, '').toLowerCase();
 
       // Derive base URL for workflow email placeholders
       // On Vercel, use VERCEL_URL env var as fallback
