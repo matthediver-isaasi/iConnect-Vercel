@@ -130,6 +130,8 @@ const entityToTable = {
   'OfflineAwardAssignment': 'offline_award_assignment',
   'EngagementAward': 'engagement_award',
   'EngagementAwardAssignment': 'engagement_award_assignment',
+  'OrganisationAward': 'organisation_award',
+  'OrganisationAwardAssignment': 'organisation_award_assignment',
   'WallOfFameSection': 'wall_of_fame_section',
   'WallOfFameCategory': 'wall_of_fame_category',
   'WallOfFamePerson': 'wall_of_fame_person',
@@ -237,7 +239,8 @@ export default async function handler(req, res) {
       // Only modify fields that are already present in the request body
       const sanitizedBody = { ...req.body };
       const uuidFields = ['role_id', 'organization_id', 'member_id', 'parent_id', 'form_id', 'event_id', 
-                          'category_id', 'template_id', 'workflow_id', 'speaker_id', 'created_by', 'updated_by'];
+                          'category_id', 'template_id', 'workflow_id', 'speaker_id', 'created_by', 'updated_by',
+                          'organisation_award_id', 'offline_award_id', 'engagement_award_id', 'award_id'];
       for (const field of uuidFields) {
         if (field in sanitizedBody && sanitizedBody[field] === '') {
           sanitizedBody[field] = null;
