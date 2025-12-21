@@ -26,6 +26,7 @@ export default function EventSettingsPage() {
   const [summaryMaxLength, setSummaryMaxLength] = useState(150);
   const [descriptionPreviewLines, setDescriptionPreviewLines] = useState(3);
   const [showEventSeats, setShowEventSeats] = useState(true);
+  const [eventCardTitleClamp, setEventCardTitleClamp] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [editingEventImage, setEditingEventImage] = useState(null);
   const [selectedImage, setSelectedImage] = useState(null);
@@ -156,6 +157,12 @@ export default function EventSettingsPage() {
       setShowEventSeats(showSeatsSetting.setting_value === 'true');
     }
     
+    // Load event card title clamp setting
+    const titleClampSetting = settings.find(s => s.setting_key === 'event_card_title_clamp');
+    if (titleClampSetting) {
+      setEventCardTitleClamp(titleClampSetting.setting_value !== 'false');
+    }
+    
     // Load description preview lines setting
     const descPreviewLinesSetting = settings.find(s => s.setting_key === 'event_description_preview_lines');
     if (descPreviewLinesSetting) {
@@ -266,6 +273,22 @@ export default function EventSettingsPage() {
           setting_key: 'event_description_preview_lines',
           setting_value: descriptionPreviewLines.toString(),
           description: 'Number of lines to show in event description preview before Show More'
+        });
+      }
+      
+      // Save event card title clamp setting
+      const titleClampSetting = settings.find(s => s.setting_key === 'event_card_title_clamp');
+      
+      if (titleClampSetting) {
+        await base44.entities.SystemSettings.update(titleClampSetting.id, {
+          setting_value: eventCardTitleClamp.toString(),
+          description: 'Enable line clamping on event card titles'
+        });
+      } else {
+        await base44.entities.SystemSettings.create({
+          setting_key: 'event_card_title_clamp',
+          setting_value: eventCardTitleClamp.toString(),
+          description: 'Enable line clamping on event card titles'
         });
       }
       
@@ -1092,6 +1115,34 @@ export default function EventSettingsPage() {
                     disabled={isSaving}
                     size="sm"
                     data-testid="button-save-display-settings"
+                  >
+                    <Save className="w-4 h-4 mr-2" />
+                    Save
+                  </Button>
+                </div>
+              </div>
+              
+              <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg border border-slate-200">
+                <div className="space-y-1">
+                  <Label htmlFor="event-card-title-clamp" className="font-medium">
+                    Limit Event Title Lines
+                  </Label>
+                  <p className="text-sm text-slate-500">
+                    When ON, event titles on cards are limited to 2 lines. When OFF, the full title is displayed regardless of length.
+                  </p>
+                </div>
+                <div className="flex items-center gap-4">
+                  <Switch
+                    id="event-card-title-clamp"
+                    checked={eventCardTitleClamp}
+                    onCheckedChange={setEventCardTitleClamp}
+                    data-testid="switch-event-card-title-clamp"
+                  />
+                  <Button
+                    onClick={handleSaveSettings}
+                    disabled={isSaving}
+                    size="sm"
+                    data-testid="button-save-title-clamp-settings"
                   >
                     <Save className="w-4 h-4 mr-2" />
                     Save

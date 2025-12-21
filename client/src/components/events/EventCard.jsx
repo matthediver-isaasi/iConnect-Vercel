@@ -455,7 +455,15 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
         )}
         
         <CardHeader className="pb-3">
-          <h3 className="font-bold text-lg text-slate-900 line-clamp-2">
+          <h3 className={`font-bold text-lg text-slate-900 ${
+            // Check if title clamp is enabled (default to true if not set)
+            (() => {
+              const titleClampSetting = Array.isArray(systemSettings) 
+                ? systemSettings.find(s => s.setting_key === 'event_card_title_clamp')
+                : null;
+              return titleClampSetting?.setting_value !== 'false' ? 'line-clamp-2' : '';
+            })()
+          }`}>
             {event.title}
           </h3>
           
