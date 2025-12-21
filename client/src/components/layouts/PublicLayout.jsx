@@ -55,26 +55,39 @@ export default function PublicLayout({ children, currentPageName }) {
   const [newsletterSubmitted, setNewsletterSubmitted] = useState(false);
   const [socialIcons, setSocialIcons] = useState(null);
 
-  // Fetch social icons configuration for footer
+  const [footerConfig, setFooterConfig] = useState({ termsUrl: '' });
+
+  // Fetch social icons and footer configuration
   useEffect(() => {
-    const fetchSocialConfig = async () => {
+    const fetchSettings = async () => {
       try {
         const allSettings = await base44.entities.SystemSettings.list();
-        const setting = allSettings.find(s => s.setting_key === 'social_icons_config');
         
-        if (setting?.setting_value) {
+        // Social icons config
+        const socialSetting = allSettings.find(s => s.setting_key === 'social_icons_config');
+        if (socialSetting?.setting_value) {
           try {
-            setSocialIcons(JSON.parse(setting.setting_value));
+            setSocialIcons(JSON.parse(socialSetting.setting_value));
           } catch (e) {
             console.error('Failed to parse social icons config:', e);
           }
         }
+        
+        // Footer config
+        const footerSetting = allSettings.find(s => s.setting_key === 'footer_config');
+        if (footerSetting?.setting_value) {
+          try {
+            setFooterConfig(JSON.parse(footerSetting.setting_value));
+          } catch (e) {
+            console.error('Failed to parse footer config:', e);
+          }
+        }
       } catch (error) {
-        console.error('Failed to fetch social icons config:', error);
+        console.error('Failed to fetch settings:', error);
       }
     };
 
-    fetchSocialConfig();
+    fetchSettings();
   }, []);
 
   const { data: newsletterForm, isLoading: newsletterFormLoading } = useQuery({
@@ -557,14 +570,26 @@ export default function PublicLayout({ children, currentPageName }) {
                 
                 {/* 30% column - Links */}
                 <div className="md:col-span-3 flex flex-col md:items-end gap-2">
-                  <a 
-                    href="#" 
-                    className="text-white text-sm hover:opacity-80 transition-opacity"
-                    style={{ fontFamily: 'Poppins, sans-serif' }}
-                  >
-                    Terms and conditions
-                  </a>
-               
+                  {footerConfig.termsUrl && (
+                    <a 
+                      href={footerConfig.termsUrl} 
+                      target={footerConfig.termsUrl.startsWith('http') ? '_blank' : undefined}
+                      rel={footerConfig.termsUrl.startsWith('http') ? 'noopener noreferrer' : undefined}
+                      className="text-white text-sm hover:opacity-80 transition-opacity"
+                      style={{ fontFamily: 'Poppins, sans-serif' }}
+                      data-testid="link-terms-conditions"
+                    >
+                      Terms and conditions
+                    </a>
+                  )}
+                  {!footerConfig.termsUrl && (
+                    <span 
+                      className="text-white text-sm opacity-50"
+                      style={{ fontFamily: 'Poppins, sans-serif' }}
+                    >
+                      Terms and conditions
+                    </span>
+                  )}
                 </div>
               </div>
               
