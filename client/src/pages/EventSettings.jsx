@@ -27,6 +27,7 @@ export default function EventSettingsPage() {
   const [descriptionPreviewLines, setDescriptionPreviewLines] = useState(3);
   const [showEventSeats, setShowEventSeats] = useState(true);
   const [eventCardTitleClamp, setEventCardTitleClamp] = useState(true);
+  const [showEventCardPrices, setShowEventCardPrices] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [editingEventImage, setEditingEventImage] = useState(null);
   const [selectedImage, setSelectedImage] = useState(null);
@@ -163,6 +164,12 @@ export default function EventSettingsPage() {
       setEventCardTitleClamp(titleClampSetting.setting_value !== 'false');
     }
     
+    // Load show event card prices setting
+    const showPricesSetting = settings.find(s => s.setting_key === 'show_event_card_prices');
+    if (showPricesSetting) {
+      setShowEventCardPrices(showPricesSetting.setting_value === 'true');
+    }
+    
     // Load description preview lines setting
     const descPreviewLinesSetting = settings.find(s => s.setting_key === 'event_description_preview_lines');
     if (descPreviewLinesSetting) {
@@ -289,6 +296,22 @@ export default function EventSettingsPage() {
           setting_key: 'event_card_title_clamp',
           setting_value: eventCardTitleClamp.toString(),
           description: 'Enable line clamping on event card titles'
+        });
+      }
+      
+      // Save show event card prices setting
+      const showPricesSetting = settings.find(s => s.setting_key === 'show_event_card_prices');
+      
+      if (showPricesSetting) {
+        await base44.entities.SystemSettings.update(showPricesSetting.id, {
+          setting_value: showEventCardPrices.toString(),
+          description: 'Show ticket prices on event cards'
+        });
+      } else {
+        await base44.entities.SystemSettings.create({
+          setting_key: 'show_event_card_prices',
+          setting_value: showEventCardPrices.toString(),
+          description: 'Show ticket prices on event cards'
         });
       }
       
@@ -1143,6 +1166,34 @@ export default function EventSettingsPage() {
                     disabled={isSaving}
                     size="sm"
                     data-testid="button-save-title-clamp-settings"
+                  >
+                    <Save className="w-4 h-4 mr-2" />
+                    Save
+                  </Button>
+                </div>
+              </div>
+              
+              <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg border border-slate-200">
+                <div className="space-y-1">
+                  <Label htmlFor="show-event-card-prices" className="font-medium">
+                    Show Ticket Prices on Cards
+                  </Label>
+                  <p className="text-sm text-slate-500">
+                    When ON, event cards display the cheapest ticket price (e.g., "£ Tickets from £10.00" or "Free to attend").
+                  </p>
+                </div>
+                <div className="flex items-center gap-4">
+                  <Switch
+                    id="show-event-card-prices"
+                    checked={showEventCardPrices}
+                    onCheckedChange={setShowEventCardPrices}
+                    data-testid="switch-show-event-card-prices"
+                  />
+                  <Button
+                    onClick={handleSaveSettings}
+                    disabled={isSaving}
+                    size="sm"
+                    data-testid="button-save-prices-settings"
                   >
                     <Save className="w-4 h-4 mr-2" />
                     Save

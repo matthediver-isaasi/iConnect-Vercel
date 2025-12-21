@@ -145,6 +145,61 @@ const getCtaButtonConfig = (systemSettings) => {
   return defaultConfig;
 };
 
+// Helper function to get the cheapest ticket price from an event's pricing_config
+// Returns null if no valid pricing is found (prevents showing "Free to attend" for missing data)
+const getCheapestTicketPrice = (event) => {
+  if (!event) return null;
+  
+  // Parse pricing_config if it's a string
+  let pricingConfig = event.pricing_config;
+  if (typeof pricingConfig === 'string') {
+    try {
+      pricingConfig = JSON.parse(pricingConfig);
+    } catch {
+      return null;
+    }
+  }
+  
+  if (!pricingConfig) return null;
+  
+  // Check for ticket_classes array (new format)
+  if (pricingConfig.ticket_classes && Array.isArray(pricingConfig.ticket_classes) && pricingConfig.ticket_classes.length > 0) {
+    // Only include prices that are explicitly set to valid numbers (including 0)
+    // Do NOT convert undefined/null/NaN to 0 - that would incorrectly show "Free"
+    const prices = pricingConfig.ticket_classes
+      .map(tc => {
+        // Only accept if price is explicitly defined as a number or numeric string
+        if (tc.price === undefined || tc.price === null || tc.price === '') {
+          return NaN;
+        }
+        return Number(tc.price);
+      })
+      .filter(p => Number.isFinite(p));
+    
+    if (prices.length > 0) {
+      return Math.min(...prices);
+    }
+  }
+  
+  // Fallback to legacy ticket_price field - only if explicitly set
+  if (pricingConfig.ticket_price !== undefined && pricingConfig.ticket_price !== null && pricingConfig.ticket_price !== '') {
+    const price = Number(pricingConfig.ticket_price);
+    if (Number.isFinite(price)) {
+      return price;
+    }
+  }
+  
+  // Also check direct event.ticket_price for older events - only if explicitly set
+  if (event.ticket_price !== undefined && event.ticket_price !== null && event.ticket_price !== '') {
+    const price = Number(event.ticket_price);
+    if (Number.isFinite(price)) {
+      return price;
+    }
+  }
+  
+  return null;
+};
+
 export default function EventCard({ event, organizationInfo, isFeatureExcluded, isAdmin, onEventDeleted, joinLinkSettings, webinars, systemSettings = [] }) {
   const queryClient = useQueryClient();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -533,6 +588,34 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
               )}
             </div>
           )}
+
+          {/* Ticket Price Display */}
+          {(() => {
+            const showPricesSetting = Array.isArray(systemSettings) 
+              ? systemSettings.find(s => s.setting_key === 'show_event_card_prices')
+              : null;
+            const showPrices = showPricesSetting?.setting_value === 'true';
+            
+            if (!showPrices) return null;
+            
+            const cheapestPrice = getCheapestTicketPrice(event);
+            
+            // Only show if we have pricing info
+            if (cheapestPrice === null) return null;
+            
+            return (
+              <div className="flex items-center gap-2 text-sm" data-testid={`text-ticket-price-${event.id}`}>
+                <span className="text-green-600 font-bold">£</span>
+                {cheapestPrice === 0 ? (
+                  <span className="text-green-600 font-medium">Free to attend</span>
+                ) : (
+                  <span className="text-slate-600">
+                    Tickets from <span className="font-semibold text-slate-800">£{cheapestPrice.toFixed(2)}</span>
+                  </span>
+                )}
+              </div>
+            );
+          })()}
 
           <div className="pt-3 border-t border-slate-100">
             {/* Event Controls - shown unless features are excluded */}
