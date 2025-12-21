@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
-import { FolderTree, Loader2, Plus, Pencil, Trash2, User, Building2, Filter } from "lucide-react";
+import { FolderTree, Loader2, Plus, Pencil, Trash2, User, Building2, Filter, Shield } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
@@ -45,6 +45,7 @@ export default function DynamicDirectoryManagementPage() {
   const [isActive, setIsActive] = useState(true);
   // null = use all filterable fields (backward compat), [] = explicitly none, [...ids] = specific selection
   const [selectedFilterFields, setSelectedFilterFields] = useState(null);
+  const [allowedRoleIds, setAllowedRoleIds] = useState([]);
 
   useEffect(() => {
     if (isAccessReady) {
@@ -108,6 +109,22 @@ export default function DynamicDirectoryManagementPage() {
     enabled: isDialogOpen
   });
 
+  const { data: roles = [] } = useQuery({
+    queryKey: ['/api/entities/Role'],
+    queryFn: async () => {
+      try {
+        const rolesList = await base44.entities.Role.list({
+          sort: { name: 'asc' }
+        });
+        return rolesList || [];
+      } catch (error) {
+        console.error('Failed to fetch roles:', error);
+        return [];
+      }
+    },
+    enabled: isDialogOpen
+  });
+
   const availableFilterFields = allFilterableFields.filter(f => f.id !== filterFieldId);
 
   const selectedField = preferenceFields.find(f => f.id === filterFieldId);
@@ -163,6 +180,7 @@ export default function DynamicDirectoryManagementPage() {
     setFilterValue('');
     setIsActive(true);
     setSelectedFilterFields([]);  // Default to empty array for new directories (no filters)
+    setAllowedRoleIds([]);
   };
 
   const handleOpenCreateDialog = () => {
@@ -180,6 +198,7 @@ export default function DynamicDirectoryManagementPage() {
     setIsActive(directory.is_active !== false);
     // Preserve null/undefined to distinguish between "not configured" and "explicitly empty"
     setSelectedFilterFields(directory.selected_filter_fields ?? null);
+    setAllowedRoleIds(directory.allowed_role_ids || []);
     setIsDialogOpen(true);
   };
 
@@ -213,6 +232,16 @@ export default function DynamicDirectoryManagementPage() {
     setFilterValue('');
   };
 
+  const handleToggleRole = (roleId) => {
+    setAllowedRoleIds(prev => {
+      if (prev.includes(roleId)) {
+        return prev.filter(id => id !== roleId);
+      } else {
+        return [...prev, roleId];
+      }
+    });
+  };
+
   const handleSubmit = () => {
     if (!name.trim()) {
       toast.error('Please provide a name');
@@ -241,7 +270,8 @@ export default function DynamicDirectoryManagementPage() {
       filter_field_id: filterFieldId,
       filter_value: filterValue,
       is_active: isActive,
-      selected_filter_fields: selectedFilterFields || []  // Always include, defaults to empty array
+      selected_filter_fields: selectedFilterFields || [],  // Always include, defaults to empty array
+      allowed_role_ids: allowedRoleIds
     };
 
     if (editingDirectory) {
@@ -560,6 +590,40 @@ export default function DynamicDirectoryManagementPage() {
                 onCheckedChange={setIsActive}
                 data-testid="switch-is-active"
               />
+            </div>
+
+            <div className="p-4 bg-blue-50 rounded-lg border border-blue-200 space-y-3">
+              <div className="flex items-center gap-2">
+                <Shield className="w-4 h-4 text-blue-600" />
+                <Label className="font-medium text-blue-900">Role Access Control</Label>
+              </div>
+              <p className="text-xs text-blue-700">
+                Select which roles can view this directory. Leave all unchecked to allow all member roles.
+              </p>
+              <div className="space-y-2">
+                {roles.map((role) => (
+                  <div
+                    key={role.id}
+                    className="flex items-center gap-3 p-2 bg-white rounded hover:bg-blue-50 transition-colors cursor-pointer"
+                    onClick={() => handleToggleRole(role.id)}
+                    data-testid={`role-access-row-${role.id}`}
+                  >
+                    <Checkbox
+                      id={`role-${role.id}`}
+                      checked={allowedRoleIds.includes(role.id)}
+                      onCheckedChange={() => handleToggleRole(role.id)}
+                      className="data-[state=checked]:bg-blue-600 data-[state=checked]:border-blue-600"
+                      data-testid={`checkbox-role-${role.id}`}
+                    />
+                    <Label
+                      htmlFor={`role-${role.id}`}
+                      className="flex-1 cursor-pointer text-sm"
+                    >
+                      {role.name}
+                    </Label>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
 
