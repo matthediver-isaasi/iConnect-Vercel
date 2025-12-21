@@ -1629,12 +1629,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (data.role_id) {
         const { data: role } = await supabase
           .from('role')
-          .select('is_admin, excluded_features')
+          .select('excluded_features')
           .eq('id', data.role_id)
           .single();
         
-        isAdmin = role?.is_admin === true;
         excludedFeatures = role?.excluded_features || [];
+        // Admin status is derived from feature exclusions - user is admin if 'admin.role-management' is NOT excluded
+        isAdmin = !excludedFeatures.includes('admin.role-management');
         
         // Admin role has all permissions
         if (isAdmin) {
@@ -3628,10 +3629,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return { hasPermission: false, memberId: member.id };
       }
 
-      // Get the role's excluded_features and is_admin flag
+      // Get the role's excluded_features
       const { data: role, error: roleError } = await supabase
         .from('role')
-        .select('is_admin, excluded_features')
+        .select('excluded_features')
         .eq('id', member.role_id)
         .single();
 
@@ -3639,14 +3640,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return { hasPermission: false, memberId: member.id };
       }
 
-      // If role is admin, they have all permissions (for backwards compatibility)
-      if (role.is_admin === true) {
-        return { hasPermission: true, memberId: member.id };
-      }
-
       // Check if the permission is in the excluded_features array
       // If NOT excluded, the role has this permission
       const excludedFeatures = role.excluded_features || [];
+      
+      // Admin status is derived from feature exclusions - user is admin if 'admin.role-management' is NOT excluded
+      const isAdmin = !excludedFeatures.includes('admin.role-management');
+      
+      // If role is admin, they have all permissions
+      if (isAdmin) {
+        return { hasPermission: true, memberId: member.id };
+      }
+
       const hasPermission = !excludedFeatures.includes(permissionId);
 
       return { hasPermission, memberId: member.id };
@@ -9557,7 +9562,11 @@ AGCAS Events Team
         userRole = roles.find((r: any) => r.id === teamMember.role_id);
       }
 
-      if (!userRole || !userRole.is_admin) {
+      // Admin status is derived from feature exclusions - user is admin if 'admin.role-management' is NOT excluded
+      const userExcludedFeatures = userRole?.excluded_features || [];
+      const isUserAdmin = userRole && !userExcludedFeatures.includes('admin.role-management');
+      
+      if (!isUserAdmin) {
         console.log('Access denied - not an admin');
         return res.status(403).json({ error: 'Admin access required' });
       }
@@ -9882,7 +9891,11 @@ AGCAS Events Team
         });
       }
 
-      if (!currentRole.is_admin) {
+      // Admin status is derived from feature exclusions - user is admin if 'admin.role-management' is NOT excluded
+      const currentExcludedFeatures = currentRole.excluded_features || [];
+      const isCurrentUserAdmin = !currentExcludedFeatures.includes('admin.role-management');
+      
+      if (!isCurrentUserAdmin) {
         return res.status(403).json({
           error: 'Forbidden - Admin access required',
           details: 'This operation requires administrator privileges'
@@ -10269,13 +10282,18 @@ AGCAS Events Team
                 `
               });
 
-              // Notify admins
-              const { data: adminRoles } = await supabase
+              // Notify admins - find roles where admin.role-management is NOT excluded
+              const { data: allRoles } = await supabase
                 .from('role')
-                .select('*')
-                .eq('is_admin', true);
+                .select('*');
 
-              if (adminRoles && adminRoles.length > 0) {
+              // Filter to roles that have admin access (admin.role-management NOT in excluded_features)
+              const adminRoles = allRoles?.filter((r: any) => {
+                const excludedFeatures = r.excluded_features || [];
+                return !excludedFeatures.includes('admin.role-management');
+              }) || [];
+
+              if (adminRoles.length > 0) {
                 const adminRoleIds = adminRoles.map((r: any) => r.id);
                 const { data: adminMembers } = await supabase.from('member').select('*');
                 const admins = adminMembers?.filter((m: any) => adminRoleIds.includes(m.role_id)) || [];
@@ -10741,7 +10759,11 @@ AGCAS Events Team
       const { data: allRoles } = await supabase.from('role').select('*');
       const adminRole = allRoles?.find((r: any) => r.id === adminMember.role_id);
 
-      if (!adminRole || !adminRole.is_admin) {
+      // Admin status is derived from feature exclusions - user is admin if 'admin.role-management' is NOT excluded
+      const roleExcludedFeatures = adminRole?.excluded_features || [];
+      const isRoleAdmin = adminRole && !roleExcludedFeatures.includes('admin.role-management');
+      
+      if (!isRoleAdmin) {
         return res.status(403).json({
           success: false,
           error: 'User does not have administrator privileges'
@@ -10914,7 +10936,11 @@ AGCAS Events Team
       const { data: allRoles } = await supabase.from('role').select('*');
       const adminRole = allRoles?.find((r: any) => r.id === adminMember.role_id);
 
-      if (!adminRole || !adminRole.is_admin) {
+      // Admin status is derived from feature exclusions - user is admin if 'admin.role-management' is NOT excluded
+      const cancelRoleExcludedFeatures = adminRole?.excluded_features || [];
+      const isCancelRoleAdmin = adminRole && !cancelRoleExcludedFeatures.includes('admin.role-management');
+      
+      if (!isCancelRoleAdmin) {
         return res.status(403).json({
           success: false,
           error: 'User does not have administrator privileges'
@@ -11311,7 +11337,9 @@ AGCAS Events Team
           .select('*');
 
         const role = allRoles?.find((r: any) => r.id === member.role_id);
-        isAdmin = role?.is_admin || false;
+        // Admin status is derived from feature exclusions - user is admin if 'admin.role-management' is NOT excluded
+        const excludedFeatures = role?.excluded_features || [];
+        isAdmin = role && !excludedFeatures.includes('admin.role-management');
       }
 
       if (!isAdmin) {
@@ -11327,7 +11355,9 @@ AGCAS Events Team
             .select('*');
 
           const role = allRoles?.find((r: any) => r.id === teamMember.role_id);
-          isAdmin = role?.is_admin || false;
+          // Admin status is derived from feature exclusions - user is admin if 'admin.role-management' is NOT excluded
+          const excludedFeatures = role?.excluded_features || [];
+          isAdmin = role && !excludedFeatures.includes('admin.role-management');
         }
       }
 
@@ -11467,7 +11497,9 @@ AGCAS Events Team
           .select('*');
 
         const role = allRoles?.find((r: any) => r.id === member.role_id);
-        isAdmin = role?.is_admin || false;
+        // Admin status is derived from feature exclusions - user is admin if 'admin.role-management' is NOT excluded
+        const excludedFeatures = role?.excluded_features || [];
+        isAdmin = role && !excludedFeatures.includes('admin.role-management');
       }
 
       // If not found in Member, check TeamMember entity
@@ -11484,7 +11516,9 @@ AGCAS Events Team
             .select('*');
 
           const role = allRoles?.find((r: any) => r.id === teamMember.role_id);
-          isAdmin = role?.is_admin || false;
+          // Admin status is derived from feature exclusions - user is admin if 'admin.role-management' is NOT excluded
+          const excludedFeatures = role?.excluded_features || [];
+          isAdmin = role && !excludedFeatures.includes('admin.role-management');
         }
       }
 

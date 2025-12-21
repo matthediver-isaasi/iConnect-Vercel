@@ -715,8 +715,11 @@ useEffect(() => {
   const bareLayoutPages = ["Home", "TestLogin"];
 
   // Helper function to check if current user is an admin
+  // Admin status is derived from feature exclusions - user is admin if 'admin.role-management' is NOT excluded
   const isAdmin = () => {
-    return memberRole?.is_admin === true;
+    if (!memberRole) return false;
+    const roleExclusions = memberRole.excluded_features || [];
+    return !isResourceExcluded(roleExclusions, 'admin.role-management');
   };
 
   // Helper function to check if a feature is excluded for the current member
@@ -866,8 +869,11 @@ useEffect(() => {
   };
 
   // Update context with isAdmin status when memberRole changes
+  // Admin status is derived from feature exclusions - user is admin if 'admin.role-management' is NOT excluded
   useEffect(() => {
-    setContextIsAdmin(memberRole?.is_admin === true);
+    const roleExclusions = memberRole?.excluded_features || [];
+    const derivedIsAdmin = memberRole ? !isResourceExcluded(roleExclusions, 'admin.role-management') : false;
+    setContextIsAdmin(derivedIsAdmin);
   }, [memberRole, setContextIsAdmin]);
 
   // Update context with isFeatureExcluded function when memberInfo or memberRole changes

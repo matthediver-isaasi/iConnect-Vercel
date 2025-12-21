@@ -154,9 +154,12 @@ export default function TeamMemberManagementPage() {
     return role?.name || 'Unknown Role';
   };
 
+  // Admin status is derived from feature exclusions - role is admin if 'admin.role-management' is NOT excluded
   const getRoleIsAdmin = (roleId) => {
     const role = roles.find(r => r.id === roleId);
-    return role?.is_admin || false;
+    if (!role) return false;
+    const excludedFeatures = role.excluded_features || [];
+    return !excludedFeatures.includes('admin.role-management');
   };
 
   const filteredTeamMembers = teamMembers.filter(tm => {

@@ -4276,13 +4276,18 @@ const functionHandlers = {
               `
             });
             
-            // Notify admins
-            const { data: adminRoles } = await supabase
+            // Notify admins - find roles where admin.role-management is NOT excluded
+            const { data: allRoles } = await supabase
               .from('role')
-              .select('*')
-              .eq('is_admin', true);
+              .select('*');
             
-            if (adminRoles && adminRoles.length > 0) {
+            // Filter to roles that have admin access (admin.role-management NOT in excluded_features)
+            const adminRoles = allRoles?.filter(r => {
+              const excludedFeatures = r.excluded_features || [];
+              return !excludedFeatures.includes('admin.role-management');
+            }) || [];
+            
+            if (adminRoles.length > 0) {
               const adminRoleIds = adminRoles.map(r => r.id);
               const { data: adminMembers } = await supabase.from('member').select('*');
               const admins = adminMembers?.filter(m => adminRoleIds.includes(m.role_id)) || [];
