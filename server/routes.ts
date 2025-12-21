@@ -9,6 +9,12 @@ import OpenAI from "openai";
 import { evaluateWorkflows } from "./workflowEngine";
 import { sendEmail } from "./emailService";
 
+// Helper to strip HTML tags from text
+function stripHtml(html: string | null | undefined): string {
+  if (!html) return '';
+  return html.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').trim();
+}
+
 // Supabase client for server-side operations
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -1420,9 +1426,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
             type: 'event',
             id: event.id,
             title: event.title,
-            description: event.description?.substring(0, 150) || '',
+            description: stripHtml(event.description)?.substring(0, 150) || '',
             image: event.image_url,
-            url: `/events/${event.id}`,
+            url: `/EventDetails?id=${event.id}`,
             date: event.start_date
           });
         });

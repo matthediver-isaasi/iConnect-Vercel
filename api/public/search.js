@@ -1,5 +1,11 @@
 import { createClient } from '@supabase/supabase-js';
 
+// Helper to strip HTML tags from text
+function stripHtml(html) {
+  if (!html) return '';
+  return html.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').trim();
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -71,7 +77,7 @@ export default async function handler(req, res) {
           type: 'event',
           id: event.id,
           title: event.title,
-          description: event.description?.substring(0, 150) || '',
+          description: stripHtml(event.description)?.substring(0, 150) || '',
           image: event.image_url,
           url: `/EventDetails?id=${event.id}`,
           date: event.start_date
