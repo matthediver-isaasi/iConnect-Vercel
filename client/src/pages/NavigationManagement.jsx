@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { Navigation, Plus, Pencil, Trash2, ChevronRight, ChevronDown, Menu, Sparkles, Calendar, Building, Briefcase, FileText, Users, Home, Mail, Phone, X, Newspaper, PenLine, Globe, Folder, Image, MessageSquare, Bell, Star, Heart, Eye, Link, ExternalLink, Tag, Award, Bookmark, Clock, Search, MapPin, Video, Music, Camera, Mic, Headphones, Tv, Radio, Rss, Share2, Gift, Zap, Target, Flag, Layers, Grid, List, Layout, Monitor, Smartphone, Tablet, Laptop, Server, Database, Cloud, Lock, Key, UserCheck, UserPlus, UserMinus, Users2, MessageCircle, Send, Inbox, Archive, CreditCard, Ticket, Wallet, ShoppingCart, History, Settings, BookOpen, HelpCircle, Shield, BarChart3, FileEdit, AtSign, FolderTree, Trophy, MousePointer2, Download, Save, Loader2 } from "lucide-react";
+import { Navigation, Plus, Pencil, Trash2, ChevronRight, ChevronDown, Menu, Sparkles, Calendar, Building, Briefcase, FileText, Users, Home, Mail, Phone, X, Newspaper, PenLine, Globe, Folder, Image, MessageSquare, Bell, Star, Heart, Eye, Link, ExternalLink, Tag, Award, Bookmark, Clock, Search, MapPin, Video, Music, Camera, Mic, Headphones, Tv, Radio, Rss, Share2, Gift, Zap, Target, Flag, Layers, Grid, List, Layout, Monitor, Smartphone, Tablet, Laptop, Server, Database, Cloud, Lock, Key, UserCheck, UserPlus, UserMinus, Users2, MessageCircle, Send, Inbox, Archive, CreditCard, Ticket, Wallet, ShoppingCart, History, Settings, BookOpen, HelpCircle, Shield, BarChart3, FileEdit, AtSign, FolderTree, Trophy, MousePointer2, Download } from "lucide-react";
 import SocialIconsConfig from "../components/navigation/SocialIconsConfig";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -200,8 +200,6 @@ export default function NavigationManagementPage() {
   const [filterLocation, setFilterLocation] = useState("all");
   const [showIconSelector, setShowIconSelector] = useState(false);
   const [expandedItems, setExpandedItems] = useState({});
-  const [footerConfig, setFooterConfig] = useState({ termsUrl: '' });
-  const [footerSaving, setFooterSaving] = useState(false);
 
   const queryClient = useQueryClient();
 
@@ -257,58 +255,6 @@ export default function NavigationManagementPage() {
   const availablePages = useMemo(() => {
     return [...hardcodedPublicPages, ...ieditPages, ...dynamicDirectories].sort((a, b) => a.label.localeCompare(b.label));
   }, [ieditPages, dynamicDirectories]);
-
-  // Fetch footer configuration
-  const { data: footerSettings } = useQuery({
-    queryKey: ['footer-config'],
-    queryFn: async () => {
-      const allSettings = await base44.entities.SystemSettings.list();
-      return allSettings.find(s => s.setting_key === 'footer_config');
-    }
-  });
-
-  // Load footer config when settings are fetched
-  useEffect(() => {
-    if (footerSettings?.setting_value) {
-      try {
-        const config = JSON.parse(footerSettings.setting_value);
-        setFooterConfig({
-          termsUrl: config.termsUrl || ''
-        });
-      } catch (e) {
-        console.error('Failed to parse footer config:', e);
-      }
-    }
-  }, [footerSettings]);
-
-  // Save footer configuration
-  const handleSaveFooterConfig = async () => {
-    setFooterSaving(true);
-    try {
-      const configValue = JSON.stringify(footerConfig);
-      
-      if (footerSettings?.id) {
-        await base44.entities.SystemSettings.update(footerSettings.id, {
-          setting_value: configValue
-        });
-      } else {
-        await base44.entities.SystemSettings.create({
-          setting_key: 'footer_config',
-          setting_value: configValue,
-          setting_label: 'Footer Configuration',
-          setting_type: 'json'
-        });
-      }
-      
-      queryClient.invalidateQueries({ queryKey: ['footer-config'] });
-      toast.success('Footer settings saved');
-    } catch (error) {
-      console.error('Failed to save footer config:', error);
-      toast.error('Failed to save footer settings');
-    } finally {
-      setFooterSaving(false);
-    }
-  };
 
   const createMutation = useMutation({
     mutationFn: (data) => base44.entities.NavigationItem.create(data),
@@ -617,54 +563,6 @@ export default function NavigationManagementPage() {
 
         {/* Social Icons Configuration */}
         <SocialIconsConfig />
-
-        {/* Footer Configuration */}
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <FileText className="w-5 h-5" />
-              Footer Settings
-            </CardTitle>
-            <CardDescription>
-              Configure links and content displayed in the website footer
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="terms-url">Terms and Conditions Link</Label>
-                <div className="flex gap-2">
-                  <Input
-                    id="terms-url"
-                    value={footerConfig.termsUrl}
-                    onChange={(e) => setFooterConfig({ ...footerConfig, termsUrl: e.target.value })}
-                    placeholder="https://example.com/terms or /page-slug"
-                    className="flex-1"
-                    data-testid="input-terms-url"
-                  />
-                  <Button 
-                    onClick={handleSaveFooterConfig}
-                    disabled={footerSaving}
-                    className="bg-blue-600 hover:bg-blue-700"
-                    data-testid="button-save-footer"
-                  >
-                    {footerSaving ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <>
-                        <Save className="w-4 h-4 mr-2" />
-                        Save
-                      </>
-                    )}
-                  </Button>
-                </div>
-                <p className="text-xs text-slate-500">
-                  Enter a full URL (https://...) for external links, or a page slug (e.g., /terms) for internal pages
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
 
         {/* Filters and Actions */}
         <div className="flex gap-4 mb-6">
