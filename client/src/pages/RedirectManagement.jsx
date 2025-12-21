@@ -140,7 +140,7 @@ export default function RedirectManagement() {
     return (
       redirect.source_pattern?.toLowerCase().includes(query) ||
       redirect.target_url?.toLowerCase().includes(query) ||
-      redirect.description?.toLowerCase().includes(query)
+      redirect.notes?.toLowerCase().includes(query)
     );
   });
 
@@ -152,7 +152,7 @@ export default function RedirectManagement() {
       status_code: 301,
       priority: redirects.length + 1,
       is_active: true,
-      description: "",
+      notes: "",
     });
     setRegexError("");
     setShowDialog(true);
@@ -203,7 +203,7 @@ export default function RedirectManagement() {
       status_code: editingRedirect.status_code,
       priority: editingRedirect.priority,
       is_active: editingRedirect.is_active,
-      description: editingRedirect.description?.trim() || null,
+      notes: editingRedirect.notes?.trim() || null,
     };
 
     if (editingRedirect.id) {
@@ -330,8 +330,8 @@ export default function RedirectManagement() {
                       <code className="text-sm bg-muted px-2 py-1 rounded" data-testid={`text-source-${redirect.id}`}>
                         {redirect.source_pattern}
                       </code>
-                      {redirect.description && (
-                        <p className="text-xs text-muted-foreground mt-1">{redirect.description}</p>
+                      {redirect.notes && (
+                        <p className="text-xs text-muted-foreground mt-1">{redirect.notes}</p>
                       )}
                     </TableCell>
                     <TableCell>
@@ -497,14 +497,14 @@ export default function RedirectManagement() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="description">Description (Optional)</Label>
+                <Label htmlFor="notes">Notes (Optional)</Label>
                 <Textarea
-                  id="description"
-                  value={editingRedirect.description || ""}
-                  onChange={(e) => setEditingRedirect({ ...editingRedirect, description: e.target.value })}
+                  id="notes"
+                  value={editingRedirect.notes || ""}
+                  onChange={(e) => setEditingRedirect({ ...editingRedirect, notes: e.target.value })}
                   placeholder="e.g., Legacy URL from old website"
                   rows={2}
-                  data-testid="input-description"
+                  data-testid="input-notes"
                 />
               </div>
 
