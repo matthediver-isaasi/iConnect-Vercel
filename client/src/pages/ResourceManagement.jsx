@@ -2281,9 +2281,6 @@ export default function ResourceManagementPage() {
                             className="flex-1 cursor-pointer text-sm"
                           >
                             {role.name}
-                            {role.is_admin && (
-                              <Badge className="ml-2 bg-amber-100 text-amber-700 text-xs">Admin</Badge>
-                            )}
                           </Label>
                         </div>
                       ))}
