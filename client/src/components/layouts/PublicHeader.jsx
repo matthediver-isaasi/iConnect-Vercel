@@ -750,29 +750,42 @@ export default function PublicHeader() {
                   {searchOpen && (
                     <div className="absolute top-full right-0 mt-2 w-96 bg-white rounded-lg shadow-xl border border-slate-200 z-50">
                       <div className="p-3 border-b border-slate-100">
-                        <div className="relative">
-                          {isSearching ? (
-                            <Loader2 className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400 animate-spin" />
-                          ) : (
-                            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
-                          )}
-                          <Input
-                            type="text"
-                            placeholder="Search events, articles, news, resources..."
-                            className="pl-10 pr-10"
-                            autoFocus
-                            value={searchQuery}
-                            onChange={(e) => handleSearch(e.target.value)}
-                            data-testid="input-search"
-                          />
-                          {searchQuery && (
-                            <button
-                              onClick={() => handleSearch('')}
-                              className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                            >
-                              <X className="w-4 h-4" />
-                            </button>
-                          )}
+                        <div className="flex items-center gap-2">
+                          <div className="relative flex-1">
+                            {isSearching ? (
+                              <Loader2 className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400 animate-spin" />
+                            ) : (
+                              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
+                            )}
+                            <Input
+                              type="text"
+                              placeholder="Search events, articles, news, resources..."
+                              className="pl-10 pr-10"
+                              autoFocus
+                              value={searchQuery}
+                              onChange={(e) => handleSearch(e.target.value)}
+                              data-testid="input-search"
+                            />
+                            {searchQuery && (
+                              <button
+                                onClick={() => handleSearch('')}
+                                className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
+                          <button
+                            onClick={() => {
+                              setSearchOpen(false);
+                              setSearchQuery('');
+                              setSearchResults([]);
+                            }}
+                            className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-md transition-colors"
+                            data-testid="button-close-search"
+                          >
+                            <X className="w-5 h-5" />
+                          </button>
                         </div>
                       </div>
                       
