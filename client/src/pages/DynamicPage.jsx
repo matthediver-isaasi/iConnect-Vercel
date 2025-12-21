@@ -213,7 +213,7 @@ export default function DynamicPage() {
   }, [page, pageLoading, isPublicPage, isHybridPage, isLoggedIn, setForcePublicLayout, dynamicArticleRoute]);
 
   // Check for redirect mappings when page is not found
-  const shouldCheckRedirect = !pageLoading && !page && !dynamicArticleRoute && slug;
+  const shouldCheckRedirect = !pageLoading && !page && !dynamicArticleRoute && !!slug;
   const { data: redirectResult, isLoading: redirectLoading } = useQuery({
     queryKey: ['redirect-resolve', slug],
     queryFn: async () => {
