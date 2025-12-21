@@ -131,6 +131,7 @@ const builtInPages = [
   { value: "PublicNews", label: "Public - News" },
   { value: "PublicResources", label: "Public - Resources" },
   { value: "Resources", label: "Resources" },
+  { value: "RedirectManagement", label: "Redirect Management" },
   { value: "ResourceManagement", label: "Resource Management" },
   { value: "ResourceSettings", label: "Resource Settings" },
   { value: "RoleManagement", label: "Role Management" },

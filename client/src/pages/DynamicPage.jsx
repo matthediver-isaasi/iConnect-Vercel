@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useLocation, useNavigate } from "react-router-dom";
 import { base44 } from "@/api/base44Client";
 import { useQuery } from "@tanstack/react-query";
@@ -212,29 +212,57 @@ export default function DynamicPage() {
     };
   }, [page, pageLoading, isPublicPage, isHybridPage, isLoggedIn, setForcePublicLayout, dynamicArticleRoute]);
 
-  // Handle 404 - redirect based on authentication status
+  // Check for redirect mappings when page is not found
+  const shouldCheckRedirect = !pageLoading && !page && !dynamicArticleRoute && slug;
+  const { data: redirectResult, isLoading: redirectLoading } = useQuery({
+    queryKey: ['redirect-resolve', slug],
+    queryFn: async () => {
+      const currentPath = '/' + slug;
+      const response = await fetch(`/api/redirects/resolve?path=${encodeURIComponent(currentPath)}`);
+      if (!response.ok) return { found: false };
+      return response.json();
+    },
+    enabled: shouldCheckRedirect,
+    staleTime: 60000
+  });
+
+  // Handle 404 - check redirect mappings first, then fall back to default behavior
   // We need to wait for access state to be determined:
   // - For guests: memberInfo is null (from localStorage init, not undefined)
   // - For logged-in users: isAccessReady will be true after role is loaded
-  // Note: memberInfo starts as null for guests (from useMemberAccess useState init)
   const isGuest = memberInfo === null;
   const authCheckComplete = isGuest || isAccessReady;
   
   useEffect(() => {
-    // Only redirect after page query has completed and we know the page doesn't exist
-    if (!pageLoading && !page && !dynamicArticleRoute && authCheckComplete) {
-      if (memberInfo) {
-        // Logged in user: redirect to role's default landing page
-        const landingPage = memberRole?.default_landing_page || 'Preferences';
-        console.log('[DynamicPage] 404 redirect - logged in user to:', landingPage);
-        navigate(`/${landingPage}`, { replace: true });
-      } else {
-        // Guest: redirect to home page
-        console.log('[DynamicPage] 404 redirect - guest to home');
-        navigate('/', { replace: true });
+    // Wait for page and redirect lookup to complete
+    if (!pageLoading && !page && !dynamicArticleRoute && !redirectLoading) {
+      // Check if we have a redirect mapping
+      if (redirectResult?.found && redirectResult?.target_url) {
+        console.log('[DynamicPage] Redirect mapping found:', redirectResult.target_url);
+        // Handle external vs internal redirects
+        if (redirectResult.target_url.startsWith('http://') || redirectResult.target_url.startsWith('https://')) {
+          window.location.href = redirectResult.target_url;
+        } else {
+          navigate(redirectResult.target_url, { replace: true });
+        }
+        return;
+      }
+      
+      // No redirect mapping found - use default 404 behavior
+      if (authCheckComplete) {
+        if (memberInfo) {
+          // Logged in user: redirect to role's default landing page
+          const landingPage = memberRole?.default_landing_page || 'Preferences';
+          console.log('[DynamicPage] 404 redirect - logged in user to:', landingPage);
+          navigate(`/${landingPage}`, { replace: true });
+        } else {
+          // Guest: redirect to home page
+          console.log('[DynamicPage] 404 redirect - guest to home');
+          navigate('/', { replace: true });
+        }
       }
     }
-  }, [page, pageLoading, dynamicArticleRoute, authCheckComplete, memberInfo, memberRole, navigate]);
+  }, [page, pageLoading, dynamicArticleRoute, redirectLoading, redirectResult, authCheckComplete, memberInfo, memberRole, navigate]);
 
   // Debug: Log what's being rendered
   console.log('[DynamicPage] slug:', slug);

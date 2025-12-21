@@ -87,6 +87,7 @@ const entityToTable = {
   'Workflow': 'workflow',
   'WorkflowLog': 'workflow_log',
   'RoleAccessItem': 'role_access_item',
+  'RedirectMapping': 'redirect_mapping',
 };
 
 const getTableName = (entity) => entityToTable[entity] || entity.toLowerCase().replace(/([A-Z])/g, '_$1').toLowerCase().replace(/^_/, '');

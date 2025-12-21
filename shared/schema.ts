@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, boolean, timestamp, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, boolean, timestamp, jsonb, integer } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -77,3 +77,24 @@ export const insertRoleOrganizationFieldPermissionSchema = createInsertSchema(ro
 
 export type InsertRoleOrganizationFieldPermission = z.infer<typeof insertRoleOrganizationFieldPermissionSchema>;
 export type RoleOrganizationFieldPermission = typeof roleOrganizationFieldPermission.$inferSelect;
+
+// URL Redirect mappings for legacy URL handling
+export const redirectMapping = pgTable("redirect_mapping", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  source_pattern: text("source_pattern").notNull(), // The incoming URL path to match
+  target_url: text("target_url").notNull(), // The destination URL to redirect to
+  match_type: text("match_type").notNull().default('exact'), // 'exact', 'prefix', 'regex'
+  status_code: integer("status_code").notNull().default(301), // HTTP status code (301 permanent, 302 temporary)
+  priority: integer("priority").notNull().default(100), // Lower numbers = higher priority
+  is_active: boolean("is_active").default(true),
+  notes: text("notes"), // Optional notes about the redirect
+  created_at: timestamp("created_at").defaultNow(),
+});
+
+export const insertRedirectMappingSchema = createInsertSchema(redirectMapping).omit({
+  id: true,
+  created_at: true,
+});
+
+export type InsertRedirectMapping = z.infer<typeof insertRedirectMappingSchema>;
+export type RedirectMapping = typeof redirectMapping.$inferSelect;

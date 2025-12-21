@@ -234,6 +234,8 @@ import DynamicDirectoryManagement from "./DynamicDirectoryManagement";
 
 import DynamicDirectoryView from "./DynamicDirectoryView";
 
+import RedirectManagement from "./RedirectManagement";
+
 import { BrowserRouter as Router, Route, Routes, useLocation } from 'react-router-dom';
 import { LayoutProvider } from '@/contexts/LayoutContext';
 import { ArticleUrlProvider } from '@/contexts/ArticleUrlContext';
@@ -747,6 +749,8 @@ function PagesContent() {
                 <Route path="/DynamicDirectoryManagement" element={<DynamicDirectoryManagement />} />
                 
                 <Route path="/directory/:slug" element={<DynamicDirectoryView />} />
+                
+                <Route path="/RedirectManagement" element={<RedirectManagement />} />
                 
                 {/* Folder-based article URLs: /{basePath}/{authorHandle}/{slug} */}
                 {/* Supports common display names: Articles, Blogs, Insights, Posts, Stories, News */}
