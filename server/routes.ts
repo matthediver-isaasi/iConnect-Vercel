@@ -1334,6 +1334,146 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Public search endpoint for unified content search across multiple content types
+  app.get('/api/public/search', async (req: Request, res: Response) => {
+    if (!supabase) {
+      return res.status(503).json({ error: 'Supabase not configured' });
+    }
+
+    try {
+      const { q, limit = '5' } = req.query;
+      
+      if (!q || typeof q !== 'string' || q.trim().length < 2) {
+        return res.json({ results: [] });
+      }
+
+      const searchTerm = q.trim().toLowerCase();
+      const resultLimit = Math.min(parseInt(limit as string) || 5, 20);
+
+      // Prepare search pattern for ilike queries
+      const searchPattern = `%${searchTerm}%`;
+
+      // Execute parallel searches across multiple content types
+      const [eventsResult, articlesResult, newsResult, resourcesResult] = await Promise.all([
+        // Search Events (public, upcoming or published)
+        supabase
+          .from('event')
+          .select('id, title, description, start_date, image_url, is_featured')
+          .or(`title.ilike.${searchPattern},description.ilike.${searchPattern}`)
+          .gte('start_date', new Date().toISOString())
+          .order('start_date', { ascending: true })
+          .limit(resultLimit),
+
+        // Search Articles/Blog Posts (published only)
+        supabase
+          .from('blog_post')
+          .select('id, title, description, featured_image, publish_date, slug')
+          .eq('status', 'published')
+          .or(`title.ilike.${searchPattern},description.ilike.${searchPattern}`)
+          .order('publish_date', { ascending: false })
+          .limit(resultLimit),
+
+        // Search News Posts (published only)
+        supabase
+          .from('news_post')
+          .select('id, title, summary, featured_image, publish_date, slug')
+          .eq('status', 'published')
+          .or(`title.ilike.${searchPattern},summary.ilike.${searchPattern}`)
+          .order('publish_date', { ascending: false })
+          .limit(resultLimit),
+
+        // Search Resources (active only)
+        supabase
+          .from('resource')
+          .select('id, title, description, thumbnail_url, content_type')
+          .eq('is_active', true)
+          .or(`title.ilike.${searchPattern},description.ilike.${searchPattern}`)
+          .order('created_at', { ascending: false })
+          .limit(resultLimit)
+      ]);
+
+      // Format results with content type tags
+      const results: Array<{
+        type: string;
+        id: string;
+        title: string;
+        description: string;
+        image?: string;
+        url: string;
+        date?: string;
+      }> = [];
+
+      // Add events
+      if (eventsResult.data) {
+        eventsResult.data.forEach(event => {
+          results.push({
+            type: 'event',
+            id: event.id,
+            title: event.title,
+            description: event.description?.substring(0, 150) || '',
+            image: event.image_url,
+            url: `/events/${event.id}`,
+            date: event.start_date
+          });
+        });
+      }
+
+      // Add articles
+      if (articlesResult.data) {
+        articlesResult.data.forEach(article => {
+          results.push({
+            type: 'article',
+            id: article.id,
+            title: article.title,
+            description: article.description?.substring(0, 150) || '',
+            image: article.featured_image,
+            url: `/blog/${article.slug || article.id}`,
+            date: article.publish_date
+          });
+        });
+      }
+
+      // Add news
+      if (newsResult.data) {
+        newsResult.data.forEach(news => {
+          results.push({
+            type: 'news',
+            id: news.id,
+            title: news.title,
+            description: news.summary?.substring(0, 150) || '',
+            image: news.featured_image,
+            url: `/news/${news.slug || news.id}`,
+            date: news.publish_date
+          });
+        });
+      }
+
+      // Add resources
+      if (resourcesResult.data) {
+        resourcesResult.data.forEach(resource => {
+          results.push({
+            type: 'resource',
+            id: resource.id,
+            title: resource.title,
+            description: resource.description?.substring(0, 150) || '',
+            image: resource.thumbnail_url,
+            url: `/resources/${resource.id}`
+          });
+        });
+      }
+
+      res.json({
+        results,
+        query: searchTerm,
+        total: results.length
+      });
+
+    } catch (error) {
+      console.error('Search error:', error);
+      res.status(500).json({ error: 'Failed to perform search' });
+    }
+  });
+
   // Public endpoint to resolve redirect mappings for legacy URLs
   app.get('/api/redirects/resolve', async (req: Request, res: Response) => {
     if (!supabase) {

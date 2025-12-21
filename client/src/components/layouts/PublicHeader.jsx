@@ -1,9 +1,9 @@
-import { useState, useEffect, useCallback } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { base44 } from "@/api/base44Client";
 import { useNavigationRealtime } from "@/hooks/useNavigationRealtime";
-import { Search, User, ArrowUpRight, LogOut, ChevronDown, ChevronRight, Calendar, Building, Briefcase, FileText, Users, Sparkles, Home, Mail, Phone, Menu, X } from "lucide-react";
+import { Search, User, ArrowUpRight, LogOut, ChevronDown, ChevronRight, Calendar, Building, Briefcase, FileText, Users, Sparkles, Home, Mail, Phone, Menu, X, Loader2, Newspaper, BookOpen, FolderOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -23,6 +23,21 @@ const iconMap = {
   ChevronDown
 };
 
+// Type icon mapping for search results
+const typeIconMap = {
+  event: Calendar,
+  article: BookOpen,
+  news: Newspaper,
+  resource: FolderOpen
+};
+
+const typeLabels = {
+  event: 'Event',
+  article: 'Article',
+  news: 'News',
+  resource: 'Resource'
+};
+
 export default function PublicHeader() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -34,7 +49,16 @@ export default function PublicHeader() {
   const [closeTimeout, setCloseTimeout] = useState(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [mobileExpandedMenus, setMobileExpandedMenus] = useState({});
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [mobileSearchQuery, setMobileSearchQuery] = useState('');
+  const [mobileSearchResults, setMobileSearchResults] = useState([]);
+  const [isMobileSearching, setIsMobileSearching] = useState(false);
+  const searchTimeoutRef = useRef(null);
+  const mobileSearchTimeoutRef = useRef(null);
   const location = useLocation();
+  const navigate = useNavigate();
 
   // Close mobile menu on route change
   useEffect(() => {
@@ -157,6 +181,106 @@ export default function PublicHeader() {
     setMobileMenuOpen(false);
     window.location.href = createPageUrl('Home');
   };
+
+  // Debounced search handler for desktop
+  const handleSearch = useCallback((query) => {
+    setSearchQuery(query);
+    
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+    
+    if (!query || query.trim().length < 2) {
+      setSearchResults([]);
+      setIsSearching(false);
+      return;
+    }
+    
+    setIsSearching(true);
+    
+    searchTimeoutRef.current = setTimeout(async () => {
+      try {
+        const response = await fetch(`/api/public/search?q=${encodeURIComponent(query.trim())}&limit=8`);
+        if (response.ok) {
+          const data = await response.json();
+          setSearchResults(data.results || []);
+        }
+      } catch (error) {
+        console.error('Search error:', error);
+        setSearchResults([]);
+      } finally {
+        setIsSearching(false);
+      }
+    }, 300);
+  }, []);
+
+  // Debounced search handler for mobile
+  const handleMobileSearch = useCallback((query) => {
+    setMobileSearchQuery(query);
+    
+    if (mobileSearchTimeoutRef.current) {
+      clearTimeout(mobileSearchTimeoutRef.current);
+    }
+    
+    if (!query || query.trim().length < 2) {
+      setMobileSearchResults([]);
+      setIsMobileSearching(false);
+      return;
+    }
+    
+    setIsMobileSearching(true);
+    
+    mobileSearchTimeoutRef.current = setTimeout(async () => {
+      try {
+        const response = await fetch(`/api/public/search?q=${encodeURIComponent(query.trim())}&limit=8`);
+        if (response.ok) {
+          const data = await response.json();
+          setMobileSearchResults(data.results || []);
+        }
+      } catch (error) {
+        console.error('Mobile search error:', error);
+        setMobileSearchResults([]);
+      } finally {
+        setIsMobileSearching(false);
+      }
+    }, 300);
+  }, []);
+
+  // Handle clicking a search result
+  const handleResultClick = (url) => {
+    setSearchOpen(false);
+    setSearchQuery('');
+    setSearchResults([]);
+    navigate(url);
+  };
+
+  // Handle clicking a mobile search result
+  const handleMobileResultClick = (url) => {
+    setMobileMenuOpen(false);
+    setMobileSearchQuery('');
+    setMobileSearchResults([]);
+    navigate(url);
+  };
+
+  // Navigate to search results page
+  const handleViewAllResults = () => {
+    if (searchQuery.trim()) {
+      setSearchOpen(false);
+      navigate(`/search?q=${encodeURIComponent(searchQuery.trim())}`);
+    }
+  };
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
+      if (mobileSearchTimeoutRef.current) {
+        clearTimeout(mobileSearchTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // Check if a navigation item is active
   const isActive = (item) => {
@@ -617,33 +741,91 @@ export default function PublicHeader() {
                   <button
                     onClick={() => setSearchOpen(!searchOpen)}
                     className="flex items-center gap-2 text-white hover:opacity-80 transition-opacity text-sm font-semibold"
+                    data-testid="button-search-toggle"
                   >
                     <Search className="w-4 h-4" />
                     <span>Search</span>
                   </button>
 
                   {searchOpen && (
-                    <div className="absolute top-full right-0 mt-2 w-80 bg-white rounded-lg shadow-xl border border-slate-200 p-4 z-50">
-                      <div className="flex gap-2">
-                        <div className="relative flex-1">
-                          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <div className="absolute top-full right-0 mt-2 w-96 bg-white rounded-lg shadow-xl border border-slate-200 z-50">
+                      <div className="p-3 border-b border-slate-100">
+                        <div className="relative">
+                          {isSearching ? (
+                            <Loader2 className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400 animate-spin" />
+                          ) : (
+                            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
+                          )}
                           <Input
                             type="text"
-                            placeholder="Search..."
-                            className="pl-10"
+                            placeholder="Search events, articles, news, resources..."
+                            className="pl-10 pr-10"
                             autoFocus
+                            value={searchQuery}
+                            onChange={(e) => handleSearch(e.target.value)}
+                            data-testid="input-search"
                           />
+                          {searchQuery && (
+                            <button
+                              onClick={() => handleSearch('')}
+                              className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
-                        <Button
-                          variant="outline"
-                          onClick={() => setSearchOpen(false)}
-                        >
-                          Close
-                        </Button>
                       </div>
-                      <p className="text-xs text-slate-500 mt-3">
-                        Search functionality coming soon
-                      </p>
+                      
+                      {searchQuery.length >= 2 && (
+                        <div className="max-h-80 overflow-y-auto">
+                          {searchResults.length > 0 ? (
+                            <>
+                              {searchResults.map((result) => {
+                                const TypeIcon = typeIconMap[result.type] || FileText;
+                                return (
+                                  <button
+                                    key={`${result.type}-${result.id}`}
+                                    onClick={() => handleResultClick(result.url)}
+                                    className="w-full px-4 py-3 flex items-start gap-3 hover:bg-slate-50 transition-colors text-left border-b border-slate-50 last:border-0"
+                                    data-testid={`search-result-${result.type}-${result.id}`}
+                                  >
+                                    <div className="flex-shrink-0 w-8 h-8 bg-slate-100 rounded flex items-center justify-center">
+                                      <TypeIcon className="w-4 h-4 text-slate-600" />
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-xs font-medium text-purple-600 uppercase">{typeLabels[result.type]}</span>
+                                      </div>
+                                      <p className="font-medium text-slate-900 truncate">{result.title}</p>
+                                      {result.description && (
+                                        <p className="text-sm text-slate-500 line-clamp-1">{result.description}</p>
+                                      )}
+                                    </div>
+                                  </button>
+                                );
+                              })}
+                              <button
+                                onClick={handleViewAllResults}
+                                className="w-full px-4 py-3 text-center text-sm font-medium text-purple-600 hover:bg-slate-50 transition-colors"
+                                data-testid="button-view-all-results"
+                              >
+                                View all results
+                              </button>
+                            </>
+                          ) : !isSearching && (
+                            <div className="px-4 py-8 text-center text-slate-500">
+                              <Search className="w-8 h-8 mx-auto mb-2 text-slate-300" />
+                              <p className="text-sm">No results found for "{searchQuery}"</p>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      
+                      {searchQuery.length < 2 && (
+                        <div className="px-4 py-6 text-center text-slate-400 text-sm">
+                          Type at least 2 characters to search
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -813,13 +995,71 @@ export default function PublicHeader() {
           {/* Search Bar */}
           <div className="p-4 border-b border-slate-200">
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
+              {isMobileSearching ? (
+                <Loader2 className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400 animate-spin" />
+              ) : (
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
+              )}
               <Input
                 type="text"
-                placeholder="Search..."
-                className="pl-10 w-full"
+                placeholder="Search events, articles, news..."
+                className="pl-10 pr-10 w-full"
+                value={mobileSearchQuery}
+                onChange={(e) => handleMobileSearch(e.target.value)}
+                data-testid="input-mobile-search"
               />
+              {mobileSearchQuery && (
+                <button
+                  onClick={() => handleMobileSearch('')}
+                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
             </div>
+            
+            {/* Mobile Search Results */}
+            {mobileSearchQuery.length >= 2 && (
+              <div className="mt-3 max-h-60 overflow-y-auto rounded-lg border border-slate-200 bg-white">
+                {mobileSearchResults.length > 0 ? (
+                  <>
+                    {mobileSearchResults.map((result) => {
+                      const TypeIcon = typeIconMap[result.type] || FileText;
+                      return (
+                        <button
+                          key={`mobile-${result.type}-${result.id}`}
+                          onClick={() => handleMobileResultClick(result.url)}
+                          className="w-full px-3 py-2.5 flex items-start gap-2 hover:bg-slate-50 transition-colors text-left border-b border-slate-100 last:border-0"
+                          data-testid={`mobile-search-result-${result.type}-${result.id}`}
+                        >
+                          <div className="flex-shrink-0 w-6 h-6 bg-slate-100 rounded flex items-center justify-center">
+                            <TypeIcon className="w-3 h-3 text-slate-600" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <span className="text-xs font-medium text-purple-600 uppercase">{typeLabels[result.type]}</span>
+                            <p className="font-medium text-slate-900 text-sm truncate">{result.title}</p>
+                          </div>
+                        </button>
+                      );
+                    })}
+                    <button
+                      onClick={() => {
+                        setMobileMenuOpen(false);
+                        navigate(`/search?q=${encodeURIComponent(mobileSearchQuery.trim())}`);
+                      }}
+                      className="w-full px-3 py-2 text-center text-sm font-medium text-purple-600 hover:bg-slate-50 transition-colors"
+                      data-testid="button-mobile-view-all-results"
+                    >
+                      View all results
+                    </button>
+                  </>
+                ) : !isMobileSearching && (
+                  <div className="px-3 py-4 text-center text-slate-500 text-sm">
+                    No results found
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Navigation Items */}

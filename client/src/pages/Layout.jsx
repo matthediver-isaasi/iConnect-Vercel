@@ -702,7 +702,7 @@ useEffect(() => {
   setContextMemberRole(memberRole);
 }, [memberRole, setContextMemberRole]);
 
-  const publicPages = ["Home", "TestLogin", "Login", "ResetPassword", "UnpackedInternationalEmployability", "PublicEvents", "PublicAbout", "PublicContact", "PublicResources", "PublicArticles", "PublicNews", "sharon", "content"];
+  const publicPages = ["Home", "TestLogin", "Login", "ResetPassword", "UnpackedInternationalEmployability", "PublicEvents", "PublicAbout", "PublicContact", "PublicResources", "PublicArticles", "PublicNews", "sharon", "content", "Search", "search", "SearchResults"];
   
   // Hybrid pages that work both as public (for non-members) and portal (for members)
   // "_DynamicPage" is a special marker for CMS pages (e.g. /homely) that handle their own auth

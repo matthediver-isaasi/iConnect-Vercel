@@ -236,6 +236,8 @@ import DynamicDirectoryView from "./DynamicDirectoryView";
 
 import RedirectManagement from "./RedirectManagement";
 
+import SearchResults from "./SearchResults";
+
 import { BrowserRouter as Router, Route, Routes, useLocation } from 'react-router-dom';
 import { LayoutProvider } from '@/contexts/LayoutContext';
 import { ArticleUrlProvider } from '@/contexts/ArticleUrlContext';
@@ -472,6 +474,10 @@ const PAGES = {
     DynamicDirectoryManagement: DynamicDirectoryManagement,
     
     DynamicDirectoryView: DynamicDirectoryView,
+    
+    SearchResults: SearchResults,
+    Search: SearchResults,
+    search: SearchResults,
     
 }
 
@@ -751,6 +757,9 @@ function PagesContent() {
                 <Route path="/directory/:slug" element={<DynamicDirectoryView />} />
                 
                 <Route path="/RedirectManagement" element={<RedirectManagement />} />
+                
+                <Route path="/search" element={<SearchResults />} />
+                <Route path="/Search" element={<SearchResults />} />
                 
                 {/* Folder-based article URLs: /{basePath}/{authorHandle}/{slug} */}
                 {/* Supports common display names: Articles, Blogs, Insights, Posts, Stories, News */}
