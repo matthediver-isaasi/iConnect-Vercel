@@ -912,18 +912,27 @@ useEffect(() => {
 
   // isAdmin context update removed - access control now uses isFeatureExcluded() exclusively
 
-  // Update context with isFeatureExcluded function when memberInfo or memberRole changes
+  // Update context with isFeatureExcluded function when memberInfo, memberRole, or publicRole changes
   // Uses the new hierarchical role visibility system
+  // For non-logged-in users, uses the "Public" role's exclusions
   useEffect(() => {
     const isFeatureExcludedFn = (featureId) => {
-      if (!memberInfo || !featureId) return false;
+      if (!featureId) return false;
+      
+      // For non-logged-in users, use Public role exclusions
+      if (!memberInfo) {
+        const publicExclusions = publicRole?.excluded_features || [];
+        return isResourceExcluded(publicExclusions, featureId);
+      }
+      
+      // For logged-in users, combine role-level and member-specific exclusions
       const roleExclusions = memberRole?.excluded_features || [];
       const memberExclusions = memberInfo.member_excluded_features || [];
       const allExclusions = [...new Set([...roleExclusions, ...memberExclusions])];
       return isResourceExcluded(allExclusions, featureId);
     };
     setContextIsFeatureExcluded(isFeatureExcludedFn);
-  }, [memberInfo, memberRole, setContextIsFeatureExcluded]);
+  }, [memberInfo, memberRole, publicRole, setContextIsFeatureExcluded]);
 
   // Update context with reloadMemberInfo function
   useEffect(() => {
