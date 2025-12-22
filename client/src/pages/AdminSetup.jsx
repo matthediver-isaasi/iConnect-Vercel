@@ -53,6 +53,10 @@ export default function AdminSetupPage() {
   const [dateDisplayFormat, setDateDisplayFormat] = useState("dd MMM yyyy");
   const [dateFormatSaving, setDateFormatSaving] = useState(false);
   
+  // Xero VAT rates state
+  const [vatSyncLoading, setVatSyncLoading] = useState(false);
+  const [vatSyncResult, setVatSyncResult] = useState(null);
+  
   // Email settings state
   const [welcomeEmailFromAddress, setWelcomeEmailFromAddress] = useState("");
   const [welcomeEmailFromName, setWelcomeEmailFromName] = useState("");
@@ -354,6 +358,44 @@ export default function AdminSetupPage() {
     } catch (error) {
       console.error('Xero auth error:', error);
       setXeroLoading(false);
+    }
+  };
+
+  // Sync VAT rates from Xero
+  const handleSyncVatRates = async () => {
+    setVatSyncLoading(true);
+    setVatSyncResult(null);
+    try {
+      const response = await fetch('/api/xero/sync-vat-rates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to sync VAT rates');
+      }
+      
+      setVatSyncResult({
+        success: true,
+        count: data.count,
+        rates: data.rates,
+        syncedAt: data.syncedAt
+      });
+      
+      // Refresh system settings to show updated data
+      queryClient.invalidateQueries({ queryKey: ['system-settings-logo'] });
+      
+      toast.success(`Successfully synced ${data.count} VAT rates from Xero`);
+    } catch (error) {
+      console.error('VAT sync error:', error);
+      setVatSyncResult({
+        success: false,
+        error: error.message
+      });
+      toast.error(error.message || 'Failed to sync VAT rates');
+    } finally {
+      setVatSyncLoading(false);
     }
   };
 
@@ -1100,6 +1142,115 @@ export default function AdminSetupPage() {
             )}
           </CardContent>
         </Card>
+
+        {/* Xero VAT Rates Sync Card - only shown when Xero is authenticated */}
+        {isXeroAuthenticated && (
+          <Card className="shadow-xl border-slate-200 mb-6">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Database className="w-5 h-5" />
+                Xero VAT Rates
+              </CardTitle>
+              <CardDescription>
+                Sync VAT rates from Xero for use in invoicing and pricing
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Show existing VAT rates if available */}
+              {(() => {
+                const vatRatesSetting = systemSettings.find(s => s.setting_key === 'xero_vat_rates');
+                if (vatRatesSetting?.setting_value) {
+                  try {
+                    const vatData = JSON.parse(vatRatesSetting.setting_value);
+                    return (
+                      <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg">
+                        <div className="flex items-center justify-between mb-3">
+                          <h4 className="font-medium text-slate-900">Stored VAT Rates</h4>
+                          <span className="text-xs text-slate-500">
+                            Last synced: {vatData.syncedAt ? new Date(vatData.syncedAt).toLocaleString() : 'Unknown'}
+                          </span>
+                        </div>
+                        <div className="space-y-2 max-h-48 overflow-y-auto">
+                          {vatData.rates?.slice(0, 10).map((rate, idx) => (
+                            <div key={idx} className="flex items-center justify-between text-sm py-1 border-b border-slate-100 last:border-0">
+                              <span className="text-slate-700">{rate.name}</span>
+                              <span className="font-medium text-slate-900">{rate.effectiveRate}%</span>
+                            </div>
+                          ))}
+                          {vatData.rates?.length > 10 && (
+                            <p className="text-xs text-slate-500 pt-2">
+                              ...and {vatData.rates.length - 10} more rates
+                            </p>
+                          )}
+                        </div>
+                        <p className="text-xs text-slate-500 mt-3">
+                          Total: {vatData.count || vatData.rates?.length || 0} VAT rates stored
+                        </p>
+                      </div>
+                    );
+                  } catch (e) {
+                    return null;
+                  }
+                }
+                return (
+                  <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                    <p className="text-sm text-amber-800">
+                      No VAT rates synced yet. Click the button below to fetch rates from Xero.
+                    </p>
+                  </div>
+                );
+              })()}
+
+              {/* Show sync result if just synced */}
+              {vatSyncResult && (
+                <div className={`flex items-start gap-3 p-4 rounded-lg border ${
+                  vatSyncResult.success 
+                    ? 'bg-green-50 border-green-200' 
+                    : 'bg-red-50 border-red-200'
+                }`}>
+                  {vatSyncResult.success ? (
+                    <>
+                      <CheckCircle2 className="w-5 h-5 text-green-600 shrink-0 mt-0.5" />
+                      <div>
+                        <h3 className="font-semibold text-green-900 mb-1">Sync Complete</h3>
+                        <p className="text-sm text-green-700">
+                          Successfully synced {vatSyncResult.count} VAT rates from Xero
+                        </p>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <AlertTriangle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+                      <div>
+                        <h3 className="font-semibold text-red-900 mb-1">Sync Failed</h3>
+                        <p className="text-sm text-red-700">{vatSyncResult.error}</p>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
+              <Button
+                onClick={handleSyncVatRates}
+                disabled={vatSyncLoading}
+                className="w-full"
+                variant="outline"
+              >
+                {vatSyncLoading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Syncing VAT Rates...
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="w-4 h-4 mr-2" />
+                    Sync VAT Rates from Xero
+                  </>
+                )}
+              </Button>
+            </CardContent>
+          </Card>
+        )}
 
         {isAuthenticated && (
           <Card className="shadow-xl border-slate-200">
