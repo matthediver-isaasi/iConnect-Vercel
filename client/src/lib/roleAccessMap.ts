@@ -373,6 +373,10 @@ export const ROLE_ACCESS_MAP: Module[] = [
       {
         id: "forms.submissions",
         label: "View Submissions"
+      },
+      {
+        id: "forms.settings",
+        label: "Form Settings"
       }
     ]
   },
@@ -731,6 +735,7 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_InstalledFonts": "site-builder.fonts",
   "page_FormManagement": "forms.form-management",
   "page_FormSubmissions": "forms.submissions",
+  "page_FormSettings": "forms.settings",
   "page_FloaterManagement": "site-builder.floaters",
   "page_TeamInviteSettings": "system.team-invite",
   "page_TourManagement": "system.tours",
