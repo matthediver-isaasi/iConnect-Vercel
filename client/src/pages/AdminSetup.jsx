@@ -1221,9 +1221,14 @@ export default function AdminSetupPage() {
                   ) : (
                     <>
                       <AlertTriangle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
-                      <div>
+                      <div className="flex-1">
                         <h3 className="font-semibold text-red-900 mb-1">Sync Failed</h3>
                         <p className="text-sm text-red-700">{vatSyncResult.error}</p>
+                        {(vatSyncResult.error?.includes('401') || vatSyncResult.error?.includes('expired') || vatSyncResult.error?.includes('re-authenticate')) && (
+                          <p className="text-xs text-red-600 mt-2">
+                            Please scroll up and click "Re-authenticate with Xero" to refresh your connection.
+                          </p>
+                        )}
                       </div>
                     </>
                   )}

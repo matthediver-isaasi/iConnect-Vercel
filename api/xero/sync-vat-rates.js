@@ -12,7 +12,20 @@ export default async function handler(req, res) {
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
   try {
-    const { accessToken, tenantId } = await getValidXeroAccessToken();
+    let accessToken, tenantId;
+    
+    try {
+      const tokenResult = await getValidXeroAccessToken();
+      accessToken = tokenResult.accessToken;
+      tenantId = tokenResult.tenantId;
+    } catch (tokenError) {
+      console.error("Xero token error:", tokenError);
+      return res.status(401).json({
+        success: false,
+        error: "Xero authentication failed. Please re-authenticate with Xero in Admin Setup.",
+        details: tokenError.message,
+      });
+    }
 
     const taxRatesResponse = await fetch(
       "https://api.xero.com/api.xro/2.0/TaxRates",
@@ -27,7 +40,16 @@ export default async function handler(req, res) {
 
     if (!taxRatesResponse.ok) {
       const errorText = await taxRatesResponse.text();
-      console.error("Xero TaxRates API error:", errorText);
+      console.error("Xero TaxRates API error:", taxRatesResponse.status, errorText);
+      
+      if (taxRatesResponse.status === 401) {
+        return res.status(401).json({
+          success: false,
+          error: "Xero session expired. Please re-authenticate with Xero in Admin Setup.",
+          details: errorText,
+        });
+      }
+      
       throw new Error(`Failed to fetch tax rates from Xero: ${taxRatesResponse.status}`);
     }
 
