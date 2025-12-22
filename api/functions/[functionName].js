@@ -5091,6 +5091,171 @@ const functionHandlers = {
       total: jobsToFix.length,
       errors: errors.length > 0 ? errors : undefined
     };
+  },
+
+  // ============ Organization Notes CRUD ============
+  
+  async getOrganizationNotes(params) {
+    if (!supabase) throw new Error('Supabase not configured');
+    
+    const { organization_id } = params;
+    
+    if (!organization_id) {
+      return { success: false, error: 'Organization ID is required' };
+    }
+
+    // Fetch notes
+    const { data: notes, error: fetchError } = await supabase
+      .from('organization_note')
+      .select('*')
+      .eq('organization_id', organization_id)
+      .order('created_at', { ascending: false });
+
+    if (fetchError) {
+      return { success: false, error: fetchError.message };
+    }
+
+    // Get member names for the notes
+    const memberIds = [...new Set((notes || []).map(n => n.member_id))];
+    let membersMap = {};
+    
+    if (memberIds.length > 0) {
+      const { data: members } = await supabase
+        .from('member')
+        .select('id, first_name, last_name, email')
+        .in('id', memberIds);
+      
+      if (members) {
+        membersMap = members.reduce((acc, m) => {
+          acc[m.id] = m;
+          return acc;
+        }, {});
+      }
+    }
+
+    // Enrich notes with member info
+    const enrichedNotes = (notes || []).map(note => ({
+      ...note,
+      member_name: membersMap[note.member_id] 
+        ? `${membersMap[note.member_id].first_name || ''} ${membersMap[note.member_id].last_name || ''}`.trim() || membersMap[note.member_id].email
+        : 'Unknown',
+      member_email: membersMap[note.member_id]?.email || null
+    }));
+
+    return { success: true, notes: enrichedNotes };
+  },
+
+  async createOrganizationNote(params) {
+    if (!supabase) throw new Error('Supabase not configured');
+    
+    const { organization_id, member_id, content } = params;
+    
+    if (!organization_id || !member_id || !content) {
+      return { success: false, error: 'Organization ID, member ID, and content are required' };
+    }
+
+    const { data: note, error: insertError } = await supabase
+      .from('organization_note')
+      .insert({
+        organization_id,
+        member_id,
+        content: content.trim(),
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      })
+      .select()
+      .single();
+
+    if (insertError) {
+      return { success: false, error: insertError.message };
+    }
+
+    // Get member info for the response
+    const { data: member } = await supabase
+      .from('member')
+      .select('id, first_name, last_name, email')
+      .eq('id', member_id)
+      .single();
+
+    return {
+      success: true,
+      note: {
+        ...note,
+        member_name: member 
+          ? `${member.first_name || ''} ${member.last_name || ''}`.trim() || member.email
+          : 'Unknown',
+        member_email: member?.email || null
+      }
+    };
+  },
+
+  async updateOrganizationNote(params) {
+    if (!supabase) throw new Error('Supabase not configured');
+    
+    const { note_id, content } = params;
+    
+    if (!note_id || !content) {
+      return { success: false, error: 'Note ID and content are required' };
+    }
+
+    // Check if note exists
+    const { data: existingNote, error: fetchError } = await supabase
+      .from('organization_note')
+      .select('*')
+      .eq('id', note_id)
+      .single();
+
+    if (fetchError || !existingNote) {
+      return { success: false, error: 'Note not found' };
+    }
+
+    const { data: updatedNote, error: updateError } = await supabase
+      .from('organization_note')
+      .update({
+        content: content.trim(),
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', note_id)
+      .select()
+      .single();
+
+    if (updateError) {
+      return { success: false, error: updateError.message };
+    }
+
+    return { success: true, note: updatedNote };
+  },
+
+  async deleteOrganizationNote(params) {
+    if (!supabase) throw new Error('Supabase not configured');
+    
+    const { note_id } = params;
+    
+    if (!note_id) {
+      return { success: false, error: 'Note ID is required' };
+    }
+
+    // Check if note exists
+    const { data: existingNote, error: fetchError } = await supabase
+      .from('organization_note')
+      .select('id')
+      .eq('id', note_id)
+      .single();
+
+    if (fetchError || !existingNote) {
+      return { success: false, error: 'Note not found' };
+    }
+
+    const { error: deleteError } = await supabase
+      .from('organization_note')
+      .delete()
+      .eq('id', note_id);
+
+    if (deleteError) {
+      return { success: false, error: deleteError.message };
+    }
+
+    return { success: true };
   }
 };
 
