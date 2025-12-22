@@ -15,6 +15,18 @@ export default function FloaterDisplay({ location = "portal", memberInfo, organi
   const [currentStep, setCurrentStep] = useState(0);
   const [submissionSuccess, setSubmissionSuccess] = useState(false);
 
+  // Fetch default consent message from public endpoint (works without auth)
+  const { data: defaultConsentMessage } = useQuery({
+    queryKey: ['formDefaultConsentMessage'],
+    queryFn: async () => {
+      const response = await fetch('/api/public/form-consent-message');
+      if (!response.ok) return '';
+      const data = await response.json();
+      return data.message || '';
+    },
+    staleTime: 5 * 60 * 1000 // Cache for 5 minutes
+  });
+
   // Fetch full member record to get job_title (was base44.entities.Member.list)
   const { data: memberRecord } = useQuery({
     queryKey: ["member-record", memberInfo?.email],
@@ -445,6 +457,11 @@ export default function FloaterDisplay({ location = "portal", memberInfo, organi
                       </Button>
                     )}
                   </div>
+                  {currentStep === selectedForm.fields.length - 1 && defaultConsentMessage && (
+                    <p className="text-xs text-slate-500 text-center mt-2" data-testid="text-consent-message">
+                      {defaultConsentMessage}
+                    </p>
+                  )}
                 </div>
               ) : (
                 <form onSubmit={handleFormSubmit} className="space-y-6">
@@ -496,6 +513,11 @@ export default function FloaterDisplay({ location = "portal", memberInfo, organi
                       )}
                     </Button>
                   </div>
+                  {defaultConsentMessage && (
+                    <p className="text-xs text-slate-500 text-center mt-2" data-testid="text-consent-message">
+                      {defaultConsentMessage}
+                    </p>
+                  )}
                 </form>
               )}
             </>
