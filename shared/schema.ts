@@ -98,3 +98,22 @@ export const insertRedirectMappingSchema = createInsertSchema(redirectMapping).o
 
 export type InsertRedirectMapping = z.infer<typeof insertRedirectMappingSchema>;
 export type RedirectMapping = typeof redirectMapping.$inferSelect;
+
+// Organization notes - for tracking notes on organizations by members
+export const organizationNote = pgTable("organization_note", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organization_id: varchar("organization_id").notNull(), // References organization.id
+  member_id: varchar("member_id").notNull(), // References member.id - who added the note
+  content: text("content").notNull(), // The note text
+  created_at: timestamp("created_at").defaultNow(),
+  updated_at: timestamp("updated_at").defaultNow(),
+});
+
+export const insertOrganizationNoteSchema = createInsertSchema(organizationNote).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertOrganizationNote = z.infer<typeof insertOrganizationNoteSchema>;
+export type OrganizationNote = typeof organizationNote.$inferSelect;
