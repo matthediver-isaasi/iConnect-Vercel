@@ -1,44 +1,9 @@
 import { createClient } from '@supabase/supabase-js';
-import { parse } from 'cookie';
-import { unsign } from 'cookie-signature';
 
 // Helper to strip HTML tags from text
 function stripHtml(html) {
   if (!html) return '';
   return html.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').trim();
-}
-
-// Helper to check if user is authenticated via session
-async function getMemberIdFromSession(req, supabase) {
-  try {
-    const cookies = parse(req.headers.cookie || '');
-    const signedSessionId = cookies['connect.sid'];
-    
-    if (!signedSessionId) return null;
-    
-    // Remove 's:' prefix and unsign the cookie
-    const sessionId = signedSessionId.startsWith('s:') 
-      ? unsign(signedSessionId.slice(2), process.env.SESSION_SECRET || 'your-secret-key')
-      : null;
-    
-    if (!sessionId) return null;
-    
-    // Look up session in database
-    const { data: sessionData } = await supabase
-      .from('session')
-      .select('sess')
-      .eq('sid', sessionId)
-      .single();
-    
-    if (sessionData?.sess?.memberId) {
-      return sessionData.sess.memberId;
-    }
-    
-    return null;
-  } catch (error) {
-    console.error('Session lookup error:', error);
-    return null;
-  }
 }
 
 export default async function handler(req, res) {
@@ -66,24 +31,7 @@ export default async function handler(req, res) {
     const searchPattern = `%${searchTerm}%`;
     const limitNum = Math.min(parseInt(limit) || 20, 50);
 
-    // Check if user is authenticated
-    const memberId = await getMemberIdFromSession(req, supabase);
-    const isAuthenticated = !!memberId;
-
     const results = [];
-
-    // Build resource query - include member-only resources if authenticated
-    let resourceQuery = supabase
-      .from('resource')
-      .select('id, title, description, image_url, resource_type')
-      .or(`title.ilike.${searchPattern},description.ilike.${searchPattern}`)
-      .eq('status', 'active')
-      .limit(limitNum);
-    
-    // Only filter to public resources if not authenticated
-    if (!isAuthenticated) {
-      resourceQuery = resourceQuery.eq('is_public', true);
-    }
 
     const [eventsResult, articlesResult, newsResult, resourcesResult, pagesResult] = await Promise.all([
       supabase
@@ -107,7 +55,13 @@ export default async function handler(req, res) {
         .eq('status', 'published')
         .limit(limitNum),
       
-      resourceQuery,
+      // Resources - show all active resources regardless of member-only status
+      supabase
+        .from('resource')
+        .select('id, title, description, image_url, resource_type')
+        .or(`title.ilike.${searchPattern},description.ilike.${searchPattern}`)
+        .eq('status', 'active')
+        .limit(limitNum),
       
       supabase
         .from('i_edit_page')
