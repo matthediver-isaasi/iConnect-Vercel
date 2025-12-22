@@ -73,6 +73,18 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   const urlParams = new URLSearchParams(window.location.search);
   const prefillMemberId = urlParams.get('member_id');
   const prefillOrgId = urlParams.get('organization_id');
+
+  // Fetch default consent message from public endpoint (works without auth)
+  const { data: defaultConsentMessage } = useQuery({
+    queryKey: ['formDefaultConsentMessage'],
+    queryFn: async () => {
+      const response = await fetch('/api/public/form-consent-message');
+      if (!response.ok) return '';
+      const data = await response.json();
+      return data.message || '';
+    },
+    staleTime: 5 * 60 * 1000 // Cache for 5 minutes
+  });
   
   // Track if prefill has been applied and defaults initialized
   const [prefillApplied, setPrefillApplied] = useState(false);
@@ -1031,38 +1043,45 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                 </div>
               )}
             </CardContent>
-            <div className="p-6 pt-0 flex justify-between">
-              <Button
-                variant="outline"
-                onClick={() => setCurrentStep(currentStep - 1)}
-                disabled={currentStep === 0}
-              >
-                <ChevronLeft className="w-4 h-4 mr-2" />
-                Previous
-              </Button>
-              {isLastStep ? (
-                <Button 
-                  onClick={handleSubmit}
-                  disabled={!canProceed || isSubmitting}
-                  className="bg-blue-600 hover:bg-blue-700"
-                >
-                  {isSubmitting ? (
-                    <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Submitting...
-                    </>
-                  ) : (
-                    form.submit_button_text || 'Submit'
-                  )}
-                </Button>
-              ) : (
+            <div className="p-6 pt-0 flex flex-col gap-2">
+              <div className="flex justify-between">
                 <Button
-                  onClick={() => setCurrentStep(currentStep + 1)}
-                  disabled={!canProceed}
+                  variant="outline"
+                  onClick={() => setCurrentStep(currentStep - 1)}
+                  disabled={currentStep === 0}
                 >
-                  Next
-                  <ChevronRight className="w-4 h-4 ml-2" />
+                  <ChevronLeft className="w-4 h-4 mr-2" />
+                  Previous
                 </Button>
+                {isLastStep ? (
+                  <Button 
+                    onClick={handleSubmit}
+                    disabled={!canProceed || isSubmitting}
+                    className="bg-blue-600 hover:bg-blue-700"
+                  >
+                    {isSubmitting ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Submitting...
+                      </>
+                    ) : (
+                      form.submit_button_text || 'Submit'
+                    )}
+                  </Button>
+                ) : (
+                  <Button
+                    onClick={() => setCurrentStep(currentStep + 1)}
+                    disabled={!canProceed}
+                  >
+                    Next
+                    <ChevronRight className="w-4 h-4 ml-2" />
+                  </Button>
+                )}
+              </div>
+              {isLastStep && defaultConsentMessage && (
+                <p className="text-xs text-slate-500 text-center mt-2" data-testid="text-consent-message">
+                  {defaultConsentMessage}
+                </p>
               )}
             </div>
           </Card>
@@ -1245,6 +1264,11 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                 </Button>
               )}
             </div>
+            {(isLastPage || !hasPages) && defaultConsentMessage && (
+              <p className="text-xs text-slate-500 text-center mt-2" data-testid="text-consent-message">
+                {defaultConsentMessage}
+              </p>
+            )}
           </CardContent>
         </Card>
       </div>
