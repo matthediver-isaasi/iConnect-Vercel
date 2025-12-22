@@ -1317,6 +1317,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Public endpoint for form consent message
+  app.get('/api/public/form-consent-message', async (req: Request, res: Response) => {
+    if (!supabase) {
+      return res.status(503).json({ error: 'Supabase not configured' });
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('system_settings')
+        .select('setting_value')
+        .eq('setting_key', 'form_default_consent_message')
+        .single();
+
+      if (error && error.code !== 'PGRST116') {
+        console.error('Error fetching form consent message:', error);
+        return res.status(500).json({ error: error.message });
+      }
+
+      res.json({ message: data?.setting_value || '' });
+    } catch (error) {
+      console.error('Form consent message fetch error:', error);
+      res.status(500).json({ error: 'Failed to fetch consent message' });
+    }
+  });
+
   // Public endpoint for page banners (used by PublicLayout for logged-out users)
   app.get('/api/public/banners', async (req: Request, res: Response) => {
     if (!supabase) {

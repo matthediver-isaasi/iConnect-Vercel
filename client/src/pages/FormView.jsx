@@ -47,13 +47,14 @@ export default function FormViewPage() {
     enabled: !!formSlug
   });
 
-  // Fetch default consent message from SystemSettings
+  // Fetch default consent message from public endpoint (works without auth)
   const { data: defaultConsentMessage } = useQuery({
     queryKey: ['formDefaultConsentMessage'],
     queryFn: async () => {
-      const allSettings = await base44.entities.SystemSettings.list();
-      const setting = allSettings.find(s => s.setting_key === 'form_default_consent_message');
-      return setting?.setting_value || '';
+      const response = await fetch('/api/public/form-consent-message');
+      if (!response.ok) return '';
+      const data = await response.json();
+      return data.message || '';
     },
     staleTime: 5 * 60 * 1000 // Cache for 5 minutes
   });
