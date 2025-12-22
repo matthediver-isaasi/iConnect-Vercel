@@ -515,7 +515,7 @@ export default function TeamPage({ hasBanner }) {
                     className="pl-10"
                   />
                 </div>
-                {!isFeatureExcluded('element_ShowDisabledAccounts') && (
+                {!isFeatureExcluded('membership.team.view-inactive-accounts') && (
                   <div className="flex items-center gap-3">
                     <Label htmlFor="show-disabled" className="text-sm text-slate-700 whitespace-nowrap cursor-pointer">
                       Show inactive accounts
