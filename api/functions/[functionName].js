@@ -2856,7 +2856,8 @@ const functionHandlers = {
         status: 'pending_approval',
         payment_status: 'N/A',
         attachment_urls,
-        attachment_names
+        attachment_names,
+        created_date: new Date().toISOString()
       })
       .select()
       .single();
@@ -2926,7 +2927,8 @@ const functionHandlers = {
         expiry_date: expiryDate.toISOString(),
         amount_paid: price,
         attachment_urls,
-        attachment_names
+        attachment_names,
+        created_date: new Date().toISOString()
       })
       .select()
       .single();
