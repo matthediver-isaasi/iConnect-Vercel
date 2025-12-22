@@ -13,6 +13,16 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { 
   Building2, 
   ArrowLeft, 
@@ -145,6 +155,7 @@ export default function OrganisationDetailView({
   const [newNoteContent, setNewNoteContent] = useState('');
   const [editingNoteId, setEditingNoteId] = useState(null);
   const [editingNoteContent, setEditingNoteContent] = useState('');
+  const [noteToDelete, setNoteToDelete] = useState(null);
   const [formData, setFormData] = useState({
     name: '',
     phone: '',
@@ -1224,11 +1235,7 @@ export default function OrganisationDetailView({
                               <Button
                                 variant="ghost"
                                 size="icon"
-                                onClick={() => {
-                                  if (confirm('Are you sure you want to delete this note?')) {
-                                    deleteNoteMutation.mutate(note.id);
-                                  }
-                                }}
+                                onClick={() => setNoteToDelete(note.id)}
                                 disabled={deleteNoteMutation.isPending}
                                 data-testid={`button-delete-note-${note.id}`}
                               >
@@ -1245,6 +1252,32 @@ export default function OrganisationDetailView({
             </CardContent>
           </Card>
         )}
+
+        <AlertDialog open={!!noteToDelete} onOpenChange={(open) => !open && setNoteToDelete(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete Note</AlertDialogTitle>
+              <AlertDialogDescription>
+                Are you sure you want to delete this note? This action cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel data-testid="button-cancel-delete-note">Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => {
+                  if (noteToDelete) {
+                    deleteNoteMutation.mutate(noteToDelete);
+                    setNoteToDelete(null);
+                  }
+                }}
+                className="bg-red-600 hover:bg-red-700"
+                data-testid="button-confirm-delete-note"
+              >
+                Delete
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </main>
     </div>
   );
