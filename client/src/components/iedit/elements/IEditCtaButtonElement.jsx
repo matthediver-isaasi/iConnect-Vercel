@@ -5,6 +5,8 @@ import { ChevronDown, ChevronUp, AlignLeft, AlignCenter, AlignRight } from "luci
 import AGCASButton from "@/components/ui/AGCASButton";
 
 export default function IEditCtaButtonElement({ content, variant, settings }) {
+  const fullWidth = settings?.fullWidth;
+  
   const alignment = {
     left: "justify-start",
     center: "justify-center",
@@ -16,25 +18,32 @@ export default function IEditCtaButtonElement({ content, variant, settings }) {
 
   const shouldShowButton = button.link && (button.text || button.show_arrow);
 
+  // Full width breakout class - extends background to screen edges
+  const fullWidthClass = fullWidth ? 'w-screen relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw]' : '';
+
   if (!shouldShowButton) {
     return (
-      <div className={`flex ${alignClass} py-4`}>
-        <span className="text-slate-400 text-sm italic">Configure button in editor...</span>
+      <div className={`${fullWidthClass}`}>
+        {fullWidth ? (
+          <div className="max-w-7xl mx-auto px-4">
+            <div className={`flex ${alignClass} py-4`}>
+              <span className="text-slate-400 text-sm italic">Configure button in editor...</span>
+            </div>
+          </div>
+        ) : (
+          <div className={`flex ${alignClass} py-4`}>
+            <span className="text-slate-400 text-sm italic">Configure button in editor...</span>
+          </div>
+        )}
       </div>
     );
   }
 
   const anchor = content?.anchor;
+  const backgroundColor = content?.background_color;
 
-  return (
-    <div 
-      id={anchor || undefined}
-      className={`flex ${alignClass}`}
-      style={{ 
-        paddingTop: `${content?.top_margin || 16}px`,
-        paddingBottom: `${content?.bottom_margin || 16}px`
-      }}
-    >
+  const renderButton = () => (
+    <div className={`flex ${alignClass}`}>
       <AGCASButton
         text={button.text}
         link={button.link}
@@ -49,6 +58,26 @@ export default function IEditCtaButtonElement({ content, variant, settings }) {
         useGradientStyle={button.style_type === 'gradient'}
         useGradientHover={button.use_gradient_hover}
       />
+    </div>
+  );
+
+  return (
+    <div 
+      id={anchor || undefined}
+      className={fullWidthClass}
+      style={{ 
+        paddingTop: `${content?.top_margin || 16}px`,
+        paddingBottom: `${content?.bottom_margin || 16}px`,
+        backgroundColor: backgroundColor || undefined
+      }}
+    >
+      {fullWidth ? (
+        <div className="max-w-7xl mx-auto px-4">
+          {renderButton()}
+        </div>
+      ) : (
+        renderButton()
+      )}
     </div>
   );
 }
@@ -380,7 +409,7 @@ export function IEditCtaButtonElementEditor({ element, onChange }) {
         )}
       </div>
 
-      {/* Spacing Section */}
+      {/* Spacing & Background Section */}
       <div className="border rounded-lg overflow-hidden">
         <button
           type="button"
@@ -388,12 +417,43 @@ export function IEditCtaButtonElementEditor({ element, onChange }) {
           className="w-full flex items-center justify-between p-3 bg-slate-100 hover:bg-slate-200 text-left"
           data-testid="accordion-cta-spacing"
         >
-          <span className="font-semibold text-sm">Spacing</span>
+          <span className="font-semibold text-sm">Spacing & Background</span>
           {expandedSections.spacing ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
         </button>
         
         {expandedSections.spacing && (
           <div className="p-4 space-y-4">
+            <div>
+              <label className="block text-sm font-medium mb-1">Background Color</label>
+              <div className="flex gap-2 items-center">
+                <input
+                  type="color"
+                  value={content.background_color || '#ffffff'}
+                  onChange={(e) => updateContent('background_color', e.target.value)}
+                  className="w-10 h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+                  data-testid="input-cta-background-color"
+                />
+                <Input
+                  value={content.background_color || ''}
+                  onChange={(e) => updateContent('background_color', e.target.value)}
+                  className="flex-1 font-mono text-sm"
+                  placeholder="transparent"
+                />
+                {content.background_color && (
+                  <button
+                    type="button"
+                    onClick={() => updateContent('background_color', '')}
+                    className="text-xs text-slate-500 hover:text-slate-700 underline"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+              <p className="text-xs text-slate-500 mt-1">
+                Leave empty for transparent. Most useful when Full Width is enabled.
+              </p>
+            </div>
+
             <div>
               <label className="block text-sm font-medium mb-1">Top Margin (px)</label>
               <input
