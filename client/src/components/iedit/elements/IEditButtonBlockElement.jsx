@@ -9,6 +9,8 @@ import { Input } from "@/components/ui/input";
 import { ChevronUp, ChevronDown } from "lucide-react";
 
 export default function IEditButtonBlockElement({ content, variant, settings }) {
+  const fullWidth = settings?.fullWidth;
+  
   const { 
     anchor,
     heading_text = '',
@@ -54,87 +56,104 @@ export default function IEditButtonBlockElement({ content, variant, settings }) 
 
   const hasTextContent = heading_text || subheading_text || body_content;
 
+  // Full width breakout class - extends background to screen edges
+  const fullWidthClass = fullWidth ? 'w-screen relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw]' : '';
+
+  const renderContent = () => (
+    <>
+      {hasTextContent && (
+        <div className={`flex flex-col ${textAlignClass} mb-8`}>
+          {heading_text && (
+            <div 
+              className="prose max-w-none mb-4"
+              style={{ 
+                fontFamily: heading_font_family,
+                fontSize: `${heading_font_size}px`,
+                fontWeight: heading_font_weight,
+                lineHeight: heading_line_height,
+                letterSpacing: `${heading_letter_spacing}px`,
+                color: heading_color,
+                textAlign: text_align
+              }}
+              dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(heading_text) }}
+            />
+          )}
+          {subheading_text && (
+            <div 
+              className="prose max-w-none mb-4"
+              style={{ 
+                fontFamily: subheading_font_family,
+                fontSize: `${subheading_font_size}px`,
+                fontWeight: subheading_font_weight,
+                lineHeight: subheading_line_height,
+                letterSpacing: `${subheading_letter_spacing}px`,
+                color: subheading_color,
+                textAlign: text_align
+              }}
+              dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(subheading_text) }}
+            />
+          )}
+          {body_content && (
+            <div 
+              className="prose max-w-none"
+              style={{ 
+                fontFamily: content_font_family,
+                fontSize: `${content_font_size}px`,
+                fontWeight: content_font_weight,
+                lineHeight: content_line_height,
+                letterSpacing: `${content_letter_spacing}px`,
+                color: content_color,
+                textAlign: text_align
+              }}
+              dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(body_content) }}
+            />
+          )}
+        </div>
+      )}
+      
+      <div 
+        className={`flex flex-wrap ${
+          text_align === 'center' ? 'justify-center' : 
+          text_align === 'right' ? 'justify-end' : 
+          'justify-start'
+        }`}
+        style={{ gap: `${button_gap}px` }}
+      >
+        {validButtons.map((button, index) => (
+          <AGCASButton
+            key={index}
+            text={button.text}
+            link={button.link}
+            buttonStyleId={button.button_style_id}
+            customBgColor={button.custom_bg_color}
+            customTextColor={button.custom_text_color}
+            customBorderColor={button.custom_border_color}
+            openInNewTab={button.open_in_new_tab}
+            size={button.size || 'medium'}
+            showArrow={button.show_arrow}
+          />
+        ))}
+      </div>
+    </>
+  );
+
   return (
     <div 
       id={anchor || undefined}
-      className="py-12 px-4"
+      className={`py-12 px-4 ${fullWidthClass}`}
       style={{ backgroundColor: background_color }}
     >
-      <div className="max-w-7xl mx-auto">
-        {hasTextContent && (
-          <div className={`flex flex-col ${textAlignClass} mb-8`}>
-            {heading_text && (
-              <div 
-                className="prose max-w-none mb-4"
-                style={{ 
-                  fontFamily: heading_font_family,
-                  fontSize: `${heading_font_size}px`,
-                  fontWeight: heading_font_weight,
-                  lineHeight: heading_line_height,
-                  letterSpacing: `${heading_letter_spacing}px`,
-                  color: heading_color,
-                  textAlign: text_align
-                }}
-                dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(heading_text) }}
-              />
-            )}
-            {subheading_text && (
-              <div 
-                className="prose max-w-none mb-4"
-                style={{ 
-                  fontFamily: subheading_font_family,
-                  fontSize: `${subheading_font_size}px`,
-                  fontWeight: subheading_font_weight,
-                  lineHeight: subheading_line_height,
-                  letterSpacing: `${subheading_letter_spacing}px`,
-                  color: subheading_color,
-                  textAlign: text_align
-                }}
-                dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(subheading_text) }}
-              />
-            )}
-            {body_content && (
-              <div 
-                className="prose max-w-none"
-                style={{ 
-                  fontFamily: content_font_family,
-                  fontSize: `${content_font_size}px`,
-                  fontWeight: content_font_weight,
-                  lineHeight: content_line_height,
-                  letterSpacing: `${content_letter_spacing}px`,
-                  color: content_color,
-                  textAlign: text_align
-                }}
-                dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(body_content) }}
-              />
-            )}
-          </div>
-        )}
-        
-        <div 
-          className={`flex flex-wrap ${
-            text_align === 'center' ? 'justify-center' : 
-            text_align === 'right' ? 'justify-end' : 
-            'justify-start'
-          }`}
-          style={{ gap: `${button_gap}px` }}
-        >
-          {validButtons.map((button, index) => (
-            <AGCASButton
-              key={index}
-              text={button.text}
-              link={button.link}
-              buttonStyleId={button.button_style_id}
-              customBgColor={button.custom_bg_color}
-              customTextColor={button.custom_text_color}
-              customBorderColor={button.custom_border_color}
-              openInNewTab={button.open_in_new_tab}
-              size={button.size || 'medium'}
-              showArrow={button.show_arrow}
-            />
-          ))}
+      {fullWidth ? (
+        // When full width, wrap content in max-w container to keep it constrained
+        <div className="max-w-7xl mx-auto px-4">
+          {renderContent()}
         </div>
-      </div>
+      ) : (
+        // Normal mode - already has max-w from parent
+        <div className="max-w-7xl mx-auto">
+          {renderContent()}
+        </div>
+      )}
     </div>
   );
 }
