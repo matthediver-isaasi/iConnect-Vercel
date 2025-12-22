@@ -1075,9 +1075,6 @@ export default function EventDetailsPage() {
             <ArrowLeft className="w-4 h-4" />
             Back to Events
           </Link>
-          {shouldShowTours && (
-            <TourButton onClick={handleStartTour} />
-          )}
         </div>
 
         <div className="grid lg:grid-cols-3 gap-8 mb-8">
