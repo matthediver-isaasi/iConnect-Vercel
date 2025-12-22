@@ -696,8 +696,8 @@ export default function EventsPage({
                   </PopoverContent>
                 </Popover>
 
-                {/* Create Event Button - shown unless excluded */}
-                {!resolvedIsFeatureExcluded('events.browse-events.create') && (
+                {/* Create Event Button - shown only when logged in and not excluded */}
+                {memberInfo && !resolvedIsFeatureExcluded('events.browse-events.create') && (
                   <Button
                     onClick={() => window.location.href = createPageUrl('CreateEvent')}
                     className="bg-blue-600 hover:bg-blue-700 ml-auto"
@@ -710,8 +710,8 @@ export default function EventsPage({
               </div>
             )}
 
-            {/* Create Event Button - shown when no filter row, unless excluded */}
-            {!resolvedIsFeatureExcluded('events.browse-events.create') && !(eventCategories.length > 0 || eventTypes.length > 0) && (
+            {/* Create Event Button - shown when no filter row, only when logged in and not excluded */}
+            {memberInfo && !resolvedIsFeatureExcluded('events.browse-events.create') && !(eventCategories.length > 0 || eventTypes.length > 0) && (
               <div className="flex justify-end mt-4">
                 <Button
                   onClick={() => window.location.href = createPageUrl('CreateEvent')}
