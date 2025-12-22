@@ -655,8 +655,8 @@ export default function ArticlesPage() {
                       key={article.id} 
                       article={article}
                       displayName={articleDisplayName}
-                      hasAdminEditPermission={hasAdminEditPermission}
-                      hasAdminDeletePermission={hasAdminDeletePermission}
+                      hasAdminEditPermission={memberInfo ? hasAdminEditPermission : false}
+                      hasAdminDeletePermission={memberInfo ? hasAdminDeletePermission : false}
                       currentMemberId={currentMemberId}
                       onEdit={handleEditArticle}
                       onDelete={handleDeleteArticle}
