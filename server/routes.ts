@@ -3917,6 +3917,238 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ============ Organization Notes CRUD ============
+  
+  // Get notes for an organization
+  app.get('/api/admin/organizations/:id/notes', async (req: Request, res: Response) => {
+    const { isAdmin, error, memberId } = await verifyAdminSession(req);
+    
+    if (error) {
+      return res.status(401).json({ error });
+    }
+    
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    if (!supabase) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+
+    try {
+      const orgId = req.params.id;
+      
+      // Fetch notes with member info
+      const { data: notes, error: fetchError } = await supabase
+        .from('organization_note')
+        .select('*')
+        .eq('organization_id', orgId)
+        .order('created_at', { ascending: false });
+
+      if (fetchError) {
+        console.error('[Get Org Notes] Error:', fetchError);
+        return res.status(500).json({ error: fetchError.message });
+      }
+
+      // Get member names for the notes
+      const memberIds = [...new Set((notes || []).map((n: any) => n.member_id))];
+      let membersMap: Record<string, any> = {};
+      
+      if (memberIds.length > 0) {
+        const { data: members } = await supabase
+          .from('member')
+          .select('id, first_name, last_name, email')
+          .in('id', memberIds);
+        
+        if (members) {
+          membersMap = members.reduce((acc: Record<string, any>, m: any) => {
+            acc[m.id] = m;
+            return acc;
+          }, {});
+        }
+      }
+
+      // Enrich notes with member info
+      const enrichedNotes = (notes || []).map((note: any) => ({
+        ...note,
+        member_name: membersMap[note.member_id] 
+          ? `${membersMap[note.member_id].first_name || ''} ${membersMap[note.member_id].last_name || ''}`.trim() || membersMap[note.member_id].email
+          : 'Unknown',
+        member_email: membersMap[note.member_id]?.email || null
+      }));
+
+      res.json(enrichedNotes);
+    } catch (error) {
+      console.error('[Get Org Notes] Error:', error);
+      res.status(500).json({ error: 'Failed to fetch organization notes' });
+    }
+  });
+
+  // Create a note for an organization
+  app.post('/api/admin/organizations/:id/notes', async (req: Request, res: Response) => {
+    const { isAdmin, error, memberId } = await verifyAdminSession(req);
+    
+    if (error) {
+      return res.status(401).json({ error });
+    }
+    
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    if (!supabase) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+
+    try {
+      const orgId = req.params.id;
+      const { content } = req.body;
+
+      if (!content || typeof content !== 'string' || content.trim().length === 0) {
+        return res.status(400).json({ error: 'Note content is required' });
+      }
+
+      const { data: note, error: insertError } = await supabase
+        .from('organization_note')
+        .insert({
+          organization_id: orgId,
+          member_id: memberId,
+          content: content.trim(),
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .select()
+        .single();
+
+      if (insertError) {
+        console.error('[Create Org Note] Error:', insertError);
+        return res.status(500).json({ error: insertError.message });
+      }
+
+      // Get member info for the response
+      const { data: member } = await supabase
+        .from('member')
+        .select('id, first_name, last_name, email')
+        .eq('id', memberId)
+        .single();
+
+      res.json({
+        ...note,
+        member_name: member 
+          ? `${member.first_name || ''} ${member.last_name || ''}`.trim() || member.email
+          : 'Unknown',
+        member_email: member?.email || null
+      });
+    } catch (error) {
+      console.error('[Create Org Note] Error:', error);
+      res.status(500).json({ error: 'Failed to create organization note' });
+    }
+  });
+
+  // Update a note
+  app.patch('/api/admin/organization-notes/:noteId', async (req: Request, res: Response) => {
+    const { isAdmin, error, memberId } = await verifyAdminSession(req);
+    
+    if (error) {
+      return res.status(401).json({ error });
+    }
+    
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    if (!supabase) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+
+    try {
+      const noteId = req.params.noteId;
+      const { content } = req.body;
+
+      if (!content || typeof content !== 'string' || content.trim().length === 0) {
+        return res.status(400).json({ error: 'Note content is required' });
+      }
+
+      // Check if note exists and user is the author (or allow any admin to edit)
+      const { data: existingNote, error: fetchError } = await supabase
+        .from('organization_note')
+        .select('*')
+        .eq('id', noteId)
+        .single();
+
+      if (fetchError || !existingNote) {
+        return res.status(404).json({ error: 'Note not found' });
+      }
+
+      const { data: updatedNote, error: updateError } = await supabase
+        .from('organization_note')
+        .update({
+          content: content.trim(),
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', noteId)
+        .select()
+        .single();
+
+      if (updateError) {
+        console.error('[Update Org Note] Error:', updateError);
+        return res.status(500).json({ error: updateError.message });
+      }
+
+      res.json(updatedNote);
+    } catch (error) {
+      console.error('[Update Org Note] Error:', error);
+      res.status(500).json({ error: 'Failed to update organization note' });
+    }
+  });
+
+  // Delete a note
+  app.delete('/api/admin/organization-notes/:noteId', async (req: Request, res: Response) => {
+    const { isAdmin, error, memberId } = await verifyAdminSession(req);
+    
+    if (error) {
+      return res.status(401).json({ error });
+    }
+    
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    if (!supabase) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+
+    try {
+      const noteId = req.params.noteId;
+
+      // Check if note exists
+      const { data: existingNote, error: fetchError } = await supabase
+        .from('organization_note')
+        .select('id')
+        .eq('id', noteId)
+        .single();
+
+      if (fetchError || !existingNote) {
+        return res.status(404).json({ error: 'Note not found' });
+      }
+
+      const { error: deleteError } = await supabase
+        .from('organization_note')
+        .delete()
+        .eq('id', noteId);
+
+      if (deleteError) {
+        console.error('[Delete Org Note] Error:', deleteError);
+        return res.status(500).json({ error: deleteError.message });
+      }
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error('[Delete Org Note] Error:', error);
+      res.status(500).json({ error: 'Failed to delete organization note' });
+    }
+  });
+
   // Fix blog post handles - generate handles for authors and update slugs
   app.post('/api/admin/fix-blog-handles', async (req: Request, res: Response) => {
     // Verify admin status via session
