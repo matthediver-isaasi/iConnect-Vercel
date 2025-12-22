@@ -4655,7 +4655,7 @@ const functionHandlers = {
       response_type: 'code',
       client_id: XERO_CLIENT_ID,
       redirect_uri: XERO_REDIRECT_URI,
-      scope: 'offline_access accounting.transactions accounting.contacts openid profile email',
+      scope: 'offline_access accounting.transactions accounting.contacts accounting.settings openid profile email',
       state: 'xero_auth'
     }).toString();
 
