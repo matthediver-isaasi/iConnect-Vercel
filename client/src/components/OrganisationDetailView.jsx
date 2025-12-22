@@ -33,7 +33,10 @@ import {
   Wallet,
   FileText,
   LayoutGrid,
-  Plus
+  Plus,
+  StickyNote,
+  Trash2,
+  MessageSquare
 } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -132,13 +135,16 @@ export default function OrganisationDetailView({
   isNew = false,
   onCreated 
 }) {
-  const { isAdmin } = useMemberAccess();
+  const { isAdmin, memberInfo } = useMemberAccess();
   const { formatDate } = useDateFormat();
   const queryClient = useQueryClient();
   const [isEditing, setIsEditing] = useState(isNew);
   const [activeTab, setActiveTab] = useState('overview');
   const [showLayoutEditor, setShowLayoutEditor] = useState(false);
   const [isCreatingMember, setIsCreatingMember] = useState(false);
+  const [newNoteContent, setNewNoteContent] = useState('');
+  const [editingNoteId, setEditingNoteId] = useState(null);
+  const [editingNoteContent, setEditingNoteContent] = useState('');
   const [formData, setFormData] = useState({
     name: '',
     phone: '',
@@ -240,6 +246,83 @@ export default function OrganisationDetailView({
       } catch {
         return [];
       }
+    }
+  });
+
+  // Organization Notes query
+  const { data: orgNotes = [], isLoading: notesLoading } = useQuery({
+    queryKey: ['org-notes', organization?.id],
+    enabled: !!organization?.id && activeTab === 'notes',
+    queryFn: async () => {
+      const res = await fetch(`/api/admin/organizations/${organization.id}/notes`, {
+        credentials: 'include'
+      });
+      if (!res.ok) throw new Error('Failed to fetch notes');
+      return res.json();
+    }
+  });
+
+  // Create note mutation
+  const createNoteMutation = useMutation({
+    mutationFn: async (content) => {
+      const res = await fetch(`/api/admin/organizations/${organization.id}/notes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ content })
+      });
+      if (!res.ok) throw new Error('Failed to create note');
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['org-notes', organization.id] });
+      setNewNoteContent('');
+      toast.success('Note added');
+    },
+    onError: (error) => {
+      toast.error('Failed to add note: ' + error.message);
+    }
+  });
+
+  // Update note mutation
+  const updateNoteMutation = useMutation({
+    mutationFn: async ({ noteId, content }) => {
+      const res = await fetch(`/api/admin/organization-notes/${noteId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ content })
+      });
+      if (!res.ok) throw new Error('Failed to update note');
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['org-notes', organization.id] });
+      setEditingNoteId(null);
+      setEditingNoteContent('');
+      toast.success('Note updated');
+    },
+    onError: (error) => {
+      toast.error('Failed to update note: ' + error.message);
+    }
+  });
+
+  // Delete note mutation
+  const deleteNoteMutation = useMutation({
+    mutationFn: async (noteId) => {
+      const res = await fetch(`/api/admin/organization-notes/${noteId}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+      if (!res.ok) throw new Error('Failed to delete note');
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['org-notes', organization.id] });
+      toast.success('Note deleted');
+    },
+    onError: (error) => {
+      toast.error('Failed to delete note: ' + error.message);
     }
   });
 
@@ -829,6 +912,9 @@ export default function OrganisationDetailView({
               <TabsTrigger value="activity" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none" data-testid="tab-activity">
                 Activity
               </TabsTrigger>
+              <TabsTrigger value="notes" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none" data-testid="tab-notes">
+                Notes
+              </TabsTrigger>
             </TabsList>
           </Tabs>
         )}
@@ -1019,6 +1105,139 @@ export default function OrganisationDetailView({
                         </p>
                         <Badge variant="outline" className="mt-2 capitalize">{booking.status || 'confirmed'}</Badge>
                       </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {activeTab === 'notes' && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <StickyNote className="w-5 h-5 text-blue-600" />
+                Organisation Notes
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="space-y-3">
+                <Textarea
+                  placeholder="Add a note..."
+                  value={newNoteContent}
+                  onChange={(e) => setNewNoteContent(e.target.value)}
+                  className="min-h-[100px]"
+                  data-testid="input-new-note"
+                />
+                <div className="flex justify-end">
+                  <Button
+                    onClick={() => createNoteMutation.mutate(newNoteContent)}
+                    disabled={!newNoteContent.trim() || createNoteMutation.isPending}
+                    data-testid="button-add-note"
+                  >
+                    {createNoteMutation.isPending ? (
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    ) : (
+                      <Plus className="w-4 h-4 mr-2" />
+                    )}
+                    Add Note
+                  </Button>
+                </div>
+              </div>
+
+              <Separator />
+
+              {notesLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+                </div>
+              ) : orgNotes.length === 0 ? (
+                <div className="text-center py-12 text-slate-500">
+                  <MessageSquare className="w-12 h-12 mx-auto mb-3 text-slate-300" />
+                  <p>No notes yet</p>
+                  <p className="text-sm text-slate-400 mt-1">Add a note above to get started</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {orgNotes.map(note => (
+                    <div key={note.id} className="p-4 bg-slate-50 dark:bg-slate-800 rounded-lg space-y-3" data-testid={`note-${note.id}`}>
+                      {editingNoteId === note.id ? (
+                        <div className="space-y-3">
+                          <Textarea
+                            value={editingNoteContent}
+                            onChange={(e) => setEditingNoteContent(e.target.value)}
+                            className="min-h-[80px]"
+                            data-testid={`input-edit-note-${note.id}`}
+                          />
+                          <div className="flex gap-2 justify-end">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                setEditingNoteId(null);
+                                setEditingNoteContent('');
+                              }}
+                              data-testid={`button-cancel-edit-${note.id}`}
+                            >
+                              Cancel
+                            </Button>
+                            <Button
+                              size="sm"
+                              onClick={() => updateNoteMutation.mutate({ noteId: note.id, content: editingNoteContent })}
+                              disabled={!editingNoteContent.trim() || updateNoteMutation.isPending}
+                              data-testid={`button-save-note-${note.id}`}
+                            >
+                              {updateNoteMutation.isPending ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : (
+                                'Save'
+                              )}
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <p className="text-slate-700 dark:text-slate-200 whitespace-pre-wrap">{note.content}</p>
+                          <div className="flex items-center justify-between text-sm">
+                            <div className="flex items-center gap-2 text-slate-500">
+                              <User className="w-3 h-3" />
+                              <span>{note.member_name}</span>
+                              <span className="text-slate-300">|</span>
+                              <span>{note.created_at ? format(new Date(note.created_at), 'dd MMM yyyy, HH:mm') : ''}</span>
+                              {note.updated_at && note.updated_at !== note.created_at && (
+                                <span className="italic text-slate-400">(edited)</span>
+                              )}
+                            </div>
+                            <div className="flex gap-1">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => {
+                                  setEditingNoteId(note.id);
+                                  setEditingNoteContent(note.content);
+                                }}
+                                data-testid={`button-edit-note-${note.id}`}
+                              >
+                                <Pencil className="w-4 h-4 text-slate-400 hover:text-blue-600" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => {
+                                  if (confirm('Are you sure you want to delete this note?')) {
+                                    deleteNoteMutation.mutate(note.id);
+                                  }
+                                }}
+                                disabled={deleteNoteMutation.isPending}
+                                data-testid={`button-delete-note-${note.id}`}
+                              >
+                                <Trash2 className="w-4 h-4 text-slate-400 hover:text-red-600" />
+                              </Button>
+                            </div>
+                          </div>
+                        </>
+                      )}
                     </div>
                   ))}
                 </div>
