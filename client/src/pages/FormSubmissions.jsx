@@ -19,7 +19,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Loader2, FileText, Search, ChevronLeft, ChevronRight, Eye } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Loader2, FileText, Search, ChevronLeft, ChevronRight, Eye, Trash2 } from "lucide-react";
 import moment from "moment";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
@@ -44,6 +54,7 @@ export default function FormSubmissionsPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(20);
   const [viewingSubmission, setViewingSubmission] = useState(null);
+  const [submissionToDelete, setSubmissionToDelete] = useState(null);
 
   const queryClient = useQueryClient();
 
@@ -86,6 +97,20 @@ export default function FormSubmissionsPage() {
     },
     onError: () => {
       toast.error('Failed to update status');
+    }
+  });
+
+  const deleteSubmissionMutation = useMutation({
+    mutationFn: async (id) => {
+      return await base44.entities.FormSubmission.delete(id);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['form-submissions'] });
+      setSubmissionToDelete(null);
+      toast.success('Submission deleted');
+    },
+    onError: () => {
+      toast.error('Failed to delete submission');
     }
   });
 
@@ -259,14 +284,26 @@ export default function FormSubmissionsPage() {
                           </Badge>
                         </div>
                       </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setViewingSubmission(submission)}
-                      >
-                        <Eye className="w-4 h-4 mr-1" />
-                        View
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setViewingSubmission(submission)}
+                          data-testid={`button-view-submission-${submission.id}`}
+                        >
+                          <Eye className="w-4 h-4 mr-1" />
+                          View
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setSubmissionToDelete(submission)}
+                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                          data-testid={`button-delete-submission-${submission.id}`}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
                     </div>
                   </CardHeader>
                 </Card>
@@ -425,6 +462,33 @@ export default function FormSubmissionsPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={!!submissionToDelete} onOpenChange={(open) => !open && setSubmissionToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Submission</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this submission from "{submissionToDelete?.form_name}"? 
+              This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deleteSubmissionMutation.mutate(submissionToDelete?.id)}
+              className="bg-red-600 hover:bg-red-700"
+              data-testid="button-confirm-delete"
+            >
+              {deleteSubmissionMutation.isPending ? (
+                <Loader2 className="w-4 h-4 animate-spin mr-2" />
+              ) : (
+                <Trash2 className="w-4 h-4 mr-2" />
+              )}
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
