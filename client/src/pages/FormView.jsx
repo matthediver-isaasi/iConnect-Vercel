@@ -47,6 +47,17 @@ export default function FormViewPage() {
     enabled: !!formSlug
   });
 
+  // Fetch default consent message from SystemSettings
+  const { data: defaultConsentMessage } = useQuery({
+    queryKey: ['formDefaultConsentMessage'],
+    queryFn: async () => {
+      const allSettings = await base44.entities.SystemSettings.list();
+      const setting = allSettings.find(s => s.setting_key === 'form_default_consent_message');
+      return setting?.setting_value || '';
+    },
+    staleTime: 5 * 60 * 1000 // Cache for 5 minutes
+  });
+
   // Prefill: Fetch member entity when form has prefill_source = 'member'
   const { data: prefillMember } = useQuery({
     queryKey: ['prefill-member', prefillMemberId],
@@ -1077,6 +1088,11 @@ export default function FormViewPage() {
                 </Button>
               )}
             </div>
+            {isLastStep && defaultConsentMessage && (
+              <p className="text-xs text-slate-500 text-center mt-2" data-testid="text-consent-message">
+                {defaultConsentMessage}
+              </p>
+            )}
           </div>
         </Card>
       </div>
@@ -1282,6 +1298,11 @@ export default function FormViewPage() {
                 </Button>
               )}
             </div>
+            {(isLastPage || !hasPages) && defaultConsentMessage && (
+              <p className="text-xs text-slate-500 text-center mt-2" data-testid="text-consent-message">
+                {defaultConsentMessage}
+              </p>
+            )}
           </CardContent>
         </Card>
       </div>
