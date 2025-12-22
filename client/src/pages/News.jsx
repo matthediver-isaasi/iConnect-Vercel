@@ -529,8 +529,8 @@ export default function NewsPage() {
                 <NewsCard 
                   key={item.id} 
                   article={item} 
-                  hasAdminEditPermission={hasAdminEditPermission}
-                  hasAdminDeletePermission={hasAdminDeletePermission}
+                  hasAdminEditPermission={memberInfo ? hasAdminEditPermission : false}
+                  hasAdminDeletePermission={memberInfo ? hasAdminDeletePermission : false}
                   currentMemberId={currentMember?.id}
                   onEdit={handleEditNews}
                   onDelete={handleDeleteNews}
