@@ -1732,7 +1732,7 @@ export default function PreferencesPage() {
                 Engagement Stats
               </CardTitle>
               <CardDescription>
-                Your activity and contributions to the community
+                Your recent activity and contributions to the community
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -1748,7 +1748,7 @@ export default function PreferencesPage() {
                           ? "-"
                           : engagementStats?.eventsAttended || 0}
                       </p>
-                      <p className="text-xs text-blue-700">Events Attended</p>
+                      <p className="text-xs text-blue-700">Event engagement</p>
                     </div>
                   </div>
                 </div>
