@@ -458,7 +458,7 @@ const { data: borderRadiusSetting = DEFAULT_BORDER_RADIUS } = useQuery({
   }
 });
 
-// Fetch portal logo settings
+// Fetch portal logo settings including home page slug
 const { data: portalLogoSettings } = useQuery({
   queryKey: ['portal-logo-settings'],
   queryFn: async () => {
@@ -467,10 +467,11 @@ const { data: portalLogoSettings } = useQuery({
       const logoUrl = data.find(s => s.setting_key === 'portal_logo_url')?.setting_value || '';
       const logoHeight = data.find(s => s.setting_key === 'portal_logo_height')?.setting_value || 'medium';
       const logoLink = data.find(s => s.setting_key === 'portal_logo_link')?.setting_value || '';
-      return { logoUrl, logoHeight, logoLink };
+      const homePageSlug = data.find(s => s.setting_key === 'public_home_page_slug')?.setting_value || '';
+      return { logoUrl, logoHeight, logoLink, homePageSlug };
     } catch (error) {
       console.error('Error loading portal logo settings:', error);
-      return { logoUrl: '', logoHeight: 'medium', logoLink: '' };
+      return { logoUrl: '', logoHeight: 'medium', logoLink: '', homePageSlug: '' };
     }
   }
 });
@@ -484,6 +485,17 @@ const logoHeightPx = useMemo(() => {
     default: return 60;
   }
 }, [portalLogoSettings?.logoHeight]);
+
+// Compute default logo link - use explicit link, then home page slug, then Events
+const defaultLogoHref = useMemo(() => {
+  if (portalLogoSettings?.logoLink) {
+    return portalLogoSettings.logoLink;
+  }
+  if (portalLogoSettings?.homePageSlug) {
+    return `/${portalLogoSettings.homePageSlug}`;
+  }
+  return createPageUrl('Events');
+}, [portalLogoSettings?.logoLink, portalLogoSettings?.homePageSlug]);
 
 
   // Fetch member record for profile photo
@@ -1516,7 +1528,7 @@ useEffect(() => {
               {portalLogoSettings?.logoUrl ? (
                 // Custom portal logo
                 <a 
-                  href={portalLogoSettings.logoLink || createPageUrl('Events')} 
+                  href={defaultLogoHref} 
                   className="block hover:opacity-80 transition-opacity"
                   style={{ height: `${logoHeightPx}px` }}
                 >
@@ -1528,7 +1540,7 @@ useEffect(() => {
                 </a>
               ) : (
                 // Default AGCAS Events branding
-                <Link to={createPageUrl('Events')} className="flex items-center gap-3 hover:opacity-80 transition-opacity">
+                <Link to={defaultLogoHref} className="flex items-center gap-3 hover:opacity-80 transition-opacity">
                   <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center shadow-md border border-slate-200 overflow-hidden">
                     {memberRecord?.profile_photo_url ? (
                       <img 
@@ -1787,7 +1799,7 @@ useEffect(() => {
               {portalLogoSettings?.logoUrl ? (
                 // Custom portal logo for mobile
                 <a 
-                  href={portalLogoSettings.logoLink || createPageUrl('Events')} 
+                  href={defaultLogoHref} 
                   className="flex items-center hover:opacity-80 transition-opacity"
                   style={{ height: `${Math.min(logoHeightPx, 40)}px` }}
                 >
@@ -1799,7 +1811,7 @@ useEffect(() => {
                 </a>
               ) : (
                 // Default branding for mobile
-                <Link to={createPageUrl('Events')} className="flex items-center gap-2">
+                <Link to={defaultLogoHref} className="flex items-center gap-2">
                   <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center shadow-sm border border-slate-200 overflow-hidden">
                     {memberRecord?.profile_photo_url ? (
                       <img 
@@ -1833,7 +1845,7 @@ useEffect(() => {
                   {portalLogoSettings?.logoUrl ? (
                     // Custom portal logo in mobile sheet
                     <a 
-                      href={portalLogoSettings.logoLink || createPageUrl('Events')} 
+                      href={defaultLogoHref} 
                       className="block hover:opacity-80 transition-opacity"
                       style={{ height: `${logoHeightPx}px` }}
                       onClick={() => setMobileMenuOpen(false)}
