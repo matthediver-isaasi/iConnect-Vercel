@@ -418,6 +418,10 @@ export const ROLE_ACCESS_MAP: Module[] = [
       {
         id: "communication.preference-settings",
         label: "Preference Settings"
+      },
+      {
+        id: "communication.management",
+        label: "Communications Management"
       }
     ]
   },
@@ -752,6 +756,7 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_FormBuilder": "forms.form-builder",
   "page_CustomFieldsAdmin": "admin.custom-fields",
   "page_EmailTemplateManagement": "communication.email-templates",
+  "page_CommunicationsManagement": "communication.management",
   "page_DynamicDirectoryManagement": "admin.dynamic-directories",
   "page_MemberGroupGuestManagement": "membership.member-groups-guests",
   "page_PageVisibilitySettings": "system.page-visibility",
