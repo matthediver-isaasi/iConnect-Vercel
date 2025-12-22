@@ -354,6 +354,8 @@ const PAGES = {
     
     AboutMe: Preferences,
     
+    'about-me': Preferences,
+    
     PublicArticles: PublicArticles,
     
     MemberHandleManagement: MemberHandleManagement,

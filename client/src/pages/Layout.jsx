@@ -612,6 +612,7 @@ const pageToPortalPageMap = {
   'NewsView': 'portal_news_view',
   'MyJobPostings': 'portal_my_job_postings',
   'Preferences': 'portal_about_me',
+  'about-me': 'portal_about_me',
   'Support': 'portal_support',
   'Dashboard': 'portal_dashboard'
 };
