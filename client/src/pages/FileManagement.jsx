@@ -9,15 +9,19 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Progress } from "@/components/ui/progress";
 import { Upload, FileText, Image, Video, File, Trash2, Search, X, Copy, ExternalLink, Folder, FolderOpen, FolderPlus, MoveHorizontal, ChevronRight, Home, GripVertical, Pencil, ChevronDown, ChevronLeft, Loader2 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 
+const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25MB in bytes
+
 export default function FileManagementPage() {
   const { isFeatureExcluded, memberInfo, isAccessReady } = useMemberAccess();
   const [uploadingFile, setUploadingFile] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [editingFile, setEditingFile] = useState(null);
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -382,10 +386,64 @@ export default function FileManagementPage() {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    setUploadingFile(true);
-    try {
-      const { file_url } = await base44.integrations.Core.UploadFile({ file });
+    // Check file size before uploading
+    if (file.size > MAX_FILE_SIZE) {
+      toast.error(`File size exceeds maximum allowed size of 25MB. Your file is ${(file.size / (1024 * 1024)).toFixed(1)}MB.`);
+      event.target.value = '';
+      return;
+    }
 
+    setUploadingFile(true);
+    setUploadProgress(0);
+    
+    try {
+      // Step 1: Get signed upload URL from server
+      const signedUrlResponse = await fetch('/api/integrations/signed-upload-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fileName: file.name,
+          fileSize: file.size,
+          mimeType: file.type
+        })
+      });
+      
+      if (!signedUrlResponse.ok) {
+        const errorData = await signedUrlResponse.json();
+        throw new Error(errorData.error || 'Failed to get upload URL');
+      }
+      
+      const { signedUrl, publicUrl, token } = await signedUrlResponse.json();
+      
+      // Step 2: Upload file directly to Supabase with progress tracking
+      await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        
+        xhr.upload.addEventListener('progress', (e) => {
+          if (e.lengthComputable) {
+            const percentComplete = Math.round((e.loaded / e.total) * 100);
+            setUploadProgress(percentComplete);
+          }
+        });
+        
+        xhr.addEventListener('load', () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve();
+          } else {
+            reject(new Error(`Upload failed with status ${xhr.status}`));
+          }
+        });
+        
+        xhr.addEventListener('error', () => reject(new Error('Upload failed')));
+        xhr.addEventListener('abort', () => reject(new Error('Upload aborted')));
+        
+        xhr.open('PUT', signedUrl);
+        xhr.setRequestHeader('Content-Type', file.type);
+        xhr.setRequestHeader('x-upsert', 'true');
+        xhr.send(file);
+      });
+
+      // Step 3: Create file repository record
       let fileType = "other";
       if (file.type.startsWith("image/")) fileType = "image";
       else if (file.type.startsWith("video/")) fileType = "video";
@@ -393,7 +451,7 @@ export default function FileManagementPage() {
 
       await base44.entities.FileRepository.create({
         file_name: file.name,
-        file_url: file_url,
+        file_url: publicUrl,
         file_type: fileType,
         mime_type: file.type,
         file_size: file.size,
@@ -408,6 +466,7 @@ export default function FileManagementPage() {
       toast.error('Failed to upload file: ' + error.message);
     } finally {
       setUploadingFile(false);
+      setUploadProgress(0);
     }
   };
 
@@ -730,7 +789,7 @@ export default function FileManagementPage() {
               Upload and manage files • Drag files to folders
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-center">
             <Button onClick={handleCreateFolder} variant="outline" className="border-blue-600 text-blue-600 hover:bg-blue-50">
               <FolderPlus className="w-4 h-4 mr-2" />
               {selectedFolder ? 'New Subfolder' : 'New Folder'}
@@ -748,10 +807,21 @@ export default function FileManagementPage() {
               className="bg-blue-600 hover:bg-blue-700"
             >
               <Upload className="w-4 h-4 mr-2" />
-              {uploadingFile ? 'Uploading...' : 'Upload File'}
+              {uploadingFile ? 'Uploading...' : 'Upload File (max 25MB)'}
             </Button>
           </div>
         </div>
+        
+        {/* Upload Progress Bar */}
+        {uploadingFile && (
+          <div className="mb-6">
+            <div className="flex items-center gap-3 mb-2">
+              <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
+              <span className="text-sm text-slate-600">Uploading... {uploadProgress}%</span>
+            </div>
+            <Progress value={uploadProgress} className="h-2" />
+          </div>
+        )}
 
         {/* Bulk Move Mode Banner */}
         {bulkMoveMode && (

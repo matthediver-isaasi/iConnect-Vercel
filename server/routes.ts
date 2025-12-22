@@ -13735,10 +13735,11 @@ AGCAS Events Team
   // File upload endpoint
   const upload = multer({ 
     storage: multer.memoryStorage(),
-    limits: { fileSize: 50 * 1024 * 1024 } // 50MB limit
+    limits: { fileSize: 25 * 1024 * 1024 } // 25MB limit
   });
   
   const STORAGE_BUCKET = 'file-repository';
+  const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25MB in bytes
   
   // Sanitize filename for safe storage
   function sanitizeFileName(name: string): string {
@@ -13792,6 +13793,61 @@ AGCAS Events Team
     } catch (error: any) {
       console.error('File upload error:', error);
       res.status(500).json({ error: 'Upload failed: ' + (error.message || 'Unknown error') });
+    }
+  });
+  
+  // Create signed upload URL for direct browser uploads with progress tracking
+  app.post('/api/integrations/signed-upload-url', async (req: Request, res: Response) => {
+    if (!supabase) {
+      return res.status(503).json({ error: 'Supabase not configured' });
+    }
+    
+    try {
+      const { fileName, fileSize, mimeType } = req.body;
+      
+      if (!fileName) {
+        return res.status(400).json({ error: 'fileName is required' });
+      }
+      
+      if (!fileSize || typeof fileSize !== 'number') {
+        return res.status(400).json({ error: 'fileSize is required and must be a number' });
+      }
+      
+      if (fileSize > MAX_FILE_SIZE) {
+        return res.status(400).json({ 
+          error: `File size exceeds maximum allowed size of 25MB`,
+          maxSize: MAX_FILE_SIZE,
+          providedSize: fileSize
+        });
+      }
+      
+      const sanitizedName = sanitizeFileName(fileName);
+      const uniqueId = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+      const storagePath = `uploads/${uniqueId}-${sanitizedName}`;
+      
+      const { data, error } = await supabase.storage
+        .from(STORAGE_BUCKET)
+        .createSignedUploadUrl(storagePath);
+      
+      if (error) {
+        console.error('Supabase signed URL error:', error);
+        return res.status(500).json({ error: 'Failed to generate upload URL: ' + error.message });
+      }
+      
+      const { data: publicUrlData } = supabase.storage
+        .from(STORAGE_BUCKET)
+        .getPublicUrl(storagePath);
+      
+      res.json({
+        signedUrl: data.signedUrl,
+        token: data.token,
+        path: storagePath,
+        publicUrl: publicUrlData.publicUrl,
+        expiresIn: 3600
+      });
+    } catch (error: any) {
+      console.error('Signed URL generation error:', error);
+      res.status(500).json({ error: 'Failed to generate upload URL: ' + (error.message || 'Unknown error') });
     }
   });
   

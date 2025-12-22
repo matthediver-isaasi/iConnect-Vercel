@@ -253,46 +253,77 @@ class EntitiesProxy {
   get RedirectMapping() { return this._getEntity('RedirectMapping'); }
 }
 
+const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25MB in bytes
+
 class CoreIntegration {
   constructor(apiRequest) {
     this.apiRequest = apiRequest;
   }
 
-  async UploadFile({ file }) {
-    const formData = new FormData();
-    formData.append('file', file);
-    
-    const response = await fetch('/api/integrations/upload-file', {
-      method: 'POST',
-      body: formData,
-      credentials: 'include'
-    });
-    
-    if (!response.ok) {
-      const errorBody = await response.text();
-      throw new Error(errorBody || 'Upload failed');
+  async UploadFile({ file, onProgress }) {
+    if (!file) {
+      throw new Error('No file provided');
     }
     
-    return response.json();
+    if (file.size > MAX_FILE_SIZE) {
+      throw new Error(`File size exceeds maximum allowed size of 25MB. Your file is ${(file.size / (1024 * 1024)).toFixed(1)}MB.`);
+    }
+    
+    const signedUrlResponse = await fetch('/api/integrations/signed-upload-url', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        fileName: file.name,
+        fileSize: file.size,
+        mimeType: file.type
+      })
+    });
+    
+    if (!signedUrlResponse.ok) {
+      const errorData = await signedUrlResponse.json().catch(() => ({}));
+      throw new Error(errorData.error || 'Failed to get upload URL');
+    }
+    
+    const { signedUrl, publicUrl, token } = await signedUrlResponse.json();
+    
+    await new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      
+      xhr.upload.addEventListener('progress', (e) => {
+        if (e.lengthComputable && onProgress) {
+          const percentComplete = Math.round((e.loaded / e.total) * 100);
+          onProgress(percentComplete);
+        }
+      });
+      
+      xhr.addEventListener('load', () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve();
+        } else {
+          reject(new Error(`Upload failed with status ${xhr.status}`));
+        }
+      });
+      
+      xhr.addEventListener('error', () => reject(new Error('Upload failed')));
+      xhr.addEventListener('abort', () => reject(new Error('Upload aborted')));
+      
+      xhr.open('PUT', signedUrl);
+      xhr.setRequestHeader('Content-Type', file.type);
+      xhr.setRequestHeader('x-upsert', 'true');
+      xhr.send(file);
+    });
+    
+    return {
+      file_url: publicUrl,
+      file_name: file.name,
+      file_size: file.size,
+      mime_type: file.type
+    };
   }
 
-  async UploadPrivateFile({ file }) {
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('private', 'true');
-    
-    const response = await fetch('/api/integrations/upload-file', {
-      method: 'POST',
-      body: formData,
-      credentials: 'include'
-    });
-    
-    if (!response.ok) {
-      const errorBody = await response.text();
-      throw new Error(errorBody || 'Upload failed');
-    }
-    
-    return response.json();
+  async UploadPrivateFile({ file, onProgress }) {
+    return this.UploadFile({ file, onProgress });
   }
 
   async CreateFileSignedUrl({ file_url }) {
