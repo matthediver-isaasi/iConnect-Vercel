@@ -161,7 +161,8 @@ export const ROLE_ACCESS_MAP: Module[] = [
         features: [
           { id: "membership.team.invite-member", label: "Invite Member Button" },
           { id: "membership.team.login-access-toggle", label: "Login Access Toggle" },
-          { id: "membership.team.edit-member", label: "Edit Member Icon" }
+          { id: "membership.team.edit-member", label: "Edit Member Icon" },
+          { id: "membership.team.view-inactive-accounts", label: "Show Inactive Accounts Toggle" }
         ]
       },
       {
