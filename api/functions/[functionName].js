@@ -2268,13 +2268,30 @@ const functionHandlers = {
             // Determine reference: PO number or "TBC" if supply later was selected
             const invoiceReference = poToFollow ? 'TBC' : (purchaseOrderNumber || 'TBC');
             
-            // Build line item with optional tracking for Project
+            // Get VAT rate from ticket class if available
+            let vatRateKey = null;
+            if (ticketClassId && event.pricing_config?.ticket_classes) {
+              const selectedTicketClass = event.pricing_config.ticket_classes.find(tc => tc.id === ticketClassId);
+              if (selectedTicketClass?.vat_rate_key) {
+                vatRateKey = selectedTicketClass.vat_rate_key;
+                xeroDebug.vatRateKey = vatRateKey;
+                xeroDebug.vatRateLabel = selectedTicketClass.vat_rate_label;
+                xeroDebug.vatRatePercentage = selectedTicketClass.vat_rate_percentage;
+              }
+            }
+
+            // Build line item with optional tracking for Project and VAT
             const lineItem = {
               Description: lineDescription,
               Quantity: 1,
               UnitAmount: validatedRemainingBalance,
               AccountCode: xeroAccountCode
             };
+
+            // Add VAT rate (TaxType) if set on ticket class
+            if (vatRateKey) {
+              lineItem.TaxType = vatRateKey;
+            }
             
             // Add tracking for Projects if internal_reference is set on the event
             if (event.internal_reference) {
