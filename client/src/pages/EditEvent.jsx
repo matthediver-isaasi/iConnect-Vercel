@@ -56,7 +56,7 @@ import 'react-quill/dist/quill.snow.css';
 // - 'members_only': Only visible to logged-in members (respects role_ids if set)
 // - 'members_and_public': Visible to both members and public (non-logged-in) users
 // - 'public_only': Only visible to public (non-logged-in) users, hidden from members
-const createEmptyTicketClass = (isDefault = false) => ({
+const createEmptyTicketClass = (isDefault = false, defaultVatRate = null) => ({
   id: `ticket-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
   name: isDefault ? "Standard Ticket" : "",
   price: "",
@@ -72,7 +72,10 @@ const createEmptyTicketClass = (isDefault = false) => ({
   bulk_discount_threshold: "",
   bulk_discount_percentage: "",
   available_count: "", // Empty = unlimited, number = limited availability
-  is_unlimited_tickets: true // When true, ticket has no quantity limit
+  is_unlimited_tickets: true, // When true, ticket has no quantity limit
+  vat_rate_key: defaultVatRate?.taxType || null, // Xero TaxType identifier
+  vat_rate_label: defaultVatRate?.name || null, // Display name (e.g., "Standard Rate (20%)")
+  vat_rate_percentage: defaultVatRate?.effectiveRate || null // Percentage value (e.g., 20)
 });
 
 export default function EditEvent() {
@@ -254,6 +257,37 @@ export default function EditEvent() {
     return !setting || setting.setting_value !== 'false';
   }, [systemSettings]);
 
+  // Get default VAT rate from settings
+  const defaultVatRate = useMemo(() => {
+    const setting = systemSettings.find(s => s.setting_key === 'event_default_vat_rate');
+    if (setting?.setting_value) {
+      try {
+        return JSON.parse(setting.setting_value);
+      } catch (e) {
+        return null;
+      }
+    }
+    return null;
+  }, [systemSettings]);
+
+  // Get available VAT rates from settings
+  const availableVatRates = useMemo(() => {
+    const setting = systemSettings.find(s => s.setting_key === 'xero_vat_rates');
+    if (setting?.setting_value) {
+      try {
+        const parsed = JSON.parse(setting.setting_value);
+        return parsed.rates || [];
+      } catch (e) {
+        return [];
+      }
+    }
+    return [];
+  }, [systemSettings]);
+
+  // For EditEvent, we do NOT auto-apply default VAT to existing tickets
+  // They were intentionally set (or left blank) when created/edited
+  // Only newly added tickets via addTicketClass will get the default
+
   // Trim summary if it exceeds the limit when settings load or summary changes
   useEffect(() => {
     if (formData.summary && formData.summary.length > summaryMaxLength) {
@@ -332,7 +366,7 @@ export default function EditEvent() {
 
   // Ticket class management functions
   const addTicketClass = () => {
-    const newTicket = createEmptyTicketClass(false);
+    const newTicket = createEmptyTicketClass(false, defaultVatRate);
     setTicketClasses([...ticketClasses, newTicket]);
     setExpandedTickets({ ...expandedTickets, [newTicket.id]: true });
   };
@@ -615,7 +649,11 @@ export default function EditEvent() {
               // Ticket availability: null = unlimited
               available_count: tc.available_count !== null && tc.available_count !== undefined 
                 ? String(tc.available_count) : "",
-              is_unlimited_tickets: tc.available_count === null || tc.available_count === undefined || tc.is_unlimited_tickets === true
+              is_unlimited_tickets: tc.available_count === null || tc.available_count === undefined || tc.is_unlimited_tickets === true,
+              // VAT rate fields for Xero invoice generation
+              vat_rate_key: tc.vat_rate_key || null,
+              vat_rate_label: tc.vat_rate_label || null,
+              vat_rate_percentage: tc.vat_rate_percentage || null
             };
           });
           setTicketClasses(loadedTickets);
@@ -647,7 +685,11 @@ export default function EditEvent() {
             bulk_discount_percentage: config.bulk_discount_percentage !== null && config.bulk_discount_percentage !== undefined 
               ? String(config.bulk_discount_percentage) : "",
             available_count: "",
-            is_unlimited_tickets: true
+            is_unlimited_tickets: true,
+            // VAT rate fields (not present in legacy format)
+            vat_rate_key: null,
+            vat_rate_label: null,
+            vat_rate_percentage: null
           };
           setTicketClasses([legacyTicket]);
           setExpandedTickets({ [legacyTicket.id]: true });
@@ -867,7 +909,11 @@ export default function EditEvent() {
           offer_type: ticket.offer_type,
           // Ticket availability: null = unlimited, number = limited
           available_count: ticket.is_unlimited_tickets ? null : (ticket.available_count ? parseInt(ticket.available_count) : null),
-          is_unlimited_tickets: ticket.is_unlimited_tickets !== false
+          is_unlimited_tickets: ticket.is_unlimited_tickets !== false,
+          // VAT rate fields for Xero invoice generation
+          vat_rate_key: ticket.vat_rate_key || null,
+          vat_rate_label: ticket.vat_rate_label || null,
+          vat_rate_percentage: ticket.vat_rate_percentage || null
         };
 
         if (ticket.offer_type === "bogo") {
@@ -1980,6 +2026,52 @@ export default function EditEvent() {
                                 </div>
                               </div>
                             </div>
+                          )}
+                        </div>
+
+                        <Separator />
+
+                        {/* VAT Rate Selection */}
+                        <div className="space-y-2">
+                          <Label className="text-sm font-medium text-slate-700">VAT Rate</Label>
+                          <Select
+                            value={ticket.vat_rate_key || "none"}
+                            onValueChange={(value) => {
+                              if (value === "none") {
+                                updateTicketClass(ticket.id, 'vat_rate_key', null);
+                                updateTicketClass(ticket.id, 'vat_rate_label', null);
+                                updateTicketClass(ticket.id, 'vat_rate_percentage', null);
+                              } else {
+                                const selectedRate = availableVatRates.find(r => r.taxType === value);
+                                if (selectedRate) {
+                                  updateTicketClass(ticket.id, 'vat_rate_key', selectedRate.taxType);
+                                  updateTicketClass(ticket.id, 'vat_rate_label', selectedRate.name);
+                                  updateTicketClass(ticket.id, 'vat_rate_percentage', selectedRate.effectiveRate);
+                                }
+                              }
+                            }}
+                          >
+                            <SelectTrigger className="w-full" data-testid={`select-vat-rate-${ticket.id}`}>
+                              <SelectValue placeholder="Select VAT rate..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="none">No VAT / Tax Exempt</SelectItem>
+                              {availableVatRates.map((rate) => (
+                                <SelectItem key={rate.taxType} value={rate.taxType}>
+                                  {rate.name} ({rate.effectiveRate}%)
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          {availableVatRates.length === 0 && (
+                            <p className="text-xs text-amber-600">
+                              No VAT rates available. Sync rates from Xero in Admin Setup.
+                            </p>
+                          )}
+                          {ticket.vat_rate_key && (
+                            <p className="text-xs text-green-600">
+                              {ticket.vat_rate_label} ({ticket.vat_rate_percentage}%)
+                            </p>
                           )}
                         </div>
                       </div>

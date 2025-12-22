@@ -79,6 +79,9 @@ export default function EventSettingsPage() {
   const [ctaButtonLabel, setCtaButtonLabel] = useState("View Details");
   const [savingCtaConfig, setSavingCtaConfig] = useState(false);
   
+  // Default VAT rate for ticket classes
+  const [defaultVatRate, setDefaultVatRate] = useState(null); // Stores { taxType, name, effectiveRate }
+  
   const queryClient = useQueryClient();
 
   useEffect(() => {
@@ -185,6 +188,16 @@ export default function EventSettingsPage() {
         setCtaButtonLabel(ctaConfig.label || 'View Details');
       } catch (e) {
         console.error('Failed to parse CTA button config:', e);
+      }
+    }
+    
+    // Load default VAT rate for ticket classes
+    const defaultVatSetting = settings.find(s => s.setting_key === 'event_default_vat_rate');
+    if (defaultVatSetting?.setting_value) {
+      try {
+        setDefaultVatRate(JSON.parse(defaultVatSetting.setting_value));
+      } catch (e) {
+        console.error('Failed to parse default VAT rate:', e);
       }
     }
   }, [settings]);
@@ -312,6 +325,23 @@ export default function EventSettingsPage() {
           setting_key: 'show_event_card_prices',
           setting_value: showEventCardPrices.toString(),
           description: 'Show ticket prices on event cards'
+        });
+      }
+      
+      // Save default VAT rate setting
+      const defaultVatSetting = settings.find(s => s.setting_key === 'event_default_vat_rate');
+      const vatRateValue = defaultVatRate ? JSON.stringify(defaultVatRate) : '';
+      
+      if (defaultVatSetting) {
+        await base44.entities.SystemSettings.update(defaultVatSetting.id, {
+          setting_value: vatRateValue,
+          description: 'Default VAT rate for new event ticket classes'
+        });
+      } else if (vatRateValue) {
+        await base44.entities.SystemSettings.create({
+          setting_key: 'event_default_vat_rate',
+          setting_value: vatRateValue,
+          description: 'Default VAT rate for new event ticket classes'
         });
       }
       
@@ -1012,6 +1042,84 @@ export default function EventSettingsPage() {
                     Save
                   </Button>
                 </div>
+              </div>
+              
+              {/* Default VAT Rate Setting */}
+              <div className="pt-4 border-t border-slate-200">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-1">
+                    <Label htmlFor="default-vat-rate">
+                      Default VAT Rate for Ticket Classes
+                    </Label>
+                    <p className="text-xs text-slate-500">
+                      This VAT rate will be automatically applied to new ticket classes when creating events.
+                      Sync VAT rates from Xero in Admin Setup if none are available.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <Select
+                      value={defaultVatRate?.taxType || ""}
+                      onValueChange={(value) => {
+                        if (value === "none") {
+                          setDefaultVatRate(null);
+                        } else {
+                          const vatRates = settings.find(s => s.setting_key === 'xero_vat_rates');
+                          if (vatRates?.setting_value) {
+                            try {
+                              const parsed = JSON.parse(vatRates.setting_value);
+                              const selectedRate = parsed.rates?.find(r => r.taxType === value);
+                              if (selectedRate) {
+                                setDefaultVatRate({
+                                  taxType: selectedRate.taxType,
+                                  name: selectedRate.name,
+                                  effectiveRate: selectedRate.effectiveRate
+                                });
+                              }
+                            } catch (e) {
+                              console.error('Failed to parse VAT rates:', e);
+                            }
+                          }
+                        }
+                      }}
+                    >
+                      <SelectTrigger className="w-[220px]" data-testid="select-default-vat-rate">
+                        <SelectValue placeholder="Select VAT rate..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">No VAT / Tax Exempt</SelectItem>
+                        {(() => {
+                          const vatRates = settings.find(s => s.setting_key === 'xero_vat_rates');
+                          if (vatRates?.setting_value) {
+                            try {
+                              const parsed = JSON.parse(vatRates.setting_value);
+                              return parsed.rates?.map((rate) => (
+                                <SelectItem key={rate.taxType} value={rate.taxType}>
+                                  {rate.name} ({rate.effectiveRate}%)
+                                </SelectItem>
+                              ));
+                            } catch (e) {
+                              return null;
+                            }
+                          }
+                          return null;
+                        })()}
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      onClick={handleSaveSettings}
+                      disabled={isSaving}
+                      size="sm"
+                    >
+                      <Save className="w-4 h-4 mr-2" />
+                      Save
+                    </Button>
+                  </div>
+                </div>
+                {defaultVatRate && (
+                  <p className="text-xs text-green-600 mt-2">
+                    Current default: {defaultVatRate.name} ({defaultVatRate.effectiveRate}%)
+                  </p>
+                )}
               </div>
             </div>
           </CardContent>
