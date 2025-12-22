@@ -105,6 +105,7 @@ export const organizationNote = pgTable("organization_note", {
   organization_id: varchar("organization_id").notNull(), // References organization.id
   member_id: varchar("member_id").notNull(), // References member.id - who added the note
   content: text("content").notNull(), // The note text
+  attachments: jsonb("attachments"), // Array of {file_url, file_name, file_size, mime_type}
   created_at: timestamp("created_at").defaultNow(),
   updated_at: timestamp("updated_at").defaultNow(),
 });
