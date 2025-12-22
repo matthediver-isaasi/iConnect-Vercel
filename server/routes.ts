@@ -9260,6 +9260,88 @@ AGCAS Events Team
     }
   });
 
+  // Sync VAT rates from Xero
+  app.post('/api/xero/sync-vat-rates', async (req, res) => {
+    try {
+      // Get valid Xero access token
+      const { accessToken, tenantId } = await getValidXeroAccessToken(supabase);
+      
+      if (!accessToken || !tenantId) {
+        return res.status(400).json({ error: 'Xero not authenticated. Please authenticate with Xero first.' });
+      }
+      
+      // Fetch tax rates from Xero
+      const taxRatesResponse = await fetch('https://api.xero.com/api.xro/2.0/TaxRates', {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'xero-tenant-id': tenantId,
+          'Accept': 'application/json'
+        }
+      });
+      
+      if (!taxRatesResponse.ok) {
+        const errorData = await taxRatesResponse.json();
+        console.error('[Xero VAT Sync] Failed to fetch tax rates:', errorData);
+        return res.status(500).json({ error: 'Failed to fetch VAT rates from Xero' });
+      }
+      
+      const taxRatesData = await taxRatesResponse.json() as any;
+      const taxRates = taxRatesData.TaxRates || [];
+      
+      // Transform the data into a simpler format for storage
+      const vatRates = taxRates.map((rate: any) => ({
+        name: rate.Name,
+        taxType: rate.TaxType,
+        displayRate: rate.DisplayTaxRate,
+        effectiveRate: rate.EffectiveRate,
+        status: rate.Status,
+        canApplyToAssets: rate.CanApplyToAssets,
+        canApplyToEquity: rate.CanApplyToEquity,
+        canApplyToExpenses: rate.CanApplyToExpenses,
+        canApplyToLiabilities: rate.CanApplyToLiabilities,
+        canApplyToRevenue: rate.CanApplyToRevenue
+      }));
+      
+      // Store in system_settings
+      const settingKey = 'xero_vat_rates';
+      const settingValue = JSON.stringify({
+        rates: vatRates,
+        syncedAt: new Date().toISOString(),
+        count: vatRates.length
+      });
+      
+      // Upsert the setting
+      const { data: existingSetting } = await supabase
+        .from('system_settings')
+        .select('id')
+        .eq('setting_key', settingKey)
+        .single();
+      
+      if (existingSetting) {
+        await supabase
+          .from('system_settings')
+          .update({ setting_value: settingValue })
+          .eq('setting_key', settingKey);
+      } else {
+        await supabase
+          .from('system_settings')
+          .insert({ setting_key: settingKey, setting_value: settingValue });
+      }
+      
+      console.log(`[Xero VAT Sync] Successfully synced ${vatRates.length} VAT rates`);
+      
+      res.json({ 
+        success: true, 
+        count: vatRates.length,
+        rates: vatRates,
+        syncedAt: new Date().toISOString()
+      });
+    } catch (error: any) {
+      console.error('[Xero VAT Sync] Error:', error.message);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Helper function to get valid Xero access token
   async function getValidXeroAccessToken(supabaseClient: any) {
     const XERO_CLIENT_ID = process.env.XERO_CLIENT_ID;
