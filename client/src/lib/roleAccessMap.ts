@@ -101,7 +101,10 @@ export const ROLE_ACCESS_MAP: Module[] = [
     pages: [
       {
         id: "commerce.bookings",
-        label: "Bookings"
+        label: "Bookings",
+        features: [
+          { id: "commerce.bookings.access-invoices", label: "View & Download Invoices" }
+        ]
       },
       {
         id: "commerce.buy-tickets",
@@ -123,7 +126,10 @@ export const ROLE_ACCESS_MAP: Module[] = [
       },
       {
         id: "commerce.history",
-        label: "Transaction History"
+        label: "Transaction History",
+        features: [
+          { id: "commerce.history.access-invoices", label: "View & Download Invoices" }
+        ]
       },
       {
         id: "commerce.voucher-management",

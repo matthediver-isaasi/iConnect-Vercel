@@ -33,7 +33,9 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useLayoutContext } from "@/contexts/LayoutContext";
 
 export default function BookingsPage() {
-  const { memberInfo, memberRole } = useMemberAccess();
+  const { memberInfo, memberRole, isFeatureExcluded } = useMemberAccess();
+  
+  const canAccessInvoices = !isFeatureExcluded('commerce.bookings.access-invoices');
   const { hasBanner } = useLayoutContext();
   const queryClient = useQueryClient();
   const [cancellingTicketId, setCancellingTicketId] = React.useState(null);
@@ -665,7 +667,7 @@ export default function BookingsPage() {
                       )}
                       
                       {/* Invoice download/preview for one-off events with Xero invoice */}
-                      {isOneOffEvent && firstBooking.xero_invoice_number && (
+                      {canAccessInvoices && isOneOffEvent && firstBooking.xero_invoice_number && (
                         <div className="flex items-center justify-between p-3 bg-blue-50 border border-blue-200 rounded-lg">
                           <div className="flex items-center gap-2">
                             <FileText className="w-4 h-4 text-blue-600" />

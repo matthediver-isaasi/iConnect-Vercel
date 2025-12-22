@@ -20,6 +20,9 @@ const ITEMS_PER_PAGE = 10;
 
 export default function HistoryPage({ hasBanner }) {
   const { memberInfo, organizationInfo, memberRole, isFeatureExcluded, reloadMemberInfo, refreshOrganizationInfo } = useMemberAccess();
+  
+  const canAccessInvoices = !isFeatureExcluded('commerce.history.access-invoices');
+  
   const [downloadingInvoice, setDownloadingInvoice] = useState(null);
   const [loadingBookingInvoice, setLoadingBookingInvoice] = useState(null);
   const [invoiceModalOpen, setInvoiceModalOpen] = useState(false);
@@ -549,7 +552,7 @@ export default function HistoryPage({ hasBanner }) {
   };
 
   // Component for standard ticket booking group with date column
-  const BookingGroupCard = ({ group, loadingBookingInvoice, handleViewBookingInvoice, handleDownloadBookingInvoice }) => {
+  const BookingGroupCard = ({ group, loadingBookingInvoice, handleViewBookingInvoice, handleDownloadBookingInvoice, canAccessInvoices }) => {
     const { reference, bookings, firstBooking, event } = group;
     const eventTitle = event?.title || firstBooking.event_name || 'Event';
     const totalCost = bookings.reduce((sum, b) => sum + (b.total_cost || 0), 0);
@@ -635,7 +638,7 @@ export default function HistoryPage({ hasBanner }) {
         </div>
         
         {/* Invoice buttons */}
-        {hasInvoice && (
+        {canAccessInvoices && hasInvoice && (
           <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200">
             <Button
               variant="outline"
@@ -676,7 +679,7 @@ export default function HistoryPage({ hasBanner }) {
   };
 
   // Component for program ticket transaction with date column
-  const ProgramTransactionCard = ({ transaction, downloadingInvoice, handleViewInvoice }) => {
+  const ProgramTransactionCard = ({ transaction, downloadingInvoice, handleViewInvoice, canAccessInvoices }) => {
     let icon, colorClass, label;
     if (transaction.transaction_type === 'purchase') {
       icon = ShoppingCart;
@@ -766,7 +769,7 @@ export default function HistoryPage({ hasBanner }) {
             </span>
           </div>
 
-          {transaction.xero_invoice_pdf_uri && (
+          {canAccessInvoices && transaction.xero_invoice_pdf_uri && (
             <Button
               variant="outline"
               size="sm"
@@ -1079,6 +1082,7 @@ export default function HistoryPage({ hasBanner }) {
                           loadingBookingInvoice={loadingBookingInvoice}
                           handleViewBookingInvoice={handleViewBookingInvoice}
                           handleDownloadBookingInvoice={handleDownloadBookingInvoice}
+                          canAccessInvoices={canAccessInvoices}
                         />
                       ))}
                       {filteredBookingGroups.length > 5 && (
@@ -1106,6 +1110,7 @@ export default function HistoryPage({ hasBanner }) {
                           transaction={transaction}
                           downloadingInvoice={downloadingInvoice}
                           handleViewInvoice={handleViewInvoice}
+                          canAccessInvoices={canAccessInvoices}
                         />
                       ))}
                       {filteredTransactions.length > 5 && (
@@ -1211,6 +1216,7 @@ export default function HistoryPage({ hasBanner }) {
                             loadingBookingInvoice={loadingBookingInvoice}
                             handleViewBookingInvoice={handleViewBookingInvoice}
                             handleDownloadBookingInvoice={handleDownloadBookingInvoice}
+                            canAccessInvoices={canAccessInvoices}
                           />
                         ))}
                         <PaginationControls pagination={pagination} />
@@ -1243,6 +1249,7 @@ export default function HistoryPage({ hasBanner }) {
                             transaction={transaction}
                             downloadingInvoice={downloadingInvoice}
                             handleViewInvoice={handleViewInvoice}
+                            canAccessInvoices={canAccessInvoices}
                           />
                         ))}
                         <PaginationControls pagination={pagination} />
