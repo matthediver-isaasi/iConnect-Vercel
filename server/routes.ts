@@ -1415,15 +1415,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
           .order('published_date', { ascending: false })
           .limit(resultLimit),
 
-        // Search Resources (active and public only)
-        supabase
-          .from('resource')
-          .select('id, title, description, image_url, resource_type')
-          .eq('status', 'active')
-          .eq('is_public', true)
-          .or(`title.ilike.${searchPattern},description.ilike.${searchPattern}`)
-          .order('release_date', { ascending: false })
-          .limit(resultLimit),
+        // Search Resources (active only, include member-only if authenticated)
+        (() => {
+          let query = supabase
+            .from('resource')
+            .select('id, title, description, image_url, resource_type')
+            .eq('status', 'active')
+            .or(`title.ilike.${searchPattern},description.ilike.${searchPattern}`)
+            .order('release_date', { ascending: false })
+            .limit(resultLimit);
+          
+          // If user is not authenticated, only show public resources
+          if (!req.session?.memberId) {
+            query = query.eq('is_public', true);
+          }
+          return query;
+        })(),
 
         // Search CMS Pages (published only)
         supabase
