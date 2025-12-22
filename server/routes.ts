@@ -4002,7 +4002,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     try {
       const orgId = req.params.id;
-      const { content } = req.body;
+      const { content, attachments } = req.body;
 
       if (!content || typeof content !== 'string' || content.trim().length === 0) {
         return res.status(400).json({ error: 'Note content is required' });
@@ -4014,6 +4014,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           organization_id: orgId,
           member_id: memberId,
           content: content.trim(),
+          attachments: attachments || [],
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         })

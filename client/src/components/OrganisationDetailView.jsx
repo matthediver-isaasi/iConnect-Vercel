@@ -1302,10 +1302,14 @@ export default function OrganisationDetailView({
                   note.content?.toLowerCase().includes(searchLower) ||
                   note.member_name?.toLowerCase().includes(searchLower)
                 );
-                const totalPages = Math.ceil(filteredNotes.length / notesPerPage);
+                const totalPages = Math.max(1, Math.ceil(filteredNotes.length / notesPerPage));
+                const clampedPage = Math.min(notesPage, totalPages);
+                if (clampedPage !== notesPage && filteredNotes.length > 0) {
+                  setTimeout(() => setNotesPage(clampedPage), 0);
+                }
                 const paginatedNotes = filteredNotes.slice(
-                  (notesPage - 1) * notesPerPage,
-                  notesPage * notesPerPage
+                  (clampedPage - 1) * notesPerPage,
+                  clampedPage * notesPerPage
                 );
 
                 if (notesLoading) {
@@ -1451,26 +1455,26 @@ export default function OrganisationDetailView({
                     {totalPages > 1 && (
                       <div className="flex items-center justify-between pt-4">
                         <p className="text-sm text-slate-500">
-                          Showing {(notesPage - 1) * notesPerPage + 1} - {Math.min(notesPage * notesPerPage, filteredNotes.length)} of {filteredNotes.length} notes
+                          Showing {(clampedPage - 1) * notesPerPage + 1} - {Math.min(clampedPage * notesPerPage, filteredNotes.length)} of {filteredNotes.length} notes
                         </p>
                         <div className="flex items-center gap-2">
                           <Button
                             variant="outline"
                             size="sm"
                             onClick={() => setNotesPage(p => Math.max(1, p - 1))}
-                            disabled={notesPage === 1}
+                            disabled={clampedPage === 1}
                             data-testid="button-notes-prev-page"
                           >
                             <ChevronLeft className="w-4 h-4" />
                           </Button>
                           <span className="text-sm text-slate-600">
-                            Page {notesPage} of {totalPages}
+                            Page {clampedPage} of {totalPages}
                           </span>
                           <Button
                             variant="outline"
                             size="sm"
                             onClick={() => setNotesPage(p => Math.min(totalPages, p + 1))}
-                            disabled={notesPage === totalPages}
+                            disabled={clampedPage === totalPages}
                             data-testid="button-notes-next-page"
                           >
                             <ChevronRight className="w-4 h-4" />

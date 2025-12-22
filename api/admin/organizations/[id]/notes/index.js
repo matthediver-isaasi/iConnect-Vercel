@@ -118,7 +118,7 @@ export default async function handler(req, res) {
 
   if (req.method === 'POST') {
     try {
-      const { content } = req.body;
+      const { content, attachments } = req.body;
 
       if (!content || !content.trim()) {
         return res.status(400).json({ error: 'Note content is required' });
@@ -129,7 +129,8 @@ export default async function handler(req, res) {
         .insert({
           organization_id: orgId,
           member_id: memberId,
-          content: content.trim()
+          content: content.trim(),
+          attachments: attachments || []
         })
         .select()
         .single();
