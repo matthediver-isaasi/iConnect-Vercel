@@ -46,7 +46,15 @@ import {
   Plus,
   StickyNote,
   Trash2,
-  MessageSquare
+  MessageSquare,
+  Search,
+  Paperclip,
+  ChevronLeft,
+  ChevronRight,
+  FileIcon,
+  Image as ImageIcon,
+  File as FileGenericIcon,
+  Download
 } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -156,6 +164,12 @@ export default function OrganisationDetailView({
   const [editingNoteId, setEditingNoteId] = useState(null);
   const [editingNoteContent, setEditingNoteContent] = useState('');
   const [noteToDelete, setNoteToDelete] = useState(null);
+  const [noteSearchTerm, setNoteSearchTerm] = useState('');
+  const [notesPage, setNotesPage] = useState(1);
+  const [newNoteAttachments, setNewNoteAttachments] = useState([]);
+  const [isUploadingFile, setIsUploadingFile] = useState(false);
+  const notesPerPage = 5;
+  const noteFileInputRef = useRef(null);
   const [formData, setFormData] = useState({
     name: '',
     phone: '',
@@ -275,12 +289,12 @@ export default function OrganisationDetailView({
 
   // Create note mutation
   const createNoteMutation = useMutation({
-    mutationFn: async (content) => {
+    mutationFn: async ({ content, attachments }) => {
       const res = await fetch(`/api/admin/organizations/${organization.id}/notes`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ content })
+        body: JSON.stringify({ content, attachments })
       });
       if (!res.ok) throw new Error('Failed to create note');
       return res.json();
@@ -288,12 +302,67 @@ export default function OrganisationDetailView({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['org-notes', organization.id] });
       setNewNoteContent('');
+      setNewNoteAttachments([]);
       toast.success('Note added');
     },
     onError: (error) => {
       toast.error('Failed to add note: ' + error.message);
     }
   });
+
+  const handleNoteFileUpload = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+
+    setIsUploadingFile(true);
+    try {
+      for (const file of files) {
+        const formData = new FormData();
+        formData.append('file', file);
+        
+        const res = await fetch('/api/integrations/upload-file', {
+          method: 'POST',
+          body: formData
+        });
+        
+        if (!res.ok) {
+          throw new Error('Upload failed');
+        }
+        
+        const result = await res.json();
+        setNewNoteAttachments(prev => [...prev, {
+          file_url: result.file_url,
+          file_name: result.file_name || file.name,
+          file_size: result.file_size || file.size,
+          mime_type: result.mime_type || file.type
+        }]);
+      }
+      toast.success(`${files.length} file(s) uploaded`);
+    } catch (error) {
+      console.error('File upload error:', error);
+      toast.error('Failed to upload file');
+    } finally {
+      setIsUploadingFile(false);
+      if (noteFileInputRef.current) {
+        noteFileInputRef.current.value = '';
+      }
+    }
+  };
+
+  const removeNewNoteAttachment = (index) => {
+    setNewNoteAttachments(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const isImageFile = (mimeType) => {
+    return mimeType && mimeType.startsWith('image/');
+  };
+
+  const formatFileSize = (bytes) => {
+    if (!bytes) return '';
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  };
 
   // Update note mutation
   const updateNoteMutation = useMutation({
@@ -1141,9 +1210,63 @@ export default function OrganisationDetailView({
                   className="min-h-[100px]"
                   data-testid="input-new-note"
                 />
-                <div className="flex justify-end">
+                
+                {newNoteAttachments.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {newNoteAttachments.map((att, idx) => (
+                      <div key={idx} className="relative group">
+                        {isImageFile(att.mime_type) ? (
+                          <div className="w-20 h-20 rounded border overflow-hidden">
+                            <img src={att.file_url} alt={att.file_name} className="w-full h-full object-cover" />
+                          </div>
+                        ) : (
+                          <div className="w-20 h-20 rounded border bg-slate-100 dark:bg-slate-700 flex flex-col items-center justify-center p-2">
+                            <FileGenericIcon className="w-6 h-6 text-slate-400" />
+                            <span className="text-xs text-slate-500 truncate max-w-full mt-1">{att.file_name}</span>
+                          </div>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => removeNewNoteAttachment(idx)}
+                          className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+                          data-testid={`button-remove-attachment-${idx}`}
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                
+                <div className="flex justify-between items-center">
+                  <div>
+                    <input
+                      type="file"
+                      ref={noteFileInputRef}
+                      onChange={handleNoteFileUpload}
+                      className="hidden"
+                      multiple
+                      accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt"
+                      data-testid="input-note-file"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => noteFileInputRef.current?.click()}
+                      disabled={isUploadingFile}
+                      data-testid="button-attach-file"
+                    >
+                      {isUploadingFile ? (
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      ) : (
+                        <Paperclip className="w-4 h-4 mr-2" />
+                      )}
+                      Attach Files
+                    </Button>
+                  </div>
                   <Button
-                    onClick={() => createNoteMutation.mutate(newNoteContent)}
+                    onClick={() => createNoteMutation.mutate({ content: newNoteContent, attachments: newNoteAttachments })}
                     disabled={!newNoteContent.trim() || createNoteMutation.isPending}
                     data-testid="button-add-note"
                   >
@@ -1159,96 +1282,205 @@ export default function OrganisationDetailView({
 
               <Separator />
 
-              {notesLoading ? (
-                <div className="flex items-center justify-center py-12">
-                  <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
-                </div>
-              ) : orgNotes.length === 0 ? (
-                <div className="text-center py-12 text-slate-500">
-                  <MessageSquare className="w-12 h-12 mx-auto mb-3 text-slate-300" />
-                  <p>No notes yet</p>
-                  <p className="text-sm text-slate-400 mt-1">Add a note above to get started</p>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {orgNotes.map(note => (
-                    <div key={note.id} className="p-4 bg-slate-50 dark:bg-slate-800 rounded-lg space-y-3" data-testid={`note-${note.id}`}>
-                      {editingNoteId === note.id ? (
-                        <div className="space-y-3">
-                          <Textarea
-                            value={editingNoteContent}
-                            onChange={(e) => setEditingNoteContent(e.target.value)}
-                            className="min-h-[80px]"
-                            data-testid={`input-edit-note-${note.id}`}
-                          />
-                          <div className="flex gap-2 justify-end">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => {
-                                setEditingNoteId(null);
-                                setEditingNoteContent('');
-                              }}
-                              data-testid={`button-cancel-edit-${note.id}`}
-                            >
-                              Cancel
-                            </Button>
-                            <Button
-                              size="sm"
-                              onClick={() => updateNoteMutation.mutate({ noteId: note.id, content: editingNoteContent })}
-                              disabled={!editingNoteContent.trim() || updateNoteMutation.isPending}
-                              data-testid={`button-save-note-${note.id}`}
-                            >
-                              {updateNoteMutation.isPending ? (
-                                <Loader2 className="w-4 h-4 animate-spin" />
-                              ) : (
-                                'Save'
-                              )}
-                            </Button>
-                          </div>
-                        </div>
-                      ) : (
-                        <>
-                          <p className="text-slate-700 dark:text-slate-200 whitespace-pre-wrap">{note.content}</p>
-                          <div className="flex items-center justify-between text-sm">
-                            <div className="flex items-center gap-2 text-slate-500">
-                              <User className="w-3 h-3" />
-                              <span>{note.member_name}</span>
-                              <span className="text-slate-300">|</span>
-                              <span>{note.created_at ? format(new Date(note.created_at), 'dd MMM yyyy, HH:mm') : ''}</span>
-                              {note.updated_at && note.updated_at !== note.created_at && (
-                                <span className="italic text-slate-400">(edited)</span>
-                              )}
-                            </div>
-                            <div className="flex gap-1">
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => {
-                                  setEditingNoteId(note.id);
-                                  setEditingNoteContent(note.content);
-                                }}
-                                data-testid={`button-edit-note-${note.id}`}
-                              >
-                                <Pencil className="w-4 h-4 text-slate-400 hover:text-blue-600" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => setNoteToDelete(note.id)}
-                                disabled={deleteNoteMutation.isPending}
-                                data-testid={`button-delete-note-${note.id}`}
-                              >
-                                <Trash2 className="w-4 h-4 text-slate-400 hover:text-red-600" />
-                              </Button>
-                            </div>
-                          </div>
-                        </>
-                      )}
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <Input
+                  placeholder="Search notes by content or creator..."
+                  value={noteSearchTerm}
+                  onChange={(e) => {
+                    setNoteSearchTerm(e.target.value);
+                    setNotesPage(1);
+                  }}
+                  className="pl-10"
+                  data-testid="input-search-notes"
+                />
+              </div>
+
+              {(() => {
+                const searchLower = noteSearchTerm.toLowerCase();
+                const filteredNotes = orgNotes.filter(note => 
+                  note.content?.toLowerCase().includes(searchLower) ||
+                  note.member_name?.toLowerCase().includes(searchLower)
+                );
+                const totalPages = Math.ceil(filteredNotes.length / notesPerPage);
+                const paginatedNotes = filteredNotes.slice(
+                  (notesPage - 1) * notesPerPage,
+                  notesPage * notesPerPage
+                );
+
+                if (notesLoading) {
+                  return (
+                    <div className="flex items-center justify-center py-12">
+                      <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
                     </div>
-                  ))}
-                </div>
-              )}
+                  );
+                }
+
+                if (orgNotes.length === 0) {
+                  return (
+                    <div className="text-center py-12 text-slate-500">
+                      <MessageSquare className="w-12 h-12 mx-auto mb-3 text-slate-300" />
+                      <p>No notes yet</p>
+                      <p className="text-sm text-slate-400 mt-1">Add a note above to get started</p>
+                    </div>
+                  );
+                }
+
+                if (filteredNotes.length === 0) {
+                  return (
+                    <div className="text-center py-12 text-slate-500">
+                      <Search className="w-12 h-12 mx-auto mb-3 text-slate-300" />
+                      <p>No notes match your search</p>
+                      <p className="text-sm text-slate-400 mt-1">Try a different search term</p>
+                    </div>
+                  );
+                }
+
+                return (
+                  <>
+                    <div className="space-y-4">
+                      {paginatedNotes.map(note => (
+                        <div key={note.id} className="p-4 bg-slate-50 dark:bg-slate-800 rounded-lg space-y-3" data-testid={`note-${note.id}`}>
+                          {editingNoteId === note.id ? (
+                            <div className="space-y-3">
+                              <Textarea
+                                value={editingNoteContent}
+                                onChange={(e) => setEditingNoteContent(e.target.value)}
+                                className="min-h-[80px]"
+                                data-testid={`input-edit-note-${note.id}`}
+                              />
+                              <div className="flex gap-2 justify-end">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => {
+                                    setEditingNoteId(null);
+                                    setEditingNoteContent('');
+                                  }}
+                                  data-testid={`button-cancel-edit-${note.id}`}
+                                >
+                                  Cancel
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  onClick={() => updateNoteMutation.mutate({ noteId: note.id, content: editingNoteContent })}
+                                  disabled={!editingNoteContent.trim() || updateNoteMutation.isPending}
+                                  data-testid={`button-save-note-${note.id}`}
+                                >
+                                  {updateNoteMutation.isPending ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                  ) : (
+                                    'Save'
+                                  )}
+                                </Button>
+                              </div>
+                            </div>
+                          ) : (
+                            <>
+                              <p className="text-slate-700 dark:text-slate-200 whitespace-pre-wrap">{note.content}</p>
+                              
+                              {note.attachments && note.attachments.length > 0 && (
+                                <div className="flex flex-wrap gap-2 pt-2">
+                                  {note.attachments.map((att, idx) => (
+                                    <a
+                                      key={idx}
+                                      href={att.file_url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="block group"
+                                      data-testid={`attachment-${note.id}-${idx}`}
+                                    >
+                                      {isImageFile(att.mime_type) ? (
+                                        <div className="w-24 h-24 rounded border overflow-hidden hover:ring-2 hover:ring-blue-500 transition-all">
+                                          <img src={att.file_url} alt={att.file_name} className="w-full h-full object-cover" />
+                                        </div>
+                                      ) : (
+                                        <div className="flex items-center gap-2 px-3 py-2 bg-white dark:bg-slate-700 rounded border hover:ring-2 hover:ring-blue-500 transition-all">
+                                          <FileGenericIcon className="w-5 h-5 text-slate-400" />
+                                          <div className="text-sm">
+                                            <p className="text-slate-700 dark:text-slate-200 truncate max-w-[150px]">{att.file_name}</p>
+                                            <p className="text-xs text-slate-400">{formatFileSize(att.file_size)}</p>
+                                          </div>
+                                          <Download className="w-4 h-4 text-slate-400 group-hover:text-blue-500" />
+                                        </div>
+                                      )}
+                                    </a>
+                                  ))}
+                                </div>
+                              )}
+                              
+                              <div className="flex items-center justify-between text-sm">
+                                <div className="flex items-center gap-2 text-slate-500">
+                                  <User className="w-3 h-3" />
+                                  <span>{note.member_name}</span>
+                                  <span className="text-slate-300">|</span>
+                                  <span>{note.created_at ? format(new Date(note.created_at), 'dd MMM yyyy, HH:mm') : ''}</span>
+                                  {note.updated_at && note.updated_at !== note.created_at && (
+                                    <span className="italic text-slate-400">(edited)</span>
+                                  )}
+                                </div>
+                                <div className="flex gap-1">
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => {
+                                      setEditingNoteId(note.id);
+                                      setEditingNoteContent(note.content);
+                                    }}
+                                    data-testid={`button-edit-note-${note.id}`}
+                                  >
+                                    <Pencil className="w-4 h-4 text-slate-400 hover:text-blue-600" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => setNoteToDelete(note.id)}
+                                    disabled={deleteNoteMutation.isPending}
+                                    data-testid={`button-delete-note-${note.id}`}
+                                  >
+                                    <Trash2 className="w-4 h-4 text-slate-400 hover:text-red-600" />
+                                  </Button>
+                                </div>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+
+                    {totalPages > 1 && (
+                      <div className="flex items-center justify-between pt-4">
+                        <p className="text-sm text-slate-500">
+                          Showing {(notesPage - 1) * notesPerPage + 1} - {Math.min(notesPage * notesPerPage, filteredNotes.length)} of {filteredNotes.length} notes
+                        </p>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setNotesPage(p => Math.max(1, p - 1))}
+                            disabled={notesPage === 1}
+                            data-testid="button-notes-prev-page"
+                          >
+                            <ChevronLeft className="w-4 h-4" />
+                          </Button>
+                          <span className="text-sm text-slate-600">
+                            Page {notesPage} of {totalPages}
+                          </span>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setNotesPage(p => Math.min(totalPages, p + 1))}
+                            disabled={notesPage === totalPages}
+                            data-testid="button-notes-next-page"
+                          >
+                            <ChevronRight className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
             </CardContent>
           </Card>
         )}
