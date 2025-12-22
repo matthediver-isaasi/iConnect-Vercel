@@ -3856,6 +3856,67 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Backfill created_date for job postings that don't have it
+  app.post('/api/admin/backfill-job-posting-dates', async (req: Request, res: Response) => {
+    const { isAdmin, error } = await verifyAdminSession(req);
+    
+    if (error) {
+      return res.status(401).json({ error });
+    }
+
+    if (!supabase) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+
+    try {
+      // Find all job postings where created_date is null
+      const { data: jobsToFix, error: fetchError } = await supabase
+        .from('job_posting')
+        .select('id, created_at, created_date')
+        .is('created_date', null);
+      
+      if (fetchError) {
+        console.error('[Backfill Job Dates] Fetch error:', fetchError);
+        return res.status(500).json({ error: fetchError.message });
+      }
+      
+      if (!jobsToFix || jobsToFix.length === 0) {
+        return res.json({ success: true, message: 'No job postings need updating', updated: 0 });
+      }
+      
+      let updatedCount = 0;
+      const errors: { id: string; error: string }[] = [];
+      
+      for (const job of jobsToFix) {
+        const dateToUse = job.created_at || new Date().toISOString();
+        
+        const { error: updateError } = await supabase
+          .from('job_posting')
+          .update({ created_date: dateToUse })
+          .eq('id', job.id);
+        
+        if (updateError) {
+          errors.push({ id: job.id, error: updateError.message });
+        } else {
+          updatedCount++;
+        }
+      }
+      
+      console.log(`[Backfill Job Dates] Updated ${updatedCount} of ${jobsToFix.length} job postings`);
+      
+      res.json({
+        success: errors.length === 0,
+        message: `Updated ${updatedCount} of ${jobsToFix.length} job postings`,
+        updated: updatedCount,
+        total: jobsToFix.length,
+        errors: errors.length > 0 ? errors : undefined
+      });
+    } catch (error) {
+      console.error('[Backfill Job Dates] Error:', error);
+      res.status(500).json({ error: 'Failed to backfill job posting dates' });
+    }
+  });
+
   // Fix blog post handles - generate handles for authors and update slugs
   app.post('/api/admin/fix-blog-handles', async (req: Request, res: Response) => {
     // Verify admin status via session

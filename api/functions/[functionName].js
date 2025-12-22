@@ -5047,6 +5047,50 @@ const functionHandlers = {
       expires_at: token.expires_at,
       is_expired: expiresAt <= now
     };
+  },
+
+  async backfillJobPostingCreatedDates(params) {
+    if (!supabase) throw new Error('Supabase not configured');
+    
+    // Find all job postings where created_date is null but created_at exists
+    const { data: jobsToFix, error: fetchError } = await supabase
+      .from('job_posting')
+      .select('id, created_at, created_date')
+      .is('created_date', null);
+    
+    if (fetchError) {
+      return { success: false, error: fetchError.message };
+    }
+    
+    if (!jobsToFix || jobsToFix.length === 0) {
+      return { success: true, message: 'No job postings need updating', updated: 0 };
+    }
+    
+    let updatedCount = 0;
+    const errors = [];
+    
+    for (const job of jobsToFix) {
+      const dateToUse = job.created_at || new Date().toISOString();
+      
+      const { error: updateError } = await supabase
+        .from('job_posting')
+        .update({ created_date: dateToUse })
+        .eq('id', job.id);
+      
+      if (updateError) {
+        errors.push({ id: job.id, error: updateError.message });
+      } else {
+        updatedCount++;
+      }
+    }
+    
+    return {
+      success: errors.length === 0,
+      message: `Updated ${updatedCount} of ${jobsToFix.length} job postings`,
+      updated: updatedCount,
+      total: jobsToFix.length,
+      errors: errors.length > 0 ? errors : undefined
+    };
   }
 };
 
