@@ -10,7 +10,8 @@ import { toast } from "sonner";
 
 export default function FooterConfig() {
   const [footerConfig, setFooterConfig] = useState({
-    termsAndConditionsUrl: ""
+    termsAndConditionsUrl: "",
+    privacyPolicyUrl: ""
   });
 
   const queryClient = useQueryClient();
@@ -96,7 +97,7 @@ export default function FooterConfig() {
         </p>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
+        <div className="p-4 bg-slate-50 rounded-lg border border-slate-200 space-y-4">
           <div className="space-y-2">
             <Label htmlFor="terms-url" className="font-medium">
               Terms and Conditions URL
@@ -110,6 +111,22 @@ export default function FooterConfig() {
             />
             <p className="text-xs text-slate-500">
               Enter the URL for your Terms and Conditions page. This will appear as a clickable link in the footer.
+            </p>
+          </div>
+          
+          <div className="space-y-2">
+            <Label htmlFor="privacy-url" className="font-medium">
+              Privacy Policy URL
+            </Label>
+            <Input
+              id="privacy-url"
+              value={footerConfig.privacyPolicyUrl || ""}
+              onChange={(e) => setFooterConfig(prev => ({ ...prev, privacyPolicyUrl: e.target.value }))}
+              placeholder="https://example.com/privacy-policy"
+              data-testid="input-privacy-url"
+            />
+            <p className="text-xs text-slate-500">
+              Enter the URL for your Privacy Policy page. This will appear as a clickable link in the footer.
             </p>
           </div>
         </div>

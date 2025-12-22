@@ -588,6 +588,25 @@ export default function PublicLayout({ children, currentPageName }) {
                       Terms and conditions
                     </span>
                   )}
+                  {footerConfig?.privacyPolicyUrl ? (
+                    <a 
+                      href={footerConfig.privacyPolicyUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-white text-sm hover:opacity-80 transition-opacity"
+                      style={{ fontFamily: 'Poppins, sans-serif' }}
+                      data-testid="link-privacy-policy"
+                    >
+                      Privacy policy
+                    </a>
+                  ) : (
+                    <span 
+                      className="text-white text-sm opacity-60"
+                      style={{ fontFamily: 'Poppins, sans-serif' }}
+                    >
+                      Privacy policy
+                    </span>
+                  )}
                 </div>
               </div>
               
