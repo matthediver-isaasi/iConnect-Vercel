@@ -648,8 +648,8 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
           })()}
 
           <div className="pt-3 border-t border-slate-100">
-            {/* Event Controls - shown unless features are excluded */}
-            {(!isFeatureExcluded?.('events.browse-events.create') || !isFeatureExcluded?.('events.browse-events.view-attendees')) && (
+            {/* Event Controls - only shown when logged in and features are not excluded */}
+            {memberInfo && (!isFeatureExcluded?.('events.browse-events.create') || !isFeatureExcluded?.('events.browse-events.view-attendees')) && (
               <div className="flex items-center gap-2 mb-3">
                 {!isFeatureExcluded?.('events.browse-events.create') && (
                   <Button 
