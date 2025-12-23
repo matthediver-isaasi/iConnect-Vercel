@@ -347,6 +347,103 @@ export default async function handler(req, res) {
         console.log(`[CommunicationCategory Delete] Deleted related records for category ${id}`);
       }
 
+      // Special handling for Member: anonymize personal data and delete from related tables
+      // but keep the member record for financial audit trail (bookings, tickets, etc.)
+      if (entity === 'Member') {
+        console.log(`[Member Delete] Starting anonymization and cleanup for member ${id}`);
+        
+        // Delete from member-related tables (personal data, preferences, activity)
+        const deleteTables = [
+          { table: 'member_resource_category', column: 'member_id' },
+          { table: 'member_group_assignment', column: 'member_id' },
+          { table: 'member_group_guest', column: 'member_id' },
+          { table: 'member_preference_value', column: 'member_id' },
+          { table: 'member_communication_preference', column: 'member_id' },
+          { table: 'magic_link', column: 'member_id' },
+          { table: 'member_credentials', column: 'member_id' },
+          { table: 'article_follow', column: 'follower_member_id' },
+          { table: 'article_follow', column: 'followed_member_id' },
+          { table: 'article_comment', column: 'member_id' },
+          { table: 'article_view', column: 'member_id' },
+          { table: 'article_reaction', column: 'member_id' },
+          { table: 'comment_reaction', column: 'member_id' },
+          { table: 'form_submission', column: 'member_id' },
+          { table: 'support_ticket_response', column: 'member_id' },
+          { table: 'support_ticket', column: 'member_id' },
+          { table: 'workflow_log', column: 'member_id' },
+          { table: 'organization_note', column: 'author_member_id' },
+        ];
+        
+        for (const { table, column } of deleteTables) {
+          const { error: deleteError } = await supabase
+            .from(table)
+            .delete()
+            .eq(column, id);
+          
+          if (deleteError) {
+            console.log(`[Member Delete] Note: Could not delete from ${table}.${column}: ${deleteError.message}`);
+          } else {
+            console.log(`[Member Delete] Deleted records from ${table} where ${column} = ${id}`);
+          }
+        }
+        
+        // Anonymize the member record - clear ALL personal data but keep id and full_name
+        // This covers all PII fields in the member table for GDPR compliance
+        const { error: anonymizeError } = await supabase
+          .from('member')
+          .update({
+            email: `deleted_${id}@deleted.local`,
+            secondary_email: null,
+            first_name: null,
+            last_name: null,
+            middle_name: null,
+            preferred_first_name: null,
+            maiden_name: null,
+            phone: null,
+            mobile_phone: null,
+            work_phone: null,
+            address: null,
+            address_line_2: null,
+            city: null,
+            state: null,
+            postcode: null,
+            country: null,
+            profile_picture: null,
+            linkedin_url: null,
+            twitter_url: null,
+            facebook_url: null,
+            instagram_url: null,
+            website_url: null,
+            bio: null,
+            job_title: null,
+            department: null,
+            company: null,
+            pronouns: null,
+            preferred_name: null,
+            graduation_year: null,
+            graduation_course: null,
+            university: null,
+            degree_type: null,
+            notes: null,
+            marketing_notes: null,
+            internal_notes: null,
+            custom_fields: null,
+            zoho_contact_id: null,
+            external_id: null,
+            login_enabled: false,
+            is_active: false,
+          })
+          .eq('id', id);
+        
+        if (anonymizeError) {
+          console.error(`[Member Delete] Error anonymizing member ${id}:`, anonymizeError);
+          return res.status(500).json({ error: 'Failed to anonymize member data' });
+        }
+        
+        console.log(`[Member Delete] Successfully anonymized member ${id} and deleted related data`);
+        return res.json({ success: true, message: 'Member data anonymized and related records deleted' });
+      }
+
       const { error } = await supabase
         .from(tableName)
         .delete()
