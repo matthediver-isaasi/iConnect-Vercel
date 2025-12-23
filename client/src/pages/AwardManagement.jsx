@@ -78,6 +78,7 @@ export default function AwardManagementPage() {
   const [selectedSublevelId, setSelectedSublevelId] = useState("");
   const [selectedOrganizationId, setSelectedOrganizationId] = useState("");
   const [assignmentNotes, setAssignmentNotes] = useState("");
+  const [assignmentDate, setAssignmentDate] = useState(new Date().toISOString().split('T')[0]);
   const [memberSearchQuery, setMemberSearchQuery] = useState("");
   const [assignedMembersSearchQuery, setAssignedMembersSearchQuery] = useState("");
 
@@ -914,6 +915,7 @@ export default function AwardManagementPage() {
     setSelectedSublevelId("");
     setSelectedOrganizationId("");
     setAssignmentNotes("");
+    setAssignmentDate(new Date().toISOString().split('T')[0]);
     setMemberSearchQuery("");
     setAssignDialogOpen(true);
   };
@@ -925,6 +927,7 @@ export default function AwardManagementPage() {
     setSelectedSublevelId("");
     setSelectedOrganizationId("");
     setAssignmentNotes("");
+    setAssignmentDate(new Date().toISOString().split('T')[0]);
     setMemberSearchQuery("");
   };
 
@@ -954,7 +957,7 @@ export default function AwardManagementPage() {
         sublevel_id: selectedSublevelId || null,
         assigned_by: memberInfo?.email || "",
         notes: assignmentNotes,
-        assigned_date: new Date().toISOString()
+        assigned_date: assignmentDate ? new Date(assignmentDate).toISOString() : new Date().toISOString()
       };
       assignOrganisationAwardMutation.mutate(assignmentData);
     } else {
@@ -970,7 +973,7 @@ export default function AwardManagementPage() {
           sublevel_id: selectedSublevelId || null,
           assigned_by: memberInfo?.email || "",
           notes: assignmentNotes,
-          assigned_date: new Date().toISOString()
+          assigned_date: assignmentDate ? new Date(assignmentDate).toISOString() : new Date().toISOString()
         };
         assignEngagementAwardMutation.mutate(assignmentData);
       } else {
@@ -980,7 +983,7 @@ export default function AwardManagementPage() {
           sublevel_id: selectedSublevelId || null,
           assigned_by: memberInfo?.email || "",
           notes: assignmentNotes,
-          assigned_date: new Date().toISOString()
+          assigned_date: assignmentDate ? new Date(assignmentDate).toISOString() : new Date().toISOString()
         };
         assignOfflineAwardMutation.mutate(assignmentData);
       }
@@ -2948,6 +2951,17 @@ export default function AwardManagementPage() {
                    ))}
                   </SelectContent>
                 </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="assigned-date">Assigned Date</Label>
+                <Input
+                  id="assigned-date"
+                  type="date"
+                  value={assignmentDate}
+                  onChange={(e) => setAssignmentDate(e.target.value)}
+                  data-testid="input-assigned-date"
+                />
               </div>
 
               <div className="space-y-2">
