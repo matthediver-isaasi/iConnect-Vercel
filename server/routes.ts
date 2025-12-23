@@ -540,51 +540,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         }
         
-        // Anonymize the member record - clear ALL personal data but keep id and full_name
-        // This covers all PII fields in the member table for GDPR compliance
+        // Anonymize the member record - clear ALL personal data but keep id
+        // Based on actual schema/Member.json columns
         const { error: anonymizeError } = await supabase
           .from('member')
           .update({
             email: `deleted_${id}@deleted.local`,
-            secondary_email: null,
-            first_name: null,
-            last_name: null,
-            middle_name: null,
-            preferred_first_name: null,
-            maiden_name: null,
-            phone: null,
-            mobile_phone: null,
-            work_phone: null,
-            address: null,
-            address_line_2: null,
-            city: null,
-            state: null,
-            postcode: null,
-            country: null,
-            profile_picture: null,
-            linkedin_url: null,
-            twitter_url: null,
-            facebook_url: null,
-            instagram_url: null,
-            website_url: null,
-            bio: null,
+            first_name: 'Deleted',
+            last_name: 'Member',
+            handle: null,
             job_title: null,
-            department: null,
-            company: null,
-            pronouns: null,
-            preferred_name: null,
-            graduation_year: null,
-            graduation_course: null,
-            university: null,
-            degree_type: null,
-            notes: null,
-            marketing_notes: null,
-            internal_notes: null,
-            custom_fields: null,
+            biography: null,
+            profile_photo_url: null,
             zoho_contact_id: null,
-            external_id: null,
             login_enabled: false,
-            is_active: false,
+            show_in_directory: false,
           })
           .eq('id', id);
         
