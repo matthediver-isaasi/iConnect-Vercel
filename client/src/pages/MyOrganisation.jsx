@@ -171,7 +171,7 @@ export default function MyOrganisationPage() {
   });
 
   const { data: orgCustomFields = [] } = useQuery({
-    queryKey: ['/api/entities/PreferenceField', 'organization'],
+    queryKey: ['/api/entities/PreferenceField', 'organization', 'myorg'],
     enabled: accessChecked,
     queryFn: async () => {
       try {
@@ -179,14 +179,15 @@ export default function MyOrganisationPage() {
           filter: { is_active: true, entity_scope: 'organization' },
           sort: { display_order: 'asc' }
         });
-        return (fields || []).filter(f => f.entity_scope === 'organization');
+        // Filter for fields visible in My Organisation page
+        return (fields || []).filter(f => f.entity_scope === 'organization' && f.show_in_my_organisation !== false);
       } catch {
         try {
           const allFields = await base44.entities.PreferenceField.list({
             filter: { is_active: true },
             sort: { display_order: 'asc' }
           });
-          return (allFields || []).filter(f => f.entity_scope === 'organization');
+          return (allFields || []).filter(f => f.entity_scope === 'organization' && f.show_in_my_organisation !== false);
         } catch {
           return [];
         }

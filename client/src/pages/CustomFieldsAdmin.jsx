@@ -119,6 +119,13 @@ export default function CustomFieldsAdminPage() {
   );
 }
 
+// Visibility location options for organization fields
+const VISIBILITY_LOCATIONS = [
+  { key: 'show_in_my_organisation', label: 'My Organisation', description: 'Member\'s own organisation page' },
+  { key: 'show_in_directory_card', label: 'Directory Card', description: 'Organisation directory flip card' },
+  { key: 'show_in_admin_list', label: 'Admin List', description: 'Admin organisations CRM page' }
+];
+
 function CustomFieldsManager({ queryClient, entityScope, title, description }) {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingField, setEditingField] = useState(null);
@@ -132,6 +139,10 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
   const [fieldFilterable, setFieldFilterable] = useState(false);
   const [minSelections, setMinSelections] = useState('');
   const [maxSelections, setMaxSelections] = useState('');
+  // Visibility toggles for organization fields
+  const [showInMyOrganisation, setShowInMyOrganisation] = useState(true);
+  const [showInDirectoryCard, setShowInDirectoryCard] = useState(true);
+  const [showInAdminList, setShowInAdminList] = useState(true);
 
   const { data: preferenceFields = [], isLoading } = useQuery({
     queryKey: ['/api/entities/PreferenceField', entityScope],
@@ -239,6 +250,10 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
     setFieldFilterable(false);
     setMinSelections('');
     setMaxSelections('');
+    // Reset visibility toggles to default (all visible)
+    setShowInMyOrganisation(true);
+    setShowInDirectoryCard(true);
+    setShowInAdminList(true);
   };
 
   const handleOpenCreateDialog = () => {
@@ -256,6 +271,10 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
     setFieldFilterable(field.is_filterable || false);
     setMinSelections(field.min_selections != null ? String(field.min_selections) : '');
     setMaxSelections(field.max_selections != null ? String(field.max_selections) : '');
+    // Load visibility settings (default to true for backward compatibility)
+    setShowInMyOrganisation(field.show_in_my_organisation !== false);
+    setShowInDirectoryCard(field.show_in_directory_card !== false);
+    setShowInAdminList(field.show_in_admin_list !== false);
     setIsDialogOpen(true);
   };
 
@@ -302,7 +321,11 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
       entity_scope: entityScope,
       is_filterable: (fieldType === 'picklist' || fieldType === 'dropdown') ? fieldFilterable : false,
       min_selections: fieldType === 'picklist' && minSelections ? parseInt(minSelections, 10) : null,
-      max_selections: fieldType === 'picklist' && maxSelections ? parseInt(maxSelections, 10) : null
+      max_selections: fieldType === 'picklist' && maxSelections ? parseInt(maxSelections, 10) : null,
+      // Visibility settings (only relevant for organization fields)
+      show_in_my_organisation: entityScope === 'organization' ? showInMyOrganisation : true,
+      show_in_directory_card: entityScope === 'organization' ? showInDirectoryCard : true,
+      show_in_admin_list: entityScope === 'organization' ? showInAdminList : true
     };
 
     if (editingField) {
@@ -400,6 +423,23 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
                               )}
                             </div>
                             <p className="text-sm text-slate-500 mt-1">Field name: {field.name}</p>
+                            {entityScope === 'organization' && (
+                              <div className="flex items-center gap-2 mt-1 flex-wrap">
+                                <span className="text-xs text-slate-400">Visible in:</span>
+                                {field.show_in_my_organisation !== false && (
+                                  <span className="text-xs bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded">My Org</span>
+                                )}
+                                {field.show_in_directory_card !== false && (
+                                  <span className="text-xs bg-green-50 text-green-600 px-1.5 py-0.5 rounded">Directory</span>
+                                )}
+                                {field.show_in_admin_list !== false && (
+                                  <span className="text-xs bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded">Admin</span>
+                                )}
+                                {field.show_in_my_organisation === false && field.show_in_directory_card === false && field.show_in_admin_list === false && (
+                                  <span className="text-xs text-slate-400 italic">None</span>
+                                )}
+                              </div>
+                            )}
                             {field.options && field.options.length > 0 && (
                               <p className="text-sm text-slate-400 mt-1">
                                 Options: {field.options.map(o => o.label).join(', ')}
@@ -660,6 +700,53 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
                   onCheckedChange={setFieldFilterable}
                   data-testid="switch-field-filterable"
                 />
+              </div>
+            )}
+
+            {entityScope === 'organization' && (
+              <div className="space-y-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                <Label className="text-sm font-medium">Display Locations</Label>
+                <p className="text-xs text-slate-500 -mt-1">
+                  Choose where this field should be displayed
+                </p>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label htmlFor="showInMyOrg" className="cursor-pointer text-sm">My Organisation</Label>
+                      <p className="text-xs text-slate-400">Member's own organisation page</p>
+                    </div>
+                    <Switch
+                      id="showInMyOrg"
+                      checked={showInMyOrganisation}
+                      onCheckedChange={setShowInMyOrganisation}
+                      data-testid="switch-show-my-org"
+                    />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label htmlFor="showInDirectory" className="cursor-pointer text-sm">Directory Card</Label>
+                      <p className="text-xs text-slate-400">Organisation directory flip card</p>
+                    </div>
+                    <Switch
+                      id="showInDirectory"
+                      checked={showInDirectoryCard}
+                      onCheckedChange={setShowInDirectoryCard}
+                      data-testid="switch-show-directory"
+                    />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label htmlFor="showInAdmin" className="cursor-pointer text-sm">Admin List</Label>
+                      <p className="text-xs text-slate-400">Admin organisations CRM page</p>
+                    </div>
+                    <Switch
+                      id="showInAdmin"
+                      checked={showInAdminList}
+                      onCheckedChange={setShowInAdminList}
+                      data-testid="switch-show-admin"
+                    />
+                  </div>
+                </div>
               </div>
             )}
           </div>

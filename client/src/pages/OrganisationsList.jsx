@@ -152,14 +152,15 @@ export default function OrganisationsListPage() {
           filter: { is_active: true, entity_scope: 'organization' },
           sort: { display_order: 'asc' }
         });
-        return (fields || []).filter(f => f.entity_scope === 'organization');
+        // Filter for fields visible in Admin CRM list
+        return (fields || []).filter(f => f.entity_scope === 'organization' && f.show_in_admin_list !== false);
       } catch {
         try {
           const allFields = await base44.entities.PreferenceField.list({
             filter: { is_active: true },
             sort: { display_order: 'asc' }
           });
-          return (allFields || []).filter(f => f.entity_scope === 'organization');
+          return (allFields || []).filter(f => f.entity_scope === 'organization' && f.show_in_admin_list !== false);
         } catch {
           return [];
         }

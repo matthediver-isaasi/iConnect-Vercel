@@ -117,7 +117,7 @@ export default function OrganisationDirectoryPage() {
 
   // Fetch organization-scoped custom fields
   const { data: orgCustomFields = [] } = useQuery({
-    queryKey: ['/api/entities/PreferenceField', 'organization'],
+    queryKey: ['/api/entities/PreferenceField', 'organization', 'directory'],
     queryFn: async () => {
       try {
         // Try to filter by entity_scope (requires migration to be run)
@@ -125,7 +125,8 @@ export default function OrganisationDirectoryPage() {
           filter: { is_active: true, entity_scope: 'organization' },
           sort: { display_order: 'asc' }
         });
-        return (fields || []).filter(f => f.entity_scope === 'organization');
+        // Filter for fields visible in Organisation Directory card
+        return (fields || []).filter(f => f.entity_scope === 'organization' && f.show_in_directory_card !== false);
       } catch {
         // Fallback: if entity_scope column doesn't exist, fetch all and filter client-side
         try {
@@ -133,7 +134,7 @@ export default function OrganisationDirectoryPage() {
             filter: { is_active: true },
             sort: { display_order: 'asc' }
           });
-          return (allFields || []).filter(f => f.entity_scope === 'organization');
+          return (allFields || []).filter(f => f.entity_scope === 'organization' && f.show_in_directory_card !== false);
         } catch {
           return [];
         }
