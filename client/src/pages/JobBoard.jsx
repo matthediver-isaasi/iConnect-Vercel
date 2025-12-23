@@ -14,6 +14,12 @@ import { useBelowFirstElementBanners } from "@/contexts/BannerContext";
 import PortalHeroBanner from "@/components/banners/PortalHeroBanner";
 import PageBannerDisplay from "@/components/banners/PageBannerDisplay";
 
+const stripHtml = (html) => {
+  if (!html) return '';
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  return doc.body.textContent || '';
+};
+
 export default function JobBoardPage() {
   const { hasBanner } = useLayoutContext();
   const belowFirstElementBanners = useBelowFirstElementBanners();
@@ -81,7 +87,7 @@ export default function JobBoardPage() {
       const matchesSearch = !searchQuery || 
         job.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         job.company_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        job.description?.replace(/<[^>]*>/g, '').toLowerCase().includes(searchQuery.toLowerCase());
+        stripHtml(job.description).toLowerCase().includes(searchQuery.toLowerCase());
       
       const matchesLocation = !locationFilter ||
         job.location?.toLowerCase().includes(locationFilter.toLowerCase());
@@ -339,7 +345,7 @@ export default function JobBoardPage() {
 
                       {/* Description Preview */}
                       <p className="text-sm text-slate-600 line-clamp-3 leading-relaxed">
-                        {job.description?.replace(/<[^>]*>/g, '').substring(0, 180)}...
+                        {stripHtml(job.description).substring(0, 180)}...
                       </p>
 
                       {/* View Details Link */}
