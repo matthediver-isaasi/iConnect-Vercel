@@ -1263,6 +1263,9 @@ export default function AwardManagementPage() {
     if (awardType === 'engagement') {
       return sublevels.filter(s => s.engagement_award_id === awardId);
     }
+    if (awardType === 'organisation') {
+      return sublevels.filter(s => s.organisation_award_id === awardId);
+    }
     return sublevels.filter(s => s.award_id === awardId);
   };
 
