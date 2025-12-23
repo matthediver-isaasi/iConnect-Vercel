@@ -214,6 +214,15 @@ export default function EventDetailsPage() {
     queryFn: () => base44.entities.SystemSettings.list()
   });
 
+  // Reset terms acceptance when event changes or terms content changes
+  // This must be placed before any early returns to maintain hooks order
+  const termsSettingValue = Array.isArray(systemSettings) 
+    ? systemSettings.find(s => s.setting_key === 'event_booking_terms')?.setting_value || ''
+    : '';
+  useEffect(() => {
+    setTermsAccepted(false);
+  }, [currentEventId, termsSettingValue]);
+
   // Query for webinar join link visibility settings
   const { data: joinLinkSettings } = useQuery({
     queryKey: ['webinar-join-link-settings'],
@@ -935,11 +944,6 @@ export default function EventDetailsPage() {
     : null;
   const bookingTerms = bookingTermsSetting?.setting_value || '';
   const hasBookingTerms = bookingTerms && bookingTerms.trim() !== '' && bookingTerms !== '<p><br></p>';
-  
-  // Reset terms acceptance when event changes or terms content changes
-  useEffect(() => {
-    setTermsAccepted(false);
-  }, [currentEventId, bookingTerms]);
   
   // Terms must be accepted if they exist
   const termsRequirementMet = !hasBookingTerms || termsAccepted;
