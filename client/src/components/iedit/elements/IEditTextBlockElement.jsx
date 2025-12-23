@@ -421,11 +421,36 @@ export function IEditTextBlockElementEditor({ element, onChange }) {
               </div>
             )}
 
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-sm font-medium mb-1">Horizontal Padding Left</label>
+                <input
+                  type="number"
+                  value={content.padding_left || 0}
+                  onChange={(e) => updateContent('padding_left', parseInt(e.target.value) || 0)}
+                  className="w-full px-2 py-1.5 border border-slate-300 rounded-md text-sm"
+                  min="0"
+                  data-testid="input-textblock-padding-left"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Horizontal Padding Right</label>
+                <input
+                  type="number"
+                  value={content.padding_right || 0}
+                  onChange={(e) => updateContent('padding_right', parseInt(e.target.value) || 0)}
+                  className="w-full px-2 py-1.5 border border-slate-300 rounded-md text-sm"
+                  min="0"
+                  data-testid="input-textblock-padding-right"
+                />
+              </div>
+            </div>
+
             {backgroundType !== 'none' && (
               <>
-                <div className="grid grid-cols-4 gap-2">
+                <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="block text-sm font-medium mb-1">Pad Top</label>
+                    <label className="block text-sm font-medium mb-1">Vertical Pad Top</label>
                     <input
                       type="number"
                       value={content.padding_top || 0}
@@ -436,7 +461,7 @@ export function IEditTextBlockElementEditor({ element, onChange }) {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium mb-1">Pad Bottom</label>
+                    <label className="block text-sm font-medium mb-1">Vertical Pad Bottom</label>
                     <input
                       type="number"
                       value={content.padding_bottom || 0}
@@ -444,28 +469,6 @@ export function IEditTextBlockElementEditor({ element, onChange }) {
                       className="w-full px-2 py-1.5 border border-slate-300 rounded-md text-sm"
                       min="0"
                       data-testid="input-textblock-padding-bottom"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Pad Left</label>
-                    <input
-                      type="number"
-                      value={content.padding_left || 0}
-                      onChange={(e) => updateContent('padding_left', parseInt(e.target.value) || 0)}
-                      className="w-full px-2 py-1.5 border border-slate-300 rounded-md text-sm"
-                      min="0"
-                      data-testid="input-textblock-padding-left"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Pad Right</label>
-                    <input
-                      type="number"
-                      value={content.padding_right || 0}
-                      onChange={(e) => updateContent('padding_right', parseInt(e.target.value) || 0)}
-                      className="w-full px-2 py-1.5 border border-slate-300 rounded-md text-sm"
-                      min="0"
-                      data-testid="input-textblock-padding-right"
                     />
                   </div>
                 </div>
