@@ -12,7 +12,8 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
-import { Calendar, MapPin, Clock, Users, ArrowLeft, Ticket, Plus, Loader2, Video, AlertTriangle, PoundSterling, User, Mic, ChevronRight, ChevronDown, ChevronUp, X, Lock } from "lucide-react";
+import { Calendar, MapPin, Clock, Users, ArrowLeft, Ticket, Plus, Loader2, Video, AlertTriangle, PoundSterling, User, Mic, ChevronRight, ChevronDown, ChevronUp, X, Lock, FileText } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { format } from "date-fns";
 import DOMPurify from "dompurify";
 import { createPageUrl } from "@/utils";
@@ -57,6 +58,14 @@ export default function EventDetailsPage() {
   
   // Description accordion state
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
+
+  // Terms and conditions state
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [showTermsModal, setShowTermsModal] = useState(false);
+  
+  // Get eventId for terms reset tracking
+  const urlParams2 = new URLSearchParams(window.location.search);
+  const currentEventId = urlParams2.get('id');
 
   // Guest registration form state (for non-logged-in users)
   const [guestInfo, setGuestInfo] = useState({
@@ -893,6 +902,8 @@ export default function EventDetailsPage() {
   // For one-off events, use paymentCanProceed from PaymentOptions (includes payment validation)
   // For program events, need enough tickets
   // Also disable if sold out or if attendees are missing required names
+  // Note: termsRequirementMet is checked separately for program events button, 
+  // and passed to PaymentOptions for one-off events
   const canConfirmBooking = !isSoldOut && !hasAttendeesWithMissingNames && (isOneOffEvent 
     ? paymentCanProceed
     : (hasEnoughTickets && event.program_tag && !submitting && ticketsRequired > 0));
@@ -917,6 +928,21 @@ export default function EventDetailsPage() {
     ? systemSettings.find(s => s.setting_key === 'event_description_preview_lines')
     : null;
   const descriptionPreviewLines = parseInt(descPreviewLinesSetting?.setting_value) || 3;
+
+  // Get booking terms and conditions
+  const bookingTermsSetting = Array.isArray(systemSettings) 
+    ? systemSettings.find(s => s.setting_key === 'event_booking_terms')
+    : null;
+  const bookingTerms = bookingTermsSetting?.setting_value || '';
+  const hasBookingTerms = bookingTerms && bookingTerms.trim() !== '' && bookingTerms !== '<p><br></p>';
+  
+  // Reset terms acceptance when event changes or terms content changes
+  useEffect(() => {
+    setTermsAccepted(false);
+  }, [currentEventId, bookingTerms]);
+  
+  // Terms must be accepted if they exist
+  const termsRequirementMet = !hasBookingTerms || termsAccepted;
 
   const handleConfirmBooking = async () => {
     console.log('[EventDetails] handleConfirmBooking called');
@@ -1532,14 +1558,43 @@ export default function EventDetailsPage() {
                         
                         {/* Only show confirm button for program events - one-off events use PaymentOptions button */}
                         {!isOneOffEvent && (
-                          <div className="pt-4 border-t border-slate-200">
+                          <div className="pt-4 border-t border-slate-200 space-y-4">
+                            {/* Terms and Conditions Checkbox */}
+                            {hasBookingTerms && (
+                              <div className="flex items-start gap-2">
+                                <Checkbox
+                                  id="terms-program"
+                                  checked={termsAccepted}
+                                  onCheckedChange={setTermsAccepted}
+                                  data-testid="checkbox-terms-program"
+                                />
+                                <label 
+                                  htmlFor="terms-program" 
+                                  className="text-sm text-slate-600 leading-tight cursor-pointer"
+                                >
+                                  I agree to the{' '}
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      setShowTermsModal(true);
+                                    }}
+                                    className="text-blue-600 hover:text-blue-800 underline"
+                                    data-testid="link-terms-program"
+                                  >
+                                    terms and conditions
+                                  </button>
+                                </label>
+                              </div>
+                            )}
+                            
                             <Button
                               onClick={() => {
                                 console.log('[EventDetails] Button clicked!');
-                                console.log('[EventDetails] Button disabled state:', !canConfirmBooking);
+                                console.log('[EventDetails] Button disabled state:', !canConfirmBooking || !termsRequirementMet);
                                 handleConfirmBooking();
                               }}
-                              disabled={!canConfirmBooking}
+                              disabled={!canConfirmBooking || !termsRequirementMet}
                               className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
                               size="lg"
                             >
@@ -1843,6 +1898,11 @@ export default function EventDetailsPage() {
               noTicketsForRole={noTicketsForRole}
               isSoldOut={isSoldOut}
               hasAttendeesWithMissingNames={hasAttendeesWithMissingNames}
+              hasBookingTerms={hasBookingTerms}
+              bookingTerms={bookingTerms}
+              termsAccepted={termsAccepted}
+              setTermsAccepted={setTermsAccepted}
+              onShowTermsModal={() => setShowTermsModal(true)}
             />
 
           </div>
@@ -1898,6 +1958,30 @@ export default function EventDetailsPage() {
               )}
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Terms and Conditions Modal */}
+      <Dialog open={showTermsModal} onOpenChange={setShowTermsModal}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-semibold flex items-center gap-2">
+              <FileText className="w-5 h-5" />
+              Terms and Conditions
+            </DialogTitle>
+          </DialogHeader>
+          <div className="mt-4">
+            <div 
+              className="prose prose-slate max-w-none"
+              dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(bookingTerms) }}
+              data-testid="terms-content"
+            />
+          </div>
+          <div className="mt-6 pt-4 border-t flex justify-end">
+            <Button onClick={() => setShowTermsModal(false)} data-testid="button-close-terms">
+              Close
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

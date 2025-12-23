@@ -10,6 +10,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Loader2, Ticket, AlertCircle, PoundSterling, Wallet, CreditCard, Tag, Gift, CheckCircle, Users, Wifi } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
 import { loadStripe } from "@stripe/stripe-js";
@@ -128,7 +129,12 @@ export default function PaymentOptions({
   guestInfo = null,
   noTicketsForRole = false,
   isSoldOut = false,
-  hasAttendeesWithMissingNames = false
+  hasAttendeesWithMissingNames = false,
+  hasBookingTerms = false,
+  bookingTerms = '',
+  termsAccepted = false,
+  setTermsAccepted = null,
+  onShowTermsModal = null
 }) {
   // Payment state for one-off events
   const [selectedVouchers, setSelectedVouchers] = useState([]);
@@ -911,7 +917,9 @@ export default function PaymentOptions({
   // Determine if booking can proceed
   // For one-off events, also block if no tickets available for user's role
   // Also block if event is sold out or if attendees are missing required names
-  const canProceed = !isSoldOut && !hasAttendeesWithMissingNames && (isOneOffEvent 
+  // Also require terms acceptance if terms exist
+  const termsRequirementMet = !hasBookingTerms || termsAccepted;
+  const canProceed = !isSoldOut && !hasAttendeesWithMissingNames && termsRequirementMet && (isOneOffEvent 
     ? (ticketsRequired > 0 && !submitting && (totalCost === 0 || isFullyPaid) && !noTicketsForRole)
     : (hasEnoughTickets && event.program_tag && !submitting && ticketsRequired > 0));
 
@@ -941,6 +949,35 @@ export default function PaymentOptions({
               <Ticket className="w-4 h-4 mr-2" />
               Buy {event.program_tag} Tickets
             </Button>
+          )}
+
+          {/* Terms and Conditions Checkbox */}
+          {hasBookingTerms && setTermsAccepted && (
+            <div className="flex items-start gap-2">
+              <Checkbox
+                id="terms-payment"
+                checked={termsAccepted}
+                onCheckedChange={setTermsAccepted}
+                data-testid="checkbox-terms-payment"
+              />
+              <label 
+                htmlFor="terms-payment" 
+                className="text-sm text-slate-600 leading-tight cursor-pointer"
+              >
+                I agree to the{' '}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    if (onShowTermsModal) onShowTermsModal();
+                  }}
+                  className="text-blue-600 hover:text-blue-800 underline"
+                  data-testid="link-terms-payment"
+                >
+                  terms and conditions
+                </button>
+              </label>
+            </div>
           )}
 
           <Button

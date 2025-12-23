@@ -17,6 +17,8 @@ import { createPageUrl } from "@/utils";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import ReactQuill from "react-quill";
+import "react-quill/dist/quill.snow.css";
 
 export default function EventSettingsPage() {
   const { isAdmin, isFeatureExcluded, isAccessReady } = useMemberAccess();
@@ -81,6 +83,10 @@ export default function EventSettingsPage() {
   
   // Default VAT rate for ticket classes
   const [defaultVatRate, setDefaultVatRate] = useState(null); // Stores { taxType, name, effectiveRate }
+  
+  // Booking terms and conditions
+  const [bookingTerms, setBookingTerms] = useState("");
+  const [savingBookingTerms, setSavingBookingTerms] = useState(false);
   
   const queryClient = useQueryClient();
 
@@ -199,6 +205,12 @@ export default function EventSettingsPage() {
       } catch (e) {
         console.error('Failed to parse default VAT rate:', e);
       }
+    }
+    
+    // Load booking terms and conditions
+    const bookingTermsSetting = settings.find(s => s.setting_key === 'event_booking_terms');
+    if (bookingTermsSetting?.setting_value) {
+      setBookingTerms(bookingTermsSetting.setting_value);
     }
   }, [settings]);
 
@@ -481,6 +493,35 @@ export default function EventSettingsPage() {
       toast.error('Failed to save CTA button config: ' + (error.message || 'Unknown error'));
     } finally {
       setSavingCtaConfig(false);
+    }
+  };
+
+  // Booking terms and conditions handler
+  const handleSaveBookingTerms = async () => {
+    setSavingBookingTerms(true);
+    try {
+      const bookingTermsSetting = settings.find(s => s.setting_key === 'event_booking_terms');
+      
+      if (bookingTermsSetting) {
+        await base44.entities.SystemSettings.update(bookingTermsSetting.id, {
+          setting_value: bookingTerms,
+          description: 'Terms and conditions displayed during event booking'
+        });
+      } else {
+        await base44.entities.SystemSettings.create({
+          setting_key: 'event_booking_terms',
+          setting_value: bookingTerms,
+          description: 'Terms and conditions displayed during event booking'
+        });
+      }
+      
+      queryClient.invalidateQueries({ queryKey: ['system-settings'] });
+      toast.success('Booking terms and conditions saved successfully');
+    } catch (error) {
+      console.error('Failed to save booking terms:', error);
+      toast.error('Failed to save booking terms: ' + (error.message || 'Unknown error'));
+    } finally {
+      setSavingBookingTerms(false);
     }
   };
 
@@ -1615,6 +1656,67 @@ export default function EventSettingsPage() {
                     <>
                       <Save className="w-4 h-4 mr-2" />
                       Save CTA Configuration
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Booking Terms and Conditions Section */}
+        <Card className="border-slate-200 shadow-sm mb-8">
+          <CardHeader className="border-b border-slate-200">
+            <div className="flex items-center gap-2">
+              <FileText className="w-5 h-5 text-blue-600" />
+              <CardTitle>Booking Terms and Conditions</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-6">
+            <div className="space-y-4">
+              <p className="text-sm text-slate-600">
+                Add terms and conditions that members must accept before confirming an event booking. 
+                If left empty, no terms acceptance will be required.
+              </p>
+              
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Terms and Conditions Content</Label>
+                <div className="border rounded-md">
+                  <ReactQuill
+                    value={bookingTerms}
+                    onChange={setBookingTerms}
+                    placeholder="Enter your booking terms and conditions here..."
+                    theme="snow"
+                    modules={{
+                      toolbar: [
+                        [{ 'header': [1, 2, 3, false] }],
+                        ['bold', 'italic', 'underline'],
+                        [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+                        ['link'],
+                        ['clean']
+                      ]
+                    }}
+                    style={{ minHeight: '200px' }}
+                    data-testid="input-booking-terms"
+                  />
+                </div>
+              </div>
+              
+              <div className="pt-4 border-t border-slate-200">
+                <Button
+                  onClick={handleSaveBookingTerms}
+                  disabled={savingBookingTerms}
+                  data-testid="button-save-booking-terms"
+                >
+                  {savingBookingTerms ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4 mr-2" />
+                      Save Terms and Conditions
                     </>
                   )}
                 </Button>
