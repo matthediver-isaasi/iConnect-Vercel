@@ -1,5 +1,6 @@
 import Mailgun from 'mailgun.js';
 import formData from 'form-data';
+import { createClient } from '@supabase/supabase-js';
 
 const MAILGUN_API_KEY = process.env.MAILGUN_API_KEY;
 const MAILGUN_DOMAIN = process.env.MAILGUN_DOMAIN || 'mail.iconn.app';
@@ -7,6 +8,91 @@ const DEFAULT_FROM = process.env.MAILGUN_FROM_EMAIL || 'ICONN <noreply@mail.icon
 const MAILGUN_REGION = process.env.MAILGUN_REGION || 'eu';
 
 let mailgunClient = null;
+let cachedEmailFooter = null;
+let footerLastFetched = 0;
+const FOOTER_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+async function getEmailFooter() {
+  const now = Date.now();
+  if (cachedEmailFooter !== null && (now - footerLastFetched) < FOOTER_CACHE_TTL) {
+    return cachedEmailFooter;
+  }
+
+  try {
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
+    
+    if (!supabaseUrl || !supabaseKey) {
+      console.log('[Email Service] Supabase not configured, skipping footer');
+      return null;
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseKey);
+    const { data, error } = await supabase
+      .from('system_settings')
+      .select('setting_value')
+      .eq('setting_key', 'email_footer_html')
+      .single();
+
+    if (error || !data) {
+      console.log('[Email Service] No email footer configured');
+      cachedEmailFooter = null;
+    } else {
+      cachedEmailFooter = data.setting_value;
+      console.log('[Email Service] Email footer loaded successfully');
+    }
+    footerLastFetched = now;
+    return cachedEmailFooter;
+  } catch (err) {
+    console.error('[Email Service] Error fetching email footer:', err);
+    return null;
+  }
+}
+
+async function replaceSocialPlaceholdersInFooter(footer) {
+  if (!footer) return footer;
+  
+  try {
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
+    
+    if (!supabaseUrl || !supabaseKey) return footer;
+
+    const supabase = createClient(supabaseUrl, supabaseKey);
+    const { data } = await supabase
+      .from('system_settings')
+      .select('setting_value')
+      .eq('setting_key', 'social_icons_config')
+      .single();
+
+    if (!data?.setting_value) return footer;
+
+    const socialConfig = JSON.parse(data.setting_value);
+    let result = footer;
+    
+    // Replace social media URL placeholders
+    if (socialConfig.linkedin?.url) {
+      result = result.replace(/\{\{linkedin_url\}\}/g, socialConfig.linkedin.url);
+    }
+    if (socialConfig.twitter?.url) {
+      result = result.replace(/\{\{twitter_url\}\}/g, socialConfig.twitter.url);
+    }
+    if (socialConfig.facebook?.url) {
+      result = result.replace(/\{\{facebook_url\}\}/g, socialConfig.facebook.url);
+    }
+    if (socialConfig.instagram?.url) {
+      result = result.replace(/\{\{instagram_url\}\}/g, socialConfig.instagram.url);
+    }
+    if (socialConfig.youtube?.url) {
+      result = result.replace(/\{\{youtube_url\}\}/g, socialConfig.youtube.url);
+    }
+    
+    return result;
+  } catch (err) {
+    console.error('[Email Service] Error replacing social placeholders:', err);
+    return footer;
+  }
+}
 
 function getMailgunClient() {
   if (!mailgunClient && MAILGUN_API_KEY) {
@@ -25,7 +111,7 @@ function getMailgunClient() {
   return mailgunClient;
 }
 
-export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bcc }) {
+export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bcc, skipFooter = false }) {
   const fromAddress = from || DEFAULT_FROM;
   
   if (!MAILGUN_API_KEY) {
@@ -45,6 +131,17 @@ export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bc
   }
 
   try {
+    // Append email footer if configured
+    let finalHtml = html || '';
+    if (!skipFooter) {
+      const footer = await getEmailFooter();
+      if (footer) {
+        const processedFooter = await replaceSocialPlaceholdersInFooter(footer);
+        finalHtml = finalHtml + processedFooter;
+        console.log('[Email Service] Email footer appended');
+      }
+    }
+
     console.log(`[Email Service] Sending email to: ${to}`);
     if (cc) console.log(`[Email Service] CC: ${cc}`);
     if (bcc) console.log(`[Email Service] BCC: ${bcc}`);
@@ -54,8 +151,8 @@ export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bc
       from: fromAddress,
       to: [to],
       subject,
-      html: html || '',
-      text: text || (html || '').replace(/<[^>]*>/g, ''),
+      html: finalHtml,
+      text: text || finalHtml.replace(/<[^>]*>/g, ''),
     };
     
     if (replyTo) {

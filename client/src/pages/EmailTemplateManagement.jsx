@@ -33,7 +33,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2, Plus, Pencil, Trash2, Mail, Eye, Copy, Code, FileText, X, Info } from "lucide-react";
+import { Loader2, Plus, Pencil, Trash2, Mail, Eye, Copy, Code, FileText, X, Info, ChevronDown, ChevronUp, Save } from "lucide-react";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
@@ -135,6 +140,58 @@ const quillFormats = [
   'link'
 ];
 
+// Default email footer HTML - matches website footer style
+const DEFAULT_EMAIL_FOOTER = `
+<table width="100%" cellpadding="0" cellspacing="0" style="background-color: #000000; font-family: Arial, sans-serif;">
+  <tr>
+    <td style="padding: 40px 20px;">
+      <table width="600" cellpadding="0" cellspacing="0" style="max-width: 600px; margin: 0 auto;">
+        <!-- Logo and Follow Us -->
+        <tr>
+          <td align="center" style="padding-bottom: 30px;">
+            <img src="https://graduatefutures.org/logo-white.png" alt="Graduate Futures Institute" width="120" style="display: block;" />
+          </td>
+        </tr>
+        <tr>
+          <td align="center" style="padding-bottom: 20px;">
+            <p style="color: #ffffff; font-size: 12px; letter-spacing: 5px; text-transform: uppercase; margin: 0 0 15px 0;">FOLLOW US</p>
+            <table cellpadding="0" cellspacing="0">
+              <tr>
+                <!-- Social icons will be dynamically inserted here -->
+                <td style="padding: 0 8px;">
+                  <a href="{{linkedin_url}}" style="display: inline-block; width: 36px; height: 36px; border: 1px solid rgba(255,255,255,0.3); border-radius: 50%; text-align: center; line-height: 36px;">
+                    <img src="https://cdn-icons-png.flaticon.com/24/174/174857.png" alt="LinkedIn" width="18" style="vertical-align: middle; filter: brightness(0) invert(1);" />
+                  </a>
+                </td>
+                <td style="padding: 0 8px;">
+                  <a href="{{twitter_url}}" style="display: inline-block; width: 36px; height: 36px; border: 1px solid rgba(255,255,255,0.3); border-radius: 50%; text-align: center; line-height: 36px;">
+                    <img src="https://cdn-icons-png.flaticon.com/24/5968/5968830.png" alt="X" width="18" style="vertical-align: middle; filter: brightness(0) invert(1);" />
+                  </a>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        <!-- Divider -->
+        <tr>
+          <td style="padding: 20px 0;">
+            <div style="height: 1px; background-color: rgba(255,255,255,0.3);"></div>
+          </td>
+        </tr>
+        <!-- Registered Company Text -->
+        <tr>
+          <td align="center" style="padding-top: 10px;">
+            <p style="color: #ffffff; font-size: 12px; line-height: 1.6; margin: 0;">
+              The Association of Graduate Careers Advisory Services (Graduate Futures Institute) is a registered charity in England and Wales (1078508) and Scotland (SC038805) Company No. 03884685.
+            </p>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+`;
+
 export default function EmailTemplateManagement() {
   const { isAdmin, isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
@@ -147,6 +204,13 @@ export default function EmailTemplateManagement() {
   const [isCodeView, setIsCodeView] = useState(false);
   const [newPlaceholder, setNewPlaceholder] = useState('');
   const quillRef = useRef(null);
+  
+  // Email footer state
+  const [footerOpen, setFooterOpen] = useState(false);
+  const [footerHtml, setFooterHtml] = useState(DEFAULT_EMAIL_FOOTER);
+  const [footerCodeView, setFooterCodeView] = useState(false);
+  const [footerPreviewOpen, setFooterPreviewOpen] = useState(false);
+  const footerQuillRef = useRef(null);
 
   // Get all [[placeholder]] patterns (core DB values) detected in the current template
   const detectedDbPlaceholders = [...new Set([
@@ -199,6 +263,63 @@ export default function EmailTemplateManagement() {
       return await base44.entities.EmailTemplate.list('-created_at');
     },
     staleTime: 0,
+  });
+
+  // Fetch email footer setting
+  const { data: footerSetting } = useQuery({
+    queryKey: ['email-footer-setting'],
+    queryFn: async () => {
+      const allSettings = await base44.entities.SystemSettings.list();
+      return allSettings.find(s => s.setting_key === 'email_footer_html') || null;
+    },
+  });
+
+  // Fetch social icons for dynamic replacement
+  const { data: socialIcons } = useQuery({
+    queryKey: ['social-icons-for-footer'],
+    queryFn: async () => {
+      const allSettings = await base44.entities.SystemSettings.list();
+      const setting = allSettings.find(s => s.setting_key === 'social_icons_config');
+      if (setting?.setting_value) {
+        try {
+          return JSON.parse(setting.setting_value);
+        } catch {
+          return null;
+        }
+      }
+      return null;
+    },
+  });
+
+  // Sync footer state with loaded setting
+  useEffect(() => {
+    if (footerSetting?.setting_value) {
+      setFooterHtml(footerSetting.setting_value);
+    }
+  }, [footerSetting]);
+
+  // Save footer mutation
+  const saveFooterMutation = useMutation({
+    mutationFn: async (html) => {
+      if (footerSetting?.id) {
+        return await base44.entities.SystemSettings.update(footerSetting.id, {
+          setting_value: html
+        });
+      } else {
+        return await base44.entities.SystemSettings.create({
+          setting_key: 'email_footer_html',
+          setting_value: html,
+          description: 'HTML footer appended to all outgoing emails'
+        });
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['email-footer-setting'] });
+      toast.success('Email footer saved successfully');
+    },
+    onError: (error) => {
+      toast.error('Failed to save footer: ' + (error.message || 'Unknown error'));
+    },
   });
 
   const createMutation = useMutation({
@@ -352,6 +473,120 @@ export default function EmailTemplateManagement() {
             Create Template
           </Button>
         </div>
+
+        {/* Email Footer Section */}
+        <Collapsible open={footerOpen} onOpenChange={setFooterOpen} className="mb-6">
+          <Card className="border-slate-200">
+            <CollapsibleTrigger asChild>
+              <CardHeader className="cursor-pointer hover:bg-slate-50 transition-colors">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-blue-100 rounded-lg">
+                      <FileText className="w-5 h-5 text-blue-600" />
+                    </div>
+                    <div>
+                      <CardTitle className="text-lg">Email Footer</CardTitle>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        Configure the footer that appears at the bottom of all emails
+                      </p>
+                    </div>
+                  </div>
+                  {footerOpen ? (
+                    <ChevronUp className="w-5 h-5 text-muted-foreground" />
+                  ) : (
+                    <ChevronDown className="w-5 h-5 text-muted-foreground" />
+                  )}
+                </div>
+              </CardHeader>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <CardContent className="space-y-4 pt-0">
+                {/* Editor Mode Toggle */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant={footerCodeView ? "outline" : "default"}
+                      size="sm"
+                      onClick={() => setFooterCodeView(false)}
+                      data-testid="button-footer-richtext"
+                    >
+                      <FileText className="w-4 h-4 mr-1" />
+                      Rich Text
+                    </Button>
+                    <Button
+                      variant={footerCodeView ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setFooterCodeView(true)}
+                      data-testid="button-footer-code"
+                    >
+                      <Code className="w-4 h-4 mr-1" />
+                      HTML Code
+                    </Button>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setFooterPreviewOpen(true)}
+                      data-testid="button-preview-footer"
+                    >
+                      <Eye className="w-4 h-4 mr-1" />
+                      Preview
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={() => saveFooterMutation.mutate(footerHtml)}
+                      disabled={saveFooterMutation.isPending}
+                      data-testid="button-save-footer"
+                    >
+                      {saveFooterMutation.isPending ? (
+                        <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                      ) : (
+                        <Save className="w-4 h-4 mr-1" />
+                      )}
+                      Save Footer
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Editor */}
+                {footerCodeView ? (
+                  <Textarea
+                    value={footerHtml}
+                    onChange={(e) => setFooterHtml(e.target.value)}
+                    className="font-mono text-sm min-h-[300px]"
+                    placeholder="Enter HTML code for the email footer..."
+                    data-testid="textarea-footer-html"
+                  />
+                ) : (
+                  <div className="border rounded-lg">
+                    <ReactQuill
+                      ref={footerQuillRef}
+                      value={footerHtml}
+                      onChange={setFooterHtml}
+                      modules={quillModules}
+                      formats={quillFormats}
+                      className="min-h-[200px]"
+                      data-testid="editor-footer-richtext"
+                    />
+                  </div>
+                )}
+
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                  <div className="flex items-start gap-2">
+                    <Info className="w-4 h-4 text-amber-600 mt-0.5" />
+                    <div className="text-sm text-amber-800">
+                      <p className="font-medium">Dynamic Placeholders</p>
+                      <p className="mt-1">
+                        Use <code className="bg-amber-100 px-1 rounded">{"{{linkedin_url}}"}</code>, <code className="bg-amber-100 px-1 rounded">{"{{twitter_url}}"}</code>, etc. to dynamically insert social media URLs from your configured social icons.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </CollapsibleContent>
+          </Card>
+        </Collapsible>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-6">
           <TabsList>
@@ -775,6 +1010,30 @@ export default function EmailTemplateManagement() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        {/* Footer Preview Dialog */}
+        <Dialog open={footerPreviewOpen} onOpenChange={setFooterPreviewOpen}>
+          <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Email Footer Preview</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                This is how the footer will appear at the bottom of all emails. Dynamic placeholders will be replaced with actual values when emails are sent.
+              </p>
+              <div className="border rounded-lg overflow-hidden">
+                <div 
+                  dangerouslySetInnerHTML={{ __html: footerHtml }}
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setFooterPreviewOpen(false)}>
+                Close
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   );
