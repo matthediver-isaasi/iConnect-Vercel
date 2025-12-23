@@ -657,20 +657,24 @@ export default function OrganisationDirectoryPage() {
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <div className="flex items-center gap-4">
-              <div className="w-16 h-16 rounded-lg overflow-hidden bg-slate-100 flex items-center justify-center flex-shrink-0">
-                {selectedOrg?.logo_url ? (
-                  <img
-                    src={selectedOrg.logo_url}
-                    alt={selectedOrg?.name}
-                    className="w-full h-full object-contain"
-                  />
-                ) : (
-                  <Building2 className="w-8 h-8 text-slate-400" />
-                )}
-              </div>
+              {displaySettings?.showLogo && (
+                <div className="w-16 h-16 rounded-lg overflow-hidden bg-slate-100 flex items-center justify-center flex-shrink-0">
+                  {selectedOrg?.logo_url ? (
+                    <img
+                      src={selectedOrg.logo_url}
+                      alt={selectedOrg?.name}
+                      className="w-full h-full object-contain"
+                    />
+                  ) : (
+                    <Building2 className="w-8 h-8 text-slate-400" />
+                  )}
+                </div>
+              )}
               <div>
-                <DialogTitle className="text-xl">{selectedOrg?.name}</DialogTitle>
-                {selectedOrg?.domain && (
+                {displaySettings?.showTitle !== false && (
+                  <DialogTitle className="text-xl">{selectedOrg?.name}</DialogTitle>
+                )}
+                {displaySettings?.showDomains && selectedOrg?.domain && (
                   <p className="text-sm text-slate-500 flex items-center gap-1 mt-1">
                     <Globe className="w-3 h-3" />
                     @{selectedOrg.domain}
@@ -682,13 +686,15 @@ export default function OrganisationDirectoryPage() {
           
           <div className="space-y-4 py-4">
             {/* Member count */}
-            <div className="flex items-center gap-2 text-slate-600">
-              <Users className="w-4 h-4" />
-              <span>{organizationMemberCounts[selectedOrg?.id] || 0} members</span>
-            </div>
+            {displaySettings?.showMemberCount && (
+              <div className="flex items-center gap-2 text-slate-600">
+                <Users className="w-4 h-4" />
+                <span>{organizationMemberCounts[selectedOrg?.id] || 0} members</span>
+              </div>
+            )}
 
             {/* Additional domains */}
-            {selectedOrg?.additional_verified_domains?.length > 0 && (
+            {displaySettings?.showDomains && selectedOrg?.additional_verified_domains?.length > 0 && (
               <div className="space-y-2">
                 <p className="text-sm font-medium text-slate-700">Additional Domains</p>
                 <div className="flex flex-wrap gap-1">
