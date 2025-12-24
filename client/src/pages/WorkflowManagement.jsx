@@ -13,10 +13,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectGr
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { 
   Zap, Plus, Pencil, Trash2, AlertCircle, Mail, Play, Pause, 
   ChevronRight, ChevronLeft, Building2, User, Settings, Clock,
-  CheckCircle2, XCircle, History, Filter, ArrowRight, Users, AlertTriangle
+  CheckCircle2, XCircle, History, Filter, ArrowRight, Users, AlertTriangle, Check, ChevronsUpDown
 } from "lucide-react";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
@@ -192,6 +194,7 @@ export default function WorkflowManagementPage() {
   const [roleMemberCounts, setRoleMemberCounts] = useState({});
   const [massEmailConfirmation, setMassEmailConfirmation] = useState('');
 
+  // Fetch member count for a single role
   const fetchRoleMemberCount = async (roleId) => {
     if (!roleId || roleMemberCounts[roleId] !== undefined) return;
     
@@ -206,6 +209,32 @@ export default function WorkflowManagementPage() {
     } catch (error) {
       console.error('Error fetching role member count:', error);
     }
+  };
+
+  // Fetch member counts for multiple roles
+  const fetchRoleMemberCounts = async (roleIds) => {
+    if (!roleIds || !Array.isArray(roleIds)) return;
+    const missingIds = roleIds.filter(id => id && roleMemberCounts[id] === undefined);
+    if (missingIds.length === 0) return;
+    
+    await Promise.all(missingIds.map(id => fetchRoleMemberCount(id)));
+  };
+
+  // Calculate total count across multiple roles
+  const getTotalRoleCount = (roleIds) => {
+    if (!roleIds || !Array.isArray(roleIds) || roleIds.length === 0) return { count: 0, loading: false };
+    
+    const counts = roleIds.map(id => roleMemberCounts[id]);
+    const loading = counts.some(c => c === undefined);
+    const total = counts.reduce((sum, c) => sum + (c?.count || 0), 0);
+    
+    return { count: total, loading };
+  };
+
+  // Get role name by ID
+  const getRoleName = (roleId) => {
+    const role = roles.find(r => r.id === roleId);
+    return role?.name || roleId;
   };
 
   const orgCustomFields = customFields.filter(f => f.entity_scope === 'organization');
@@ -357,8 +386,20 @@ export default function WorkflowManagementPage() {
     // Pre-fetch member counts for any existing role-based email actions
     const actions = workflow.actions || [];
     for (const action of actions) {
-      if (action.type === 'send_email' && action.config?.to_mode === 'role' && action.config?.to_role_id) {
-        fetchRoleMemberCount(action.config.to_role_id);
+      if (action.type === 'send_email') {
+        // Handle To field roles (supports both legacy single role_id and new array format)
+        if (action.config?.to_mode === 'role') {
+          if (action.config?.to_role_ids && Array.isArray(action.config.to_role_ids)) {
+            fetchRoleMemberCounts(action.config.to_role_ids);
+          } else if (action.config?.to_role_id) {
+            // Legacy single role support
+            fetchRoleMemberCount(action.config.to_role_id);
+          }
+        }
+        // Handle CC field roles
+        if (action.config?.cc_mode === 'role' && action.config?.cc_role_ids) {
+          fetchRoleMemberCounts(action.config.cc_role_ids);
+        }
       }
     }
   };
@@ -451,11 +492,17 @@ export default function WorkflowManagementPage() {
   const getMassEmailCount = () => {
     let totalRecipients = 0;
     for (const action of formData.actions) {
-      if (action.type === 'send_email' && action.config?.to_mode === 'role' && action.config?.to_role_id) {
-        const roleCount = roleMemberCounts[action.config.to_role_id]?.count || 0;
-        if (roleCount > 1) {
-          totalRecipients += roleCount;
+      if (action.type === 'send_email') {
+        // Handle To field roles
+        if (action.config?.to_mode === 'role') {
+          // Support both new array format and legacy single role_id
+          const roleIds = action.config?.to_role_ids || (action.config?.to_role_id ? [action.config.to_role_id] : []);
+          const { count } = getTotalRoleCount(roleIds);
+          if (count > 1) {
+            totalRecipients += count;
+          }
         }
+        // Note: CC roles don't add to mass email count since they're CC, not To recipients
       }
     }
     return totalRecipients;
@@ -1277,7 +1324,7 @@ export default function WorkflowManagementPage() {
                                     value={action.config?.to_mode || 'manual'}
                                     onValueChange={(val) => {
                                       updateAction(index, { 
-                                        config: { ...action.config, to_mode: val, to: '', to_role_id: '' } 
+                                        config: { ...action.config, to_mode: val, to: '', to_role_id: '', to_role_ids: [] } 
                                       });
                                       setMassEmailConfirmation('');
                                     }}
@@ -1288,7 +1335,7 @@ export default function WorkflowManagementPage() {
                                     <SelectContent>
                                       <SelectItem value="manual">Enter Email</SelectItem>
                                       <SelectItem value="field">Select Field</SelectItem>
-                                      <SelectItem value="role">Send to Role</SelectItem>
+                                      <SelectItem value="role">Send to Role(s)</SelectItem>
                                     </SelectContent>
                                   </Select>
                                   {(action.config?.to_mode || 'manual') === 'manual' && (
@@ -1321,78 +1368,119 @@ export default function WorkflowManagementPage() {
                                     </Select>
                                   )}
                                   {action.config?.to_mode === 'role' && (
-                                    <Select
-                                      value={action.config?.to_role_id || '_none'}
-                                      onValueChange={(val) => {
-                                        const roleId = val === '_none' ? '' : val;
-                                        updateAction(index, { 
-                                          config: { ...action.config, to_role_id: roleId, to: '' } 
-                                        });
-                                        if (roleId) {
-                                          fetchRoleMemberCount(roleId);
-                                        }
-                                        setMassEmailConfirmation('');
-                                      }}
-                                    >
-                                      <SelectTrigger className="flex-1" data-testid={`select-to-role-${index}`}>
-                                        <SelectValue placeholder="Select a role" />
-                                      </SelectTrigger>
-                                      <SelectContent className="max-h-[300px] overflow-y-auto">
-                                        <SelectItem value="_none">-- Select role --</SelectItem>
-                                        {roles.map(role => (
-                                          <SelectItem key={role.id} value={role.id}>
-                                            <div className="flex items-center gap-2">
-                                              <Users className="h-4 w-4" />
-                                              {role.name}
-                                            </div>
-                                          </SelectItem>
-                                        ))}
-                                      </SelectContent>
-                                    </Select>
+                                    <Popover>
+                                      <PopoverTrigger asChild>
+                                        <Button
+                                          variant="outline"
+                                          role="combobox"
+                                          className="flex-1 justify-between"
+                                          data-testid={`select-to-roles-${index}`}
+                                        >
+                                          {(() => {
+                                            const selectedIds = action.config?.to_role_ids || (action.config?.to_role_id ? [action.config.to_role_id] : []);
+                                            if (selectedIds.length === 0) return "Select role(s)...";
+                                            if (selectedIds.length === 1) return getRoleName(selectedIds[0]);
+                                            return `${selectedIds.length} roles selected`;
+                                          })()}
+                                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                        </Button>
+                                      </PopoverTrigger>
+                                      <PopoverContent className="w-[300px] p-0" align="start">
+                                        <div className="p-2 border-b">
+                                          <p className="text-sm font-medium">Select roles to receive email</p>
+                                          <p className="text-xs text-muted-foreground">Members with any selected role will receive the email</p>
+                                        </div>
+                                        <ScrollArea className="h-[200px]">
+                                          <div className="p-2 space-y-1">
+                                            {roles.map(role => {
+                                              const selectedIds = action.config?.to_role_ids || (action.config?.to_role_id ? [action.config.to_role_id] : []);
+                                              const isChecked = selectedIds.includes(role.id);
+                                              return (
+                                                <div 
+                                                  key={role.id}
+                                                  className="flex items-center gap-2 p-2 rounded-md hover-elevate cursor-pointer"
+                                                  onClick={() => {
+                                                    let newIds;
+                                                    if (isChecked) {
+                                                      newIds = selectedIds.filter(id => id !== role.id);
+                                                    } else {
+                                                      newIds = [...selectedIds, role.id];
+                                                      fetchRoleMemberCount(role.id);
+                                                    }
+                                                    updateAction(index, { 
+                                                      config: { ...action.config, to_role_ids: newIds, to_role_id: '', to: '' } 
+                                                    });
+                                                    setMassEmailConfirmation('');
+                                                  }}
+                                                >
+                                                  <Checkbox 
+                                                    checked={isChecked} 
+                                                    data-testid={`checkbox-to-role-${role.id}-${index}`}
+                                                  />
+                                                  <Users className="h-4 w-4 text-muted-foreground" />
+                                                  <span className="flex-1">{role.name}</span>
+                                                  {roleMemberCounts[role.id] && (
+                                                    <Badge variant="secondary" className="text-xs">
+                                                      {roleMemberCounts[role.id].count}
+                                                    </Badge>
+                                                  )}
+                                                </div>
+                                              );
+                                            })}
+                                          </div>
+                                        </ScrollArea>
+                                      </PopoverContent>
+                                    </Popover>
                                   )}
                                 </div>
                                 
                                 {/* Role member count and mass email warning */}
-                                {action.config?.to_mode === 'role' && action.config?.to_role_id && (
-                                  <div className="space-y-3">
-                                    {roleMemberCounts[action.config.to_role_id] ? (
-                                      <div className={`p-3 rounded-lg border ${
-                                        roleMemberCounts[action.config.to_role_id].count > 1 
-                                          ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800' 
-                                          : 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800'
-                                      }`}>
-                                        <div className="flex items-center gap-2">
-                                          {roleMemberCounts[action.config.to_role_id].count > 1 ? (
-                                            <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400" />
-                                          ) : (
-                                            <Users className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-                                          )}
-                                          <div>
-                                            <p className={`text-sm font-medium ${
-                                              roleMemberCounts[action.config.to_role_id].count > 1 
-                                                ? 'text-amber-700 dark:text-amber-300' 
-                                                : 'text-blue-700 dark:text-blue-300'
-                                            }`}>
-                                              This will send to {roleMemberCounts[action.config.to_role_id].count} member{roleMemberCounts[action.config.to_role_id].count !== 1 ? 's' : ''} in your organisation
-                                            </p>
-                                            {roleMemberCounts[action.config.to_role_id].count > 1 && (
-                                              <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-                                                Mass email: This workflow will send individual emails to all members with the selected role
-                                              </p>
-                                            )}
-                                          </div>
-                                        </div>
-                                      </div>
-                                    ) : (
+                                {action.config?.to_mode === 'role' && (() => {
+                                  const selectedIds = action.config?.to_role_ids || (action.config?.to_role_id ? [action.config.to_role_id] : []);
+                                  if (selectedIds.length === 0) return null;
+                                  const { count, loading } = getTotalRoleCount(selectedIds);
+                                  
+                                  if (loading) {
+                                    return (
                                       <div className="p-3 bg-muted rounded-lg border">
                                         <div className="flex items-center gap-2">
                                           <div className="animate-spin rounded-full h-4 w-4 border-2 border-primary border-t-transparent"></div>
                                           <p className="text-sm text-muted-foreground">Loading member count...</p>
                                         </div>
                                       </div>
-                                    )}
-                                  </div>
-                                )}
+                                    );
+                                  }
+                                  
+                                  return (
+                                    <div className={`p-3 rounded-lg border ${
+                                      count > 1 
+                                        ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800' 
+                                        : 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800'
+                                    }`}>
+                                      <div className="flex items-center gap-2">
+                                        {count > 1 ? (
+                                          <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+                                        ) : (
+                                          <Users className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                                        )}
+                                        <div>
+                                          <p className={`text-sm font-medium ${
+                                            count > 1 
+                                              ? 'text-amber-700 dark:text-amber-300' 
+                                              : 'text-blue-700 dark:text-blue-300'
+                                          }`}>
+                                            This will send to {count} member{count !== 1 ? 's' : ''} across {selectedIds.length} role{selectedIds.length !== 1 ? 's' : ''}
+                                          </p>
+                                          {count > 1 && (
+                                            <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                                              Mass email: This workflow will send individual emails to all members with the selected roles
+                                            </p>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  );
+                                })()}
                               </div>
 
                               {/* CC Field */}
@@ -1402,18 +1490,19 @@ export default function WorkflowManagementPage() {
                                   <Select
                                     value={action.config?.cc_mode || 'manual'}
                                     onValueChange={(val) => updateAction(index, { 
-                                      config: { ...action.config, cc_mode: val, cc: '' } 
+                                      config: { ...action.config, cc_mode: val, cc: '', cc_role_ids: [] } 
                                     })}
                                   >
-                                    <SelectTrigger className="w-[140px]" data-testid={`select-cc-mode-${index}`}>
+                                    <SelectTrigger className="w-[160px]" data-testid={`select-cc-mode-${index}`}>
                                       <SelectValue />
                                     </SelectTrigger>
                                     <SelectContent>
                                       <SelectItem value="manual">Enter Email</SelectItem>
                                       <SelectItem value="field">Select Field</SelectItem>
+                                      <SelectItem value="role">CC Role(s)</SelectItem>
                                     </SelectContent>
                                   </Select>
-                                  {(action.config?.cc_mode || 'manual') === 'manual' ? (
+                                  {(action.config?.cc_mode || 'manual') === 'manual' && (
                                     <Input
                                       className="flex-1"
                                       value={action.config?.cc || ''}
@@ -1423,7 +1512,8 @@ export default function WorkflowManagementPage() {
                                       placeholder="cc@example.com"
                                       data-testid={`input-action-email-cc-${index}`}
                                     />
-                                  ) : (
+                                  )}
+                                  {action.config?.cc_mode === 'field' && (
                                     <Select
                                       value={action.config?.cc || '_none'}
                                       onValueChange={(val) => updateAction(index, { 
@@ -1441,7 +1531,98 @@ export default function WorkflowManagementPage() {
                                       </SelectContent>
                                     </Select>
                                   )}
+                                  {action.config?.cc_mode === 'role' && (
+                                    <Popover>
+                                      <PopoverTrigger asChild>
+                                        <Button
+                                          variant="outline"
+                                          role="combobox"
+                                          className="flex-1 justify-between"
+                                          data-testid={`select-cc-roles-${index}`}
+                                        >
+                                          {(() => {
+                                            const selectedIds = action.config?.cc_role_ids || [];
+                                            if (selectedIds.length === 0) return "Select role(s)...";
+                                            if (selectedIds.length === 1) return getRoleName(selectedIds[0]);
+                                            return `${selectedIds.length} roles selected`;
+                                          })()}
+                                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                        </Button>
+                                      </PopoverTrigger>
+                                      <PopoverContent className="w-[300px] p-0" align="start">
+                                        <div className="p-2 border-b">
+                                          <p className="text-sm font-medium">Select roles to CC</p>
+                                          <p className="text-xs text-muted-foreground">Members with selected roles will be CC'd</p>
+                                        </div>
+                                        <ScrollArea className="h-[200px]">
+                                          <div className="p-2 space-y-1">
+                                            {roles.map(role => {
+                                              const selectedIds = action.config?.cc_role_ids || [];
+                                              const isChecked = selectedIds.includes(role.id);
+                                              return (
+                                                <div 
+                                                  key={role.id}
+                                                  className="flex items-center gap-2 p-2 rounded-md hover-elevate cursor-pointer"
+                                                  onClick={() => {
+                                                    let newIds;
+                                                    if (isChecked) {
+                                                      newIds = selectedIds.filter(id => id !== role.id);
+                                                    } else {
+                                                      newIds = [...selectedIds, role.id];
+                                                      fetchRoleMemberCount(role.id);
+                                                    }
+                                                    updateAction(index, { 
+                                                      config: { ...action.config, cc_role_ids: newIds, cc: '' } 
+                                                    });
+                                                  }}
+                                                >
+                                                  <Checkbox 
+                                                    checked={isChecked} 
+                                                    data-testid={`checkbox-cc-role-${role.id}-${index}`}
+                                                  />
+                                                  <Users className="h-4 w-4 text-muted-foreground" />
+                                                  <span className="flex-1">{role.name}</span>
+                                                  {roleMemberCounts[role.id] && (
+                                                    <Badge variant="secondary" className="text-xs">
+                                                      {roleMemberCounts[role.id].count}
+                                                    </Badge>
+                                                  )}
+                                                </div>
+                                              );
+                                            })}
+                                          </div>
+                                        </ScrollArea>
+                                      </PopoverContent>
+                                    </Popover>
+                                  )}
                                 </div>
+                                
+                                {/* CC Role count info */}
+                                {action.config?.cc_mode === 'role' && (() => {
+                                  const selectedIds = action.config?.cc_role_ids || [];
+                                  if (selectedIds.length === 0) return null;
+                                  const { count, loading } = getTotalRoleCount(selectedIds);
+                                  
+                                  if (loading) {
+                                    return (
+                                      <div className="p-2 bg-muted rounded-lg border text-sm">
+                                        <div className="flex items-center gap-2">
+                                          <div className="animate-spin rounded-full h-3 w-3 border-2 border-primary border-t-transparent"></div>
+                                          <span className="text-muted-foreground">Loading...</span>
+                                        </div>
+                                      </div>
+                                    );
+                                  }
+                                  
+                                  return (
+                                    <div className="p-2 bg-muted rounded-lg border text-sm flex items-center gap-2">
+                                      <Users className="h-4 w-4 text-muted-foreground" />
+                                      <span className="text-muted-foreground">
+                                        {count} member{count !== 1 ? 's' : ''} will be CC'd
+                                      </span>
+                                    </div>
+                                  );
+                                })()}
                               </div>
 
                               {/* BCC Field */}
