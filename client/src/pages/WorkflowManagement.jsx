@@ -352,6 +352,15 @@ export default function WorkflowManagementPage() {
     });
     setBuilderStep(1);
     setShowDialog(true);
+    setMassEmailConfirmation('');
+    
+    // Pre-fetch member counts for any existing role-based email actions
+    const actions = workflow.actions || [];
+    for (const action of actions) {
+      if (action.type === 'send_email' && action.config?.to_mode === 'role' && action.config?.to_role_id) {
+        fetchRoleMemberCount(action.config.to_role_id);
+      }
+    }
   };
 
   const handleSaveWorkflow = () => {

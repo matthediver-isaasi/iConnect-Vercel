@@ -165,7 +165,8 @@ async function processSpecialPlaceholders(content, entityType, entityId, baseUrl
 }
 
 // Apply field mappings to template - replaces placeholders with actual field values
-async function applyFieldMappings(template, fieldMappings, entityType, entityId, entityData) {
+// If preserveEmpty is true, placeholders without values are left intact (useful for multi-pass processing)
+async function applyFieldMappings(template, fieldMappings, entityType, entityId, entityData, preserveEmpty = false) {
   if (!template || !fieldMappings || Object.keys(fieldMappings).length === 0) {
     return template;
   }
@@ -176,12 +177,12 @@ async function applyFieldMappings(template, fieldMappings, entityType, entityId,
     if (!mapping) continue; // Skip auto mappings (null)
     
     const [fieldType, fieldId] = mapping.split(':');
-    let value = '';
+    let value = null;
     
     if (fieldType === 'core') {
       // Core field - get directly from entity data
-      value = entityData?.[fieldId] || '';
-      console.log(`[Workflows] Mapping "${placeholder}" -> core:${fieldId} = "${value}"`);
+      value = entityData?.[fieldId];
+      console.log(`[Workflows] Mapping "${placeholder}" -> core:${fieldId} = "${value ?? '(not found)'}" [preserveEmpty=${preserveEmpty}]`);
     } else if (fieldType === 'custom') {
       // Custom field - look up from preference values
       const tableName = entityType === 'organization' ? 'organization_preference_value' : 'member_preference_value';
@@ -194,13 +195,21 @@ async function applyFieldMappings(template, fieldMappings, entityType, entityId,
         .eq('field_id', fieldId)
         .single();
       
-      value = prefValue?.value || '';
-      console.log(`[Workflows] Mapping "${placeholder}" -> custom:${fieldId} = "${value}"`);
+      value = prefValue?.value;
+      console.log(`[Workflows] Mapping "${placeholder}" -> custom:${fieldId} = "${value ?? '(not found)'}" [preserveEmpty=${preserveEmpty}]`);
     }
     
-    // Replace both {{placeholder}} and [[placeholder]] syntax
-    result = result.replace(new RegExp(`\\{\\{${placeholder}\\}\\}`, 'g'), value);
-    result = result.replace(new RegExp(`\\[\\[${placeholder}\\]\\]`, 'g'), value);
+    // Only replace if we have a value, or if preserveEmpty is false (replace with empty string)
+    if (value !== null && value !== undefined) {
+      // Replace both {{placeholder}} and [[placeholder]] syntax
+      result = result.replace(new RegExp(`\\{\\{${placeholder}\\}\\}`, 'g'), String(value));
+      result = result.replace(new RegExp(`\\[\\[${placeholder}\\]\\]`, 'g'), String(value));
+    } else if (!preserveEmpty) {
+      // Replace with empty string only if preserveEmpty is false
+      result = result.replace(new RegExp(`\\{\\{${placeholder}\\}\\}`, 'g'), '');
+      result = result.replace(new RegExp(`\\[\\[${placeholder}\\]\\]`, 'g'), '');
+    }
+    // If preserveEmpty is true and no value, placeholder is left intact
   }
   
   return result;
@@ -243,6 +252,58 @@ async function resolveFieldIdPlaceholder(template, entityType, entityId) {
   return result;
 }
 
+// Helper function to get organization_id from entity
+async function getOrganizationIdFromEntity(entityType, entityId, entityData) {
+  if (entityType === 'organization') {
+    return entityId;
+  }
+  
+  // For member entities, get the organization_id from the member record
+  if (entityData?.organization_id) {
+    return entityData.organization_id;
+  }
+  
+  // Fallback: fetch from database
+  if (supabase && entityType === 'member') {
+    const { data: member } = await supabase
+      .from('member')
+      .select('organization_id')
+      .eq('id', entityId)
+      .single();
+    return member?.organization_id || null;
+  }
+  
+  return null;
+}
+
+// Helper function to get members by role_id within an organization
+async function getMembersByRoleInOrganization(roleId, organizationId) {
+  if (!supabase || !roleId || !organizationId) {
+    console.log(`[Workflows] getMembersByRoleInOrganization - missing params: roleId=${roleId}, orgId=${organizationId}`);
+    return [];
+  }
+  
+  console.log(`[Workflows] Fetching members with role ${roleId} in organization ${organizationId}`);
+  
+  const { data: members, error } = await supabase
+    .from('member')
+    .select('id, email, first_name, last_name, role_id, organization_id')
+    .eq('role_id', roleId)
+    .eq('organization_id', organizationId)
+    .not('email', 'is', null);
+  
+  if (error) {
+    console.error(`[Workflows] Error fetching members by role:`, error.message);
+    return [];
+  }
+  
+  // Filter out members without valid email addresses
+  const validMembers = (members || []).filter(m => m.email && m.email.includes('@'));
+  console.log(`[Workflows] Found ${validMembers.length} members with role ${roleId} in org ${organizationId}`);
+  
+  return validMembers;
+}
+
 async function executeWorkflowActions(workflow, entityType, entityId, entityData, baseUrl) {
   const results = [];
   
@@ -253,6 +314,13 @@ async function executeWorkflowActions(workflow, entityType, entityId, entityData
       results.push({ action_type: 'update_field', status: 'success' });
     } else if (action.type === 'send_email') {
       console.log(`[Workflows] send_email action config:`, JSON.stringify(action.config, null, 2));
+      
+      // Check if this is a role-based email (send to all members with a specific role)
+      if (action.config?.to_mode === 'role' && action.config?.to_role_id) {
+        const roleResults = await executeRoleBasedEmail(action, workflow, entityType, entityId, entityData, baseUrl);
+        results.push(...roleResults);
+        continue;
+      }
       
       let subject, body, fromEmail, replyTo;
       
@@ -339,6 +407,175 @@ async function executeWorkflowActions(workflow, entityType, entityId, entityData
       });
     }
   }
+  
+  return results;
+}
+
+// Execute role-based email: sends individual emails to all members with the specified role in the organization
+async function executeRoleBasedEmail(action, workflow, entityType, entityId, entityData, baseUrl) {
+  const results = [];
+  const roleId = action.config.to_role_id;
+  
+  console.log(`[Workflows] Role-based email: sending to all members with role ${roleId}`);
+  
+  // Get organization context - CRITICAL for multi-tenant security
+  const organizationId = await getOrganizationIdFromEntity(entityType, entityId, entityData);
+  
+  if (!organizationId) {
+    console.error(`[Workflows] Role-based email failed: could not determine organization_id`);
+    results.push({
+      action_type: 'send_email_role',
+      status: 'failed',
+      error: 'Could not determine organization context for role-based email',
+      role_id: roleId
+    });
+    return results;
+  }
+  
+  // Fetch members with this role in the organization
+  const members = await getMembersByRoleInOrganization(roleId, organizationId);
+  
+  if (members.length === 0) {
+    console.log(`[Workflows] Role-based email: no members found with role ${roleId} in org ${organizationId}`);
+    results.push({
+      action_type: 'send_email_role',
+      status: 'success',
+      role_id: roleId,
+      recipients_count: 0,
+      message: 'No members found with specified role'
+    });
+    return results;
+  }
+  
+  console.log(`[Workflows] Role-based email: sending to ${members.length} members`);
+  
+  // Get email template/content
+  let subject, body, fromEmail, replyTo;
+  
+  const useTemplateMode = (action.config?.mode === 'template' || action.config?.template_id) && action.config?.template_id;
+  if (useTemplateMode) {
+    const { data: template, error: templateError } = await supabase
+      .from('email_template')
+      .select('*')
+      .eq('id', action.config.template_id)
+      .single();
+    
+    if (!template || template.is_active === false) {
+      console.log(`[Workflows] Role-based email template ${action.config.template_id} not found or inactive`);
+      results.push({
+        action_type: 'send_email_role',
+        status: 'failed',
+        error: 'Email template not found or inactive',
+        role_id: roleId
+      });
+      return results;
+    }
+    
+    subject = template.subject || '';
+    body = template.body || '';
+    fromEmail = template.from_email;
+    replyTo = template.reply_to;
+  } else {
+    subject = action.config?.subject || '';
+    body = action.config?.body || '';
+  }
+  
+  // Get CC and BCC (same for all recipients)
+  let ccResolved = action.config?.cc || '';
+  ccResolved = await resolveFieldIdPlaceholder(ccResolved, entityType, entityId);
+  const cc = ccResolved ? replacePlaceholders(ccResolved, entityType, entityData) : undefined;
+  
+  let bccResolved = action.config?.bcc || '';
+  bccResolved = await resolveFieldIdPlaceholder(bccResolved, entityType, entityId);
+  const bcc = bccResolved ? replacePlaceholders(bccResolved, entityType, entityData) : undefined;
+  
+  // Send email to each member individually with personalized placeholders
+  let successCount = 0;
+  let failCount = 0;
+  const emailResults = [];
+  
+  // Keep original template for per-member processing
+  // DON'T pre-resolve placeholders - this would blank out member placeholders
+  const baseSubject = subject;
+  const baseBody = body;
+  
+  for (const member of members) {
+    try {
+      // Start with fresh template for each member
+      let memberSubject = baseSubject;
+      let memberBody = baseBody;
+      
+      // Step 1: Apply field mappings for BOTH contexts (trigger entity + member)
+      // Use preserveEmpty=true for trigger context so member placeholders survive
+      if (action.config?.field_mappings && Object.keys(action.config.field_mappings).length > 0) {
+        // Apply trigger entity field mappings first (with preserveEmpty=true)
+        console.log(`[Workflows] Role-based email: applying trigger entity field mappings for ${entityType}:${entityId} (preserveEmpty=true)`);
+        memberSubject = await applyFieldMappings(memberSubject, action.config.field_mappings, entityType, entityId, entityData, true);
+        memberBody = await applyFieldMappings(memberBody, action.config.field_mappings, entityType, entityId, entityData, true);
+        
+        // Then apply member-specific field mappings (with preserveEmpty=false for final cleanup)
+        console.log(`[Workflows] Role-based email: applying member field mappings for member ${member.id}`);
+        memberSubject = await applyFieldMappings(memberSubject, action.config.field_mappings, 'member', member.id, member, false);
+        memberBody = await applyFieldMappings(memberBody, action.config.field_mappings, 'member', member.id, member, false);
+      }
+      
+      // Step 2: Resolve UUID-style field ID placeholders for member's custom fields
+      memberSubject = await resolveFieldIdPlaceholder(memberSubject, 'member', member.id);
+      memberBody = await resolveFieldIdPlaceholder(memberBody, 'member', member.id);
+      
+      // Step 3: Replace standard placeholders - member first, then trigger entity
+      // Member placeholders: {{member.first_name}}, {{first_name}}, etc.
+      memberSubject = replacePlaceholders(memberSubject, 'member', member);
+      memberBody = replacePlaceholders(memberBody, 'member', member);
+      
+      // Trigger entity placeholders: {{organization.name}}, {{name}}, etc.
+      memberSubject = replacePlaceholders(memberSubject, entityType, entityData);
+      memberBody = replacePlaceholders(memberBody, entityType, entityData);
+      
+      // Step 4: Process special placeholders like {{set_password_url}} for THIS member
+      if (baseUrl) {
+        memberSubject = await processSpecialPlaceholders(memberSubject, 'member', member.id, baseUrl);
+        memberBody = await processSpecialPlaceholders(memberBody, 'member', member.id, baseUrl);
+      }
+      
+      console.log(`[Workflows] Role-based email: sending to ${member.email}`);
+      
+      const emailResult = await sendEmail({
+        to: member.email,
+        subject: memberSubject,
+        html: memberBody,
+        from: fromEmail,
+        replyTo,
+        cc,
+        bcc
+      });
+      
+      if (emailResult.success) {
+        successCount++;
+        emailResults.push({ email: member.email, status: 'success', messageId: emailResult.messageId });
+      } else {
+        failCount++;
+        emailResults.push({ email: member.email, status: 'failed', error: emailResult.error });
+      }
+    } catch (err) {
+      failCount++;
+      console.error(`[Workflows] Role-based email error for ${member.email}:`, err.message);
+      emailResults.push({ email: member.email, status: 'failed', error: err.message });
+    }
+  }
+  
+  console.log(`[Workflows] Role-based email complete: ${successCount} success, ${failCount} failed`);
+  
+  results.push({
+    action_type: 'send_email_role',
+    status: failCount === 0 ? 'success' : (successCount > 0 ? 'partial' : 'failed'),
+    role_id: roleId,
+    recipients_count: members.length,
+    success_count: successCount,
+    fail_count: failCount,
+    template_id: action.config?.template_id,
+    details: emailResults
+  });
   
   return results;
 }
