@@ -16,7 +16,7 @@ import { Separator } from "@/components/ui/separator";
 import { 
   Zap, Plus, Pencil, Trash2, AlertCircle, Mail, Play, Pause, 
   ChevronRight, ChevronLeft, Building2, User, Settings, Clock,
-  CheckCircle2, XCircle, History, Filter, ArrowRight
+  CheckCircle2, XCircle, History, Filter, ArrowRight, Users, AlertTriangle
 } from "lucide-react";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
@@ -180,6 +180,34 @@ export default function WorkflowManagementPage() {
     enabled: accessChecked,
   });
 
+  const { data: roles = [] } = useQuery({
+    queryKey: ['roles'],
+    queryFn: async () => {
+      const result = await base44.entities.Role.list();
+      return result || [];
+    },
+    enabled: accessChecked,
+  });
+
+  const [roleMemberCounts, setRoleMemberCounts] = useState({});
+  const [massEmailConfirmation, setMassEmailConfirmation] = useState('');
+
+  const fetchRoleMemberCount = async (roleId) => {
+    if (!roleId || roleMemberCounts[roleId] !== undefined) return;
+    
+    try {
+      const response = await fetch(`/api/admin/role-member-count?roleId=${roleId}`, {
+        credentials: 'include'
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setRoleMemberCounts(prev => ({ ...prev, [roleId]: data }));
+      }
+    } catch (error) {
+      console.error('Error fetching role member count:', error);
+    }
+  };
+
   const orgCustomFields = customFields.filter(f => f.entity_scope === 'organization');
   const memberCustomFields = customFields.filter(f => !f.entity_scope || f.entity_scope === 'member');
 
@@ -306,6 +334,7 @@ export default function WorkflowManagementPage() {
       actions: [],
       is_active: true,
     });
+    setMassEmailConfirmation('');
   };
 
   const handleEditWorkflow = (workflow) => {
@@ -409,6 +438,22 @@ export default function WorkflowManagementPage() {
 
   const availableFieldsGrouped = getAvailableFields();
   const availableFieldsFlat = getAllFieldsFlat();
+
+  const getMassEmailCount = () => {
+    let totalRecipients = 0;
+    for (const action of formData.actions) {
+      if (action.type === 'send_email' && action.config?.to_mode === 'role' && action.config?.to_role_id) {
+        const roleCount = roleMemberCounts[action.config.to_role_id]?.count || 0;
+        if (roleCount > 1) {
+          totalRecipients += roleCount;
+        }
+      }
+    }
+    return totalRecipients;
+  };
+
+  const requiresMassEmailConfirmation = getMassEmailCount() > 1;
+  const isMassEmailConfirmed = massEmailConfirmation === 'I UNDERSTAND';
 
   if (!accessChecked) {
     return (
@@ -1221,19 +1266,23 @@ export default function WorkflowManagementPage() {
                                 <div className="flex gap-2">
                                   <Select
                                     value={action.config?.to_mode || 'manual'}
-                                    onValueChange={(val) => updateAction(index, { 
-                                      config: { ...action.config, to_mode: val, to: '' } 
-                                    })}
+                                    onValueChange={(val) => {
+                                      updateAction(index, { 
+                                        config: { ...action.config, to_mode: val, to: '', to_role_id: '' } 
+                                      });
+                                      setMassEmailConfirmation('');
+                                    }}
                                   >
-                                    <SelectTrigger className="w-[140px]" data-testid={`select-to-mode-${index}`}>
+                                    <SelectTrigger className="w-[160px]" data-testid={`select-to-mode-${index}`}>
                                       <SelectValue />
                                     </SelectTrigger>
                                     <SelectContent>
                                       <SelectItem value="manual">Enter Email</SelectItem>
                                       <SelectItem value="field">Select Field</SelectItem>
+                                      <SelectItem value="role">Send to Role</SelectItem>
                                     </SelectContent>
                                   </Select>
-                                  {(action.config?.to_mode || 'manual') === 'manual' ? (
+                                  {(action.config?.to_mode || 'manual') === 'manual' && (
                                     <Input
                                       className="flex-1"
                                       value={action.config?.to || ''}
@@ -1243,7 +1292,8 @@ export default function WorkflowManagementPage() {
                                       placeholder="email@example.com or {{member.email}}"
                                       data-testid={`input-action-email-to-${index}`}
                                     />
-                                  ) : (
+                                  )}
+                                  {action.config?.to_mode === 'field' && (
                                     <Select
                                       value={action.config?.to || '_none'}
                                       onValueChange={(val) => updateAction(index, { 
@@ -1261,7 +1311,79 @@ export default function WorkflowManagementPage() {
                                       </SelectContent>
                                     </Select>
                                   )}
+                                  {action.config?.to_mode === 'role' && (
+                                    <Select
+                                      value={action.config?.to_role_id || '_none'}
+                                      onValueChange={(val) => {
+                                        const roleId = val === '_none' ? '' : val;
+                                        updateAction(index, { 
+                                          config: { ...action.config, to_role_id: roleId, to: '' } 
+                                        });
+                                        if (roleId) {
+                                          fetchRoleMemberCount(roleId);
+                                        }
+                                        setMassEmailConfirmation('');
+                                      }}
+                                    >
+                                      <SelectTrigger className="flex-1" data-testid={`select-to-role-${index}`}>
+                                        <SelectValue placeholder="Select a role" />
+                                      </SelectTrigger>
+                                      <SelectContent className="max-h-[300px] overflow-y-auto">
+                                        <SelectItem value="_none">-- Select role --</SelectItem>
+                                        {roles.map(role => (
+                                          <SelectItem key={role.id} value={role.id}>
+                                            <div className="flex items-center gap-2">
+                                              <Users className="h-4 w-4" />
+                                              {role.name}
+                                            </div>
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  )}
                                 </div>
+                                
+                                {/* Role member count and mass email warning */}
+                                {action.config?.to_mode === 'role' && action.config?.to_role_id && (
+                                  <div className="space-y-3">
+                                    {roleMemberCounts[action.config.to_role_id] ? (
+                                      <div className={`p-3 rounded-lg border ${
+                                        roleMemberCounts[action.config.to_role_id].count > 1 
+                                          ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800' 
+                                          : 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800'
+                                      }`}>
+                                        <div className="flex items-center gap-2">
+                                          {roleMemberCounts[action.config.to_role_id].count > 1 ? (
+                                            <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+                                          ) : (
+                                            <Users className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                                          )}
+                                          <div>
+                                            <p className={`text-sm font-medium ${
+                                              roleMemberCounts[action.config.to_role_id].count > 1 
+                                                ? 'text-amber-700 dark:text-amber-300' 
+                                                : 'text-blue-700 dark:text-blue-300'
+                                            }`}>
+                                              This will send to {roleMemberCounts[action.config.to_role_id].count} member{roleMemberCounts[action.config.to_role_id].count !== 1 ? 's' : ''} in your organisation
+                                            </p>
+                                            {roleMemberCounts[action.config.to_role_id].count > 1 && (
+                                              <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                                                Mass email: This workflow will send individual emails to all members with the selected role
+                                              </p>
+                                            )}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <div className="p-3 bg-muted rounded-lg border">
+                                        <div className="flex items-center gap-2">
+                                          <div className="animate-spin rounded-full h-4 w-4 border-2 border-primary border-t-transparent"></div>
+                                          <p className="text-sm text-muted-foreground">Loading member count...</p>
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
                               </div>
 
                               {/* CC Field */}
@@ -1461,6 +1583,39 @@ export default function WorkflowManagementPage() {
             )}
           </ScrollArea>
 
+          {/* Mass Email Confirmation */}
+          {builderStep === 4 && requiresMassEmailConfirmation && (
+            <div className="mt-4 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="h-6 w-6 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
+                <div className="space-y-3 flex-1">
+                  <div>
+                    <p className="font-semibold text-red-700 dark:text-red-300">
+                      Mass Email Warning
+                    </p>
+                    <p className="text-sm text-red-600 dark:text-red-400 mt-1">
+                      This workflow will send emails to <strong>{getMassEmailCount()} members</strong> when triggered. 
+                      Each time the workflow triggers, all members with the selected role(s) in your organisation will receive an email.
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="mass-email-confirm" className="text-sm text-red-700 dark:text-red-300">
+                      Type <span className="font-mono font-bold">I UNDERSTAND</span> to confirm:
+                    </Label>
+                    <Input
+                      id="mass-email-confirm"
+                      value={massEmailConfirmation}
+                      onChange={(e) => setMassEmailConfirmation(e.target.value)}
+                      placeholder="Type I UNDERSTAND"
+                      className="max-w-xs border-red-300 dark:border-red-700 focus:ring-red-500"
+                      data-testid="input-mass-email-confirm"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           <DialogFooter className="flex items-center justify-between mt-4 pt-4 border-t">
             <div>
               {builderStep > 1 && (
@@ -1482,7 +1637,7 @@ export default function WorkflowManagementPage() {
               ) : (
                 <Button 
                   onClick={handleSaveWorkflow} 
-                  disabled={createMutation.isPending || updateMutation.isPending}
+                  disabled={createMutation.isPending || updateMutation.isPending || (requiresMassEmailConfirmation && !isMassEmailConfirmed)}
                   data-testid="button-save-workflow"
                 >
                   {(createMutation.isPending || updateMutation.isPending) && (
