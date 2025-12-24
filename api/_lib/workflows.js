@@ -614,13 +614,14 @@ async function executeRoleBasedEmail(action, workflow, entityType, entityId, ent
   results.push({
     action_type: 'send_email_role',
     status: failCount === 0 ? 'success' : (successCount > 0 ? 'partial' : 'failed'),
+    role_id: roleIds[0], // Backward compatibility for consumers expecting single role_id
     role_ids: roleIds,
     recipients_count: members.length,
     success_count: successCount,
     fail_count: failCount,
     template_id: action.config?.template_id,
     cc_role_ids: action.config?.cc_role_ids,
-    cc_count: ccEmails.length,
+    cc_count: ccEmails ? ccEmails.length : 0,
     details: emailResults
   });
   
