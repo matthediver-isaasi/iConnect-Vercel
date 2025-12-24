@@ -315,9 +315,11 @@ async function executeWorkflowActions(workflow, entityType, entityId, entityData
     } else if (action.type === 'send_email') {
       console.log(`[Workflows] send_email action config:`, JSON.stringify(action.config, null, 2));
       
-      // Check if this is a role-based email (send to all members with a specific role)
-      if (action.config?.to_mode === 'role' && action.config?.to_role_id) {
-        const roleResults = await executeRoleBasedEmail(action, workflow, entityType, entityId, entityData, baseUrl);
+      // Check if this is a role-based email (send to all members with specific role(s))
+      // Support both new array format (to_role_ids) and legacy single role (to_role_id)
+      const toRoleIds = action.config?.to_role_ids || (action.config?.to_role_id ? [action.config.to_role_id] : []);
+      if (action.config?.to_mode === 'role' && toRoleIds.length > 0) {
+        const roleResults = await executeRoleBasedEmail(action, workflow, entityType, entityId, entityData, baseUrl, toRoleIds);
         results.push(...roleResults);
         continue;
       }
@@ -411,12 +413,12 @@ async function executeWorkflowActions(workflow, entityType, entityId, entityData
   return results;
 }
 
-// Execute role-based email: sends individual emails to all members with the specified role in the organization
-async function executeRoleBasedEmail(action, workflow, entityType, entityId, entityData, baseUrl) {
+// Execute role-based email: sends individual emails to all members with the specified role(s) in the organization
+// roleIds parameter is an array of role IDs to send to
+async function executeRoleBasedEmail(action, workflow, entityType, entityId, entityData, baseUrl, roleIds) {
   const results = [];
-  const roleId = action.config.to_role_id;
   
-  console.log(`[Workflows] Role-based email: sending to all members with role ${roleId}`);
+  console.log(`[Workflows] Role-based email: sending to all members with roles: ${roleIds.join(', ')}`);
   
   // Get organization context - CRITICAL for multi-tenant security
   const organizationId = await getOrganizationIdFromEntity(entityType, entityId, entityData);
@@ -427,27 +429,41 @@ async function executeRoleBasedEmail(action, workflow, entityType, entityId, ent
       action_type: 'send_email_role',
       status: 'failed',
       error: 'Could not determine organization context for role-based email',
-      role_id: roleId
+      role_ids: roleIds
     });
     return results;
   }
   
-  // Fetch members with this role in the organization
-  const members = await getMembersByRoleInOrganization(roleId, organizationId);
+  // Fetch members from all roles and deduplicate by member ID
+  const membersByRole = await Promise.all(
+    roleIds.map(roleId => getMembersByRoleInOrganization(roleId, organizationId))
+  );
+  
+  // Flatten and deduplicate by member ID
+  const seenIds = new Set();
+  const members = [];
+  for (const roleMembers of membersByRole) {
+    for (const member of roleMembers) {
+      if (!seenIds.has(member.id)) {
+        seenIds.add(member.id);
+        members.push(member);
+      }
+    }
+  }
   
   if (members.length === 0) {
-    console.log(`[Workflows] Role-based email: no members found with role ${roleId} in org ${organizationId}`);
+    console.log(`[Workflows] Role-based email: no members found with roles ${roleIds.join(', ')} in org ${organizationId}`);
     results.push({
       action_type: 'send_email_role',
       status: 'success',
-      role_id: roleId,
+      role_ids: roleIds,
       recipients_count: 0,
-      message: 'No members found with specified role'
+      message: 'No members found with specified roles'
     });
     return results;
   }
   
-  console.log(`[Workflows] Role-based email: sending to ${members.length} members`);
+  console.log(`[Workflows] Role-based email: sending to ${members.length} unique members from ${roleIds.length} role(s)`);
   
   // Get email template/content
   let subject, body, fromEmail, replyTo;
@@ -466,7 +482,7 @@ async function executeRoleBasedEmail(action, workflow, entityType, entityId, ent
         action_type: 'send_email_role',
         status: 'failed',
         error: 'Email template not found or inactive',
-        role_id: roleId
+        role_ids: roleIds
       });
       return results;
     }
@@ -480,11 +496,40 @@ async function executeRoleBasedEmail(action, workflow, entityType, entityId, ent
     body = action.config?.body || '';
   }
   
-  // Get CC and BCC (same for all recipients)
-  let ccResolved = action.config?.cc || '';
-  ccResolved = await resolveFieldIdPlaceholder(ccResolved, entityType, entityId);
-  const cc = ccResolved ? replacePlaceholders(ccResolved, entityType, entityData) : undefined;
+  // Get CC - can be manual, field-based, or role-based
+  let ccEmails = [];
   
+  if (action.config?.cc_mode === 'role' && action.config?.cc_role_ids?.length > 0) {
+    // Role-based CC: fetch all members with the selected roles and use their emails
+    console.log(`[Workflows] Role-based CC: fetching members from roles: ${action.config.cc_role_ids.join(', ')}`);
+    const ccMembersByRole = await Promise.all(
+      action.config.cc_role_ids.map(roleId => getMembersByRoleInOrganization(roleId, organizationId))
+    );
+    
+    // Flatten, deduplicate, and extract emails
+    const ccSeenIds = new Set();
+    for (const roleMembers of ccMembersByRole) {
+      for (const member of roleMembers) {
+        if (!ccSeenIds.has(member.id) && member.email) {
+          ccSeenIds.add(member.id);
+          ccEmails.push(member.email);
+        }
+      }
+    }
+    console.log(`[Workflows] Role-based CC: ${ccEmails.length} unique CC recipients`);
+  } else {
+    // Manual or field-based CC
+    let ccResolved = action.config?.cc || '';
+    ccResolved = await resolveFieldIdPlaceholder(ccResolved, entityType, entityId);
+    const ccValue = ccResolved ? replacePlaceholders(ccResolved, entityType, entityData) : '';
+    if (ccValue) {
+      ccEmails = ccValue.split(',').map(e => e.trim()).filter(e => e);
+    }
+  }
+  
+  const cc = ccEmails.length > 0 ? ccEmails.join(', ') : undefined;
+  
+  // BCC stays manual/field-based only
   let bccResolved = action.config?.bcc || '';
   bccResolved = await resolveFieldIdPlaceholder(bccResolved, entityType, entityId);
   const bcc = bccResolved ? replacePlaceholders(bccResolved, entityType, entityData) : undefined;
@@ -569,11 +614,13 @@ async function executeRoleBasedEmail(action, workflow, entityType, entityId, ent
   results.push({
     action_type: 'send_email_role',
     status: failCount === 0 ? 'success' : (successCount > 0 ? 'partial' : 'failed'),
-    role_id: roleId,
+    role_ids: roleIds,
     recipients_count: members.length,
     success_count: successCount,
     fail_count: failCount,
     template_id: action.config?.template_id,
+    cc_role_ids: action.config?.cc_role_ids,
+    cc_count: ccEmails.length,
     details: emailResults
   });
   
