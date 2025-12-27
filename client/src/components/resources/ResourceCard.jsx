@@ -36,7 +36,8 @@ export default function ResourceCard({ resource, isLocked = false, buttonStyles 
   const requiresLogin = !isAuthenticated && !resource.is_public;
   
   const handleLoginClick = () => {
-    window.location.href = '/login';
+    // Include resourceId so after login we can filter to show this specific resource
+    window.location.href = `/login?returnTo=/resources&resourceId=${resource.id}`;
   };
 
   const getResourceIcon = (type) => {
