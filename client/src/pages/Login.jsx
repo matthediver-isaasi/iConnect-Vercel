@@ -19,9 +19,10 @@ export default function LoginPage() {
   const [emailSent, setEmailSent] = useState(false);
   const [confirmPassword, setConfirmPassword] = useState("");
   
-  // Get returnTo parameter from URL
+  // Get returnTo and resourceId parameters from URL
   const urlParams = new URLSearchParams(window.location.search);
   const returnTo = urlParams.get('returnTo');
+  const resourceId = urlParams.get('resourceId');
 
   // Check if user is already logged in
   useEffect(() => {
@@ -49,7 +50,12 @@ export default function LoginPage() {
     
     // If there's a returnTo parameter, use it instead of the role's landing page
     if (returnTo) {
-      window.location.href = returnTo;
+      // If there's also a resourceId, append it as a query param to filter to that resource
+      if (resourceId) {
+        window.location.href = `${returnTo}?resourceId=${resourceId}`;
+      } else {
+        window.location.href = returnTo;
+      }
       return;
     }
     
