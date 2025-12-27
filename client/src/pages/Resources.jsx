@@ -531,7 +531,6 @@ export default function ResourcesPage() {
                       </div>
                       <div>
                         <p className="font-medium text-blue-900">Showing selected resource</p>
-                        <p className="text-sm text-blue-700">You were redirected here after logging in</p>
                       </div>
                     </div>
                     <Button
