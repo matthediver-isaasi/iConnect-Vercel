@@ -1,9 +1,9 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { FileQuestion, ChevronLeft, ChevronRight, SlidersHorizontal, Sparkles, Save } from "lucide-react";
+import { FileQuestion, ChevronLeft, ChevronRight, SlidersHorizontal, Sparkles, Save, X, ArrowLeft } from "lucide-react";
 import ResourceFilter from "../components/resources/ResourceFilter";
 import ResourceCard from "../components/resources/ResourceCard";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -15,6 +15,27 @@ import { useLayoutContext } from "@/contexts/LayoutContext";
 export default function ResourcesPage() {
   const { memberInfo, memberRole, isAdmin } = useMemberAccess();
   const { hasBanner } = useLayoutContext();
+  
+  // Get resourceId from URL query params (used when redirecting back from login)
+  const urlParams = new URLSearchParams(window.location.search);
+  const resourceIdFromUrl = urlParams.get('resourceId');
+  
+  // State for filtering to a specific resource (e.g., after login redirect)
+  const [filteredResourceId, setFilteredResourceId] = useState(resourceIdFromUrl || null);
+  
+  // When URL changes (e.g., after login redirect), update the filtered resource ID
+  useEffect(() => {
+    if (resourceIdFromUrl) {
+      setFilteredResourceId(resourceIdFromUrl);
+    }
+  }, [resourceIdFromUrl]);
+  
+  // Clear the filter and remove the query param from URL
+  const clearResourceFilter = () => {
+    setFilteredResourceId(null);
+    // Remove the query param from URL without reload
+    window.history.replaceState({}, '', '/resources');
+  };
   
   // Check authentication status - derive from memberInfo (from useMemberAccess hook) 
   // with sessionStorage fallback for initial render before hook resolves
@@ -261,6 +282,12 @@ export default function ResourcesPage() {
 
   const filteredResources = useMemo(() => {
     return resources.filter(resource => {
+      // If filtering to a specific resource (e.g., after login redirect), only show that one
+      // Compare as strings to handle numeric IDs from URL query params
+      if (filteredResourceId) {
+        return String(resource.id) === String(filteredResourceId);
+      }
+      
       // If no search query, match all resources
       const matchesSearch = !searchQuery.trim() || 
         resource.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -274,7 +301,7 @@ export default function ResourcesPage() {
       
       return matchesSearch && matchesSubcategory;
     });
-  }, [resources, searchQuery, selectedSubcategories]);
+  }, [resources, searchQuery, selectedSubcategories, filteredResourceId]);
 
   const sortedResources = useMemo(() => {
     const sorted = [...filteredResources];
@@ -495,6 +522,31 @@ export default function ResourcesPage() {
               </Card>
             ) : (
               <>
+                {/* Banner showing when filtered to a specific resource */}
+                {filteredResourceId && (
+                  <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-none flex items-center justify-between" data-testid="banner-filtered-resource">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 bg-blue-100 rounded-full">
+                        <Sparkles className="w-4 h-4 text-blue-600" />
+                      </div>
+                      <div>
+                        <p className="font-medium text-blue-900">Showing selected resource</p>
+                        <p className="text-sm text-blue-700">You were redirected here after logging in</p>
+                      </div>
+                    </div>
+                    <Button
+                      onClick={clearResourceFilter}
+                      variant="outline"
+                      size="sm"
+                      className="gap-2 border-blue-300 text-blue-700 hover:bg-blue-100 rounded-none"
+                      data-testid="button-show-all-resources"
+                    >
+                      <ArrowLeft className="w-4 h-4" />
+                      Show all resources
+                    </Button>
+                  </div>
+                )}
+                
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-4 gap-3">
                   <div className="text-sm text-slate-600">
                     Showing {startIndex + 1}-{Math.min(endIndex, sortedResources.length)} of {sortedResources.length} resources
