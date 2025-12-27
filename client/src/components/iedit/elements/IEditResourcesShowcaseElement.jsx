@@ -1043,12 +1043,20 @@ export function IEditResourcesShowcaseElementRenderer({ element, settings }) {
               </div>
             ) : (
               <div className="grid md:grid-cols-2 gap-6">
-                {selectedResources.map((resource) => (
+                {selectedResources.map((resource) => {
+                  // For member-only resources, link to /resources?resourceId={id} which triggers login flow
+                  // For public resources, link directly to target_url
+                  const resourceLink = resource.is_public 
+                    ? resource.target_url 
+                    : `/resources?resourceId=${resource.id}`;
+                  const isExternalLink = resource.is_public && resource.open_in_new_tab;
+                  
+                  return (
                   <a
                     key={resource.id}
-                    href={resource.target_url}
-                    target={resource.open_in_new_tab ? '_blank' : '_self'}
-                    rel={resource.open_in_new_tab ? 'noopener noreferrer' : undefined}
+                    href={resourceLink}
+                    target={isExternalLink ? '_blank' : '_self'}
+                    rel={isExternalLink ? 'noopener noreferrer' : undefined}
                     className="bg-white p-6 shadow-lg hover:shadow-xl transition-shadow group aspect-square flex flex-col justify-between relative"
                     style={{ borderRadius: `${content.cardBorderRadius ?? 8}px` }}
                   >
@@ -1097,7 +1105,8 @@ export function IEditResourcesShowcaseElementRenderer({ element, settings }) {
                       </div>
                     )}
                   </a>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
