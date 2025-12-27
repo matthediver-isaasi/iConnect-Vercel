@@ -10,7 +10,7 @@ import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Pencil, Trash2, FileText, Search, X, Image as ImageIcon, Shield, Folder, FolderOpen, FolderPlus, MoveHorizontal, ChevronRight, Home, GripVertical, ChevronLeft, Calendar, Clock } from "lucide-react";
+import { Plus, Pencil, Trash2, FileText, Search, X, Image as ImageIcon, Shield, Folder, FolderOpen, FolderPlus, MoveHorizontal, ChevronRight, Home, GripVertical, ChevronLeft, Calendar, Clock, Link2, Check } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { format } from "date-fns";
@@ -56,6 +56,9 @@ export default function ResourceManagementPage() {
   const [draggedResources, setDraggedResources] = useState([]);
   const [dragOverFolder, setDragOverFolder] = useState(null);
   const [autoExpandTimeout, setAutoExpandTimeout] = useState(null);
+  
+  // Copy link state
+  const [copiedResourceId, setCopiedResourceId] = useState(null);
 
   // Pagination states
   const [currentPage, setCurrentPage] = useState(1);
@@ -863,6 +866,25 @@ export default function ResourceManagementPage() {
     setShowDialog(true);
   };
 
+  // Copy resource link to clipboard (for sharing/testing the login redirect flow)
+  const handleCopyResourceLink = async (resource) => {
+    const baseUrl = window.location.origin;
+    const resourceLink = `${baseUrl}/resources?resourceId=${resource.id}`;
+    
+    try {
+      await navigator.clipboard.writeText(resourceLink);
+      setCopiedResourceId(resource.id);
+      toast.success('Resource link copied to clipboard');
+      
+      // Reset the copied state after 2 seconds
+      setTimeout(() => {
+        setCopiedResourceId(null);
+      }, 2000);
+    } catch (err) {
+      toast.error('Failed to copy link');
+    }
+  };
+
   const handleSave = () => {
     if (!editingResource.title.trim()) {
       toast.error('Title is required');
@@ -1557,6 +1579,23 @@ export default function ResourceManagementPage() {
                         >
                           <Pencil className="w-3 h-3 mr-1" />
                           Edit
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleCopyResourceLink(resource);
+                          }}
+                          className={copiedResourceId === resource.id ? "text-green-600 hover:text-green-700 hover:bg-green-50" : ""}
+                          title="Copy shareable link"
+                          data-testid={`button-copy-link-${resource.id}`}
+                        >
+                          {copiedResourceId === resource.id ? (
+                            <Check className="w-3 h-3" />
+                          ) : (
+                            <Link2 className="w-3 h-3" />
+                          )}
                         </Button>
                         {!bulkMoveMode && (
                           <Select
