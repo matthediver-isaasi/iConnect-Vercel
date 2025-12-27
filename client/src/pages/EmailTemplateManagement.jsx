@@ -33,7 +33,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2, Plus, Pencil, Trash2, Mail, Eye, Copy, Code, FileText, X, Info, ChevronDown, ChevronUp, Save } from "lucide-react";
+import { Loader2, Plus, Pencil, Trash2, Mail, Eye, Copy, Code, FileText, X, Info, ChevronDown, ChevronUp, Save, AlertTriangle } from "lucide-react";
 import {
   Collapsible,
   CollapsibleContent,
@@ -208,7 +208,7 @@ export default function EmailTemplateManagement() {
   // Email footer state
   const [footerOpen, setFooterOpen] = useState(false);
   const [footerHtml, setFooterHtml] = useState(DEFAULT_EMAIL_FOOTER);
-  const [footerCodeView, setFooterCodeView] = useState(false);
+  const [footerCodeView, setFooterCodeView] = useState(true); // Default to code view to preserve complex HTML
   const [footerPreviewOpen, setFooterPreviewOpen] = useState(false);
   const footerQuillRef = useRef(null);
 
@@ -502,12 +502,30 @@ export default function EmailTemplateManagement() {
             <CollapsibleContent>
               <CardContent className="space-y-4 pt-0">
                 {/* Editor Mode Toggle */}
+                {/* Warning for complex HTML */}
+                {footerHtml && (footerHtml.includes('<table') || footerHtml.includes('data:image') || footerHtml.includes('base64')) && !footerCodeView && (
+                  <div className="p-3 bg-red-50 border border-red-200 rounded-lg mb-4">
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle className="w-4 h-4 text-red-600 mt-0.5" />
+                      <div className="text-sm text-red-800">
+                        <p className="font-medium">Rich Text mode may strip complex HTML</p>
+                        <p className="mt-1">Your footer contains tables or embedded images. Switch to HTML Code view to preserve formatting.</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Button
                       variant={footerCodeView ? "outline" : "default"}
                       size="sm"
-                      onClick={() => setFooterCodeView(false)}
+                      onClick={() => {
+                        if (footerHtml && (footerHtml.includes('<table') || footerHtml.includes('data:image') || footerHtml.includes('base64'))) {
+                          toast.warning('Rich Text mode may strip complex HTML like tables and images. Use HTML Code view for complex footers.');
+                        }
+                        setFooterCodeView(false);
+                      }}
                       data-testid="button-footer-richtext"
                     >
                       <FileText className="w-4 h-4 mr-1" />
