@@ -928,7 +928,7 @@ export function IEditOrganisationDirectoryElementRenderer({ content, settings })
                           )}
                         </div>
                       )}
-                      {showTitle && (
+                      {showTitle && !showNameTooltip && (
                         <CardTitle className="text-base line-clamp-2 w-full">{org.name}</CardTitle>
                       )}
                     </CardHeader>

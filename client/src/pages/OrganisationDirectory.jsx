@@ -513,7 +513,7 @@ export default function OrganisationDirectoryPage() {
                           )}
                         </div>
                       )}
-                      {displaySettings?.showTitle !== false && (
+                      {displaySettings?.showTitle !== false && !displaySettings?.showNameTooltip && (
                         <CardTitle className="text-base line-clamp-2 w-full">{org.name}</CardTitle>
                       )}
                     </CardHeader>
