@@ -649,7 +649,7 @@ export default function PublicLayout({ children, currentPageName }) {
       <Dialog open={showNewsletterDialog} onOpenChange={handleNewsletterDialogChange}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="text-2xl">Subscribe to Our Newsletter</DialogTitle>
+            <DialogTitle className="text-2xl">Subscribe to our newsletter</DialogTitle>
           </DialogHeader>
           
           <div className="space-y-4 py-4">
