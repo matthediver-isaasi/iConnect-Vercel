@@ -212,6 +212,7 @@ export default function OrganisationDirectoryPage() {
       }
       // Parse JSON array/object strings if applicable
       let normalizedValue = pv.value;
+      const originalValue = pv.value;
       if (typeof pv.value === 'string') {
         const trimmed = pv.value.trim();
         if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
@@ -223,7 +224,9 @@ export default function OrganisationDirectoryPage() {
         }
       }
       // Extract primitive values from objects/arrays (e.g., {value: "x", label: "X"} -> "x")
+      const beforeExtract = normalizedValue;
       normalizedValue = extractPrimitiveValue(normalizedValue);
+      console.log('[OrganisationDirectory] Normalizing pv:', pv.preference_field_id, 'original:', originalValue, 'afterParse:', beforeExtract, 'final:', normalizedValue);
       map[pv.organization_id][pv.preference_field_id] = normalizedValue;
     });
     return map;
@@ -249,17 +252,24 @@ export default function OrganisationDirectoryPage() {
     // Filter by custom fields
     const activeFilters = Object.entries(customFieldFilters).filter(([_, value]) => value && value !== 'all');
     if (activeFilters.length > 0) {
+      console.log('[OrganisationDirectory] Active filters:', activeFilters);
+      console.log('[OrganisationDirectory] orgPreferenceMap sample:', Object.entries(orgPreferenceMap).slice(0, 3));
       filtered = filtered.filter(org => {
         const orgValues = orgPreferenceMap[org.id] || {};
         return activeFilters.every(([fieldId, filterValue]) => {
           const orgValue = orgValues[fieldId];
+          console.log('[OrganisationDirectory] Comparing org:', org.name, 'fieldId:', fieldId, 'orgValue:', orgValue, 'filterValue:', filterValue, 'type of orgValue:', typeof orgValue, 'isArray:', Array.isArray(orgValue));
           if (!orgValue) return false;
           // For picklist (array), check if filterValue is in the array
           if (Array.isArray(orgValue)) {
-            return orgValue.includes(filterValue);
+            const match = orgValue.includes(filterValue);
+            console.log('[OrganisationDirectory] Array includes check:', match);
+            return match;
           }
           // For dropdown (single value), check exact match
-          return orgValue === filterValue;
+          const match = orgValue === filterValue;
+          console.log('[OrganisationDirectory] String equality check:', match);
+          return match;
         });
       });
     }
