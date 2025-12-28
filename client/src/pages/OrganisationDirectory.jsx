@@ -180,9 +180,32 @@ export default function OrganisationDirectoryPage() {
   });
 
   // Build a lookup map: organization_id -> { field_id -> value }
-  // Normalizes values: JSON arrays are parsed, strings are kept as-is
+  // Normalizes values: JSON arrays/objects are parsed and reduced to primitive values
   const orgPreferenceMap = useMemo(() => {
     const map = {};
+    
+    // Helper to extract primitive value from object/array
+    const extractPrimitiveValue = (val) => {
+      if (val === null || val === undefined) return val;
+      
+      // If it's an object with a 'value' property, extract it
+      if (typeof val === 'object' && !Array.isArray(val) && val.value !== undefined) {
+        return val.value;
+      }
+      
+      // If it's an array, extract primitive values from each element
+      if (Array.isArray(val)) {
+        return val.map(item => {
+          if (typeof item === 'object' && item !== null && item.value !== undefined) {
+            return item.value;
+          }
+          return item;
+        });
+      }
+      
+      return val;
+    };
+    
     allOrgPreferenceValues.forEach(pv => {
       if (!map[pv.organization_id]) {
         map[pv.organization_id] = {};
@@ -199,6 +222,8 @@ export default function OrganisationDirectoryPage() {
           }
         }
       }
+      // Extract primitive values from objects/arrays (e.g., {value: "x", label: "X"} -> "x")
+      normalizedValue = extractPrimitiveValue(normalizedValue);
       map[pv.organization_id][pv.preference_field_id] = normalizedValue;
     });
     return map;
