@@ -67,6 +67,7 @@ export const PAGE_NAMES = [
   "FormManagement",
   "FormBuilder",
   "FormView",
+  "FormSettings",
   "MemberDirectorySettings",
   "FormSubmissions",
   "NewsEditor",
