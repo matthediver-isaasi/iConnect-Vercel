@@ -188,6 +188,9 @@ export default function FormViewPage() {
     console.log('[FormView Prefill] Starting prefill with entity:', entity);
     console.log('[FormView Prefill] Form prefill_source:', form.prefill_source);
     console.log('[FormView Prefill] Entity keys:', Object.keys(entity));
+    console.log('[FormView Prefill] prefillCustomFieldValues:', prefillCustomFieldValues);
+    console.log('[FormView Prefill] Fields with prefill_field configured:', 
+      form.fields?.filter(f => f.prefill_field).map(f => ({id: f.id, label: f.label, prefill_field: f.prefill_field, starts_hidden: f.starts_hidden})));
     
     const newValues = {};
     for (const field of (form.fields || [])) {
