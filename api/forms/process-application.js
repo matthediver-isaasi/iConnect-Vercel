@@ -192,7 +192,37 @@ export default async function handler(req, res) {
       }
     };
 
+    // Build set of fields that are explicitly mapped in entity_pipelines Primary Member
+    // These fields should NOT be populated by legacy field_mappings (entity_pipelines takes precedence)
+    const pipelineMemberFields = new Set();
+    const pipelineOrgFields = new Set();
+    
+    if (memberPipelines.length > 0) {
+      const primaryMemberPipeline = memberPipelines.find(m => m.isPrimary);
+      if (primaryMemberPipeline?.mappings && Array.isArray(primaryMemberPipeline.mappings)) {
+        for (const m of primaryMemberPipeline.mappings) {
+          if (m.target_type === 'core' && m.target_field) {
+            pipelineMemberFields.add(m.target_field);
+          }
+        }
+      }
+    }
+    
+    if (orgPipelines.length > 0) {
+      const primaryOrgPipeline = orgPipelines.find(o => o.isPrimary);
+      if (primaryOrgPipeline?.mappings && Array.isArray(primaryOrgPipeline.mappings)) {
+        for (const m of primaryOrgPipeline.mappings) {
+          if (m.target_type === 'core' && m.target_field) {
+            pipelineOrgFields.add(m.target_field);
+          }
+        }
+      }
+    }
+    
+    console.log('[AppProcessor] Entity pipeline fields to skip in legacy field_mappings - member:', [...pipelineMemberFields], 'org:', [...pipelineOrgFields]);
+    
     // Process new field_mappings array first (preferred method)
+    // Skip fields that are mapped in entity_pipelines (those take precedence even if undefined)
     if (field_mappings && Array.isArray(field_mappings) && field_mappings.length > 0) {
       console.log('[AppProcessor] Using field_mappings:', field_mappings.length, 'mappings');
       
@@ -201,6 +231,18 @@ export default async function handler(req, res) {
         
         // Skip if no target field
         if (!target_field) continue;
+        
+        // Skip if this core field is mapped in entity_pipelines (takes precedence)
+        if (target_type === 'core') {
+          if (target_entity === 'member' && pipelineMemberFields.has(target_field)) {
+            console.log('[AppProcessor] Skipping legacy field_mappings for member field (entity_pipelines takes precedence):', target_field);
+            continue;
+          }
+          if (target_entity === 'organization' && pipelineOrgFields.has(target_field)) {
+            console.log('[AppProcessor] Skipping legacy field_mappings for org field (entity_pipelines takes precedence):', target_field);
+            continue;
+          }
+        }
         
         let value;
         
