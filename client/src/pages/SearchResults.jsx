@@ -1,10 +1,12 @@
 import { useState, useEffect } from "react";
 import { useSearchParams, Link } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { Search, Loader2, Calendar, BookOpen, Newspaper, FolderOpen, FileText, ArrowRight } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { base44 } from "@/api/base44Client";
 
 const typeIconMap = {
   event: Calendar,
@@ -12,14 +14,6 @@ const typeIconMap = {
   news: Newspaper,
   resource: FolderOpen,
   page: FileText
-};
-
-const typeLabels = {
-  event: 'Event',
-  article: 'Article',
-  news: 'News',
-  resource: 'Resource',
-  page: 'Page'
 };
 
 const typeColors = {
@@ -37,6 +31,47 @@ export default function SearchResults() {
   const [results, setResults] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
+
+  // Fetch article display name setting
+  const { data: articleDisplayName } = useQuery({
+    queryKey: ['article-display-name-setting'],
+    queryFn: async () => {
+      const allSettings = await base44.entities.SystemSettings.list();
+      const setting = allSettings.find(s => s.setting_key === 'article_display_name');
+      return setting?.setting_value || 'Article';
+    },
+    staleTime: 5 * 60 * 1000
+  });
+
+  // Dynamic type labels that use custom article display name
+  const getTypeLabel = (type) => {
+    if (type === 'article') {
+      // Remove trailing 's' if present (e.g., "Insights" -> "Insight")
+      const name = articleDisplayName || 'Article';
+      return name.endsWith('s') ? name.slice(0, -1) : name;
+    }
+    const labels = {
+      event: 'Event',
+      news: 'News',
+      resource: 'Resource',
+      page: 'Page'
+    };
+    return labels[type] || type;
+  };
+
+  // Get plural form for section header
+  const getTypeLabelPlural = (type) => {
+    if (type === 'article') {
+      return articleDisplayName || 'Articles';
+    }
+    const labels = {
+      event: 'Events',
+      news: 'News',
+      resource: 'Resources',
+      page: 'Pages'
+    };
+    return labels[type] || `${type}s`;
+  };
 
   useEffect(() => {
     const q = searchParams.get('q');
@@ -158,7 +193,7 @@ export default function SearchResults() {
                   <div className="flex items-center gap-2 pb-2 border-b border-slate-200">
                     <TypeIcon className="w-5 h-5 text-slate-600" />
                     <h2 className="text-lg font-semibold text-slate-900">
-                      {typeLabels[type] || type}s
+                      {getTypeLabelPlural(type)}
                     </h2>
                     <Badge variant="secondary" className="ml-2">
                       {items.length}
@@ -191,7 +226,7 @@ export default function SearchResults() {
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2 mb-1">
                                   <Badge className={typeColors[result.type] || 'bg-slate-100 text-slate-700'}>
-                                    {typeLabels[result.type]}
+                                    {getTypeLabel(result.type)}
                                   </Badge>
                                   {result.date && (
                                     <span className="text-sm text-slate-500">
@@ -208,7 +243,7 @@ export default function SearchResults() {
                                   </p>
                                 )}
                                 <div className="flex items-center gap-1 mt-2 text-sm text-purple-600 font-medium">
-                                  <span>View {typeLabels[result.type]?.toLowerCase()}</span>
+                                  <span>View {getTypeLabel(result.type)?.toLowerCase()}</span>
                                   <ArrowRight className="w-4 h-4" />
                                 </div>
                               </div>
