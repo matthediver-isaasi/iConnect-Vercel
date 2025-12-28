@@ -34,9 +34,8 @@ export default function OrganisationDirectoryPage() {
     queryKey: ['organizations'],
     queryFn: async () => {
       return await base44.entities.Organization.list('name');
-    },
-    staleTime: 2 * 60 * 1000, // Cache for 2 minutes to prevent refetch flickering
-    placeholderData: (previousData) => previousData // Keep previous data during refetches to prevent flickering
+    }
+    // No staleTime - always fetch fresh data to ensure Supabase signed URLs are valid
   });
 
   // Fetch display settings
