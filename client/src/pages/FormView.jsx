@@ -437,9 +437,11 @@ export default function FormViewPage() {
     // First, check field.starts_hidden (newer forms)
     for (const field of (form?.fields || [])) {
       if (field.starts_hidden) {
+        console.log(`[FormView Init] Field "${field.label}" (${field.id}) has starts_hidden=true, adding to initial hidden`);
         hidden.add(field.id);
       }
     }
+    console.log('[FormView Init] Initial hidden fields from starts_hidden:', Array.from(hidden));
     
     // Fallback: For legacy forms, compute from visibility_rules
     if (hidden.size === 0 && form?.visibility_rules?.length > 0) {
