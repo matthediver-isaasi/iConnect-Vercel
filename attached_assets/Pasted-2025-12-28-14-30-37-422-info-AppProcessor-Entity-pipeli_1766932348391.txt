@@ -1,0 +1,172 @@
+2025-12-28 14:30:37.422 [info] [AppProcessor] Entity pipelines - members: 2 organisations: 1
+2025-12-28 14:30:37.422 [info] [AppProcessor] Entity actions - member: upsert organization: upsert
+2025-12-28 14:30:37.427 [info] [AppProcessor] Received role_id: null type: object
+2025-12-28 14:30:37.962 [info] [AppProcessor] Entity pipeline fields to skip in legacy field_mappings - member: [ 'email', 'first_name', 'last_name', 'job_title' ] org: [ 'name', 'invoicing_address', 'invoicing_email' ]
+2025-12-28 14:30:37.962 [info] [AppProcessor] Using field_mappings: 3 mappings
+2025-12-28 14:30:37.962 [info] [AppProcessor] Skipping legacy field_mappings for member field (entity_pipelines takes precedence): email
+2025-12-28 14:30:37.962 [info] [AppProcessor] Skipping legacy field_mappings for member field (entity_pipelines takes precedence): first_name
+2025-12-28 14:30:37.962 [info] [AppProcessor] Skipping legacy field_mappings for member field (entity_pipelines takes precedence): last_name
+2025-12-28 14:30:37.963 [info] [AppProcessor] Processing member from entity_pipelines (new format): Primary Member mappings: 4
+2025-12-28 14:30:37.963 [info] [AppProcessor] Primary Member mappings detail: [
+  {
+    "id": "mapping_1765649622016",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "email",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1765649548352"
+  },
+  {
+    "id": "mapping_1765649642726",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "first_name",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1765658533266"
+  },
+  {
+    "id": "mapping_1765649655235",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "last_name",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1765658547882"
+  },
+  {
+    "id": "mapping_1765927541943",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "job_title",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1765919958148"
+  }
+]
+2025-12-28 14:30:37.963 [info] [AppProcessor] Form values for Primary Member:
+2025-12-28 14:30:37.963 [info] - email: form_values["field_1765649548352"] = "undefined"
+2025-12-28 14:30:37.963 [info] - first_name: form_values["field_1765658533266"] = "undefined"
+2025-12-28 14:30:37.963 [info] - last_name: form_values["field_1765658547882"] = "undefined"
+2025-12-28 14:30:37.963 [info] - job_title: form_values["field_1765919958148"] = "undefined"
+2025-12-28 14:30:37.963 [info] [AppProcessor] Processing organization from entity_pipelines (new format): Primary Organisation mappings: 7
+2025-12-28 14:30:37.963 [info] [AppProcessor] Primary Organisation mappings detail: [
+  {
+    "id": "mapping_1765927645960",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "name",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1765610636257"
+  },
+  {
+    "id": "mapping_1765927665179",
+    "source_type": "field",
+    "target_type": "custom",
+    "static_value": "",
+    "target_field": "1dfed5fd-64bb-4462-96c7-145daf1bedc2",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1765637262772"
+  },
+  {
+    "id": "mapping_1765927706778",
+    "source_type": "field",
+    "target_type": "custom",
+    "static_value": "",
+    "target_field": "6a137764-59a2-437c-a110-54701cc41bfe",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1765635992459"
+  },
+  {
+    "id": "mapping_1765929242450",
+    "source_type": "static",
+    "target_type": "custom",
+    "static_value": "Full application received",
+    "target_field": "1c395ccf-7df2-4818-917d-1cd672216f71",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": ""
+  },
+  {
+    "id": "mapping_1765930141420",
+    "source_type": "static",
+    "target_type": "custom",
+    "static_value": "University",
+    "target_field": "e5ac547d-edb1-4ff1-83ab-fc82c1813065",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": ""
+  },
+  {
+    "id": "mapping_1766926026592",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "invoicing_address",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1766924358873"
+  },
+  {
+    "id": "mapping_1766927583562",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "invoicing_email",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1765654021220"
+  }
+]
+2025-12-28 14:30:37.963 [info] [AppProcessor] Form values for Primary Organisation:
+2025-12-28 14:30:37.963 [info] - name: form_values["field_1765610636257"] = "University testing"
+2025-12-28 14:30:37.963 [info] - 1dfed5fd-64bb-4462-96c7-145daf1bedc2: form_values["field_1765637262772"] = "Franchising"
+2025-12-28 14:30:37.963 [info] - 6a137764-59a2-437c-a110-54701cc41bfe: form_values["field_1765635992459"] = "Russel Group"
+2025-12-28 14:30:37.963 [info] - invoicing_address: form_values["field_1766924358873"] = "sdsdsd"
+2025-12-28 14:30:37.963 [info] - invoicing_email: form_values["field_1765654021220"] = "f@f.com"
+2025-12-28 14:30:37.965 [info] [AppProcessor] Extracted data: {
+  memberData: { role_id: 'c94cdcfd-d0f0-497a-ab5e-c742baacf049' },
+  orgData: {
+    name: 'University testing',
+    invoicing_address: 'sdsdsd',
+    invoicing_email: 'f@f.com'
+  },
+  memberCustomFields: 0,
+  orgCustomFields: 4,
+  orgCustomFieldsDetail: [
+    {
+      field_id: '1dfed5fd-64bb-4462-96c7-145daf1bedc2',
+      value: '["Franchising"]'
+    },
+    {
+      field_id: '6a137764-59a2-437c-a110-54701cc41bfe',
+      value: '["Russel Group"]'
+    },
+    {
+      field_id: '1c395ccf-7df2-4818-917d-1cd672216f71',
+      value: 'Full application received'
+    },
+    {
+      field_id: 'e5ac547d-edb1-4ff1-83ab-fc82c1813065',
+      value: 'University'
+    }
+  ]
+}
+2025-12-28 14:30:37.965 [info] [AppProcessor] Org processing enabled. Action: upsert OrgData: {
+  name: 'University testing',
+  invoicing_address: 'sdsdsd',
+  invoicing_email: 'f@f.com'
+} PrefillOrgId: 469e9057-4a16-437a-a104-f5b560a8edb2
+2025-12-28 14:30:38.088 [info] [AppProcessor] Found org by prefill ID: 469e9057-4a16-437a-a104-f5b560a8edb2
+2025-12-28 14:30:38.214 [info] [AppProcessor] Updated organization: 469e9057-4a16-437a-a104-f5b560a8edb2
+2025-12-28 14:30:39.222 [info] [AppProcessor] Member processing enabled. Action: upsert MemberData: { role_id: 'c94cdcfd-d0f0-497a-ab5e-c742baacf049' } PrefillMemberId: undefined
+2025-12-28 14:30:39.222 [error] [AppProcessor] Member creation requested but no member.email field mapped
