@@ -70,8 +70,8 @@ export default function OrganisationDirectoryPage() {
         excludedOrgIds: excludedOrgIds
       };
     },
-    staleTime: 0,
-    refetchOnMount: true
+    staleTime: 5 * 60 * 1000, // Cache for 5 minutes to prevent refetch flickering
+    refetchOnMount: 'always'
   });
 
   // Get grid class based on cards per row setting
@@ -101,8 +101,8 @@ export default function OrganisationDirectoryPage() {
       console.log(`[OrganisationDirectory] Loaded ${allMembers.length} total members`);
       return allMembers;
     },
-    staleTime: 0,
-    refetchOnMount: true
+    staleTime: 2 * 60 * 1000, // Cache for 2 minutes to prevent refetch flickering
+    refetchOnMount: 'always'
   });
 
   const organizationMemberCounts = useMemo(() => {
