@@ -970,6 +970,22 @@ export default function FormViewPage() {
       }
     }
 
+    // Debug: Log all form values at submission time to help diagnose hidden field issues
+    console.log('[FormView] Form submission - all formValues:', JSON.stringify(formValues, null, 2));
+    console.log('[FormView] Form submission - hiddenFieldIds:', Array.from(hiddenFieldIds));
+    
+    // Check Primary Member entity_pipelines field IDs
+    const primaryMember = form?.entity_pipelines?.members?.find(m => m.is_primary);
+    if (primaryMember?.mappings) {
+      console.log('[FormView] Primary Member mappings check:');
+      for (const mapping of primaryMember.mappings) {
+        if (mapping.source_type === 'field') {
+          const value = formValues[mapping.source_field_id];
+          console.log(`  - ${mapping.target_field}: source=${mapping.source_field_id}, value=${JSON.stringify(value)}, isHidden=${hiddenFieldIds.has(mapping.source_field_id)}`);
+        }
+      }
+    }
+
     const submissionData = {
       form_id: form.id,
       form_name: form.name,
