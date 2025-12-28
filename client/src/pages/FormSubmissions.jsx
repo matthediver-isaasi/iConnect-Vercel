@@ -29,7 +29,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Loader2, FileText, Search, ChevronLeft, ChevronRight, Eye, Trash2 } from "lucide-react";
+import { Loader2, FileText, Search, ChevronLeft, ChevronRight, Eye, Trash2, RotateCcw } from "lucide-react";
 import moment from "moment";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
@@ -111,6 +111,51 @@ export default function FormSubmissionsPage() {
     },
     onError: () => {
       toast.error('Failed to delete submission');
+    }
+  });
+
+  const rerunSubmissionMutation = useMutation({
+    mutationFn: async (submission) => {
+      // Get the form to access its configuration
+      const form = forms.find(f => f.id === submission.form_id);
+      if (!form) {
+        throw new Error('Form not found');
+      }
+      
+      // Call the process-application endpoint with the stored submission data
+      const response = await fetch('/api/forms/process-application', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          form_id: form.id,
+          form_values: submission.submission_data,
+          fields: form.fields,
+          field_mappings: form.field_mappings || [],
+          application_level: form.application_level || 'member',
+          submission_id: submission.id,
+          prefill_organization_id: submission.created_organization_id || null,
+          role_id: form.default_member_role_id || null,
+          entity_pipelines: form.entity_pipelines || { members: [], organisations: [] },
+          member_entity_action: form.member_entity_action || 'none',
+          organization_entity_action: form.organization_entity_action || 'none',
+          additional_member_creations: form.additional_member_creations || []
+        })
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to re-run submission');
+      }
+      
+      return await response.json();
+    },
+    onSuccess: (result) => {
+      toast.success('Submission re-processed successfully');
+      console.log('[FormSubmissions] Re-run result:', result);
+    },
+    onError: (error) => {
+      toast.error(error.message || 'Failed to re-run submission');
+      console.error('[FormSubmissions] Re-run error:', error);
     }
   });
 
@@ -285,6 +330,20 @@ export default function FormSubmissionsPage() {
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => rerunSubmissionMutation.mutate(submission)}
+                          disabled={rerunSubmissionMutation.isPending}
+                          data-testid={`button-rerun-submission-${submission.id}`}
+                          title="Re-run submission processing"
+                        >
+                          {rerunSubmissionMutation.isPending ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <RotateCcw className="w-4 h-4" />
+                          )}
+                        </Button>
                         <Button
                           variant="outline"
                           size="sm"
