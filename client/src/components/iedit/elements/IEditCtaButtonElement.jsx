@@ -68,6 +68,8 @@ export default function IEditCtaButtonElement({ content, variant, settings }) {
       style={{ 
         paddingTop: `${content?.top_margin || 16}px`,
         paddingBottom: `${content?.bottom_margin || 16}px`,
+        paddingLeft: `${content?.left_padding || 0}px`,
+        paddingRight: `${content?.right_padding || 0}px`,
         backgroundColor: backgroundColor || undefined
       }}
     >
@@ -477,6 +479,32 @@ export function IEditCtaButtonElementEditor({ element, onChange }) {
                 min="0"
                 max="200"
                 data-testid="input-cta-bottom-margin"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-1">Left Padding (px)</label>
+              <input
+                type="number"
+                value={content.left_padding || 0}
+                onChange={(e) => updateContent('left_padding', parseInt(e.target.value) || 0)}
+                className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                min="0"
+                max="200"
+                data-testid="input-cta-left-padding"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-1">Right Padding (px)</label>
+              <input
+                type="number"
+                value={content.right_padding || 0}
+                onChange={(e) => updateContent('right_padding', parseInt(e.target.value) || 0)}
+                className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                min="0"
+                max="200"
+                data-testid="input-cta-right-padding"
               />
             </div>
           </div>
