@@ -35,7 +35,8 @@ export default function OrganisationDirectoryPage() {
     queryFn: async () => {
       return await base44.entities.Organization.list('name');
     },
-    staleTime: 2 * 60 * 1000 // Cache for 2 minutes to prevent refetch flickering
+    staleTime: 2 * 60 * 1000, // Cache for 2 minutes to prevent refetch flickering
+    placeholderData: (previousData) => previousData // Keep previous data during refetches to prevent flickering
   });
 
   // Fetch display settings
@@ -92,7 +93,7 @@ export default function OrganisationDirectoryPage() {
     }
   };
 
-  const { data: members = [] } = useQuery({
+  const { data: members = [], isLoading: isLoadingMembers } = useQuery({
     queryKey: ['all-members-for-org-directory'],
     queryFn: async () => {
       // Use listAll to handle Supabase's 1000 row limit with automatic pagination
@@ -100,7 +101,8 @@ export default function OrganisationDirectoryPage() {
       console.log(`[OrganisationDirectory] Loaded ${allMembers.length} total members`);
       return allMembers;
     },
-    staleTime: 2 * 60 * 1000 // Cache for 2 minutes to prevent refetch flickering
+    staleTime: 2 * 60 * 1000, // Cache for 2 minutes to prevent refetch flickering
+    placeholderData: (previousData) => previousData // Keep previous data during refetches
   });
 
   const organizationMemberCounts = useMemo(() => {
@@ -351,8 +353,8 @@ export default function OrganisationDirectoryPage() {
     setShowDeleteConfirm(true);
   };
 
-  // Wait for both organizations and settings to load before rendering to prevent flickering
-  if (isLoading || !displaySettings) {
+  // Wait for all data sources to load before rendering to prevent flickering
+  if (isLoading || isLoadingMembers || !displaySettings) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
@@ -457,7 +459,7 @@ export default function OrganisationDirectoryPage() {
           </Card> :
 
         <>
-            <div className={getGridClass()}>
+            <div key={`org-grid-page-${currentPage}`} className={getGridClass()}>
               {paginatedOrganizations.map((org) => {
               const memberCount = organizationMemberCounts[org.id] || 0;
               const allDomains = [org.domain, ...(org.additional_verified_domains || [])].filter(Boolean);
