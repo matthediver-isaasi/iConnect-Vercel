@@ -954,7 +954,11 @@ export default async function handler(req, res) {
       const fromAddress = settingsMap['welcome_email_from_address'] || process.env.MAILGUN_FROM_EMAIL || 'noreply@mail.iconn.app';
       const fromName = settingsMap['welcome_email_from_name'] || appName;
       
-      for (const memberConfig of memberCreationConfigs) {
+      for (let configIndex = 0; configIndex < memberCreationConfigs.length; configIndex++) {
+        const memberConfig = memberCreationConfigs[configIndex];
+        console.log(`[AppProcessor] ======= Processing member config ${configIndex + 1}/${memberCreationConfigs.length}: "${memberConfig.label}" =======`);
+        console.log('[AppProcessor] Config mappings:', JSON.stringify(memberConfig.mappings, null, 2));
+        
         // Extract email and build data from either new mappings array or legacy field_mappings object
         let memberEmail = null;
         const additionalMemberData = {};
@@ -1069,6 +1073,12 @@ export default async function handler(req, res) {
         }
         
         const normalizedEmail = memberEmail.toLowerCase().trim();
+        
+        console.log(`[AppProcessor] Built data for "${memberConfig.label}":`, {
+          email: normalizedEmail,
+          additionalMemberData: { ...additionalMemberData },
+          customFieldCount: additionalCustomFieldsMap.size
+        });
         
         // Add role_id if specified in this member config
         if (memberConfig.role_id) {
