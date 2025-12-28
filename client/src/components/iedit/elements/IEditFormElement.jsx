@@ -810,8 +810,9 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     // Clear any previous validation errors
     setValidationErrors([]);
     
-    // Validate required fields
-    const missingFields = form.fields.filter(field => 
+    // Validate required fields - only check VISIBLE fields (skip hidden ones)
+    const visibleFields = filterVisibleFields(form.fields);
+    const missingFields = visibleFields.filter(field => 
       field.required && (!formValues[field.id] || formValues[field.id].length === 0)
     );
 
