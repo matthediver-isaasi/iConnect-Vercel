@@ -541,19 +541,23 @@ export default function FormViewPage() {
     }
     
     // Update hidden set based on evaluated rules
+    console.log('[FormView Visibility] Evaluating visibility rules, fieldVisibility:', fieldVisibility);
     for (const [fieldId, { showRules, hideRules }] of Object.entries(fieldVisibility)) {
       // For show rules: if ANY show rule is satisfied, remove from hidden set
       const anyShowConditionMet = showRules.some(result => result === true);
       if (anyShowConditionMet) {
+        console.log(`[FormView Visibility] Field ${fieldId}: show rule met, removing from hidden`);
         hidden.delete(fieldId);
       }
       
       // For hide rules: if ANY hide rule is satisfied, add to hidden set
       const anyHideConditionMet = hideRules.some(result => result === true);
       if (anyHideConditionMet) {
+        console.log(`[FormView Visibility] Field ${fieldId}: hide rule met, adding to hidden`);
         hidden.add(fieldId);
       }
     }
+    console.log('[FormView Visibility] Final hidden set:', Array.from(hidden));
     
     return hidden;
   }, [form?.visibility_rules, formValues, initialHiddenFieldIds]);
@@ -919,8 +923,13 @@ export default function FormViewPage() {
     const pages = form.pages || [];
     const hasPages = pages.length > 0 && form.layout_type === 'standard';
     
+    // Debug: Log hidden fields at validation time
+    console.log('[FormView Validation] hiddenFieldIds at submit:', Array.from(hiddenFieldIds));
+    console.log('[FormView Validation] All fields:', form.fields?.map(f => ({id: f.id, label: f.label, required: f.required})));
+    
     // Get visible fields only (skip hidden fields from validation)
     const visibleFields = filterVisibleFields(form.fields);
+    console.log('[FormView Validation] Visible fields after filtering:', visibleFields.map(f => ({id: f.id, label: f.label, required: f.required})));
     
     if (hasPages) {
       // Check each page's required fields (only visible ones)
