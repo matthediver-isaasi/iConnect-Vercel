@@ -700,6 +700,8 @@ export function IEditOrganisationDirectoryElementRenderer({ content, settings })
     queryFn: async () => {
       const allSettings = await base44.entities.SystemSettings.list();
       const excludedOrgsSetting = allSettings.find(s => s.setting_key === 'org_directory_excluded_orgs');
+      const nameTooltipSetting = allSettings.find(s => s.setting_key === 'org_directory_show_name_tooltip');
+      const titleSetting = allSettings.find(s => s.setting_key === 'org_directory_show_title');
       
       let excludedOrgIds = [];
       if (excludedOrgsSetting) {
@@ -710,10 +712,18 @@ export function IEditOrganisationDirectoryElementRenderer({ content, settings })
         }
       }
       
-      return { excludedOrgIds };
+      return { 
+        excludedOrgIds,
+        globalShowNameTooltip: nameTooltipSetting?.setting_value === 'true',
+        globalShowTitle: titleSetting?.setting_value !== 'false'
+      };
     },
     staleTime: 0
   });
+
+  // Use global settings as fallback for showNameTooltip and showTitle
+  const effectiveShowNameTooltip = showNameTooltip || displaySettings?.globalShowNameTooltip;
+  const effectiveShowTitle = showTitle && (displaySettings?.globalShowTitle !== false);
 
   const { data: members = [] } = useQuery({
     queryKey: ['members-for-org-directory-element'],
@@ -914,12 +924,12 @@ export function IEditOrganisationDirectoryElementRenderer({ content, settings })
                             <img
                               src={org.logo_url}
                               alt={org.name}
-                              className={`w-full h-full object-contain transition-all duration-300 ${showNameTooltip ? 'group-hover:opacity-20' : ''}`}
+                              className={`w-full h-full object-contain transition-all duration-300 ${effectiveShowNameTooltip ? 'group-hover:opacity-20' : ''}`}
                             />
                           ) : (
-                            <Building2 className={`w-16 h-16 text-slate-400 transition-all duration-300 ${showNameTooltip ? 'group-hover:opacity-20' : ''}`} />
+                            <Building2 className={`w-16 h-16 text-slate-400 transition-all duration-300 ${effectiveShowNameTooltip ? 'group-hover:opacity-20' : ''}`} />
                           )}
-                          {showNameTooltip && (
+                          {effectiveShowNameTooltip && (
                             <div className="absolute inset-0 flex items-center justify-center p-3 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
                               <span className="text-lg font-bold text-slate-800 text-center leading-tight line-clamp-4">
                                 {org.name}
@@ -928,7 +938,7 @@ export function IEditOrganisationDirectoryElementRenderer({ content, settings })
                           )}
                         </div>
                       )}
-                      {showTitle && !showNameTooltip && (
+                      {effectiveShowTitle && !effectiveShowNameTooltip && (
                         <CardTitle className="text-base line-clamp-2 w-full">{org.name}</CardTitle>
                       )}
                     </CardHeader>
