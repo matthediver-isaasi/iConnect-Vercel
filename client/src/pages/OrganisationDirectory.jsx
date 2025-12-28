@@ -475,10 +475,14 @@ export default function OrganisationDirectoryPage() {
                         <div className="relative w-[90%] aspect-square rounded-lg overflow-hidden bg-slate-100 flex items-center justify-center mb-3 group">
                           {org.logo_url ?
                             <img
+                              key={`logo-${org.id}-${org.logo_url}`}
                               src={org.logo_url}
                               alt={org.name}
-                              className={`w-full h-full object-contain transition-all duration-300 ${displaySettings?.showNameTooltip ? 'group-hover:opacity-20' : ''}`} /> :
-                            <Building2 className={`w-16 h-16 text-slate-400 transition-all duration-300 ${displaySettings?.showNameTooltip ? 'group-hover:opacity-20' : ''}`} />
+                              loading="eager"
+                              decoding="sync"
+                              className={`w-full h-full object-contain transition-opacity duration-300 ${displaySettings?.showNameTooltip ? 'group-hover:opacity-20' : ''}`}
+                            /> :
+                            <Building2 className={`w-16 h-16 text-slate-400 transition-opacity duration-300 ${displaySettings?.showNameTooltip ? 'group-hover:opacity-20' : ''}`} />
                           }
                           {displaySettings?.showNameTooltip && (
                             <div className="absolute inset-0 flex items-center justify-center p-3 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
