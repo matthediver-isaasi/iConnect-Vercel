@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { createPageUrl } from "@/utils";
 import { base44 } from "@/api/base44Client";
 import { useNavigationRealtime } from "@/hooks/useNavigationRealtime";
@@ -31,17 +32,31 @@ const typeIconMap = {
   resource: FolderOpen
 };
 
-const typeLabels = {
-  event: 'Event',
-  article: 'Article',
-  news: 'News',
-  resource: 'Resource'
-};
-
 export default function PublicHeader() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [memberLandingPage, setMemberLandingPage] = useState('Events');
+
+  // Fetch article display name setting
+  const { data: articleDisplayName } = useQuery({
+    queryKey: ['article-display-name-setting'],
+    queryFn: async () => {
+      const allSettings = await base44.entities.SystemSettings.list();
+      const setting = allSettings.find(s => s.setting_key === 'article_display_name');
+      return setting?.setting_value || 'Article';
+    },
+    staleTime: 5 * 60 * 1000
+  });
+
+  // Dynamic type label that uses custom article display name
+  const getTypeLabel = useCallback((type) => {
+    if (type === 'article') {
+      const name = articleDisplayName || 'Article';
+      return name.endsWith('s') ? name.slice(0, -1) : name;
+    }
+    const labels = { event: 'Event', news: 'News', resource: 'Resource' };
+    return labels[type] || type;
+  }, [articleDisplayName]);
   const [navItems, setNavItems] = useState({ topNav: [], mainNav: [] });
   const [hoveredMenu, setHoveredMenu] = useState(null);
   const [hoveredSubmenu, setHoveredSubmenu] = useState(null);
@@ -807,7 +822,7 @@ export default function PublicHeader() {
                                     </div>
                                     <div className="flex-1 min-w-0">
                                       <div className="flex items-center gap-2">
-                                        <span className="text-xs font-medium text-purple-600 uppercase">{typeLabels[result.type]}</span>
+                                        <span className="text-xs font-medium text-purple-600 uppercase">{getTypeLabel(result.type)}</span>
                                       </div>
                                       <p className="font-medium text-slate-900 truncate">{result.title}</p>
                                       {result.description && (
@@ -1049,7 +1064,7 @@ export default function PublicHeader() {
                             <TypeIcon className="w-3 h-3 text-slate-600" />
                           </div>
                           <div className="flex-1 min-w-0">
-                            <span className="text-xs font-medium text-purple-600 uppercase">{typeLabels[result.type]}</span>
+                            <span className="text-xs font-medium text-purple-600 uppercase">{getTypeLabel(result.type)}</span>
                             <p className="font-medium text-slate-900 text-sm truncate">{result.title}</p>
                           </div>
                         </button>
