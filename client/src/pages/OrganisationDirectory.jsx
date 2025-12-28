@@ -19,7 +19,7 @@ export default function OrganisationDirectoryPage() {
   const canEditLogos = isAdmin && !isFeatureExcluded('action_org_logo_edit');
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage] = useState(12);
+  const [rowsPerPage] = useState(4); // Number of rows per page
   const [sortOrder, setSortOrder] = useState("asc");
   const [editingOrg, setEditingOrg] = useState(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -278,6 +278,10 @@ export default function OrganisationDirectoryPage() {
     return filtered;
   }, [organizations, searchQuery, displaySettings?.excludedOrgIds, sortOrder, customFieldFilters, orgPreferenceMap]);
 
+  // Calculate itemsPerPage based on cardsPerRow and rowsPerPage
+  const columnsNum = parseInt(displaySettings?.cardsPerRow) || 3;
+  const itemsPerPage = columnsNum * rowsPerPage;
+  
   const totalPages = Math.ceil(filteredOrganizations.length / itemsPerPage);
   const paginatedOrganizations = useMemo(() => {
     const startIndex = (currentPage - 1) * itemsPerPage;
@@ -548,41 +552,31 @@ export default function OrganisationDirectoryPage() {
             })}
             </div>
 
-            {totalPages > 1 &&
-          <div className="mt-6 flex justify-center items-center gap-2">
+            {totalPages > 1 && (
+              <div className="mt-6 flex justify-center items-center gap-2">
                 <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-              disabled={currentPage === 1}>
-
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  data-testid="button-prev-page-org-directory"
+                >
                   <ChevronLeft className="w-4 h-4" />
                 </Button>
-                
-                <div className="flex items-center gap-1">
-                  {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) =>
-              <Button
-                key={page}
-                variant={currentPage === page ? "default" : "outline"}
-                size="sm"
-                onClick={() => setCurrentPage(page)}
-                className="w-9">
-
-                      {page}
-                    </Button>
-              )}
-                </div>
-
+                <span className="text-sm text-slate-600">
+                  Page {currentPage} of {totalPages}
+                </span>
                 <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-              disabled={currentPage === totalPages}>
-
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  data-testid="button-next-page-org-directory"
+                >
                   <ChevronRight className="w-4 h-4" />
                 </Button>
               </div>
-          }
+            )}
           </>
         }
       </div>
