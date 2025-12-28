@@ -296,6 +296,14 @@ export default async function handler(req, res) {
         console.log(`[AppProcessor] Processing ${targetEntity} from entity_pipelines (new format):`, pipelineEntry.label, 'mappings:', pipelineEntry.mappings.length);
         console.log(`[AppProcessor] ${pipelineEntry.label} mappings detail:`, JSON.stringify(pipelineEntry.mappings, null, 2));
         
+        // Log form values for each mapping to debug
+        console.log(`[AppProcessor] Form values for ${pipelineEntry.label}:`);
+        for (const m of pipelineEntry.mappings) {
+          if (m.source_field_id) {
+            console.log(`  - ${m.target_field}: form_values["${m.source_field_id}"] = "${form_values[m.source_field_id]}"`);
+          }
+        }
+        
         for (const mapping of pipelineEntry.mappings) {
           if (!mapping.target_field) continue;
           
@@ -959,6 +967,16 @@ export default async function handler(req, res) {
         const memberConfig = memberCreationConfigs[configIndex];
         console.log(`[AppProcessor] ======= Processing member config ${configIndex + 1}/${memberCreationConfigs.length}: "${memberConfig.label}" =======`);
         console.log('[AppProcessor] Config mappings:', JSON.stringify(memberConfig.mappings, null, 2));
+        
+        // Log actual form_values for each source_field_id to debug value issues
+        if (memberConfig.mappings && Array.isArray(memberConfig.mappings)) {
+          console.log('[AppProcessor] Form values for this member config:');
+          for (const m of memberConfig.mappings) {
+            if (m.source_field_id) {
+              console.log(`  - ${m.target_field}: form_values["${m.source_field_id}"] = "${form_values[m.source_field_id]}"`);
+            }
+          }
+        }
         
         // Extract email and build data from either new mappings array or legacy field_mappings object
         let memberEmail = null;
