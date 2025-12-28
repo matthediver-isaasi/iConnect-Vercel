@@ -185,6 +185,10 @@ export default function FormViewPage() {
     const entity = form.prefill_source === 'member' ? prefillMember : prefillOrg;
     if (!entity) return;
     
+    console.log('[FormView Prefill] Starting prefill with entity:', entity);
+    console.log('[FormView Prefill] Form prefill_source:', form.prefill_source);
+    console.log('[FormView Prefill] Entity keys:', Object.keys(entity));
+    
     const newValues = {};
     for (const field of (form.fields || [])) {
       // Special handling for organisation_dropdown: always use the entity's ID
@@ -220,15 +224,23 @@ export default function FormViewPage() {
               }
             }
             newValues[field.id] = parsedValue;
+            console.log(`[FormView Prefill] Field ${field.id} (${field.label}): custom:${customFieldId} = "${parsedValue}"`);
+          } else {
+            console.log(`[FormView Prefill] Field ${field.id} (${field.label}): custom:${customFieldId} - NOT FOUND in prefillCustomFieldValues`);
           }
         } else {
           // Core field - get value from entity
           if (entity[field.prefill_field] !== undefined) {
             newValues[field.id] = entity[field.prefill_field];
+            console.log(`[FormView Prefill] Field ${field.id} (${field.label}): ${field.prefill_field} = "${entity[field.prefill_field]}"`);
+          } else {
+            console.log(`[FormView Prefill] Field ${field.id} (${field.label}): ${field.prefill_field} - NOT FOUND in entity (entity has: ${Object.keys(entity).join(', ')})`);
           }
         }
       }
     }
+    
+    console.log('[FormView Prefill] Total newValues to apply:', Object.keys(newValues).length, newValues);
     
     if (Object.keys(newValues).length > 0) {
       // Prefill values take precedence on initial load
@@ -248,9 +260,12 @@ export default function FormViewPage() {
             merged[key] = value;
           }
         }
+        console.log('[FormView Prefill] Merged formValues:', merged);
         return merged;
       });
       setPrefillApplied(true);
+    } else {
+      console.log('[FormView Prefill] No newValues to apply - check if fields have prefill_field configured');
     }
   }, [form, prefillMember, prefillOrg, prefillCustomFieldValues, prefillApplied, defaultsInitialized]);
 

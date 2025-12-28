@@ -92,6 +92,11 @@ export default async function handler(req, res) {
     
     console.log('[AppProcessor] Entity pipelines - members:', memberPipelines.length, 'organisations:', orgPipelines.length);
     
+    // Debug: Log all field IDs in form_values to help diagnose missing fields
+    console.log('[AppProcessor] Form values - all field IDs present:', Object.keys(form_values));
+    console.log('[AppProcessor] Form values sample (first 5 entries):', 
+      Object.entries(form_values).slice(0, 5).map(([k, v]) => `${k}=${JSON.stringify(v)?.substring(0, 50)}`));
+    
     // Determine if we should process members/orgs based on new entity_pipelines structure
     // If entity_pipelines has entries, use that; otherwise fall back to legacy fields
     const validActions = ['none', 'create', 'update', 'upsert'];
