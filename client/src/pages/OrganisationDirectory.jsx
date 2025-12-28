@@ -467,6 +467,7 @@ export default function OrganisationDirectoryPage() {
                 <Card 
                   key={org.id} 
                   className="border-slate-200 hover:shadow-lg transition-shadow cursor-pointer"
+                  style={{ contain: 'layout paint' }}
                   onClick={() => setSelectedOrg(org)}
                   data-testid={`card-organisation-${org.id}`}
                 >
@@ -480,6 +481,7 @@ export default function OrganisationDirectoryPage() {
                               alt={org.name}
                               loading="eager"
                               decoding="sync"
+                              style={{ willChange: 'opacity' }}
                               className={`w-full h-full object-contain transition-opacity duration-300 ${displaySettings?.showNameTooltip ? 'group-hover:opacity-20' : ''}`}
                             /> :
                             <Building2 className={`w-16 h-16 text-slate-400 transition-opacity duration-300 ${displaySettings?.showNameTooltip ? 'group-hover:opacity-20' : ''}`} />
