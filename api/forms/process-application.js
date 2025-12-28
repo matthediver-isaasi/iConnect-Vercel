@@ -294,6 +294,7 @@ export default async function handler(req, res) {
       // Check for new mappings array format first
       if (pipelineEntry.mappings && Array.isArray(pipelineEntry.mappings)) {
         console.log(`[AppProcessor] Processing ${targetEntity} from entity_pipelines (new format):`, pipelineEntry.label, 'mappings:', pipelineEntry.mappings.length);
+        console.log(`[AppProcessor] ${pipelineEntry.label} mappings detail:`, JSON.stringify(pipelineEntry.mappings, null, 2));
         
         for (const mapping of pipelineEntry.mappings) {
           if (!mapping.target_field) continue;
