@@ -1,0 +1,269 @@
+2025-12-28 14:13:30.313 [info] [AppProcessor] Member processing enabled. Action: upsert MemberData: {
+  email: 'agcastesting1@outlook.com',
+  role_id: 'c94cdcfd-d0f0-497a-ab5e-c742baacf049'
+} PrefillMemberId: undefined
+2025-12-28 14:13:30.456 [info] [AppProcessor] Found member by email: undefined
+2025-12-28 14:13:30.456 [info] [AppProcessor] Adding role_id to member insert: null
+2025-12-28 14:13:30.456 [info] [AppProcessor] Final memberInsertData: {"email":"agcastesting1@outlook.com","first_name":"","last_name":"","organization_id":"469e9057-4a16-437a-a104-f5b560a8edb2","login_enabled":true,"role_id":null}
+2025-12-28 14:13:30.595 [info] [AppProcessor] Created member: 16809be5-7c04-40ed-b4ce-c650926374e8
+2025-12-28 14:13:31.123 [error] [AppProcessor] Failed to create credentials: {
+  code: '23505',
+  details: 'Key (email)=(agcastesting1@outlook.com) already exists.',
+  hint: null,
+  message: 'duplicate key value violates unique constraint "member_credentials_email_key"'
+}
+2025-12-28 14:13:31.123 [info] [AppProcessor] Tracking primary member email: agcastesting1@outlook.com -> 16809be5-7c04-40ed-b4ce-c650926374e8
+2025-12-28 14:13:31.123 [info] [AppProcessor] Using entity_pipelines.members: 1 non-primary entries
+2025-12-28 14:13:31.123 [info] [AppProcessor] Processing member creations: 1
+2025-12-28 14:13:31.251 [info] [AppProcessor] ======= Processing member config 1/1: "HoS" =======
+2025-12-28 14:13:31.252 [info] [AppProcessor] Config mappings: [
+  {
+    "id": "mapping_1765927581994",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "email",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1765654363656"
+  },
+  {
+    "id": "mapping_1765927599676",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "first_name",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1765654276539"
+  },
+  {
+    "id": "mapping_1765927610109",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "last_name",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1765654323522"
+  },
+  {
+    "id": "mapping_1765927618626",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "job_title",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1765919899063"
+  }
+]
+2025-12-28 14:13:31.252 [info] [AppProcessor] Form values for this member config:
+2025-12-28 14:13:31.252 [info] - email: form_values["field_1765654363656"] = "agcastesting2@outlook.com"
+2025-12-28 14:13:31.252 [info] - first_name: form_values["field_1765654276539"] = "HOS first"
+2025-12-28 14:13:31.252 [info] - last_name: form_values["field_1765654323522"] = "HOS last"
+2025-12-28 14:13:31.252 [info] - job_title: form_values["field_1765919899063"] = "HOS title"
+2025-12-28 14:13:31.252 [info] [AppProcessor] Built data for "HoS": {
+  email: 'agcastesting2@outlook.com',
+  additionalMemberData: {
+    first_name: 'HOS first',
+    last_name: 'HOS last',
+    job_title: 'HOS title'
+  },
+  customFieldCount: 0
+}
+2025-12-28 14:13:31.252 [info] [AppProcessor] Processing additional member: HoS email: agcastesting2@outlook.com data: {
+  first_name: 'HOS first',
+  last_name: 'HOS last',
+  job_title: 'HOS title',
+  role_id: '561682bb-57f2-4a61-89aa-c3c201692923'
+} clearFields: []
+2025-12-28 14:13:31.379 [info] [AppProcessor] Creating new additional member: HoS {
+  email: 'agcastesting2@outlook.com',
+  login_enabled: true,
+  organization_id: '469e9057-4a16-437a-a104-f5b560a8edb2',
+  first_name: 'HOS first',
+  last_name: 'HOS last',
+  job_title: 'HOS title',
+  role_id: '561682bb-57f2-4a61-89aa-c3c201692923'
+}
+2025-12-28 14:13:31.516 [info] [AppProcessor] Created additional member: 74c8515e-91b9-4238-bdd7-a25753cfe42c
+2025-12-28 14:13:27.421 [info] [AppProcessor] Entity pipelines - members: 2 organisations: 1
+2025-12-28 14:13:27.422 [info] [AppProcessor] Entity actions - member: upsert organization: upsert
+2025-12-28 14:13:27.422 [info] [AppProcessor] Received role_id: null type: object
+2025-12-28 14:13:27.894 [info] [AppProcessor] Entity pipeline fields to skip in legacy field_mappings - member: [ 'email', 'first_name', 'last_name', 'job_title' ] org: [ 'name', 'invoicing_address', 'invoicing_email' ]
+2025-12-28 14:13:27.894 [info] [AppProcessor] Using field_mappings: 3 mappings
+2025-12-28 14:13:27.894 [info] [AppProcessor] Skipping legacy field_mappings for member field (entity_pipelines takes precedence): email
+2025-12-28 14:13:27.894 [info] [AppProcessor] Skipping legacy field_mappings for member field (entity_pipelines takes precedence): first_name
+2025-12-28 14:13:27.894 [info] [AppProcessor] Skipping legacy field_mappings for member field (entity_pipelines takes precedence): last_name
+2025-12-28 14:13:27.895 [info] [AppProcessor] Processing member from entity_pipelines (new format): Primary Member mappings: 4
+2025-12-28 14:13:27.895 [info] [AppProcessor] Primary Member mappings detail: [
+  {
+    "id": "mapping_1765649622016",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "email",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1765649548352"
+  },
+  {
+    "id": "mapping_1765649642726",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "first_name",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1765658533266"
+  },
+  {
+    "id": "mapping_1765649655235",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "last_name",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1765658547882"
+  },
+  {
+    "id": "mapping_1765927541943",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "job_title",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1765919958148"
+  }
+]
+2025-12-28 14:13:27.895 [info] [AppProcessor] Form values for Primary Member:
+2025-12-28 14:13:27.895 [info] - email: form_values["field_1765649548352"] = "agcastesting1@outlook.com"
+2025-12-28 14:13:27.895 [info] - first_name: form_values["field_1765658533266"] = "undefined"
+2025-12-28 14:13:27.895 [info] - last_name: form_values["field_1765658547882"] = "undefined"
+2025-12-28 14:13:27.896 [info] - job_title: form_values["field_1765919958148"] = "undefined"
+2025-12-28 14:13:27.896 [info] [AppProcessor] Processing organization from entity_pipelines (new format): Primary Organisation mappings: 7
+2025-12-28 14:13:27.896 [info] [AppProcessor] Primary Organisation mappings detail: [
+  {
+    "id": "mapping_1765927645960",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "name",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1765610636257"
+  },
+  {
+    "id": "mapping_1765927665179",
+    "source_type": "field",
+    "target_type": "custom",
+    "static_value": "",
+    "target_field": "1dfed5fd-64bb-4462-96c7-145daf1bedc2",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1765637262772"
+  },
+  {
+    "id": "mapping_1765927706778",
+    "source_type": "field",
+    "target_type": "custom",
+    "static_value": "",
+    "target_field": "6a137764-59a2-437c-a110-54701cc41bfe",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1765635992459"
+  },
+  {
+    "id": "mapping_1765929242450",
+    "source_type": "static",
+    "target_type": "custom",
+    "static_value": "Full application received",
+    "target_field": "1c395ccf-7df2-4818-917d-1cd672216f71",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": ""
+  },
+  {
+    "id": "mapping_1765930141420",
+    "source_type": "static",
+    "target_type": "custom",
+    "static_value": "University",
+    "target_field": "e5ac547d-edb1-4ff1-83ab-fc82c1813065",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": ""
+  },
+  {
+    "id": "mapping_1766926026592",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "invoicing_address",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1766924358873"
+  },
+  {
+    "id": "mapping_1766927583562",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "invoicing_email",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1765654021220"
+  }
+]
+2025-12-28 14:13:27.896 [info] [AppProcessor] Form values for Primary Organisation:
+2025-12-28 14:13:27.896 [info] - name: form_values["field_1765610636257"] = "University testing"
+2025-12-28 14:13:27.896 [info] - 1dfed5fd-64bb-4462-96c7-145daf1bedc2: form_values["field_1765637262772"] = "Onine provision"
+2025-12-28 14:13:27.896 [info] - 6a137764-59a2-437c-a110-54701cc41bfe: form_values["field_1765635992459"] = "Guild HE,Mission+"
+2025-12-28 14:13:27.896 [info] - invoicing_address: form_values["field_1766924358873"] = "First Line
+Second line
+Town
+County
+Country 
+Postcode"
+2025-12-28 14:13:27.896 [info] - invoicing_email: form_values["field_1765654021220"] = "gsftesting1@outlook.com"
+2025-12-28 14:13:27.898 [info] [AppProcessor] Extracted data: {
+  memberData: {
+    email: 'agcastesting1@outlook.com',
+    role_id: 'c94cdcfd-d0f0-497a-ab5e-c742baacf049'
+  },
+  orgData: {
+    name: 'University testing',
+    invoicing_address: 'First Line\nSecond line\nTown\nCounty\nCountry \nPostcode',
+    invoicing_email: 'gsftesting1@outlook.com'
+  },
+  memberCustomFields: 0,
+  orgCustomFields: 4,
+  orgCustomFieldsDetail: [
+    {
+      field_id: '1dfed5fd-64bb-4462-96c7-145daf1bedc2',
+      value: '["Onine provision"]'
+    },
+    {
+      field_id: '6a137764-59a2-437c-a110-54701cc41bfe',
+      value: '["Guild HE","Mission+"]'
+    },
+    {
+      field_id: '1c395ccf-7df2-4818-917d-1cd672216f71',
+      value: 'Full application received'
+    },
+    {
+      field_id: 'e5ac547d-edb1-4ff1-83ab-fc82c1813065',
+      value: 'University'
+    }
+  ]
+}
+2025-12-28 14:13:27.898 [info] [AppProcessor] Org processing enabled. Action: upsert OrgData: {
+  name: 'University testing',
+  invoicing_address: 'First Line\nSecond line\nTown\nCounty\nCountry \nPostcode',
+  invoicing_email: 'gsftesting1@outlook.com'
+} PrefillOrgId: null
+2025-12-28 14:13:28.096 [info] [AppProcessor] Found org by name: 469e9057-4a16-437a-a104-f5b560a8edb2
+2025-12-28 14:13:28.299 [info] [AppProcessor] Updated organization: 469e9057-4a16-437a-a104-f5b560a8edb2
+2025-12-28 14:13:32.160 [info] [AppProcessor] Additional members processed: 1
