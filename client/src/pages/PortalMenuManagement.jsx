@@ -81,6 +81,7 @@ const builtInPages = [
   { value: "FloaterManagement", label: "Floater Management" },
   { value: "FormBuilder", label: "Form Builder" },
   { value: "FormManagement", label: "Form Management" },
+  { value: "FormSettings", label: "Form Settings" },
   { value: "FormSubmissions", label: "Form Submissions" },
   { value: "FormView", label: "Form View" },
   { value: "GuestWriterManagement", label: "Guest Writer Management" },
