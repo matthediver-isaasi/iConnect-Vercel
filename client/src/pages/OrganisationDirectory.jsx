@@ -11,6 +11,18 @@ import { Badge } from "@/components/ui/badge";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { toast } from "sonner";
 
+// Helper to add cache-busting for JPG images which have loading issues
+const getLogoUrl = (url, orgId) => {
+  if (!url) return null;
+  const lowerUrl = url.toLowerCase();
+  // Add cache-busting timestamp for JPG/JPEG images
+  if (lowerUrl.includes('.jpg') || lowerUrl.includes('.jpeg')) {
+    const separator = url.includes('?') ? '&' : '?';
+    return `${url}${separator}cb=${orgId}`;
+  }
+  return url;
+};
+
 export default function OrganisationDirectoryPage() {
   const { isAdmin, isFeatureExcluded } = useMemberAccess();
   const queryClient = useQueryClient();
@@ -477,7 +489,7 @@ export default function OrganisationDirectoryPage() {
                           {org.logo_url ?
                             <img
                               key={`logo-${org.id}-${org.logo_url}`}
-                              src={org.logo_url}
+                              src={getLogoUrl(org.logo_url, org.id)}
                               alt={org.name}
                               loading="eager"
                               decoding="sync"
