@@ -692,6 +692,7 @@ export function IEditOrganisationDirectoryElementRenderer({ content, settings })
     queryFn: async () => {
       return await base44.entities.Organization.list('name');
     },
+    staleTime: 2 * 60 * 1000, // Cache for 2 minutes to prevent refetch flickering
     refetchOnMount: true
   });
 
@@ -718,7 +719,7 @@ export function IEditOrganisationDirectoryElementRenderer({ content, settings })
         globalShowTitle: titleSetting?.setting_value !== 'false'
       };
     },
-    staleTime: 0
+    staleTime: 5 * 60 * 1000 // Cache for 5 minutes to prevent refetch flickering
   });
 
   // Use global settings as fallback for showNameTooltip and showTitle
@@ -731,7 +732,7 @@ export function IEditOrganisationDirectoryElementRenderer({ content, settings })
       return await base44.entities.Member.listAll();
     },
     enabled: showMemberCount,
-    staleTime: 0
+    staleTime: 2 * 60 * 1000 // Cache for 2 minutes to prevent refetch flickering
   });
 
   const organizationMemberCounts = useMemo(() => {

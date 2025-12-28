@@ -35,6 +35,7 @@ export default function OrganisationDirectoryPage() {
     queryFn: async () => {
       return await base44.entities.Organization.list('name');
     },
+    staleTime: 2 * 60 * 1000, // Cache for 2 minutes to prevent refetch flickering
     refetchOnMount: true
   });
 
@@ -70,8 +71,7 @@ export default function OrganisationDirectoryPage() {
         excludedOrgIds: excludedOrgIds
       };
     },
-    staleTime: 5 * 60 * 1000, // Cache for 5 minutes to prevent refetch flickering
-    refetchOnMount: 'always'
+    staleTime: 5 * 60 * 1000 // Cache for 5 minutes to prevent refetch flickering
   });
 
   // Get grid class based on cards per row setting
@@ -101,8 +101,7 @@ export default function OrganisationDirectoryPage() {
       console.log(`[OrganisationDirectory] Loaded ${allMembers.length} total members`);
       return allMembers;
     },
-    staleTime: 2 * 60 * 1000, // Cache for 2 minutes to prevent refetch flickering
-    refetchOnMount: 'always'
+    staleTime: 2 * 60 * 1000 // Cache for 2 minutes to prevent refetch flickering
   });
 
   const organizationMemberCounts = useMemo(() => {
