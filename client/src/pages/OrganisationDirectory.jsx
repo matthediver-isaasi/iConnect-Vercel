@@ -35,8 +35,7 @@ export default function OrganisationDirectoryPage() {
     queryFn: async () => {
       return await base44.entities.Organization.list('name');
     },
-    staleTime: 2 * 60 * 1000, // Cache for 2 minutes to prevent refetch flickering
-    refetchOnMount: true
+    staleTime: 2 * 60 * 1000 // Cache for 2 minutes to prevent refetch flickering
   });
 
   // Fetch display settings
@@ -352,12 +351,13 @@ export default function OrganisationDirectoryPage() {
     setShowDeleteConfirm(true);
   };
 
-  if (isLoading) {
+  // Wait for both organizations and settings to load before rendering to prevent flickering
+  if (isLoading || !displaySettings) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
-      </div>);
-
+      </div>
+    );
   }
 
   return (
