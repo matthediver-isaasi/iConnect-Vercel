@@ -97,6 +97,7 @@ const MEMBER_CORE_FIELDS = [
 const ORG_CORE_FIELDS = [
   { value: 'name', label: 'Organisation Name' },
   { value: 'invoicing_email', label: 'Invoicing Email' },
+  { value: 'invoicing_address', label: 'Invoicing Address' },
   { value: 'phone', label: 'Phone' },
   { value: 'website_url', label: 'Website URL' },
 ];
@@ -121,6 +122,7 @@ const UNIQUENESS_TARGET_FIELDS = {
   organization: [
     { value: 'organization.name', label: 'Organisation Name', isEmail: false },
     { value: 'organization.invoicing_email', label: 'Invoicing Email', isEmail: true },
+    { value: 'organization.invoicing_address', label: 'Invoicing Address', isEmail: false },
     { value: 'organization.phone', label: 'Organisation Phone', isEmail: false },
     { value: 'organization.website_url', label: 'Website URL', isEmail: false },
   ]
