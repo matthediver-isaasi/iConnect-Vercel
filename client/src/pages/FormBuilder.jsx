@@ -93,6 +93,7 @@ const MEMBER_CORE_FIELDS = [
   { value: 'landline', label: 'Landline' },
   { value: 'job_title', label: 'Job Title' },
   { value: 'organization_id', label: 'Organisation' },
+  { value: 'show_in_directory', label: 'Show in Member Directory' },
 ];
 
 const ORG_CORE_FIELDS = [

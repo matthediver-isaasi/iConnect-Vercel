@@ -10,6 +10,36 @@ const supabase = supabaseUrl && supabaseServiceKey
   ? createClient(supabaseUrl, supabaseServiceKey)
   : null;
 
+// Fields that should be coerced to boolean values
+const BOOLEAN_CORE_FIELDS = ['show_in_directory', 'login_enabled'];
+
+// Helper function to coerce values to boolean for boolean fields
+const coerceBooleanField = (fieldName, value) => {
+  if (!BOOLEAN_CORE_FIELDS.includes(fieldName)) {
+    return value;
+  }
+  // Already a boolean
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  // Handle string representations
+  if (typeof value === 'string') {
+    const lower = value.toLowerCase().trim();
+    if (lower === 'true' || lower === '1' || lower === 'yes') {
+      return true;
+    }
+    if (lower === 'false' || lower === '0' || lower === 'no') {
+      return false;
+    }
+  }
+  // Handle numeric values
+  if (typeof value === 'number') {
+    return value !== 0;
+  }
+  // Default: return original value (let database handle it)
+  return value;
+};
+
 // Helper function to apply value transformations
 const applyTransformation = (value, transformation) => {
   if (value === null || value === undefined) return value;
@@ -287,7 +317,7 @@ export default async function handler(req, res) {
         
         if (target_type === 'core') {
           if (target_entity === 'member') {
-            memberData[target_field] = value;
+            memberData[target_field] = coerceBooleanField(target_field, value);
           } else if (target_entity === 'organization') {
             orgData[target_field] = value;
           }
@@ -309,7 +339,7 @@ export default async function handler(req, res) {
         if (field.core_field_mapping) {
           const [entity, fieldName] = field.core_field_mapping.split('.');
           if (entity === 'member') {
-            memberData[fieldName] = value;
+            memberData[fieldName] = coerceBooleanField(fieldName, value);
           } else if (entity === 'organization') {
             orgData[fieldName] = value;
           }
@@ -397,7 +427,8 @@ export default async function handler(req, res) {
             // Map to database field name using config
             const dbKey = coreFieldMappingConfig[mapping.target_field] || mapping.target_field;
             if (value !== undefined && value !== null && value !== '') {
-              dataObj[dbKey] = value;
+              // Coerce boolean fields for member entities
+              dataObj[dbKey] = targetEntity === 'member' ? coerceBooleanField(dbKey, value) : value;
             }
           } else if (mapping.target_type === 'custom') {
             // Custom field
@@ -432,7 +463,8 @@ export default async function handler(req, res) {
           } else {
             const val = form_values[fieldId];
             if (val !== undefined && val !== null && val !== '') {
-              dataObj[dbKey] = val;
+              // Coerce boolean fields for member entities
+              dataObj[dbKey] = targetEntity === 'member' ? coerceBooleanField(dbKey, val) : val;
             }
           }
         }
@@ -469,7 +501,11 @@ export default async function handler(req, res) {
         'first_name': 'first_name',
         'last_name': 'last_name',
         'phone': 'mobile',
-        'job_title': 'job_title'
+        'job_title': 'job_title',
+        'mobile': 'mobile',
+        'landline': 'landline',
+        'organization_id': 'organization_id',
+        'show_in_directory': 'show_in_directory'
       };
       
       processPipelineMappings(primaryMemberPipeline, 'member', memberData, memberCustomFieldsMap, memberCoreFieldMappings);
@@ -1017,7 +1053,11 @@ export default async function handler(req, res) {
           'first_name': 'first_name',
           'last_name': 'last_name',
           'phone': 'mobile',
-          'job_title': 'job_title'
+          'job_title': 'job_title',
+          'mobile': 'mobile',
+          'landline': 'landline',
+          'organization_id': 'organization_id',
+          'show_in_directory': 'show_in_directory'
         };
         
         if (memberConfig.mappings && Array.isArray(memberConfig.mappings)) {
@@ -1073,7 +1113,8 @@ export default async function handler(req, res) {
             if (mapping.target_type === 'core') {
               const dbKey = coreFieldMappings[mapping.target_field] || mapping.target_field;
               if (value !== undefined && value !== null && value !== '') {
-                additionalMemberData[dbKey] = value;
+                // Coerce boolean fields for member entities
+                additionalMemberData[dbKey] = coerceBooleanField(dbKey, value);
               }
             } else if (mapping.target_type === 'custom') {
               const prefField = prefFieldMap.get(mapping.target_field);
@@ -1111,7 +1152,8 @@ export default async function handler(req, res) {
               clearFields.push(dbKey);
               additionalMemberData[dbKey] = null;
             } else if (form_values[fieldId] !== undefined && form_values[fieldId] !== null && form_values[fieldId] !== '') {
-              additionalMemberData[dbKey] = form_values[fieldId];
+              // Coerce boolean fields for member entities
+              additionalMemberData[dbKey] = coerceBooleanField(dbKey, form_values[fieldId]);
             }
           }
         } else {
