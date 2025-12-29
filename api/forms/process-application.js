@@ -702,22 +702,6 @@ export default async function handler(req, res) {
               return res.status(500).json({ error: `Failed to update member: ${memberUpdateError.message}` });
             }
             console.log('[AppProcessor] Updated member:', existingMember.id);
-            
-            // Trigger workflows for member update (non-blocking)
-            // Fetch the updated member record to pass to workflow
-            const { data: updatedMember } = await supabase
-              .from('member')
-              .select('*')
-              .eq('id', existingMember.id)
-              .single();
-            
-            if (updatedMember) {
-              const baseUrl = process.env.APP_URL || `https://${req.headers.host}`;
-              triggerWorkflows('member', existingMember.id, existingMember, updatedMember, 'record_update', baseUrl).catch(err => {
-                console.error('[AppProcessor] Workflow error (member update):', err);
-              });
-              console.log('[AppProcessor] Triggered workflows for member update:', existingMember.id);
-            }
           }
           createdMemberId = existingMember.id;
         }
