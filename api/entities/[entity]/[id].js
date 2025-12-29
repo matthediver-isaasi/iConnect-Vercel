@@ -414,6 +414,145 @@ export default async function handler(req, res) {
         return res.json({ success: true, message: 'Member data anonymized and related records deleted' });
       }
 
+      // Special handling for Organization: delete all members and their related data first
+      if (entity === 'Organization') {
+        console.log(`[Organization Delete] Starting cascade delete for organization ${id}`);
+        
+        // First, get all members belonging to this organization
+        const { data: members, error: membersError } = await supabase
+          .from('member')
+          .select('id')
+          .eq('organization_id', id);
+        
+        if (membersError) {
+          console.error('[Organization Delete] Error fetching members:', membersError);
+          return res.status(500).json({ error: 'Failed to fetch organization members' });
+        }
+        
+        const memberIds = (members || []).map(m => m.id);
+        console.log(`[Organization Delete] Found ${memberIds.length} members to delete`);
+        
+        // Anonymize member-related data for all members in this organization
+        // (mirrors standalone member delete - keeps member records for audit trail)
+        if (memberIds.length > 0) {
+          const memberDeleteTables = [
+            { table: 'member_resource_category', column: 'member_id' },
+            { table: 'member_group_assignment', column: 'member_id' },
+            { table: 'member_group_guest', column: 'member_id' },
+            { table: 'member_preference_value', column: 'member_id' },
+            { table: 'member_communication_preference', column: 'member_id' },
+            { table: 'magic_link', column: 'member_id' },
+            { table: 'member_credentials', column: 'member_id' },
+            { table: 'article_follow', column: 'follower_member_id' },
+            { table: 'article_follow', column: 'followed_member_id' },
+            { table: 'article_comment', column: 'member_id' },
+            { table: 'article_view', column: 'member_id' },
+            { table: 'article_reaction', column: 'member_id' },
+            { table: 'comment_reaction', column: 'member_id' },
+            { table: 'form_submission', column: 'member_id' },
+            { table: 'support_ticket_response', column: 'member_id' },
+            { table: 'support_ticket', column: 'member_id' },
+            { table: 'workflow_log', column: 'member_id' },
+          ];
+          
+          for (const { table, column } of memberDeleteTables) {
+            const { error: deleteError } = await supabase
+              .from(table)
+              .delete()
+              .in(column, memberIds);
+            
+            if (deleteError) {
+              console.log(`[Organization Delete] Note: Could not delete from ${table}.${column}: ${deleteError.message}`);
+            } else {
+              console.log(`[Organization Delete] Deleted records from ${table} for ${memberIds.length} members`);
+            }
+          }
+          
+          // Anonymize members instead of deleting (preserves FKs in bookings, transactions, etc.)
+          for (const memberId of memberIds) {
+            const { error: anonymizeError } = await supabase
+              .from('member')
+              .update({
+                email: `deleted_${memberId}@deleted.local`,
+                first_name: 'Deleted',
+                last_name: 'Member',
+                handle: null,
+                job_title: null,
+                biography: null,
+                profile_photo_url: null,
+                zoho_contact_id: null,
+                login_enabled: false,
+                show_in_directory: false,
+                organization_id: null, // Unlink from organization
+              })
+              .eq('id', memberId);
+            
+            if (anonymizeError) {
+              console.log(`[Organization Delete] Note: Could not anonymize member ${memberId}: ${anonymizeError.message}`);
+            }
+          }
+          
+          console.log(`[Organization Delete] Anonymized ${memberIds.length} members`);
+        }
+        
+        // Delete organization-related data
+        const orgDeleteTables = [
+          { table: 'organization_preference_value', column: 'organization_id' },
+          { table: 'organization_note', column: 'organization_id' },
+        ];
+        
+        for (const { table, column } of orgDeleteTables) {
+          const { error: deleteError } = await supabase
+            .from(table)
+            .delete()
+            .eq(column, id);
+          
+          if (deleteError) {
+            console.log(`[Organization Delete] Note: Could not delete from ${table}.${column}: ${deleteError.message}`);
+          } else {
+            console.log(`[Organization Delete] Deleted records from ${table} where ${column} = ${id}`);
+          }
+        }
+        
+        // Nullify organization references in other tables (don't delete, just unlink)
+        const nullifyTables = [
+          { table: 'booking', column: 'organization_id' },
+          { table: 'job_posting', column: 'posted_by_organization_id' },
+          { table: 'discount_code', column: 'organization_id' },
+          { table: 'voucher', column: 'organization_id' },
+        ];
+        
+        for (const { table, column } of nullifyTables) {
+          const { error: nullifyError } = await supabase
+            .from(table)
+            .update({ [column]: null })
+            .eq(column, id);
+          
+          if (nullifyError) {
+            console.log(`[Organization Delete] Note: Could not nullify ${table}.${column}: ${nullifyError.message}`);
+          } else {
+            console.log(`[Organization Delete] Nullified ${table}.${column} references`);
+          }
+        }
+        
+        // Finally delete the organization
+        const { error: deleteOrgError } = await supabase
+          .from('organization')
+          .delete()
+          .eq('id', id);
+        
+        if (deleteOrgError) {
+          console.error('[Organization Delete] Error deleting organization:', deleteOrgError);
+          return res.status(500).json({ error: `Failed to delete organization: ${deleteOrgError.message}` });
+        }
+        
+        console.log(`[Organization Delete] Successfully deleted organization ${id} and all related data`);
+        return res.json({ 
+          success: true, 
+          message: `Organization deleted. ${memberIds.length} members were anonymized and unlinked.` 
+        });
+      }
+
       const { error } = await supabase
         .from(tableName)
         .delete()
