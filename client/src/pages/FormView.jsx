@@ -738,7 +738,9 @@ export default function FormViewPage() {
         return prefillEntity[coreFieldName];
       } else if (prefillField.startsWith('custom.')) {
         const customFieldId = prefillField.replace('custom.', '');
-        const cfv = prefillCustomFieldValues.find(v => v.field_id === customFieldId);
+        // Use appropriate custom values based on prefill source
+        const customValues = form?.prefill_source === 'member' ? prefillMemberCustomValues : prefillOrgCustomValues;
+        const cfv = customValues.find(v => v.field_id === customFieldId);
         return cfv?.value;
       }
     }
@@ -760,7 +762,9 @@ export default function FormViewPage() {
         return prefillEntity[coreFieldName];
       } else if (prefillField.startsWith('custom.')) {
         const customFieldId = prefillField.replace('custom.', '');
-        const cfv = prefillCustomFieldValues.find(v => v.field_id === customFieldId);
+        // Use appropriate custom values based on prefill source
+        const customValues = form?.prefill_source === 'member' ? prefillMemberCustomValues : prefillOrgCustomValues;
+        const cfv = customValues.find(v => v.field_id === customFieldId);
         return cfv?.value;
       }
     }
@@ -928,7 +932,7 @@ export default function FormViewPage() {
     
     // Update previous state for next render
     previousRoleActionsRef.current = nowActiveRoleActions;
-  }, [form?.visibility_rules, formValues, prefillMember, prefillOrg, prefillCustomFieldValues, form?.prefill_source]);
+  }, [form?.visibility_rules, formValues, prefillMember, prefillOrg, prefillMemberCustomValues, prefillOrgCustomValues, form?.prefill_source]);
 
   if (isLoading) {
     return (
