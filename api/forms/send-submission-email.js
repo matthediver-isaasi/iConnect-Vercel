@@ -18,6 +18,8 @@ export default async function handler(req, res) {
   }
 
   try {
+    console.log('[FormSubmissionEmail] === ENDPOINT CALLED ===');
+    
     const { 
       form_id,
       submission_id,
@@ -26,6 +28,7 @@ export default async function handler(req, res) {
     } = req.body;
 
     console.log('[FormSubmissionEmail] Request received for form:', form_id, 'submission:', submission_id);
+    console.log('[FormSubmissionEmail] form_values keys:', form_values ? Object.keys(form_values) : 'null');
 
     if (!form_id) {
       console.log('[FormSubmissionEmail] Missing form_id');
@@ -45,6 +48,9 @@ export default async function handler(req, res) {
     }
 
     console.log('[FormSubmissionEmail] Form loaded:', form.name);
+    console.log('[FormSubmissionEmail] Form email config - submission_emails:', JSON.stringify(form.submission_emails));
+    console.log('[FormSubmissionEmail] Form email config - legacy template_id:', form.submission_email_template_id);
+    console.log('[FormSubmissionEmail] Form email config - legacy recipient:', form.submission_email_recipient);
 
     // Build list of emails to send
     let emailsToSend = [];
@@ -53,6 +59,7 @@ export default async function handler(req, res) {
     if (form.submission_emails && Array.isArray(form.submission_emails) && form.submission_emails.length > 0) {
       console.log('[FormSubmissionEmail] Using new multi-email format, count:', form.submission_emails.length);
       emailsToSend = form.submission_emails.filter(e => e.template_id && e.recipient);
+      console.log('[FormSubmissionEmail] Filtered emails to send:', emailsToSend.length);
     } 
     // Fallback to legacy single email format
     else if (form.submission_email_template_id && form.submission_email_recipient) {
