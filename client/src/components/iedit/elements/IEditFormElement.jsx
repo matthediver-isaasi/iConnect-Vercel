@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 import DOMPurify from 'dompurify';
@@ -89,6 +89,17 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   // Track if prefill has been applied and defaults initialized
   const [prefillApplied, setPrefillApplied] = useState(false);
   const [defaultsInitialized, setDefaultsInitialized] = useState(false);
+  
+  // Track original values BEFORE set_value rules modified them
+  const originalValuesRef = useRef({});
+  // Track which set_value actions are currently active (condition is true)
+  const activeSetValueActionsRef = useRef(new Set());
+  // Track the triggered role_id from set_role/clear_role actions
+  const triggeredRoleIdRef = useRef(null);
+  // Track whether a role action was explicitly triggered
+  const roleActionTriggeredRef = useRef(false);
+  // Track which role actions were previously active (for transition detection)
+  const previousRoleActionsRef = useRef(new Set());
 
   // Handler for field validity changes from FormRenderer
   const handleValidityChange = (fieldId, isValid) => {
@@ -309,7 +320,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     return selectedOrg || prefillOrg || organizationInfo;
   }, [selectedOrg, prefillOrg, organizationInfo]);
 
-  // Reset prefill state when form changes
+  // Reset prefill state and set_value tracking when form changes
   useEffect(() => {
     setCurrentPageIndex(0);
     setCurrentStep(0);
@@ -317,6 +328,12 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     setPrefillApplied(false);
     setDefaultsInitialized(false);
     setFormValues({});
+    // Reset set_value and role tracking refs
+    originalValuesRef.current = {};
+    activeSetValueActionsRef.current = new Set();
+    triggeredRoleIdRef.current = null;
+    roleActionTriggeredRef.current = false;
+    previousRoleActionsRef.current = new Set();
   }, [form?.id]);
 
   // Initialize boolean fields and hidden fields with their default values when form loads
@@ -663,6 +680,216 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     
     return disabled;
   }, [form?.visibility_rules, formValues, initialDisabledFieldIds]);
+
+  // Helper to compute the value for a set_value action
+  const computeSetValue = (action, prefillEntity) => {
+    const sourceType = action.set_value_source || 'static';
+    
+    if (sourceType === 'static') {
+      return action.set_value;
+    } else if (sourceType === 'field') {
+      return formValues[action.set_value_field_id];
+    } else if (sourceType === 'prefill' && prefillEntity) {
+      const prefillField = action.set_value_prefill_field || '';
+      if (prefillField.startsWith('core.')) {
+        const coreFieldName = prefillField.replace('core.', '');
+        return prefillEntity[coreFieldName];
+      } else if (prefillField.startsWith('custom.')) {
+        const customFieldId = prefillField.replace('custom.', '');
+        const cfv = prefillCustomFieldValues.find(v => v.field_id === customFieldId);
+        return cfv?.value;
+      }
+    }
+    return null;
+  };
+  
+  // Helper to compute the value for a legacy set_value rule
+  const computeLegacySetValue = (rule, prefillEntity) => {
+    const sourceType = rule.set_value_source || 'static';
+    
+    if (sourceType === 'static') {
+      return rule.set_value;
+    } else if (sourceType === 'field') {
+      return formValues[rule.set_value_field_id];
+    } else if (sourceType === 'prefill' && prefillEntity) {
+      const prefillField = rule.set_value_prefill_field || '';
+      if (prefillField.startsWith('core.')) {
+        const coreFieldName = prefillField.replace('core.', '');
+        return prefillEntity[coreFieldName];
+      } else if (prefillField.startsWith('custom.')) {
+        const customFieldId = prefillField.replace('custom.', '');
+        const cfv = prefillCustomFieldValues.find(v => v.field_id === customFieldId);
+        return cfv?.value;
+      }
+    }
+    return null;
+  };
+
+  // Process Set Value rules - when conditions are met, update target field values
+  // When conditions become false, revert to original values (undo the action)
+  useEffect(() => {
+    if (!form?.visibility_rules || form.visibility_rules.length === 0) return;
+    
+    const prefillEntity = form.prefill_source === 'member' ? prefillMember : prefillOrg;
+    const updates = {};
+    
+    // Track which actions are now active and which fields they target
+    const nowActiveActions = new Set();
+    const activeFieldTargets = new Map(); // fieldId -> Set of actionKeys targeting it
+    
+    // First pass: identify all active actions and build field->action mapping
+    for (const rule of form.visibility_rules) {
+      if (!rule.trigger_field_id) continue;
+      
+      const triggerValue = formValues[rule.trigger_field_id];
+      const conditionMet = evaluateCondition(triggerValue, rule.operator, rule.value);
+      
+      // Handle new multi-action format
+      if (rule.actions && Array.isArray(rule.actions)) {
+        for (const action of rule.actions) {
+          if (action.action_type === 'set_value' && action.target_field_id) {
+            const actionKey = action.id;
+            
+            if (conditionMet) {
+              nowActiveActions.add(actionKey);
+              
+              // Track which actions target this field
+              if (!activeFieldTargets.has(action.target_field_id)) {
+                activeFieldTargets.set(action.target_field_id, new Set());
+              }
+              activeFieldTargets.get(action.target_field_id).add(actionKey);
+              
+              // If this action wasn't active before, save original value and apply
+              if (!activeSetValueActionsRef.current.has(actionKey)) {
+                // Save original value if we haven't already
+                if (!(action.target_field_id in originalValuesRef.current)) {
+                  originalValuesRef.current[action.target_field_id] = formValues[action.target_field_id] ?? '';
+                }
+                
+                const valueToSet = computeSetValue(action, prefillEntity);
+                if (valueToSet !== null && valueToSet !== undefined) {
+                  updates[action.target_field_id] = valueToSet;
+                  console.log(`[IEditFormElement] set_value: ${action.target_field_id} = "${valueToSet}"`);
+                }
+              }
+            }
+          }
+        }
+      }
+      // Handle legacy format (rule_type === 'set_value')
+      else if (rule.rule_type === 'set_value' && rule.target_field_id) {
+        const ruleKey = `legacy_${rule.id}`;
+        
+        if (conditionMet) {
+          nowActiveActions.add(ruleKey);
+          
+          // Track which actions target this field
+          if (!activeFieldTargets.has(rule.target_field_id)) {
+            activeFieldTargets.set(rule.target_field_id, new Set());
+          }
+          activeFieldTargets.get(rule.target_field_id).add(ruleKey);
+          
+          // If this rule wasn't active before, save original value and apply
+          if (!activeSetValueActionsRef.current.has(ruleKey)) {
+            // Save original value if we haven't already
+            if (!(rule.target_field_id in originalValuesRef.current)) {
+              originalValuesRef.current[rule.target_field_id] = formValues[rule.target_field_id] ?? '';
+            }
+            
+            const valueToSet = computeLegacySetValue(rule, prefillEntity);
+            if (valueToSet !== null && valueToSet !== undefined) {
+              updates[rule.target_field_id] = valueToSet;
+              console.log(`[IEditFormElement] legacy set_value: ${rule.target_field_id} = "${valueToSet}"`);
+            }
+          }
+        }
+      }
+    }
+    
+    // Find actions that were active but are now inactive - need to revert
+    // But only revert if NO other active action targets the same field
+    for (const actionKey of activeSetValueActionsRef.current) {
+      if (!nowActiveActions.has(actionKey)) {
+        // Find the target field for this action
+        for (const rule of form.visibility_rules) {
+          // Check new multi-action format
+          if (rule.actions && Array.isArray(rule.actions)) {
+            for (const action of rule.actions) {
+              if (action.id === actionKey && action.target_field_id) {
+                const targetFieldId = action.target_field_id;
+                // Only revert if no other active action targets this field
+                const activeActionsForField = activeFieldTargets.get(targetFieldId);
+                if (!activeActionsForField || activeActionsForField.size === 0) {
+                  // No active actions target this field, safe to revert
+                  if (targetFieldId in originalValuesRef.current) {
+                    updates[targetFieldId] = originalValuesRef.current[targetFieldId];
+                    delete originalValuesRef.current[targetFieldId];
+                  }
+                }
+              }
+            }
+          }
+          // Check legacy format
+          else if (`legacy_${rule.id}` === actionKey && rule.target_field_id) {
+            const targetFieldId = rule.target_field_id;
+            // Only revert if no other active action targets this field
+            const activeActionsForField = activeFieldTargets.get(targetFieldId);
+            if (!activeActionsForField || activeActionsForField.size === 0) {
+              // No active actions target this field, safe to revert
+              if (targetFieldId in originalValuesRef.current) {
+                updates[targetFieldId] = originalValuesRef.current[targetFieldId];
+                delete originalValuesRef.current[targetFieldId];
+              }
+            }
+          }
+        }
+      }
+    }
+    
+    // Update the active actions set
+    activeSetValueActionsRef.current = nowActiveActions;
+    
+    // Apply all updates at once to avoid multiple re-renders
+    if (Object.keys(updates).length > 0) {
+      console.log('[IEditFormElement] Applying set_value updates:', updates);
+      setFormValues(prev => ({ ...prev, ...updates }));
+    }
+    
+    // Process set_role and clear_role actions with transition detection
+    const nowActiveRoleActions = new Set();
+    
+    for (const rule of form.visibility_rules) {
+      if (!rule.trigger_field_id) continue;
+      
+      const triggerValue = formValues[rule.trigger_field_id];
+      const conditionMet = evaluateCondition(triggerValue, rule.operator, rule.value);
+      
+      if (conditionMet && rule.actions && Array.isArray(rule.actions)) {
+        rule.actions.forEach((action, actionIndex) => {
+          if (action.action_type === 'set_role' || action.action_type === 'clear_role') {
+            const actionKey = action.id || `${rule.id}:role:${actionIndex}`;
+            nowActiveRoleActions.add(actionKey);
+            
+            // Only apply if this action just became active (transition detection)
+            if (!previousRoleActionsRef.current.has(actionKey)) {
+              if (action.action_type === 'set_role' && action.role_id) {
+                triggeredRoleIdRef.current = action.role_id;
+                roleActionTriggeredRef.current = true;
+                console.log('[IEditFormElement] set_role action triggered, role_id:', action.role_id);
+              } else if (action.action_type === 'clear_role') {
+                triggeredRoleIdRef.current = null;
+                roleActionTriggeredRef.current = true;
+                console.log('[IEditFormElement] clear_role action triggered');
+              }
+            }
+          }
+        });
+      }
+    }
+    
+    // Update previous state for next render
+    previousRoleActionsRef.current = nowActiveRoleActions;
+  }, [form?.visibility_rules, formValues, prefillMember, prefillOrg, prefillCustomFieldValues, form?.prefill_source]);
 
   // Page navigation helpers for standard layout with pages
   const pages = form?.pages || [];
