@@ -244,39 +244,110 @@ export async function getSessionMember(req) {
 /**
  * Invalidate all sessions for a specific member.
  * Call this when a member is deleted or their login_enabled is set to false.
+ * Uses direct JSONB query for reliability instead of fetching and filtering in JS.
  * @param {string} memberId - The member ID to invalidate sessions for
  * @returns {Promise<{success: boolean, count: number}>}
  */
 export async function invalidateMemberSessions(memberId) {
   if (!supabase || !memberId) {
+    console.log('[Session] invalidateMemberSessions called with invalid params:', { supabase: !!supabase, memberId });
     return { success: false, count: 0 };
   }
   
   try {
-    // Find all sessions for this member
-    // Sessions store memberId in the sess JSONB column
-    const { data: sessions, error: fetchError } = await supabase
-      .from('session')
-      .select('sid, sess')
-      .not('sess', 'is', null);
+    console.log('[Session] Attempting to invalidate sessions for member:', memberId);
     
-    if (fetchError) {
-      console.error('[Session] Error fetching sessions:', fetchError);
+    // First, count how many sessions exist for this member using JSONB query
+    // Supabase filter on JSONB: sess->memberId equals the member ID
+    const { data: matchingSessions, error: countError } = await supabase
+      .from('session')
+      .select('sid')
+      .filter('sess->>memberId', 'eq', memberId);
+    
+    if (countError) {
+      console.error('[Session] Error counting sessions with JSONB filter:', countError);
+      // Fallback: try the old method
+      return await invalidateMemberSessionsFallback(memberId);
+    }
+    
+    const count = matchingSessions?.length || 0;
+    console.log(`[Session] Found ${count} session(s) for member ${memberId} using JSONB filter`);
+    
+    if (count === 0) {
+      // Double-check by fetching all sessions and logging what's there
+      const { data: allSessions } = await supabase
+        .from('session')
+        .select('sid, sess')
+        .limit(10);
+      
+      console.log('[Session] Sample of all sessions in table:', 
+        allSessions?.map(s => ({
+          sid: s.sid?.substring(0, 8) + '...',
+          memberId: (typeof s.sess === 'string' ? JSON.parse(s.sess) : s.sess)?.memberId
+        }))
+      );
+      
+      return { success: true, count: 0 };
+    }
+    
+    // Delete sessions using the same JSONB filter
+    const { error: deleteError } = await supabase
+      .from('session')
+      .delete()
+      .filter('sess->>memberId', 'eq', memberId);
+    
+    if (deleteError) {
+      console.error('[Session] Error deleting sessions with JSONB filter:', deleteError);
       return { success: false, count: 0 };
     }
+    
+    console.log(`[Session] Successfully invalidated ${count} session(s) for member:`, memberId);
+    return { success: true, count };
+  } catch (err) {
+    console.error('[Session] Error invalidating member sessions:', err);
+    return { success: false, count: 0 };
+  }
+}
+
+/**
+ * Fallback method using JS filtering if JSONB filter doesn't work
+ */
+async function invalidateMemberSessionsFallback(memberId) {
+  console.log('[Session] Using fallback method for session invalidation');
+  
+  try {
+    const { data: sessions, error: fetchError } = await supabase
+      .from('session')
+      .select('sid, sess');
+    
+    if (fetchError) {
+      console.error('[Session] Fallback: Error fetching sessions:', fetchError);
+      return { success: false, count: 0 };
+    }
+    
+    console.log(`[Session] Fallback: Fetched ${sessions?.length || 0} total sessions`);
     
     // Filter sessions that belong to this member
     const memberSessions = (sessions || []).filter(s => {
       const sessData = typeof s.sess === 'string' ? JSON.parse(s.sess) : s.sess;
-      return sessData?.memberId === memberId;
+      const matches = sessData?.memberId === memberId;
+      if (matches) {
+        console.log('[Session] Fallback: Found matching session:', s.sid?.substring(0, 8) + '...');
+      }
+      return matches;
     });
     
     if (memberSessions.length === 0) {
-      console.log('[Session] No active sessions found for member:', memberId);
+      console.log('[Session] Fallback: No sessions found for member:', memberId);
+      // Log what memberIds are in the sessions for debugging
+      const allMemberIds = (sessions || []).map(s => {
+        const sessData = typeof s.sess === 'string' ? JSON.parse(s.sess) : s.sess;
+        return sessData?.memberId;
+      }).filter(Boolean);
+      console.log('[Session] Fallback: MemberIds in sessions:', [...new Set(allMemberIds)]);
       return { success: true, count: 0 };
     }
     
-    // Delete all sessions for this member
     const sessionIds = memberSessions.map(s => s.sid);
     const { error: deleteError } = await supabase
       .from('session')
@@ -284,14 +355,14 @@ export async function invalidateMemberSessions(memberId) {
       .in('sid', sessionIds);
     
     if (deleteError) {
-      console.error('[Session] Error deleting member sessions:', deleteError);
+      console.error('[Session] Fallback: Error deleting sessions:', deleteError);
       return { success: false, count: 0 };
     }
     
-    console.log(`[Session] Invalidated ${sessionIds.length} session(s) for member:`, memberId);
+    console.log(`[Session] Fallback: Invalidated ${sessionIds.length} session(s) for member:`, memberId);
     return { success: true, count: sessionIds.length };
   } catch (err) {
-    console.error('[Session] Error invalidating member sessions:', err);
+    console.error('[Session] Fallback: Error:', err);
     return { success: false, count: 0 };
   }
 }
