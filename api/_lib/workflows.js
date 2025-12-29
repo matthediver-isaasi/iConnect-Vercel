@@ -750,13 +750,57 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
           const condition = workflow.conditions[i];
           let beforeValue, afterValue;
           
-          if (condition.field_type === 'core') {
+          // Normalize field_type: handle prefixed types like member_core, org_core, member_custom, org_custom
+          const fieldType = condition.field_type || 'core';
+          const isMemberField = fieldType === 'core' || fieldType === 'member_core';
+          const isOrgField = fieldType === 'org_core';
+          const isMemberCustom = fieldType === 'custom' || fieldType === 'member_custom';
+          const isOrgCustom = fieldType === 'org_custom';
+          
+          console.log(`[Workflows] Condition ${i} field_type="${fieldType}", isMemberField=${isMemberField}, isOrgField=${isOrgField}, isMemberCustom=${isMemberCustom}, isOrgCustom=${isOrgCustom}`);
+          
+          if (isMemberField) {
+            // Member core field - get from afterData (which is the member record)
             beforeValue = beforeData?.[condition.field_id];
             afterValue = afterData?.[condition.field_id];
-          } else if (condition.field_type === 'custom') {
-            // For custom fields, we'd need to fetch from preference values
-            // For now, skip custom field conditions in this context
-            console.log(`[Workflows] Skipping custom field condition "${condition.field_id}" - not supported in this context`);
+            console.log(`[Workflows] Member core field "${condition.field_id}": afterValue="${afterValue}"`);
+          } else if (isOrgField) {
+            // Organization core field - need to fetch from organization table
+            if (afterData?.organization_id) {
+              const { data: orgData } = await supabase
+                .from('organization')
+                .select('*')
+                .eq('id', afterData.organization_id)
+                .single();
+              afterValue = orgData?.[condition.field_id];
+              console.log(`[Workflows] Org core field "${condition.field_id}": afterValue="${afterValue}"`);
+            }
+          } else if (isMemberCustom) {
+            // Member custom field - fetch from member_preference_value
+            if (afterData?.id) {
+              const { data: prefValue } = await supabase
+                .from('member_preference_value')
+                .select('value')
+                .eq('member_id', afterData.id)
+                .eq('field_id', condition.field_id)
+                .single();
+              afterValue = prefValue?.value;
+              console.log(`[Workflows] Member custom field "${condition.field_id}": afterValue="${afterValue}"`);
+            }
+          } else if (isOrgCustom) {
+            // Organization custom field - fetch from organization_preference_value
+            if (afterData?.organization_id) {
+              const { data: prefValue } = await supabase
+                .from('organization_preference_value')
+                .select('value')
+                .eq('organization_id', afterData.organization_id)
+                .eq('field_id', condition.field_id)
+                .single();
+              afterValue = prefValue?.value;
+              console.log(`[Workflows] Org custom field "${condition.field_id}": afterValue="${afterValue}"`);
+            }
+          } else {
+            console.log(`[Workflows] Unknown field_type "${fieldType}" for condition "${condition.field_id}" - skipping`);
             continue;
           }
           
