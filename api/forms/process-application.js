@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import bcrypt from 'bcryptjs';
 import { sendEmail } from '../_lib/emailService.js';
+import { triggerWorkflows } from '../_lib/workflows.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -772,6 +773,13 @@ export default async function handler(req, res) {
           createdMemberId = newMember.id;
           console.log('[AppProcessor] Created member:', createdMemberId);
           
+          // Trigger workflows for new member creation (non-blocking)
+          const baseUrl = process.env.APP_URL || `https://${req.headers.host}`;
+          triggerWorkflows('member', createdMemberId, null, newMember, 'record_create', baseUrl).catch(err => {
+            console.error('[AppProcessor] Workflow error:', err);
+          });
+          console.log('[AppProcessor] Triggered workflows for new member:', createdMemberId);
+          
           // Generate temporary password and send welcome email
           try {
             // Generate a random 12-character temporary password
@@ -1259,6 +1267,12 @@ export default async function handler(req, res) {
           additionalMemberIds.push({ id: newMember.id, label: memberConfig.label, created: true, updated: false });
           processedEmails.set(normalizedEmail, newMember.id);
           console.log('[AppProcessor] Created additional member:', newMember.id);
+          
+          // Trigger workflows for new additional member creation (non-blocking)
+          const addlBaseUrl = process.env.APP_URL || `https://${req.headers.host}`;
+          triggerWorkflows('member', newMember.id, null, newMember, 'record_create', addlBaseUrl).catch(err => {
+            console.error('[AppProcessor] Additional member workflow error:', err);
+          });
         }
         
         // Process custom field mappings (upsert logic)

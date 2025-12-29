@@ -739,6 +739,10 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
 
       // Evaluate additional conditions (if any)
       let allConditionsMet = true;
+      console.log(`[Workflows] ${workflow.name} - conditions array:`, JSON.stringify(workflow.conditions));
+      console.log(`[Workflows] ${workflow.name} - afterData keys:`, afterData ? Object.keys(afterData) : 'null');
+      console.log(`[Workflows] ${workflow.name} - afterData.login_enabled:`, afterData?.login_enabled, 'type:', typeof afterData?.login_enabled);
+      
       if (workflow.conditions && workflow.conditions.length > 0) {
         console.log(`[Workflows] Evaluating ${workflow.conditions.length} conditions for ${workflow.name}`);
         
@@ -800,17 +804,22 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
           
           if (i === 0) {
             allConditionsMet = conditionMet;
+            console.log(`[Workflows] After condition ${i}: allConditionsMet=${allConditionsMet} (initial)`);
           } else {
+            const prevValue = allConditionsMet;
             if (condition.logic === 'OR') {
               allConditionsMet = allConditionsMet || conditionMet;
             } else {
               allConditionsMet = allConditionsMet && conditionMet;
             }
+            console.log(`[Workflows] After condition ${i}: ${prevValue} ${condition.logic || 'AND'} ${conditionMet} = ${allConditionsMet}`);
           }
         }
         
+        console.log(`[Workflows] Final allConditionsMet for ${workflow.name}: ${allConditionsMet}`);
+        
         if (!allConditionsMet) {
-          console.log(`[Workflows] Conditions not met for workflow: ${workflow.name}`);
+          console.log(`[Workflows] Conditions not met for workflow: ${workflow.name} - SKIPPING`);
           continue;
         }
       }
