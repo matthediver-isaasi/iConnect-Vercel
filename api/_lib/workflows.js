@@ -192,14 +192,14 @@ async function applyFieldMappings(template, fieldMappings, entityType, entityId,
     let lookupEntityId = entityId;
     let lookupEntityData = entityData;
     
-    // If the mapping specifies org_ but we're processing a member, we need to adjust
+    // If the mapping specifies a different entity type than what we're processing,
+    // skip it - let a later pass with the correct entity data handle it
     if (isOrgField && entityType !== 'organization') {
-      lookupEntityType = 'organization';
-      // For member triggers, we'd need to get the org from the member - but entityData should already have org data if passed
-      console.log(`[Workflows] Mapping "${placeholder}" refers to org but entityType is ${entityType}`);
+      console.log(`[Workflows] Mapping "${placeholder}" refers to org but entityType is ${entityType} - skipping for later pass`);
+      continue; // Skip this mapping, let later pass handle it
     } else if (isMemberField && entityType !== 'member') {
-      lookupEntityType = 'member';
-      console.log(`[Workflows] Mapping "${placeholder}" refers to member but entityType is ${entityType}`);
+      console.log(`[Workflows] Mapping "${placeholder}" refers to member but entityType is ${entityType} - skipping for later pass`);
+      continue; // Skip this mapping, let later pass handle it
     }
     
     if (normalizedFieldType === 'core') {
