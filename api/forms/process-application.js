@@ -460,6 +460,15 @@ export default async function handler(req, res) {
         } else {
           memberData.role_id = primaryMemberPipeline.role_id;
         }
+        console.log('[AppProcessor] Using pipeline role_id:', memberData.role_id);
+      }
+      
+      // If pipeline has login_enabled setting, use it (default to true if not specified)
+      if (primaryMemberPipeline && primaryMemberPipeline.login_enabled !== undefined) {
+        memberData.login_enabled = primaryMemberPipeline.login_enabled;
+        console.log('[AppProcessor] Using pipeline login_enabled:', memberData.login_enabled);
+      } else {
+        memberData.login_enabled = true; // Default to true if not specified
       }
       
       // Re-convert custom fields after pipeline processing
@@ -654,8 +663,21 @@ export default async function handler(req, res) {
           if (memberData.job_title) memberUpdateData.job_title = memberData.job_title;
           if (memberData.mobile) memberUpdateData.mobile = memberData.mobile;
           if (memberData.landline) memberUpdateData.landline = memberData.landline;
-          // Add role_id if triggered from form conditional logic (null clears the role)
-          if (role_id !== undefined) memberUpdateData.role_id = role_id;
+          
+          // Add role_id: first check pipeline config, then form conditional logic
+          if (memberData.role_id !== undefined) {
+            memberUpdateData.role_id = memberData.role_id;
+            console.log('[AppProcessor] Adding pipeline role_id to member update:', memberData.role_id);
+          } else if (role_id !== undefined) {
+            memberUpdateData.role_id = role_id;
+            console.log('[AppProcessor] Adding conditional logic role_id to member update:', role_id);
+          }
+          
+          // Add login_enabled from pipeline config if specified
+          if (memberData.login_enabled !== undefined) {
+            memberUpdateData.login_enabled = memberData.login_enabled;
+            console.log('[AppProcessor] Adding pipeline login_enabled to member update:', memberData.login_enabled);
+          }
           
           // Handle full_name parsing if provided (parse into first_name/last_name since member table doesn't have full_name column)
           if (memberData.full_name && !memberData.first_name && !memberData.last_name) {
@@ -712,20 +734,27 @@ export default async function handler(req, res) {
             first_name: memberData.first_name || '',
             last_name: memberData.last_name || '',
             organization_id: orgIdForNewMember,
-            login_enabled: true
+            login_enabled: memberData.login_enabled !== undefined ? memberData.login_enabled : true
           };
           // Add job_title only if provided (it's a valid column)
           if (memberData.job_title) memberInsertData.job_title = memberData.job_title;
           // Add mobile and landline if provided
           if (memberData.mobile) memberInsertData.mobile = memberData.mobile;
           if (memberData.landline) memberInsertData.landline = memberData.landline;
-          // Add role_id if triggered from form conditional logic (null clears the role)
-          if (role_id !== undefined) {
+          
+          // Add role_id: first check pipeline config, then form conditional logic
+          if (memberData.role_id !== undefined) {
+            memberInsertData.role_id = memberData.role_id;
+            console.log('[AppProcessor] Adding pipeline role_id to member insert:', memberData.role_id);
+          } else if (role_id !== undefined) {
+            // Fallback to form conditional logic role_id
             memberInsertData.role_id = role_id;
-            console.log('[AppProcessor] Adding role_id to member insert:', role_id);
+            console.log('[AppProcessor] Adding conditional logic role_id to member insert:', role_id);
           } else {
-            console.log('[AppProcessor] role_id is undefined, not adding to member insert');
+            console.log('[AppProcessor] No role_id specified for member insert');
           }
+          
+          console.log('[AppProcessor] login_enabled for member insert:', memberInsertData.login_enabled);
 
           console.log('[AppProcessor] Final memberInsertData:', JSON.stringify(memberInsertData));
 
@@ -1154,6 +1183,13 @@ export default async function handler(req, res) {
           } else {
             additionalMemberData.role_id = memberConfig.role_id;
           }
+          console.log('[AppProcessor] Additional member role_id:', additionalMemberData.role_id);
+        }
+        
+        // Add login_enabled from member config if specified
+        if (memberConfig.login_enabled !== undefined) {
+          additionalMemberData.login_enabled = memberConfig.login_enabled;
+          console.log('[AppProcessor] Additional member login_enabled:', memberConfig.login_enabled);
         }
         
         console.log('[AppProcessor] Processing additional member:', memberConfig.label, 'email:', normalizedEmail, 'data:', additionalMemberData, 'clearFields:', clearFields);
@@ -1201,7 +1237,7 @@ export default async function handler(req, res) {
           isNewMember = true;
           const newMemberData = {
             email: memberEmail,
-            login_enabled: true,
+            login_enabled: additionalMemberData.login_enabled !== undefined ? additionalMemberData.login_enabled : true,
             organization_id: createdOrganizationId || prefill_organization_id || null,
             ...additionalMemberData
           };
