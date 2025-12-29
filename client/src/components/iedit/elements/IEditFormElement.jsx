@@ -772,6 +772,16 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                   console.log(`[IEditFormElement] set_value: ${action.target_field_id} = "${valueToSet}"`);
                 }
               }
+              // For field-source actions that are already active, continuously sync with source field
+              else if ((action.set_value_source || 'static') === 'field' && action.set_value_field_id) {
+                const sourceValue = formValues[action.set_value_field_id];
+                const currentTargetValue = formValues[action.target_field_id];
+                // Only update if source changed and target doesn't match
+                if (sourceValue !== currentTargetValue && sourceValue !== null && sourceValue !== undefined) {
+                  updates[action.target_field_id] = sourceValue;
+                  console.log(`[IEditFormElement] set_value sync: ${action.target_field_id} = "${sourceValue}"`);
+                }
+              }
             }
           }
         }
@@ -800,6 +810,16 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
             if (valueToSet !== null && valueToSet !== undefined) {
               updates[rule.target_field_id] = valueToSet;
               console.log(`[IEditFormElement] legacy set_value: ${rule.target_field_id} = "${valueToSet}"`);
+            }
+          }
+          // For field-source rules that are already active, continuously sync with source field
+          else if ((rule.set_value_source || 'static') === 'field' && rule.set_value_field_id) {
+            const sourceValue = formValues[rule.set_value_field_id];
+            const currentTargetValue = formValues[rule.target_field_id];
+            // Only update if source changed and target doesn't match
+            if (sourceValue !== currentTargetValue && sourceValue !== null && sourceValue !== undefined) {
+              updates[rule.target_field_id] = sourceValue;
+              console.log(`[IEditFormElement] legacy set_value sync: ${rule.target_field_id} = "${sourceValue}"`);
             }
           }
         }
