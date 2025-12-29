@@ -344,8 +344,10 @@ export default async function handler(req, res) {
         console.log('[FormSubmissionEmail] Detected {{set_password_url}} placeholder, generating URL...');
         const passwordUrl = await generatePasswordSetupUrl(memberData.id, memberData.email, baseUrl);
         if (passwordUrl) {
-          result = result.replace(/\{\{\s*set_password_url\s*\}\}/gi, passwordUrl);
-          console.log('[FormSubmissionEmail] Replaced {{set_password_url}} with:', passwordUrl);
+          // Render as HTML anchor tag with "Set your password" text
+          const passwordLink = `<a href="${passwordUrl}" style="color: #0066cc; text-decoration: underline;">Set your password</a>`;
+          result = result.replace(/\{\{\s*set_password_url\s*\}\}/gi, passwordLink);
+          console.log('[FormSubmissionEmail] Replaced {{set_password_url}} with HTML link');
         } else {
           console.warn('[FormSubmissionEmail] Failed to generate password setup URL');
         }
