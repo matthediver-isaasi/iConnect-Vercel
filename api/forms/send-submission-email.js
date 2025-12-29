@@ -205,13 +205,33 @@ export default async function handler(req, res) {
     let organizationData = null;
 
     if (memberIdToUse) {
-      const { data } = await supabase
-        .from('member')
-        .select('id, first_name, last_name, full_name, email, phone, organization_id')
-        .eq('id', memberIdToUse)
-        .single();
-      memberData = data;
-      console.log('[FormSubmissionEmail] Member data loaded:', memberData ? `${memberData.first_name} ${memberData.last_name}` : 'null');
+      // Retry logic to handle race condition where member was just created
+      let retries = 3;
+      let delay = 500; // Start with 500ms delay
+      
+      while (retries > 0 && !memberData) {
+        const { data, error } = await supabase
+          .from('member')
+          .select('id, first_name, last_name, full_name, email, phone, organization_id')
+          .eq('id', memberIdToUse)
+          .single();
+        
+        if (error) {
+          console.error('[FormSubmissionEmail] Error fetching member:', error.message, 'code:', error.code);
+        }
+        
+        if (data) {
+          memberData = data;
+          console.log('[FormSubmissionEmail] Member data loaded:', `${memberData.first_name} ${memberData.last_name}`, 'email:', memberData.email);
+        } else if (retries > 1) {
+          console.log('[FormSubmissionEmail] Member not found, retrying in', delay, 'ms... (retries left:', retries - 1, ')');
+          await new Promise(resolve => setTimeout(resolve, delay));
+          delay *= 2; // Exponential backoff
+        } else {
+          console.log('[FormSubmissionEmail] Member not found after all retries');
+        }
+        retries--;
+      }
       
       // If no organizationIdToUse but member has organization_id, use that
       if (!organizationIdToUse && memberData?.organization_id) {
