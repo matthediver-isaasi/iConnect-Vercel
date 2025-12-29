@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { triggerWorkflows, triggerPreferenceWorkflows } from '../../_lib/workflows.js';
+import { invalidateMemberSessions } from '../../_lib/session.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -169,6 +170,12 @@ export default async function handler(req, res) {
         .single();
 
       if (error) return res.status(500).json({ error: error.message });
+
+      // SECURITY: If login_enabled was changed to false for a member, invalidate all their sessions
+      if (entityNormalized === 'member' && sanitizedBody.login_enabled === false) {
+        console.log(`[Entity PATCH] Member login disabled - invalidating sessions for member ${id}`);
+        await invalidateMemberSessions(id);
+      }
 
       // Derive base URL for workflow email placeholders
       const protocol = req.headers['x-forwarded-proto'] || 'https';
@@ -352,6 +359,10 @@ export default async function handler(req, res) {
       if (entity === 'Member') {
         console.log(`[Member Delete] Starting anonymization and cleanup for member ${id}`);
         
+        // SECURITY: Invalidate all sessions for this member FIRST to force immediate logout
+        const sessionResult = await invalidateMemberSessions(id);
+        console.log(`[Member Delete] Session invalidation result:`, sessionResult);
+        
         // Delete from member-related tables (personal data, preferences, activity)
         const deleteTables = [
           { table: 'member_resource_category', column: 'member_id' },
@@ -431,6 +442,14 @@ export default async function handler(req, res) {
         
         const memberIds = (members || []).map(m => m.id);
         console.log(`[Organization Delete] Found ${memberIds.length} members to delete`);
+        
+        // SECURITY: Invalidate all sessions for all members in this organization
+        if (memberIds.length > 0) {
+          console.log(`[Organization Delete] Invalidating sessions for ${memberIds.length} members`);
+          for (const memberId of memberIds) {
+            await invalidateMemberSessions(memberId);
+          }
+        }
         
         // Anonymize member-related data for all members in this organization
         // (mirrors standalone member delete - keeps member records for audit trail)

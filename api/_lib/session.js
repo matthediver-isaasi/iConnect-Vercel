@@ -218,9 +218,80 @@ export async function getSessionMember(req) {
     
     if (error || !member) return null;
     
+    // Security check: Reject authentication for disabled or deleted members
+    // This ensures immediate logout when admin disables login or deletes member
+    if (member.login_enabled === false) {
+      console.log('[Session] Member login disabled, rejecting session:', member.id);
+      // Delete the session to force logout
+      await supabase.from('session').delete().eq('sid', session.id);
+      return null;
+    }
+    
+    // Check if member is deleted (anonymized email pattern)
+    if (member.email?.startsWith('deleted_') && member.email?.endsWith('@deleted.local')) {
+      console.log('[Session] Member is deleted, rejecting session:', member.id);
+      await supabase.from('session').delete().eq('sid', session.id);
+      return null;
+    }
+    
     return member;
   } catch (err) {
     console.error('Error getting session member:', err);
     return null;
+  }
+}
+
+/**
+ * Invalidate all sessions for a specific member.
+ * Call this when a member is deleted or their login_enabled is set to false.
+ * @param {string} memberId - The member ID to invalidate sessions for
+ * @returns {Promise<{success: boolean, count: number}>}
+ */
+export async function invalidateMemberSessions(memberId) {
+  if (!supabase || !memberId) {
+    return { success: false, count: 0 };
+  }
+  
+  try {
+    // Find all sessions for this member
+    // Sessions store memberId in the sess JSONB column
+    const { data: sessions, error: fetchError } = await supabase
+      .from('session')
+      .select('sid, sess')
+      .not('sess', 'is', null);
+    
+    if (fetchError) {
+      console.error('[Session] Error fetching sessions:', fetchError);
+      return { success: false, count: 0 };
+    }
+    
+    // Filter sessions that belong to this member
+    const memberSessions = (sessions || []).filter(s => {
+      const sessData = typeof s.sess === 'string' ? JSON.parse(s.sess) : s.sess;
+      return sessData?.memberId === memberId;
+    });
+    
+    if (memberSessions.length === 0) {
+      console.log('[Session] No active sessions found for member:', memberId);
+      return { success: true, count: 0 };
+    }
+    
+    // Delete all sessions for this member
+    const sessionIds = memberSessions.map(s => s.sid);
+    const { error: deleteError } = await supabase
+      .from('session')
+      .delete()
+      .in('sid', sessionIds);
+    
+    if (deleteError) {
+      console.error('[Session] Error deleting member sessions:', deleteError);
+      return { success: false, count: 0 };
+    }
+    
+    console.log(`[Session] Invalidated ${sessionIds.length} session(s) for member:`, memberId);
+    return { success: true, count: sessionIds.length };
+  } catch (err) {
+    console.error('[Session] Error invalidating member sessions:', err);
+    return { success: false, count: 0 };
   }
 }
