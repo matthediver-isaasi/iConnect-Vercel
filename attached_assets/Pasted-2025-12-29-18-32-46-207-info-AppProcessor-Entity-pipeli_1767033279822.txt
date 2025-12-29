@@ -1,0 +1,309 @@
+2025-12-29 18:32:46.207 [info] [AppProcessor] Entity pipelines - members: 0 organisations: 1
+2025-12-29 18:32:46.207 [info] [AppProcessor] Form values - all field IDs present: [
+  'field_1765442000359',
+  'field_1765442008304',
+  'field_1765442014900',
+  'field_1765798757196',
+  'field_1765442024867',
+  'field_1765442033285',
+  'field_1766485174845',
+  'field_1766922269585'
+]
+2025-12-29 18:32:46.207 [info] [AppProcessor] Form values sample (first 5 entries): [
+  'field_1765442000359="m"',
+  'field_1765442008304="m"',
+  'field_1765442014900="mat.the.diver@googlemail.com"',
+  'field_1765798757196="job"',
+  'field_1765442024867="teste"'
+]
+2025-12-29 18:32:46.207 [info] [AppProcessor] Entity actions - member: none organization: upsert
+2025-12-29 18:32:46.208 [info] [AppProcessor] Received role_id: null type: object
+2025-12-29 18:32:46.616 [info] [AppProcessor] Entity pipeline fields to skip in legacy field_mappings - member: [] org: [ 'name', 'website_url' ]
+2025-12-29 18:32:46.616 [info] [AppProcessor] Using field_mappings: 11 mappings
+2025-12-29 18:32:46.616 [info] [AppProcessor] Skipping legacy field_mappings for org field (entity_pipelines takes precedence): name
+2025-12-29 18:32:46.616 [info] [AppProcessor] Static mapping: 1c395ccf-7df2-4818-917d-1cd672216f71 = Initial application
+2025-12-29 18:32:46.616 [info] [AppProcessor] Current date mapping: 526c769e-deb9-4c63-9408-c04766ae9614 = 2025-12-29
+2025-12-29 18:32:46.616 [info] [AppProcessor] Skipping legacy field_mappings for org field (entity_pipelines takes precedence): website_url
+2025-12-29 18:32:46.617 [info] [AppProcessor] Org pipelines: 1 Primary found: true
+2025-12-29 18:32:46.617 [info] [AppProcessor] Primary org pipeline mappings: [
+  {
+    "id": "mapping_1765472583158",
+    "target_type": "custom",
+    "target_field": "e201a90e-840b-4555-8cd3-c50aa8d9b19f",
+    "target_entity": "organization",
+    "transformation": "extract_domain",
+    "source_field_id": "field_1765442014900"
+  },
+  {
+    "id": "mapping_1765477399254",
+    "target_type": "core",
+    "target_field": "name",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1765442024867"
+  },
+  {
+    "id": "mapping_1765477572608",
+    "target_type": "custom",
+    "static_value": "",
+    "target_field": "1ff67037-36ee-4ac0-b261-27707550b4e8",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1765442000359"
+  },
+  {
+    "id": "mapping_1765477578998",
+    "target_type": "custom",
+    "static_value": "",
+    "target_field": "a9265da5-d28c-431e-be14-631c15989a8f",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1765442008304"
+  },
+  {
+    "id": "mapping_1765477589707",
+    "target_type": "custom",
+    "static_value": "",
+    "target_field": "4a53827a-d7f0-4e81-b0db-5671f537550a",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1765442014900"
+  },
+  {
+    "id": "mapping_1765523017868",
+    "source_type": "field",
+    "target_type": "custom",
+    "static_value": "",
+    "target_field": "e201a90e-840b-4555-8cd3-c50aa8d9b19f",
+    "target_entity": "organization",
+    "transformation": "extract_domain",
+    "source_field_id": "field_1765442014900"
+  },
+  {
+    "id": "mapping_1765523045588",
+    "source_type": "field",
+    "target_type": "custom",
+    "static_value": "",
+    "target_field": "e201a90e-840b-4555-8cd3-c50aa8d9b19f",
+    "target_entity": "organization",
+    "transformation": "extract_domain",
+    "source_field_id": "field_1765442033285"
+  },
+  {
+    "id": "mapping_1765542418020",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "website_url",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1765442033285"
+  },
+  {
+    "id": "mapping_1765798788814",
+    "source_type": "field",
+    "target_type": "custom",
+    "static_value": "",
+    "target_field": "1833e681-6bb7-4ccc-a953-70dda8cc4920",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1765798757196"
+  },
+  {
+    "id": "mapping_1767031440412",
+    "source_type": "field",
+    "target_type": "custom",
+    "static_value": "",
+    "target_field": "a314451b-4f3f-455f-8cc3-00a5630ea095",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1766485174845"
+  },
+  {
+    "id": "mapping_1767031667693",
+    "source_type": "field",
+    "target_type": "custom",
+    "static_value": "",
+    "target_field": "5a2bbfb4-dca5-42e8-a3ca-f2be2e05736e",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1767031562615"
+  }
+]
+2025-12-29 18:32:46.617 [info] [AppProcessor] Processing organization from entity_pipelines (new format): Primary Organisation mappings: 11
+2025-12-29 18:32:46.617 [info] [AppProcessor] Primary Organisation mappings detail: [
+  {
+    "id": "mapping_1765472583158",
+    "target_type": "custom",
+    "target_field": "e201a90e-840b-4555-8cd3-c50aa8d9b19f",
+    "target_entity": "organization",
+    "transformation": "extract_domain",
+    "source_field_id": "field_1765442014900"
+  },
+  {
+    "id": "mapping_1765477399254",
+    "target_type": "core",
+    "target_field": "name",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1765442024867"
+  },
+  {
+    "id": "mapping_1765477572608",
+    "target_type": "custom",
+    "static_value": "",
+    "target_field": "1ff67037-36ee-4ac0-b261-27707550b4e8",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1765442000359"
+  },
+  {
+    "id": "mapping_1765477578998",
+    "target_type": "custom",
+    "static_value": "",
+    "target_field": "a9265da5-d28c-431e-be14-631c15989a8f",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1765442008304"
+  },
+  {
+    "id": "mapping_1765477589707",
+    "target_type": "custom",
+    "static_value": "",
+    "target_field": "4a53827a-d7f0-4e81-b0db-5671f537550a",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1765442014900"
+  },
+  {
+    "id": "mapping_1765523017868",
+    "source_type": "field",
+    "target_type": "custom",
+    "static_value": "",
+    "target_field": "e201a90e-840b-4555-8cd3-c50aa8d9b19f",
+    "target_entity": "organization",
+    "transformation": "extract_domain",
+    "source_field_id": "field_1765442014900"
+  },
+  {
+    "id": "mapping_1765523045588",
+    "source_type": "field",
+    "target_type": "custom",
+    "static_value": "",
+    "target_field": "e201a90e-840b-4555-8cd3-c50aa8d9b19f",
+    "target_entity": "organization",
+    "transformation": "extract_domain",
+    "source_field_id": "field_1765442033285"
+  },
+  {
+    "id": "mapping_1765542418020",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "website_url",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1765442033285"
+  },
+  {
+    "id": "mapping_1765798788814",
+    "source_type": "field",
+    "target_type": "custom",
+    "static_value": "",
+    "target_field": "1833e681-6bb7-4ccc-a953-70dda8cc4920",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1765798757196"
+  },
+  {
+    "id": "mapping_1767031440412",
+    "source_type": "field",
+    "target_type": "custom",
+    "static_value": "",
+    "target_field": "a314451b-4f3f-455f-8cc3-00a5630ea095",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1766485174845"
+  },
+  {
+    "id": "mapping_1767031667693",
+    "source_type": "field",
+    "target_type": "custom",
+    "static_value": "",
+    "target_field": "5a2bbfb4-dca5-42e8-a3ca-f2be2e05736e",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1767031562615"
+  }
+]
+2025-12-29 18:32:46.618 [info] [AppProcessor] Form values for Primary Organisation:
+2025-12-29 18:32:46.618 [info] - e201a90e-840b-4555-8cd3-c50aa8d9b19f: form_values["field_1765442014900"] = "mat.the.diver@googlemail.com"
+2025-12-29 18:32:46.618 [info] - name: form_values["field_1765442024867"] = "teste"
+2025-12-29 18:32:46.618 [info] - 1ff67037-36ee-4ac0-b261-27707550b4e8: form_values["field_1765442000359"] = "m"
+2025-12-29 18:32:46.618 [info] - a9265da5-d28c-431e-be14-631c15989a8f: form_values["field_1765442008304"] = "m"
+2025-12-29 18:32:46.618 [info] - 4a53827a-d7f0-4e81-b0db-5671f537550a: form_values["field_1765442014900"] = "mat.the.diver@googlemail.com"
+2025-12-29 18:32:46.618 [info] - e201a90e-840b-4555-8cd3-c50aa8d9b19f: form_values["field_1765442014900"] = "mat.the.diver@googlemail.com"
+2025-12-29 18:32:46.618 [info] - e201a90e-840b-4555-8cd3-c50aa8d9b19f: form_values["field_1765442033285"] = "test.com"
+2025-12-29 18:32:46.618 [info] - website_url: form_values["field_1765442033285"] = "test.com"
+2025-12-29 18:32:46.618 [info] - 1833e681-6bb7-4ccc-a953-70dda8cc4920: form_values["field_1765798757196"] = "job"
+2025-12-29 18:32:46.618 [info] - a314451b-4f3f-455f-8cc3-00a5630ea095: form_values["field_1766485174845"] = "Republic of Ireland"
+2025-12-29 18:32:46.618 [info] - 5a2bbfb4-dca5-42e8-a3ca-f2be2e05736e: form_values["field_1767031562615"] = "undefined"
+2025-12-29 18:32:46.618 [info] [AppProcessor] Custom field mapping: target=e201a90e-840b-4555-8cd3-c50aa8d9b19f, source=field_1765442014900, value="googlemail.com", hasValue=true
+2025-12-29 18:32:46.618 [info] [AppProcessor] Added custom field value: e201a90e-840b-4555-8cd3-c50aa8d9b19f = "googlemail.com"
+2025-12-29 18:32:46.618 [info] [AppProcessor] Custom field mapping: target=1ff67037-36ee-4ac0-b261-27707550b4e8, source=field_1765442000359, value="m", hasValue=true
+2025-12-29 18:32:46.618 [info] [AppProcessor] Added custom field value: 1ff67037-36ee-4ac0-b261-27707550b4e8 = "m"
+2025-12-29 18:32:46.618 [info] [AppProcessor] Custom field mapping: target=a9265da5-d28c-431e-be14-631c15989a8f, source=field_1765442008304, value="m", hasValue=true
+2025-12-29 18:32:46.618 [info] [AppProcessor] Added custom field value: a9265da5-d28c-431e-be14-631c15989a8f = "m"
+2025-12-29 18:32:46.619 [info] [AppProcessor] Custom field mapping: target=4a53827a-d7f0-4e81-b0db-5671f537550a, source=field_1765442014900, value="mat.the.diver@googlemail.com", hasValue=true
+2025-12-29 18:32:46.619 [info] [AppProcessor] Added custom field value: 4a53827a-d7f0-4e81-b0db-5671f537550a = "mat.the.diver@googlemail.com"
+2025-12-29 18:32:46.619 [info] [AppProcessor] Custom field mapping: target=e201a90e-840b-4555-8cd3-c50aa8d9b19f, source=field_1765442014900, value="googlemail.com", hasValue=true
+2025-12-29 18:32:46.619 [info] [AppProcessor] Added custom field value: e201a90e-840b-4555-8cd3-c50aa8d9b19f = "googlemail.com"
+2025-12-29 18:32:46.619 [info] [AppProcessor] Custom field mapping: target=e201a90e-840b-4555-8cd3-c50aa8d9b19f, source=field_1765442033285, value="test.com", hasValue=true
+2025-12-29 18:32:46.619 [info] [AppProcessor] Added custom field value: e201a90e-840b-4555-8cd3-c50aa8d9b19f = "test.com"
+2025-12-29 18:32:46.619 [info] [AppProcessor] Custom field mapping: target=1833e681-6bb7-4ccc-a953-70dda8cc4920, source=field_1765798757196, value="job", hasValue=true
+2025-12-29 18:32:46.619 [info] [AppProcessor] Added custom field value: 1833e681-6bb7-4ccc-a953-70dda8cc4920 = "job"
+2025-12-29 18:32:46.619 [info] [AppProcessor] Custom field mapping: target=a314451b-4f3f-455f-8cc3-00a5630ea095, source=field_1766485174845, value="Republic of Ireland", hasValue=true
+2025-12-29 18:32:46.619 [info] [AppProcessor] Added custom field value: a314451b-4f3f-455f-8cc3-00a5630ea095 = "Republic of Ireland"
+2025-12-29 18:32:46.619 [info] [AppProcessor] Custom field mapping: target=5a2bbfb4-dca5-42e8-a3ca-f2be2e05736e, source=field_1767031562615, value="undefined", hasValue=false
+2025-12-29 18:32:46.619 [info] [AppProcessor] Skipped custom field (no value): 5a2bbfb4-dca5-42e8-a3ca-f2be2e05736e
+2025-12-29 18:32:46.621 [info] [AppProcessor] Extracted data: {
+  memberData: {},
+  orgData: { name: 'teste', website_url: 'test.com' },
+  memberCustomFields: 0,
+  orgCustomFields: 8,
+  orgCustomFieldsDetail: [
+    {
+      field_id: 'e201a90e-840b-4555-8cd3-c50aa8d9b19f',
+      value: '["googlemail.com","test.com"]'
+    },
+    { field_id: '1ff67037-36ee-4ac0-b261-27707550b4e8', value: 'm' },
+    { field_id: 'a9265da5-d28c-431e-be14-631c15989a8f', value: 'm' },
+    {
+      field_id: '4a53827a-d7f0-4e81-b0db-5671f537550a',
+      value: 'mat.the.diver@googlemail.com'
+    },
+    {
+      field_id: '1c395ccf-7df2-4818-917d-1cd672216f71',
+      value: 'Initial application'
+    },
+    {
+      field_id: '526c769e-deb9-4c63-9408-c04766ae9614',
+      value: '2025-12-29'
+    },
+    { field_id: '1833e681-6bb7-4ccc-a953-70dda8cc4920', value: 'job' },
+    {
+      field_id: 'a314451b-4f3f-455f-8cc3-00a5630ea095',
+      value: 'Republic of Ireland'
+    }
+  ]
+}
+2025-12-29 18:32:46.621 [info] [AppProcessor] Org processing enabled. Action: upsert OrgData: { name: 'teste', website_url: 'test.com' } PrefillOrgId: null
+2025-12-29 18:32:46.760 [info] [AppProcessor] Found org by name: undefined
+2025-12-29 18:32:46.760 [info] [AppProcessor] Creating organization with data: {
+  name: 'teste',
+  invoicing_email: null,
+  phone: null,
+  website_url: 'test.com',
+  created_at: '2025-12-29T18:32:46.754Z'
+}
+2025-12-29 18:32:46.905 [info] [AppProcessor] Created organization: 347e48c4-20ae-4619-a855-f26295e93a90

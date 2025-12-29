@@ -391,12 +391,14 @@ export default async function handler(req, res) {
             // Custom field
             const customFieldId = mapping.target_field;
             const prefField = prefFieldMap.get(customFieldId);
-            console.log(`[AppProcessor] Custom field mapping: target=${customFieldId}, source=${mapping.source_field_id}, value="${value}", hasValue=${value !== undefined && value !== null && value !== ''}`);
-            if (value !== undefined && value !== null && value !== '') {
+            const hasValue = value !== undefined && value !== null && value !== '';
+            const skipReason = value === undefined ? 'undefined' : value === null ? 'null' : value === '' ? 'empty string' : null;
+            console.log(`[AppProcessor] Custom field mapping: target=${customFieldId}, source=${mapping.source_field_id}, value=${JSON.stringify(value)}, hasValue=${hasValue}${skipReason ? `, skipReason=${skipReason}` : ''}`);
+            if (hasValue) {
               addCustomFieldValue(customFieldsMap, customFieldId, value, prefField);
               console.log(`[AppProcessor] Added custom field value: ${customFieldId} = "${value}"`);
             } else {
-              console.log(`[AppProcessor] Skipped custom field (no value): ${customFieldId}`);
+              console.log(`[AppProcessor] Skipped custom field: ${customFieldId} (reason: ${skipReason})`);
             }
           }
         }

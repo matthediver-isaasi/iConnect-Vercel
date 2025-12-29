@@ -184,11 +184,23 @@ export default function FormViewPage() {
       if (field.type === 'terms_conditions') {
         fieldDefaults[field.id] = false;
       }
-      // Initialize hidden fields with their default_value so they're included in form submission
+      // Initialize hidden fields so they're included in form submission
       // This ensures hidden fields mapped to entity_pipelines have their values available
-      if (field.starts_hidden && field.default_value !== undefined && field.default_value !== null && field.default_value !== '') {
-        fieldDefaults[field.id] = field.default_value;
-        console.log(`[FormView Init] Hidden field "${field.label}" (${field.id}) initialized with default_value:`, field.default_value);
+      // Fields with starts_hidden need to be initialized even without default_value
+      // so that set_value rules can populate them
+      // Skip boolean fields as they're already handled above with proper false default
+      if ((field.starts_hidden === true || field.starts_hidden === 'true') && field.type !== 'boolean') {
+        // Only initialize if not already set (preserve earlier defaults)
+        if (fieldDefaults[field.id] === undefined) {
+          if (field.default_value !== undefined && field.default_value !== null && field.default_value !== '') {
+            fieldDefaults[field.id] = field.default_value;
+            console.log(`[FormView Init] Hidden field "${field.label}" (${field.id}) initialized with default_value:`, field.default_value);
+          } else {
+            // Initialize with empty string so set_value rules can populate it
+            fieldDefaults[field.id] = '';
+            console.log(`[FormView Init] Hidden field "${field.label}" (${field.id}) initialized with empty string (no default_value)`);
+          }
+        }
       }
     }
     
