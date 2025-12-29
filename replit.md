@@ -16,6 +16,15 @@ The frontend uses React 18 with TypeScript/JSX, Vite, TanStack Query, shadcn/ui 
 
 The backend is built with Express.js and uses PostgreSQL (Neon serverless) with Drizzle ORM. It follows a generic entity CRUD API pattern, with password-based authentication and server-side session management. An admin security model implements role-based access control. Server-side functions handle specific operations like magic links, Stripe payments, bookings, and event synchronization.
 
+## Session Security (Dec 2025)
+
+Immediate session invalidation is enforced when:
+- A member's `login_enabled` is set to false
+- A member is deleted (anonymized)
+- An organization is deleted (all its members are immediately logged out)
+
+The `getSessionMember()` function validates `login_enabled` status on every authenticated request. If disabled or deleted, the session is immediately destroyed and the request is rejected. The `invalidateMemberSessions()` helper function is called proactively during admin actions to ensure all active sessions are removed before changes take effect.
+
 ## Data Model
 
 The data model includes core entities like Member, Organization, Role, TeamMember, supporting role segmentation, event/booking management (Zoho Backstage synced and one-off events, guest checkout), content management (BlogPost, Resource), and a dynamic page builder. A custom forms system supports various layouts and advanced uniqueness validation. Workflows provide automation rules triggered by field changes or record creation/updates. Additional features include Speaker profiles, Card Deck content, navigation/settings configuration, communication preferences, custom fields, training funds, and voucher codes.
