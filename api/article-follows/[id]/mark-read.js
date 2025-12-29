@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { getSession } from '../../_lib/session.js';
+import { getSessionMember } from '../../_lib/session.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -17,8 +17,8 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const session = await getSession(req);
-  const memberId = session?.data?.memberId;
+  const member = await getSessionMember(req);
+  const memberId = member?.id;
 
   if (!memberId) {
     return res.status(401).json({ error: 'Authentication required' });

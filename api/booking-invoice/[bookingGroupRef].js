@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { getSession } from '../_lib/session.js';
+import { getSessionMember } from '../_lib/session.js';
 import { fetchXeroInvoicePdf } from '../_lib/xero.js';
 
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
@@ -14,9 +14,9 @@ export default async function handler(req, res) {
     return res.status(503).json({ error: 'Supabase not configured' });
   }
 
-  // Check authentication
-  const session = await getSession(req);
-  if (!session?.data?.memberId) {
+  // Check authentication - also validates member still exists
+  const sessionMember = await getSessionMember(req);
+  if (!sessionMember) {
     return res.status(401).json({ error: 'Authentication required' });
   }
 
@@ -46,16 +46,9 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Invoice not found for this booking' });
     }
 
-    // Get logged-in member's organization to check authorization
-    const { data: member } = await supabase
-      .from('member')
-      .select('organization_id')
-      .eq('id', session.data.memberId)
-      .single();
-
     // Verify authorization - member must be the one who made the booking OR from the same organization
-    const isSameMember = booking.member_id === session.data.memberId;
-    const isSameOrg = member?.organization_id && booking.organization_id && member.organization_id === booking.organization_id;
+    const isSameMember = booking.member_id === sessionMember.id;
+    const isSameOrg = sessionMember.organization_id && booking.organization_id && sessionMember.organization_id === booking.organization_id;
     
     if (!isSameMember && !isSameOrg) {
       return res.status(403).json({ error: 'Not authorized to view this invoice' });

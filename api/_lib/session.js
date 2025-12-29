@@ -216,7 +216,12 @@ export async function getSessionMember(req) {
       .eq('id', session.data.memberId)
       .single();
     
-    if (error || !member) return null;
+    // If member doesn't exist at all (hard deleted), clean up the stale session
+    if (error || !member) {
+      console.log('[Session] Member not found in database, cleaning up stale session:', session.data.memberId);
+      await supabase.from('session').delete().eq('sid', session.id);
+      return null;
+    }
     
     // Security check: Reject authentication for disabled or deleted members
     // This ensures immediate logout when admin disables login or deletes member
