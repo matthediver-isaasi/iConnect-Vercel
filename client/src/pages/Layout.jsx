@@ -1072,7 +1072,7 @@ useEffect(() => {
     };
 
     handleAuth();
-  }, [visibilitySettingsFetched, pageVisibilitySettings]); // Run when visibility settings are loaded
+  }, [visibilitySettingsFetched, pageVisibilitySettings, location.pathname]); // Run on visibility settings load AND on every navigation
 
   // Update last_activity on navigation (throttled to once every 10 minutes)
   useEffect(() => {
