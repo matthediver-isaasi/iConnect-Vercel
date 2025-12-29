@@ -188,12 +188,24 @@ export default async function handler(req, res) {
           map.set(fieldId, []);
         }
         const arr = map.get(fieldId);
-        // Add value if not already present (dedupe)
-        if (!arr.includes(value)) {
-          arr.push(value);
+        
+        // Handle array values (from multi-select checkboxes)
+        if (Array.isArray(value)) {
+          for (const item of value) {
+            // Add each item if not already present (dedupe)
+            if (!arr.includes(item)) {
+              arr.push(item);
+            }
+          }
+        } else {
+          // Add single value if not already present (dedupe)
+          if (!arr.includes(value)) {
+            arr.push(value);
+          }
         }
       } else {
         // For non-list fields, just store the value (last one wins)
+        // If value is an array, store it as-is (will be JSON stringified later)
         map.set(fieldId, value);
       }
     };
