@@ -1175,7 +1175,7 @@ export default function WorkflowManagementPage() {
                                       <div className="mt-4 p-3 border rounded-md bg-muted/30">
                                         <Label className="text-sm font-medium mb-2 block">Template Placeholder Mappings</Label>
                                         <p className="text-xs text-muted-foreground mb-3">
-                                          Map each placeholder to a field from the {formData.entity_type === 'organization' ? 'organization' : 'member'} record.
+                                          Map each placeholder to a member or organisation field.
                                         </p>
                                         <div className="space-y-2">
                                           {placeholders.map((placeholder) => (
@@ -1204,18 +1204,36 @@ export default function WorkflowManagementPage() {
                                                 <SelectContent className="max-h-[300px] overflow-y-auto">
                                                   <SelectItem value="_auto">Auto (use placeholder name)</SelectItem>
                                                   <SelectGroup>
-                                                    <SelectLabel>Core Fields</SelectLabel>
-                                                    {getEntitySpecificFields(formData.entity_type).core.map((field) => (
-                                                      <SelectItem key={`core-${field.id}`} value={`core:${field.id}`}>
+                                                    <SelectLabel>Member Core Fields</SelectLabel>
+                                                    {availableFieldsGrouped.memberCore.map((field) => (
+                                                      <SelectItem key={`member_core-${field.id}`} value={`member_core:${field.id}`}>
                                                         {field.label}
                                                       </SelectItem>
                                                     ))}
                                                   </SelectGroup>
-                                                  {getEntitySpecificFields(formData.entity_type).custom.length > 0 && (
+                                                  {availableFieldsGrouped.memberCustom.length > 0 && (
                                                     <SelectGroup>
-                                                      <SelectLabel>Custom Fields</SelectLabel>
-                                                      {getEntitySpecificFields(formData.entity_type).custom.map((field) => (
-                                                        <SelectItem key={`custom-${field.id}`} value={`custom:${field.id}`}>
+                                                      <SelectLabel>Member Custom Fields</SelectLabel>
+                                                      {availableFieldsGrouped.memberCustom.map((field) => (
+                                                        <SelectItem key={`member_custom-${field.id}`} value={`member_custom:${field.id}`}>
+                                                          {field.label}
+                                                        </SelectItem>
+                                                      ))}
+                                                    </SelectGroup>
+                                                  )}
+                                                  <SelectGroup>
+                                                    <SelectLabel>Organisation Core Fields</SelectLabel>
+                                                    {availableFieldsGrouped.orgCore.map((field) => (
+                                                      <SelectItem key={`org_core-${field.id}`} value={`org_core:${field.id}`}>
+                                                        {field.label}
+                                                      </SelectItem>
+                                                    ))}
+                                                  </SelectGroup>
+                                                  {availableFieldsGrouped.orgCustom.length > 0 && (
+                                                    <SelectGroup>
+                                                      <SelectLabel>Organisation Custom Fields</SelectLabel>
+                                                      {availableFieldsGrouped.orgCustom.map((field) => (
+                                                        <SelectItem key={`org_custom-${field.id}`} value={`org_custom:${field.id}`}>
                                                           {field.label}
                                                         </SelectItem>
                                                       ))}
