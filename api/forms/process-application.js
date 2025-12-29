@@ -13,6 +13,21 @@ const supabase = supabaseUrl && supabaseServiceKey
 // Fields that should be coerced to boolean values
 const BOOLEAN_CORE_FIELDS = ['show_in_directory', 'login_enabled'];
 
+// Helper function to check if a value is "empty" (undefined, null, or empty string)
+const isEmptyValue = (value) => value === undefined || value === null || value === '';
+
+// Helper function to check if a field has a usable value for assignment
+// For boolean fields, we ALWAYS assign (even undefined means false - toggle was off)
+const hasAssignableValue = (fieldName, value) => {
+  if (BOOLEAN_CORE_FIELDS.includes(fieldName)) {
+    // For boolean fields, always return true - if a mapping exists, we should assign
+    // Undefined/null/empty will be coerced to false by coerceBooleanField
+    return true;
+  }
+  // For non-boolean fields, skip empty values
+  return !isEmptyValue(value);
+};
+
 // Helper function to coerce values to boolean for boolean fields
 const coerceBooleanField = (fieldName, value) => {
   if (!BOOLEAN_CORE_FIELDS.includes(fieldName)) {
@@ -21,6 +36,10 @@ const coerceBooleanField = (fieldName, value) => {
   // Already a boolean
   if (typeof value === 'boolean') {
     return value;
+  }
+  // Handle undefined, null, or empty string as false
+  if (value === undefined || value === null || value === '') {
+    return false;
   }
   // Handle string representations
   if (typeof value === 'string') {
@@ -36,8 +55,8 @@ const coerceBooleanField = (fieldName, value) => {
   if (typeof value === 'number') {
     return value !== 0;
   }
-  // Default: return original value (let database handle it)
-  return value;
+  // Default: treat as false for boolean fields
+  return false;
 };
 
 // Helper function to apply value transformations
@@ -307,7 +326,10 @@ export default async function handler(req, res) {
           // Form field mapping (default)
           if (!source_field_id) continue;
           value = form_values[source_field_id];
-          if (value === undefined || value === null || value === '') continue;
+          
+          // For boolean fields in member entities, allow empty/false through (they mean false)
+          const isMemberBooleanField = target_type === 'core' && target_entity === 'member' && BOOLEAN_CORE_FIELDS.includes(target_field);
+          if (!isMemberBooleanField && (value === undefined || value === null || value === '')) continue;
           
           // Apply transformation only for field mappings
           if (transformation && transformation !== 'none') {
@@ -317,7 +339,10 @@ export default async function handler(req, res) {
         
         if (target_type === 'core') {
           if (target_entity === 'member') {
-            memberData[target_field] = coerceBooleanField(target_field, value);
+            // Use hasAssignableValue to properly handle boolean fields
+            if (hasAssignableValue(target_field, value)) {
+              memberData[target_field] = coerceBooleanField(target_field, value);
+            }
           } else if (target_entity === 'organization') {
             orgData[target_field] = value;
           }
@@ -334,12 +359,24 @@ export default async function handler(req, res) {
       // Fallback: Use legacy core_field_mapping and custom_field_id on fields
       for (const field of fields) {
         const value = form_values[field.id];
-        if (value === undefined || value === null || value === '') continue;
+        
+        // Check if this is a boolean member core field - allow empty/false through
+        let isMemberBooleanField = false;
+        if (field.core_field_mapping) {
+          const [entity, fieldName] = field.core_field_mapping.split('.');
+          isMemberBooleanField = entity === 'member' && BOOLEAN_CORE_FIELDS.includes(fieldName);
+        }
+        
+        // For non-boolean fields, skip empty values
+        if (!isMemberBooleanField && (value === undefined || value === null || value === '')) continue;
 
         if (field.core_field_mapping) {
           const [entity, fieldName] = field.core_field_mapping.split('.');
           if (entity === 'member') {
-            memberData[fieldName] = coerceBooleanField(fieldName, value);
+            // Use hasAssignableValue to properly handle boolean fields
+            if (hasAssignableValue(fieldName, value)) {
+              memberData[fieldName] = coerceBooleanField(fieldName, value);
+            }
           } else if (entity === 'organization') {
             orgData[fieldName] = value;
           }
@@ -426,7 +463,8 @@ export default async function handler(req, res) {
           if (mapping.target_type === 'core') {
             // Map to database field name using config
             const dbKey = coreFieldMappingConfig[mapping.target_field] || mapping.target_field;
-            if (value !== undefined && value !== null && value !== '') {
+            // Use hasAssignableValue to allow boolean false/empty through for boolean fields
+            if (hasAssignableValue(dbKey, value)) {
               // Coerce boolean fields for member entities
               dataObj[dbKey] = targetEntity === 'member' ? coerceBooleanField(dbKey, value) : value;
             }
@@ -462,7 +500,8 @@ export default async function handler(req, res) {
             dataObj[dbKey] = null;
           } else {
             const val = form_values[fieldId];
-            if (val !== undefined && val !== null && val !== '') {
+            // Use hasAssignableValue to allow boolean false/empty through for boolean fields
+            if (hasAssignableValue(dbKey, val)) {
               // Coerce boolean fields for member entities
               dataObj[dbKey] = targetEntity === 'member' ? coerceBooleanField(dbKey, val) : val;
             }
@@ -1112,7 +1151,8 @@ export default async function handler(req, res) {
             
             if (mapping.target_type === 'core') {
               const dbKey = coreFieldMappings[mapping.target_field] || mapping.target_field;
-              if (value !== undefined && value !== null && value !== '') {
+              // Use hasAssignableValue to allow boolean false/empty through for boolean fields
+              if (hasAssignableValue(dbKey, value)) {
                 // Coerce boolean fields for member entities
                 additionalMemberData[dbKey] = coerceBooleanField(dbKey, value);
               }
@@ -1151,7 +1191,7 @@ export default async function handler(req, res) {
             if (fieldId === '__clear__') {
               clearFields.push(dbKey);
               additionalMemberData[dbKey] = null;
-            } else if (form_values[fieldId] !== undefined && form_values[fieldId] !== null && form_values[fieldId] !== '') {
+            } else if (hasAssignableValue(dbKey, form_values[fieldId])) {
               // Coerce boolean fields for member entities
               additionalMemberData[dbKey] = coerceBooleanField(dbKey, form_values[fieldId]);
             }
