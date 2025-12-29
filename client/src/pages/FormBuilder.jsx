@@ -3370,6 +3370,18 @@ export default function FormBuilderPage() {
                                     ))}
                                   </SelectContent>
                                 </Select>
+                                <div className="flex items-center gap-1.5">
+                                  <Switch
+                                    checked={memberConfig.login_enabled !== false}
+                                    onCheckedChange={(checked) => {
+                                      const updated = [...formData.entity_pipelines.members];
+                                      updated[memberIdx] = { ...updated[memberIdx], login_enabled: checked };
+                                      setFormData(prev => ({ ...prev, entity_pipelines: { ...prev.entity_pipelines, members: updated } }));
+                                    }}
+                                    data-testid={`switch-member-login-${memberIdx}`}
+                                  />
+                                  <Label className="text-xs text-slate-600">Login</Label>
+                                </div>
                                 {!hasEmailMapping && (
                                   <span className="text-xs text-amber-600 font-medium">Email mapping required</span>
                                 )}

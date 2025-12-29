@@ -2236,8 +2236,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         organization_entity_action = 'none', // 'none', 'create', 'update', 'upsert'
         submission_id,   // Optional: link back to FormSubmission record
         prefill_organization_id,  // Optional: organization ID from prefill source (for linking new members)
-        role_id          // Optional: role ID from form conditional logic (set_role action)
+        role_id,         // Optional: role ID from form conditional logic (set_role action)
+        entity_pipelines // Unified entity pipelines configuration with login_enabled settings
       } = req.body;
+      
+      // Extract login_enabled from primary member entity pipeline (defaults to true if not specified)
+      const primaryMemberConfig = entity_pipelines?.members?.find((m: any) => m.isPrimary) || entity_pipelines?.members?.[0];
+      const memberLoginEnabled = primaryMemberConfig?.login_enabled !== false;
 
       if (!form_values || typeof form_values !== 'object') {
         return res.status(400).json({ error: 'form_values is required' });
@@ -2254,6 +2259,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       console.log('[AppProcessor] Entity actions - member:', memberAction, 'organization:', orgAction);
       console.log('[AppProcessor] Received role_id:', role_id, 'type:', typeof role_id);
+      console.log('[AppProcessor] Member login_enabled:', memberLoginEnabled, '(from entity_pipelines:', !!entity_pipelines, ')');
 
       // Idempotency check: if submission_id provided, check if already processed
       if (submission_id) {
@@ -2575,7 +2581,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               first_name: memberData.first_name || '',
               last_name: memberData.last_name || '',
               organization_id: orgIdForNewMember,
-              login_enabled: true,
+              login_enabled: memberLoginEnabled,
               created_on: new Date().toISOString()
             };
             // Add optional fields if provided
