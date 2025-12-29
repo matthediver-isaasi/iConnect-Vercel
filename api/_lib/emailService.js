@@ -187,25 +187,37 @@ export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bc
 export function replacePlaceholders(template, entityType, entityData) {
   if (!template) return '';
   
+  console.log(`[replacePlaceholders] entityType="${entityType}", entityData keys: ${entityData ? Object.keys(entityData).join(', ') : 'null'}`);
+  
   // First handle {{placeholder}} syntax (form field mappings)
   let result = template.replace(/\{\{(\w+(?:\.\w+)?)\}\}/g, (match, path) => {
     const parts = path.split('.');
+    console.log(`[replacePlaceholders] {{}} match="${match}", path="${path}", parts=${JSON.stringify(parts)}, parts[0]="${parts[0]}", entityType="${entityType}"`);
     if (parts[0] === entityType || parts[0] === 'record') {
       const fieldName = parts[1] || parts[0];
-      return entityData?.[fieldName] || match;
+      const value = entityData?.[fieldName];
+      console.log(`[replacePlaceholders] {{}} prefix match: fieldName="${fieldName}", value="${value}"`);
+      return value || match;
     }
-    return entityData?.[path] || match;
+    const directValue = entityData?.[path];
+    console.log(`[replacePlaceholders] {{}} direct lookup: path="${path}", value="${directValue}"`);
+    return directValue || match;
   });
   
   // Then handle [[placeholder]] syntax (core database values like [[organization.id]], [[member.email]])
   result = result.replace(/\[\[(\w+(?:\.\w+)?)\]\]/g, (match, path) => {
     const parts = path.split('.');
+    console.log(`[replacePlaceholders] [[]] match="${match}", path="${path}", parts=${JSON.stringify(parts)}, parts[0]="${parts[0]}", entityType="${entityType}"`);
     // Handle patterns like [[organization.id]], [[member.email]], [[record.field]]
     if (parts[0] === entityType || parts[0] === 'record' || parts[0] === 'organization' || parts[0] === 'member') {
       const fieldName = parts[1] || parts[0];
-      return entityData?.[fieldName] || match;
+      const value = entityData?.[fieldName];
+      console.log(`[replacePlaceholders] [[]] prefix match: fieldName="${fieldName}", value="${value}"`);
+      return value || match;
     }
-    return entityData?.[path] || match;
+    const directValue = entityData?.[path];
+    console.log(`[replacePlaceholders] [[]] direct lookup: path="${path}", value="${directValue}"`);
+    return directValue || match;
   });
   
   return result;

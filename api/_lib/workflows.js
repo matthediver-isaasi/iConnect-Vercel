@@ -383,8 +383,13 @@ async function executeWorkflowActions(workflow, entityType, entityId, entityData
       bccResolved = await resolveFieldIdPlaceholder(bccResolved, entityType, entityId);
       const bcc = bccResolved ? replacePlaceholders(bccResolved, entityType, entityData) : undefined;
       
+      console.log(`[Workflows] Before replacePlaceholders - entityType: "${entityType}", entityData keys: ${entityData ? Object.keys(entityData).join(', ') : 'null'}`);
+      console.log(`[Workflows] entityData sample: ${entityData ? JSON.stringify({ first_name: entityData.first_name, last_name: entityData.last_name, email: entityData.email, name: entityData.name }) : 'null'}`);
+      console.log(`[Workflows] Subject before: "${subject}"`);
       subject = replacePlaceholders(subject, entityType, entityData);
       body = replacePlaceholders(body, entityType, entityData);
+      console.log(`[Workflows] Subject after: "${subject}"`);
+      console.log(`[Workflows] Body after (first 500 chars): "${body?.substring(0, 500)}"`)
       
       // Process special placeholders like {{set_password_url}}
       console.log(`[Workflows] baseUrl: "${baseUrl}", entityType: "${entityType}", entityId: "${entityId}"`);
