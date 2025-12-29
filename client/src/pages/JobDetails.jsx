@@ -318,22 +318,22 @@ export default function JobDetailsPage() {
                       </h3>
                     </div>
                     <div className="flex gap-2">
-                      <button
+                      <AGCASButton
                         onClick={handleLinkedInShare}
-                        className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-[#0A66C2] hover:bg-[#004182] text-white rounded-lg transition-colors"
-                        title="Share on LinkedIn"
-                      >
-                        <Linkedin className="w-4 h-4" />
-                        <span className="text-sm font-medium">LinkedIn</span>
-                      </button>
-                      <button
+                        text="LinkedIn"
+                        icon={Linkedin}
+                        size="medium"
+                        className="flex-1"
+                        data-testid="button-share-linkedin"
+                      />
+                      <AGCASButton
                         onClick={handleEmailShare}
-                        className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-600 hover:bg-slate-700 text-white rounded-lg transition-colors"
-                        title="Share via Email"
-                      >
-                        <Mail className="w-4 h-4" />
-                        <span className="text-sm font-medium">Email</span>
-                      </button>
+                        text="Email"
+                        icon={Mail}
+                        size="medium"
+                        className="flex-1"
+                        data-testid="button-share-email"
+                      />
                     </div>
                   </div>
                 </CardContent>
