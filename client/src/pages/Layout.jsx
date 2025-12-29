@@ -978,13 +978,18 @@ useEffect(() => {
             if (member.organization_id && !member.is_team_member) {
               fetchOrganizationInfo(member.organization_id);
             }
-            return true; // Session is valid
+            return { valid: true, serverResponded: true }; // Session is valid
+          } else {
+            // Server explicitly returned null - member no longer exists or is disabled
+            // This is different from a network error - the server is telling us the session is invalid
+            console.log('[Layout] Server returned null for /api/auth/me - member deleted or disabled');
+            return { valid: false, serverResponded: true };
           }
         }
-        return false; // No server session
+        return { valid: false, serverResponded: false }; // Server error
       } catch (error) {
         console.log('[Layout] Server session check failed, falling back to sessionStorage');
-        return false;
+        return { valid: false, serverResponded: false };
       }
     };
 
@@ -1003,8 +1008,28 @@ useEffect(() => {
       }
 
       // Try server session first (for password-based auth with cross-tab persistence)
-      const hasServerSession = await checkServerSession();
-      if (hasServerSession) {
+      const sessionResult = await checkServerSession();
+      
+      // If server explicitly said the session is invalid (e.g., member deleted/disabled)
+      // and we have cached data in localStorage, we need to clear it and log out
+      if (sessionResult.serverResponded && !sessionResult.valid) {
+        const storedMember = localStorage.getItem('agcas_member');
+        if (storedMember) {
+          console.log('[Layout] Server invalidated session - clearing localStorage and logging out');
+          localStorage.removeItem('agcas_member');
+          localStorage.removeItem('agcas_organization');
+          setMemberInfo(null);
+          setOrganizationInfo(null);
+          
+          // For non-public pages, redirect to login
+          if (visibility !== 'hybrid') {
+            window.location.href = createPageUrl('Home');
+          }
+          return;
+        }
+      }
+      
+      if (sessionResult.valid) {
         return; // Already authenticated via server session
       }
 
@@ -1018,29 +1043,31 @@ useEffect(() => {
         // Member is logged in via sessionStorage, continue to validate
       }
 
-      // Fall back to sessionStorage for backward compatibility
-      const storedMember = localStorage.getItem('agcas_member');
-      if (!storedMember) {
-        window.location.href = createPageUrl('Home');
-        return;
-      }
+      // Fall back to sessionStorage for backward compatibility (only if server didn't respond)
+      if (!sessionResult.serverResponded) {
+        const storedMember = localStorage.getItem('agcas_member');
+        if (!storedMember) {
+          window.location.href = createPageUrl('Home');
+          return;
+        }
 
-      const member = JSON.parse(storedMember);
+        const member = JSON.parse(storedMember);
 
-      if (member.sessionExpiry && new Date(member.sessionExpiry) < new Date()) {
-        localStorage.removeItem('agcas_member');
-        window.location.href = createPageUrl('Home');
-        return;
-      }
+        if (member.sessionExpiry && new Date(member.sessionExpiry) < new Date()) {
+          localStorage.removeItem('agcas_member');
+          window.location.href = createPageUrl('Home');
+          return;
+        }
 
-      // Only update memberInfo if it's actually different (prevent unnecessary re-renders)
-      if (!memberInfo || JSON.stringify(memberInfo) !== JSON.stringify(member)) {
-        setMemberInfo(member);
-      }
+        // Only update memberInfo if it's actually different (prevent unnecessary re-renders)
+        if (!memberInfo || JSON.stringify(memberInfo) !== JSON.stringify(member)) {
+          setMemberInfo(member);
+        }
 
-      // Only fetch organization info for regular members (not team members)
-      if (member.organization_id && !member.is_team_member) {
-        fetchOrganizationInfo(member.organization_id);
+        // Only fetch organization info for regular members (not team members)
+        if (member.organization_id && !member.is_team_member) {
+          fetchOrganizationInfo(member.organization_id);
+        }
       }
     };
 
