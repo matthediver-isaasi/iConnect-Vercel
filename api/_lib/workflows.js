@@ -176,27 +176,52 @@ async function applyFieldMappings(template, fieldMappings, entityType, entityId,
   for (const [placeholder, mapping] of Object.entries(fieldMappings)) {
     if (!mapping) continue; // Skip auto mappings (null)
     
-    const [fieldType, fieldId] = mapping.split(':');
+    // Handle prefixes: org_core, org_custom, member_core, member_custom, core, custom
+    const parts = mapping.split(':');
+    const fieldType = parts[0];
+    const fieldId = parts.slice(1).join(':'); // Handle cases where fieldId might contain colons
     let value = null;
     
-    if (fieldType === 'core') {
+    // Determine which entity type this mapping refers to
+    const isOrgField = fieldType.startsWith('org_');
+    const isMemberField = fieldType.startsWith('member_');
+    const normalizedFieldType = fieldType.replace(/^(org_|member_)/, '');
+    
+    // Determine which entity to look up from
+    let lookupEntityType = entityType;
+    let lookupEntityId = entityId;
+    let lookupEntityData = entityData;
+    
+    // If the mapping specifies org_ but we're processing a member, we need to adjust
+    if (isOrgField && entityType !== 'organization') {
+      lookupEntityType = 'organization';
+      // For member triggers, we'd need to get the org from the member - but entityData should already have org data if passed
+      console.log(`[Workflows] Mapping "${placeholder}" refers to org but entityType is ${entityType}`);
+    } else if (isMemberField && entityType !== 'member') {
+      lookupEntityType = 'member';
+      console.log(`[Workflows] Mapping "${placeholder}" refers to member but entityType is ${entityType}`);
+    }
+    
+    if (normalizedFieldType === 'core') {
       // Core field - get directly from entity data
-      value = entityData?.[fieldId];
-      console.log(`[Workflows] Mapping "${placeholder}" -> core:${fieldId} = "${value ?? '(not found)'}" [preserveEmpty=${preserveEmpty}]`);
-    } else if (fieldType === 'custom') {
+      value = lookupEntityData?.[fieldId];
+      console.log(`[Workflows] Mapping "${placeholder}" -> ${fieldType}:${fieldId} = "${value ?? '(not found)'}" [preserveEmpty=${preserveEmpty}]`);
+    } else if (normalizedFieldType === 'custom') {
       // Custom field - look up from preference values
-      const tableName = entityType === 'organization' ? 'organization_preference_value' : 'member_preference_value';
-      const foreignKey = entityType === 'organization' ? 'organization_id' : 'member_id';
+      const tableName = lookupEntityType === 'organization' ? 'organization_preference_value' : 'member_preference_value';
+      const foreignKey = lookupEntityType === 'organization' ? 'organization_id' : 'member_id';
       
       const { data: prefValue } = await supabase
         .from(tableName)
         .select('value')
-        .eq(foreignKey, entityId)
+        .eq(foreignKey, lookupEntityId)
         .eq('field_id', fieldId)
         .single();
       
       value = prefValue?.value;
-      console.log(`[Workflows] Mapping "${placeholder}" -> custom:${fieldId} = "${value ?? '(not found)'}" [preserveEmpty=${preserveEmpty}]`);
+      console.log(`[Workflows] Mapping "${placeholder}" -> ${fieldType}:${fieldId} = "${value ?? '(not found)'}" [preserveEmpty=${preserveEmpty}]`);
+    } else {
+      console.log(`[Workflows] Unknown field type "${fieldType}" for placeholder "${placeholder}"`);
     }
     
     // Only replace if we have a value, or if preserveEmpty is false (replace with empty string)

@@ -1,0 +1,58 @@
+2025-12-29 14:21:18.163 [info] [Entity PATCH] Entity: "OrganizationPreferenceValue", ID: abcae92f-d7c7-432a-baa6-09af7c22a7d2, Body: {"value":"Verified"}
+2025-12-29 14:21:18.163 [info] [Entity PATCH] Normalized entity: "organizationpreferencevalue"
+2025-12-29 14:21:18.163 [info] [Entity PATCH] isPreferenceValueEntity: true
+2025-12-29 14:21:18.329 [info] [Entity PATCH] Derived baseUrl: "https://nav.iconn.app"
+2025-12-29 14:21:18.329 [info] [Entity PATCH] Preference PATCH - req.body.value: "Verified", data.value: "Verified"
+2025-12-29 14:21:18.329 [info] [Entity PATCH] Preference value updated - entityId: 86b8ec6f-109d-4bc3-b86a-cd8a3156e40e, fieldId: 1c395ccf-7df2-4818-917d-1cd672216f71, value: Verified
+2025-12-29 14:21:18.329 [info] [Entity PATCH] Full data returned: {"id":"abcae92f-d7c7-432a-baa6-09af7c22a7d2","organization_id":"86b8ec6f-109d-4bc3-b86a-cd8a3156e40e","field_id":"1c395ccf-7df2-4818-917d-1cd672216f71","value":"Verified","created_at":"2025-12-29T14:09:50.895773+00:00","updated_at":"2025-12-29T14:09:50.895773+00:00"}
+2025-12-29 14:21:18.330 [info] [Entity PATCH] newValue to use: "Verified"
+2025-12-29 14:21:18.331 [info] [Entity PATCH] Calling triggerPreferenceWorkflows with entityType=organization, entityId=86b8ec6f-109d-4bc3-b86a-cd8a3156e40e, fieldId=1c395ccf-7df2-4818-917d-1cd672216f71, value=Verified
+2025-12-29 14:21:18.463 [info] [Workflows] Evaluating 2 workflows for organization preference field 1c395ccf-7df2-4818-917d-1cd672216f71, incoming value="Verified"
+2025-12-29 14:21:18.463 [info] [Workflows] Checking workflow "Organisation status set to Verified": cfg.field_id=1c395ccf-7df2-4818-917d-1cd672216f71, our fieldId=1c395ccf-7df2-4818-917d-1cd672216f71, cfg.field_type=custom
+2025-12-29 14:21:18.463 [info] [Workflows] Comparing: actual="Verified" vs target="Verified", operator=changed_to
+2025-12-29 14:21:18.463 [info] [Workflows] Result: triggerMatches=true
+2025-12-29 14:21:18.463 [info] [Workflows] Executing workflow: Organisation status set to Verified (trigger_mode=every_time)
+2025-12-29 14:21:18.586 [info] [Workflows] send_email action config: {
+  "cc": "",
+  "to": "{{4a53827a-d7f0-4e81-b0db-5671f537550a}}",
+  "bcc": "",
+  "mode": "template",
+  "to_mode": "field",
+  "template_id": "630ddc24-a2ff-4d5c-b52d-765d518fa360",
+  "field_mappings": {
+    "firstName": "org_custom:1ff67037-36ee-4ac0-b261-27707550b4e8",
+    "organization.id": "org_core:id",
+    "organization.name": "org_core:name"
+  }
+}
+2025-12-29 14:21:18.586 [info] [Workflows] Using template mode, fetching template: 630ddc24-a2ff-4d5c-b52d-765d518fa360
+2025-12-29 14:21:18.714 [info] [Workflows] Template fetch result: found
+2025-12-29 14:21:18.714 [info] [Workflows] Template loaded - subject: "Please complete your application", body length: 848
+2025-12-29 14:21:18.714 [info] [Workflows] Applying field mappings: {"firstName":"org_custom:1ff67037-36ee-4ac0-b261-27707550b4e8","organization.id":"org_core:id","organization.name":"org_core:name"}
+2025-12-29 14:21:18.714 [info] [Workflows] Resolving field ID 4a53827a-d7f0-4e81-b0db-5671f537550a for organization:86b8ec6f-109d-4bc3-b86a-cd8a3156e40e
+2025-12-29 14:21:18.867 [info] [Workflows] Resolved field 4a53827a-d7f0-4e81-b0db-5671f537550a to: mat.the.diver@googlemail.com
+2025-12-29 14:21:18.867 [info] [replacePlaceholders] entityType="organization", entityData keys: id, name, logo_url, zoho_account_id, domain, additional_verified_domains, training_fund_balance, program_ticket_balances, purchase_order_enabled, contacts_synced_at, last_synced, base44_id, phone, invoicing_email, invoicing_address, description, website_url, created_at
+2025-12-29 14:21:18.867 [info] [Workflows] Before replacePlaceholders - entityType: "organization", entityData keys: id, name, logo_url, zoho_account_id, domain, additional_verified_domains, training_fund_balance, program_ticket_balances, purchase_order_enabled, contacts_synced_at, last_synced, base44_id, phone, invoicing_email, invoicing_address, description, website_url, created_at
+2025-12-29 14:21:18.867 [info] [Workflows] entityData sample: {"name":"mhtest"}
+2025-12-29 14:21:18.867 [info] [Workflows] Subject before: "Please complete your application"
+2025-12-29 14:21:18.867 [info] [replacePlaceholders] entityType="organization", entityData keys: id, name, logo_url, zoho_account_id, domain, additional_verified_domains, training_fund_balance, program_ticket_balances, purchase_order_enabled, contacts_synced_at, last_synced, base44_id, phone, invoicing_email, invoicing_address, description, website_url, created_at
+2025-12-29 14:21:18.867 [info] [replacePlaceholders] entityType="organization", entityData keys: id, name, logo_url, zoho_account_id, domain, additional_verified_domains, training_fund_balance, program_ticket_balances, purchase_order_enabled, contacts_synced_at, last_synced, base44_id, phone, invoicing_email, invoicing_address, description, website_url, created_at
+2025-12-29 14:21:18.867 [info] [Workflows] Subject after: "Please complete your application"
+2025-12-29 14:21:18.868 [info] [Workflows] Body after (first 500 chars): "<p>Dear ,</p><p>I’m pleased to let you know that we have successfully completed our due diligence checks following your Graduate Futures Institute membership enquiry for <span style="color: rgb(10, 10, 10);"></span>.</p><p>I’d therefore like to invite you to complete a <a href="https://nav.iconn.app/FormView?slug=university-application&amp;organization_id=" rel="noopener noreferrer" target="_blank">Membership Application Form</a>, which will give us all the information we’ll need to set you up a"
+2025-12-29 14:21:18.868 [info] [Workflows] baseUrl: "https://nav.iconn.app", entityType: "organization", entityId: "86b8ec6f-109d-4bc3-b86a-cd8a3156e40e"
+2025-12-29 14:21:18.868 [info] [Workflows] Body contains set_password_url: false
+2025-12-29 14:21:18.868 [info] [processSpecialPlaceholders] Called with entityType="organization", entityId="86b8ec6f-109d-4bc3-b86a-cd8a3156e40e", baseUrl="https://nav.iconn.app"
+2025-12-29 14:21:18.868 [info] [processSpecialPlaceholders] entityType is "organization", not "member", returning unchanged
+2025-12-29 14:21:18.868 [info] [processSpecialPlaceholders] Called with entityType="organization", entityId="86b8ec6f-109d-4bc3-b86a-cd8a3156e40e", baseUrl="https://nav.iconn.app"
+2025-12-29 14:21:18.868 [info] [processSpecialPlaceholders] entityType is "organization", not "member", returning unchanged
+2025-12-29 14:21:18.868 [info] [Workflows] Sending email - to: "mat.the.diver@googlemail.com", subject: "Please complete your application", body length: 795
+2025-12-29 14:21:19.012 [info] [Email Service] Email footer loaded successfully
+2025-12-29 14:21:19.146 [info] [Email Service] Email footer appended
+2025-12-29 14:21:19.146 [info] [Email Service] Sending email to: mat.the.diver@googlemail.com
+2025-12-29 14:21:19.146 [info] [Email Service] Subject: Please complete your application
+2025-12-29 14:21:19.462 [info] [Email Service] Email sent successfully. Message ID: <20251229142119.966740a1c4b8cf35@agcas.isaasi.co.uk>
+2025-12-29 14:21:19.462 [info] [Workflows] Email result: {"success":true,"messageId":"<20251229142119.966740a1c4b8cf35@agcas.isaasi.co.uk>"}
+2025-12-29 14:21:19.602 [info] [Workflows] Logged execution for Organisation status set to Verified
+2025-12-29 14:21:19.602 [info] [Workflows] Checking workflow "Organisation set to Live": cfg.field_id=status, our fieldId=1c395ccf-7df2-4818-917d-1cd672216f71, cfg.field_type=core
+2025-12-29 14:21:19.602 [info] [Workflows] Skipping - field mismatch or not custom field
+2025-12-29 14:21:19.602 [info] [Entity PATCH] triggerPreferenceWorkflows completed
