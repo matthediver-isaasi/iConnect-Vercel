@@ -36,7 +36,8 @@ import {
   Globe,
   LogIn,
   FolderTree,
-  Trophy
+  Trophy,
+  Users
 } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -66,7 +67,8 @@ export default function MemberDetailView({
     job_title: '',
     biography: '',
     organization_id: defaultOrganizationId,
-    login_enabled: true
+    login_enabled: true,
+    show_in_directory: true
   });
 
   const getMemberName = (m) => {
@@ -261,7 +263,8 @@ export default function MemberDetailView({
         job_title: member.job_title || '',
         biography: member.biography || '',
         organization_id: member.organization_id || '',
-        login_enabled: member.login_enabled !== false
+        login_enabled: member.login_enabled !== false,
+        show_in_directory: member.show_in_directory !== false
       });
       setSelectedRoleId(member.role_id || null);
     }
@@ -456,7 +459,8 @@ export default function MemberDetailView({
       job_title: member.job_title || '',
       biography: member.biography || '',
       organization_id: member.organization_id || '',
-      login_enabled: member.login_enabled !== false
+      login_enabled: member.login_enabled !== false,
+      show_in_directory: member.show_in_directory !== false
     });
     setSelectedRoleId(member.role_id || null);
     setIsEditing(false);
@@ -861,6 +865,25 @@ export default function MemberDetailView({
                               checked={formData.login_enabled}
                               onCheckedChange={(checked) => setFormData(prev => ({ ...prev, login_enabled: checked }))}
                               data-testid="switch-login-enabled"
+                            />
+                          )}
+                        </div>
+                        <Separator />
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-3">
+                            <Users className="w-4 h-4 text-slate-400" />
+                            <div>
+                              <p className="text-xs text-slate-500">Show in Directory</p>
+                              <p className="text-sm font-medium">
+                                {isEditing ? (formData.show_in_directory ? 'Yes' : 'No') : (member.show_in_directory !== false ? 'Yes' : 'No')}
+                              </p>
+                            </div>
+                          </div>
+                          {isEditing && (
+                            <Switch
+                              checked={formData.show_in_directory}
+                              onCheckedChange={(checked) => setFormData(prev => ({ ...prev, show_in_directory: checked }))}
+                              data-testid="switch-show-in-directory"
                             />
                           )}
                         </div>
