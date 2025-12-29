@@ -46,6 +46,7 @@ export async function getSession(req) {
   const signedSessionId = cookies[SESSION_COOKIE_NAME];
   
   console.log('[Session] Cookie name:', SESSION_COOKIE_NAME, 'Present:', !!signedSessionId);
+  console.log('[Session] All cookie names received:', Object.keys(cookies).join(', '));
   
   if (!signedSessionId) return null;
   
