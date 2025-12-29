@@ -28,14 +28,16 @@ export default function FormViewPage() {
   const prefillMemberId = urlParams.get('member_id');
   const prefillOrgId = urlParams.get('organization_id');
 
-  // Fetch full member record to get job_title
+  // Fetch full member record to get job_title (for logged-in user)
   const { data: memberRecord } = useQuery({
-    queryKey: ['member-record', memberInfo?.email],
+    queryKey: ['member-record', memberInfo?.id],
     queryFn: async () => {
-      const allMembers = await base44.entities.Member.listAll();
-      return allMembers.find(m => m.email === memberInfo?.email);
+      if (memberInfo?.id) {
+        return base44.entities.Member.get(memberInfo.id);
+      }
+      return null;
     },
-    enabled: !!memberInfo?.email
+    enabled: !!memberInfo?.id
   });
 
   const { data: form, isLoading } = useQuery({
@@ -63,8 +65,7 @@ export default function FormViewPage() {
   const { data: prefillMember } = useQuery({
     queryKey: ['prefill-member', prefillMemberId],
     queryFn: async () => {
-      const allMembers = await base44.entities.Member.listAll();
-      return allMembers.find(m => m.id === prefillMemberId);
+      return base44.entities.Member.get(prefillMemberId);
     },
     enabled: !!prefillMemberId && form?.prefill_source === 'member'
   });
@@ -74,8 +75,7 @@ export default function FormViewPage() {
   const { data: prefillMemberOrg } = useQuery({
     queryKey: ['prefill-member-org', prefillMember?.organization_id],
     queryFn: async () => {
-      const allOrgs = await base44.entities.Organization.listAll();
-      return allOrgs.find(o => o.id === prefillMember.organization_id);
+      return base44.entities.Organization.get(prefillMember.organization_id);
     },
     enabled: !!prefillMember?.organization_id && form?.prefill_source === 'member'
   });
@@ -84,8 +84,7 @@ export default function FormViewPage() {
   const { data: prefillOrg } = useQuery({
     queryKey: ['prefill-org', prefillOrgId],
     queryFn: async () => {
-      const allOrgs = await base44.entities.Organization.listAll();
-      return allOrgs.find(o => o.id === prefillOrgId);
+      return base44.entities.Organization.get(prefillOrgId);
     },
     enabled: !!prefillOrgId && form?.prefill_source === 'organization'
   });
