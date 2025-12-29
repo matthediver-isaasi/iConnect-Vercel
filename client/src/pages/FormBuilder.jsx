@@ -1909,7 +1909,7 @@ function FieldCard({
               {/* Pre-fill Field Selection - When prefill is enabled */}
               {prefillSource !== "none" && (
                 <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg space-y-2">
-                  <Label className="text-xs font-medium text-blue-800">Pre-fill from {prefillSource === "member" ? "Member" : "Organisation"}</Label>
+                  <Label className="text-xs font-medium text-blue-800">Pre-fill from Member or Organisation data</Label>
                   <Select
                     value={field.prefill_field || "_none"}
                     onValueChange={(value) => updateField(originalIndex, { prefill_field: value === "_none" ? null : value })}
@@ -1920,26 +1920,34 @@ function FieldCard({
                     <SelectContent>
                       <SelectItem value="_none">No pre-fill</SelectItem>
                       <div className="px-2 py-1 text-xs font-medium text-slate-500 bg-slate-50">
-                        Core Fields
+                        Member Core Fields
                       </div>
-                      {(prefillSource === "member" ? MEMBER_PREFILL_FIELDS : ORG_PREFILL_FIELDS).map(f => (
-                        <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>
+                      {MEMBER_PREFILL_FIELDS.map(f => (
+                        <SelectItem key={`member:${f.value}`} value={`member:${f.value}`}>{f.label}</SelectItem>
                       ))}
-                      {customFields.filter(cf => 
-                        prefillSource === "member" 
-                          ? (!cf.entity_scope || cf.entity_scope === 'member')
-                          : cf.entity_scope === 'organization'
-                      ).length > 0 && (
+                      {customFields.filter(cf => !cf.entity_scope || cf.entity_scope === 'member').length > 0 && (
                         <>
                           <div className="px-2 py-1 text-xs font-medium text-slate-500 bg-slate-50">
-                            Custom Fields
+                            Member Custom Fields
                           </div>
-                          {customFields.filter(cf => 
-                            prefillSource === "member" 
-                              ? (!cf.entity_scope || cf.entity_scope === 'member')
-                              : cf.entity_scope === 'organization'
-                          ).map(cf => (
-                            <SelectItem key={`custom:${cf.id}`} value={`custom:${cf.id}`}>{cf.label}</SelectItem>
+                          {customFields.filter(cf => !cf.entity_scope || cf.entity_scope === 'member').map(cf => (
+                            <SelectItem key={`member_custom:${cf.id}`} value={`member_custom:${cf.id}`}>{cf.label}</SelectItem>
+                          ))}
+                        </>
+                      )}
+                      <div className="px-2 py-1 text-xs font-medium text-slate-500 bg-slate-50">
+                        Organisation Core Fields
+                      </div>
+                      {ORG_PREFILL_FIELDS.map(f => (
+                        <SelectItem key={`org:${f.value}`} value={`org:${f.value}`}>{f.label}</SelectItem>
+                      ))}
+                      {customFields.filter(cf => cf.entity_scope === 'organization').length > 0 && (
+                        <>
+                          <div className="px-2 py-1 text-xs font-medium text-slate-500 bg-slate-50">
+                            Organisation Custom Fields
+                          </div>
+                          {customFields.filter(cf => cf.entity_scope === 'organization').map(cf => (
+                            <SelectItem key={`org_custom:${cf.id}`} value={`org_custom:${cf.id}`}>{cf.label}</SelectItem>
                           ))}
                         </>
                       )}
