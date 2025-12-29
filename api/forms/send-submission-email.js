@@ -212,7 +212,7 @@ export default async function handler(req, res) {
       while (retries > 0 && !memberData) {
         const { data, error } = await supabase
           .from('member')
-          .select('id, first_name, last_name, email, phone, organization_id')
+          .select('id, first_name, last_name, email, organization_id')
           .eq('id', memberIdToUse)
           .single();
         
@@ -305,9 +305,8 @@ export default async function handler(req, res) {
         'member.id': memberData?.id || '',
         'member.first_name': memberData?.first_name || '',
         'member.last_name': memberData?.last_name || '',
-        'member.full_name': memberData?.full_name || `${memberData?.first_name || ''} ${memberData?.last_name || ''}`.trim(),
+        'member.full_name': `${memberData?.first_name || ''} ${memberData?.last_name || ''}`.trim(),
         'member.email': memberData?.email || '',
-        'member.phone': memberData?.phone || '',
         'organization.id': organizationData?.id || '',
         'organization.name': organizationData?.name || '',
         'organization.invoicing_email': organizationData?.invoicing_email || '',
@@ -326,9 +325,8 @@ export default async function handler(req, res) {
         'member.id': memberData?.id || '',
         'member.first_name': memberData?.first_name || '',
         'member.last_name': memberData?.last_name || '',
-        'member.full_name': memberData?.full_name || `${memberData?.first_name || ''} ${memberData?.last_name || ''}`.trim(),
+        'member.full_name': `${memberData?.first_name || ''} ${memberData?.last_name || ''}`.trim(),
         'member.email': memberData?.email || '',
-        'member.phone': memberData?.phone || '',
         'organization.id': organizationData?.id || '',
         'organization.name': organizationData?.name || '',
         'organization.invoicing_email': organizationData?.invoicing_email || '',
