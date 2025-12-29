@@ -3900,6 +3900,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get member count for a specific role (admin only)
+  app.get('/api/admin/role-member-count', async (req: Request, res: Response) => {
+    const { isAdmin, error } = await verifyAdminSession(req);
+    
+    if (error) {
+      return res.status(401).json({ error });
+    }
+    
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    if (!supabase) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+
+    try {
+      const roleId = req.query.roleId as string;
+      
+      if (!roleId) {
+        return res.status(400).json({ error: 'roleId is required' });
+      }
+
+      // Count active members with this role
+      const { count, error: countError } = await supabase
+        .from('member')
+        .select('id', { count: 'exact', head: true })
+        .eq('role_id', roleId)
+        .eq('is_active', true);
+
+      if (countError) {
+        console.error('[Role Member Count] Error:', countError);
+        return res.status(500).json({ error: countError.message });
+      }
+
+      res.json({ roleId, count: count || 0 });
+    } catch (error) {
+      console.error('[Role Member Count] Error:', error);
+      res.status(500).json({ error: 'Failed to get role member count' });
+    }
+  });
+
   // Backfill created_at for organizations that don't have it
   app.post('/api/admin/backfill-organization-dates', async (req: Request, res: Response) => {
     const { isAdmin, error } = await verifyAdminSession(req);
