@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { sendEmail } from '../_lib/emailService.js';
+import crypto from 'crypto';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -7,6 +8,87 @@ const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
 const supabase = supabaseUrl && supabaseServiceKey 
   ? createClient(supabaseUrl, supabaseServiceKey)
   : null;
+
+// Generate a password setup URL for new members (7 day validity)
+async function generatePasswordSetupUrl(memberId, memberEmail, baseUrl) {
+  if (!supabase || !memberId || !memberEmail) return null;
+  
+  try {
+    const email = memberEmail.toLowerCase();
+    const resetToken = crypto.randomUUID();
+    const resetTokenExpires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+    
+    // Check if credentials record exists for this member_id
+    const { data: existingCredsByMember } = await supabase
+      .from('member_credentials')
+      .select('id, email')
+      .eq('member_id', memberId)
+      .single();
+    
+    // Also check if credentials exist for this email (potentially different member)
+    const { data: existingCredsByEmail } = await supabase
+      .from('member_credentials')
+      .select('id, member_id')
+      .eq('email', email)
+      .single();
+    
+    if (existingCredsByMember) {
+      // Update existing record for this member
+      console.log(`[FormSubmissionEmail] Updating existing credentials for member_id ${memberId}`);
+      const { error: updateError } = await supabase
+        .from('member_credentials')
+        .update({
+          email: email,
+          reset_token: resetToken,
+          reset_token_expires: resetTokenExpires.toISOString()
+        })
+        .eq('member_id', memberId);
+      
+      if (updateError) {
+        console.error('[FormSubmissionEmail] Error updating reset token:', updateError);
+        return null;
+      }
+    } else if (existingCredsByEmail) {
+      // Credentials exist with this email but different member_id
+      console.log(`[FormSubmissionEmail] Found credentials by email, updating member_id`);
+      const { error: updateError } = await supabase
+        .from('member_credentials')
+        .update({
+          member_id: memberId,
+          reset_token: resetToken,
+          reset_token_expires: resetTokenExpires.toISOString()
+        })
+        .eq('email', email);
+      
+      if (updateError) {
+        console.error('[FormSubmissionEmail] Error updating credentials by email:', updateError);
+        return null;
+      }
+    } else {
+      // No existing credentials - create new record
+      console.log(`[FormSubmissionEmail] Creating new credentials for member ${memberId}`);
+      const { error: insertError } = await supabase
+        .from('member_credentials')
+        .insert({
+          member_id: memberId,
+          email: email,
+          reset_token: resetToken,
+          reset_token_expires: resetTokenExpires.toISOString()
+        });
+      
+      if (insertError) {
+        console.error('[FormSubmissionEmail] Error inserting credentials with reset token:', insertError);
+        return null;
+      }
+    }
+    
+    console.log(`[FormSubmissionEmail] Generated password setup token for member ${memberId} (${email})`);
+    return `${baseUrl}/auth/reset-password?token=${resetToken}&email=${encodeURIComponent(email)}`;
+  } catch (error) {
+    console.error('[FormSubmissionEmail] Error generating password setup URL:', error);
+    return null;
+  }
+}
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -25,10 +107,13 @@ export default async function handler(req, res) {
       submission_id,
       form_values,
       fields,
+      created_member_id,       // Member ID from process-application
+      created_organization_id, // Organization ID from process-application
       _debug_form_email_config
     } = req.body;
 
     console.log('[FormSubmissionEmail] Request received for form:', form_id, 'submission:', submission_id);
+    console.log('[FormSubmissionEmail] Created member_id:', created_member_id, 'org_id:', created_organization_id);
     console.log('[FormSubmissionEmail] form_values keys:', form_values ? Object.keys(form_values) : 'null');
     
     // Log client-side debug info to help diagnose issues
@@ -85,22 +170,63 @@ export default async function handler(req, res) {
       return res.json({ success: true, skipped: true, reason: 'No emails configured' });
     }
 
+    // Derive base URL for {{set_password_url}} placeholder
+    const protocol = req.headers['x-forwarded-proto'] || 'https';
+    let host = req.headers['x-forwarded-host'] || req.headers.host || '';
+    if (!host && process.env.VERCEL_URL) {
+      host = process.env.VERCEL_URL;
+    }
+    const baseUrl = host ? `${protocol}://${host}` : (process.env.APP_URL || '');
+    console.log('[FormSubmissionEmail] Derived baseUrl:', baseUrl);
+
     // Get member/org data for system placeholders
-    const { data: submission, error: submissionError } = submission_id 
-      ? await supabase.from('form_submission').select('member_id, organization_id').eq('id', submission_id).single()
-      : { data: null, error: null };
+    // Priority: use created_member_id/created_organization_id from process-application if available
+    // Otherwise fall back to submission table lookup (for legacy forms)
+    let memberIdToUse = created_member_id;
+    let organizationIdToUse = created_organization_id;
+    
+    // Fallback: try to get IDs from the submission record
+    if (!memberIdToUse && !organizationIdToUse && submission_id) {
+      const { data: submission } = await supabase
+        .from('form_submission')
+        .select('created_member_id, created_organization_id, member_id, organization_id')
+        .eq('id', submission_id)
+        .single();
+      
+      if (submission) {
+        memberIdToUse = submission.created_member_id || submission.member_id;
+        organizationIdToUse = submission.created_organization_id || submission.organization_id;
+      }
+    }
+    
+    console.log('[FormSubmissionEmail] Using member_id:', memberIdToUse, 'organization_id:', organizationIdToUse);
 
     let memberData = null;
     let organizationData = null;
 
-    if (submission?.member_id) {
-      const { data } = await supabase.from('member').select('id, full_name, email, phone').eq('id', submission.member_id).single();
+    if (memberIdToUse) {
+      const { data } = await supabase
+        .from('member')
+        .select('id, first_name, last_name, full_name, email, phone, organization_id')
+        .eq('id', memberIdToUse)
+        .single();
       memberData = data;
+      console.log('[FormSubmissionEmail] Member data loaded:', memberData ? `${memberData.first_name} ${memberData.last_name}` : 'null');
+      
+      // If no organizationIdToUse but member has organization_id, use that
+      if (!organizationIdToUse && memberData?.organization_id) {
+        organizationIdToUse = memberData.organization_id;
+      }
     }
 
-    if (submission?.organization_id) {
-      const { data } = await supabase.from('organization').select('id, name, invoicing_email, phone').eq('id', submission.organization_id).single();
+    if (organizationIdToUse) {
+      const { data } = await supabase
+        .from('organization')
+        .select('id, name, invoicing_email, phone')
+        .eq('id', organizationIdToUse)
+        .single();
       organizationData = data;
+      console.log('[FormSubmissionEmail] Organization data loaded:', organizationData?.name || 'null');
     }
 
     // Helper to escape regex special chars
@@ -122,8 +248,8 @@ export default async function handler(req, res) {
       return value;
     };
 
-    // Helper to replace placeholders in template content
-    const replacePlaceholders = (text, emailConfig) => {
+    // Helper to replace placeholders in template content (async for set_password_url generation)
+    const replacePlaceholders = async (text, emailConfig) => {
       if (!text) return '';
       
       let result = text;
@@ -157,7 +283,9 @@ export default async function handler(req, res) {
       // Replace [[placeholder]] core database placeholders
       const dbPlaceholders = {
         'member.id': memberData?.id || '',
-        'member.full_name': memberData?.full_name || '',
+        'member.first_name': memberData?.first_name || '',
+        'member.last_name': memberData?.last_name || '',
+        'member.full_name': memberData?.full_name || `${memberData?.first_name || ''} ${memberData?.last_name || ''}`.trim(),
         'member.email': memberData?.email || '',
         'member.phone': memberData?.phone || '',
         'organization.id': organizationData?.id || '',
@@ -176,7 +304,9 @@ export default async function handler(req, res) {
         'form.name': form.name || '',
         'submission.date': new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' }),
         'member.id': memberData?.id || '',
-        'member.full_name': memberData?.full_name || '',
+        'member.first_name': memberData?.first_name || '',
+        'member.last_name': memberData?.last_name || '',
+        'member.full_name': memberData?.full_name || `${memberData?.first_name || ''} ${memberData?.last_name || ''}`.trim(),
         'member.email': memberData?.email || '',
         'member.phone': memberData?.phone || '',
         'organization.id': organizationData?.id || '',
@@ -188,6 +318,22 @@ export default async function handler(req, res) {
       for (const [key, value] of Object.entries(systemPlaceholders)) {
         const placeholder = `{{${key}}}`;
         result = result.replace(new RegExp(escapeRegex(placeholder), 'g'), value);
+      }
+
+      // Handle {{set_password_url}} placeholder - generate password setup URL for member
+      const hasSetPasswordPlaceholder = /\{\{\s*set_password_url\s*\}\}/i.test(result);
+      if (hasSetPasswordPlaceholder && memberData?.id && memberData?.email && baseUrl) {
+        console.log('[FormSubmissionEmail] Detected {{set_password_url}} placeholder, generating URL...');
+        const passwordUrl = await generatePasswordSetupUrl(memberData.id, memberData.email, baseUrl);
+        if (passwordUrl) {
+          result = result.replace(/\{\{\s*set_password_url\s*\}\}/gi, passwordUrl);
+          console.log('[FormSubmissionEmail] Replaced {{set_password_url}} with:', passwordUrl);
+        } else {
+          console.warn('[FormSubmissionEmail] Failed to generate password setup URL');
+        }
+      } else if (hasSetPasswordPlaceholder) {
+        console.warn('[FormSubmissionEmail] {{set_password_url}} placeholder found but missing member data or baseUrl');
+        console.log('[FormSubmissionEmail] memberData:', memberData?.id, 'email:', memberData?.email, 'baseUrl:', baseUrl);
       }
 
       return result;
@@ -235,9 +381,9 @@ export default async function handler(req, res) {
         continue;
       }
 
-      // Replace placeholders in template
-      const emailSubject = replacePlaceholders(template.subject || 'Form Submission', emailConfig);
-      const emailBody = replacePlaceholders(template.body || '', emailConfig);
+      // Replace placeholders in template (async for set_password_url generation)
+      const emailSubject = await replacePlaceholders(template.subject || 'Form Submission', emailConfig);
+      const emailBody = await replacePlaceholders(template.body || '', emailConfig);
 
       console.log('[FormSubmissionEmail] Sending email...');
       console.log('[FormSubmissionEmail] Subject:', emailSubject);

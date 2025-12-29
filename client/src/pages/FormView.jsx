@@ -323,6 +323,10 @@ export default function FormViewPage() {
         });
       }
       
+      // Track created member/org IDs from process-application for email placeholders
+      let createdMemberId = null;
+      let createdOrganizationId = null;
+      
       // Process entity pipelines if configured (create/update member/org entities)
       const hasEntityPipelines = (form?.entity_pipelines?.members?.length > 0) || (form?.entity_pipelines?.organisations?.length > 0);
       if (hasEntityPipelines) {
@@ -352,6 +356,9 @@ export default function FormViewPage() {
           if (response.ok) {
             const result = await response.json();
             console.log('[FormView] Application processed:', result);
+            // Capture created member/org IDs for email placeholders
+            createdMemberId = result.created_member_id || null;
+            createdOrganizationId = result.created_organization_id || null;
           } else {
             const error = await response.json();
             console.error('[FormView] Application processing failed:', error);
@@ -388,11 +395,15 @@ export default function FormViewPage() {
       // ALWAYS call the server endpoint for diagnostic logging (server decides if email is configured)
       try {
         console.log('[FormView] Calling email endpoint for form submission...');
+        console.log('[FormView] Passing createdMemberId:', createdMemberId, 'createdOrganizationId:', createdOrganizationId);
         const emailPayload = {
           form_id: form.id,
           submission_id: submissionResult?.id,
           form_values: formValues,
           fields: form.fields,
+          // Pass created member/org IDs for placeholder resolution
+          created_member_id: createdMemberId,
+          created_organization_id: createdOrganizationId,
           // Pass client-side form data for server-side diagnostic logging
           _debug_form_email_config: {
             hasSubmissionEmails: !!form?.submission_emails,
