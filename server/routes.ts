@@ -3900,16 +3900,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Get member count for a specific role (admin only)
+  // Get member count for a specific role (requires communication.workflows permission)
   app.get('/api/admin/role-member-count', async (req: Request, res: Response) => {
-    const { isAdmin, error } = await verifyAdminSession(req);
+    const { hasPermission, error } = await verifyPermission(req, 'communication.workflows');
     
     if (error) {
       return res.status(401).json({ error });
     }
     
-    if (!isAdmin) {
-      return res.status(403).json({ error: 'Admin access required' });
+    if (!hasPermission) {
+      return res.status(403).json({ error: 'Workflow management access required' });
     }
 
     if (!supabase) {
