@@ -10,7 +10,11 @@ const supabase = supabaseUrl && supabaseServiceKey
   : null;
 
 async function verifyPermission(req, permissionId) {
+  console.log('[RoleMemberCount] Checking permission, cookies present:', !!req.headers.cookie);
+  
   const sessionMember = await getSessionMember(req);
+  
+  console.log('[RoleMemberCount] Session member result:', sessionMember ? `Found: ${sessionMember.id}` : 'Not found');
   
   if (!sessionMember) {
     return { hasPermission: false, error: 'Not authenticated' };
