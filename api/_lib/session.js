@@ -37,27 +37,19 @@ function unsignSessionId(signedValue) {
 }
 
 export async function getSession(req) {
-  if (!supabase) {
-    console.log('[Session] Supabase not configured');
-    return null;
-  }
+  if (!supabase) return null;
   
   const cookies = parse(req.headers.cookie || '');
   const signedSessionId = cookies[SESSION_COOKIE_NAME];
-  
-  console.log('[Session] Cookie name:', SESSION_COOKIE_NAME, 'Present:', !!signedSessionId);
-  console.log('[Session] All cookie names received:', Object.keys(cookies).join(', '));
   
   if (!signedSessionId) return null;
   
   // Unsign the session ID
   const sessionId = unsignSessionId(signedSessionId);
   if (!sessionId) {
-    console.log('[Session] Invalid session signature for cookie value');
+    console.log('[Session] Invalid session signature');
     return null;
   }
-  
-  console.log('[Session] Unsigned session ID (first 8 chars):', sessionId.substring(0, 8));
   
   try {
     const { data, error } = await supabase
@@ -66,28 +58,15 @@ export async function getSession(req) {
       .eq('sid', sessionId)
       .single();
     
-    if (error) {
-      console.log('[Session] DB lookup error:', error.message);
-      return null;
-    }
-    
-    if (!data) {
-      console.log('[Session] No session found in DB');
-      return null;
-    }
-    
-    console.log('[Session] Session found, expires:', data.expire);
+    if (error || !data) return null;
     
     // Check if session expired
     if (new Date(data.expire) < new Date()) {
-      console.log('[Session] Session expired');
       await supabase.from('session').delete().eq('sid', sessionId);
       return null;
     }
     
     const sessData = typeof data.sess === 'string' ? JSON.parse(data.sess) : data.sess;
-    
-    console.log('[Session] Session valid, memberId:', sessData?.memberId);
     
     return {
       id: sessionId,

@@ -191,46 +191,6 @@ export default function WorkflowManagementPage() {
     enabled: accessChecked,
   });
 
-  const [roleMemberCounts, setRoleMemberCounts] = useState({});
-  const [massEmailConfirmation, setMassEmailConfirmation] = useState('');
-
-  // Fetch member count for a single role
-  const fetchRoleMemberCount = async (roleId) => {
-    if (!roleId || roleMemberCounts[roleId] !== undefined) return;
-    
-    try {
-      const response = await fetch(`/api/admin/role-member-count?roleId=${roleId}`, {
-        credentials: 'include'
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setRoleMemberCounts(prev => ({ ...prev, [roleId]: data }));
-      }
-    } catch (error) {
-      console.error('Error fetching role member count:', error);
-    }
-  };
-
-  // Fetch member counts for multiple roles
-  const fetchRoleMemberCounts = async (roleIds) => {
-    if (!roleIds || !Array.isArray(roleIds)) return;
-    const missingIds = roleIds.filter(id => id && roleMemberCounts[id] === undefined);
-    if (missingIds.length === 0) return;
-    
-    await Promise.all(missingIds.map(id => fetchRoleMemberCount(id)));
-  };
-
-  // Calculate total count across multiple roles
-  const getTotalRoleCount = (roleIds) => {
-    if (!roleIds || !Array.isArray(roleIds) || roleIds.length === 0) return { count: 0, loading: false };
-    
-    const counts = roleIds.map(id => roleMemberCounts[id]);
-    const loading = counts.some(c => c === undefined);
-    const total = counts.reduce((sum, c) => sum + (c?.count || 0), 0);
-    
-    return { count: total, loading };
-  };
-
   // Get role name by ID
   const getRoleName = (roleId) => {
     const role = roles.find(r => r.id === roleId);
@@ -363,7 +323,6 @@ export default function WorkflowManagementPage() {
       actions: [],
       is_active: true,
     });
-    setMassEmailConfirmation('');
   };
 
   const handleEditWorkflow = (workflow) => {
@@ -381,27 +340,6 @@ export default function WorkflowManagementPage() {
     });
     setBuilderStep(1);
     setShowDialog(true);
-    setMassEmailConfirmation('');
-    
-    // Pre-fetch member counts for any existing role-based email actions
-    const actions = workflow.actions || [];
-    for (const action of actions) {
-      if (action.type === 'send_email') {
-        // Handle To field roles (supports both legacy single role_id and new array format)
-        if (action.config?.to_mode === 'role') {
-          if (action.config?.to_role_ids && Array.isArray(action.config.to_role_ids)) {
-            fetchRoleMemberCounts(action.config.to_role_ids);
-          } else if (action.config?.to_role_id) {
-            // Legacy single role support
-            fetchRoleMemberCount(action.config.to_role_id);
-          }
-        }
-        // Handle CC field roles
-        if (action.config?.cc_mode === 'role' && action.config?.cc_role_ids) {
-          fetchRoleMemberCounts(action.config.cc_role_ids);
-        }
-      }
-    }
   };
 
   const handleSaveWorkflow = () => {
@@ -488,28 +426,6 @@ export default function WorkflowManagementPage() {
 
   const availableFieldsGrouped = getAvailableFields();
   const availableFieldsFlat = getAllFieldsFlat();
-
-  const getMassEmailCount = () => {
-    let totalRecipients = 0;
-    for (const action of formData.actions) {
-      if (action.type === 'send_email') {
-        // Handle To field roles
-        if (action.config?.to_mode === 'role') {
-          // Support both new array format and legacy single role_id
-          const roleIds = action.config?.to_role_ids || (action.config?.to_role_id ? [action.config.to_role_id] : []);
-          const { count } = getTotalRoleCount(roleIds);
-          if (count > 1) {
-            totalRecipients += count;
-          }
-        }
-        // Note: CC roles don't add to mass email count since they're CC, not To recipients
-      }
-    }
-    return totalRecipients;
-  };
-
-  const requiresMassEmailConfirmation = getMassEmailCount() > 1;
-  const isMassEmailConfirmed = massEmailConfirmation === 'I UNDERSTAND';
 
   if (!accessChecked) {
     return (
@@ -1326,7 +1242,6 @@ export default function WorkflowManagementPage() {
                                       updateAction(index, { 
                                         config: { ...action.config, to_mode: val, to: '', to_role_id: '', to_role_ids: [] } 
                                       });
-                                      setMassEmailConfirmation('');
                                     }}
                                   >
                                     <SelectTrigger className="w-[160px]" data-testid={`select-to-mode-${index}`}>
@@ -1405,12 +1320,10 @@ export default function WorkflowManagementPage() {
                                                       newIds = selectedIds.filter(id => id !== role.id);
                                                     } else {
                                                       newIds = [...selectedIds, role.id];
-                                                      fetchRoleMemberCount(role.id);
                                                     }
                                                     updateAction(index, { 
                                                       config: { ...action.config, to_role_ids: newIds, to_role_id: '', to: '' } 
                                                     });
-                                                    setMassEmailConfirmation('');
                                                   }}
                                                 >
                                                   <Checkbox 
@@ -1419,11 +1332,6 @@ export default function WorkflowManagementPage() {
                                                   />
                                                   <Users className="h-4 w-4 text-muted-foreground" />
                                                   <span className="flex-1">{role.name}</span>
-                                                  {roleMemberCounts[role.id] && (
-                                                    <Badge variant="secondary" className="text-xs">
-                                                      {roleMemberCounts[role.id].count}
-                                                    </Badge>
-                                                  )}
                                                 </div>
                                               );
                                             })}
@@ -1433,54 +1341,6 @@ export default function WorkflowManagementPage() {
                                     </Popover>
                                   )}
                                 </div>
-                                
-                                {/* Role member count and mass email warning */}
-                                {action.config?.to_mode === 'role' && (() => {
-                                  const selectedIds = action.config?.to_role_ids || (action.config?.to_role_id ? [action.config.to_role_id] : []);
-                                  if (selectedIds.length === 0) return null;
-                                  const { count, loading } = getTotalRoleCount(selectedIds);
-                                  
-                                  if (loading) {
-                                    return (
-                                      <div className="p-3 bg-muted rounded-lg border">
-                                        <div className="flex items-center gap-2">
-                                          <div className="animate-spin rounded-full h-4 w-4 border-2 border-primary border-t-transparent"></div>
-                                          <p className="text-sm text-muted-foreground">Loading member count...</p>
-                                        </div>
-                                      </div>
-                                    );
-                                  }
-                                  
-                                  return (
-                                    <div className={`p-3 rounded-lg border ${
-                                      count > 1 
-                                        ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800' 
-                                        : 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800'
-                                    }`}>
-                                      <div className="flex items-center gap-2">
-                                        {count > 1 ? (
-                                          <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400" />
-                                        ) : (
-                                          <Users className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-                                        )}
-                                        <div>
-                                          <p className={`text-sm font-medium ${
-                                            count > 1 
-                                              ? 'text-amber-700 dark:text-amber-300' 
-                                              : 'text-blue-700 dark:text-blue-300'
-                                          }`}>
-                                            This will send to {count} member{count !== 1 ? 's' : ''} across {selectedIds.length} role{selectedIds.length !== 1 ? 's' : ''}
-                                          </p>
-                                          {count > 1 && (
-                                            <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-                                              Mass email: This workflow will send individual emails to all members with the selected roles
-                                            </p>
-                                          )}
-                                        </div>
-                                      </div>
-                                    </div>
-                                  );
-                                })()}
                               </div>
 
                               {/* CC Field */}
@@ -1569,7 +1429,6 @@ export default function WorkflowManagementPage() {
                                                       newIds = selectedIds.filter(id => id !== role.id);
                                                     } else {
                                                       newIds = [...selectedIds, role.id];
-                                                      fetchRoleMemberCount(role.id);
                                                     }
                                                     updateAction(index, { 
                                                       config: { ...action.config, cc_role_ids: newIds, cc: '' } 
@@ -1582,11 +1441,6 @@ export default function WorkflowManagementPage() {
                                                   />
                                                   <Users className="h-4 w-4 text-muted-foreground" />
                                                   <span className="flex-1">{role.name}</span>
-                                                  {roleMemberCounts[role.id] && (
-                                                    <Badge variant="secondary" className="text-xs">
-                                                      {roleMemberCounts[role.id].count}
-                                                    </Badge>
-                                                  )}
                                                 </div>
                                               );
                                             })}
@@ -1596,33 +1450,6 @@ export default function WorkflowManagementPage() {
                                     </Popover>
                                   )}
                                 </div>
-                                
-                                {/* CC Role count info */}
-                                {action.config?.cc_mode === 'role' && (() => {
-                                  const selectedIds = action.config?.cc_role_ids || [];
-                                  if (selectedIds.length === 0) return null;
-                                  const { count, loading } = getTotalRoleCount(selectedIds);
-                                  
-                                  if (loading) {
-                                    return (
-                                      <div className="p-2 bg-muted rounded-lg border text-sm">
-                                        <div className="flex items-center gap-2">
-                                          <div className="animate-spin rounded-full h-3 w-3 border-2 border-primary border-t-transparent"></div>
-                                          <span className="text-muted-foreground">Loading...</span>
-                                        </div>
-                                      </div>
-                                    );
-                                  }
-                                  
-                                  return (
-                                    <div className="p-2 bg-muted rounded-lg border text-sm flex items-center gap-2">
-                                      <Users className="h-4 w-4 text-muted-foreground" />
-                                      <span className="text-muted-foreground">
-                                        {count} member{count !== 1 ? 's' : ''} will be CC'd
-                                      </span>
-                                    </div>
-                                  );
-                                })()}
                               </div>
 
                               {/* BCC Field */}
@@ -1773,39 +1600,6 @@ export default function WorkflowManagementPage() {
             )}
           </ScrollArea>
 
-          {/* Mass Email Confirmation */}
-          {builderStep === 4 && requiresMassEmailConfirmation && (
-            <div className="mt-4 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
-              <div className="flex items-start gap-3">
-                <AlertTriangle className="h-6 w-6 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
-                <div className="space-y-3 flex-1">
-                  <div>
-                    <p className="font-semibold text-red-700 dark:text-red-300">
-                      Mass Email Warning
-                    </p>
-                    <p className="text-sm text-red-600 dark:text-red-400 mt-1">
-                      This workflow will send emails to <strong>{getMassEmailCount()} members</strong> when triggered. 
-                      Each time the workflow triggers, all members with the selected role(s) in your organisation will receive an email.
-                    </p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="mass-email-confirm" className="text-sm text-red-700 dark:text-red-300">
-                      Type <span className="font-mono font-bold">I UNDERSTAND</span> to confirm:
-                    </Label>
-                    <Input
-                      id="mass-email-confirm"
-                      value={massEmailConfirmation}
-                      onChange={(e) => setMassEmailConfirmation(e.target.value)}
-                      placeholder="Type I UNDERSTAND"
-                      className="max-w-xs border-red-300 dark:border-red-700 focus:ring-red-500"
-                      data-testid="input-mass-email-confirm"
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
           <DialogFooter className="flex items-center justify-between mt-4 pt-4 border-t">
             <div>
               {builderStep > 1 && (
@@ -1827,7 +1621,7 @@ export default function WorkflowManagementPage() {
               ) : (
                 <Button 
                   onClick={handleSaveWorkflow} 
-                  disabled={createMutation.isPending || updateMutation.isPending || (requiresMassEmailConfirmation && !isMassEmailConfirmed)}
+                  disabled={createMutation.isPending || updateMutation.isPending}
                   data-testid="button-save-workflow"
                 >
                   {(createMutation.isPending || updateMutation.isPending) && (
