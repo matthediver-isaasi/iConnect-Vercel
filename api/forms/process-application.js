@@ -780,6 +780,12 @@ export default async function handler(req, res) {
             console.log('[AppProcessor] Adding pipeline login_enabled to member update:', memberData.login_enabled);
           }
           
+          // Add show_in_directory from pipeline config if specified
+          if (memberData.show_in_directory !== undefined) {
+            memberUpdateData.show_in_directory = memberData.show_in_directory;
+            console.log('[AppProcessor] Adding pipeline show_in_directory to member update:', memberData.show_in_directory);
+          }
+          
           // Handle full_name parsing if provided (parse into first_name/last_name since member table doesn't have full_name column)
           if (memberData.full_name && !memberData.first_name && !memberData.last_name) {
             const nameParts = memberData.full_name.trim().split(/\s+/);
@@ -835,7 +841,8 @@ export default async function handler(req, res) {
             first_name: memberData.first_name || '',
             last_name: memberData.last_name || '',
             organization_id: orgIdForNewMember,
-            login_enabled: memberData.login_enabled !== undefined ? memberData.login_enabled : true
+            login_enabled: memberData.login_enabled !== undefined ? memberData.login_enabled : true,
+            show_in_directory: memberData.show_in_directory !== undefined ? memberData.show_in_directory : true
           };
           // Add job_title only if provided (it's a valid column)
           if (memberData.job_title) memberInsertData.job_title = memberData.job_title;
@@ -1272,6 +1279,7 @@ export default async function handler(req, res) {
           const newMemberData = {
             email: memberEmail,
             login_enabled: additionalMemberData.login_enabled !== undefined ? additionalMemberData.login_enabled : true,
+            show_in_directory: additionalMemberData.show_in_directory !== undefined ? additionalMemberData.show_in_directory : true,
             organization_id: createdOrganizationId || prefill_organization_id || null,
             ...additionalMemberData
           };
