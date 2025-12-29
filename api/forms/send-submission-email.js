@@ -24,11 +24,17 @@ export default async function handler(req, res) {
       form_id,
       submission_id,
       form_values,
-      fields
+      fields,
+      _debug_form_email_config
     } = req.body;
 
     console.log('[FormSubmissionEmail] Request received for form:', form_id, 'submission:', submission_id);
     console.log('[FormSubmissionEmail] form_values keys:', form_values ? Object.keys(form_values) : 'null');
+    
+    // Log client-side debug info to help diagnose issues
+    if (_debug_form_email_config) {
+      console.log('[FormSubmissionEmail] CLIENT-SIDE form email config:', JSON.stringify(_debug_form_email_config));
+    }
 
     if (!form_id) {
       console.log('[FormSubmissionEmail] Missing form_id');

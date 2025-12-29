@@ -385,44 +385,35 @@ export default function FormViewPage() {
       }
       
       // Send submission email if configured
-      // Check for BOTH legacy single email format AND new multi-email format
-      const hasLegacyEmail = !!(form?.submission_email_template_id && form?.submission_email_recipient);
-      const hasMultiEmail = !!(form?.submission_emails && Array.isArray(form.submission_emails) && form.submission_emails.length > 0);
-      
-      console.log('[FormView] === EMAIL ON SUBMISSION CHECK ===');
-      console.log('[FormView] form exists:', !!form);
-      console.log('[FormView] form.id:', form?.id);
-      console.log('[FormView] form.name:', form?.name);
-      console.log('[FormView] Legacy format - submission_email_template_id:', form?.submission_email_template_id);
-      console.log('[FormView] Legacy format - submission_email_recipient:', form?.submission_email_recipient);
-      console.log('[FormView] Multi-email format - submission_emails count:', form?.submission_emails?.length || 0);
-      console.log('[FormView] hasLegacyEmail:', hasLegacyEmail, 'hasMultiEmail:', hasMultiEmail);
-      
-      if (hasLegacyEmail || hasMultiEmail) {
-        try {
-          console.log('[FormView] Sending submission email...');
-          const emailPayload = {
-            form_id: form.id,
-            submission_id: submissionResult?.id,
-            form_values: formValues,
-            fields: form.fields
-          };
-          console.log('[FormView] Email payload:', JSON.stringify(emailPayload, null, 2));
-          
-          const emailResponse = await fetch('/api/forms/send-submission-email', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(emailPayload)
-          });
-          console.log('[FormView] Email response status:', emailResponse.status);
-          const emailResult = await emailResponse.json();
-          console.log('[FormView] Submission email result:', emailResult);
-        } catch (error) {
-          console.error('[FormView] Error sending submission email:', error);
-          // Don't fail the submission if email fails
-        }
-      } else {
-        console.log('[FormView] Email on submission NOT configured - skipping email send');
+      // ALWAYS call the server endpoint for diagnostic logging (server decides if email is configured)
+      try {
+        console.log('[FormView] Calling email endpoint for form submission...');
+        const emailPayload = {
+          form_id: form.id,
+          submission_id: submissionResult?.id,
+          form_values: formValues,
+          fields: form.fields,
+          // Pass client-side form data for server-side diagnostic logging
+          _debug_form_email_config: {
+            hasSubmissionEmails: !!form?.submission_emails,
+            submissionEmailsCount: form?.submission_emails?.length || 0,
+            submissionEmailsValue: form?.submission_emails || null,
+            legacyTemplateId: form?.submission_email_template_id || null,
+            legacyRecipient: form?.submission_email_recipient || null
+          }
+        };
+        
+        const emailResponse = await fetch('/api/forms/send-submission-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(emailPayload)
+        });
+        console.log('[FormView] Email response status:', emailResponse.status);
+        const emailResult = await emailResponse.json();
+        console.log('[FormView] Submission email result:', emailResult);
+      } catch (error) {
+        console.error('[FormView] Error sending submission email:', error);
+        // Don't fail the submission if email fails
       }
       
       queryClient.invalidateQueries({ queryKey: ['form-by-slug'] });
