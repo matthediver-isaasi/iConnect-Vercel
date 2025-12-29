@@ -391,8 +391,12 @@ export default async function handler(req, res) {
             // Custom field
             const customFieldId = mapping.target_field;
             const prefField = prefFieldMap.get(customFieldId);
+            console.log(`[AppProcessor] Custom field mapping: target=${customFieldId}, source=${mapping.source_field_id}, value="${value}", hasValue=${value !== undefined && value !== null && value !== ''}`);
             if (value !== undefined && value !== null && value !== '') {
               addCustomFieldValue(customFieldsMap, customFieldId, value, prefField);
+              console.log(`[AppProcessor] Added custom field value: ${customFieldId} = "${value}"`);
+            } else {
+              console.log(`[AppProcessor] Skipped custom field (no value): ${customFieldId}`);
             }
           }
         }
@@ -443,7 +447,9 @@ export default async function handler(req, res) {
     // Process entity_pipelines primary entries if available (new unified system)
     // This supplements/overrides the field_mappings data
     if (memberPipelines.length > 0) {
-      const primaryMemberPipeline = memberPipelines.find(m => m.isPrimary);
+      // Support both isPrimary (camelCase) and is_primary (snake_case) for compatibility
+      const primaryMemberPipeline = memberPipelines.find(m => m.isPrimary || m.is_primary);
+      console.log('[AppProcessor] Member pipelines:', memberPipelines.length, 'Primary found:', !!primaryMemberPipeline);
       const memberCoreFieldMappings = {
         'email': 'email',
         'first_name': 'first_name',
@@ -479,7 +485,12 @@ export default async function handler(req, res) {
     // Process entity_pipelines primary organisation if available
     let orgCustomFields = convertMapToArray(orgCustomFieldsMap);
     if (orgPipelines.length > 0) {
-      const primaryOrgPipeline = orgPipelines.find(o => o.isPrimary);
+      // Support both isPrimary (camelCase) and is_primary (snake_case) for compatibility
+      const primaryOrgPipeline = orgPipelines.find(o => o.isPrimary || o.is_primary);
+      console.log('[AppProcessor] Org pipelines:', orgPipelines.length, 'Primary found:', !!primaryOrgPipeline);
+      if (primaryOrgPipeline) {
+        console.log('[AppProcessor] Primary org pipeline mappings:', JSON.stringify(primaryOrgPipeline.mappings, null, 2));
+      }
       const orgCoreFieldMappings = {
         'name': 'name',
         'email': 'email',
