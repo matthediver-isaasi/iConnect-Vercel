@@ -385,17 +385,20 @@ export default function FormViewPage() {
       }
       
       // Send submission email if configured
+      // Check for BOTH legacy single email format AND new multi-email format
+      const hasLegacyEmail = !!(form?.submission_email_template_id && form?.submission_email_recipient);
+      const hasMultiEmail = !!(form?.submission_emails && Array.isArray(form.submission_emails) && form.submission_emails.length > 0);
+      
       console.log('[FormView] === EMAIL ON SUBMISSION CHECK ===');
       console.log('[FormView] form exists:', !!form);
       console.log('[FormView] form.id:', form?.id);
       console.log('[FormView] form.name:', form?.name);
-      console.log('[FormView] submission_email_template_id:', form?.submission_email_template_id);
-      console.log('[FormView] submission_email_recipient:', form?.submission_email_recipient);
-      console.log('[FormView] submission_email_cc:', form?.submission_email_cc);
-      console.log('[FormView] submission_email_bcc:', form?.submission_email_bcc);
-      console.log('[FormView] Condition result:', !!(form?.submission_email_template_id && form?.submission_email_recipient));
+      console.log('[FormView] Legacy format - submission_email_template_id:', form?.submission_email_template_id);
+      console.log('[FormView] Legacy format - submission_email_recipient:', form?.submission_email_recipient);
+      console.log('[FormView] Multi-email format - submission_emails count:', form?.submission_emails?.length || 0);
+      console.log('[FormView] hasLegacyEmail:', hasLegacyEmail, 'hasMultiEmail:', hasMultiEmail);
       
-      if (form?.submission_email_template_id && form?.submission_email_recipient) {
+      if (hasLegacyEmail || hasMultiEmail) {
         try {
           console.log('[FormView] Sending submission email...');
           const emailPayload = {

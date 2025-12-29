@@ -754,17 +754,20 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
       }
       
       // Send submission email if configured
+      // Check for BOTH legacy single email format AND new multi-email format
+      const hasLegacyEmail = !!(form?.submission_email_template_id && form?.submission_email_recipient);
+      const hasMultiEmail = !!(form?.submission_emails && Array.isArray(form.submission_emails) && form.submission_emails.length > 0);
+      
       console.log('[IEditFormElement] === EMAIL ON SUBMISSION CHECK ===');
       console.log('[IEditFormElement] form exists:', !!form);
       console.log('[IEditFormElement] form.id:', form?.id);
       console.log('[IEditFormElement] form.name:', form?.name);
-      console.log('[IEditFormElement] submission_email_template_id:', form?.submission_email_template_id);
-      console.log('[IEditFormElement] submission_email_recipient:', form?.submission_email_recipient);
-      console.log('[IEditFormElement] submission_email_cc:', form?.submission_email_cc);
-      console.log('[IEditFormElement] submission_email_bcc:', form?.submission_email_bcc);
-      console.log('[IEditFormElement] Condition result:', !!(form?.submission_email_template_id && form?.submission_email_recipient));
+      console.log('[IEditFormElement] Legacy format - submission_email_template_id:', form?.submission_email_template_id);
+      console.log('[IEditFormElement] Legacy format - submission_email_recipient:', form?.submission_email_recipient);
+      console.log('[IEditFormElement] Multi-email format - submission_emails count:', form?.submission_emails?.length || 0);
+      console.log('[IEditFormElement] hasLegacyEmail:', hasLegacyEmail, 'hasMultiEmail:', hasMultiEmail);
       
-      if (form?.submission_email_template_id && form?.submission_email_recipient) {
+      if (hasLegacyEmail || hasMultiEmail) {
         try {
           console.log('[IEditFormElement] Sending submission email...');
           const emailPayload = {
