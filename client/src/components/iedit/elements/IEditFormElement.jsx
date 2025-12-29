@@ -319,20 +319,26 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     setFormValues({});
   }, [form?.id]);
 
-  // Initialize boolean fields with their default values when form loads
-  // This ensures untouched boolean fields are included in the submission
+  // Initialize boolean fields and hidden fields with their default values when form loads
+  // This ensures untouched boolean fields and hidden fields are included in the submission
   useEffect(() => {
     if (!form?.fields || defaultsInitialized) return;
     
-    const booleanDefaults = {};
+    const fieldDefaults = {};
     for (const field of form.fields) {
       if (field.type === 'boolean') {
-        booleanDefaults[field.id] = field.default_value === true ? true : false;
+        fieldDefaults[field.id] = field.default_value === true ? true : false;
+      }
+      // Initialize hidden fields with their default_value so they're included in form submission
+      // This ensures hidden fields mapped to entity_pipelines have their values available
+      if (field.starts_hidden && field.default_value !== undefined && field.default_value !== null && field.default_value !== '') {
+        fieldDefaults[field.id] = field.default_value;
+        console.log(`[IEditFormElement Init] Hidden field "${field.label}" (${field.id}) initialized with default_value:`, field.default_value);
       }
     }
     
-    if (Object.keys(booleanDefaults).length > 0) {
-      setFormValues(prev => ({ ...prev, ...booleanDefaults }));
+    if (Object.keys(fieldDefaults).length > 0) {
+      setFormValues(prev => ({ ...prev, ...fieldDefaults }));
     }
     setDefaultsInitialized(true);
   }, [form?.fields, defaultsInitialized]);

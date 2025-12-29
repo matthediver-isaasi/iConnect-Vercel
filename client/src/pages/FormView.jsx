@@ -171,23 +171,29 @@ export default function FormViewPage() {
     setFormValues({});
   }, [form?.id]);
   
-  // Initialize boolean fields with their default values
+  // Initialize boolean fields and hidden fields with their default values
   // This runs after reset and sets the flag to allow prefill to proceed
   useEffect(() => {
     if (!form?.fields || defaultsInitialized) return;
     
-    const booleanDefaults = {};
+    const fieldDefaults = {};
     for (const field of form.fields) {
       if (field.type === 'boolean') {
-        booleanDefaults[field.id] = field.default_value === true ? true : false;
+        fieldDefaults[field.id] = field.default_value === true ? true : false;
       }
       if (field.type === 'terms_conditions') {
-        booleanDefaults[field.id] = false;
+        fieldDefaults[field.id] = false;
+      }
+      // Initialize hidden fields with their default_value so they're included in form submission
+      // This ensures hidden fields mapped to entity_pipelines have their values available
+      if (field.starts_hidden && field.default_value !== undefined && field.default_value !== null && field.default_value !== '') {
+        fieldDefaults[field.id] = field.default_value;
+        console.log(`[FormView Init] Hidden field "${field.label}" (${field.id}) initialized with default_value:`, field.default_value);
       }
     }
     
-    if (Object.keys(booleanDefaults).length > 0) {
-      setFormValues(prev => ({ ...prev, ...booleanDefaults }));
+    if (Object.keys(fieldDefaults).length > 0) {
+      setFormValues(prev => ({ ...prev, ...fieldDefaults }));
     }
     setDefaultsInitialized(true);
   }, [form?.fields, defaultsInitialized]);
