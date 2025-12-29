@@ -702,12 +702,15 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
     console.log(`[Workflows] Evaluating ${workflows.length} workflows for ${entityType}:${entityId}`);
 
     for (const workflow of workflows) {
+      console.log(`[Workflows] Checking workflow "${workflow.name}": trigger_type="${workflow.trigger_type}", incoming triggerType="${triggerType}"`);
       let triggerMatches = false;
       
       if (workflow.trigger_type === 'record_update' && triggerType === 'field_change') {
         triggerMatches = true;
+        console.log(`[Workflows] "${workflow.name}" matched: record_update triggered by field_change`);
       } else if (workflow.trigger_type === 'record_create' && triggerType === 'record_create') {
         triggerMatches = true;
+        console.log(`[Workflows] "${workflow.name}" matched: record_create`);
       } else if (workflow.trigger_type === 'field_change' && triggerType === 'field_change') {
         const cfg = workflow.trigger_config;
         if (cfg && cfg.field_id) {
@@ -735,7 +738,10 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
         }
       }
 
-      if (!triggerMatches) continue;
+      if (!triggerMatches) {
+        console.log(`[Workflows] Skipping "${workflow.name}" - trigger type mismatch (workflow: ${workflow.trigger_type}, event: ${triggerType})`);
+        continue;
+      }
 
       // Evaluate additional conditions (if any)
       let allConditionsMet = true;
