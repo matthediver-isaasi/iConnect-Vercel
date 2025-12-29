@@ -4103,7 +4103,7 @@ const functionHandlers = {
     // Check if the invitee already has a member record
     const { data: existingMember } = await supabase
       .from('member')
-      .select('id, organization_id')
+      .select('id, organization_id, email')
       .eq('email', email.toLowerCase())
       .maybeSingle();
     
@@ -4117,6 +4117,16 @@ const functionHandlers = {
     const organizationId = inviter?.organization_id;
     const inviterFullName = inviter ? `${inviter.first_name || ''} ${inviter.last_name || ''}`.trim() : inviterName || '';
     
+    // If the invitee already exists, check if they belong to a different organization
+    if (existingMember) {
+      if (existingMember.organization_id && existingMember.organization_id !== organizationId) {
+        console.log(`[sendTeamMemberInvite] Invitee ${email} already belongs to a different organization`);
+        return { success: false, error: 'This person is already a member of another organization' };
+      }
+      // If they're already in this organization, they can still receive the invite (maybe they need to set up password)
+      console.log(`[sendTeamMemberInvite] Invitee ${email} already exists, sending invite anyway`);
+    }
+    
     // Fetch organization details
     let organizationName = '';
     if (organizationId) {
@@ -4128,27 +4138,9 @@ const functionHandlers = {
       organizationName = org?.name || '';
     }
     
-    // If member doesn't exist, create a pending member record
-    if (!existingMember && organizationId) {
-      const { error: createError } = await supabase
-        .from('member')
-        .insert({
-          email: email.toLowerCase(),
-          organization_id: organizationId,
-          login_enabled: false,
-          first_name: '',
-          last_name: ''
-        })
-        .select()
-        .single();
-      
-      if (createError) {
-        console.error('[sendTeamMemberInvite] Failed to create member:', createError);
-        // Continue anyway - the invite can still be sent
-      }
-    }
-    
     // Build the signup/login link with organization_id parameter
+    // Note: Member record is NOT created here - it will be created when the invitee
+    // completes the signup form. This prevents zombie members from unanswered invites.
     const signupLink = `${baseUrl}/login?email=${encodeURIComponent(email)}${organizationId ? `&organization_id=${organizationId}` : ''}`;
     
     // Build the email content
