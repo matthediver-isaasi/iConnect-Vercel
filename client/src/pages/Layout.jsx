@@ -1215,8 +1215,9 @@ useEffect(() => {
       );
       
       const IconComponent = iconMap[parent.icon] || Menu;
-      const isArticleSection = isArticleUrl(parent.url) || 
-        children.some(child => isArticleUrl(child.url));
+      // Only mark parent as article section if the PARENT ITSELF has an article URL
+      // Children having article URLs should NOT cause the parent title to be renamed
+      const isArticleSection = isArticleUrl(parent.url);
       
       if (children.length > 0) {
         return {
