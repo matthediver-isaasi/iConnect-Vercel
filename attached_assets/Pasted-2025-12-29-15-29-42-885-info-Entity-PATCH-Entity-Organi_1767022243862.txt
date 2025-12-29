@@ -1,0 +1,16 @@
+2025-12-29 15:29:42.885 [info] [Entity PATCH] Entity: "OrganizationPreferenceValue", ID: abcae92f-d7c7-432a-baa6-09af7c22a7d2, Body: {"value":"Live"}
+2025-12-29 15:29:42.885 [info] [Entity PATCH] Normalized entity: "organizationpreferencevalue"
+2025-12-29 15:29:42.886 [info] [Entity PATCH] isPreferenceValueEntity: true
+2025-12-29 15:29:43.080 [info] [Entity PATCH] Derived baseUrl: "https://nav.iconn.app"
+2025-12-29 15:29:43.080 [info] [Entity PATCH] Preference PATCH - req.body.value: "Live", data.value: "Live"
+2025-12-29 15:29:43.080 [info] [Entity PATCH] Preference value updated - entityId: 86b8ec6f-109d-4bc3-b86a-cd8a3156e40e, fieldId: 1c395ccf-7df2-4818-917d-1cd672216f71, value: Live
+2025-12-29 15:29:43.080 [info] [Entity PATCH] Full data returned: {"id":"abcae92f-d7c7-432a-baa6-09af7c22a7d2","organization_id":"86b8ec6f-109d-4bc3-b86a-cd8a3156e40e","field_id":"1c395ccf-7df2-4818-917d-1cd672216f71","value":"Live","created_at":"2025-12-29T14:09:50.895773+00:00","updated_at":"2025-12-29T14:09:50.895773+00:00"}
+2025-12-29 15:29:43.081 [info] [Entity PATCH] newValue to use: "Live"
+2025-12-29 15:29:43.081 [info] [Entity PATCH] Calling triggerPreferenceWorkflows with entityType=organization, entityId=86b8ec6f-109d-4bc3-b86a-cd8a3156e40e, fieldId=1c395ccf-7df2-4818-917d-1cd672216f71, value=Live
+2025-12-29 15:29:43.202 [info] [Workflows] Evaluating 2 workflows for organization preference field 1c395ccf-7df2-4818-917d-1cd672216f71, incoming value="Live"
+2025-12-29 15:29:43.202 [info] [Workflows] Checking workflow "Organisation status set to Verified": cfg.field_id=1c395ccf-7df2-4818-917d-1cd672216f71, our fieldId=1c395ccf-7df2-4818-917d-1cd672216f71, cfg.field_type=custom
+2025-12-29 15:29:43.202 [info] [Workflows] Comparing: actual="Live" vs target="Verified", operator=changed_to
+2025-12-29 15:29:43.202 [info] [Workflows] Result: triggerMatches=false
+2025-12-29 15:29:43.203 [info] [Workflows] Checking workflow "Organisation set to Live": cfg.field_id=status, our fieldId=1c395ccf-7df2-4818-917d-1cd672216f71, cfg.field_type=core
+2025-12-29 15:29:43.203 [info] [Workflows] Skipping - field mismatch or not custom field
+2025-12-29 15:29:43.203 [info] [Entity PATCH] triggerPreferenceWorkflows completed
