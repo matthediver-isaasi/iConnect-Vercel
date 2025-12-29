@@ -60,12 +60,15 @@ const TEMPLATE_CATEGORIES = [
 const AVAILABLE_PLACEHOLDERS = [
   { value: '[[member.id]]', label: 'Member ID' },
   { value: '[[member.full_name]]', label: 'Member Full Name' },
+  { value: '[[member.first_name]]', label: 'Member First Name' },
+  { value: '[[member.last_name]]', label: 'Member Last Name' },
   { value: '[[member.email]]', label: 'Member Email' },
   { value: '[[member.phone]]', label: 'Member Phone' },
   { value: '[[organization.id]]', label: 'Organisation ID' },
   { value: '[[organization.name]]', label: 'Organisation Name' },
   { value: '[[organization.invoicing_email]]', label: 'Organisation Email' },
   { value: '[[organization.phone]]', label: 'Organisation Phone' },
+  { value: '{{set_password_url}}', label: 'Set Password URL' },
 ];
 
 // System placeholders that are auto-resolved (not mapped from form fields)
