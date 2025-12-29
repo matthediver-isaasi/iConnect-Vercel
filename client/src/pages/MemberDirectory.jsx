@@ -105,6 +105,16 @@ export default function MemberDirectoryPage() {
     staleTime: 60 * 1000,
   });
 
+  // Fetch the "directory_show" preference field to filter members
+  const { data: directoryShowField } = useQuery({
+    queryKey: ['directory-show-field'],
+    queryFn: async () => {
+      const fields = await base44.entities.PreferenceField.list();
+      return fields.find(f => f.key === 'directory_show' || f.slug === 'directory_show');
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
   const { data: displaySettings } = useQuery({
     queryKey: ['memberDirectoryDisplay'],
     queryFn: async () => {
@@ -172,10 +182,9 @@ export default function MemberDirectoryPage() {
     staleTime: 5 * 60 * 1000,
   });
 
-  // Fetch all member preference values for filtering
+  // Fetch all member preference values for filtering and directory visibility
   const { data: memberPreferenceValues = [] } = useQuery({
     queryKey: ['all-member-preference-values'],
-    enabled: filterableFields.length > 0,
     queryFn: async () => {
       try {
         const values = await base44.entities.MemberPreferenceValue.list();
@@ -263,8 +272,22 @@ export default function MemberDirectoryPage() {
   const filteredAndSortedMembers = useMemo(() => {
     let filtered = allMembers;
     
-    // Filter out members who opted out of directory
+    // Filter out members who opted out of directory (legacy field)
     filtered = filtered.filter(member => member.show_in_directory !== false);
+    
+    // Filter by directory_show preference field - only show members with directory_show = true
+    if (directoryShowField?.id) {
+      filtered = filtered.filter(member => {
+        const memberValues = memberPreferenceMap[member.id] || {};
+        const directoryShowValue = memberValues[directoryShowField.id];
+        // Check for truthy values: true, "true", "yes", "1", etc.
+        return directoryShowValue === true || 
+               directoryShowValue === 'true' || 
+               directoryShowValue === 'yes' || 
+               directoryShowValue === '1' ||
+               directoryShowValue === 1;
+      });
+    }
     
     if (!showDisabled) {
       filtered = filtered.filter(member => member.login_enabled !== false);
@@ -343,7 +366,7 @@ export default function MemberDirectoryPage() {
     });
     
     return sorted;
-  }, [allMembers, searchQuery, showDisabled, sortBy, organizations, memberStats, displaySettings, selectedOrganization, customFieldFilters, memberPreferenceMap]);
+  }, [allMembers, searchQuery, showDisabled, sortBy, organizations, memberStats, displaySettings, selectedOrganization, customFieldFilters, memberPreferenceMap, directoryShowField]);
 
   const totalPages = Math.ceil(filteredAndSortedMembers.length / itemsPerPage);
   const paginatedMembers = useMemo(() => {
