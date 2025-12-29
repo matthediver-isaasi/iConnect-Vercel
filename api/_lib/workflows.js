@@ -200,14 +200,17 @@ async function applyFieldMappings(template, fieldMappings, entityType, entityId,
     }
     
     // Only replace if we have a value, or if preserveEmpty is false (replace with empty string)
+    // Escape special regex characters in placeholder (especially . which is common in member.field patterns)
+    const escapedPlaceholder = placeholder.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    
     if (value !== null && value !== undefined) {
       // Replace both {{placeholder}} and [[placeholder]] syntax
-      result = result.replace(new RegExp(`\\{\\{${placeholder}\\}\\}`, 'g'), String(value));
-      result = result.replace(new RegExp(`\\[\\[${placeholder}\\]\\]`, 'g'), String(value));
+      result = result.replace(new RegExp(`\\{\\{${escapedPlaceholder}\\}\\}`, 'g'), String(value));
+      result = result.replace(new RegExp(`\\[\\[${escapedPlaceholder}\\]\\]`, 'g'), String(value));
     } else if (!preserveEmpty) {
       // Replace with empty string only if preserveEmpty is false
-      result = result.replace(new RegExp(`\\{\\{${placeholder}\\}\\}`, 'g'), '');
-      result = result.replace(new RegExp(`\\[\\[${placeholder}\\]\\]`, 'g'), '');
+      result = result.replace(new RegExp(`\\{\\{${escapedPlaceholder}\\}\\}`, 'g'), '');
+      result = result.replace(new RegExp(`\\[\\[${escapedPlaceholder}\\]\\]`, 'g'), '');
     }
     // If preserveEmpty is true and no value, placeholder is left intact
   }

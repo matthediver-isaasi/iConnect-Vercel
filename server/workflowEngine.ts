@@ -182,9 +182,12 @@ async function applyFieldMappings(
       console.log(`[Workflow Engine] Mapping "${placeholder}" -> custom:${fieldId} = "${value}"`);
     }
     
+    // Escape special regex characters in placeholder (especially . which is common in member.field patterns)
+    const escapedPlaceholder = placeholder.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    
     // Replace both {{placeholder}} and [[placeholder]] syntax
-    result = result.replace(new RegExp(`\\{\\{${placeholder}\\}\\}`, 'g'), value);
-    result = result.replace(new RegExp(`\\[\\[${placeholder}\\]\\]`, 'g'), value);
+    result = result.replace(new RegExp(`\\{\\{${escapedPlaceholder}\\}\\}`, 'g'), value);
+    result = result.replace(new RegExp(`\\[\\[${escapedPlaceholder}\\]\\]`, 'g'), value);
   }
   
   return result;
