@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { MapPin, Building2, Clock, Mail, ExternalLink, Briefcase, PoundSterling, ArrowLeft, AlertCircle, FileText, Download, Linkedin, Share2 } from "lucide-react";
+import AGCASButton from "@/components/ui/AGCASButton";
 import { format, differenceInDays } from "date-fns";
 import { createPageUrl } from "@/utils";
 import DOMPurify from 'dompurify';
@@ -221,23 +222,14 @@ export default function JobDetailsPage() {
             <div>
               <Card className="border-slate-200">
                 <CardContent className="p-6 space-y-4">
-                  <Button 
+                  <AGCASButton 
                     onClick={handleApply}
-                    className="w-full bg-blue-600 hover:bg-blue-700"
-                    size="lg"
-                  >
-                    {job.application_method === 'email' ? (
-                      <>
-                        <Mail className="w-5 h-5 mr-2" />
-                        Apply via Email
-                      </>
-                    ) : (
-                      <>
-                        <ExternalLink className="w-5 h-5 mr-2" />
-                        Apply Now
-                      </>
-                    )}
-                  </Button>
+                    text={job.application_method === 'email' ? 'Apply via Email' : 'Apply Now'}
+                    showArrow={true}
+                    size="large"
+                    className="w-full"
+                    data-testid="button-apply-now"
+                  />
 
                   <div className="space-y-3 pt-4 border-t border-slate-200">
                     <h3 className="font-semibold text-slate-900">Job Details</h3>
