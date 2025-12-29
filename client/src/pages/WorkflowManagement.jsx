@@ -87,6 +87,7 @@ const MEMBER_CORE_FIELDS = [
   { id: 'profile_photo_url', label: 'Profile Photo URL', type: 'url' },
   { id: 'show_in_directory', label: 'Show in Directory', type: 'boolean' },
   { id: 'is_admin', label: 'Is Admin', type: 'boolean' },
+  { id: 'login_enabled', label: 'Login Enabled', type: 'boolean' },
 ];
 
 // Extract placeholders from template content - both {{placeholder}} and [[placeholder]] syntax
