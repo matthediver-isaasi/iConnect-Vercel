@@ -69,6 +69,17 @@ export default function FormViewPage() {
     enabled: !!prefillMemberId && form?.prefill_source === 'member'
   });
 
+  // Prefill: Fetch member's organization when prefill_source = 'member'
+  // This allows forms to prefill org fields even when primary source is member
+  const { data: prefillMemberOrg } = useQuery({
+    queryKey: ['prefill-member-org', prefillMember?.organization_id],
+    queryFn: async () => {
+      const allOrgs = await base44.entities.Organization.listAll();
+      return allOrgs.find(o => o.id === prefillMember.organization_id);
+    },
+    enabled: !!prefillMember?.organization_id && form?.prefill_source === 'member'
+  });
+
   // Prefill: Fetch organization entity when form has prefill_source = 'organization'
   const { data: prefillOrg } = useQuery({
     queryKey: ['prefill-org', prefillOrgId],
@@ -117,28 +128,32 @@ export default function FormViewPage() {
     return selectedOrg || prefillOrg || organizationInfo;
   }, [selectedOrg, prefillOrg, organizationInfo]);
 
-  // Prefill: Fetch custom field values for prefill entity (using correct entity type)
-  const { data: prefillCustomFieldValues = [] } = useQuery({
-    queryKey: ['prefill-custom-values', form?.prefill_source, prefillMemberId, prefillOrgId],
+  // Prefill: Fetch member custom field values
+  const { data: prefillMemberCustomValues = [] } = useQuery({
+    queryKey: ['prefill-member-custom-values', prefillMemberId],
     queryFn: async () => {
-      if (form?.prefill_source === 'member' && prefillMemberId) {
-        // Fetch member preference values filtered by member_id
-        const values = await base44.entities.MemberPreferenceValue.list({
-          filter: { member_id: prefillMemberId }
-        });
-        return values || [];
-      } else if (form?.prefill_source === 'organization' && prefillOrgId) {
-        // Fetch organization preference values filtered by organization_id
-        const values = await base44.entities.OrganizationPreferenceValue.list({
-          filter: { organization_id: prefillOrgId }
-        });
-        return values || [];
-      }
-      return [];
+      const values = await base44.entities.MemberPreferenceValue.list({
+        filter: { member_id: prefillMemberId }
+      });
+      return values || [];
     },
-    enabled: form?.prefill_source && form.prefill_source !== 'none' && 
-      ((form.prefill_source === 'member' && !!prefillMemberId) || 
-       (form.prefill_source === 'organization' && !!prefillOrgId))
+    enabled: !!prefillMemberId && form?.prefill_source === 'member'
+  });
+
+  // Prefill: Fetch org custom field values (either from direct org prefill or from member's org)
+  const effectiveOrgIdForCustomFields = form?.prefill_source === 'organization' 
+    ? prefillOrgId 
+    : prefillMember?.organization_id;
+  
+  const { data: prefillOrgCustomValues = [] } = useQuery({
+    queryKey: ['prefill-org-custom-values', effectiveOrgIdForCustomFields],
+    queryFn: async () => {
+      const values = await base44.entities.OrganizationPreferenceValue.list({
+        filter: { organization_id: effectiveOrgIdForCustomFields }
+      });
+      return values || [];
+    },
+    enabled: !!effectiveOrgIdForCustomFields && form?.prefill_source && form.prefill_source !== 'none'
   });
 
   // Track if prefill has been applied to prevent overwriting user edits
@@ -180,89 +195,111 @@ export default function FormViewPage() {
 
   // Prefill: Populate form values when prefill entity loads (one-time only)
   // Must wait for defaultsInitialized to ensure boolean defaults are set first
+  // Get the effective org entity (direct prefill org or member's org)
+  const effectiveOrgEntity = form?.prefill_source === 'organization' ? prefillOrg : prefillMemberOrg;
+  
   useEffect(() => {
     if (!form || !form.prefill_source || form.prefill_source === 'none') return;
     if (!defaultsInitialized) return; // Wait for boolean defaults to be set first
     if (prefillApplied) return; // Already applied prefill, don't overwrite user edits
     
-    const entity = form.prefill_source === 'member' ? prefillMember : prefillOrg;
-    if (!entity) return;
+    // Primary entity based on prefill source
+    const memberEntity = prefillMember;
+    const orgEntity = effectiveOrgEntity;
     
-    console.log('[FormView Prefill] Starting prefill with entity:', entity);
-    console.log('[FormView Prefill] Form prefill_source:', form.prefill_source);
-    console.log('[FormView Prefill] Entity keys:', Object.keys(entity));
-    console.log('[FormView Prefill] prefillCustomFieldValues:', prefillCustomFieldValues);
+    // For member prefill, we need the member entity; for org prefill, we need the org entity
+    const primaryEntity = form.prefill_source === 'member' ? memberEntity : orgEntity;
+    if (!primaryEntity) return;
+    
+    console.log('[FormView Prefill] Starting prefill');
+    console.log('[FormView Prefill] Member entity:', memberEntity);
+    console.log('[FormView Prefill] Org entity:', orgEntity);
     console.log('[FormView Prefill] Fields with prefill_field configured:', 
-      form.fields?.filter(f => f.prefill_field).map(f => ({id: f.id, label: f.label, prefill_field: f.prefill_field, starts_hidden: f.starts_hidden})));
+      form.fields?.filter(f => f.prefill_field).map(f => ({id: f.id, label: f.label, prefill_field: f.prefill_field})));
+    
+    // Helper to parse custom field value for list fields
+    const parseCustomFieldValue = (cfv, fieldType) => {
+      if (!cfv || cfv.value === undefined || cfv.value === null) return null;
+      let parsedValue = cfv.value;
+      if (fieldType === 'list') {
+        try {
+          const parsed = JSON.parse(cfv.value);
+          parsedValue = Array.isArray(parsed) ? parsed : [cfv.value];
+        } catch {
+          parsedValue = cfv.value ? [cfv.value] : [];
+        }
+      }
+      return parsedValue;
+    };
     
     const newValues = {};
     for (const field of (form.fields || [])) {
       // Special handling for organisation_dropdown: always use the entity's ID
-      // This field type expects an organisation ID, not a field value
       if (field.type === 'organisation_dropdown') {
-        // For organisation prefill source, use the prefill org's ID directly
         if (form.prefill_source === 'organization' && prefillOrgId) {
           newValues[field.id] = prefillOrgId;
+        } else if (form.prefill_source === 'member' && memberEntity?.organization_id) {
+          newValues[field.id] = memberEntity.organization_id;
         }
-        // For member prefill source, use the member's organization_id if available
-        else if (form.prefill_source === 'member' && entity.organization_id) {
-          newValues[field.id] = entity.organization_id;
-        }
-        continue; // Skip normal prefill_field handling for this field type
+        continue;
       }
       
-      if (field.prefill_field) {
-        // Check if custom field (prefixed with 'custom:')
-        if (field.prefill_field.startsWith('custom:')) {
-          const customFieldId = field.prefill_field.replace('custom:', '');
-          // Find custom field value by field_id (member_id/organization_id already filtered in query)
-          const cfv = prefillCustomFieldValues.find(v => v.field_id === customFieldId);
-          if (cfv && cfv.value !== undefined && cfv.value !== null) {
-            let parsedValue = cfv.value;
-            // For list fields, custom field values are stored as JSON strings - parse them
-            if (field.type === 'list') {
-              try {
-                const parsed = JSON.parse(cfv.value);
-                parsedValue = Array.isArray(parsed) ? parsed : [cfv.value];
-              } catch {
-                // If parsing fails, wrap single value in array
-                parsedValue = cfv.value ? [cfv.value] : [];
-              }
-            }
-            newValues[field.id] = parsedValue;
-            console.log(`[FormView Prefill] Field ${field.id} (${field.label}): custom:${customFieldId} = "${parsedValue}"`);
-          } else {
-            console.log(`[FormView Prefill] Field ${field.id} (${field.label}): custom:${customFieldId} - NOT FOUND in prefillCustomFieldValues`);
-          }
-        } else {
-          // Core field - get value from entity
-          if (entity[field.prefill_field] !== undefined) {
-            newValues[field.id] = entity[field.prefill_field];
-            console.log(`[FormView Prefill] Field ${field.id} (${field.label}): ${field.prefill_field} = "${entity[field.prefill_field]}"`);
-          } else {
-            console.log(`[FormView Prefill] Field ${field.id} (${field.label}): ${field.prefill_field} - NOT FOUND in entity (entity has: ${Object.keys(entity).join(', ')})`);
-          }
-        }
+      if (!field.prefill_field) continue;
+      
+      const prefillField = field.prefill_field;
+      let value = null;
+      
+      // Handle new prefixed format: member:, org:, member_custom:, org_custom:
+      if (prefillField.startsWith('member:')) {
+        // Member core field
+        const fieldName = prefillField.replace('member:', '');
+        value = memberEntity?.[fieldName];
+        console.log(`[FormView Prefill] ${field.label}: member:${fieldName} = "${value}"`);
+      } else if (prefillField.startsWith('org:')) {
+        // Organisation core field
+        const fieldName = prefillField.replace('org:', '');
+        value = orgEntity?.[fieldName];
+        console.log(`[FormView Prefill] ${field.label}: org:${fieldName} = "${value}"`);
+      } else if (prefillField.startsWith('member_custom:')) {
+        // Member custom field
+        const customFieldId = prefillField.replace('member_custom:', '');
+        const cfv = prefillMemberCustomValues.find(v => v.field_id === customFieldId);
+        value = parseCustomFieldValue(cfv, field.type);
+        console.log(`[FormView Prefill] ${field.label}: member_custom:${customFieldId} = "${value}"`);
+      } else if (prefillField.startsWith('org_custom:')) {
+        // Organisation custom field
+        const customFieldId = prefillField.replace('org_custom:', '');
+        const cfv = prefillOrgCustomValues.find(v => v.field_id === customFieldId);
+        value = parseCustomFieldValue(cfv, field.type);
+        console.log(`[FormView Prefill] ${field.label}: org_custom:${customFieldId} = "${value}"`);
+      } else if (prefillField.startsWith('custom:')) {
+        // Legacy format: custom field from primary entity
+        const customFieldId = prefillField.replace('custom:', '');
+        const customValues = form.prefill_source === 'member' ? prefillMemberCustomValues : prefillOrgCustomValues;
+        const cfv = customValues.find(v => v.field_id === customFieldId);
+        value = parseCustomFieldValue(cfv, field.type);
+        console.log(`[FormView Prefill] ${field.label}: custom:${customFieldId} (legacy) = "${value}"`);
+      } else {
+        // Legacy format: core field from primary entity
+        value = primaryEntity?.[prefillField];
+        console.log(`[FormView Prefill] ${field.label}: ${prefillField} (legacy) = "${value}"`);
+      }
+      
+      if (value !== null && value !== undefined) {
+        newValues[field.id] = value;
       }
     }
     
     console.log('[FormView Prefill] Total newValues to apply:', Object.keys(newValues).length, newValues);
     
     if (Object.keys(newValues).length > 0) {
-      // Prefill values take precedence on initial load
       setFormValues(prev => {
         const merged = { ...prev };
         for (const [key, value] of Object.entries(newValues)) {
-          // Find the corresponding field to check its type
           const field = form.fields?.find(f => f.id === key);
-          
-          // For boolean fields, always allow prefill to override defaults
-          // This ensures prefilled false values aren't blocked by default true
           if (field?.type === 'boolean') {
             merged[key] = value;
-          }
-          // For non-boolean fields, only prefill if empty/null/undefined
-          else if (prev[key] === undefined || prev[key] === '' || prev[key] === null) {
+          } else if (prev[key] === undefined || prev[key] === '' || prev[key] === null) {
             merged[key] = value;
           }
         }
@@ -273,7 +310,7 @@ export default function FormViewPage() {
     } else {
       console.log('[FormView Prefill] No newValues to apply - check if fields have prefill_field configured');
     }
-  }, [form, prefillMember, prefillOrg, prefillCustomFieldValues, prefillApplied, defaultsInitialized]);
+  }, [form, prefillMember, effectiveOrgEntity, prefillMemberCustomValues, prefillOrgCustomValues, prefillApplied, defaultsInitialized, prefillOrgId]);
 
   const submitFormMutation = useMutation({
     mutationFn: async (submissionData) => {
