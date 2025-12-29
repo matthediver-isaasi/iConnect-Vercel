@@ -737,6 +737,84 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
 
       if (!triggerMatches) continue;
 
+      // Evaluate additional conditions (if any)
+      let allConditionsMet = true;
+      if (workflow.conditions && workflow.conditions.length > 0) {
+        console.log(`[Workflows] Evaluating ${workflow.conditions.length} conditions for ${workflow.name}`);
+        
+        for (let i = 0; i < workflow.conditions.length; i++) {
+          const condition = workflow.conditions[i];
+          let beforeValue, afterValue;
+          
+          if (condition.field_type === 'core') {
+            beforeValue = beforeData?.[condition.field_id];
+            afterValue = afterData?.[condition.field_id];
+          } else if (condition.field_type === 'custom') {
+            // For custom fields, we'd need to fetch from preference values
+            // For now, skip custom field conditions in this context
+            console.log(`[Workflows] Skipping custom field condition "${condition.field_id}" - not supported in this context`);
+            continue;
+          }
+          
+          const actualValue = String(afterValue ?? '');
+          const targetValue = String(condition.value ?? '');
+          const beforeStr = String(beforeValue ?? '');
+          
+          let conditionMet = false;
+          switch (condition.operator) {
+            case 'equals':
+              conditionMet = actualValue.toLowerCase() === targetValue.toLowerCase();
+              break;
+            case 'not_equals':
+              conditionMet = actualValue.toLowerCase() !== targetValue.toLowerCase();
+              break;
+            case 'contains':
+              conditionMet = actualValue.toLowerCase().includes(targetValue.toLowerCase());
+              break;
+            case 'not_contains':
+              conditionMet = !actualValue.toLowerCase().includes(targetValue.toLowerCase());
+              break;
+            case 'starts_with':
+              conditionMet = actualValue.toLowerCase().startsWith(targetValue.toLowerCase());
+              break;
+            case 'ends_with':
+              conditionMet = actualValue.toLowerCase().endsWith(targetValue.toLowerCase());
+              break;
+            case 'is_empty':
+              conditionMet = afterValue === null || afterValue === undefined || afterValue === '';
+              break;
+            case 'is_not_empty':
+              conditionMet = afterValue !== null && afterValue !== undefined && afterValue !== '';
+              break;
+            case 'changed_to':
+              conditionMet = beforeStr !== actualValue && actualValue.toLowerCase() === targetValue.toLowerCase();
+              break;
+            case 'changed_from':
+              conditionMet = beforeStr.toLowerCase() === targetValue.toLowerCase() && beforeStr !== actualValue;
+              break;
+            default:
+              conditionMet = false;
+          }
+          
+          console.log(`[Workflows] Condition ${i}: field="${condition.field_id}", op="${condition.operator}", value="${condition.value}", actual="${actualValue}", met=${conditionMet}, logic=${condition.logic || 'AND'}`);
+          
+          if (i === 0) {
+            allConditionsMet = conditionMet;
+          } else {
+            if (condition.logic === 'OR') {
+              allConditionsMet = allConditionsMet || conditionMet;
+            } else {
+              allConditionsMet = allConditionsMet && conditionMet;
+            }
+          }
+        }
+        
+        if (!allConditionsMet) {
+          console.log(`[Workflows] Conditions not met for workflow: ${workflow.name}`);
+          continue;
+        }
+      }
+
       if (await checkOncePerRecord(workflow, entityType, entityId)) {
         console.log(`[Workflows] Skipping "${workflow.name}" - trigger_mode=once_per_record and already executed for entity ${entityId}`);
         continue;
