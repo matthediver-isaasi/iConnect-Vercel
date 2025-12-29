@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import bcrypt from 'bcryptjs';
+import { createSession } from '../_lib/session.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -212,7 +213,11 @@ export default async function handler(req, res) {
       }
     }
 
-    res.setHeader('Set-Cookie', `memberId=${member.id}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${7 * 24 * 60 * 60}`);
+    // Create PostgreSQL-backed session (same as login.js)
+    await createSession(res, {
+      memberId: member.id,
+      memberEmail: email.toLowerCase()
+    });
 
     console.log('[Auth] Password set for:', email);
     res.json({ success: true, member: fullMember });
