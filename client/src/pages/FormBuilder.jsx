@@ -3084,7 +3084,7 @@ export default function FormBuilderPage() {
               </Button>
             </Link>
             <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-2">
-              {formId ? 'Edit Form' : 'Create Form'}
+              {formId ? (formData.name || 'Edit Form') : 'Create Form'}
             </h1>
           </div>
           <Button
