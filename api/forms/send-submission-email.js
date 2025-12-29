@@ -212,7 +212,7 @@ export default async function handler(req, res) {
       while (retries > 0 && !memberData) {
         const { data, error } = await supabase
           .from('member')
-          .select('id, first_name, last_name, full_name, email, phone, organization_id')
+          .select('id, first_name, last_name, email, phone, organization_id')
           .eq('id', memberIdToUse)
           .single();
         
