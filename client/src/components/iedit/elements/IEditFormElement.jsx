@@ -693,6 +693,10 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
       return base44.entities.FormSubmission.create(data);
     },
     onSuccess: async (submissionResult) => {
+      // Track created member/org IDs from process-application for email placeholders
+      let createdMemberId = null;
+      let createdOrganizationId = null;
+      
       // Process entity pipelines if configured (create/update member/org entities)
       const hasEntityPipelines = (form?.entity_pipelines?.members?.length > 0) || (form?.entity_pipelines?.organisations?.length > 0);
       if (hasEntityPipelines) {
@@ -721,6 +725,9 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
           if (response.ok) {
             const result = await response.json();
             console.log('[IEditFormElement] Application processed:', result);
+            // Capture created member/org IDs for email placeholders
+            createdMemberId = result.created_member_id || null;
+            createdOrganizationId = result.created_organization_id || null;
           } else {
             const error = await response.json();
             console.error('[IEditFormElement] Application processing failed:', error);
@@ -754,44 +761,40 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
       }
       
       // Send submission email if configured
-      // Check for BOTH legacy single email format AND new multi-email format
-      const hasLegacyEmail = !!(form?.submission_email_template_id && form?.submission_email_recipient);
-      const hasMultiEmail = !!(form?.submission_emails && Array.isArray(form.submission_emails) && form.submission_emails.length > 0);
-      
-      console.log('[IEditFormElement] === EMAIL ON SUBMISSION CHECK ===');
-      console.log('[IEditFormElement] form exists:', !!form);
-      console.log('[IEditFormElement] form.id:', form?.id);
-      console.log('[IEditFormElement] form.name:', form?.name);
-      console.log('[IEditFormElement] Legacy format - submission_email_template_id:', form?.submission_email_template_id);
-      console.log('[IEditFormElement] Legacy format - submission_email_recipient:', form?.submission_email_recipient);
-      console.log('[IEditFormElement] Multi-email format - submission_emails count:', form?.submission_emails?.length || 0);
-      console.log('[IEditFormElement] hasLegacyEmail:', hasLegacyEmail, 'hasMultiEmail:', hasMultiEmail);
-      
-      if (hasLegacyEmail || hasMultiEmail) {
-        try {
-          console.log('[IEditFormElement] Sending submission email...');
-          const emailPayload = {
-            form_id: form.id,
-            submission_id: submissionResult?.id,
-            form_values: formValues,
-            fields: form.fields
-          };
-          console.log('[IEditFormElement] Email payload:', JSON.stringify(emailPayload, null, 2));
-          
-          const emailResponse = await fetch('/api/forms/send-submission-email', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(emailPayload)
-          });
-          console.log('[IEditFormElement] Email response status:', emailResponse.status);
-          const emailResult = await emailResponse.json();
-          console.log('[IEditFormElement] Submission email result:', emailResult);
-        } catch (error) {
-          console.error('[IEditFormElement] Error sending submission email:', error);
-          // Don't fail the submission if email fails
-        }
-      } else {
-        console.log('[IEditFormElement] Email on submission NOT configured - skipping email send');
+      // ALWAYS call the server endpoint for diagnostic logging (server decides if email is configured)
+      try {
+        console.log('[IEditFormElement] Calling email endpoint for form submission...');
+        console.log('[IEditFormElement] Passing createdMemberId:', createdMemberId, 'createdOrganizationId:', createdOrganizationId);
+        const emailPayload = {
+          form_id: form.id,
+          submission_id: submissionResult?.id,
+          form_values: formValues,
+          fields: form.fields,
+          // Pass created member/org IDs for placeholder resolution
+          created_member_id: createdMemberId,
+          created_organization_id: createdOrganizationId,
+          // Pass client-side form data for server-side diagnostic logging
+          _debug_form_email_config: {
+            hasSubmissionEmails: !!form?.submission_emails,
+            submissionEmailsCount: form?.submission_emails?.length || 0,
+            submissionEmailsValue: form?.submission_emails || null,
+            legacyTemplateId: form?.submission_email_template_id || null,
+            legacyRecipient: form?.submission_email_recipient || null
+          }
+        };
+        console.log('[IEditFormElement] Email payload:', JSON.stringify(emailPayload, null, 2));
+        
+        const emailResponse = await fetch('/api/forms/send-submission-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(emailPayload)
+        });
+        console.log('[IEditFormElement] Email response status:', emailResponse.status);
+        const emailResult = await emailResponse.json();
+        console.log('[IEditFormElement] Submission email result:', emailResult);
+      } catch (error) {
+        console.error('[IEditFormElement] Error sending submission email:', error);
+        // Don't fail the submission if email fails
       }
       
       setSubmitted(true);
