@@ -167,6 +167,9 @@ export default function FormViewPage() {
       if (field.type === 'boolean') {
         booleanDefaults[field.id] = field.default_value === true ? true : false;
       }
+      if (field.type === 'terms_conditions') {
+        booleanDefaults[field.id] = false;
+      }
     }
     
     if (Object.keys(booleanDefaults).length > 0) {

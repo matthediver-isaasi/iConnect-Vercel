@@ -458,6 +458,41 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
           </div>
         );
 
+      case 'terms_conditions':
+        const tcValue = value !== undefined && value !== null 
+          ? (value === true || value === 'true')
+          : false;
+        return (
+          <div className="space-y-2">
+            <div className="flex items-center space-x-3">
+              <Switch
+                id={field.id}
+                checked={tcValue}
+                onCheckedChange={(checked) => onChange(checked)}
+                disabled={isFieldDisabled}
+                data-testid={`switch-terms-${field.id}`}
+              />
+              <Label 
+                htmlFor={field.id} 
+                className={`font-normal cursor-pointer ${isFieldDisabled ? 'text-slate-400' : ''}`}
+              >
+                I accept the Terms & Conditions
+              </Label>
+            </div>
+            {field.terms_url && (
+              <a 
+                href={field.terms_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm text-blue-600 hover:text-blue-800 hover:underline inline-block"
+                data-testid={`link-terms-${field.id}`}
+              >
+                {field.terms_link_text || 'View Terms & Conditions'}
+              </a>
+            )}
+          </div>
+        );
+
       case 'select':
         return (
           <div className="space-y-2">

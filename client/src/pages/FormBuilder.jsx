@@ -38,6 +38,7 @@ const STANDARD_FIELD_TYPES = [
   { value: 'radio', label: 'Radio Buttons' },
   { value: 'checkbox', label: 'Checkboxes' },
   { value: 'boolean', label: 'Boolean (Toggle)' },
+  { value: 'terms_conditions', label: 'Terms & Conditions' },
   { value: 'list', label: 'List (User-Defined Values)' },
   { value: 'date', label: 'Date' },
   { value: 'time', label: 'Time' },
@@ -2028,6 +2029,35 @@ function FieldCard({
                     onCheckedChange={(checked) => updateField(originalIndex, { default_value: checked })}
                     data-testid={`switch-default-value-${field.id}`}
                   />
+                </div>
+              )}
+
+              {field.type === 'terms_conditions' && (
+                <div className="space-y-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                  <div className="space-y-1">
+                    <Label className="text-xs font-medium">Terms & Conditions URL</Label>
+                    <Input
+                      type="url"
+                      value={field.terms_url || ''}
+                      onChange={(e) => updateField(originalIndex, { terms_url: e.target.value })}
+                      placeholder="https://example.com/terms"
+                      className="h-8 text-xs"
+                      data-testid={`input-terms-url-${field.id}`}
+                    />
+                    <p className="text-xs text-slate-500">Link to your terms & conditions page</p>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs font-medium">Link Display Text</Label>
+                    <Input
+                      type="text"
+                      value={field.terms_link_text || ''}
+                      onChange={(e) => updateField(originalIndex, { terms_link_text: e.target.value })}
+                      placeholder="View Terms & Conditions"
+                      className="h-8 text-xs"
+                      data-testid={`input-terms-link-text-${field.id}`}
+                    />
+                    <p className="text-xs text-slate-500">Text shown for the link (default: "View Terms & Conditions")</p>
+                  </div>
                 </div>
               )}
 
