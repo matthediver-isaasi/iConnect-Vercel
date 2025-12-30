@@ -14,6 +14,7 @@ import { Loader2, User, Mail, FileText, Trophy, Search, Users, Shield, Calendar,
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useLayoutContext } from "@/contexts/LayoutContext";
+import { isDeletedMember } from "@/utils";
 
 export default function MemberDirectoryPage() {
   const { memberInfo, isFeatureExcluded } = useMemberAccess();
@@ -262,6 +263,9 @@ export default function MemberDirectoryPage() {
 
   const filteredAndSortedMembers = useMemo(() => {
     let filtered = allMembers;
+    
+    // Filter out deleted/anonymized members
+    filtered = filtered.filter(member => !isDeletedMember(member));
     
     // Filter out members who opted out of directory
     filtered = filtered.filter(member => member.show_in_directory !== false);

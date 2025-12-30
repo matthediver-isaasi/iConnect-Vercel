@@ -46,7 +46,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
-import { createPageUrl } from "@/utils";
+import { createPageUrl, isDeletedMember } from "@/utils";
 import MemberDetailView from "@/components/MemberDetailView";
 import { useToast } from "@/components/ui/use-toast";
 import { useLocation } from "react-router-dom";
@@ -375,6 +375,9 @@ export default function MembersListPage() {
 
   const filteredMembers = useMemo(() => {
     let result = [...members];
+    
+    // Filter out deleted/anonymized members
+    result = result.filter(m => !isDeletedMember(m));
 
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
