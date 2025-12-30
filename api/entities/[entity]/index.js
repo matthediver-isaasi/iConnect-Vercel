@@ -172,6 +172,12 @@ const entityToTable = {
 
 const getTableName = (entity) => entityToTable[entity] || entity.toLowerCase().replace(/([A-Z])/g, '_$1').toLowerCase().replace(/^_/, '');
 
+// Check if a member is deleted (anonymized) based on email pattern
+const isDeletedMember = (member) => {
+  if (!member || !member.email) return false;
+  return /^deleted_[a-f0-9-]+@deleted\.local$/i.test(member.email);
+};
+
 export default async function handler(req, res) {
   if (!supabase) {
     return res.status(503).json({ error: 'Supabase not configured' });
@@ -229,6 +235,15 @@ export default async function handler(req, res) {
           table: tableName
         });
       }
+      
+      // Filter out deleted/anonymized members from the response
+      // Check for both PascalCase "Member" and lowercase variants
+      const entityNorm = entity.replace(/[-_]/g, '').toLowerCase();
+      if (entityNorm === 'member' && Array.isArray(data)) {
+        const activeMembers = data.filter(m => !isDeletedMember(m));
+        return res.json(activeMembers);
+      }
+      
       return res.json(data || []);
 
     } else if (req.method === 'POST') {
