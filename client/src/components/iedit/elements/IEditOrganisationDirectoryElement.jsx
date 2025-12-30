@@ -12,6 +12,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 import DOMPurify from 'dompurify';
+import { isDeletedMember } from "@/utils";
 
 const directoryQuillModules = {
   toolbar: [
@@ -739,7 +740,7 @@ export function IEditOrganisationDirectoryElementRenderer({ content, settings })
     if (!showMemberCount) return {};
     const counts = {};
     members.forEach((member) => {
-      if (member.organization_id) {
+      if (member.organization_id && !isDeletedMember(member)) {
         counts[member.organization_id] = (counts[member.organization_id] || 0) + 1;
       }
     });

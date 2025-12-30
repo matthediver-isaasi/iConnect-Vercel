@@ -49,7 +49,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
-import { createPageUrl } from "@/utils";
+import { createPageUrl, isDeletedMember } from "@/utils";
 import OrganisationDetailView from "@/components/OrganisationDetailView";
 import { useToast } from "@/components/ui/use-toast";
 import { useLocation } from "react-router-dom";
@@ -326,16 +326,17 @@ export default function OrganisationsListPage() {
   };
 
   const selectedMemberCount = useMemo(() => {
+    const activeMembers = members.filter(m => !isDeletedMember(m));
     if (singleDeleteOrg) {
-      return members.filter(m => m.organization_id === singleDeleteOrg.id).length;
+      return activeMembers.filter(m => m.organization_id === singleDeleteOrg.id).length;
     }
-    return members.filter(m => selectedOrgs.includes(m.organization_id)).length;
+    return activeMembers.filter(m => selectedOrgs.includes(m.organization_id)).length;
   }, [members, selectedOrgs, singleDeleteOrg]);
 
   const organizationMemberCounts = useMemo(() => {
     const counts = {};
     members.forEach((member) => {
-      if (member.organization_id) {
+      if (member.organization_id && !isDeletedMember(member)) {
         counts[member.organization_id] = (counts[member.organization_id] || 0) + 1;
       }
     });

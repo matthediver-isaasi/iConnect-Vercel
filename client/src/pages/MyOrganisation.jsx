@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { Loader2, Building2, Globe, Users, Phone, Mail, MapPin, ClipboardList, ExternalLink, Save, X, Camera, Plus, Trash2, Trophy } from "lucide-react";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
-import { createPageUrl } from "@/utils";
+import { createPageUrl, isDeletedMember } from "@/utils";
 import { useToast } from "@/components/ui/use-toast";
 
 function ListFieldInput({ items, onChange, placeholder, fieldId }) {
@@ -158,7 +158,7 @@ export default function MyOrganisationPage() {
     enabled: accessChecked,
   });
 
-  const { data: members = [], isLoading: membersLoading } = useQuery({
+  const { data: membersRaw = [], isLoading: membersLoading } = useQuery({
     queryKey: ['organizationMembers', memberInfo?.organization_id],
     enabled: !!memberInfo?.organization_id && accessChecked,
     queryFn: async () => {
@@ -169,6 +169,8 @@ export default function MyOrganisationPage() {
       return allMembers || [];
     }
   });
+  
+  const members = useMemo(() => membersRaw.filter(m => !isDeletedMember(m)), [membersRaw]);
 
   const { data: orgCustomFields = [] } = useQuery({
     queryKey: ['/api/entities/PreferenceField', 'organization', 'myorg'],

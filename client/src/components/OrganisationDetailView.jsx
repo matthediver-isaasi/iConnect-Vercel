@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -59,6 +59,7 @@ import {
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useOrgDetailLayout, mergeLayoutWithCustomFields, CORE_FIELDS } from "@/hooks/useOrgDetailLayout";
+import { isDeletedMember } from "@/utils";
 import { useDateFormat } from "@/hooks/useDateFormat";
 import OrgDetailLayoutEditor from "@/components/OrgDetailLayoutEditor";
 import MemberDetailView from "@/components/MemberDetailView";
@@ -184,7 +185,7 @@ export default function OrganisationDetailView({
   const { layoutConfig, saveLayout, isSaving: isLayoutSaving } = useOrgDetailLayout();
   const effectiveLayout = mergeLayoutWithCustomFields(layoutConfig, orgCustomFields);
 
-  const { data: orgMembers = [], isLoading: membersLoading } = useQuery({
+  const { data: orgMembersRaw = [], isLoading: membersLoading } = useQuery({
     queryKey: ['org-detail-members', organization?.id],
     enabled: !!organization?.id,
     queryFn: async () => {
@@ -194,6 +195,8 @@ export default function OrganisationDetailView({
       return members || [];
     }
   });
+  
+  const orgMembers = useMemo(() => orgMembersRaw.filter(m => !isDeletedMember(m)), [orgMembersRaw]);
 
   const { data: orgValues = [], isLoading: valuesLoading } = useQuery({
     queryKey: ['org-detail-preference-values', organization?.id],
@@ -934,7 +937,7 @@ export default function OrganisationDetailView({
                     <div className="flex items-center gap-2 mt-1">
                       <span className="text-sm text-slate-500 flex items-center gap-1">
                         <Users className="w-4 h-4" />
-                        {memberCount} members
+                        {orgMembers.length} members
                       </span>
                     </div>
                   )}

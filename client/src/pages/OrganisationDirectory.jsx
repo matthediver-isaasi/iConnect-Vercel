@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Badge } from "@/components/ui/badge";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { toast } from "sonner";
+import { isDeletedMember } from "@/utils";
 
 // Helper to add cache-busting for JPG images which have loading issues
 const getLogoUrl = (url, orgId) => {
@@ -119,7 +120,7 @@ export default function OrganisationDirectoryPage() {
   const organizationMemberCounts = useMemo(() => {
     const counts = {};
     members.forEach((member) => {
-      if (member.organization_id) {
+      if (member.organization_id && !isDeletedMember(member)) {
         counts[member.organization_id] = (counts[member.organization_id] || 0) + 1;
       }
     });

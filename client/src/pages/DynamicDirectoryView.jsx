@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { toast } from "sonner";
+import { isDeletedMember } from "@/utils";
 
 export default function DynamicDirectoryView() {
   const { slug } = useParams();
@@ -369,7 +370,7 @@ export default function DynamicDirectoryView() {
   const organizationMemberCounts = useMemo(() => {
     const counts = {};
     allOrgMembersForCount.forEach((member) => {
-      if (member.organization_id) {
+      if (member.organization_id && !isDeletedMember(member)) {
         counts[member.organization_id] = (counts[member.organization_id] || 0) + 1;
       }
     });
