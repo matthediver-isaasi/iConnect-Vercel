@@ -191,6 +191,13 @@ export default async function handler(req, res) {
       // List entities
       const { filter, sort, limit, offset, expand } = req.query;
       let query = supabase.from(tableName).select(expand || '*');
+      
+      // For Member entity, exclude deleted/anonymized members at the query level
+      // This ensures pagination works correctly
+      const entityNorm = entity.replace(/[-_]/g, '').toLowerCase();
+      if (entityNorm === 'member') {
+        query = query.not('email', 'ilike', 'deleted_%@deleted.local');
+      }
 
       if (filter) {
         const filterObj = JSON.parse(filter);
@@ -234,14 +241,6 @@ export default async function handler(req, res) {
           code: error.code,
           table: tableName
         });
-      }
-      
-      // Filter out deleted/anonymized members from the response
-      // Check for both PascalCase "Member" and lowercase variants
-      const entityNorm = entity.replace(/[-_]/g, '').toLowerCase();
-      if (entityNorm === 'member' && Array.isArray(data)) {
-        const activeMembers = data.filter(m => !isDeletedMember(m));
-        return res.json(activeMembers);
       }
       
       return res.json(data || []);
