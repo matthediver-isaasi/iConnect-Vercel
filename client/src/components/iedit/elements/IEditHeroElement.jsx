@@ -537,8 +537,7 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
             style={{ 
               gridColumn: '1 / -1',
               gridRow: '1 / -1',
-              position: 'absolute',
-              inset: 0,
+              position: 'relative',
               ...(effectiveMobileBgType !== 'image' ? getMobileBackgroundStyle() : {})
             }}
           >
@@ -547,10 +546,10 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
                 <img 
                   src={effectiveMobileImageUrl} 
                   alt={content.heading || 'Hero background'} 
-                  className="absolute inset-0 w-full h-full"
                   style={{ 
-                    objectFit: effectiveMobileImageFit,
-                    objectPosition: 'center'
+                    display: 'block', 
+                    width: '100%', 
+                    height: 'auto' 
                   }}
                 />
                 {effectiveMobileOverlayEnabled && (
