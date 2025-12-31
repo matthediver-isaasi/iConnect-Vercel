@@ -26,7 +26,8 @@ const isHtmlEmpty = (html) => {
   return textContent.length === 0;
 };
 
-export default function IEditHeroElement({ content, variant, settings }) {
+export default function IEditHeroElement({ content, variant, settings, previewViewport }) {
+  const isMobilePreview = previewViewport === 'mobile';
   const {
     anchor,
     // Desktop background settings
@@ -304,6 +305,7 @@ export default function IEditHeroElement({ content, variant, settings }) {
       display: none;
     }
     
+    /* Mobile styles - triggered by media query OR .mobile-preview class */
     @media (max-width: 767px) {
       .${instanceId} .hero-bg-desktop {
         display: none;
@@ -311,6 +313,14 @@ export default function IEditHeroElement({ content, variant, settings }) {
       .${instanceId} .hero-bg-mobile {
         display: block;
       }
+    }
+    
+    /* Mobile preview class override */
+    .${instanceId}.mobile-preview .hero-bg-desktop {
+      display: none !important;
+    }
+    .${instanceId}.mobile-preview .hero-bg-mobile {
+      display: block !important;
     }
     
     @media (max-width: 767px) {
@@ -373,13 +383,74 @@ export default function IEditHeroElement({ content, variant, settings }) {
         text-align: ${mobileButtonAlign};
       }
     }
+    
+    /* Mobile preview class - applies all mobile styles */
+    .${instanceId}.mobile-preview .hero-container {
+      ${mobileHeight.minHeight ? `min-height: ${mobileHeight.minHeight};` : ''}
+      ${getMobileBackgroundCSS()}
+    }
+    
+    .${instanceId}.mobile-preview .hero-content {
+      box-sizing: border-box;
+      width: 100%;
+      padding-left: ${mobilePaddingLeft}px;
+      padding-right: ${mobilePaddingRight}px;
+      padding-top: ${mobilePaddingTop}px;
+      padding-bottom: ${mobilePaddingBottom}px;
+      color: ${effectiveMobileTextColor};
+    }
+    
+    .${instanceId}.mobile-preview .hero-heading {
+      font-size: ${mobileHeadingFontSize}px;
+      line-height: ${mobileHeadingLineHeight};
+      letter-spacing: ${mobileHeadingLetterSpacing}px;
+      text-align: ${mobileTextAlign};
+      color: ${effectiveMobileTextColor};
+    }
+    
+    .${instanceId}.mobile-preview .hero-underline {
+      width: ${mobileUnderlineWidth}px;
+      ${mobileTextAlign === 'center' ? 'margin-left: auto; margin-right: auto;' : 
+        mobileTextAlign === 'right' ? 'margin-left: auto; margin-right: 0;' : 
+        'margin-left: 0; margin-right: auto;'}
+    }
+    
+    .${instanceId}.mobile-preview .hero-subheading {
+      font-size: ${mobileSubheadingFontSize}px;
+      line-height: ${mobileSubheadingLineHeight};
+      text-align: ${mobileTextAlign};
+      color: ${effectiveMobileTextColor};
+    }
+    
+    .${instanceId}.mobile-preview .hero-content-text {
+      font-size: ${mobileContentFontSize}px;
+      line-height: ${mobileContentLineHeight};
+      text-align: ${mobileTextAlign};
+      color: ${effectiveMobileTextColor};
+    }
+    
+    .${instanceId}.mobile-preview .hero-content-text p,
+    .${instanceId}.mobile-preview .hero-content-text span,
+    .${instanceId}.mobile-preview .hero-content-text li,
+    .${instanceId}.mobile-preview .hero-content-text a,
+    .${instanceId}.mobile-preview .hero-content-text strong,
+    .${instanceId}.mobile-preview .hero-content-text em,
+    .${instanceId}.mobile-preview .hero-content-text u {
+      color: inherit !important;
+    }
+    
+    .${instanceId}.mobile-preview .hero-button-wrapper {
+      margin-top: ${mobileButtonTopMargin}px;
+      text-align: ${mobileButtonAlign};
+    }
   `;
 
   const fullWidthClass = fullWidth ? 'w-screen max-w-[100vw] relative left-1/2 -translate-x-1/2 overflow-hidden' : '';
+  const mobilePreviewClass = isMobilePreview ? 'mobile-preview' : '';
 
   if (isImageSized) {
     return (
-      <div id={anchor || undefined} className={`${instanceId} ${fullWidthClass} overflow-hidden`}>
+      <div id={anchor || undefined} className={`${instanceId} ${fullWidthClass} ${mobilePreviewClass} overflow-hidden`}>
         <style>{responsiveStyles}</style>
         <div 
           style={{ 
@@ -533,7 +604,7 @@ export default function IEditHeroElement({ content, variant, settings }) {
   }
 
   return (
-    <div id={anchor || undefined} className={`${instanceId} ${fullWidthClass} overflow-hidden`}>
+    <div id={anchor || undefined} className={`${instanceId} ${fullWidthClass} ${mobilePreviewClass} overflow-hidden`}>
       <style>{responsiveStyles}</style>
       <div 
         className="hero-container relative w-full overflow-hidden"
@@ -659,6 +730,14 @@ export function IEditHeroElementEditor({ element, onChange }) {
 
   const content = element.content || {};
   const backgroundType = content.background_type || 'color';
+
+  // Compute default mobile values for display in editor placeholders
+  const defaultMobileHeadingSize = Math.max(28, Math.round((content.heading_font_size || 48) * 0.6));
+  const defaultMobileSubheadingSize = Math.max(16, Math.round((content.subheading_font_size || 20) * 0.8));
+  const defaultMobileContentSize = Math.max(14, Math.round((content.content_font_size || 16) * 0.9));
+  const defaultMobilePaddingTop = Math.max(40, Math.round((content.padding_top || 80) * 0.5));
+  const defaultMobilePaddingBottom = Math.max(40, Math.round((content.padding_bottom || 80) * 0.5));
+  const defaultMobileButtonMargin = Math.max(16, Math.round((content.button_top_margin || 32) * 0.75));
 
   const [isUploading, setIsUploading] = useState(false);
   const [isMobileUploading, setIsMobileUploading] = useState(false);

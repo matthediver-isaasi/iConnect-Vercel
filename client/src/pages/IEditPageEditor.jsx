@@ -3,7 +3,7 @@ import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { ArrowLeft, Save, Eye, EyeOff, Settings, Plus } from "lucide-react";
+import { ArrowLeft, Save, Eye, EyeOff, Settings, Plus, Monitor, Smartphone } from "lucide-react";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
 import { useNavigate } from "react-router-dom";
@@ -26,6 +26,7 @@ export default function IEditPageEditorPage() {
   const [editingElement, setEditingElement] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
   const [previewMode, setPreviewMode] = useState(false);
+  const [previewViewport, setPreviewViewport] = useState('desktop'); // 'desktop' | 'mobile'
   
   const [inlineEditingElement, setInlineEditingElement] = useState(null);
   const [draftContent, setDraftContent] = useState({});
@@ -361,6 +362,30 @@ export default function IEditPageEditorPage() {
               </>
             )}
           </Button>
+          
+          {/* Viewport Toggle - only show in preview mode */}
+          {previewMode && (
+            <div className="flex items-center gap-1 ml-2 p-1 bg-slate-100 rounded-lg">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setPreviewViewport('desktop')}
+                className={`px-3 ${previewViewport === 'desktop' ? 'bg-white shadow-sm' : ''}`}
+                title="Desktop Preview"
+              >
+                <Monitor className="w-4 h-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setPreviewViewport('mobile')}
+                className={`px-3 ${previewViewport === 'mobile' ? 'bg-white shadow-sm' : ''}`}
+                title="Mobile Preview"
+              >
+                <Smartphone className="w-4 h-4" />
+              </Button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -369,7 +394,7 @@ export default function IEditPageEditorPage() {
         <div className="flex-1 overflow-y-auto">
           {previewMode ? (
             /* Preview Mode */
-            <div className="bg-white min-h-full">
+            <div className={`min-h-full ${previewViewport === 'mobile' ? 'bg-slate-200 flex justify-center py-4' : 'bg-white'}`}>
               <style>
                 {`
                   @font-face {
@@ -381,36 +406,46 @@ export default function IEditPageEditorPage() {
                   }
                 `}
               </style>
-              {elementsWithDraft.length === 0 ? (
-                <div className="flex items-center justify-center py-20">
-                  <div className="text-center">
-                    <Eye className="w-16 h-16 text-slate-300 mx-auto mb-4" />
-                    <p className="text-slate-600 mb-2">Preview Empty</p>
-                    <p className="text-sm text-slate-500">Add elements to see the preview</p>
-                    <Button
-                      onClick={() => setPreviewMode(false)}
-                      className="mt-4 bg-blue-600 hover:bg-blue-700"
-                    >
-                      Exit Preview
-                    </Button>
+              {/* Mobile Preview Container */}
+              <div 
+                className={previewViewport === 'mobile' 
+                  ? 'w-[375px] bg-white shadow-xl rounded-lg overflow-hidden border border-slate-300' 
+                  : 'w-full'
+                }
+                style={previewViewport === 'mobile' ? { maxHeight: 'calc(100vh - 120px)', overflowY: 'auto' } : {}}
+              >
+                {elementsWithDraft.length === 0 ? (
+                  <div className="flex items-center justify-center py-20">
+                    <div className="text-center">
+                      <Eye className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+                      <p className="text-slate-600 mb-2">Preview Empty</p>
+                      <p className="text-sm text-slate-500">Add elements to see the preview</p>
+                      <Button
+                        onClick={() => setPreviewMode(false)}
+                        className="mt-4 bg-blue-600 hover:bg-blue-700"
+                      >
+                        Exit Preview
+                      </Button>
+                    </div>
                   </div>
-                </div>
-              ) : (
-                elementsWithDraft.map((element) => (
-                  <ElementPreviewWrapper
-                    key={element.id}
-                    element={element}
-                    onEdit={handleStartInlineEdit}
-                    isEditing={inlineEditingElement?.id === element.id}
-                  >
-                    <IEditElementRenderer
+                ) : (
+                  elementsWithDraft.map((element) => (
+                    <ElementPreviewWrapper
+                      key={element.id}
                       element={element}
-                      memberInfo={null}
-                      organizationInfo={null}
-                    />
-                  </ElementPreviewWrapper>
-                ))
-              )}
+                      onEdit={handleStartInlineEdit}
+                      isEditing={inlineEditingElement?.id === element.id}
+                    >
+                      <IEditElementRenderer
+                        element={element}
+                        memberInfo={null}
+                        organizationInfo={null}
+                        previewViewport={previewViewport}
+                      />
+                    </ElementPreviewWrapper>
+                  ))
+                )}
+              </div>
             </div>
           ) : (
             /* Edit Mode */

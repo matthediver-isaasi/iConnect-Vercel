@@ -24,7 +24,7 @@ import { IEditCardDeckElementRenderer } from "./elements/IEditCardDeckElement";
 import { IEditLogoGridElementRenderer } from "./elements/IEditLogoGridElement";
 import IEditEventSpotlightElement from "./elements/IEditEventSpotlightElement";
 
-export default function IEditElementRenderer({ element, memberInfo, organizationInfo, isFirst }) {
+export default function IEditElementRenderer({ element, memberInfo, organizationInfo, isFirst, previewViewport }) {
   // Map element types to their corresponding components
   const elementComponents = {
     'hero': IEditHeroElement,
@@ -91,6 +91,7 @@ export default function IEditElementRenderer({ element, memberInfo, organization
           variant={element.style_variant}
           settings={element.settings}
           isFirst={isFirst}
+          previewViewport={previewViewport}
         />
       </div>
     );
@@ -106,6 +107,7 @@ export default function IEditElementRenderer({ element, memberInfo, organization
           variant={element.style_variant}
           settings={element.settings}
           isFirst={isFirst}
+          previewViewport={previewViewport}
         />
       </div>
     </div>
