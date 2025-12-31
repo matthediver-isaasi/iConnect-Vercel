@@ -247,7 +247,7 @@ export default function IEditHeroElement({ content, variant, settings }) {
     }
   `;
 
-  const fullWidthClass = fullWidth ? 'w-screen relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw]' : '';
+  const fullWidthClass = fullWidth ? 'w-screen max-w-[100vw] relative left-1/2 -translate-x-1/2' : '';
 
   if (isImageSized) {
     return (
