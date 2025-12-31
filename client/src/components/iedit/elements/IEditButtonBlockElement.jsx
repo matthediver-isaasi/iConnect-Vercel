@@ -196,48 +196,48 @@ export default function IEditButtonBlockElement({ content, variant, settings, pr
     }
     ` : ''}
     
-    /* Mobile preview styles (for editor preview mode) */
+    /* Mobile preview styles (for editor preview mode) - use !important to override inline styles */
     .buttonblock-${instanceId}.mobile-preview .bb-container {
-      padding-top: ${mobilePaddingTop}px;
-      padding-bottom: ${mobilePaddingBottom}px;
-      padding-left: ${mobilePaddingLeft}px;
-      padding-right: ${mobilePaddingRight}px;
+      padding-top: ${mobilePaddingTop}px !important;
+      padding-bottom: ${mobilePaddingBottom}px !important;
+      padding-left: ${mobilePaddingLeft}px !important;
+      padding-right: ${mobilePaddingRight}px !important;
     }
     
     .buttonblock-${instanceId}.mobile-preview .bb-heading {
-      font-size: ${mobileHeadingFontSize}px;
-      line-height: ${mobileHeadingLineHeight};
-      letter-spacing: ${mobileHeadingLetterSpacing}px;
-      text-align: ${mobileTextAlign};
-      ${effectiveMobileTextColor ? `color: ${effectiveMobileTextColor};` : ''}
+      font-size: ${mobileHeadingFontSize}px !important;
+      line-height: ${mobileHeadingLineHeight} !important;
+      letter-spacing: ${mobileHeadingLetterSpacing}px !important;
+      text-align: ${mobileTextAlign} !important;
+      ${effectiveMobileTextColor ? `color: ${effectiveMobileTextColor} !important;` : ''}
     }
     
     .buttonblock-${instanceId}.mobile-preview .bb-subheading {
-      font-size: ${mobileSubheadingFontSize}px;
-      line-height: ${mobileSubheadingLineHeight};
-      text-align: ${mobileTextAlign};
-      ${effectiveMobileTextColor ? `color: ${effectiveMobileTextColor};` : ''}
+      font-size: ${mobileSubheadingFontSize}px !important;
+      line-height: ${mobileSubheadingLineHeight} !important;
+      text-align: ${mobileTextAlign} !important;
+      ${effectiveMobileTextColor ? `color: ${effectiveMobileTextColor} !important;` : ''}
     }
     
     .buttonblock-${instanceId}.mobile-preview .bb-content {
-      font-size: ${mobileContentFontSize}px;
-      line-height: ${mobileContentLineHeight};
-      text-align: ${mobileTextAlign};
-      ${effectiveMobileTextColor ? `color: ${effectiveMobileTextColor};` : ''}
+      font-size: ${mobileContentFontSize}px !important;
+      line-height: ${mobileContentLineHeight} !important;
+      text-align: ${mobileTextAlign} !important;
+      ${effectiveMobileTextColor ? `color: ${effectiveMobileTextColor} !important;` : ''}
     }
     
     .buttonblock-${instanceId}.mobile-preview .bb-buttons {
-      justify-content: ${effectiveMobileButtonAlignment === 'center' ? 'center' : effectiveMobileButtonAlignment === 'right' ? 'flex-end' : 'flex-start'};
-      gap: ${effectiveMobileButtonGap}px;
+      justify-content: ${effectiveMobileButtonAlignment === 'center' ? 'center' : effectiveMobileButtonAlignment === 'right' ? 'flex-end' : 'flex-start'} !important;
+      gap: ${effectiveMobileButtonGap}px !important;
     }
     
     ${effectiveMobileUniformWidth ? `
     .buttonblock-${instanceId}.mobile-preview .bb-buttons > * {
-      flex: 1 1 0;
+      flex: 1 1 0 !important;
     }
     ` : `
     .buttonblock-${instanceId}.mobile-preview .bb-buttons > * {
-      flex: none;
+      flex: none !important;
     }
     `}
     
