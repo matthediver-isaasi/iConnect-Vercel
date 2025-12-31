@@ -52,6 +52,20 @@ const heroQuillModules = {
 };
 
 export default function IEditPageHeaderHeroElement({ content = {}, variant, settings, isFirst, previewViewport }) {
+  // DEBUG: Log component mount and props IMMEDIATELY
+  try {
+    console.log('[PageHeaderHero] RENDER START - content:', JSON.stringify({
+      hasContent: !!content,
+      contentType: typeof content,
+      contentKeys: content ? Object.keys(content).slice(0, 10) : [],
+      header_text_preview: content?.header_text?.substring(0, 30),
+      background_type: content?.background_type,
+      previewViewport
+    }));
+  } catch (e) {
+    console.error('[PageHeaderHero] Error in initial log:', e);
+  }
+
   const isMobilePreview = previewViewport === 'mobile';
   const { 
     anchor,
@@ -121,9 +135,11 @@ export default function IEditPageHeaderHeroElement({ content = {}, variant, sett
 
   // Look up typography styles at render time to use current values from InstalledFonts
   const { getStyleById } = useTypographyStyles();
-  const headerTypographyStyle = getStyleById(content.header_typography_style_id);
-  const subheadingTypographyStyle = getStyleById(content.subheading_typography_style_id);
-  const contentTypographyStyle = getStyleById(content.content_typography_style_id);
+  console.log('[PageHeaderHero] Typography hook called, getStyleById type:', typeof getStyleById);
+  
+  const headerTypographyStyle = getStyleById ? getStyleById(content.header_typography_style_id) : null;
+  const subheadingTypographyStyle = getStyleById ? getStyleById(content.subheading_typography_style_id) : null;
+  const contentTypographyStyle = getStyleById ? getStyleById(content.content_typography_style_id) : null;
 
   // Desktop typography: Priority - 1) Live typography style, 2) Saved value
   const effectiveHeaderFontFamily = headerTypographyStyle?.font_family || header_font_family;
@@ -216,8 +232,36 @@ export default function IEditPageHeaderHeroElement({ content = {}, variant, sett
   const mobileHeight = getMobileHeight();
   const mobilePreviewClass = isMobilePreview ? 'mobile-preview' : '';
 
+  // DEBUG: Final render values
+  console.log('[PageHeaderHero] About to render:', {
+    instanceId,
+    background_type,
+    background_color,
+    effectiveMobileBgType,
+    header_text: header_text?.substring(0, 30),
+    desktopHeight,
+    mobileHeight,
+    isMobilePreview
+  });
+
+  // DEBUG: If no header text and no background, show debug element
+  if (!header_text && !subheading_text && !content_text && background_type === 'color' && !image_url) {
+    console.log('[PageHeaderHero] Rendering with minimal content - showing debug placeholder');
+  }
+
   return (
     <>
+      {/* DEBUG: Visible marker to confirm component renders */}
+      <div style={{ 
+        background: 'red', 
+        color: 'white', 
+        padding: '10px', 
+        fontSize: '12px',
+        position: 'relative',
+        zIndex: 9999
+      }}>
+        DEBUG: PageHeaderHero rendered - bg_type: {background_type}, instanceId: {instanceId}
+      </div>
       {/* Instance-scoped responsive styles */}
       <style>
         {`
