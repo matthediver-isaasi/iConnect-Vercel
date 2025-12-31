@@ -138,8 +138,29 @@ export default function IEditQuoteElement({ content, variant, settings }) {
     // Vertical alignment for content within container
     content_vertical_align = 'middle',
     // Anchor ID for linking
-    anchor
+    anchor,
+    // Mobile-specific settings
+    mobile_quote_font_size,
+    mobile_name_font_size,
+    mobile_quote_align,
+    mobile_name_align,
+    mobile_quote_mark_size,
+    mobile_quote_mark_opacity,
+    mobile_element_padding_top,
+    mobile_element_padding_bottom,
+    mobile_box_padding
   } = content || {};
+
+  // Compute effective mobile values (priority: saved value > auto-scaled default)
+  const effectiveMobileQuoteFontSize = mobile_quote_font_size || Math.max(16, Math.round(quote_font_size * 0.85));
+  const effectiveMobileNameFontSize = mobile_name_font_size || Math.max(14, Math.round(name_font_size * 0.9));
+  const effectiveMobileQuoteAlign = mobile_quote_align || quote_align;
+  const effectiveMobileNameAlign = mobile_name_align || name_align;
+  const effectiveMobileQuoteMarkSize = mobile_quote_mark_size || Math.max(32, Math.round(quote_mark_size * 0.7));
+  const effectiveMobileQuoteMarkOpacity = mobile_quote_mark_opacity ?? quote_mark_opacity;
+  const effectiveMobileElementPaddingTop = mobile_element_padding_top ?? element_padding_top;
+  const effectiveMobileElementPaddingBottom = mobile_element_padding_bottom ?? element_padding_bottom;
+  const effectiveMobileBoxPadding = mobile_box_padding ?? box_padding;
 
   const reactId = useId();
   const instanceId = `quote-${reactId.replace(/:/g, '')}`;
@@ -273,6 +294,59 @@ export default function IEditQuoteElement({ content, variant, settings }) {
 
   const currentQuote = allQuotes[currentIndex] || {};
 
+  // Scoped styles for responsive design - desktop values handled by inline styles
+  // Only padding classes needed for desktop (no inline style), all others via @media for mobile
+  const scopedStyles = `
+    .${instanceId} .quote-element-wrapper {
+      padding-top: ${element_padding_top}px;
+      padding-bottom: ${element_padding_bottom}px;
+    }
+
+    @media (max-width: 767px) {
+      .${instanceId} .quote-text {
+        font-size: ${effectiveMobileQuoteFontSize}px !important;
+        text-align: ${effectiveMobileQuoteAlign} !important;
+      }
+
+      .${instanceId} .quote-name {
+        font-size: ${effectiveMobileNameFontSize}px !important;
+        text-align: ${effectiveMobileNameAlign} !important;
+      }
+
+      .${instanceId} .quote-mark {
+        font-size: ${effectiveMobileQuoteMarkSize}px !important;
+        opacity: ${effectiveMobileQuoteMarkOpacity / 100} !important;
+      }
+
+      .${instanceId} .quote-mark-img {
+        width: ${effectiveMobileQuoteMarkSize}px !important;
+        height: ${effectiveMobileQuoteMarkSize}px !important;
+        opacity: ${effectiveMobileQuoteMarkOpacity / 100} !important;
+      }
+
+      .${instanceId} .quote-element-wrapper {
+        padding-top: ${effectiveMobileElementPaddingTop}px !important;
+        padding-bottom: ${effectiveMobileElementPaddingBottom}px !important;
+      }
+
+      .${instanceId} .quote-box {
+        padding: ${effectiveMobileBoxPadding}px !important;
+      }
+
+      .${instanceId} .quote-header-title {
+        font-size: ${header_font_size_mobile || Math.max(20, Math.round(header_font_size * 0.75))}px !important;
+      }
+
+      .${instanceId} .quote-header-subtitle {
+        font-size: ${subtitle_font_size_mobile || Math.max(14, Math.round(subtitle_font_size * 0.85))}px !important;
+      }
+
+      .${instanceId} .quote-header-content {
+        font-size: ${content_font_size_mobile || Math.max(12, Math.round(content_font_size * 0.9))}px !important;
+      }
+    }
+  `;
+
   // Render a single quote's content (reusable for both measurement and display)
   const renderQuoteContent = (quoteData, isMeasuring = false) => {
     if (layout === 'stacked') {
@@ -286,12 +360,12 @@ export default function IEditQuoteElement({ content, variant, settings }) {
             />
           )}
           {quoteData.quote_text && (
-            <p style={quoteStyle} className={`max-w-3xl ${!isMeasuring ? 'transition-opacity duration-300' : ''}`}>
+            <p style={quoteStyle} className={`quote-text max-w-3xl ${!isMeasuring ? 'transition-opacity duration-300' : ''}`}>
               {quoteData.quote_text}
             </p>
           )}
           {quoteData.author_name && (
-            <p style={nameStyle}>
+            <p style={nameStyle} className="quote-name">
               — {quoteData.author_name}
             </p>
           )}
@@ -310,12 +384,12 @@ export default function IEditQuoteElement({ content, variant, settings }) {
           )}
           <div className="flex-1">
             {quoteData.quote_text && (
-              <p style={{ ...quoteStyle, textAlign: 'left' }} className={`mb-4 ${!isMeasuring ? 'transition-opacity duration-300' : ''}`}>
+              <p style={{ ...quoteStyle, textAlign: 'left' }} className={`quote-text mb-4 ${!isMeasuring ? 'transition-opacity duration-300' : ''}`}>
                 {quoteData.quote_text}
               </p>
             )}
             {quoteData.author_name && (
-              <p style={{ ...nameStyle, textAlign: 'left' }}>
+              <p style={{ ...nameStyle, textAlign: 'left' }} className="quote-name">
                 — {quoteData.author_name}
               </p>
             )}
@@ -328,7 +402,7 @@ export default function IEditQuoteElement({ content, variant, settings }) {
   // Quote panel component
   const renderQuotePanel = () => (
     <div 
-      className="relative w-full"
+      className="quote-box relative w-full"
       style={{
         ...getBackgroundStyle(),
         padding: `${box_padding}px`,
@@ -366,7 +440,7 @@ export default function IEditQuoteElement({ content, variant, settings }) {
         <img 
           src={quote_mark_top_image_url}
           alt="Quote mark"
-          className="absolute select-none pointer-events-none"
+          className="quote-mark-img absolute select-none pointer-events-none"
           style={{ 
             top: `${box_padding / 2}px`,
             right: `${box_padding / 2}px`,
@@ -378,7 +452,7 @@ export default function IEditQuoteElement({ content, variant, settings }) {
         />
       ) : (
         <div 
-          className="absolute select-none pointer-events-none"
+          className="quote-mark absolute select-none pointer-events-none"
           style={{ 
             ...quoteMarkStyle,
             top: `${box_padding / 2}px`,
@@ -393,7 +467,7 @@ export default function IEditQuoteElement({ content, variant, settings }) {
         <img 
           src={quote_mark_bottom_image_url}
           alt="Quote mark"
-          className="absolute select-none pointer-events-none"
+          className="quote-mark-img absolute select-none pointer-events-none"
           style={{ 
             bottom: `${box_padding / 2}px`,
             left: `${box_padding / 2}px`,
@@ -406,7 +480,7 @@ export default function IEditQuoteElement({ content, variant, settings }) {
         />
       ) : (
         <div 
-          className="absolute select-none pointer-events-none"
+          className="quote-mark absolute select-none pointer-events-none"
           style={{ 
             ...quoteMarkStyle,
             bottom: `${box_padding / 2}px`,
@@ -477,11 +551,84 @@ export default function IEditQuoteElement({ content, variant, settings }) {
       <div 
         id={anchor || undefined}
         className={`${instanceId} ${fullWidthClass} relative`}
-        style={{
-          ...getElementBackgroundStyle(),
-          paddingTop: `${element_padding_top}px`,
-          paddingBottom: `${element_padding_bottom}px`
-        }}
+      >
+        <style>{scopedStyles}</style>
+        <div 
+          className="quote-element-wrapper relative"
+          style={getElementBackgroundStyle()}
+        >
+          {/* Element-level background image */}
+          {element_background_type === 'image' && element_background_image_url && (
+            <>
+              <img 
+                src={element_background_image_url} 
+                alt="Background" 
+                className="absolute inset-0 w-full h-full"
+                style={{ objectFit: element_background_image_fit }}
+              />
+              {element_overlay_enabled && (
+                <div 
+                  className="absolute inset-0" 
+                  style={{ 
+                    backgroundColor: element_overlay_color, 
+                    opacity: element_overlay_opacity / 100 
+                  }} 
+                />
+              )}
+            </>
+          )}
+          <div className={fullWidth ? "max-w-7xl mx-auto px-4 relative z-10" : "relative z-10"}>
+            {/* Section Header */}
+            {hasSectionHeader && (
+              <div className="mb-8">
+                {header_title && (
+                  <div 
+                    className="quote-header-title"
+                    style={sectionTitleStyle}
+                    dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(header_title) }}
+                  />
+                )}
+                {header_subtitle && (
+                  <div 
+                    className="quote-header-subtitle mt-2"
+                    style={sectionSubtitleStyle}
+                    dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(header_subtitle) }}
+                  />
+                )}
+                {header_content && (
+                  <div 
+                    className="quote-header-content mt-4"
+                    style={sectionContentStyle}
+                    dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(header_content) }}
+                  />
+                )}
+              </div>
+            )}
+            <div 
+              className="quote-box relative w-full text-center"
+              style={{
+                ...getBackgroundStyle(),
+                borderRadius: `${box_border_radius}px`,
+                border: `${box_border_width}px solid ${box_border_color}`
+              }}
+            >
+              <p className="text-slate-400 italic">Add quotes to display them here</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div 
+      id={anchor || undefined}
+      className={`${instanceId} ${fullWidthClass} relative`}
+    >
+      <style>{scopedStyles}</style>
+      <div 
+        className="quote-element-wrapper relative"
+        style={getElementBackgroundStyle()}
       >
         {/* Element-level background image */}
         {element_background_type === 'image' && element_background_image_url && (
@@ -503,81 +650,8 @@ export default function IEditQuoteElement({ content, variant, settings }) {
             )}
           </>
         )}
+
         <div className={fullWidth ? "max-w-7xl mx-auto px-4 relative z-10" : "relative z-10"}>
-          {/* Section Header */}
-          {hasSectionHeader && (
-            <div className="mb-8">
-              {header_title && (
-                <div 
-                  className="quote-header-title"
-                  style={sectionTitleStyle}
-                  dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(header_title) }}
-                />
-              )}
-              {header_subtitle && (
-                <div 
-                  className="quote-header-subtitle mt-2"
-                  style={sectionSubtitleStyle}
-                  dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(header_subtitle) }}
-                />
-              )}
-              {header_content && (
-                <div 
-                  className="quote-header-content mt-4"
-                  style={sectionContentStyle}
-                  dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(header_content) }}
-                />
-              )}
-            </div>
-          )}
-          <div 
-            className="relative w-full text-center py-8"
-            style={{
-              ...getBackgroundStyle(),
-              padding: `${box_padding}px`,
-              borderRadius: `${box_border_radius}px`,
-              border: `${box_border_width}px solid ${box_border_color}`
-            }}
-          >
-            <p className="text-slate-400 italic">Add quotes to display them here</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div 
-      id={anchor || undefined}
-      className={`${instanceId} ${fullWidthClass} relative`}
-      style={{
-        ...getElementBackgroundStyle(),
-        paddingTop: `${element_padding_top}px`,
-        paddingBottom: `${element_padding_bottom}px`
-      }}
-    >
-      {/* Element-level background image */}
-      {element_background_type === 'image' && element_background_image_url && (
-        <>
-          <img 
-            src={element_background_image_url} 
-            alt="Background" 
-            className="absolute inset-0 w-full h-full"
-            style={{ objectFit: element_background_image_fit }}
-          />
-          {element_overlay_enabled && (
-            <div 
-              className="absolute inset-0" 
-              style={{ 
-                backgroundColor: element_overlay_color, 
-                opacity: element_overlay_opacity / 100 
-              }} 
-            />
-          )}
-        </>
-      )}
-
-      <div className={fullWidth ? "max-w-7xl mx-auto px-4 relative z-10" : "relative z-10"}>
         {/* Section Header */}
         {hasSectionHeader && (
           <div className="mb-8">
@@ -611,7 +685,8 @@ export default function IEditQuoteElement({ content, variant, settings }) {
           </div>
         )}
 
-        {renderQuotePanel()}
+          {renderQuotePanel()}
+        </div>
       </div>
     </div>
   );
@@ -620,6 +695,7 @@ export default function IEditQuoteElement({ content, variant, settings }) {
 export function IEditQuoteElementEditor({ element, onChange }) {
   const content = element.content || {};
   const [isUploading, setIsUploading] = useState({});
+  const [viewportTab, setViewportTab] = useState('desktop');
   const [expandedSections, setExpandedSections] = useState({
     sectionHeader: true,
     elementBackground: false,
@@ -633,6 +709,11 @@ export function IEditQuoteElementEditor({ element, onChange }) {
     profile: false
   });
   const [expandedQuoteIndex, setExpandedQuoteIndex] = useState(0);
+
+  // Compute default mobile values for display in editor placeholders
+  const defaultMobileQuoteFontSize = Math.max(16, Math.round((content.quote_font_size || 20) * 0.85));
+  const defaultMobileNameFontSize = Math.max(14, Math.round((content.name_font_size || 16) * 0.9));
+  const defaultMobileQuoteMarkSize = Math.max(32, Math.round((content.quote_mark_size || 48) * 0.7));
 
   const quotes = content.quotes || [];
 
@@ -783,6 +864,37 @@ export function IEditQuoteElementEditor({ element, onChange }) {
         </p>
       </div>
 
+      {/* Desktop/Mobile Tab Selector */}
+      <div className="flex gap-1 p-1 bg-slate-100 rounded-lg mb-4">
+        <button
+          type="button"
+          onClick={() => setViewportTab('desktop')}
+          data-testid="button-quote-viewport-desktop"
+          className={`flex-1 py-2 px-4 text-sm font-medium rounded-md transition-colors ${
+            viewportTab === 'desktop' 
+              ? 'bg-white shadow text-slate-900' 
+              : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          Desktop
+        </button>
+        <button
+          type="button"
+          onClick={() => setViewportTab('mobile')}
+          data-testid="button-quote-viewport-mobile"
+          className={`flex-1 py-2 px-4 text-sm font-medium rounded-md transition-colors ${
+            viewportTab === 'mobile' 
+              ? 'bg-white shadow text-slate-900' 
+              : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          Mobile
+        </button>
+      </div>
+
+      {/* Desktop Controls */}
+      {viewportTab === 'desktop' && (
+        <>
       {/* Section Header Settings */}
       <SectionHeader title="Section Header" section="sectionHeader" />
       {expandedSections.sectionHeader && (
@@ -2208,6 +2320,198 @@ export function IEditQuoteElementEditor({ element, onChange }) {
                 onChange={(e) => updateContent('profile_border_width', parseInt(e.target.value))}
                 className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
                 min="0"
+              />
+            </div>
+          </div>
+        </div>
+      )}
+        </>
+      )}
+
+      {/* Mobile Controls */}
+      {viewportTab === 'mobile' && (
+        <div className="space-y-4">
+          <p className="text-xs text-slate-600 p-3 bg-blue-50 rounded-lg">
+            Leave fields empty to use automatic scaling based on desktop values.
+          </p>
+
+          {/* Mobile Typography Section */}
+          <div className="border rounded-lg p-4 space-y-4">
+            <h4 className="font-semibold text-sm">Quote Typography</h4>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Quote Font Size</label>
+                <input
+                  type="number"
+                  value={content.mobile_quote_font_size || ''}
+                  onChange={(e) => updateContent('mobile_quote_font_size', e.target.value ? parseInt(e.target.value) : undefined)}
+                  placeholder={`Auto: ${defaultMobileQuoteFontSize}px`}
+                  className="w-full px-2 py-1.5 border border-slate-300 rounded-md text-sm"
+                  min="10"
+                  data-testid="input-quote-mobile-quote-size"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Name Font Size</label>
+                <input
+                  type="number"
+                  value={content.mobile_name_font_size || ''}
+                  onChange={(e) => updateContent('mobile_name_font_size', e.target.value ? parseInt(e.target.value) : undefined)}
+                  placeholder={`Auto: ${defaultMobileNameFontSize}px`}
+                  className="w-full px-2 py-1.5 border border-slate-300 rounded-md text-sm"
+                  min="10"
+                  data-testid="input-quote-mobile-name-size"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Quote Alignment</label>
+                <select
+                  value={content.mobile_quote_align || ''}
+                  onChange={(e) => updateContent('mobile_quote_align', e.target.value || undefined)}
+                  className="w-full px-2 py-1.5 border border-slate-300 rounded-md text-sm"
+                  data-testid="select-quote-mobile-quote-align"
+                >
+                  <option value="">Use Desktop ({content.quote_align || 'center'})</option>
+                  <option value="left">Left</option>
+                  <option value="center">Center</option>
+                  <option value="right">Right</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Name Alignment</label>
+                <select
+                  value={content.mobile_name_align || ''}
+                  onChange={(e) => updateContent('mobile_name_align', e.target.value || undefined)}
+                  className="w-full px-2 py-1.5 border border-slate-300 rounded-md text-sm"
+                  data-testid="select-quote-mobile-name-align"
+                >
+                  <option value="">Use Desktop ({content.name_align || 'center'})</option>
+                  <option value="left">Left</option>
+                  <option value="center">Center</option>
+                  <option value="right">Right</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {/* Mobile Quote Marks Section */}
+          <div className="border rounded-lg p-4 space-y-4">
+            <h4 className="font-semibold text-sm">Quote Marks</h4>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Quote Mark Size</label>
+                <input
+                  type="number"
+                  value={content.mobile_quote_mark_size || ''}
+                  onChange={(e) => updateContent('mobile_quote_mark_size', e.target.value ? parseInt(e.target.value) : undefined)}
+                  placeholder={`Auto: ${defaultMobileQuoteMarkSize}px`}
+                  className="w-full px-2 py-1.5 border border-slate-300 rounded-md text-sm"
+                  min="16"
+                  data-testid="input-quote-mobile-mark-size"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Quote Mark Opacity</label>
+                <input
+                  type="number"
+                  value={content.mobile_quote_mark_opacity ?? ''}
+                  onChange={(e) => updateContent('mobile_quote_mark_opacity', e.target.value ? parseInt(e.target.value) : undefined)}
+                  placeholder={`Desktop: ${content.quote_mark_opacity || 50}%`}
+                  className="w-full px-2 py-1.5 border border-slate-300 rounded-md text-sm"
+                  min="0"
+                  max="100"
+                  data-testid="input-quote-mobile-mark-opacity"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Mobile Section Header Typography */}
+          <div className="border rounded-lg p-4 space-y-4">
+            <h4 className="font-semibold text-sm">Section Header</h4>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Header Font Size</label>
+                <input
+                  type="number"
+                  value={content.header_font_size_mobile || ''}
+                  onChange={(e) => updateContent('header_font_size_mobile', e.target.value ? parseInt(e.target.value) : undefined)}
+                  placeholder={`Auto: ${Math.max(20, Math.round((content.header_font_size || 32) * 0.75))}px`}
+                  className="w-full px-2 py-1.5 border border-slate-300 rounded-md text-sm"
+                  min="12"
+                  data-testid="input-quote-mobile-header-size"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Subtitle Font Size</label>
+                <input
+                  type="number"
+                  value={content.subtitle_font_size_mobile || ''}
+                  onChange={(e) => updateContent('subtitle_font_size_mobile', e.target.value ? parseInt(e.target.value) : undefined)}
+                  placeholder={`Auto: ${Math.max(14, Math.round((content.subtitle_font_size || 18) * 0.85))}px`}
+                  className="w-full px-2 py-1.5 border border-slate-300 rounded-md text-sm"
+                  min="12"
+                  data-testid="input-quote-mobile-subtitle-size"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Content Font Size</label>
+              <input
+                type="number"
+                value={content.content_font_size_mobile || ''}
+                onChange={(e) => updateContent('content_font_size_mobile', e.target.value ? parseInt(e.target.value) : undefined)}
+                placeholder={`Auto: ${Math.max(12, Math.round((content.content_font_size || 16) * 0.9))}px`}
+                className="w-full px-2 py-1.5 border border-slate-300 rounded-md text-sm"
+                min="10"
+                data-testid="input-quote-mobile-content-size"
+              />
+            </div>
+          </div>
+
+          {/* Mobile Padding Section */}
+          <div className="border rounded-lg p-4 space-y-4">
+            <h4 className="font-semibold text-sm">Padding</h4>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Element Pad Top</label>
+                <input
+                  type="number"
+                  value={content.mobile_element_padding_top ?? ''}
+                  onChange={(e) => updateContent('mobile_element_padding_top', e.target.value ? parseInt(e.target.value) : undefined)}
+                  placeholder={`Desktop: ${content.element_padding_top || 40}`}
+                  className="w-full px-2 py-1.5 border border-slate-300 rounded-md text-sm"
+                  min="0"
+                  data-testid="input-quote-mobile-padding-top"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Element Pad Bottom</label>
+                <input
+                  type="number"
+                  value={content.mobile_element_padding_bottom ?? ''}
+                  onChange={(e) => updateContent('mobile_element_padding_bottom', e.target.value ? parseInt(e.target.value) : undefined)}
+                  placeholder={`Desktop: ${content.element_padding_bottom || 40}`}
+                  className="w-full px-2 py-1.5 border border-slate-300 rounded-md text-sm"
+                  min="0"
+                  data-testid="input-quote-mobile-padding-bottom"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Box Padding</label>
+              <input
+                type="number"
+                value={content.mobile_box_padding ?? ''}
+                onChange={(e) => updateContent('mobile_box_padding', e.target.value ? parseInt(e.target.value) : undefined)}
+                placeholder={`Desktop: ${content.box_padding || 40}`}
+                className="w-full px-2 py-1.5 border border-slate-300 rounded-md text-sm"
+                min="0"
+                data-testid="input-quote-mobile-box-padding"
               />
             </div>
           </div>
