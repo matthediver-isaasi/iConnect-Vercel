@@ -343,8 +343,8 @@ export default function IEditPageHeaderHeroElement({ content = {}, variant, sett
             }
             .${instanceId} .hero-bg-mobile {
               display: block !important;
-              position: absolute !important;
-              inset: 0 !important;
+              position: ${effectiveMobileImageFit === 'cover' && effectiveMobileBgType === 'image' ? 'relative' : 'absolute'} !important;
+              ${effectiveMobileImageFit !== 'cover' || effectiveMobileBgType !== 'image' ? 'inset: 0 !important;' : ''}
             }
             
             .${instanceId} .hero-content {
@@ -396,8 +396,8 @@ export default function IEditPageHeaderHeroElement({ content = {}, variant, sett
           }
           .${instanceId}.mobile-preview .hero-bg-mobile {
             display: block !important;
-            position: absolute !important;
-            inset: 0 !important;
+            position: ${effectiveMobileImageFit === 'cover' && effectiveMobileBgType === 'image' ? 'relative' : 'absolute'} !important;
+            ${effectiveMobileImageFit !== 'cover' || effectiveMobileBgType !== 'image' ? 'inset: 0 !important;' : ''}
           }
           .${instanceId}.mobile-preview .hero-content {
             padding-left: ${mobilePaddingHorizontal}px;
@@ -469,8 +469,13 @@ export default function IEditPageHeaderHeroElement({ content = {}, variant, sett
                   <img 
                     src={effectiveMobileImageUrl} 
                     alt={header_text || 'Hero image'} 
-                    className="absolute inset-0 w-full h-full"
-                    style={{ objectFit: effectiveMobileImageFit }}
+                    className="hero-mobile-img w-full"
+                    style={{ 
+                      height: effectiveMobileImageFit === 'cover' ? 'auto' : '100%',
+                      objectFit: effectiveMobileImageFit === 'cover' ? 'none' : effectiveMobileImageFit,
+                      position: effectiveMobileImageFit === 'cover' ? 'relative' : 'absolute',
+                      inset: effectiveMobileImageFit === 'cover' ? 'auto' : '0'
+                    }}
                   />
                   {effectiveMobileOverlayEnabled && (
                     <div 
@@ -535,8 +540,13 @@ export default function IEditPageHeaderHeroElement({ content = {}, variant, sett
                   <img 
                     src={effectiveMobileImageUrl} 
                     alt={header_text || 'Hero image'} 
-                    className="absolute inset-0 w-full h-full"
-                    style={{ objectFit: effectiveMobileImageFit }}
+                    className="hero-mobile-img w-full"
+                    style={{ 
+                      height: effectiveMobileImageFit === 'cover' ? 'auto' : '100%',
+                      objectFit: effectiveMobileImageFit === 'cover' ? 'none' : effectiveMobileImageFit,
+                      position: effectiveMobileImageFit === 'cover' ? 'relative' : 'absolute',
+                      inset: effectiveMobileImageFit === 'cover' ? 'auto' : '0'
+                    }}
                   />
                   {effectiveMobileOverlayEnabled && (
                     <div 
