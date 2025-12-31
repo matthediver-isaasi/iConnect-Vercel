@@ -385,7 +385,7 @@ export default function IEditPageHeaderHeroElement({ content = {}, variant, sett
           
           /* Mobile preview class override for editor preview mode */
           .${instanceId}.mobile-preview {
-            ${mobileHeight.minHeight ? `min-height: ${mobileHeight.minHeight};` : ''}
+            min-height: ${mobileHeight.minHeight || '400px'};
             ${mobileHeight.height ? `height: ${mobileHeight.height};` : ''}
           }
           .${instanceId}.mobile-preview .hero-bg-desktop {
@@ -393,6 +393,8 @@ export default function IEditPageHeaderHeroElement({ content = {}, variant, sett
           }
           .${instanceId}.mobile-preview .hero-bg-mobile {
             display: block !important;
+            position: absolute !important;
+            inset: 0 !important;
           }
           .${instanceId}.mobile-preview .hero-content {
             padding-left: ${mobilePaddingHorizontal}px;
@@ -547,9 +549,9 @@ export default function IEditPageHeaderHeroElement({ content = {}, variant, sett
           </>
         )}
         
-        {/* DEBUG: Show desktop background status */}
+        {/* DEBUG: Show background status */}
         <div style={{ background: 'blue', color: 'white', padding: '5px', fontSize: '10px', position: 'relative', zIndex: 9999, wordBreak: 'break-all' }}>
-          Desktop BG: type={background_type}, image_url="{image_url || 'EMPTY'}", mobile_bg_type={mobile_background_type}, effectiveMobileBgType={effectiveMobileBgType}, image_fit={image_fit}
+          Desktop: type={background_type}, fit={image_fit} | Mobile: type={effectiveMobileBgType}, color={effectiveMobileBgColor}, img={effectiveMobileImageUrl || 'NONE'} | Preview: {previewViewport || 'none'}
         </div>
         
         <div 
