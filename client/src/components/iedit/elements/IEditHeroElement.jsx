@@ -352,8 +352,6 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
       }
       .${instanceId} .hero-bg-mobile {
         display: block;
-        position: ${effectiveMobileImageFit === 'contain' && effectiveMobileBgType === 'image' ? 'relative' : 'absolute'} !important;
-        ${effectiveMobileImageFit !== 'contain' || effectiveMobileBgType !== 'image' ? 'inset: 0 !important;' : ''}
       }
     }
     
@@ -363,8 +361,6 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
     }
     .${instanceId}.mobile-preview .hero-bg-mobile {
       display: block !important;
-      position: ${effectiveMobileImageFit === 'contain' && effectiveMobileBgType === 'image' ? 'relative' : 'absolute'} !important;
-      ${effectiveMobileImageFit !== 'contain' || effectiveMobileBgType !== 'image' ? 'inset: 0 !important;' : ''}
     }
     
     @media (max-width: 767px) {
@@ -550,12 +546,10 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
                 <img 
                   src={effectiveMobileImageUrl} 
                   alt={content.heading || 'Hero background'} 
-                  className="hero-mobile-img block w-full"
                   style={{ 
-                    height: effectiveMobileImageFit === 'contain' ? 'auto' : '100%',
-                    objectFit: effectiveMobileImageFit === 'contain' ? 'contain' : effectiveMobileImageFit,
-                    position: effectiveMobileImageFit === 'contain' ? 'relative' : 'absolute',
-                    inset: effectiveMobileImageFit === 'contain' ? 'auto' : '0'
+                    display: 'block', 
+                    width: '100%', 
+                    height: 'auto' 
                   }}
                 />
                 {effectiveMobileOverlayEnabled && (
@@ -683,13 +677,8 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
             <img 
               src={effectiveMobileImageUrl} 
               alt={content.heading || 'Hero background'} 
-              className="hero-mobile-img block w-full"
-              style={{ 
-                height: effectiveMobileImageFit === 'contain' ? 'auto' : '100%',
-                objectFit: effectiveMobileImageFit === 'contain' ? 'contain' : effectiveMobileImageFit,
-                position: effectiveMobileImageFit === 'contain' ? 'relative' : 'absolute',
-                inset: effectiveMobileImageFit === 'contain' ? 'auto' : '0'
-              }}
+              className="absolute inset-0 w-full h-full"
+              style={{ objectFit: effectiveMobileImageFit }}
             />
             {effectiveMobileOverlayEnabled && (
               <div 
