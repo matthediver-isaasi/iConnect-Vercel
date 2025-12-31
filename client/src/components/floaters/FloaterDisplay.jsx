@@ -280,38 +280,52 @@ export default function FloaterDisplay({ location = "portal", memberInfo, organi
   };
 
   const getPositionStyles = (floater) => {
+    const floaterWidth = floater.width || 80;
+    const floaterHeight = floater.height || 80;
+    const offsetX = floater.offset_x || 20;
+    const offsetY = floater.offset_y || 20;
+    
+    // Use a minimum safe offset to prevent floater from going off screen
+    // On mobile, use smaller offsets and ensure floater stays in viewport
+    const minSafeOffset = 8;
+    
     const styles = {
       position: "fixed",
       zIndex: 1000,
       cursor: "pointer",
-      width: `${floater.width || 80}px`,
-      height: `${floater.height || 80}px`,
+      width: `${floaterWidth}px`,
+      height: `${floaterHeight}px`,
       transition: "transform 0.2s ease",
+      // Ensure floater doesn't exceed viewport bounds
+      maxWidth: `calc(100vw - ${minSafeOffset * 2}px)`,
+      maxHeight: `calc(100vh - ${minSafeOffset * 2}px)`,
     };
 
-    const offsetX = floater.offset_x || 20;
-    const offsetY = floater.offset_y || 20;
-
+    // Use CSS max() to ensure the floater stays visible on smaller screens
+    // For edge positions, clamp the offset so the floater doesn't go outside viewport
     switch (floater.position) {
       case "bottom-right":
-        styles.bottom = `${offsetY}px`;
-        styles.right = `${offsetX}px`;
+        // Ensure right offset doesn't push floater off left edge of screen
+        // Right edge: right offset; Left edge must be >= minSafeOffset
+        // So: right offset <= 100vw - floaterWidth - minSafeOffset
+        styles.bottom = `max(${minSafeOffset}px, min(${offsetY}px, calc(100vh - ${floaterHeight}px - ${minSafeOffset}px)))`;
+        styles.right = `max(${minSafeOffset}px, min(${offsetX}px, calc(100vw - ${floaterWidth}px - ${minSafeOffset}px)))`;
         break;
       case "bottom-left":
-        styles.bottom = `${offsetY}px`;
-        styles.left = `${offsetX}px`;
+        styles.bottom = `max(${minSafeOffset}px, min(${offsetY}px, calc(100vh - ${floaterHeight}px - ${minSafeOffset}px)))`;
+        styles.left = `max(${minSafeOffset}px, min(${offsetX}px, calc(100vw - ${floaterWidth}px - ${minSafeOffset}px)))`;
         break;
       case "top-right":
-        styles.top = `${offsetY}px`;
-        styles.right = `${offsetX}px`;
+        styles.top = `max(${minSafeOffset}px, min(${offsetY}px, calc(100vh - ${floaterHeight}px - ${minSafeOffset}px)))`;
+        styles.right = `max(${minSafeOffset}px, min(${offsetX}px, calc(100vw - ${floaterWidth}px - ${minSafeOffset}px)))`;
         break;
       case "top-left":
-        styles.top = `${offsetY}px`;
-        styles.left = `${offsetX}px`;
+        styles.top = `max(${minSafeOffset}px, min(${offsetY}px, calc(100vh - ${floaterHeight}px - ${minSafeOffset}px)))`;
+        styles.left = `max(${minSafeOffset}px, min(${offsetX}px, calc(100vw - ${floaterWidth}px - ${minSafeOffset}px)))`;
         break;
       default:
-        styles.bottom = `${offsetY}px`;
-        styles.right = `${offsetX}px`;
+        styles.bottom = `max(${minSafeOffset}px, min(${offsetY}px, calc(100vh - ${floaterHeight}px - ${minSafeOffset}px)))`;
+        styles.right = `max(${minSafeOffset}px, min(${offsetX}px, calc(100vw - ${floaterWidth}px - ${minSafeOffset}px)))`;
     }
 
     return styles;
