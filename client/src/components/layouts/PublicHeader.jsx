@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { createPageUrl } from "@/utils";
@@ -988,26 +989,27 @@ export default function PublicHeader() {
         </div>
       </header>
 
-      {/* Mobile Menu Container - fixed overlay prevents viewport expansion */}
-      <div 
-        className={`fixed inset-0 z-50 overflow-hidden lg:hidden ${
-          mobileMenuOpen ? 'pointer-events-auto' : 'pointer-events-none'
-        }`}
-      >
-        {/* Backdrop */}
+      {/* Mobile Menu - rendered via portal to escape transformed ancestors */}
+      {typeof document !== 'undefined' && createPortal(
         <div 
-          className={`absolute inset-0 bg-black/50 transition-opacity duration-300 ${
-            mobileMenuOpen ? 'opacity-100' : 'opacity-0'
-          }`}
-          onClick={() => setMobileMenuOpen(false)}
-        />
-
-        {/* Drawer Panel - slides in from right */}
-        <div 
-          className={`absolute top-0 right-0 h-full w-full max-w-md bg-white transform transition-transform duration-300 ease-in-out ${
-            mobileMenuOpen ? 'translate-x-0' : 'translate-x-full'
+          className={`fixed inset-0 z-50 overflow-hidden lg:hidden ${
+            mobileMenuOpen ? 'pointer-events-auto' : 'pointer-events-none'
           }`}
         >
+          {/* Backdrop */}
+          <div 
+            className={`absolute inset-0 bg-black/50 transition-opacity duration-300 ${
+              mobileMenuOpen ? 'opacity-100' : 'opacity-0'
+            }`}
+            onClick={() => setMobileMenuOpen(false)}
+          />
+
+          {/* Drawer Panel - slides in from right */}
+          <div 
+            className={`absolute top-0 right-0 h-full w-full max-w-md bg-white transform transition-transform duration-300 ease-in-out ${
+              mobileMenuOpen ? 'translate-x-0' : 'translate-x-full'
+            }`}
+          >
         {/* Mobile Menu Header */}
         <div className="flex items-center justify-between p-4 border-b border-slate-200">
           <img
@@ -1158,8 +1160,10 @@ export default function PublicHeader() {
             {renderSocialIcons()}
           </div>
         </div>
-        </div>
-      </div>
+          </div>
+        </div>,
+        document.body
+      )}
     </>
   );
 }
