@@ -1,5 +1,5 @@
 import { useState, useId } from "react";
-import TypographyStyleSelector, { applyTypographyStyle } from "../TypographyStyleSelector";
+import TypographyStyleSelector, { applyTypographyStyle, useTypographyStyles } from "../TypographyStyleSelector";
 import ReactQuill from "react-quill";
 import "react-quill/dist/quill.snow.css";
 import DOMPurify from "dompurify";
@@ -105,20 +105,75 @@ export default function IEditPageHeaderHeroElement({ content = {}, variant, sett
     mobile_image_fit = 'cover',
     mobile_overlay_enabled = false,
     mobile_overlay_color = '#000000',
-    mobile_overlay_opacity = '50'
+    mobile_overlay_opacity = '50',
+    // Mobile typography settings
+    mobile_custom_typography,
+    mobile_text_color,
+    mobile_heading_line_height,
+    mobile_heading_letter_spacing,
+    mobile_subheading_line_height,
+    mobile_content_line_height
   } = content;
 
   // Generate unique ID for this instance to scope CSS
   const reactId = useId();
   const instanceId = `hero-${reactId.replace(/:/g, '')}`;
 
-  // Calculate mobile values with fallbacks (using content values directly)
-  const mobileFontSize = mobile_font_size || Math.max(24, Math.round(parseInt(header_font_size) * 0.6));
-  const mobileSubheadingFontSize = mobile_subheading_font_size || Math.max(16, Math.round(parseInt(subheading_font_size) * 0.75));
-  const mobileContentFontSize = mobile_content_font_size || Math.max(14, Math.round(parseInt(content_font_size) * 0.9));
+  // Look up typography styles at render time to use current values from InstalledFonts
+  const { getStyleById } = useTypographyStyles();
+  const headerTypographyStyle = getStyleById(content.header_typography_style_id);
+  const subheadingTypographyStyle = getStyleById(content.subheading_typography_style_id);
+  const contentTypographyStyle = getStyleById(content.content_typography_style_id);
+
+  // Desktop typography: Priority - 1) Live typography style, 2) Saved value
+  const effectiveHeaderFontFamily = headerTypographyStyle?.font_family || header_font_family;
+  const effectiveHeaderFontSize = headerTypographyStyle?.font_size || parseInt(header_font_size);
+  const effectiveHeaderFontWeight = headerTypographyStyle?.font_weight || content?.header_font_weight;
+  const effectiveHeaderLetterSpacing = headerTypographyStyle?.letter_spacing ?? (content?.header_letter_spacing || 0);
+  const effectiveHeaderLineHeight = headerTypographyStyle?.line_height || content?.header_line_height || line_spacing;
+
+  const effectiveSubheadingFontFamily = subheadingTypographyStyle?.font_family || content?.subheading_font_family || 'Poppins';
+  const effectiveSubheadingFontSize = subheadingTypographyStyle?.font_size || parseInt(subheading_font_size);
+  const effectiveSubheadingFontWeight = subheadingTypographyStyle?.font_weight || content?.subheading_font_weight;
+  const effectiveSubheadingLetterSpacing = subheadingTypographyStyle?.letter_spacing ?? (content?.subheading_letter_spacing || 0);
+  const effectiveSubheadingLineHeight = subheadingTypographyStyle?.line_height || content?.subheading_line_height || 1.5;
+
+  const effectiveContentFontFamily = contentTypographyStyle?.font_family || content?.content_font_family || 'Poppins';
+  const effectiveContentFontSize = contentTypographyStyle?.font_size || parseInt(content_font_size);
+  const effectiveContentFontWeight = contentTypographyStyle?.font_weight || content?.content_font_weight;
+  const effectiveContentLetterSpacing = contentTypographyStyle?.letter_spacing ?? (content?.content_letter_spacing || 0);
+  const effectiveContentLineHeight = contentTypographyStyle?.line_height || content?.content_line_height || 1.6;
+
+  // Auto-scaled default values for mobile (fallback only)
+  const defaultMobileHeadingSize = Math.max(24, Math.round(effectiveHeaderFontSize * 0.6));
+  const defaultMobileSubheadingSize = Math.max(16, Math.round(effectiveSubheadingFontSize * 0.75));
+  const defaultMobileContentSize = Math.max(14, Math.round(effectiveContentFontSize * 0.9));
+
+  // Typography: Look up mobile font sizes from current typography style (live from InstalledFonts)
+  // Priority: 1) Typography style's font_size_mobile, 2) Saved mobile value, 3) Auto-scaled default
+  const mobileFontSize = 
+    headerTypographyStyle?.font_size_mobile ||
+    mobile_font_size ||
+    defaultMobileHeadingSize;
+  const mobileSubheadingFontSize = 
+    subheadingTypographyStyle?.font_size_mobile ||
+    mobile_subheading_font_size ||
+    defaultMobileSubheadingSize;
+  const mobileContentFontSize = 
+    contentTypographyStyle?.font_size_mobile ||
+    mobile_content_font_size ||
+    defaultMobileContentSize;
+
+  // For non-font-size properties, only use custom values if mobile_custom_typography is explicitly enabled
+  const effectiveMobileTextColor = mobile_custom_typography && mobile_text_color ? mobile_text_color : header_color;
+  const mobileHeadingLineHeight = mobile_custom_typography && mobile_heading_line_height ? mobile_heading_line_height : effectiveHeaderLineHeight;
+  const mobileHeadingLetterSpacing = mobile_custom_typography && mobile_heading_letter_spacing !== undefined ? mobile_heading_letter_spacing : effectiveHeaderLetterSpacing;
+  const mobileSubheadingLineHeight = mobile_custom_typography && mobile_subheading_line_height ? mobile_subheading_line_height : effectiveSubheadingLineHeight;
+  const mobileContentLineHeight = mobile_custom_typography && mobile_content_line_height ? mobile_content_line_height : effectiveContentLineHeight;
+  const mobileTextAlignment = mobile_custom_typography && mobile_text_alignment ? mobile_text_alignment : text_alignment;
+
   const mobilePaddingVertical = mobile_padding_vertical || Math.max(32, Math.round(parseInt(padding_vertical) * 0.5));
   const mobilePaddingHorizontal = mobile_padding_horizontal || Math.max(16, parseInt(padding_horizontal));
-  const mobileTextAlignment = mobile_text_alignment || text_alignment;
 
   // Compute effective mobile background values (use desktop values if 'same')
   const effectiveMobileBgType = mobile_background_type === 'same' ? background_type : mobile_background_type;
@@ -204,31 +259,31 @@ export default function IEditPageHeaderHeroElement({ content = {}, variant, sett
           }
           
           .${instanceId} .hero-title {
-            font-family: ${header_font_family};
-            font-size: ${header_font_size}px;
+            font-family: ${effectiveHeaderFontFamily};
+            font-size: ${effectiveHeaderFontSize}px;
             color: ${header_color};
-            line-height: ${content?.header_line_height || line_spacing};
-            ${content?.header_font_weight ? `font-weight: ${content.header_font_weight};` : ''}
-            ${content?.header_letter_spacing ? `letter-spacing: ${content.header_letter_spacing}px;` : ''}
+            line-height: ${effectiveHeaderLineHeight};
+            ${effectiveHeaderFontWeight ? `font-weight: ${effectiveHeaderFontWeight};` : ''}
+            letter-spacing: ${effectiveHeaderLetterSpacing}px;
           }
           
           .${instanceId} .hero-subheading {
-            font-family: ${content?.subheading_font_family || 'Poppins'};
-            font-weight: ${content?.subheading_font_weight || 400};
-            font-size: ${subheading_font_size}px;
+            font-family: ${effectiveSubheadingFontFamily};
+            ${effectiveSubheadingFontWeight ? `font-weight: ${effectiveSubheadingFontWeight};` : 'font-weight: 400;'}
+            font-size: ${effectiveSubheadingFontSize}px;
             color: ${subheading_color};
-            letter-spacing: ${content?.subheading_letter_spacing || 0}px;
-            line-height: ${content?.subheading_line_height || 1.5};
+            letter-spacing: ${effectiveSubheadingLetterSpacing}px;
+            line-height: ${effectiveSubheadingLineHeight};
             margin-top: 16px;
           }
           
           .${instanceId} .hero-body-text {
-            font-family: ${content?.content_font_family || 'Poppins'};
-            font-weight: ${content?.content_font_weight || 400};
-            font-size: ${content_font_size}px;
+            font-family: ${effectiveContentFontFamily};
+            ${effectiveContentFontWeight ? `font-weight: ${effectiveContentFontWeight};` : 'font-weight: 400;'}
+            font-size: ${effectiveContentFontSize}px;
             color: ${content_color};
-            letter-spacing: ${content?.content_letter_spacing || 0}px;
-            line-height: ${content?.content_line_height || 1.6};
+            letter-spacing: ${effectiveContentLetterSpacing}px;
+            line-height: ${effectiveContentLineHeight};
             margin-top: 16px;
           }
           
@@ -242,12 +297,27 @@ export default function IEditPageHeaderHeroElement({ content = {}, variant, sett
             margin-bottom: 0;
           }
           
+          /* Desktop/Mobile background visibility */
+          .${instanceId} .hero-bg-desktop {
+            display: block;
+          }
+          .${instanceId} .hero-bg-mobile {
+            display: none;
+          }
+          
           /* Mobile styles - below 768px */
           @media (max-width: 767px) {
             .${instanceId} {
               ${mobileHeight.minHeight ? `min-height: ${mobileHeight.minHeight};` : ''}
               ${mobileHeight.height ? `height: ${mobileHeight.height};` : ''}
               ${getMobileBackgroundCSS()}
+            }
+            
+            .${instanceId} .hero-bg-desktop {
+              display: none;
+            }
+            .${instanceId} .hero-bg-mobile {
+              display: block;
             }
             
             .${instanceId} .hero-content {
@@ -270,15 +340,20 @@ export default function IEditPageHeaderHeroElement({ content = {}, variant, sett
             
             .${instanceId} .hero-title {
               font-size: ${mobileFontSize}px;
+              line-height: ${mobileHeadingLineHeight};
+              letter-spacing: ${mobileHeadingLetterSpacing}px;
+              color: ${effectiveMobileTextColor};
             }
             
             .${instanceId} .hero-subheading {
               font-size: ${mobileSubheadingFontSize}px;
+              line-height: ${mobileSubheadingLineHeight};
               margin-top: 12px;
             }
             
             .${instanceId} .hero-body-text {
               font-size: ${mobileContentFontSize}px;
+              line-height: ${mobileContentLineHeight};
               margin-top: 12px;
             }
           }
@@ -288,6 +363,12 @@ export default function IEditPageHeaderHeroElement({ content = {}, variant, sett
             ${mobileHeight.minHeight ? `min-height: ${mobileHeight.minHeight};` : ''}
             ${mobileHeight.height ? `height: ${mobileHeight.height};` : ''}
             ${getMobileBackgroundCSS()}
+          }
+          .${instanceId}.mobile-preview .hero-bg-desktop {
+            display: none !important;
+          }
+          .${instanceId}.mobile-preview .hero-bg-mobile {
+            display: block !important;
           }
           .${instanceId}.mobile-preview .hero-content {
             padding-left: ${mobilePaddingHorizontal}px;
@@ -303,12 +384,17 @@ export default function IEditPageHeaderHeroElement({ content = {}, variant, sett
           }
           .${instanceId}.mobile-preview .hero-title {
             font-size: ${mobileFontSize}px;
+            line-height: ${mobileHeadingLineHeight};
+            letter-spacing: ${mobileHeadingLetterSpacing}px;
+            color: ${effectiveMobileTextColor};
           }
           .${instanceId}.mobile-preview .hero-subheading {
             font-size: ${mobileSubheadingFontSize}px;
+            line-height: ${mobileSubheadingLineHeight};
           }
           .${instanceId}.mobile-preview .hero-body-text {
             font-size: ${mobileContentFontSize}px;
+            line-height: ${mobileContentLineHeight};
           }
         `}
       </style>
@@ -318,8 +404,9 @@ export default function IEditPageHeaderHeroElement({ content = {}, variant, sett
         className={`${instanceId} ${mobilePreviewClass} relative w-full overflow-hidden`}
         style={{ ...getBackgroundStyle() }}
       >
+        {/* Desktop background image */}
         {background_type === 'image' && image_url && (
-          <>
+          <div className="hero-bg-desktop absolute inset-0">
             <img 
               src={image_url} 
               alt={header_text || 'Hero image'} 
@@ -335,7 +422,28 @@ export default function IEditPageHeaderHeroElement({ content = {}, variant, sett
                 }} 
               />
             )}
-          </>
+          </div>
+        )}
+        
+        {/* Mobile background image */}
+        {effectiveMobileBgType === 'image' && effectiveMobileImageUrl && (
+          <div className="hero-bg-mobile absolute inset-0">
+            <img 
+              src={effectiveMobileImageUrl} 
+              alt={header_text || 'Hero image'} 
+              className="absolute inset-0 w-full h-full"
+              style={{ objectFit: effectiveMobileImageFit }}
+            />
+            {effectiveMobileOverlayEnabled && (
+              <div 
+                className="absolute inset-0" 
+                style={{ 
+                  backgroundColor: effectiveMobileOverlayColor, 
+                  opacity: parseInt(effectiveMobileOverlayOpacity) / 100 
+                }} 
+              />
+            )}
+          </div>
         )}
         
         <div 
@@ -562,6 +670,8 @@ export function IEditPageHeaderHeroElementEditor({ element, onChange }) {
 
   // Calculate default mobile values for display
   const defaultMobileFontSize = Math.max(24, Math.round(parseInt(content.header_font_size || 48) * 0.6));
+  const defaultMobileSubheadingFontSize = Math.max(16, Math.round(parseInt(content.subheading_font_size || 24) * 0.75));
+  const defaultMobileContentFontSize = Math.max(14, Math.round(parseInt(content.content_font_size || 16) * 0.9));
   const defaultMobilePaddingVertical = Math.max(32, Math.round(parseInt(content.padding_vertical || 80) * 0.5));
   const defaultMobilePaddingHorizontal = Math.max(16, parseInt(content.padding_horizontal || 16));
 
@@ -1321,66 +1431,195 @@ export function IEditPageHeaderHeroElementEditor({ element, onChange }) {
             
             {expandedSections.mobileTypography && (
               <div className="p-4 space-y-4 border-t border-slate-200">
-                {/* Mobile Typography Toggle */}
-                <div className="space-y-3 p-3 bg-slate-50 rounded-md">
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      id="mobile_custom_typography"
-                      checked={content.mobile_custom_typography || false}
-                      onChange={(e) => updateContent('mobile_custom_typography', e.target.checked)}
-                      className="rounded"
-                    />
-                    <label htmlFor="mobile_custom_typography" className="text-sm font-medium">Use custom mobile typography</label>
-                  </div>
-                  <p className="text-xs text-slate-500">
-                    When enabled, you can set different font sizes for mobile. Otherwise, sizes are automatically scaled from desktop values.
-                  </p>
-                  
-                  {content.mobile_custom_typography && (
-                    <div className="space-y-3 pt-2">
-                      <div>
-                        <label className="block text-sm font-medium mb-1">
-                          Mobile Header Font Size (px)
-                          <span className="text-xs text-slate-500 ml-2">Default: {defaultMobileFontSize}px</span>
-                        </label>
+                <div className="flex items-center gap-2 mb-3">
+                  <input
+                    type="checkbox"
+                    id="mobile_use_desktop_typography"
+                    checked={!content.mobile_custom_typography}
+                    onChange={(e) => updateContent('mobile_custom_typography', !e.target.checked)}
+                    className="rounded"
+                  />
+                  <label htmlFor="mobile_use_desktop_typography" className="text-sm font-medium">
+                    Use Desktop Typography
+                  </label>
+                </div>
+
+                {content.mobile_custom_typography && (
+                  <div className="space-y-4 pl-2 border-l-2 border-blue-200">
+                    {/* Mobile Text Color */}
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Mobile Text Color</label>
+                      <div className="flex gap-2 items-center">
                         <input
-                          type="number"
-                          value={content.mobile_font_size || ''}
-                          onChange={(e) => updateContent('mobile_font_size', e.target.value)}
-                          placeholder={String(defaultMobileFontSize)}
-                          className="w-full px-3 py-2 border border-slate-300 rounded-md"
-                          min="16"
-                          max="72"
+                          type="color"
+                          value={content.mobile_text_color || content.header_color || '#ffffff'}
+                          onChange={(e) => updateContent('mobile_text_color', e.target.value)}
+                          className="w-16 h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
                         />
+                        <input
+                          type="text"
+                          value={content.mobile_text_color || content.header_color || '#ffffff'}
+                          onChange={(e) => updateContent('mobile_text_color', e.target.value)}
+                          className="flex-1 px-3 py-2 border border-slate-300 rounded-md font-mono text-sm"
+                          placeholder={content.header_color || '#ffffff'}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => updateContent('mobile_text_color', '')}
+                          className="text-xs text-slate-500 hover:text-slate-700 underline"
+                        >
+                          Reset
+                        </button>
                       </div>
-                      <div>
-                        <label className="block text-sm font-medium mb-1">Mobile Subheading Font Size (px)</label>
-                        <input
-                          type="number"
-                          value={content.mobile_subheading_font_size || ''}
-                          onChange={(e) => updateContent('mobile_subheading_font_size', e.target.value)}
-                          placeholder="Auto"
-                          className="w-full px-3 py-2 border border-slate-300 rounded-md"
-                          min="12"
-                          max="48"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium mb-1">Mobile Content Font Size (px)</label>
-                        <input
-                          type="number"
-                          value={content.mobile_content_font_size || ''}
-                          onChange={(e) => updateContent('mobile_content_font_size', e.target.value)}
-                          placeholder="Auto"
-                          className="w-full px-3 py-2 border border-slate-300 rounded-md"
-                          min="12"
-                          max="32"
-                        />
+                      <p className="text-xs text-slate-500 mt-1">This is the main text color for mobile. Set this to ensure text is visible on mobile backgrounds.</p>
+                    </div>
+
+                    {/* Heading Settings */}
+                    <div className="space-y-3 p-3 bg-slate-50 rounded-lg">
+                      <h5 className="text-sm font-semibold">Heading</h5>
+                      <div className="grid grid-cols-3 gap-3">
+                        <div>
+                          <label className="block text-sm font-medium mb-1">
+                            Font Size
+                            <span className="text-xs text-slate-500 block">Default: {defaultMobileFontSize}px</span>
+                          </label>
+                          <input
+                            type="number"
+                            value={content.mobile_font_size || ''}
+                            onChange={(e) => updateContent('mobile_font_size', e.target.value ? parseInt(e.target.value) : '')}
+                            placeholder={defaultMobileFontSize}
+                            className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                            min="16"
+                            max="96"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium mb-1">
+                            Line Height
+                            <span className="text-xs text-slate-500 block">Default: {content.line_spacing || 1.2}</span>
+                          </label>
+                          <input
+                            type="number"
+                            step="0.1"
+                            value={content.mobile_heading_line_height || ''}
+                            onChange={(e) => updateContent('mobile_heading_line_height', e.target.value ? parseFloat(e.target.value) : '')}
+                            placeholder={content.line_spacing || 1.2}
+                            className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                            min="0.8"
+                            max="3"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium mb-1">
+                            Letter Spacing
+                            <span className="text-xs text-slate-500 block">Default: {content.header_letter_spacing || 0}px</span>
+                          </label>
+                          <input
+                            type="number"
+                            step="0.5"
+                            value={content.mobile_heading_letter_spacing || ''}
+                            onChange={(e) => updateContent('mobile_heading_letter_spacing', e.target.value ? parseFloat(e.target.value) : '')}
+                            placeholder={content.header_letter_spacing || 0}
+                            className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                            min="-5"
+                            max="20"
+                          />
+                        </div>
                       </div>
                     </div>
-                  )}
-                </div>
+
+                    {/* Subheading Settings */}
+                    <div className="space-y-3 p-3 bg-slate-50 rounded-lg">
+                      <h5 className="text-sm font-semibold">Subheading</h5>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-sm font-medium mb-1">
+                            Font Size
+                            <span className="text-xs text-slate-500 block">Default: {defaultMobileSubheadingFontSize}px</span>
+                          </label>
+                          <input
+                            type="number"
+                            value={content.mobile_subheading_font_size || ''}
+                            onChange={(e) => updateContent('mobile_subheading_font_size', e.target.value ? parseInt(e.target.value) : '')}
+                            placeholder={defaultMobileSubheadingFontSize}
+                            className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                            min="12"
+                            max="48"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium mb-1">
+                            Line Height
+                            <span className="text-xs text-slate-500 block">Default: {content.subheading_line_height || 1.5}</span>
+                          </label>
+                          <input
+                            type="number"
+                            step="0.1"
+                            value={content.mobile_subheading_line_height || ''}
+                            onChange={(e) => updateContent('mobile_subheading_line_height', e.target.value ? parseFloat(e.target.value) : '')}
+                            placeholder={content.subheading_line_height || 1.5}
+                            className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                            min="0.8"
+                            max="3"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Content Settings */}
+                    <div className="space-y-3 p-3 bg-slate-50 rounded-lg">
+                      <h5 className="text-sm font-semibold">Content</h5>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-sm font-medium mb-1">
+                            Font Size
+                            <span className="text-xs text-slate-500 block">Default: {defaultMobileContentFontSize}px</span>
+                          </label>
+                          <input
+                            type="number"
+                            value={content.mobile_content_font_size || ''}
+                            onChange={(e) => updateContent('mobile_content_font_size', e.target.value ? parseInt(e.target.value) : '')}
+                            placeholder={defaultMobileContentFontSize}
+                            className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                            min="12"
+                            max="32"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium mb-1">
+                            Line Height
+                            <span className="text-xs text-slate-500 block">Default: {content.content_line_height || 1.6}</span>
+                          </label>
+                          <input
+                            type="number"
+                            step="0.1"
+                            value={content.mobile_content_line_height || ''}
+                            onChange={(e) => updateContent('mobile_content_line_height', e.target.value ? parseFloat(e.target.value) : '')}
+                            placeholder={content.content_line_height || 1.6}
+                            className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                            min="0.8"
+                            max="3"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Mobile Text Alignment */}
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Mobile Text Alignment</label>
+                      <select
+                        value={content.mobile_text_alignment || ''}
+                        onChange={(e) => updateContent('mobile_text_alignment', e.target.value)}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                      >
+                        <option value="">Use Desktop ({content.text_alignment || 'left'})</option>
+                        <option value="left">Left</option>
+                        <option value="center">Center</option>
+                        <option value="right">Right</option>
+                      </select>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
