@@ -11,22 +11,22 @@ export default function CookieConsent() {
 
   return (
     <div 
-      className="fixed bottom-0 left-0 right-0 p-4 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-700 shadow-lg"
+      className="fixed bottom-0 left-0 right-0 p-3 sm:p-4 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-700 shadow-lg max-w-full overflow-hidden box-border"
       style={{ zIndex: 9999 }}
       role="dialog"
       aria-label="Cookie consent"
       data-testid="banner-cookie-consent"
     >
-      <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div className="flex items-start gap-3 flex-1">
-          <div className="p-2 bg-blue-100 dark:bg-blue-900 rounded-lg shrink-0">
-            <Cookie className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+      <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4">
+        <div className="flex items-start gap-2 sm:gap-3 min-w-0 flex-1">
+          <div className="p-1.5 sm:p-2 bg-blue-100 dark:bg-blue-900 rounded-lg shrink-0">
+            <Cookie className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600 dark:text-blue-400" />
           </div>
-          <div className="text-sm text-slate-600 dark:text-slate-300">
-            <p className="font-medium text-slate-900 dark:text-white mb-1">
+          <div className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 min-w-0">
+            <p className="font-medium text-slate-900 dark:text-white mb-0.5 sm:mb-1">
               We use cookies
             </p>
-            <p>
+            <p className="break-words">
               We use cookies to enhance your experience. By continuing to visit this site you agree to our use of cookies.{' '}
               <a 
                 href="https://www.graduatefutures.org/privacy-policy" 
@@ -41,11 +41,12 @@ export default function CookieConsent() {
           </div>
         </div>
         
-        <div className="flex items-center gap-3 shrink-0">
+        <div className="flex items-center gap-2 sm:gap-3 shrink-0 w-full sm:w-auto">
           <Button
             variant="outline"
             size="sm"
             onClick={declineCookies}
+            className="flex-1 sm:flex-none"
             data-testid="button-decline-cookies"
           >
             Decline
@@ -54,6 +55,7 @@ export default function CookieConsent() {
             variant="default"
             size="sm"
             onClick={acceptCookies}
+            className="flex-1 sm:flex-none"
             data-testid="button-accept-cookies"
           >
             Accept
