@@ -179,8 +179,8 @@ export default function IEditFeaturedJobElement({ content, variant, settings }) 
       font-size: ${mobile_header_label_font_size}px;
     }
     
-    /* Desktop typography overrides */
-    @media (min-width: 1024px) {
+    /* Desktop/Tablet typography overrides (768px+) */
+    @media (min-width: 768px) {
       #${elementId}-heading {
         font-size: ${heading_font_size}px;
       }
@@ -214,14 +214,14 @@ export default function IEditFeaturedJobElement({ content, variant, settings }) 
           #${elementId}-fw-wrapper {
             padding: ${mobile_vertical_padding}px ${mobile_outer_padding}px;
           }
-          @media (min-width: 1024px) {
+          @media (min-width: 768px) {
             #${elementId}-fw-wrapper {
               padding: ${vertical_padding}px 32px;
             }
           }
         `}</style>
         <div id={`${elementId}-fw-wrapper`} className="max-w-6xl mx-auto">
-          <div className="flex flex-col lg:flex-row items-center gap-4 lg:gap-8">
+          <div className="flex flex-col md:flex-row items-center gap-4 md:gap-8">
             {/* Left - Static content */}
             <div className="flex-1">
               <StaticContent 
@@ -278,8 +278,8 @@ export default function IEditFeaturedJobElement({ content, variant, settings }) 
           padding: ${mobile_vertical_padding}px ${mobile_outer_padding}px;
         }
         
-        /* Desktop overrides */
-        @media (min-width: 1024px) {
+        /* Desktop/Tablet overrides (768px+) */
+        @media (min-width: 768px) {
           #${elementId}-desktop-container {
             min-height: ${min_height}px;
           }
@@ -295,8 +295,8 @@ export default function IEditFeaturedJobElement({ content, variant, settings }) 
         }
       `}</style>
       
-      {/* MOBILE LAYOUT: Stacked sections with natural content flow */}
-      <div className="lg:hidden">
+      {/* MOBILE LAYOUT: Stacked sections with natural content flow (portrait phones only) */}
+      <div className="md:hidden">
         {/* Top section - Gradient background with card */}
         <div 
           id={`${elementId}-section-top`}
@@ -351,8 +351,8 @@ export default function IEditFeaturedJobElement({ content, variant, settings }) 
         </div>
       </div>
       
-      {/* DESKTOP LAYOUT: Side-by-side with absolute backgrounds */}
-      <div id={`${elementId}-desktop-container`} className="hidden lg:block relative w-full">
+      {/* DESKTOP/TABLET LAYOUT: Side-by-side with absolute backgrounds (768px+) */}
+      <div id={`${elementId}-desktop-container`} className="hidden md:block relative w-full">
         {/* Absolute positioned split backgrounds */}
         <div className="absolute inset-0 flex flex-row">
           <div className="w-1/2" style={gradientStyle} />
@@ -775,7 +775,7 @@ export function IEditFeaturedJobElementEditor({ element, onChange }) {
         <div className="border rounded-lg p-3 bg-blue-50 space-y-4">
           <div>
             <label className="text-sm font-medium text-blue-800">Mobile Responsive Settings</label>
-            <p className="text-xs text-blue-600 mt-1">These settings apply on screens smaller than 1024px width.</p>
+            <p className="text-xs text-blue-600 mt-1">These settings apply on portrait phones (screens smaller than 768px width).</p>
           </div>
           
           {/* Mobile Typography */}
