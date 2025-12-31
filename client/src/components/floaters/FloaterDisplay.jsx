@@ -14,6 +14,25 @@ export default function FloaterDisplay({ location = "portal", memberInfo, organi
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
   const [submissionSuccess, setSubmissionSuccess] = useState(false);
+  
+  // Track viewport dimensions for responsive floater positioning
+  const [viewportDimensions, setViewportDimensions] = useState({
+    width: typeof window !== 'undefined' ? window.innerWidth : 1024,
+    height: typeof window !== 'undefined' ? window.innerHeight : 768,
+  });
+  
+  // Update viewport dimensions on resize
+  useEffect(() => {
+    const handleResize = () => {
+      setViewportDimensions({
+        width: window.innerWidth,
+        height: window.innerHeight,
+      });
+    };
+    
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   // Fetch default consent message from public endpoint (works without auth)
   const { data: defaultConsentMessage } = useQuery({
@@ -286,8 +305,21 @@ export default function FloaterDisplay({ location = "portal", memberInfo, organi
     const offsetY = floater.offset_y || 20;
     
     // Use a minimum safe offset to prevent floater from going off screen
-    // On mobile, use smaller offsets and ensure floater stays in viewport
     const minSafeOffset = 8;
+    
+    // Use tracked viewport dimensions (updates on resize)
+    const viewportWidth = viewportDimensions.width;
+    const viewportHeight = viewportDimensions.height;
+    
+    // Calculate maximum allowed offsets to keep floater fully visible
+    // For right/left: offset + floaterWidth + minSafeOffset <= viewportWidth
+    // So maxOffset = viewportWidth - floaterWidth - minSafeOffset
+    const maxOffsetX = Math.max(minSafeOffset, viewportWidth - floaterWidth - minSafeOffset);
+    const maxOffsetY = Math.max(minSafeOffset, viewportHeight - floaterHeight - minSafeOffset);
+    
+    // Clamp offsets using JavaScript Math functions
+    const clampedOffsetX = Math.max(minSafeOffset, Math.min(offsetX, maxOffsetX));
+    const clampedOffsetY = Math.max(minSafeOffset, Math.min(offsetY, maxOffsetY));
     
     const styles = {
       position: "fixed",
@@ -296,36 +328,29 @@ export default function FloaterDisplay({ location = "portal", memberInfo, organi
       width: `${floaterWidth}px`,
       height: `${floaterHeight}px`,
       transition: "transform 0.2s ease",
-      // Ensure floater doesn't exceed viewport bounds
-      maxWidth: `calc(100vw - ${minSafeOffset * 2}px)`,
-      maxHeight: `calc(100vh - ${minSafeOffset * 2}px)`,
     };
 
-    // Use CSS max() to ensure the floater stays visible on smaller screens
-    // For edge positions, clamp the offset so the floater doesn't go outside viewport
+    // Apply clamped positions based on floater corner
     switch (floater.position) {
       case "bottom-right":
-        // Ensure right offset doesn't push floater off left edge of screen
-        // Right edge: right offset; Left edge must be >= minSafeOffset
-        // So: right offset <= 100vw - floaterWidth - minSafeOffset
-        styles.bottom = `max(${minSafeOffset}px, min(${offsetY}px, calc(100vh - ${floaterHeight}px - ${minSafeOffset}px)))`;
-        styles.right = `max(${minSafeOffset}px, min(${offsetX}px, calc(100vw - ${floaterWidth}px - ${minSafeOffset}px)))`;
+        styles.bottom = `${clampedOffsetY}px`;
+        styles.right = `${clampedOffsetX}px`;
         break;
       case "bottom-left":
-        styles.bottom = `max(${minSafeOffset}px, min(${offsetY}px, calc(100vh - ${floaterHeight}px - ${minSafeOffset}px)))`;
-        styles.left = `max(${minSafeOffset}px, min(${offsetX}px, calc(100vw - ${floaterWidth}px - ${minSafeOffset}px)))`;
+        styles.bottom = `${clampedOffsetY}px`;
+        styles.left = `${clampedOffsetX}px`;
         break;
       case "top-right":
-        styles.top = `max(${minSafeOffset}px, min(${offsetY}px, calc(100vh - ${floaterHeight}px - ${minSafeOffset}px)))`;
-        styles.right = `max(${minSafeOffset}px, min(${offsetX}px, calc(100vw - ${floaterWidth}px - ${minSafeOffset}px)))`;
+        styles.top = `${clampedOffsetY}px`;
+        styles.right = `${clampedOffsetX}px`;
         break;
       case "top-left":
-        styles.top = `max(${minSafeOffset}px, min(${offsetY}px, calc(100vh - ${floaterHeight}px - ${minSafeOffset}px)))`;
-        styles.left = `max(${minSafeOffset}px, min(${offsetX}px, calc(100vw - ${floaterWidth}px - ${minSafeOffset}px)))`;
+        styles.top = `${clampedOffsetY}px`;
+        styles.left = `${clampedOffsetX}px`;
         break;
       default:
-        styles.bottom = `max(${minSafeOffset}px, min(${offsetY}px, calc(100vh - ${floaterHeight}px - ${minSafeOffset}px)))`;
-        styles.right = `max(${minSafeOffset}px, min(${offsetX}px, calc(100vw - ${floaterWidth}px - ${minSafeOffset}px)))`;
+        styles.bottom = `${clampedOffsetY}px`;
+        styles.right = `${clampedOffsetX}px`;
     }
 
     return styles;
