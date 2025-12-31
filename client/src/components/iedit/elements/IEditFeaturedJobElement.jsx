@@ -89,6 +89,10 @@ export default function IEditFeaturedJobElement({ content, variant, settings }) 
     min_height = 550,
     vertical_padding = 48,
     
+    // Mobile layout
+    mobile_top_height = 400,
+    mobile_bottom_height = 400,
+    
     // Anchor
     anchor
   } = content || {};
@@ -170,6 +174,9 @@ export default function IEditFeaturedJobElement({ content, variant, settings }) 
     );
   }
 
+  // Generate unique ID for CSS scoping
+  const elementId = `featured-job-${anchor || 'default'}`;
+  
   // Default: Split background layout
   return (
     <div 
@@ -177,16 +184,34 @@ export default function IEditFeaturedJobElement({ content, variant, settings }) 
       className="relative w-full overflow-hidden"
       style={{ minHeight: `${min_height}px` }}
     >
+      {/* CSS for responsive background heights */}
+      <style>{`
+        #${elementId}-bg-top {
+          height: ${mobile_top_height}px;
+        }
+        #${elementId}-bg-bottom {
+          height: ${mobile_bottom_height}px;
+        }
+        @media (min-width: 1024px) {
+          #${elementId}-bg-top,
+          #${elementId}-bg-bottom {
+            height: 100%;
+          }
+        }
+      `}</style>
+      
       {/* Full-bleed split background - stacks vertically on mobile, horizontal on lg+ */}
       <div className="absolute inset-0 flex flex-col lg:flex-row">
         {/* Left/Top half - Gradient */}
         <div 
-          className="w-full lg:w-1/2 h-1/2 lg:h-full"
+          id={`${elementId}-bg-top`}
+          className="w-full lg:w-1/2 shrink-0 lg:shrink"
           style={gradientStyle}
         />
         {/* Right/Bottom half - Solid color */}
         <div 
-          className="w-full lg:w-1/2 h-1/2 lg:h-full"
+          id={`${elementId}-bg-bottom`}
+          className="w-full lg:w-1/2 shrink-0 lg:shrink"
           style={{ background: right_side_color }}
         />
       </div>
@@ -604,6 +629,33 @@ export function IEditFeaturedJobElementEditor({ element, onChange }) {
             />
           </div>
         </div>
+
+        {content.layout_style !== 'full-width' && (
+          <div className="border rounded-lg p-3 bg-slate-50 space-y-3">
+            <label className="text-sm font-medium text-slate-700">Mobile Background Heights</label>
+            <p className="text-xs text-slate-500">Control the height of each background section when stacked on mobile devices.</p>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Top (Gradient) Height</label>
+                <input 
+                  type="number"
+                  value={content.mobile_top_height || 400}
+                  onChange={(e) => updateContent('mobile_top_height', parseInt(e.target.value))}
+                  className="w-full px-3 py-2 border rounded-md"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Bottom (Solid) Height</label>
+                <input 
+                  type="number"
+                  value={content.mobile_bottom_height || 400}
+                  onChange={(e) => updateContent('mobile_bottom_height', parseInt(e.target.value))}
+                  className="w-full px-3 py-2 border rounded-md"
+                />
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Background Colors */}
