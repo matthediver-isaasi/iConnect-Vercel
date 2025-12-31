@@ -15,9 +15,7 @@ export default function IEditButtonBlockElement({ content, variant, settings, pr
   const isMobilePreview = previewViewport === 'mobile';
   const fullWidth = settings?.fullWidth;
   
-  // Debug log
-  const finalClassName = `buttonblock-${instanceId} ${fullWidth ? 'w-screen relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw]' : ''} ${isMobilePreview ? 'mobile-preview' : ''}`;
-  console.log('[ButtonBlock] previewViewport:', previewViewport, 'isMobilePreview:', isMobilePreview, 'className:', finalClassName.trim());
+  // Debug log - check if mobile preview class is being set
   
   const { 
     anchor,
@@ -190,6 +188,8 @@ export default function IEditButtonBlockElement({ content, variant, settings, pr
       padding-bottom: ${mobilePaddingBottom}px;
       padding-left: ${mobilePaddingLeft}px;
       padding-right: ${mobilePaddingRight}px;
+      /* DEBUG: Add visible border to confirm mobile preview CSS is being applied */
+      outline: 3px solid red !important;
     }
     
     .buttonblock-${instanceId}.mobile-preview .bb-text-wrapper {
