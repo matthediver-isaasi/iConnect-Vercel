@@ -52,7 +52,15 @@ const heroQuillModules = {
 };
 
 export default function IEditPageHeaderHeroElement({ content, variant, settings, isFirst }) {
-  // Guard clause - return null if content is not provided
+  // IMPORTANT: Hooks must be called unconditionally before any early returns (React Rules of Hooks)
+  // Generate unique ID for this instance to scope CSS
+  const reactId = useId();
+  const instanceId = `hero-${reactId.replace(/:/g, '')}`;
+  
+  // Look up typography styles at render time to use current values from InstalledFonts
+  const { getStyleById } = useTypographyStyles();
+  
+  // Guard clause - return null if content is not provided (AFTER hooks)
   if (!content) {
     return null;
   }
@@ -117,13 +125,6 @@ export default function IEditPageHeaderHeroElement({ content, variant, settings,
     // Mobile typography inheritance toggle
     mobile_custom_typography = false
   } = content;
-
-  // Generate unique ID for this instance to scope CSS
-  const reactId = useId();
-  const instanceId = `hero-${reactId.replace(/:/g, '')}`;
-  
-  // Look up typography styles at render time to use current values from InstalledFonts
-  const { getStyleById } = useTypographyStyles();
   const headerTypographyStyle = getStyleById(header_typography_style_id);
   const subheadingTypographyStyle = getStyleById(subheading_typography_style_id);
   const contentTypographyStyle = getStyleById(content_typography_style_id);
