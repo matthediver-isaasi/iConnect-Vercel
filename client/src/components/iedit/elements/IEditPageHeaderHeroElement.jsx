@@ -130,8 +130,9 @@ export default function IEditPageHeaderHeroElement({ content = {}, variant, sett
   } = content;
 
   // Generate unique ID for this instance to scope CSS
+  // Use 'phhero-' prefix (distinct from 'hero-' in IEditHeroElement) to prevent CSS collisions
   const reactId = useId();
-  const instanceId = `hero-${reactId.replace(/:/g, '')}`;
+  const instanceId = `phhero-${reactId.replace(/:/g, '')}`;
 
   // Look up typography styles at render time to use current values from InstalledFonts
   const { getStyleById } = useTypographyStyles();
