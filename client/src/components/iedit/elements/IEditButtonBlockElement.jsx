@@ -71,6 +71,8 @@ export default function IEditButtonBlockElement({ content, variant, settings, pr
     mobile_padding_bottom,
     mobile_padding_left,
     mobile_padding_right,
+    // Mobile button gap
+    mobile_button_gap,
   } = content;
 
   // Compute effective mobile values (respecting toggle flags)
@@ -100,6 +102,9 @@ export default function IEditButtonBlockElement({ content, variant, settings, pr
 
   // Effective uniform width (mobile inherits from desktop if not explicitly set)
   const effectiveMobileUniformWidth = mobile_uniform_button_width !== undefined ? mobile_uniform_button_width : uniform_button_width;
+  
+  // Effective mobile button gap (inherits from desktop if not set)
+  const effectiveMobileButtonGap = mobile_button_gap !== undefined ? mobile_button_gap : button_gap;
 
   // Determine which styles to use based on preview mode
   const isRenderingMobile = isMobilePreview;
@@ -111,6 +116,7 @@ export default function IEditButtonBlockElement({ content, variant, settings, pr
   const currentPaddingRight = isRenderingMobile ? mobilePaddingRight : padding_right;
   const currentTextAlign = isRenderingMobile ? mobileTextAlign : text_align;
   const currentUniformWidth = isRenderingMobile ? effectiveMobileUniformWidth : uniform_button_width;
+  const currentButtonGap = isRenderingMobile ? effectiveMobileButtonGap : button_gap;
 
   // Filter out empty buttons
   const validButtons = buttons.filter(btn => btn?.text && btn?.text.trim() !== '');
@@ -214,6 +220,7 @@ export default function IEditButtonBlockElement({ content, variant, settings, pr
         justify-content: ${mobileTextAlign === 'center' ? 'center' : mobileTextAlign === 'right' ? 'flex-end' : 'flex-start'};
         display: flex;
         flex-wrap: wrap;
+        gap: ${effectiveMobileButtonGap}px;
       }
       ${effectiveMobileUniformWidth ? `
       .buttonblock-${instanceId} .bb-buttons > * {
@@ -268,19 +275,12 @@ export default function IEditButtonBlockElement({ content, variant, settings, pr
 
   // Buttons container style
   // For uniform width: use flexbox with flex:1 on each button so they grow equally
-  const buttonsContainerStyle = currentUniformWidth 
-    ? {
-        display: 'flex',
-        flexWrap: 'wrap',
-        gap: `${button_gap}px`,
-        justifyContent: currentTextAlign === 'center' ? 'center' : currentTextAlign === 'right' ? 'flex-end' : 'flex-start',
-      }
-    : {
-        display: 'flex',
-        flexWrap: 'wrap',
-        gap: `${button_gap}px`,
-        justifyContent: currentTextAlign === 'center' ? 'center' : currentTextAlign === 'right' ? 'flex-end' : 'flex-start',
-      };
+  const buttonsContainerStyle = {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: `${currentButtonGap}px`,
+    justifyContent: currentTextAlign === 'center' ? 'center' : currentTextAlign === 'right' ? 'flex-end' : 'flex-start',
+  };
 
   const renderContent = () => (
     <>
@@ -1269,6 +1269,20 @@ export function IEditButtonBlockElementEditor({ element, onChange }) {
             {expandedSections.background && (
               <div className="p-4 border-t space-y-4">
                 {renderMobilePaddingSection()}
+                
+                {/* Mobile Button Gap */}
+                <div>
+                  <Label className="text-sm font-medium">Button Gap (px)</Label>
+                  <Input
+                    type="number"
+                    value={content.mobile_button_gap !== undefined ? content.mobile_button_gap : (content.button_gap || 16)}
+                    onChange={(e) => updateContent('mobile_button_gap', parseInt(e.target.value) || 0)}
+                    className="w-full mt-1"
+                    min="0"
+                    max="100"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">Vertical and horizontal spacing between buttons on mobile</p>
+                </div>
                 
                 {/* Mobile Uniform Button Width Toggle */}
                 <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
