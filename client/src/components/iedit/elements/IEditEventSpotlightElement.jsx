@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { ChevronDown, ChevronUp, Upload, X, Calendar, MapPin, Clock, Users, Ticket, Tag, ExternalLink } from "lucide-react";
-import TypographyStyleSelector, { applyTypographyStyle } from "../TypographyStyleSelector";
+import TypographyStyleSelector, { applyTypographyStyle, useTypographyStyles } from "../TypographyStyleSelector";
 import AGCASButton from "../../ui/AGCASButton";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { format, parseISO } from "date-fns";
@@ -49,6 +49,7 @@ const fontWeights = [
 export default function IEditEventSpotlightElement({ content, variant, settings }) {
   const isMobile = useIsMobile();
   const { singular: speakerSingular, plural: speakerPlural } = useSpeakerModuleName();
+  const { getStyleById } = useTypographyStyles();
   
   const {
     anchor,
@@ -127,16 +128,20 @@ export default function IEditEventSpotlightElement({ content, variant, settings 
   const hasBackground = background_type && background_type !== 'none';
 
   const getTextStyle = (prefix) => {
-    const fontSize = content?.[`${prefix}_font_size`] || 16;
-    const mobileFontSize = content?.[`${prefix}_font_size_mobile`];
+    const typographyStyleId = content?.[`${prefix}_typography_style_id`];
+    const typographyStyle = getStyleById(typographyStyleId);
+    
+    const fontSize = typographyStyle?.font_size || content?.[`${prefix}_font_size`] || 16;
+    const savedMobileFontSize = content?.[`${prefix}_font_size_mobile`];
+    const effectiveMobileFontSize = typographyStyle?.font_size_mobile || savedMobileFontSize;
     
     return {
-      fontFamily: content?.[`${prefix}_font_family`] || 'Poppins',
-      fontWeight: content?.[`${prefix}_font_weight`] || 400,
-      fontSize: `${(isMobile && mobileFontSize) ? mobileFontSize : fontSize}px`,
-      color: content?.[`${prefix}_color`] || '#1e293b',
-      letterSpacing: `${content?.[`${prefix}_letter_spacing`] || 0}px`,
-      lineHeight: content?.[`${prefix}_line_height`] || 1.5
+      fontFamily: typographyStyle?.font_family || content?.[`${prefix}_font_family`] || 'Poppins',
+      fontWeight: typographyStyle?.font_weight || content?.[`${prefix}_font_weight`] || 400,
+      fontSize: `${(isMobile && effectiveMobileFontSize) ? effectiveMobileFontSize : fontSize}px`,
+      color: typographyStyle?.color || content?.[`${prefix}_color`] || '#1e293b',
+      letterSpacing: `${typographyStyle?.letter_spacing ?? content?.[`${prefix}_letter_spacing`] ?? 0}px`,
+      lineHeight: typographyStyle?.line_height || content?.[`${prefix}_line_height`] || 1.5
     };
   };
 

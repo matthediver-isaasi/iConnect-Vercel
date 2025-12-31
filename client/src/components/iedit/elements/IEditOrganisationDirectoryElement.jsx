@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Building2, Search, Globe, Users, Loader2, ChevronLeft, ChevronRight, ArrowDownAZ, ArrowUpZA, AlignLeft, AlignCenter, AlignRight, ChevronDown, ChevronUp } from "lucide-react";
-import TypographyStyleSelector, { applyTypographyStyle } from "../TypographyStyleSelector";
+import TypographyStyleSelector, { applyTypographyStyle, useTypographyStyles } from "../TypographyStyleSelector";
 import { useIsMobile } from "@/hooks/use-mobile";
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
@@ -601,6 +601,7 @@ export function IEditOrganisationDirectoryElementRenderer({ content, settings })
   const [sortOrder, setSortOrder] = useState("asc");
   const [currentPage, setCurrentPage] = useState(1);
   const isMobile = useIsMobile();
+  const { getStyleById } = useTypographyStyles();
 
   const {
     anchor,
@@ -658,35 +659,48 @@ export function IEditOrganisationDirectoryElementRenderer({ content, settings })
   const hasHeaderContentText = hasContent(header_content);
   const hasHeaderSection = hasHeaderTitle || hasHeaderSubtitle || hasHeaderContentText;
 
-  const getHeaderTitleStyle = () => ({
-    fontFamily: header_font_family,
-    fontSize: `${isMobile && header_font_size_mobile ? header_font_size_mobile : header_font_size}px`,
-    fontWeight: header_font_weight,
-    color: header_color,
-    lineHeight: header_line_height,
-    letterSpacing: `${header_letter_spacing}px`,
-    textAlign: header_title_text_align
-  });
+  const headerTypographyStyle = getStyleById(content?.header_typography_style_id);
+  const subtitleTypographyStyle = getStyleById(content?.subtitle_typography_style_id);
+  const contentTypographyStyle = getStyleById(content?.content_typography_style_id);
 
-  const getSubtitleStyle = () => ({
-    fontFamily: subtitle_font_family,
-    fontSize: `${isMobile && subtitle_font_size_mobile ? subtitle_font_size_mobile : subtitle_font_size}px`,
-    fontWeight: subtitle_font_weight,
-    color: subtitle_color,
-    lineHeight: subtitle_line_height,
-    letterSpacing: `${subtitle_letter_spacing}px`,
-    textAlign: header_subtitle_text_align
-  });
+  const getHeaderTitleStyle = () => {
+    const effectiveFontSizeMobile = headerTypographyStyle?.font_size_mobile || header_font_size_mobile;
+    return {
+      fontFamily: headerTypographyStyle?.font_family || header_font_family,
+      fontSize: `${isMobile && effectiveFontSizeMobile ? effectiveFontSizeMobile : (headerTypographyStyle?.font_size || header_font_size)}px`,
+      fontWeight: headerTypographyStyle?.font_weight || header_font_weight,
+      color: headerTypographyStyle?.color || header_color,
+      lineHeight: headerTypographyStyle?.line_height || header_line_height,
+      letterSpacing: `${headerTypographyStyle?.letter_spacing ?? header_letter_spacing}px`,
+      textAlign: header_title_text_align
+    };
+  };
 
-  const getContentStyle = () => ({
-    fontFamily: content_font_family,
-    fontSize: `${isMobile && content_font_size_mobile ? content_font_size_mobile : content_font_size}px`,
-    fontWeight: content_font_weight,
-    color: content_color,
-    lineHeight: content_line_height,
-    letterSpacing: `${content_letter_spacing}px`,
-    textAlign: header_content_text_align
-  });
+  const getSubtitleStyle = () => {
+    const effectiveFontSizeMobile = subtitleTypographyStyle?.font_size_mobile || subtitle_font_size_mobile;
+    return {
+      fontFamily: subtitleTypographyStyle?.font_family || subtitle_font_family,
+      fontSize: `${isMobile && effectiveFontSizeMobile ? effectiveFontSizeMobile : (subtitleTypographyStyle?.font_size || subtitle_font_size)}px`,
+      fontWeight: subtitleTypographyStyle?.font_weight || subtitle_font_weight,
+      color: subtitleTypographyStyle?.color || subtitle_color,
+      lineHeight: subtitleTypographyStyle?.line_height || subtitle_line_height,
+      letterSpacing: `${subtitleTypographyStyle?.letter_spacing ?? subtitle_letter_spacing}px`,
+      textAlign: header_subtitle_text_align
+    };
+  };
+
+  const getContentStyle = () => {
+    const effectiveFontSizeMobile = contentTypographyStyle?.font_size_mobile || content_font_size_mobile;
+    return {
+      fontFamily: contentTypographyStyle?.font_family || content_font_family,
+      fontSize: `${isMobile && effectiveFontSizeMobile ? effectiveFontSizeMobile : (contentTypographyStyle?.font_size || content_font_size)}px`,
+      fontWeight: contentTypographyStyle?.font_weight || content_font_weight,
+      color: contentTypographyStyle?.color || content_color,
+      lineHeight: contentTypographyStyle?.line_height || content_line_height,
+      letterSpacing: `${contentTypographyStyle?.letter_spacing ?? content_letter_spacing}px`,
+      textAlign: header_content_text_align
+    };
+  };
 
   const { data: organizations = [], isLoading } = useQuery({
     queryKey: ['organizations-element'],

@@ -1097,6 +1097,7 @@ export function IEditShowcaseElementEditor({ element, onChange }) {
 
 export function IEditShowcaseElementRenderer({ element, settings }) {
   const isMobile = useIsMobile();
+  const { getStyleById } = useTypographyStyles();
   const content = element.content || {};
 
   const fullWidth = settings?.fullWidth;
@@ -1231,17 +1232,20 @@ export function IEditShowcaseElementRenderer({ element, settings }) {
   };
 
   // Typography styles with mobile support
+  const headingTypographyStyle = getStyleById(content.heading_typography_style_id);
   const headingFontSize = isMobile 
-    ? (content.heading_font_size_mobile || content.heading_font_size || 36)
-    : (content.heading_font_size || 48);
+    ? (headingTypographyStyle?.font_size_mobile || content.heading_font_size_mobile || headingTypographyStyle?.font_size || content.heading_font_size || 36)
+    : (headingTypographyStyle?.font_size || content.heading_font_size || 48);
   
+  const subheadingTypographyStyle = getStyleById(content.subheading_typography_style_id);
   const subheadingFontSize = isMobile 
-    ? (content.subheading_font_size_mobile || content.subheading_font_size || 16)
-    : (content.subheading_font_size || 20);
+    ? (subheadingTypographyStyle?.font_size_mobile || content.subheading_font_size_mobile || subheadingTypographyStyle?.font_size || content.subheading_font_size || 16)
+    : (subheadingTypographyStyle?.font_size || content.subheading_font_size || 20);
   
+  const contentTypographyStyle = getStyleById(content.content_typography_style_id);
   const contentFontSize = isMobile 
-    ? (content.content_font_size_mobile || content.content_font_size || 14)
-    : (content.content_font_size || 16);
+    ? (contentTypographyStyle?.font_size_mobile || content.content_font_size_mobile || contentTypographyStyle?.font_size || content.content_font_size || 14)
+    : (contentTypographyStyle?.font_size || content.content_font_size || 16);
 
   return (
     <div id={content.anchor || undefined} className={`${backgroundWrapperClass} relative`} style={wrapperStyle}>
@@ -1253,13 +1257,13 @@ export function IEditShowcaseElementRenderer({ element, settings }) {
                 <div 
                   className="prose prose-headings:m-0 max-w-none"
                   style={{ 
-                    fontWeight: content.heading_font_weight || 700, 
-                    fontFamily: content.heading_font_family || 'Poppins',
+                    fontWeight: headingTypographyStyle?.font_weight || content.heading_font_weight || 700, 
+                    fontFamily: headingTypographyStyle?.font_family || content.heading_font_family || 'Poppins',
                     fontSize: `${headingFontSize}px`,
-                    letterSpacing: `${content.heading_letter_spacing || 0}px`,
-                    lineHeight: content.heading_line_height || 1.2,
+                    letterSpacing: `${headingTypographyStyle?.letter_spacing ?? content.heading_letter_spacing ?? 0}px`,
+                    lineHeight: headingTypographyStyle?.line_height || content.heading_line_height || 1.2,
                     marginBottom: content.heading_underline_enabled ? `${content.heading_underline_spacing || 16}px` : '24px',
-                    color: content.heading_color || '#0f172a',
+                    color: headingTypographyStyle?.color || content.heading_color || '#0f172a',
                     textAlign: content.heading_text_align || 'center'
                   }}
                   dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(content.headerText) }}
@@ -1283,12 +1287,12 @@ export function IEditShowcaseElementRenderer({ element, settings }) {
               <div 
                 className="prose prose-p:m-0 max-w-none mx-auto"
                 style={{ 
-                  fontFamily: content.subheading_font_family || 'Poppins',
-                  fontWeight: content.subheading_font_weight || 400,
+                  fontFamily: subheadingTypographyStyle?.font_family || content.subheading_font_family || 'Poppins',
+                  fontWeight: subheadingTypographyStyle?.font_weight || content.subheading_font_weight || 400,
                   fontSize: `${subheadingFontSize}px`,
-                  lineHeight: content.subheading_line_height || 1.5,
+                  lineHeight: subheadingTypographyStyle?.line_height || content.subheading_line_height || 1.5,
                   maxWidth: '48rem',
-                  color: content.subheading_color || content.description_color || '#475569',
+                  color: subheadingTypographyStyle?.color || content.subheading_color || content.description_color || '#475569',
                   textAlign: content.subheading_text_align || 'center'
                 }}
                 dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(content.descriptionText) }}
@@ -1298,12 +1302,12 @@ export function IEditShowcaseElementRenderer({ element, settings }) {
               <div 
                 className="prose max-w-none mx-auto mt-6"
                 style={{ 
-                  fontFamily: content.content_font_family || 'Poppins',
-                  fontWeight: content.content_font_weight || 400,
+                  fontFamily: contentTypographyStyle?.font_family || content.content_font_family || 'Poppins',
+                  fontWeight: contentTypographyStyle?.font_weight || content.content_font_weight || 400,
                   fontSize: `${contentFontSize}px`,
-                  lineHeight: content.content_line_height || 1.6,
+                  lineHeight: contentTypographyStyle?.line_height || content.content_line_height || 1.6,
                   maxWidth: '48rem',
-                  color: content.content_color || '#64748b',
+                  color: contentTypographyStyle?.color || content.content_color || '#64748b',
                   textAlign: content.content_text_align || 'center'
                 }}
                 dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(content.body_content) }}

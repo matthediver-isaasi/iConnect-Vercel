@@ -4,7 +4,7 @@ import { ArrowRight, MapPin, Building2, Clock, Briefcase, Calendar, Banknote } f
 import { Link } from "react-router-dom";
 import { format, differenceInDays } from "date-fns";
 import { createPageUrl } from "@/utils";
-import TypographyStyleSelector, { applyTypographyStyle } from "../TypographyStyleSelector";
+import TypographyStyleSelector, { applyTypographyStyle, useTypographyStyles } from "../TypographyStyleSelector";
 
 export default function IEditFeaturedJobElement({ content, variant, settings }) {
   const {
@@ -108,6 +108,13 @@ export default function IEditFeaturedJobElement({ content, variant, settings }) 
   } = content || {};
 
   const fullWidth = settings?.fullWidth;
+  const { getStyleById } = useTypographyStyles();
+
+  const headingTypographyStyle = getStyleById(content?.heading_typography_style_id);
+  const subheadingTypographyStyle = getStyleById(content?.subheading_typography_style_id);
+
+  const effectiveHeadingFontSizeMobile = headingTypographyStyle?.font_size_mobile || mobile_heading_font_size;
+  const effectiveSubheadingFontSizeMobile = subheadingTypographyStyle?.font_size_mobile || mobile_subheading_font_size;
 
   const { data: jobs = [], isLoading } = useQuery({
     queryKey: ['featured-jobs-element', specific_job_id],
@@ -158,10 +165,10 @@ export default function IEditFeaturedJobElement({ content, variant, settings }) 
   const responsiveStyles = `
     /* Mobile typography */
     #${elementId}-heading {
-      font-size: ${mobile_heading_font_size}px;
+      font-size: ${effectiveHeadingFontSizeMobile}px;
     }
     #${elementId}-subheading {
-      font-size: ${mobile_subheading_font_size}px;
+      font-size: ${effectiveSubheadingFontSizeMobile}px;
     }
     #${elementId}-header-label {
       font-size: ${mobile_header_label_font_size}px;

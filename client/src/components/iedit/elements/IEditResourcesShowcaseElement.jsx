@@ -9,7 +9,7 @@ import { Upload, Loader2, Trash2, FileText, ArrowRight, Lock, LockOpen } from "l
 import { toast } from "sonner";
 import { useQuery } from "@tanstack/react-query";
 import AGCASButton from "@/components/ui/AGCASButton";
-import TypographyStyleSelector, { applyTypographyStyle } from "../TypographyStyleSelector";
+import TypographyStyleSelector, { applyTypographyStyle, useTypographyStyles } from "../TypographyStyleSelector";
 
 export function IEditResourcesShowcaseElementEditor({ element, onChange }) {
   const [isUploadingBg, setIsUploadingBg] = React.useState(false);
@@ -867,6 +867,7 @@ export function IEditResourcesShowcaseElementEditor({ element, onChange }) {
 }
 
 export function IEditResourcesShowcaseElementRenderer({ element, settings }) {
+  const { getStyleById } = useTypographyStyles();
   const defaultContent = {
     headerText: '',
     subheaderText: '',
@@ -917,6 +918,10 @@ export function IEditResourcesShowcaseElementRenderer({ element, settings }) {
   
   const content = { ...defaultContent, ...(element.content || {}) };
 
+  const headingTypographyStyle = getStyleById(content.heading_typography_style_id);
+  const subheadingTypographyStyle = getStyleById(content.subheading_typography_style_id);
+  const descriptionTypographyStyle = getStyleById(content.description_typography_style_id);
+
   const fullWidth = settings?.fullWidth;
 
   // Fetch selected resources
@@ -966,12 +971,12 @@ export function IEditResourcesShowcaseElementRenderer({ element, settings }) {
               <div>
                 <h2 
                   style={{ 
-                    fontWeight: 'bold', 
-                    fontFamily: content.heading_font_family || 'Poppins',
-                    fontSize: `${content.heading_font_size || 48}px`,
-                    letterSpacing: `${content.heading_letter_spacing || 0}px`,
+                    fontWeight: headingTypographyStyle?.font_weight || 'bold', 
+                    fontFamily: headingTypographyStyle?.font_family || content.heading_font_family || 'Poppins',
+                    fontSize: `${headingTypographyStyle?.font_size || content.heading_font_size || 48}px`,
+                    letterSpacing: `${headingTypographyStyle?.letter_spacing ?? content.heading_letter_spacing ?? 0}px`,
                     marginBottom: content.heading_underline_enabled ? `${content.heading_underline_spacing || 16}px` : '24px',
-                    color: content.heading_color || '#0f172a'
+                    color: headingTypographyStyle?.color || content.heading_color || '#0f172a'
                   }}
                 >
                   {content.headerText}
@@ -995,10 +1000,10 @@ export function IEditResourcesShowcaseElementRenderer({ element, settings }) {
             {content.subheaderText && (
               <h3 
                 style={{ 
-                  fontFamily: content.subheading_font_family || 'Poppins',
-                  fontSize: `${content.subheading_font_size || 24}px`,
-                  fontWeight: '600',
-                  color: content.subheading_color || '#475569',
+                  fontFamily: subheadingTypographyStyle?.font_family || content.subheading_font_family || 'Poppins',
+                  fontSize: `${subheadingTypographyStyle?.font_size || content.subheading_font_size || 24}px`,
+                  fontWeight: subheadingTypographyStyle?.font_weight || '600',
+                  color: subheadingTypographyStyle?.color || content.subheading_color || '#475569',
                   marginBottom: '16px'
                 }}
               >
@@ -1009,10 +1014,10 @@ export function IEditResourcesShowcaseElementRenderer({ element, settings }) {
             {content.descriptionText && (
               <p 
                 style={{ 
-                  fontFamily: content.description_font_family || 'Poppins',
-                  fontSize: `${content.description_font_size || 16}px`,
-                  lineHeight: content.description_line_height || 1.6,
-                  color: content.description_color || '#64748b',
+                  fontFamily: descriptionTypographyStyle?.font_family || content.description_font_family || 'Poppins',
+                  fontSize: `${descriptionTypographyStyle?.font_size || content.description_font_size || 16}px`,
+                  lineHeight: descriptionTypographyStyle?.line_height || content.description_line_height || 1.6,
+                  color: descriptionTypographyStyle?.color || content.description_color || '#64748b',
                   marginBottom: '24px'
                 }}
               >

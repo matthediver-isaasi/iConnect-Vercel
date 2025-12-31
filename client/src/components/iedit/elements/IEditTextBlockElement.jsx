@@ -4,7 +4,7 @@ import "react-quill/dist/quill.snow.css";
 import DOMPurify from "dompurify";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import TypographyStyleSelector, { applyTypographyStyle } from "../TypographyStyleSelector";
+import TypographyStyleSelector, { applyTypographyStyle, useTypographyStyles } from "../TypographyStyleSelector";
 import { AlignLeft, AlignCenter, AlignRight, ChevronDown, ChevronUp } from "lucide-react";
 
 export default function IEditTextBlockElement({ content, variant, settings }) {
@@ -50,9 +50,36 @@ export default function IEditTextBlockElement({ content, variant, settings }) {
   const reactId = useId();
   const instanceId = `textblock-${reactId.replace(/:/g, '')}`;
   const fullWidth = settings?.fullWidth;
+  
+  // Look up typography styles at render time to use current values from InstalledFonts
+  const { getStyleById } = useTypographyStyles();
+  const headingTypographyStyle = getStyleById(content?.heading_typography_style_id);
+  const contentTypographyStyle = getStyleById(content?.content_typography_style_id);
 
-  const mobileHeadingFontSize = mobile_heading_font_size || Math.max(22, Math.round(heading_font_size * 0.75));
-  const mobileContentFontSize = mobile_content_font_size || Math.max(14, Math.round(content_font_size * 0.9));
+  // Desktop typography: Priority - 1) Live typography style, 2) Saved value
+  const effectiveHeadingFontFamily = headingTypographyStyle?.font_family || heading_font_family;
+  const effectiveHeadingFontSize = headingTypographyStyle?.font_size || heading_font_size;
+  const effectiveHeadingFontWeight = headingTypographyStyle?.font_weight || heading_font_weight;
+  const effectiveHeadingColor = headingTypographyStyle?.color || heading_color;
+  const effectiveHeadingLetterSpacing = headingTypographyStyle?.letter_spacing ?? heading_letter_spacing;
+  const effectiveHeadingLineHeight = headingTypographyStyle?.line_height || heading_line_height;
+  
+  const effectiveContentFontFamily = contentTypographyStyle?.font_family || content_font_family;
+  const effectiveContentFontSize = contentTypographyStyle?.font_size || content_font_size;
+  const effectiveContentFontWeight = contentTypographyStyle?.font_weight || content_font_weight;
+  const effectiveContentColor = contentTypographyStyle?.color || content_color;
+  const effectiveContentLetterSpacing = contentTypographyStyle?.letter_spacing ?? content_letter_spacing;
+  const effectiveContentLineHeight = contentTypographyStyle?.line_height || content_line_height;
+  
+  // Mobile font sizes: Priority - 1) Live typography style, 2) Saved value, 3) Auto-scaled default
+  const mobileHeadingFontSize = 
+    headingTypographyStyle?.font_size_mobile || 
+    mobile_heading_font_size || 
+    Math.max(22, Math.round(effectiveHeadingFontSize * 0.75));
+  const mobileContentFontSize = 
+    contentTypographyStyle?.font_size_mobile || 
+    mobile_content_font_size || 
+    Math.max(14, Math.round(effectiveContentFontSize * 0.9));
   const mobilePaddingTop = mobile_padding_top !== undefined ? mobile_padding_top : padding_top;
   const mobilePaddingBottom = mobile_padding_bottom !== undefined ? mobile_padding_bottom : padding_bottom;
   const mobilePaddingLeft = mobile_padding_left !== undefined ? mobile_padding_left : padding_left;
@@ -82,24 +109,24 @@ export default function IEditTextBlockElement({ content, variant, settings }) {
     }
 
     .${instanceId} .textblock-heading {
-      font-family: ${heading_font_family};
-      font-size: ${heading_font_size}px;
-      font-weight: ${heading_font_weight};
-      color: ${heading_color};
-      letter-spacing: ${heading_letter_spacing}px;
-      line-height: ${heading_line_height};
+      font-family: ${effectiveHeadingFontFamily};
+      font-size: ${effectiveHeadingFontSize}px;
+      font-weight: ${effectiveHeadingFontWeight};
+      color: ${effectiveHeadingColor};
+      letter-spacing: ${effectiveHeadingLetterSpacing}px;
+      line-height: ${effectiveHeadingLineHeight};
       text-align: ${heading_align};
       margin: 0;
       margin-bottom: ${text ? `${heading_margin_bottom}px` : '0'};
     }
 
     .${instanceId} .textblock-content {
-      font-family: ${content_font_family};
-      font-size: ${content_font_size}px;
-      font-weight: ${content_font_weight};
-      color: ${content_color};
-      letter-spacing: ${content_letter_spacing}px;
-      line-height: ${content_line_height};
+      font-family: ${effectiveContentFontFamily};
+      font-size: ${effectiveContentFontSize}px;
+      font-weight: ${effectiveContentFontWeight};
+      color: ${effectiveContentColor};
+      letter-spacing: ${effectiveContentLetterSpacing}px;
+      line-height: ${effectiveContentLineHeight};
       text-align: ${content_align};
     }
 

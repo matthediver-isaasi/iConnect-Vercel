@@ -26,7 +26,7 @@ import {
   AlignRight
 } from "lucide-react";
 import { base44 } from "@/api/base44Client";
-import TypographyStyleSelector, { applyTypographyStyle } from "../TypographyStyleSelector";
+import TypographyStyleSelector, { applyTypographyStyle, useTypographyStyles } from "../TypographyStyleSelector";
 
 const textOverlayQuillModules = {
   toolbar: [
@@ -61,6 +61,7 @@ const fontWeights = [
 ];
 
 export default function IEditTextOverlayImageElement({ content, variant, settings }) {
+  const { getStyleById } = useTypographyStyles();
   const {
     anchor,
     backgroundImage,
@@ -102,6 +103,9 @@ export default function IEditTextOverlayImageElement({ content, variant, setting
     text_vertical_align = 'top'
   } = content || {};
 
+  const headerTypographyStyle = getStyleById(content?.header_typography_style_id);
+  const contentTypographyStyle = getStyleById(content?.content_typography_style_id);
+
   const getImageContainerStyles = () => {
     const styles = {
       position: 'relative',
@@ -134,23 +138,23 @@ export default function IEditTextOverlayImageElement({ content, variant, setting
   };
 
   const getHeaderStyles = () => ({
-    fontFamily: header_font_family,
-    fontSize: `${header_font_size}px`,
-    fontWeight: header_font_weight,
-    lineHeight: header_line_height,
-    letterSpacing: `${header_letter_spacing}px`,
-    color: header_color,
+    fontFamily: headerTypographyStyle?.font_family || header_font_family,
+    fontSize: `${headerTypographyStyle?.font_size || header_font_size}px`,
+    fontWeight: headerTypographyStyle?.font_weight || header_font_weight,
+    lineHeight: headerTypographyStyle?.line_height || header_line_height,
+    letterSpacing: `${headerTypographyStyle?.letter_spacing ?? header_letter_spacing}px`,
+    color: headerTypographyStyle?.color || header_color,
     textAlign: header_align,
     marginBottom: '1rem'
   });
 
   const getContentStyles = () => ({
-    fontFamily: content_font_family,
-    fontSize: `${content_font_size}px`,
-    fontWeight: content_font_weight,
-    lineHeight: content_line_height,
-    letterSpacing: `${content_letter_spacing}px`,
-    color: content_color,
+    fontFamily: contentTypographyStyle?.font_family || content_font_family,
+    fontSize: `${contentTypographyStyle?.font_size || content_font_size}px`,
+    fontWeight: contentTypographyStyle?.font_weight || content_font_weight,
+    lineHeight: contentTypographyStyle?.line_height || content_line_height,
+    letterSpacing: `${contentTypographyStyle?.letter_spacing ?? content_letter_spacing}px`,
+    color: contentTypographyStyle?.color || content_color,
     textAlign: content_align
   });
 

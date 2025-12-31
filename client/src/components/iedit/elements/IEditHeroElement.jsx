@@ -119,11 +119,30 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
   const headingTypographyStyle = getStyleById(content.heading_typography_style_id);
   const subheadingTypographyStyle = getStyleById(content.subheading_typography_style_id);
   const contentTypographyStyle = getStyleById(content.content_typography_style_id);
+  
+  // Desktop typography: Priority - 1) Live typography style, 2) Saved value
+  const effectiveHeadingFontFamily = headingTypographyStyle?.font_family || heading_font_family;
+  const effectiveHeadingFontSize = headingTypographyStyle?.font_size || heading_font_size;
+  const effectiveHeadingFontWeight = headingTypographyStyle?.font_weight || undefined;
+  const effectiveHeadingLetterSpacing = headingTypographyStyle?.letter_spacing ?? heading_letter_spacing;
+  const effectiveHeadingLineHeight = headingTypographyStyle?.line_height || heading_line_height;
+  
+  const effectiveSubheadingFontFamily = subheadingTypographyStyle?.font_family || subheading_font_family;
+  const effectiveSubheadingFontSize = subheadingTypographyStyle?.font_size || subheading_font_size;
+  const effectiveSubheadingFontWeight = subheadingTypographyStyle?.font_weight || undefined;
+  const effectiveSubheadingLetterSpacing = subheadingTypographyStyle?.letter_spacing ?? subheading_letter_spacing;
+  const effectiveSubheadingLineHeight = subheadingTypographyStyle?.line_height || subheading_line_height;
+  
+  const effectiveContentFontFamily = contentTypographyStyle?.font_family || content_font_family;
+  const effectiveContentFontSize = contentTypographyStyle?.font_size || content_font_size;
+  const effectiveContentFontWeight = contentTypographyStyle?.font_weight || undefined;
+  const effectiveContentLetterSpacing = contentTypographyStyle?.letter_spacing ?? content_letter_spacing;
+  const effectiveContentLineHeight = contentTypographyStyle?.line_height || content_line_height;
 
   // Auto-scaled default values for mobile (fallback only)
-  const defaultMobileHeadingSize = Math.max(28, Math.round(heading_font_size * 0.6));
-  const defaultMobileSubheadingSize = Math.max(16, Math.round(subheading_font_size * 0.8));
-  const defaultMobileContentSize = Math.max(14, Math.round(content_font_size * 0.9));
+  const defaultMobileHeadingSize = Math.max(28, Math.round(effectiveHeadingFontSize * 0.6));
+  const defaultMobileSubheadingSize = Math.max(16, Math.round(effectiveSubheadingFontSize * 0.8));
+  const defaultMobileContentSize = Math.max(14, Math.round(effectiveContentFontSize * 0.9));
   const defaultMobilePaddingTop = Math.max(40, Math.round(padding_top * 0.5));
   const defaultMobilePaddingBottom = Math.max(40, Math.round(padding_bottom * 0.5));
   const defaultMobileButtonMargin = Math.max(16, Math.round(button_top_margin * 0.75));
@@ -266,10 +285,11 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
     }
     
     .${instanceId} .hero-heading {
-      font-family: ${heading_font_family};
-      font-size: ${heading_font_size}px;
-      line-height: ${heading_line_height};
-      letter-spacing: ${heading_letter_spacing}px;
+      font-family: ${effectiveHeadingFontFamily};
+      font-size: ${effectiveHeadingFontSize}px;
+      ${effectiveHeadingFontWeight ? `font-weight: ${effectiveHeadingFontWeight};` : ''}
+      line-height: ${effectiveHeadingLineHeight};
+      letter-spacing: ${effectiveHeadingLetterSpacing}px;
       color: ${text_color};
       text-align: ${effectiveHeadingAlign};
     }
@@ -282,19 +302,21 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
     }
     
     .${instanceId} .hero-subheading {
-      font-family: ${subheading_font_family};
-      font-size: ${subheading_font_size}px;
-      line-height: ${subheading_line_height};
-      letter-spacing: ${subheading_letter_spacing}px;
+      font-family: ${effectiveSubheadingFontFamily};
+      font-size: ${effectiveSubheadingFontSize}px;
+      ${effectiveSubheadingFontWeight ? `font-weight: ${effectiveSubheadingFontWeight};` : ''}
+      line-height: ${effectiveSubheadingLineHeight};
+      letter-spacing: ${effectiveSubheadingLetterSpacing}px;
       color: ${subheading_color || text_color};
       text-align: ${effectiveSubheadingAlign};
     }
     
     .${instanceId} .hero-content-text {
-      font-family: ${content_font_family};
-      font-size: ${content_font_size}px;
-      line-height: ${content_line_height};
-      letter-spacing: ${content_letter_spacing}px;
+      font-family: ${effectiveContentFontFamily};
+      font-size: ${effectiveContentFontSize}px;
+      ${effectiveContentFontWeight ? `font-weight: ${effectiveContentFontWeight};` : ''}
+      line-height: ${effectiveContentLineHeight};
+      letter-spacing: ${effectiveContentLetterSpacing}px;
       color: ${content_color || text_color};
       margin-top: ${content_top_margin}px;
       text-align: ${effectiveContentAlign};

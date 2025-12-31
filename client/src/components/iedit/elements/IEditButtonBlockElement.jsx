@@ -1,6 +1,6 @@
 import { useState, useEffect, useId } from "react";
 import AGCASButton from "../../ui/AGCASButton";
-import TypographyStyleSelector, { applyTypographyStyle } from "../TypographyStyleSelector";
+import TypographyStyleSelector, { applyTypographyStyle, useTypographyStyles } from "../TypographyStyleSelector";
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 import DOMPurify from 'dompurify';
@@ -14,11 +14,15 @@ export default function IEditButtonBlockElement({ content, variant, settings, pr
   const instanceId = useId().replace(/:/g, '_');
   const isMobilePreview = previewViewport === 'mobile';
   const fullWidth = settings?.fullWidth;
+  const { getStyleById } = useTypographyStyles();
   
   // Debug log - check if mobile preview class is being set
   
   const { 
     anchor,
+    heading_typography_style_id,
+    subheading_typography_style_id,
+    content_typography_style_id,
     // Desktop typography - Heading
     heading_text = '',
     heading_font_family = 'Poppins',
@@ -90,12 +94,16 @@ export default function IEditButtonBlockElement({ content, variant, settings, pr
   const defaultMobilePaddingRight = Math.max(16, Math.round(padding_right * 0.8));
 
   // Effective mobile values
-  const mobileHeadingFontSize = mobile_custom_typography && mobile_heading_font_size ? mobile_heading_font_size : defaultMobileHeadingSize;
+  const headingTypographyStyle = getStyleById(heading_typography_style_id);
+  const subheadingTypographyStyle = getStyleById(subheading_typography_style_id);
+  const contentTypographyStyle = getStyleById(content_typography_style_id);
+
+  const mobileHeadingFontSize = headingTypographyStyle?.font_size_mobile || (mobile_custom_typography && mobile_heading_font_size ? mobile_heading_font_size : defaultMobileHeadingSize);
   const mobileHeadingLineHeight = mobile_custom_typography && mobile_heading_line_height ? mobile_heading_line_height : heading_line_height;
   const mobileHeadingLetterSpacing = mobile_custom_typography && mobile_heading_letter_spacing !== undefined ? mobile_heading_letter_spacing : heading_letter_spacing;
-  const mobileSubheadingFontSize = mobile_custom_typography && mobile_subheading_font_size ? mobile_subheading_font_size : defaultMobileSubheadingSize;
+  const mobileSubheadingFontSize = subheadingTypographyStyle?.font_size_mobile || (mobile_custom_typography && mobile_subheading_font_size ? mobile_subheading_font_size : defaultMobileSubheadingSize);
   const mobileSubheadingLineHeight = mobile_custom_typography && mobile_subheading_line_height ? mobile_subheading_line_height : subheading_line_height;
-  const mobileContentFontSize = mobile_custom_typography && mobile_content_font_size ? mobile_content_font_size : defaultMobileContentSize;
+  const mobileContentFontSize = contentTypographyStyle?.font_size_mobile || (mobile_custom_typography && mobile_content_font_size ? mobile_content_font_size : defaultMobileContentSize);
   const mobileContentLineHeight = mobile_custom_typography && mobile_content_line_height ? mobile_content_line_height : content_line_height;
   const mobileTextAlign = mobile_custom_typography && mobile_text_align ? mobile_text_align : text_align;
   const effectiveMobileTextColor = mobile_custom_typography && mobile_text_color ? mobile_text_color : null;
@@ -138,32 +146,32 @@ export default function IEditButtonBlockElement({ content, variant, settings, pr
     }
     
     .buttonblock-${instanceId} .bb-heading {
-      font-family: ${heading_font_family};
-      font-size: ${heading_font_size}px;
-      font-weight: ${heading_font_weight};
-      line-height: ${heading_line_height};
-      letter-spacing: ${heading_letter_spacing}px;
-      color: ${heading_color};
+      font-family: ${headingTypographyStyle?.font_family || heading_font_family};
+      font-size: ${headingTypographyStyle?.font_size || heading_font_size}px;
+      font-weight: ${headingTypographyStyle?.font_weight || heading_font_weight};
+      line-height: ${headingTypographyStyle?.line_height || heading_line_height};
+      letter-spacing: ${headingTypographyStyle?.letter_spacing || heading_letter_spacing}px;
+      color: ${headingTypographyStyle?.color || heading_color};
       text-align: ${text_align};
     }
     
     .buttonblock-${instanceId} .bb-subheading {
-      font-family: ${subheading_font_family};
-      font-size: ${subheading_font_size}px;
-      font-weight: ${subheading_font_weight};
-      line-height: ${subheading_line_height};
-      letter-spacing: ${subheading_letter_spacing}px;
-      color: ${subheading_color};
+      font-family: ${subheadingTypographyStyle?.font_family || subheading_font_family};
+      font-size: ${subheadingTypographyStyle?.font_size || subheading_font_size}px;
+      font-weight: ${subheadingTypographyStyle?.font_weight || subheading_font_weight};
+      line-height: ${subheadingTypographyStyle?.line_height || subheading_line_height};
+      letter-spacing: ${subheadingTypographyStyle?.letter_spacing || subheading_letter_spacing}px;
+      color: ${subheadingTypographyStyle?.color || subheading_color};
       text-align: ${text_align};
     }
     
     .buttonblock-${instanceId} .bb-content {
-      font-family: ${content_font_family};
-      font-size: ${content_font_size}px;
-      font-weight: ${content_font_weight};
-      line-height: ${content_line_height};
-      letter-spacing: ${content_letter_spacing}px;
-      color: ${content_color};
+      font-family: ${contentTypographyStyle?.font_family || content_font_family};
+      font-size: ${contentTypographyStyle?.font_size || content_font_size}px;
+      font-weight: ${contentTypographyStyle?.font_weight || content_font_weight};
+      line-height: ${contentTypographyStyle?.line_height || content_line_height};
+      letter-spacing: ${contentTypographyStyle?.letter_spacing || content_letter_spacing}px;
+      color: ${contentTypographyStyle?.color || content_color};
       text-align: ${text_align};
     }
     

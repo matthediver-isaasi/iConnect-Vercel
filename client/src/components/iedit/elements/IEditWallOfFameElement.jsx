@@ -6,7 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import { ChevronUp, ChevronDown, Upload, X } from "lucide-react";
 import WallOfFameDisplay from "../../walloffame/WallOfFameDisplay";
-import TypographyStyleSelector, { applyTypographyStyle } from "../TypographyStyleSelector";
+import TypographyStyleSelector, { applyTypographyStyle, useTypographyStyles } from "../TypographyStyleSelector";
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 
@@ -779,9 +779,19 @@ export function IEditWallOfFameElementEditor({ element, onChange }) {
 }
 
 export function IEditWallOfFameElementRenderer({ element, content }) {
+  const { getStyleById } = useTypographyStyles();
   const sectionId = element.content?.section_id || content?.section_id;
   const displaySettings = element.content || content || {};
   const anchor = displaySettings.anchor;
+
+  const headingTypographyStyle = getStyleById(displaySettings.heading_typography_style_id);
+  const subheadingTypographyStyle = getStyleById(displaySettings.subheading_typography_style_id);
+  const contentTypographyStyle = getStyleById(displaySettings.content_typography_style_id);
+  const titleTypographyStyle = getStyleById(displaySettings.title_typography_style_id);
+
+  const effectiveHeadingFontSizeMobile = headingTypographyStyle?.font_size_mobile || displaySettings.heading_font_size_mobile;
+  const effectiveSubheadingFontSizeMobile = subheadingTypographyStyle?.font_size_mobile || displaySettings.subheading_font_size_mobile;
+  const effectiveContentFontSizeMobile = contentTypographyStyle?.font_size_mobile || displaySettings.content_font_size_mobile;
   
   if (!sectionId) {
     return (
@@ -797,10 +807,10 @@ export function IEditWallOfFameElementRenderer({ element, content }) {
       sectionId={sectionId} 
       showCategoryName={displaySettings.show_category_name !== false}
       customTitle={displaySettings.custom_title}
-      titleFontFamily={displaySettings.title_font_family}
-      titleFontWeight={displaySettings.title_font_weight}
-      titleFontSize={displaySettings.title_font_size}
-      titleColor={displaySettings.title_color}
+      titleFontFamily={titleTypographyStyle?.font_family || displaySettings.title_font_family}
+      titleFontWeight={titleTypographyStyle?.font_weight || displaySettings.title_font_weight}
+      titleFontSize={titleTypographyStyle?.font_size || displaySettings.title_font_size}
+      titleColor={titleTypographyStyle?.color || displaySettings.title_color}
       titleAlign={displaySettings.title_align}
       cardsPerRow={displaySettings.cards_per_row}
       rowAlign={displaySettings.row_align}
@@ -815,29 +825,29 @@ export function IEditWallOfFameElementRenderer({ element, content }) {
       overlayColor={displaySettings.overlay_color}
       overlayOpacity={displaySettings.overlay_opacity}
       headingText={displaySettings.heading_text}
-      headingFontFamily={displaySettings.heading_font_family}
-      headingFontSize={displaySettings.heading_font_size}
-      headingFontSizeMobile={displaySettings.heading_font_size_mobile}
-      headingFontWeight={displaySettings.heading_font_weight}
-      headingLineHeight={displaySettings.heading_line_height}
-      headingLetterSpacing={displaySettings.heading_letter_spacing}
-      headingColor={displaySettings.heading_color}
+      headingFontFamily={headingTypographyStyle?.font_family || displaySettings.heading_font_family}
+      headingFontSize={headingTypographyStyle?.font_size || displaySettings.heading_font_size}
+      headingFontSizeMobile={effectiveHeadingFontSizeMobile}
+      headingFontWeight={headingTypographyStyle?.font_weight || displaySettings.heading_font_weight}
+      headingLineHeight={headingTypographyStyle?.line_height || displaySettings.heading_line_height}
+      headingLetterSpacing={headingTypographyStyle?.letter_spacing ?? displaySettings.heading_letter_spacing}
+      headingColor={headingTypographyStyle?.color || displaySettings.heading_color}
       subheadingText={displaySettings.subheading_text}
-      subheadingFontFamily={displaySettings.subheading_font_family}
-      subheadingFontSize={displaySettings.subheading_font_size}
-      subheadingFontSizeMobile={displaySettings.subheading_font_size_mobile}
-      subheadingFontWeight={displaySettings.subheading_font_weight}
-      subheadingLineHeight={displaySettings.subheading_line_height}
-      subheadingLetterSpacing={displaySettings.subheading_letter_spacing}
-      subheadingColor={displaySettings.subheading_color}
+      subheadingFontFamily={subheadingTypographyStyle?.font_family || displaySettings.subheading_font_family}
+      subheadingFontSize={subheadingTypographyStyle?.font_size || displaySettings.subheading_font_size}
+      subheadingFontSizeMobile={effectiveSubheadingFontSizeMobile}
+      subheadingFontWeight={subheadingTypographyStyle?.font_weight || displaySettings.subheading_font_weight}
+      subheadingLineHeight={subheadingTypographyStyle?.line_height || displaySettings.subheading_line_height}
+      subheadingLetterSpacing={subheadingTypographyStyle?.letter_spacing ?? displaySettings.subheading_letter_spacing}
+      subheadingColor={subheadingTypographyStyle?.color || displaySettings.subheading_color}
       bodyContent={displaySettings.body_content}
-      contentFontFamily={displaySettings.content_font_family}
-      contentFontSize={displaySettings.content_font_size}
-      contentFontSizeMobile={displaySettings.content_font_size_mobile}
-      contentFontWeight={displaySettings.content_font_weight}
-      contentLineHeight={displaySettings.content_line_height}
-      contentLetterSpacing={displaySettings.content_letter_spacing}
-      contentColor={displaySettings.content_color}
+      contentFontFamily={contentTypographyStyle?.font_family || displaySettings.content_font_family}
+      contentFontSize={contentTypographyStyle?.font_size || displaySettings.content_font_size}
+      contentFontSizeMobile={effectiveContentFontSizeMobile}
+      contentFontWeight={contentTypographyStyle?.font_weight || displaySettings.content_font_weight}
+      contentLineHeight={contentTypographyStyle?.line_height || displaySettings.content_line_height}
+      contentLetterSpacing={contentTypographyStyle?.letter_spacing ?? displaySettings.content_letter_spacing}
+      contentColor={contentTypographyStyle?.color || displaySettings.content_color}
       textAlign={displaySettings.text_align}
     />
     </div>
