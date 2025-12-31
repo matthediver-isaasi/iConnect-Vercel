@@ -50,6 +50,9 @@ export default function IEditButtonBlockElement({ content, variant, settings, pr
     padding_right = 16,
     button_gap = '16',
     buttons = [],
+    // Uniform button width
+    uniform_button_width = false,
+    mobile_uniform_button_width,
     // Mobile custom flags
     mobile_custom_typography = false,
     mobile_custom_padding = false,
@@ -95,6 +98,20 @@ export default function IEditButtonBlockElement({ content, variant, settings, pr
   const mobilePaddingLeft = mobile_custom_padding && mobile_padding_left !== undefined ? mobile_padding_left : defaultMobilePaddingLeft;
   const mobilePaddingRight = mobile_custom_padding && mobile_padding_right !== undefined ? mobile_padding_right : defaultMobilePaddingRight;
 
+  // Effective uniform width (mobile inherits from desktop if not explicitly set)
+  const effectiveMobileUniformWidth = mobile_uniform_button_width !== undefined ? mobile_uniform_button_width : uniform_button_width;
+
+  // Determine which styles to use based on preview mode
+  const isRenderingMobile = isMobilePreview;
+  
+  // Current effective values based on viewport
+  const currentPaddingTop = isRenderingMobile ? mobilePaddingTop : padding_top;
+  const currentPaddingBottom = isRenderingMobile ? mobilePaddingBottom : padding_bottom;
+  const currentPaddingLeft = isRenderingMobile ? mobilePaddingLeft : padding_left;
+  const currentPaddingRight = isRenderingMobile ? mobilePaddingRight : padding_right;
+  const currentTextAlign = isRenderingMobile ? mobileTextAlign : text_align;
+  const currentUniformWidth = isRenderingMobile ? effectiveMobileUniformWidth : uniform_button_width;
+
   // Filter out empty buttons
   const validButtons = buttons.filter(btn => btn?.text && btn?.text.trim() !== '');
   const hasTextContent = heading_text || subheading_text || body_content;
@@ -105,13 +122,12 @@ export default function IEditButtonBlockElement({ content, variant, settings, pr
     center: 'items-center',
     right: 'items-end'
   };
-  const textAlignClass = alignmentClasses[text_align] || alignmentClasses.center;
+  const textAlignClass = alignmentClasses[currentTextAlign] || alignmentClasses.center;
 
   // Full width breakout class
   const fullWidthClass = fullWidth ? 'w-screen relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw]' : '';
-  const mobilePreviewClass = isMobilePreview ? 'mobile-preview' : '';
 
-  // Generate responsive CSS
+  // Generate responsive CSS (for actual mobile viewport, not preview)
   const responsiveStyles = `
     .buttonblock-${instanceId} .bb-container {
       background-color: ${background_color};
@@ -155,6 +171,14 @@ export default function IEditButtonBlockElement({ content, variant, settings, pr
       justify-content: ${text_align === 'center' ? 'center' : text_align === 'right' ? 'flex-end' : 'flex-start'};
     }
     
+    /* Uniform button width - desktop */
+    ${uniform_button_width ? `
+    .buttonblock-${instanceId} .bb-buttons > * {
+      flex: 1 1 0;
+      min-width: max-content;
+    }
+    ` : ''}
+    
     /* Mobile styles via media query */
     @media (max-width: 767px) {
       .buttonblock-${instanceId} .bb-container {
@@ -188,132 +212,141 @@ export default function IEditButtonBlockElement({ content, variant, settings, pr
       
       .buttonblock-${instanceId} .bb-buttons {
         justify-content: ${mobileTextAlign === 'center' ? 'center' : mobileTextAlign === 'right' ? 'flex-end' : 'flex-start'};
+        display: flex;
+        flex-wrap: wrap;
       }
-    }
-    
-    /* Mobile preview class - applies mobile styles in editor preview */
-    .buttonblock-${instanceId}.mobile-preview .bb-container {
-      padding-top: ${mobilePaddingTop}px;
-      padding-bottom: ${mobilePaddingBottom}px;
-      padding-left: ${mobilePaddingLeft}px;
-      padding-right: ${mobilePaddingRight}px;
-    }
-    
-    .buttonblock-${instanceId}.mobile-preview .bb-heading {
-      font-size: ${mobileHeadingFontSize}px;
-      line-height: ${mobileHeadingLineHeight};
-      letter-spacing: ${mobileHeadingLetterSpacing}px;
-      text-align: ${mobileTextAlign};
-      ${effectiveMobileTextColor ? `color: ${effectiveMobileTextColor};` : ''}
-    }
-    
-    .buttonblock-${instanceId}.mobile-preview .bb-subheading {
-      font-size: ${mobileSubheadingFontSize}px;
-      line-height: ${mobileSubheadingLineHeight};
-      text-align: ${mobileTextAlign};
-      ${effectiveMobileTextColor ? `color: ${effectiveMobileTextColor};` : ''}
-    }
-    
-    .buttonblock-${instanceId}.mobile-preview .bb-content {
-      font-size: ${mobileContentFontSize}px;
-      line-height: ${mobileContentLineHeight};
-      text-align: ${mobileTextAlign};
-      ${effectiveMobileTextColor ? `color: ${effectiveMobileTextColor};` : ''}
-    }
-    
-    .buttonblock-${instanceId}.mobile-preview .bb-buttons {
-      justify-content: ${mobileTextAlign === 'center' ? 'center' : mobileTextAlign === 'right' ? 'flex-end' : 'flex-start'};
+      ${effectiveMobileUniformWidth ? `
+      .buttonblock-${instanceId} .bb-buttons > * {
+        flex: 1 1 0;
+        min-width: max-content;
+      }
+      ` : ''}
     }
   `;
+
+  // Container style (applies mobile styles directly in preview mode)
+  const containerStyle = {
+    backgroundColor: background_color,
+    paddingTop: `${currentPaddingTop}px`,
+    paddingBottom: `${currentPaddingBottom}px`,
+    paddingLeft: `${currentPaddingLeft}px`,
+    paddingRight: `${currentPaddingRight}px`,
+  };
+
+  // Heading style
+  const headingStyle = {
+    fontFamily: heading_font_family,
+    fontSize: `${isRenderingMobile ? mobileHeadingFontSize : heading_font_size}px`,
+    fontWeight: heading_font_weight,
+    lineHeight: isRenderingMobile ? mobileHeadingLineHeight : heading_line_height,
+    letterSpacing: `${isRenderingMobile ? mobileHeadingLetterSpacing : heading_letter_spacing}px`,
+    color: isRenderingMobile && effectiveMobileTextColor ? effectiveMobileTextColor : heading_color,
+    textAlign: currentTextAlign,
+  };
+
+  // Subheading style
+  const subheadingStyle = {
+    fontFamily: subheading_font_family,
+    fontSize: `${isRenderingMobile ? mobileSubheadingFontSize : subheading_font_size}px`,
+    fontWeight: subheading_font_weight,
+    lineHeight: isRenderingMobile ? mobileSubheadingLineHeight : subheading_line_height,
+    letterSpacing: `${subheading_letter_spacing}px`,
+    color: isRenderingMobile && effectiveMobileTextColor ? effectiveMobileTextColor : subheading_color,
+    textAlign: currentTextAlign,
+  };
+
+  // Content style
+  const contentStyle = {
+    fontFamily: content_font_family,
+    fontSize: `${isRenderingMobile ? mobileContentFontSize : content_font_size}px`,
+    fontWeight: content_font_weight,
+    lineHeight: isRenderingMobile ? mobileContentLineHeight : content_line_height,
+    letterSpacing: `${content_letter_spacing}px`,
+    color: isRenderingMobile && effectiveMobileTextColor ? effectiveMobileTextColor : content_color,
+    textAlign: currentTextAlign,
+  };
+
+  // Buttons container style
+  // For uniform width: use flexbox with flex:1 on each button so they grow equally
+  const buttonsContainerStyle = currentUniformWidth 
+    ? {
+        display: 'flex',
+        flexWrap: 'wrap',
+        gap: `${button_gap}px`,
+        justifyContent: currentTextAlign === 'center' ? 'center' : currentTextAlign === 'right' ? 'flex-end' : 'flex-start',
+      }
+    : {
+        display: 'flex',
+        flexWrap: 'wrap',
+        gap: `${button_gap}px`,
+        justifyContent: currentTextAlign === 'center' ? 'center' : currentTextAlign === 'right' ? 'flex-end' : 'flex-start',
+      };
+
+  const renderContent = () => (
+    <>
+      {hasTextContent && (
+        <div className={`flex flex-col ${textAlignClass} mb-8`}>
+          {heading_text && (
+            <div 
+              className="bb-heading prose max-w-none mb-4"
+              style={headingStyle}
+              dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(heading_text) }}
+            />
+          )}
+          {subheading_text && (
+            <div 
+              className="bb-subheading prose max-w-none mb-4"
+              style={subheadingStyle}
+              dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(subheading_text) }}
+            />
+          )}
+          {body_content && (
+            <div 
+              className="bb-content prose max-w-none"
+              style={contentStyle}
+              dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(body_content) }}
+            />
+          )}
+        </div>
+      )}
+      <div className="bb-buttons" style={buttonsContainerStyle}>
+        {validButtons.map((button, index) => (
+          <div 
+            key={index} 
+            style={currentUniformWidth ? { flex: '1 1 0', minWidth: 'max-content' } : undefined}
+          >
+            <AGCASButton
+              text={button.text}
+              link={button.link}
+              buttonStyleId={button.button_style_id}
+              customBgColor={button.custom_bg_color}
+              customTextColor={button.custom_text_color}
+              customBorderColor={button.custom_border_color}
+              openInNewTab={button.open_in_new_tab}
+              size={button.size || 'medium'}
+              showArrow={button.show_arrow}
+              className={currentUniformWidth ? 'w-full' : ''}
+            />
+          </div>
+        ))}
+      </div>
+    </>
+  );
 
   return (
     <div 
       id={anchor || undefined}
-      className={`buttonblock-${instanceId} ${fullWidthClass} ${mobilePreviewClass}`}
+      className={`buttonblock-${instanceId} ${fullWidthClass}`}
     >
       <style>{responsiveStyles}</style>
-      <div className="bb-container">
+      <div className="bb-container" style={containerStyle}>
         {fullWidth ? (
           <div className="max-w-7xl mx-auto px-4">
-            {hasTextContent && (
-              <div className={`flex flex-col ${textAlignClass} mb-8`}>
-                {heading_text && (
-                  <div 
-                    className="bb-heading prose max-w-none mb-4"
-                    dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(heading_text) }}
-                  />
-                )}
-                {subheading_text && (
-                  <div 
-                    className="bb-subheading prose max-w-none mb-4"
-                    dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(subheading_text) }}
-                  />
-                )}
-                {body_content && (
-                  <div 
-                    className="bb-content prose max-w-none"
-                    dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(body_content) }}
-                  />
-                )}
-              </div>
-            )}
-            <div className="bb-buttons flex flex-wrap" style={{ gap: `${button_gap}px` }}>
-              {validButtons.map((button, index) => (
-                <AGCASButton
-                  key={index}
-                  text={button.text}
-                  link={button.link}
-                  buttonStyleId={button.button_style_id}
-                  customBgColor={button.custom_bg_color}
-                  customTextColor={button.custom_text_color}
-                  customBorderColor={button.custom_border_color}
-                  openInNewTab={button.open_in_new_tab}
-                  size={button.size || 'medium'}
-                  showArrow={button.show_arrow}
-                />
-              ))}
-            </div>
+            {renderContent()}
           </div>
         ) : (
           <div className="max-w-7xl mx-auto">
-            {hasTextContent && (
-              <div className={`flex flex-col ${textAlignClass} mb-8`}>
-                {heading_text && (
-                  <div 
-                    className="bb-heading prose max-w-none mb-4"
-                    dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(heading_text) }}
-                  />
-                )}
-                {subheading_text && (
-                  <div 
-                    className="bb-subheading prose max-w-none mb-4"
-                    dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(subheading_text) }}
-                  />
-                )}
-                {body_content && (
-                  <div 
-                    className="bb-content prose max-w-none"
-                    dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(body_content) }}
-                  />
-                )}
-              </div>
-            )}
-            <div className="bb-buttons flex flex-wrap" style={{ gap: `${button_gap}px` }}>
-              {validButtons.map((button, index) => (
-                <AGCASButton
-                  key={index}
-                  text={button.text}
-                  link={button.link}
-                  buttonStyleId={button.button_style_id}
-                  customBgColor={button.custom_bg_color}
-                  customTextColor={button.custom_text_color}
-                  customBorderColor={button.custom_border_color}
-                  openInNewTab={button.open_in_new_tab}
-                  size={button.size || 'medium'}
-                  showArrow={button.show_arrow}
-                />
-              ))}
-            </div>
+            {renderContent()}
           </div>
         )}
       </div>
@@ -1166,6 +1199,18 @@ export function IEditButtonBlockElementEditor({ element, onChange }) {
                     max="100"
                   />
                 </div>
+
+                {/* Uniform Button Width Toggle */}
+                <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                  <div>
+                    <Label className="text-sm font-medium">Uniform Button Width</Label>
+                    <p className="text-xs text-slate-500">Make all buttons the same width as the largest button</p>
+                  </div>
+                  <Switch
+                    checked={content.uniform_button_width || false}
+                    onCheckedChange={(checked) => updateContent('uniform_button_width', checked)}
+                  />
+                </div>
               </div>
             )}
           </div>
@@ -1217,13 +1262,25 @@ export function IEditButtonBlockElementEditor({ element, onChange }) {
               onClick={() => toggleSection('background')}
               className="w-full flex items-center justify-between p-3 bg-slate-50 hover:bg-slate-100 transition-colors"
             >
-              <span className="font-medium text-sm">Padding</span>
+              <span className="font-medium text-sm">Padding & Layout</span>
               {expandedSections.background ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
             </button>
             
             {expandedSections.background && (
-              <div className="p-4 border-t">
+              <div className="p-4 border-t space-y-4">
                 {renderMobilePaddingSection()}
+                
+                {/* Mobile Uniform Button Width Toggle */}
+                <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                  <div>
+                    <Label className="text-sm font-medium">Uniform Button Width</Label>
+                    <p className="text-xs text-slate-500">Make all buttons the same width on mobile</p>
+                  </div>
+                  <Switch
+                    checked={content.mobile_uniform_button_width !== undefined ? content.mobile_uniform_button_width : (content.uniform_button_width || false)}
+                    onCheckedChange={(checked) => updateContent('mobile_uniform_button_width', checked)}
+                  />
+                </div>
               </div>
             )}
           </div>
