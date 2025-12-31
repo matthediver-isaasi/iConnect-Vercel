@@ -550,6 +550,7 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
                     display: 'block', 
                     width: '100%', 
                     height: 'auto',
+                    objectFit: effectiveMobileImageFit,
                     border: '3px solid red'
                   }}
                 />
