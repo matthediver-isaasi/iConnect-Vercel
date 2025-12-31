@@ -996,9 +996,9 @@ export default function PublicHeader() {
         />
       )}
 
-      {/* Mobile Menu Drawer */}
+      {/* Mobile Menu Drawer - full width on small phones, max-w-md on larger screens */}
       <div 
-        className={`fixed top-0 right-0 h-full w-full max-w-sm bg-white z-50 transform transition-transform duration-300 ease-in-out lg:hidden ${
+        className={`fixed top-0 right-0 h-full w-full max-w-md bg-white z-50 transform transition-transform duration-300 ease-in-out lg:hidden ${
           mobileMenuOpen ? 'translate-x-0' : 'translate-x-full'
         }`}
       >
@@ -1115,41 +1115,40 @@ export default function PublicHeader() {
             </Link>
           </div>
 
-          {/* Bottom Section */}
-          <div className="border-t border-slate-200 mt-auto">
-            {/* Login/Logout */}
-            <div className="p-4 border-b border-slate-200">
-              {isLoggedIn ? (
-                <div className="flex flex-col gap-2">
-                  <Link
-                    to={createPageUrl(memberLandingPage)}
-                    onClick={() => setMobileMenuOpen(false)}
-                    className="flex items-center gap-3 py-2 text-slate-900 font-medium"
-                  >
-                    <User className="w-5 h-5 text-slate-600" />
-                    Member Area
-                  </Link>
-                  <button
-                    onClick={handleLogout}
-                    className="flex items-center gap-3 py-2 text-red-600 font-medium"
-                  >
-                    <LogOut className="w-5 h-5" />
-                    Logout
-                  </button>
-                </div>
-              ) : (
+          {/* Login/Logout - directly after Events button */}
+          <div className="px-4 py-3 border-t border-slate-200">
+            {isLoggedIn ? (
+              <div className="flex items-center justify-between gap-3">
                 <Link
-                  to={createPageUrl('Home')}
+                  to={createPageUrl(memberLandingPage)}
                   onClick={() => setMobileMenuOpen(false)}
-                  className="flex items-center gap-3 py-2 text-slate-900 font-medium"
+                  className="flex items-center gap-2 py-2 text-slate-900 font-medium"
                 >
                   <User className="w-5 h-5 text-slate-600" />
-                  Login
+                  Member Area
                 </Link>
-              )}
-            </div>
+                <button
+                  onClick={handleLogout}
+                  className="flex items-center gap-2 py-2 text-red-600 font-medium"
+                >
+                  <LogOut className="w-5 h-5" />
+                  Logout
+                </button>
+              </div>
+            ) : (
+              <Link
+                to={createPageUrl('Home')}
+                onClick={() => setMobileMenuOpen(false)}
+                className="flex items-center gap-2 py-2 text-slate-900 font-medium"
+              >
+                <User className="w-5 h-5 text-slate-600" />
+                Login
+              </Link>
+            )}
+          </div>
 
-            {/* Social Icons */}
+          {/* Social Icons - at the bottom with horizontal alignment */}
+          <div className="mt-auto">
             {renderSocialIcons()}
           </div>
         </div>
