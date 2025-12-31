@@ -140,9 +140,13 @@ export default function IEditButtonBlockElement({ content, variant, settings, pr
 
   // Full width breakout class
   const fullWidthClass = fullWidth ? 'w-screen relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw]' : '';
+  
+  // Mobile preview class (for editor preview mode)
+  const mobilePreviewClass = isMobilePreview ? 'mobile-preview' : '';
 
-  // Generate responsive CSS (for actual mobile viewport, not preview)
+  // Generate responsive CSS (for actual mobile viewport AND preview mode)
   const responsiveStyles = `
+    /* Desktop styles */
     .buttonblock-${instanceId} .bb-container {
       background-color: ${background_color};
       padding-top: ${padding_top}px;
@@ -192,7 +196,52 @@ export default function IEditButtonBlockElement({ content, variant, settings, pr
     }
     ` : ''}
     
-    /* Mobile styles via media query */
+    /* Mobile preview styles (for editor preview mode) */
+    .buttonblock-${instanceId}.mobile-preview .bb-container {
+      padding-top: ${mobilePaddingTop}px;
+      padding-bottom: ${mobilePaddingBottom}px;
+      padding-left: ${mobilePaddingLeft}px;
+      padding-right: ${mobilePaddingRight}px;
+    }
+    
+    .buttonblock-${instanceId}.mobile-preview .bb-heading {
+      font-size: ${mobileHeadingFontSize}px;
+      line-height: ${mobileHeadingLineHeight};
+      letter-spacing: ${mobileHeadingLetterSpacing}px;
+      text-align: ${mobileTextAlign};
+      ${effectiveMobileTextColor ? `color: ${effectiveMobileTextColor};` : ''}
+    }
+    
+    .buttonblock-${instanceId}.mobile-preview .bb-subheading {
+      font-size: ${mobileSubheadingFontSize}px;
+      line-height: ${mobileSubheadingLineHeight};
+      text-align: ${mobileTextAlign};
+      ${effectiveMobileTextColor ? `color: ${effectiveMobileTextColor};` : ''}
+    }
+    
+    .buttonblock-${instanceId}.mobile-preview .bb-content {
+      font-size: ${mobileContentFontSize}px;
+      line-height: ${mobileContentLineHeight};
+      text-align: ${mobileTextAlign};
+      ${effectiveMobileTextColor ? `color: ${effectiveMobileTextColor};` : ''}
+    }
+    
+    .buttonblock-${instanceId}.mobile-preview .bb-buttons {
+      justify-content: ${effectiveMobileButtonAlignment === 'center' ? 'center' : effectiveMobileButtonAlignment === 'right' ? 'flex-end' : 'flex-start'};
+      gap: ${effectiveMobileButtonGap}px;
+    }
+    
+    ${effectiveMobileUniformWidth ? `
+    .buttonblock-${instanceId}.mobile-preview .bb-buttons > * {
+      flex: 1 1 0;
+    }
+    ` : `
+    .buttonblock-${instanceId}.mobile-preview .bb-buttons > * {
+      flex: none;
+    }
+    `}
+    
+    /* Mobile styles via media query (for actual mobile devices) */
     @media (max-width: 767px) {
       .buttonblock-${instanceId} .bb-container {
         padding-top: ${mobilePaddingTop}px;
@@ -350,10 +399,10 @@ export default function IEditButtonBlockElement({ content, variant, settings, pr
   return (
     <div 
       id={anchor || undefined}
-      className={`buttonblock-${instanceId} ${fullWidthClass}`}
+      className={`buttonblock-${instanceId} ${fullWidthClass} ${mobilePreviewClass}`}
     >
       <style>{responsiveStyles}</style>
-      <div className="bb-container" style={containerStyle}>
+      <div className="bb-container">
         {fullWidth ? (
           <div className="max-w-7xl mx-auto px-4">
             {renderContent()}
