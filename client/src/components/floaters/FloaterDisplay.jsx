@@ -299,10 +299,16 @@ export default function FloaterDisplay({ location = "portal", memberInfo, organi
   };
 
   const getPositionStyles = (floater) => {
-    const floaterWidth = floater.width || 80;
-    const floaterHeight = floater.height || 80;
-    const offsetX = floater.offset_x || 20;
-    const offsetY = floater.offset_y || 20;
+    // Parse all numeric values, ensuring they're valid numbers with fallbacks
+    const parseNum = (val, fallback) => {
+      const num = parseFloat(val);
+      return Number.isFinite(num) ? num : fallback;
+    };
+    
+    const floaterWidth = parseNum(floater.width, 80);
+    const floaterHeight = parseNum(floater.height, 80);
+    const offsetX = parseNum(floater.offset_x, 20);
+    const offsetY = parseNum(floater.offset_y, 20);
     
     // Use a minimum safe offset to prevent floater from going off screen
     const minSafeOffset = 8;
