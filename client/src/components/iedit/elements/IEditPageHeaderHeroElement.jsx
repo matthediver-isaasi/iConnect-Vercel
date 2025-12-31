@@ -343,8 +343,8 @@ export default function IEditPageHeaderHeroElement({ content = {}, variant, sett
             }
             .${instanceId} .hero-bg-mobile {
               display: block !important;
-              position: ${effectiveMobileImageFit === 'cover' && effectiveMobileBgType === 'image' ? 'relative' : 'absolute'} !important;
-              ${effectiveMobileImageFit !== 'cover' || effectiveMobileBgType !== 'image' ? 'inset: 0 !important;' : ''}
+              position: ${(effectiveMobileImageFit === 'cover' || effectiveMobileImageFit === 'contain') && effectiveMobileBgType === 'image' ? 'relative' : 'absolute'} !important;
+              ${(effectiveMobileImageFit !== 'cover' && effectiveMobileImageFit !== 'contain') || effectiveMobileBgType !== 'image' ? 'inset: 0 !important;' : ''}
             }
             
             .${instanceId} .hero-content {
@@ -396,8 +396,8 @@ export default function IEditPageHeaderHeroElement({ content = {}, variant, sett
           }
           .${instanceId}.mobile-preview .hero-bg-mobile {
             display: block !important;
-            position: ${effectiveMobileImageFit === 'cover' && effectiveMobileBgType === 'image' ? 'relative' : 'absolute'} !important;
-            ${effectiveMobileImageFit !== 'cover' || effectiveMobileBgType !== 'image' ? 'inset: 0 !important;' : ''}
+            position: ${(effectiveMobileImageFit === 'cover' || effectiveMobileImageFit === 'contain') && effectiveMobileBgType === 'image' ? 'relative' : 'absolute'} !important;
+            ${(effectiveMobileImageFit !== 'cover' && effectiveMobileImageFit !== 'contain') || effectiveMobileBgType !== 'image' ? 'inset: 0 !important;' : ''}
           }
           .${instanceId}.mobile-preview .hero-content {
             padding-left: ${mobilePaddingHorizontal}px;
@@ -471,10 +471,10 @@ export default function IEditPageHeaderHeroElement({ content = {}, variant, sett
                     alt={header_text || 'Hero image'} 
                     className="hero-mobile-img w-full"
                     style={{ 
-                      height: effectiveMobileImageFit === 'cover' ? 'auto' : '100%',
-                      objectFit: effectiveMobileImageFit === 'cover' ? 'none' : effectiveMobileImageFit,
-                      position: effectiveMobileImageFit === 'cover' ? 'relative' : 'absolute',
-                      inset: effectiveMobileImageFit === 'cover' ? 'auto' : '0'
+                      height: (effectiveMobileImageFit === 'cover' || effectiveMobileImageFit === 'contain') ? 'auto' : '100%',
+                      objectFit: (effectiveMobileImageFit === 'cover' || effectiveMobileImageFit === 'contain') ? 'none' : effectiveMobileImageFit,
+                      position: (effectiveMobileImageFit === 'cover' || effectiveMobileImageFit === 'contain') ? 'relative' : 'absolute',
+                      inset: (effectiveMobileImageFit === 'cover' || effectiveMobileImageFit === 'contain') ? 'auto' : '0'
                     }}
                   />
                   {effectiveMobileOverlayEnabled && (
@@ -542,10 +542,10 @@ export default function IEditPageHeaderHeroElement({ content = {}, variant, sett
                     alt={header_text || 'Hero image'} 
                     className="hero-mobile-img w-full"
                     style={{ 
-                      height: effectiveMobileImageFit === 'cover' ? 'auto' : '100%',
-                      objectFit: effectiveMobileImageFit === 'cover' ? 'none' : effectiveMobileImageFit,
-                      position: effectiveMobileImageFit === 'cover' ? 'relative' : 'absolute',
-                      inset: effectiveMobileImageFit === 'cover' ? 'auto' : '0'
+                      height: (effectiveMobileImageFit === 'cover' || effectiveMobileImageFit === 'contain') ? 'auto' : '100%',
+                      objectFit: (effectiveMobileImageFit === 'cover' || effectiveMobileImageFit === 'contain') ? 'none' : effectiveMobileImageFit,
+                      position: (effectiveMobileImageFit === 'cover' || effectiveMobileImageFit === 'contain') ? 'relative' : 'absolute',
+                      inset: (effectiveMobileImageFit === 'cover' || effectiveMobileImageFit === 'contain') ? 'auto' : '0'
                     }}
                   />
                   {effectiveMobileOverlayEnabled && (
