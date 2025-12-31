@@ -348,12 +348,10 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
     /* Mobile styles - triggered by media query OR .mobile-preview class */
     @media (max-width: 767px) {
       .${instanceId} .hero-bg-desktop {
-        display: none !important;
+        display: none;
       }
       .${instanceId} .hero-bg-mobile {
-        display: block !important;
-        position: ${effectiveMobileImageFit === 'contain' && effectiveMobileBgType === 'image' ? 'relative' : 'absolute'} !important;
-        ${effectiveMobileImageFit !== 'contain' || effectiveMobileBgType !== 'image' ? 'inset: 0 !important;' : ''}
+        display: block;
       }
     }
     
@@ -363,8 +361,6 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
     }
     .${instanceId}.mobile-preview .hero-bg-mobile {
       display: block !important;
-      position: ${effectiveMobileImageFit === 'contain' && effectiveMobileBgType === 'image' ? 'relative' : 'absolute'} !important;
-      ${effectiveMobileImageFit !== 'contain' || effectiveMobileBgType !== 'image' ? 'inset: 0 !important;' : ''}
     }
     
     @media (max-width: 767px) {
@@ -677,17 +673,12 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
         
         {/* Mobile image background (only if different from desktop or if desktop has image) */}
         {effectiveMobileBgType === 'image' && effectiveMobileImageUrl && (
-          <div className="hero-bg-mobile">
+          <div className="hero-bg-mobile absolute inset-0">
             <img 
               src={effectiveMobileImageUrl} 
               alt={content.heading || 'Hero background'} 
-              className="hero-mobile-img block w-full"
-              style={{ 
-                height: effectiveMobileImageFit === 'contain' ? 'auto' : '100%',
-                objectFit: effectiveMobileImageFit === 'contain' ? 'contain' : effectiveMobileImageFit,
-                position: effectiveMobileImageFit === 'contain' ? 'relative' : 'absolute',
-                inset: effectiveMobileImageFit === 'contain' ? 'auto' : '0'
-              }}
+              className="absolute inset-0 w-full h-full"
+              style={{ objectFit: effectiveMobileImageFit }}
             />
             {effectiveMobileOverlayEnabled && (
               <div 
