@@ -553,7 +553,8 @@ export default function IEditPageHeaderHeroElement({ content = {}, variant, sett
         
         {/* DEBUG: Show background status */}
         <div style={{ background: 'blue', color: 'white', padding: '5px', fontSize: '10px', position: 'relative', zIndex: 9999, wordBreak: 'break-all' }}>
-          Desktop: type={background_type}, fit={image_fit} | Mobile: type={effectiveMobileBgType}, color={effectiveMobileBgColor}, img={effectiveMobileImageUrl || 'NONE'} | Preview: {previewViewport || 'none'}
+          Desktop: type={background_type}, fit={image_fit} | Mobile: type={effectiveMobileBgType} | 
+          Padding: desktop H={padding_horizontal} V={padding_vertical}, mobile H={mobilePaddingHorizontal} V={mobilePaddingVertical} (raw: {mobile_padding_horizontal}/{mobile_padding_vertical})
         </div>
         
         <div 
