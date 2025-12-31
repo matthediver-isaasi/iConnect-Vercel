@@ -537,8 +537,8 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
             style={{ 
               gridColumn: '1 / -1',
               gridRow: '1 / -1',
-              position: 'relative',
-              height: '100%',
+              position: (effectiveMobileImageFit === 'contain' && effectiveMobileBgType === 'image') ? 'relative' : 'absolute',
+              ...(effectiveMobileImageFit !== 'contain' || effectiveMobileBgType !== 'image' ? { inset: '0' } : {}),
               overflow: 'hidden',
               ...(effectiveMobileBgType !== 'image' ? getMobileBackgroundStyle() : {})
             }}
@@ -551,8 +551,10 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
                   style={{ 
                     display: 'block', 
                     width: '100%', 
-                    height: '100%',
+                    height: effectiveMobileImageFit === 'contain' ? 'auto' : '100%',
                     objectFit: effectiveMobileImageFit,
+                    position: effectiveMobileImageFit === 'contain' ? 'relative' : 'absolute',
+                    inset: effectiveMobileImageFit === 'contain' ? 'auto' : '0',
                     border: '3px solid red'
                   }}
                 />
