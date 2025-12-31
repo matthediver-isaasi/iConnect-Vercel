@@ -1,5 +1,5 @@
 import { useState, useId } from "react";
-import TypographyStyleSelector, { applyTypographyStyle, useTypographyStyles } from "../TypographyStyleSelector";
+import TypographyStyleSelector, { applyTypographyStyle } from "../TypographyStyleSelector";
 import ReactQuill from "react-quill";
 import "react-quill/dist/quill.snow.css";
 import DOMPurify from "dompurify";
@@ -114,63 +114,17 @@ export default function IEditPageHeaderHeroElement({ content, variant, settings,
     mobile_custom_typography = false
   } = content;
 
-  // Hooks after destructuring (matching Hero element pattern)
+  // Generate unique ID for this instance to scope CSS
   const reactId = useId();
   const instanceId = `hero-${reactId.replace(/:/g, '')}`;
-  
-  // Look up typography styles at render time to use current values from InstalledFonts
-  const { getStyleById } = useTypographyStyles();
-  const headerTypographyStyle = getStyleById(header_typography_style_id);
-  const subheadingTypographyStyle = getStyleById(subheading_typography_style_id);
-  const contentTypographyStyle = getStyleById(content_typography_style_id);
-  
-  // Desktop typography: Priority - 1) Live typography style, 2) Saved value
-  const effectiveHeaderFontFamily = headerTypographyStyle?.font_family || content?.header_font_family || header_font_family;
-  const effectiveHeaderFontSize = headerTypographyStyle?.font_size || parseInt(header_font_size);
-  const effectiveHeaderFontWeight = headerTypographyStyle?.font_weight || content?.header_font_weight;
-  const effectiveHeaderLetterSpacing = headerTypographyStyle?.letter_spacing ?? content?.header_letter_spacing ?? 0;
-  const effectiveHeaderLineHeight = headerTypographyStyle?.line_height || content?.header_line_height || line_spacing;
-  
-  const effectiveSubheadingFontFamily = subheadingTypographyStyle?.font_family || content?.subheading_font_family || 'Poppins';
-  const effectiveSubheadingFontSize = subheadingTypographyStyle?.font_size || parseInt(subheading_font_size);
-  const effectiveSubheadingFontWeight = subheadingTypographyStyle?.font_weight || content?.subheading_font_weight || 400;
-  const effectiveSubheadingLetterSpacing = subheadingTypographyStyle?.letter_spacing ?? content?.subheading_letter_spacing ?? 0;
-  const effectiveSubheadingLineHeight = subheadingTypographyStyle?.line_height || content?.subheading_line_height || 1.5;
-  
-  const effectiveContentFontFamily = contentTypographyStyle?.font_family || content?.content_font_family || 'Poppins';
-  const effectiveContentFontSize = contentTypographyStyle?.font_size || parseInt(content_font_size);
-  const effectiveContentFontWeight = contentTypographyStyle?.font_weight || content?.content_font_weight || 400;
-  const effectiveContentLetterSpacing = contentTypographyStyle?.letter_spacing ?? content?.content_letter_spacing ?? 0;
-  const effectiveContentLineHeight = contentTypographyStyle?.line_height || content?.content_line_height || 1.6;
 
-  // Calculate mobile values with fallbacks - Priority: 1) Live style, 2) Saved value, 3) Auto-scaled
-  const mobileFontSize = 
-    headerTypographyStyle?.font_size_mobile || 
-    mobile_font_size || 
-    Math.max(24, Math.round(effectiveHeaderFontSize * 0.6));
-  const mobileSubheadingFontSize = 
-    subheadingTypographyStyle?.font_size_mobile || 
-    mobile_subheading_font_size || 
-    Math.max(16, Math.round(effectiveSubheadingFontSize * 0.75));
-  const mobileContentFontSize = 
-    contentTypographyStyle?.font_size_mobile || 
-    mobile_content_font_size || 
-    Math.max(14, Math.round(effectiveContentFontSize * 0.9));
+  // Calculate mobile values with fallbacks (using content values directly)
+  const mobileFontSize = mobile_font_size || Math.max(24, Math.round(parseInt(header_font_size) * 0.6));
+  const mobileSubheadingFontSize = mobile_subheading_font_size || Math.max(16, Math.round(parseInt(subheading_font_size) * 0.75));
+  const mobileContentFontSize = mobile_content_font_size || Math.max(14, Math.round(parseInt(content_font_size) * 0.9));
   const mobilePaddingVertical = mobile_padding_vertical || Math.max(32, Math.round(parseInt(padding_vertical) * 0.5));
   const mobilePaddingHorizontal = mobile_padding_horizontal || Math.max(16, parseInt(padding_horizontal));
   const mobileTextAlignment = mobile_text_alignment || text_alignment;
-  
-  // Compute effective mobile background values (use desktop values if 'same')
-  const effectiveMobileBgType = mobile_background_type === 'same' ? background_type : mobile_background_type;
-  const effectiveMobileBgColor = mobile_background_type === 'same' ? background_color : mobile_background_color;
-  const effectiveMobileGradientStart = mobile_background_type === 'same' ? gradient_start_color : mobile_gradient_start_color;
-  const effectiveMobileGradientEnd = mobile_background_type === 'same' ? gradient_end_color : mobile_gradient_end_color;
-  const effectiveMobileGradientAngle = mobile_background_type === 'same' ? gradient_angle : mobile_gradient_angle;
-  const effectiveMobileImageUrl = mobile_background_type === 'same' ? image_url : mobile_image_url;
-  const effectiveMobileImageFit = mobile_background_type === 'same' ? (image_fit || 'cover') : (mobile_image_fit || 'cover');
-  const effectiveMobileOverlayEnabled = mobile_background_type === 'same' ? overlay_enabled : mobile_overlay_enabled;
-  const effectiveMobileOverlayColor = mobile_background_type === 'same' ? overlay_color : mobile_overlay_color;
-  const effectiveMobileOverlayOpacity = mobile_background_type === 'same' ? overlay_opacity : mobile_overlay_opacity;
 
   const textAlignClass = {
     left: 'text-left',
@@ -186,8 +140,7 @@ export default function IEditPageHeaderHeroElement({ content, variant, settings,
   };
 
   const getMobileHeight = () => {
-    // Use effective mobile background type for height calculation
-    if (effectiveMobileBgType === 'image' && effectiveMobileImageFit === 'original') return {};
+    if (background_type === 'image' && image_fit === 'original') return {};
     if (mobile_height_type === 'full') return { height: '100vh' };
     if (mobile_height_type === 'custom') return { height: `${mobile_custom_height}px` };
     return { minHeight: '250px' };
@@ -203,28 +156,6 @@ export default function IEditPageHeaderHeroElement({ content, variant, settings,
       };
     }
     return {};
-  };
-  
-  // Generate desktop background CSS string
-  const getDesktopBackgroundCSS = () => {
-    if (background_type === 'color') {
-      return `background-color: ${background_color};`;
-    }
-    if (background_type === 'gradient') {
-      return `background: linear-gradient(${gradient_angle}deg, ${gradient_start_color}, ${gradient_end_color});`;
-    }
-    return '';
-  };
-  
-  // Generate mobile background CSS string
-  const getMobileBackgroundCSS = () => {
-    if (effectiveMobileBgType === 'color') {
-      return `background-color: ${effectiveMobileBgColor};`;
-    }
-    if (effectiveMobileBgType === 'gradient') {
-      return `background: linear-gradient(${effectiveMobileGradientAngle}deg, ${effectiveMobileGradientStart}, ${effectiveMobileGradientEnd});`;
-    }
-    return '';
   };
 
   const desktopHeight = getDesktopHeight();
@@ -255,48 +186,32 @@ export default function IEditPageHeaderHeroElement({ content, variant, settings,
           }
           
           .${instanceId} .hero-title {
-            font-family: ${effectiveHeaderFontFamily};
-            font-size: ${effectiveHeaderFontSize}px;
+            font-family: ${header_font_family};
+            font-size: ${header_font_size}px;
             color: ${header_color};
-            line-height: ${effectiveHeaderLineHeight};
-            ${effectiveHeaderFontWeight ? `font-weight: ${effectiveHeaderFontWeight};` : ''}
-            letter-spacing: ${effectiveHeaderLetterSpacing}px;
+            line-height: ${content?.header_line_height || line_spacing};
+            ${content?.header_font_weight ? `font-weight: ${content.header_font_weight};` : ''}
+            ${content?.header_letter_spacing ? `letter-spacing: ${content.header_letter_spacing}px;` : ''}
           }
           
           .${instanceId} .hero-subheading {
-            font-family: ${effectiveSubheadingFontFamily};
-            font-weight: ${effectiveSubheadingFontWeight};
-            font-size: ${effectiveSubheadingFontSize}px;
+            font-family: ${content?.subheading_font_family || 'Poppins'};
+            font-weight: ${content?.subheading_font_weight || 400};
+            font-size: ${subheading_font_size}px;
             color: ${subheading_color};
-            letter-spacing: ${effectiveSubheadingLetterSpacing}px;
-            line-height: ${effectiveSubheadingLineHeight};
+            letter-spacing: ${content?.subheading_letter_spacing || 0}px;
+            line-height: ${content?.subheading_line_height || 1.5};
             margin-top: 16px;
           }
           
           .${instanceId} .hero-body-text {
-            font-family: ${effectiveContentFontFamily};
-            font-weight: ${effectiveContentFontWeight};
-            font-size: ${effectiveContentFontSize}px;
+            font-family: ${content?.content_font_family || 'Poppins'};
+            font-weight: ${content?.content_font_weight || 400};
+            font-size: ${content_font_size}px;
             color: ${content_color};
-            letter-spacing: ${effectiveContentLetterSpacing}px;
-            line-height: ${effectiveContentLineHeight};
+            letter-spacing: ${content?.content_letter_spacing || 0}px;
+            line-height: ${content?.content_line_height || 1.6};
             margin-top: 16px;
-          }
-          
-          /* Desktop/Mobile background visibility */
-          .${instanceId} .hero-bg-desktop {
-            display: block;
-          }
-          .${instanceId} .hero-bg-mobile {
-            display: none;
-          }
-          
-          /* Mobile preview class override for editor preview mode */
-          .${instanceId}.mobile-preview .hero-bg-desktop {
-            display: none !important;
-          }
-          .${instanceId}.mobile-preview .hero-bg-mobile {
-            display: block !important;
           }
           
           .${instanceId} .hero-subheading p,
@@ -314,14 +229,6 @@ export default function IEditPageHeaderHeroElement({ content, variant, settings,
             .${instanceId} {
               ${mobileHeight.minHeight ? `min-height: ${mobileHeight.minHeight};` : ''}
               ${mobileHeight.height ? `height: ${mobileHeight.height};` : ''}
-              ${getMobileBackgroundCSS()}
-            }
-            
-            .${instanceId} .hero-bg-desktop {
-              display: none;
-            }
-            .${instanceId} .hero-bg-mobile {
-              display: block;
             }
             
             .${instanceId} .hero-content {
@@ -364,14 +271,13 @@ export default function IEditPageHeaderHeroElement({ content, variant, settings,
         className={`${instanceId} relative w-full overflow-hidden`}
         style={{ ...getBackgroundStyle() }}
       >
-        {/* Desktop background image */}
         {background_type === 'image' && image_url && (
-          <div className="hero-bg-desktop absolute inset-0">
+          <>
             <img 
               src={image_url} 
               alt={header_text || 'Hero image'} 
-              className="absolute inset-0 w-full h-full"
-              style={{ objectFit: image_fit || 'cover' }}
+              className={image_fit === 'original' ? 'w-full h-auto block' : 'absolute inset-0 w-full h-full'}
+              style={image_fit === 'original' ? {} : { objectFit: image_fit }}
             />
             {overlay_enabled && (
               <div 
@@ -382,28 +288,7 @@ export default function IEditPageHeaderHeroElement({ content, variant, settings,
                 }} 
               />
             )}
-          </div>
-        )}
-        
-        {/* Mobile background image - only shown when different from desktop or when mobile uses image */}
-        {effectiveMobileBgType === 'image' && effectiveMobileImageUrl && (
-          <div className="hero-bg-mobile absolute inset-0">
-            <img 
-              src={effectiveMobileImageUrl} 
-              alt={header_text || 'Hero image'} 
-              className="absolute inset-0 w-full h-full"
-              style={{ objectFit: effectiveMobileImageFit || 'cover' }}
-            />
-            {effectiveMobileOverlayEnabled && (
-              <div 
-                className="absolute inset-0" 
-                style={{ 
-                  backgroundColor: effectiveMobileOverlayColor, 
-                  opacity: parseInt(effectiveMobileOverlayOpacity) / 100 
-                }} 
-              />
-            )}
-          </div>
+          </>
         )}
         
         <div 
