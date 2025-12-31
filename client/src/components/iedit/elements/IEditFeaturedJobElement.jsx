@@ -89,10 +89,6 @@ export default function IEditFeaturedJobElement({ content, variant, settings }) 
     min_height = 550,
     vertical_padding = 48,
     
-    // Mobile layout
-    mobile_top_height = 400,
-    mobile_bottom_height = 400,
-    
     // Mobile typography (defaults to smaller sizes)
     mobile_heading_font_size = 36,
     mobile_subheading_font_size = 14,
@@ -255,9 +251,9 @@ export default function IEditFeaturedJobElement({ content, variant, settings }) 
     );
   }
 
-  const mobileMinHeight = mobile_top_height + mobile_bottom_height;
-  
   // Default: Split background layout
+  // On mobile: stacked sections with natural content flow and padding
+  // On desktop: side-by-side with absolute backgrounds
   return (
     <div 
       id={anchor || undefined}
@@ -266,42 +262,28 @@ export default function IEditFeaturedJobElement({ content, variant, settings }) 
       {/* Shared responsive typography CSS */}
       <style>{responsiveStyles}</style>
       
-      {/* CSS for container, backgrounds, and spacing (split layout specific) */}
+      {/* CSS for spacing (split layout specific) */}
       <style>{`
-        /* Mobile-first container */
-        #${anchor || elementId}-container {
-          min-height: ${mobileMinHeight}px;
-        }
-        #${elementId}-bg-top {
-          height: ${mobile_top_height}px;
-        }
-        #${elementId}-bg-bottom {
-          height: ${mobile_bottom_height}px;
-        }
-        
         /* Mobile spacing */
-        #${elementId}-content-wrapper {
-          padding: ${mobile_vertical_padding}px ${mobile_outer_padding}px;
-        }
         #${elementId}-card-wrapper {
           padding: ${mobile_card_margin}px;
         }
         #${elementId}-card {
           padding: ${mobile_card_inner_padding}px;
         }
+        #${elementId}-section-top {
+          padding: ${mobile_vertical_padding}px ${mobile_outer_padding}px;
+        }
+        #${elementId}-section-bottom {
+          padding: ${mobile_vertical_padding}px ${mobile_outer_padding}px;
+        }
         
         /* Desktop overrides */
         @media (min-width: 1024px) {
-          #${anchor || elementId}-container {
+          #${elementId}-desktop-container {
             min-height: ${min_height}px;
           }
-          #${elementId}-bg-top,
-          #${elementId}-bg-bottom {
-            height: 100%;
-          }
-          
-          /* Desktop spacing */
-          #${elementId}-content-wrapper {
+          #${elementId}-desktop-content {
             padding: ${vertical_padding}px 32px;
           }
           #${elementId}-card-wrapper {
@@ -313,35 +295,80 @@ export default function IEditFeaturedJobElement({ content, variant, settings }) 
         }
       `}</style>
       
-      {/* Wrapper with responsive min-height */}
-      <div id={`${anchor || elementId}-container`} className="relative w-full">
-        {/* Full-bleed split background - stacks vertically on mobile, horizontal on lg+ */}
-        <div className="absolute inset-0 flex flex-col lg:flex-row">
-          {/* Left/Top half - Gradient */}
-          <div 
-            id={`${elementId}-bg-top`}
-            className="w-full lg:w-1/2 shrink-0 lg:shrink"
-            style={gradientStyle}
-          />
-          {/* Right/Bottom half - Solid color */}
-          <div 
-            id={`${elementId}-bg-bottom`}
-            className="w-full lg:w-1/2 shrink-0 lg:shrink"
-            style={{ background: right_side_color }}
-          />
+      {/* MOBILE LAYOUT: Stacked sections with natural content flow */}
+      <div className="lg:hidden">
+        {/* Top section - Gradient background with card */}
+        <div 
+          id={`${elementId}-section-top`}
+          style={gradientStyle}
+        >
+          <div className="max-w-6xl mx-auto">
+            <div 
+              id={`${elementId}-card-wrapper`}
+              className="flex items-stretch justify-center"
+            >
+              <div 
+                id={`${elementId}-card`}
+                className="shadow-xl flex flex-col justify-center w-full"
+                style={{ background: card_background }}
+              >
+                <StaticContent content={content} elementId={elementId} />
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        {/* Bottom section - Solid color with job details */}
+        <div 
+          id={`${elementId}-section-bottom`}
+          style={{ background: right_side_color }}
+        >
+          <div className="max-w-6xl mx-auto">
+            <RightSideHeader content={content} elementId={elementId} />
+            
+            {isLoading ? (
+              <div className="animate-pulse space-y-4 w-full">
+                <div className="h-8 bg-white/20 rounded w-3/4" />
+                <div className="h-px bg-white/20 w-full" />
+                <div className="h-5 bg-white/20 rounded w-1/2" />
+                <div className="h-px bg-white/20 w-full" />
+                <div className="h-5 bg-white/20 rounded w-2/3" />
+              </div>
+            ) : featuredJob ? (
+              <JobDetails 
+                job={featuredJob}
+                content={content}
+                formatClosingDate={formatClosingDate}
+                isClosingSoon={isClosingSoon}
+                elementId={elementId}
+              />
+            ) : (
+              <div style={{ color: job_detail_color, opacity: job_detail_opacity }}>
+                No featured job available
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+      
+      {/* DESKTOP LAYOUT: Side-by-side with absolute backgrounds */}
+      <div id={`${elementId}-desktop-container`} className="hidden lg:block relative w-full">
+        {/* Absolute positioned split backgrounds */}
+        <div className="absolute inset-0 flex flex-row">
+          <div className="w-1/2" style={gradientStyle} />
+          <div className="w-1/2" style={{ background: right_side_color }} />
         </div>
 
-        {/* Centered content container with responsive padding */}
+        {/* Centered content container */}
         <div 
-          id={`${elementId}-content-wrapper`}
+          id={`${elementId}-desktop-content`}
           className="relative max-w-6xl mx-auto h-full flex items-stretch"
         >
-          {/* Two-column grid for content */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-8 w-full">
+          <div className="grid grid-cols-2 gap-8 w-full">
             {/* Left column - Static content in white card */}
             <div 
               id={`${elementId}-card-wrapper`}
-              className="flex items-stretch justify-center lg:justify-start"
+              className="flex items-stretch justify-start"
             >
               <div 
                 id={`${elementId}-card`}
@@ -353,7 +380,7 @@ export default function IEditFeaturedJobElement({ content, variant, settings }) 
             </div>
 
             {/* Right column - Static header + Dynamic job content */}
-            <div className="flex flex-col justify-center px-2 lg:pl-8 lg:px-0">
+            <div className="flex flex-col justify-center pl-8">
               <RightSideHeader content={content} elementId={elementId} />
               
               {isLoading ? (
@@ -743,33 +770,6 @@ export function IEditFeaturedJobElementEditor({ element, onChange }) {
             />
           </div>
         </div>
-
-        {content.layout_style !== 'full-width' && (
-          <div className="border rounded-lg p-3 bg-slate-50 space-y-3">
-            <label className="text-sm font-medium text-slate-700">Mobile Background Heights</label>
-            <p className="text-xs text-slate-500">Control the height of each background section when stacked on mobile devices.</p>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Top (Gradient) Height</label>
-                <input 
-                  type="number"
-                  value={content.mobile_top_height || 400}
-                  onChange={(e) => updateContent('mobile_top_height', parseInt(e.target.value))}
-                  className="w-full px-3 py-2 border rounded-md"
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Bottom (Solid) Height</label>
-                <input 
-                  type="number"
-                  value={content.mobile_bottom_height || 400}
-                  onChange={(e) => updateContent('mobile_bottom_height', parseInt(e.target.value))}
-                  className="w-full px-3 py-2 border rounded-md"
-                />
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* Mobile Responsive Settings */}
         <div className="border rounded-lg p-3 bg-blue-50 space-y-4">
