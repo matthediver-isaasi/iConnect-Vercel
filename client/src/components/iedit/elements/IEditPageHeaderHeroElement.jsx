@@ -427,24 +427,15 @@ export default function IEditPageHeaderHeroElement({ content = {}, variant, sett
         id={anchor || undefined}
         className={`${instanceId} ${mobilePreviewClass} relative w-full overflow-hidden`}
       >
-        {/* Desktop background (color/gradient/image) */}
-        <div className="hero-bg-desktop absolute inset-0">
-          {background_type === 'color' && (
-            <div className="absolute inset-0" style={{ backgroundColor: background_color }} />
-          )}
-          {background_type === 'gradient' && (
-            <div 
-              className="absolute inset-0" 
-              style={{ background: `linear-gradient(${gradient_angle}deg, ${gradient_start_color}, ${gradient_end_color})` }} 
-            />
-          )}
-          {background_type === 'image' && image_url && (
-            <>
+        {/* Desktop background - special handling for 'original' image fit which needs to be in document flow */}
+        {background_type === 'image' && image_url && image_fit === 'original' ? (
+          <>
+            {/* Original fit image in document flow (desktop only via CSS) */}
+            <div className="hero-bg-desktop relative">
               <img 
                 src={image_url} 
                 alt={header_text || 'Hero image'} 
-                className={image_fit === 'original' ? 'w-full h-auto block' : 'absolute inset-0 w-full h-full'}
-                style={image_fit === 'original' ? {} : { objectFit: image_fit }}
+                className="w-full h-auto block"
               />
               {overlay_enabled && (
                 <div 
@@ -455,41 +446,106 @@ export default function IEditPageHeaderHeroElement({ content = {}, variant, sett
                   }} 
                 />
               )}
-            </>
-          )}
-        </div>
-        
-        {/* Mobile background (color/gradient/image) */}
-        <div className="hero-bg-mobile absolute inset-0">
-          {effectiveMobileBgType === 'color' && (
-            <div className="absolute inset-0" style={{ backgroundColor: effectiveMobileBgColor }} />
-          )}
-          {effectiveMobileBgType === 'gradient' && (
-            <div 
-              className="absolute inset-0" 
-              style={{ background: `linear-gradient(${effectiveMobileGradientAngle}deg, ${effectiveMobileGradientStart}, ${effectiveMobileGradientEnd})` }} 
-            />
-          )}
-          {effectiveMobileBgType === 'image' && effectiveMobileImageUrl && (
-            <>
-              <img 
-                src={effectiveMobileImageUrl} 
-                alt={header_text || 'Hero image'} 
-                className="absolute inset-0 w-full h-full"
-                style={{ objectFit: effectiveMobileImageFit }}
-              />
-              {effectiveMobileOverlayEnabled && (
+            </div>
+            {/* Mobile background for 'original' desktop image */}
+            <div className="hero-bg-mobile absolute inset-0">
+              {effectiveMobileBgType === 'color' && (
+                <div className="absolute inset-0" style={{ backgroundColor: effectiveMobileBgColor }} />
+              )}
+              {effectiveMobileBgType === 'gradient' && (
                 <div 
                   className="absolute inset-0" 
-                  style={{ 
-                    backgroundColor: effectiveMobileOverlayColor, 
-                    opacity: parseInt(effectiveMobileOverlayOpacity) / 100 
-                  }} 
+                  style={{ background: `linear-gradient(${effectiveMobileGradientAngle}deg, ${effectiveMobileGradientStart}, ${effectiveMobileGradientEnd})` }} 
                 />
               )}
-            </>
-          )}
-        </div>
+              {effectiveMobileBgType === 'image' && effectiveMobileImageUrl && (
+                <>
+                  <img 
+                    src={effectiveMobileImageUrl} 
+                    alt={header_text || 'Hero image'} 
+                    className="absolute inset-0 w-full h-full"
+                    style={{ objectFit: effectiveMobileImageFit }}
+                  />
+                  {effectiveMobileOverlayEnabled && (
+                    <div 
+                      className="absolute inset-0" 
+                      style={{ 
+                        backgroundColor: effectiveMobileOverlayColor, 
+                        opacity: parseInt(effectiveMobileOverlayOpacity) / 100 
+                      }} 
+                    />
+                  )}
+                </>
+              )}
+            </div>
+          </>
+        ) : (
+          <>
+            {/* Non-original desktop backgrounds (absolute positioned) */}
+            <div className="hero-bg-desktop absolute inset-0">
+              {background_type === 'color' && (
+                <div className="absolute inset-0" style={{ backgroundColor: background_color }} />
+              )}
+              {background_type === 'gradient' && (
+                <div 
+                  className="absolute inset-0" 
+                  style={{ background: `linear-gradient(${gradient_angle}deg, ${gradient_start_color}, ${gradient_end_color})` }} 
+                />
+              )}
+              {background_type === 'image' && image_url && (
+                <>
+                  <img 
+                    src={image_url} 
+                    alt={header_text || 'Hero image'} 
+                    className="absolute inset-0 w-full h-full"
+                    style={{ objectFit: image_fit }}
+                  />
+                  {overlay_enabled && (
+                    <div 
+                      className="absolute inset-0" 
+                      style={{ 
+                        backgroundColor: overlay_color, 
+                        opacity: parseInt(overlay_opacity) / 100 
+                      }} 
+                    />
+                  )}
+                </>
+              )}
+            </div>
+            
+            {/* Mobile background (absolute positioned) */}
+            <div className="hero-bg-mobile absolute inset-0">
+              {effectiveMobileBgType === 'color' && (
+                <div className="absolute inset-0" style={{ backgroundColor: effectiveMobileBgColor }} />
+              )}
+              {effectiveMobileBgType === 'gradient' && (
+                <div 
+                  className="absolute inset-0" 
+                  style={{ background: `linear-gradient(${effectiveMobileGradientAngle}deg, ${effectiveMobileGradientStart}, ${effectiveMobileGradientEnd})` }} 
+                />
+              )}
+              {effectiveMobileBgType === 'image' && effectiveMobileImageUrl && (
+                <>
+                  <img 
+                    src={effectiveMobileImageUrl} 
+                    alt={header_text || 'Hero image'} 
+                    className="absolute inset-0 w-full h-full"
+                    style={{ objectFit: effectiveMobileImageFit }}
+                  />
+                  {effectiveMobileOverlayEnabled && (
+                    <div 
+                      className="absolute inset-0" 
+                      style={{ 
+                        backgroundColor: effectiveMobileOverlayColor, 
+                        opacity: parseInt(effectiveMobileOverlayOpacity) / 100 
+                      }} 
+                    />
+                  )}
+                </>
+              )}
+            </div>
+          </>
+        )}
         
         {/* DEBUG: Show desktop background status */}
         <div style={{ background: 'blue', color: 'white', padding: '5px', fontSize: '10px', position: 'relative', zIndex: 9999, wordBreak: 'break-all' }}>
