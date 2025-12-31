@@ -236,11 +236,11 @@ export function IEditTextBlockElementEditor({ element, onChange }) {
   const content = element.content || { heading: '', text: '' };
   const backgroundType = content.background_type || 'none';
   
+  const [viewportTab, setViewportTab] = useState('desktop');
   const [expandedSections, setExpandedSections] = useState({
     background: false,
     heading: true,
-    content: false,
-    mobile: false
+    content: false
   });
 
   const toggleSection = (section) => {
@@ -336,6 +336,37 @@ export function IEditTextBlockElementEditor({ element, onChange }) {
         </p>
       </div>
 
+      {/* Desktop/Mobile Tab Selector */}
+      <div className="flex gap-1 p-1 bg-slate-100 rounded-lg mb-4">
+        <button
+          type="button"
+          onClick={() => setViewportTab('desktop')}
+          data-testid="button-textblock-viewport-desktop"
+          className={`flex-1 py-2 px-4 text-sm font-medium rounded-md transition-colors ${
+            viewportTab === 'desktop' 
+              ? 'bg-white shadow text-slate-900' 
+              : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          Desktop
+        </button>
+        <button
+          type="button"
+          onClick={() => setViewportTab('mobile')}
+          data-testid="button-textblock-viewport-mobile"
+          className={`flex-1 py-2 px-4 text-sm font-medium rounded-md transition-colors ${
+            viewportTab === 'mobile' 
+              ? 'bg-white shadow text-slate-900' 
+              : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          Mobile
+        </button>
+      </div>
+
+      {/* Desktop Controls */}
+      {viewportTab === 'desktop' && (
+        <>
       {/* Background & Layout Section */}
       <div className="border rounded-lg overflow-hidden">
         <button
@@ -807,25 +838,20 @@ export function IEditTextBlockElementEditor({ element, onChange }) {
           </div>
         )}
       </div>
+        </>
+      )}
 
-      {/* Mobile Settings Section */}
-      <div className="border rounded-lg overflow-hidden">
-        <button
-          type="button"
-          onClick={() => toggleSection('mobile')}
-          className="w-full flex items-center justify-between p-3 bg-slate-100 hover:bg-slate-200 text-left"
-          data-testid="accordion-textblock-mobile"
-        >
-          <span className="font-semibold text-sm">Mobile Settings</span>
-          {expandedSections.mobile ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-        </button>
-        
-        {expandedSections.mobile && (
-          <div className="p-4 space-y-4 bg-blue-50 rounded-lg">
-            <p className="text-xs text-slate-600 mb-3">
-              Leave fields empty to use automatic scaling based on desktop values.
-            </p>
+      {/* Mobile Controls */}
+      {viewportTab === 'mobile' && (
+        <div className="space-y-4">
+          <p className="text-xs text-slate-600 p-3 bg-blue-50 rounded-lg">
+            Leave fields empty to use automatic scaling based on desktop values.
+          </p>
 
+          {/* Mobile Typography Section */}
+          <div className="border rounded-lg p-4 space-y-4">
+            <h4 className="font-semibold text-sm">Typography</h4>
+            
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium mb-1">Heading Font Size</label>
@@ -855,7 +881,7 @@ export function IEditTextBlockElementEditor({ element, onChange }) {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium mb-1">Mobile Heading Alignment</label>
+                <label className="block text-sm font-medium mb-1">Heading Alignment</label>
                 <select
                   value={content.mobile_heading_align || ''}
                   onChange={(e) => updateContent('mobile_heading_align', e.target.value || undefined)}
@@ -869,7 +895,7 @@ export function IEditTextBlockElementEditor({ element, onChange }) {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">Mobile Content Alignment</label>
+                <label className="block text-sm font-medium mb-1">Content Alignment</label>
                 <select
                   value={content.mobile_content_align || ''}
                   onChange={(e) => updateContent('mobile_content_align', e.target.value || undefined)}
@@ -883,62 +909,64 @@ export function IEditTextBlockElementEditor({ element, onChange }) {
                 </select>
               </div>
             </div>
-
-            {(content.background_type && content.background_type !== 'none') && (
-              <div className="grid grid-cols-4 gap-2 pt-2 border-t border-slate-200">
-                <div>
-                  <label className="block text-sm font-medium mb-1">M. Pad Top</label>
-                  <input
-                    type="number"
-                    value={content.mobile_padding_top ?? ''}
-                    onChange={(e) => updateContent('mobile_padding_top', e.target.value ? parseInt(e.target.value) : undefined)}
-                    placeholder={content.padding_top || 0}
-                    className="w-full px-2 py-1.5 border border-slate-300 rounded-md text-sm"
-                    min="0"
-                    data-testid="input-textblock-mobile-padding-top"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">M. Pad Bottom</label>
-                  <input
-                    type="number"
-                    value={content.mobile_padding_bottom ?? ''}
-                    onChange={(e) => updateContent('mobile_padding_bottom', e.target.value ? parseInt(e.target.value) : undefined)}
-                    placeholder={content.padding_bottom || 0}
-                    className="w-full px-2 py-1.5 border border-slate-300 rounded-md text-sm"
-                    min="0"
-                    data-testid="input-textblock-mobile-padding-bottom"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">M. Pad Left</label>
-                  <input
-                    type="number"
-                    value={content.mobile_padding_left ?? ''}
-                    onChange={(e) => updateContent('mobile_padding_left', e.target.value ? parseInt(e.target.value) : undefined)}
-                    placeholder={content.padding_left || 0}
-                    className="w-full px-2 py-1.5 border border-slate-300 rounded-md text-sm"
-                    min="0"
-                    data-testid="input-textblock-mobile-padding-left"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">M. Pad Right</label>
-                  <input
-                    type="number"
-                    value={content.mobile_padding_right ?? ''}
-                    onChange={(e) => updateContent('mobile_padding_right', e.target.value ? parseInt(e.target.value) : undefined)}
-                    placeholder={content.padding_right || 0}
-                    className="w-full px-2 py-1.5 border border-slate-300 rounded-md text-sm"
-                    min="0"
-                    data-testid="input-textblock-mobile-padding-right"
-                  />
-                </div>
-              </div>
-            )}
           </div>
-        )}
-      </div>
+
+          {/* Mobile Padding Section */}
+          <div className="border rounded-lg p-4 space-y-4">
+            <h4 className="font-semibold text-sm">Padding</h4>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Padding Top</label>
+                <input
+                  type="number"
+                  value={content.mobile_padding_top ?? ''}
+                  onChange={(e) => updateContent('mobile_padding_top', e.target.value ? parseInt(e.target.value) : undefined)}
+                  placeholder={`Desktop: ${content.padding_top || 0}`}
+                  className="w-full px-2 py-1.5 border border-slate-300 rounded-md text-sm"
+                  min="0"
+                  data-testid="input-textblock-mobile-padding-top"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Padding Bottom</label>
+                <input
+                  type="number"
+                  value={content.mobile_padding_bottom ?? ''}
+                  onChange={(e) => updateContent('mobile_padding_bottom', e.target.value ? parseInt(e.target.value) : undefined)}
+                  placeholder={`Desktop: ${content.padding_bottom || 0}`}
+                  className="w-full px-2 py-1.5 border border-slate-300 rounded-md text-sm"
+                  min="0"
+                  data-testid="input-textblock-mobile-padding-bottom"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Padding Left</label>
+                <input
+                  type="number"
+                  value={content.mobile_padding_left ?? ''}
+                  onChange={(e) => updateContent('mobile_padding_left', e.target.value ? parseInt(e.target.value) : undefined)}
+                  placeholder={`Desktop: ${content.padding_left || 0}`}
+                  className="w-full px-2 py-1.5 border border-slate-300 rounded-md text-sm"
+                  min="0"
+                  data-testid="input-textblock-mobile-padding-left"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Padding Right</label>
+                <input
+                  type="number"
+                  value={content.mobile_padding_right ?? ''}
+                  onChange={(e) => updateContent('mobile_padding_right', e.target.value ? parseInt(e.target.value) : undefined)}
+                  placeholder={`Desktop: ${content.padding_right || 0}`}
+                  className="w-full px-2 py-1.5 border border-slate-300 rounded-md text-sm"
+                  min="0"
+                  data-testid="input-textblock-mobile-padding-right"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
