@@ -1,5 +1,5 @@
 import { useState, useId } from "react";
-import TypographyStyleSelector, { applyTypographyStyle } from "../TypographyStyleSelector";
+import TypographyStyleSelector, { applyTypographyStyle, useTypographyStyles } from "../TypographyStyleSelector";
 import ReactQuill from "react-quill";
 import "react-quill/dist/quill.snow.css";
 import DOMPurify from "dompurify";
@@ -93,20 +93,83 @@ export default function IEditPageHeaderHeroElement({ content, variant, settings,
     mobile_custom_height = '250',
     mobile_padding_vertical,
     mobile_padding_horizontal,
-    mobile_text_alignment
+    mobile_text_alignment,
+    // Mobile background settings (new - matching Hero element)
+    mobile_background_type = 'same',
+    mobile_background_color,
+    mobile_gradient_start_color,
+    mobile_gradient_end_color,
+    mobile_gradient_angle,
+    mobile_image_url,
+    mobile_image_fit,
+    mobile_overlay_enabled = false,
+    mobile_overlay_color = '#000000',
+    mobile_overlay_opacity = '50',
+    // Typography style IDs for live lookup
+    header_typography_style_id,
+    subheading_typography_style_id,
+    content_typography_style_id,
+    // Mobile typography inheritance toggle
+    mobile_custom_typography = false
   } = content;
 
   // Generate unique ID for this instance to scope CSS
   const reactId = useId();
   const instanceId = `hero-${reactId.replace(/:/g, '')}`;
+  
+  // Look up typography styles at render time to use current values from InstalledFonts
+  const { getStyleById } = useTypographyStyles();
+  const headerTypographyStyle = getStyleById(header_typography_style_id);
+  const subheadingTypographyStyle = getStyleById(subheading_typography_style_id);
+  const contentTypographyStyle = getStyleById(content_typography_style_id);
+  
+  // Desktop typography: Priority - 1) Live typography style, 2) Saved value
+  const effectiveHeaderFontFamily = headerTypographyStyle?.font_family || content?.header_font_family || header_font_family;
+  const effectiveHeaderFontSize = headerTypographyStyle?.font_size || parseInt(header_font_size);
+  const effectiveHeaderFontWeight = headerTypographyStyle?.font_weight || content?.header_font_weight;
+  const effectiveHeaderLetterSpacing = headerTypographyStyle?.letter_spacing ?? content?.header_letter_spacing ?? 0;
+  const effectiveHeaderLineHeight = headerTypographyStyle?.line_height || content?.header_line_height || line_spacing;
+  
+  const effectiveSubheadingFontFamily = subheadingTypographyStyle?.font_family || content?.subheading_font_family || 'Poppins';
+  const effectiveSubheadingFontSize = subheadingTypographyStyle?.font_size || parseInt(subheading_font_size);
+  const effectiveSubheadingFontWeight = subheadingTypographyStyle?.font_weight || content?.subheading_font_weight || 400;
+  const effectiveSubheadingLetterSpacing = subheadingTypographyStyle?.letter_spacing ?? content?.subheading_letter_spacing ?? 0;
+  const effectiveSubheadingLineHeight = subheadingTypographyStyle?.line_height || content?.subheading_line_height || 1.5;
+  
+  const effectiveContentFontFamily = contentTypographyStyle?.font_family || content?.content_font_family || 'Poppins';
+  const effectiveContentFontSize = contentTypographyStyle?.font_size || parseInt(content_font_size);
+  const effectiveContentFontWeight = contentTypographyStyle?.font_weight || content?.content_font_weight || 400;
+  const effectiveContentLetterSpacing = contentTypographyStyle?.letter_spacing ?? content?.content_letter_spacing ?? 0;
+  const effectiveContentLineHeight = contentTypographyStyle?.line_height || content?.content_line_height || 1.6;
 
-  // Calculate mobile values with fallbacks
-  const mobileFontSize = mobile_font_size || Math.max(24, Math.round(parseInt(header_font_size) * 0.6));
-  const mobileSubheadingFontSize = mobile_subheading_font_size || Math.max(16, Math.round(parseInt(subheading_font_size) * 0.75));
-  const mobileContentFontSize = mobile_content_font_size || Math.max(14, Math.round(parseInt(content_font_size) * 0.9));
+  // Calculate mobile values with fallbacks - Priority: 1) Live style, 2) Saved value, 3) Auto-scaled
+  const mobileFontSize = 
+    headerTypographyStyle?.font_size_mobile || 
+    mobile_font_size || 
+    Math.max(24, Math.round(effectiveHeaderFontSize * 0.6));
+  const mobileSubheadingFontSize = 
+    subheadingTypographyStyle?.font_size_mobile || 
+    mobile_subheading_font_size || 
+    Math.max(16, Math.round(effectiveSubheadingFontSize * 0.75));
+  const mobileContentFontSize = 
+    contentTypographyStyle?.font_size_mobile || 
+    mobile_content_font_size || 
+    Math.max(14, Math.round(effectiveContentFontSize * 0.9));
   const mobilePaddingVertical = mobile_padding_vertical || Math.max(32, Math.round(parseInt(padding_vertical) * 0.5));
   const mobilePaddingHorizontal = mobile_padding_horizontal || Math.max(16, parseInt(padding_horizontal));
   const mobileTextAlignment = mobile_text_alignment || text_alignment;
+  
+  // Compute effective mobile background values (use desktop values if 'same')
+  const effectiveMobileBgType = mobile_background_type === 'same' ? background_type : mobile_background_type;
+  const effectiveMobileBgColor = mobile_background_type === 'same' ? background_color : mobile_background_color;
+  const effectiveMobileGradientStart = mobile_background_type === 'same' ? gradient_start_color : mobile_gradient_start_color;
+  const effectiveMobileGradientEnd = mobile_background_type === 'same' ? gradient_end_color : mobile_gradient_end_color;
+  const effectiveMobileGradientAngle = mobile_background_type === 'same' ? gradient_angle : mobile_gradient_angle;
+  const effectiveMobileImageUrl = mobile_background_type === 'same' ? image_url : mobile_image_url;
+  const effectiveMobileImageFit = mobile_background_type === 'same' ? (image_fit || 'cover') : (mobile_image_fit || 'cover');
+  const effectiveMobileOverlayEnabled = mobile_background_type === 'same' ? overlay_enabled : mobile_overlay_enabled;
+  const effectiveMobileOverlayColor = mobile_background_type === 'same' ? overlay_color : mobile_overlay_color;
+  const effectiveMobileOverlayOpacity = mobile_background_type === 'same' ? overlay_opacity : mobile_overlay_opacity;
 
   const textAlignClass = {
     left: 'text-left',
@@ -122,7 +185,8 @@ export default function IEditPageHeaderHeroElement({ content, variant, settings,
   };
 
   const getMobileHeight = () => {
-    if (background_type === 'image' && image_fit === 'original') return {};
+    // Use effective mobile background type for height calculation
+    if (effectiveMobileBgType === 'image' && effectiveMobileImageFit === 'original') return {};
     if (mobile_height_type === 'full') return { height: '100vh' };
     if (mobile_height_type === 'custom') return { height: `${mobile_custom_height}px` };
     return { minHeight: '250px' };
@@ -138,6 +202,28 @@ export default function IEditPageHeaderHeroElement({ content, variant, settings,
       };
     }
     return {};
+  };
+  
+  // Generate desktop background CSS string
+  const getDesktopBackgroundCSS = () => {
+    if (background_type === 'color') {
+      return `background-color: ${background_color};`;
+    }
+    if (background_type === 'gradient') {
+      return `background: linear-gradient(${gradient_angle}deg, ${gradient_start_color}, ${gradient_end_color});`;
+    }
+    return '';
+  };
+  
+  // Generate mobile background CSS string
+  const getMobileBackgroundCSS = () => {
+    if (effectiveMobileBgType === 'color') {
+      return `background-color: ${effectiveMobileBgColor};`;
+    }
+    if (effectiveMobileBgType === 'gradient') {
+      return `background: linear-gradient(${effectiveMobileGradientAngle}deg, ${effectiveMobileGradientStart}, ${effectiveMobileGradientEnd});`;
+    }
+    return '';
   };
 
   const desktopHeight = getDesktopHeight();
@@ -168,32 +254,40 @@ export default function IEditPageHeaderHeroElement({ content, variant, settings,
           }
           
           .${instanceId} .hero-title {
-            font-family: ${header_font_family};
-            font-size: ${header_font_size}px;
+            font-family: ${effectiveHeaderFontFamily};
+            font-size: ${effectiveHeaderFontSize}px;
             color: ${header_color};
-            line-height: ${content?.header_line_height || line_spacing};
-            ${content?.header_font_weight ? `font-weight: ${content.header_font_weight};` : ''}
-            ${content?.header_letter_spacing ? `letter-spacing: ${content.header_letter_spacing}px;` : ''}
+            line-height: ${effectiveHeaderLineHeight};
+            ${effectiveHeaderFontWeight ? `font-weight: ${effectiveHeaderFontWeight};` : ''}
+            letter-spacing: ${effectiveHeaderLetterSpacing}px;
           }
           
           .${instanceId} .hero-subheading {
-            font-family: ${content?.subheading_font_family || 'Poppins'};
-            font-weight: ${content?.subheading_font_weight || 400};
-            font-size: ${subheading_font_size}px;
+            font-family: ${effectiveSubheadingFontFamily};
+            font-weight: ${effectiveSubheadingFontWeight};
+            font-size: ${effectiveSubheadingFontSize}px;
             color: ${subheading_color};
-            letter-spacing: ${content?.subheading_letter_spacing || 0}px;
-            line-height: ${content?.subheading_line_height || 1.5};
+            letter-spacing: ${effectiveSubheadingLetterSpacing}px;
+            line-height: ${effectiveSubheadingLineHeight};
             margin-top: 16px;
           }
           
           .${instanceId} .hero-body-text {
-            font-family: ${content?.content_font_family || 'Poppins'};
-            font-weight: ${content?.content_font_weight || 400};
-            font-size: ${content_font_size}px;
+            font-family: ${effectiveContentFontFamily};
+            font-weight: ${effectiveContentFontWeight};
+            font-size: ${effectiveContentFontSize}px;
             color: ${content_color};
-            letter-spacing: ${content?.content_letter_spacing || 0}px;
-            line-height: ${content?.content_line_height || 1.6};
+            letter-spacing: ${effectiveContentLetterSpacing}px;
+            line-height: ${effectiveContentLineHeight};
             margin-top: 16px;
+          }
+          
+          /* Desktop/Mobile background visibility */
+          .${instanceId} .hero-bg-desktop {
+            display: block;
+          }
+          .${instanceId} .hero-bg-mobile {
+            display: none;
           }
           
           .${instanceId} .hero-subheading p,
@@ -211,6 +305,14 @@ export default function IEditPageHeaderHeroElement({ content, variant, settings,
             .${instanceId} {
               ${mobileHeight.minHeight ? `min-height: ${mobileHeight.minHeight};` : ''}
               ${mobileHeight.height ? `height: ${mobileHeight.height};` : ''}
+              ${getMobileBackgroundCSS()}
+            }
+            
+            .${instanceId} .hero-bg-desktop {
+              display: none;
+            }
+            .${instanceId} .hero-bg-mobile {
+              display: block;
             }
             
             .${instanceId} .hero-content {
@@ -236,12 +338,12 @@ export default function IEditPageHeaderHeroElement({ content, variant, settings,
             }
             
             .${instanceId} .hero-subheading {
-              font-size: ${content?.mobile_subheading_font_size || mobileSubheadingFontSize}px;
+              font-size: ${mobileSubheadingFontSize}px;
               margin-top: 12px;
             }
             
             .${instanceId} .hero-body-text {
-              font-size: ${content?.mobile_content_font_size || mobileContentFontSize}px;
+              font-size: ${mobileContentFontSize}px;
               margin-top: 12px;
             }
           }
@@ -253,13 +355,14 @@ export default function IEditPageHeaderHeroElement({ content, variant, settings,
         className={`${instanceId} relative w-full overflow-hidden`}
         style={{ ...getBackgroundStyle() }}
       >
+        {/* Desktop background image */}
         {background_type === 'image' && image_url && (
-          <>
+          <div className="hero-bg-desktop absolute inset-0">
             <img 
               src={image_url} 
               alt={header_text || 'Hero image'} 
-              className={image_fit === 'original' ? 'w-full h-auto block' : 'absolute inset-0 w-full h-full'}
-              style={image_fit === 'original' ? {} : { objectFit: image_fit }}
+              className="absolute inset-0 w-full h-full"
+              style={{ objectFit: image_fit || 'cover' }}
             />
             {overlay_enabled && (
               <div 
@@ -270,7 +373,28 @@ export default function IEditPageHeaderHeroElement({ content, variant, settings,
                 }} 
               />
             )}
-          </>
+          </div>
+        )}
+        
+        {/* Mobile background image - only shown when different from desktop or when mobile uses image */}
+        {effectiveMobileBgType === 'image' && effectiveMobileImageUrl && (
+          <div className="hero-bg-mobile absolute inset-0">
+            <img 
+              src={effectiveMobileImageUrl} 
+              alt={header_text || 'Hero image'} 
+              className="absolute inset-0 w-full h-full"
+              style={{ objectFit: effectiveMobileImageFit || 'cover' }}
+            />
+            {effectiveMobileOverlayEnabled && (
+              <div 
+                className="absolute inset-0" 
+                style={{ 
+                  backgroundColor: effectiveMobileOverlayColor, 
+                  opacity: parseInt(effectiveMobileOverlayOpacity) / 100 
+                }} 
+              />
+            )}
+          </div>
         )}
         
         <div 
@@ -314,6 +438,7 @@ export function IEditPageHeaderHeroElementEditor({ element, onChange }) {
   const content = element.content || {};
 
   const [isUploading, setIsUploading] = useState(false);
+  const [isMobileUploading, setIsMobileUploading] = useState(false);
   const [expandedSections, setExpandedSections] = useState({
     textContent: true,
     background: false,
@@ -462,6 +587,34 @@ export function IEditPageHeaderHeroElementEditor({ element, onChange }) {
       setIsUploading(false);
     }
   };
+
+  const handleMobileImageUpload = async (file) => {
+    if (!file) return;
+
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+    if (!allowedTypes.includes(file.type)) {
+      alert('Please upload a valid image file');
+      return;
+    }
+
+    if (file.size > 10 * 1024 * 1024) {
+      alert('Image must be smaller than 10MB');
+      return;
+    }
+
+    setIsMobileUploading(true);
+    try {
+      const { base44 } = await import("@/api/base44Client");
+      const response = await base44.integrations.Core.UploadFile({ file });
+      updateContent('mobile_image_url', response.file_url);
+    } catch (error) {
+      alert('Failed to upload image: ' + error.message);
+    } finally {
+      setIsMobileUploading(false);
+    }
+  };
+  
+  const mobileBackgroundType = content.mobile_background_type || 'same';
 
   // Calculate default mobile values for display
   const defaultMobileFontSize = Math.max(24, Math.round(parseInt(content.header_font_size || 48) * 0.6));
@@ -996,24 +1149,239 @@ export function IEditPageHeaderHeroElementEditor({ element, onChange }) {
         {expandedSections.mobile && (
           <div className="p-4 space-y-4 border-t border-slate-200">
             <p className="text-xs text-slate-600">
-              Leave fields empty to use automatic scaling based on desktop values.
+              Configure mobile-specific settings. Leave fields empty to use automatic scaling based on desktop values.
             </p>
 
-            {/* Mobile Font Size */}
-            <div>
-              <label className="block text-sm font-medium mb-1">
-                Mobile Header Font Size (px)
-                <span className="text-xs text-slate-500 ml-2">Default: {defaultMobileFontSize}px</span>
-              </label>
-              <input
-                type="number"
-                value={content.mobile_font_size || ''}
-                onChange={(e) => updateContent('mobile_font_size', e.target.value)}
-                placeholder={String(defaultMobileFontSize)}
-                className="w-full px-3 py-2 border border-slate-300 rounded-md"
-                min="16"
-                max="72"
-              />
+            {/* Mobile Background */}
+            <div className="space-y-3 p-3 bg-slate-50 rounded-md">
+              <h4 className="text-sm font-semibold">Mobile Background</h4>
+              <div>
+                <label className="block text-sm font-medium mb-1">Background Type</label>
+                <select
+                  value={mobileBackgroundType}
+                  onChange={(e) => updateContent('mobile_background_type', e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                  data-testid="select-mobile-background-type"
+                >
+                  <option value="same">Same as Desktop</option>
+                  <option value="color">Solid Color</option>
+                  <option value="gradient">Gradient</option>
+                  <option value="image">Image</option>
+                </select>
+              </div>
+
+              {/* Mobile Color Background */}
+              {mobileBackgroundType === 'color' && (
+                <div>
+                  <label className="block text-sm font-medium mb-1">Mobile Background Color</label>
+                  <input
+                    type="color"
+                    value={content.mobile_background_color || '#1e3a5f'}
+                    onChange={(e) => updateContent('mobile_background_color', e.target.value)}
+                    className="w-full h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+                  />
+                </div>
+              )}
+
+              {/* Mobile Gradient Background */}
+              {mobileBackgroundType === 'gradient' && (
+                <div className="space-y-3">
+                  <div 
+                    className="w-full h-12 rounded-md border border-slate-300"
+                    style={{ 
+                      background: `linear-gradient(${content.mobile_gradient_angle || 135}deg, ${content.mobile_gradient_start_color || '#1e3a5f'}, ${content.mobile_gradient_end_color || '#3b82f6'})` 
+                    }}
+                  />
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium mb-1">Start Color</label>
+                      <input
+                        type="color"
+                        value={content.mobile_gradient_start_color || '#1e3a5f'}
+                        onChange={(e) => updateContent('mobile_gradient_start_color', e.target.value)}
+                        className="w-full h-8 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium mb-1">End Color</label>
+                      <input
+                        type="color"
+                        value={content.mobile_gradient_end_color || '#3b82f6'}
+                        onChange={(e) => updateContent('mobile_gradient_end_color', e.target.value)}
+                        className="w-full h-8 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium mb-1">Angle: {content.mobile_gradient_angle || 135}°</label>
+                    <input
+                      type="range"
+                      min="0"
+                      max="360"
+                      value={content.mobile_gradient_angle || 135}
+                      onChange={(e) => updateContent('mobile_gradient_angle', parseInt(e.target.value))}
+                      className="w-full"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Mobile Image Background */}
+              {mobileBackgroundType === 'image' && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Mobile Hero Image</label>
+                    <label className="inline-block">
+                      <div className={`px-4 py-2 rounded-md text-sm font-medium cursor-pointer ${
+                        isMobileUploading 
+                          ? 'bg-slate-300 cursor-not-allowed' 
+                          : 'bg-blue-600 hover:bg-blue-700 text-white'
+                      }`}>
+                        {isMobileUploading ? 'Uploading...' : 'Upload Mobile Image'}
+                      </div>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleMobileImageUpload(file);
+                          e.target.value = '';
+                        }}
+                        className="hidden"
+                        disabled={isMobileUploading}
+                        data-testid="input-mobile-image-upload"
+                      />
+                    </label>
+                  </div>
+                  {content.mobile_image_url && (
+                    <div className="relative">
+                      <img
+                        src={content.mobile_image_url}
+                        alt="Mobile Preview"
+                        className="w-full h-24 object-cover rounded"
+                        onError={(e) => { e.target.style.display = 'none'; }}
+                      />
+                      <button
+                        onClick={() => updateContent('mobile_image_url', '')}
+                        className="absolute bottom-2 right-2 px-2 py-1 bg-red-600 hover:bg-red-700 text-white text-xs rounded"
+                        type="button"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  )}
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Mobile Image Display</label>
+                    <select
+                      value={content.mobile_image_fit || 'cover'}
+                      onChange={(e) => updateContent('mobile_image_fit', e.target.value)}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                    >
+                      <option value="cover">Cover (Fill & Crop)</option>
+                      <option value="contain">Contain (Fit Within)</option>
+                    </select>
+                  </div>
+
+                  {/* Mobile Overlay */}
+                  <div className="space-y-2 p-2 bg-white rounded border border-slate-200">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        id="mobile_overlay_enabled"
+                        checked={content.mobile_overlay_enabled || false}
+                        onChange={(e) => updateContent('mobile_overlay_enabled', e.target.checked)}
+                        className="rounded"
+                      />
+                      <label htmlFor="mobile_overlay_enabled" className="text-sm font-medium">Enable Mobile Overlay</label>
+                    </div>
+                    {content.mobile_overlay_enabled && (
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-xs font-medium mb-1">Overlay Color</label>
+                          <input
+                            type="color"
+                            value={content.mobile_overlay_color || '#000000'}
+                            onChange={(e) => updateContent('mobile_overlay_color', e.target.value)}
+                            className="w-full h-8 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium mb-1">Opacity (%)</label>
+                          <input
+                            type="number"
+                            value={content.mobile_overlay_opacity || 50}
+                            onChange={(e) => updateContent('mobile_overlay_opacity', e.target.value)}
+                            className="w-full px-2 py-1 border border-slate-300 rounded-md text-sm"
+                            min="0"
+                            max="100"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Mobile Typography Toggle */}
+            <div className="space-y-3 p-3 bg-slate-50 rounded-md">
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="mobile_custom_typography"
+                  checked={content.mobile_custom_typography || false}
+                  onChange={(e) => updateContent('mobile_custom_typography', e.target.checked)}
+                  className="rounded"
+                />
+                <label htmlFor="mobile_custom_typography" className="text-sm font-medium">Use custom mobile typography</label>
+              </div>
+              <p className="text-xs text-slate-500">
+                When enabled, you can set different font sizes for mobile. Otherwise, sizes are automatically scaled from desktop values.
+              </p>
+              
+              {content.mobile_custom_typography && (
+                <div className="space-y-3 pt-2">
+                  <div>
+                    <label className="block text-sm font-medium mb-1">
+                      Mobile Header Font Size (px)
+                      <span className="text-xs text-slate-500 ml-2">Default: {defaultMobileFontSize}px</span>
+                    </label>
+                    <input
+                      type="number"
+                      value={content.mobile_font_size || ''}
+                      onChange={(e) => updateContent('mobile_font_size', e.target.value)}
+                      placeholder={String(defaultMobileFontSize)}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                      min="16"
+                      max="72"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Mobile Subheading Font Size (px)</label>
+                    <input
+                      type="number"
+                      value={content.mobile_subheading_font_size || ''}
+                      onChange={(e) => updateContent('mobile_subheading_font_size', e.target.value)}
+                      placeholder="Auto"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                      min="12"
+                      max="48"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Mobile Content Font Size (px)</label>
+                    <input
+                      type="number"
+                      value={content.mobile_content_font_size || ''}
+                      onChange={(e) => updateContent('mobile_content_font_size', e.target.value)}
+                      placeholder="Auto"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                      min="12"
+                      max="32"
+                    />
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Mobile Height */}
