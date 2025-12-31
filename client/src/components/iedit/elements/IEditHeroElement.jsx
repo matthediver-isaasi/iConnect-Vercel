@@ -549,7 +549,8 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
                   style={{ 
                     display: 'block', 
                     width: '100%', 
-                    height: 'auto' 
+                    height: 'auto',
+                    border: '3px solid red'
                   }}
                 />
                 {effectiveMobileOverlayEnabled && (
