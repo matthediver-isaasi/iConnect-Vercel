@@ -352,6 +352,7 @@ export default function IEditPageHeaderHeroElement({ content = {}, variant, sett
               padding-right: ${mobilePaddingHorizontal}px;
               padding-top: ${mobilePaddingVertical}px;
               padding-bottom: ${mobilePaddingVertical}px;
+              align-items: flex-start !important;
             }
             
             .${instanceId} .hero-text-box {
@@ -403,6 +404,7 @@ export default function IEditPageHeaderHeroElement({ content = {}, variant, sett
             padding-right: ${mobilePaddingHorizontal}px;
             padding-top: ${mobilePaddingVertical}px;
             padding-bottom: ${mobilePaddingVertical}px;
+            align-items: flex-start !important;
           }
           .${instanceId}.mobile-preview .hero-text-box {
             max-width: 100% !important;
