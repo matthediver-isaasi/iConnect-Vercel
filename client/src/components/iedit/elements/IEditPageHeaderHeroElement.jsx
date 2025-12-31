@@ -334,15 +334,17 @@ export default function IEditPageHeaderHeroElement({ content = {}, variant, sett
           /* Mobile styles - below 768px */
           @media (max-width: 767px) {
             .${instanceId} {
-              ${mobileHeight.minHeight ? `min-height: ${mobileHeight.minHeight};` : ''}
+              min-height: ${mobileHeight.minHeight || '400px'};
               ${mobileHeight.height ? `height: ${mobileHeight.height};` : ''}
             }
             
             .${instanceId} .hero-bg-desktop {
-              display: none;
+              display: none !important;
             }
             .${instanceId} .hero-bg-mobile {
-              display: block;
+              display: block !important;
+              position: absolute !important;
+              inset: 0 !important;
             }
             
             .${instanceId} .hero-content {
