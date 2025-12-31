@@ -128,6 +128,11 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
   const mobileHeadingFontSize = mobile_heading_font_size || defaultMobileHeadingSize;
   const mobileSubheadingFontSize = mobile_subheading_font_size || defaultMobileSubheadingSize;
   const mobileContentFontSize = mobile_content_font_size || defaultMobileContentSize;
+  
+  // DEBUG: Log mobile font size values
+  console.log('[Hero Render] mobile_heading_font_size from content:', mobile_heading_font_size);
+  console.log('[Hero Render] defaultMobileHeadingSize:', defaultMobileHeadingSize);
+  console.log('[Hero Render] Final mobileHeadingFontSize:', mobileHeadingFontSize);
   // For non-font-size properties, only use custom values if mobile_custom_typography is explicitly enabled
   const effectiveMobileTextColor = mobile_custom_typography && mobile_text_color ? mobile_text_color : text_color;
   const mobileHeadingLineHeight = mobile_custom_typography && mobile_heading_line_height ? mobile_heading_line_height : heading_line_height;
@@ -1311,6 +1316,9 @@ export function IEditHeroElementEditor({ element, onChange }) {
                   const updates = { heading_typography_style_id: styleId };
                   if (style) {
                     const mapped = applyTypographyStyle(style);
+                    console.log('[Hero Typography] Selected style:', style);
+                    console.log('[Hero Typography] Mapped values:', mapped);
+                    console.log('[Hero Typography] font_size_mobile from style:', style.font_size_mobile);
                     if (mapped.font_family) updates.heading_font_family = mapped.font_family;
                     if (mapped.font_size) updates.heading_font_size = mapped.font_size;
                     if (mapped.font_size_mobile) updates.mobile_heading_font_size = mapped.font_size_mobile;
@@ -1318,6 +1326,7 @@ export function IEditHeroElementEditor({ element, onChange }) {
                     if (mapped.line_height) updates.heading_line_height = mapped.line_height;
                     if (mapped.text_transform) updates.heading_text_transform = mapped.text_transform;
                     if (mapped.font_weight) updates.heading_font_weight = mapped.font_weight;
+                    console.log('[Hero Typography] Updates being applied:', updates);
                   }
                   updateMultipleContent(updates);
                 }}
