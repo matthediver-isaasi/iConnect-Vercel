@@ -538,6 +538,8 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
               gridColumn: '1 / -1',
               gridRow: '1 / -1',
               position: 'relative',
+              height: '100%',
+              overflow: 'hidden',
               ...(effectiveMobileBgType !== 'image' ? getMobileBackgroundStyle() : {})
             }}
           >
@@ -549,7 +551,7 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
                   style={{ 
                     display: 'block', 
                     width: '100%', 
-                    height: 'auto',
+                    height: '100%',
                     objectFit: effectiveMobileImageFit,
                     border: '3px solid red'
                   }}
