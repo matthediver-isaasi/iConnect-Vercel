@@ -176,16 +176,19 @@ export default function IEditFeaturedJobElement({ content, variant, settings }) 
 
   // Generate unique ID for CSS scoping
   const elementId = `featured-job-${anchor || 'default'}`;
+  const mobileMinHeight = mobile_top_height + mobile_bottom_height;
   
   // Default: Split background layout
   return (
     <div 
       id={anchor || undefined}
       className="relative w-full overflow-hidden"
-      style={{ minHeight: `${min_height}px` }}
     >
-      {/* CSS for responsive background heights */}
+      {/* CSS for responsive container and background heights */}
       <style>{`
+        #${anchor || elementId}-container {
+          min-height: ${mobileMinHeight}px;
+        }
         #${elementId}-bg-top {
           height: ${mobile_top_height}px;
         }
@@ -193,6 +196,9 @@ export default function IEditFeaturedJobElement({ content, variant, settings }) 
           height: ${mobile_bottom_height}px;
         }
         @media (min-width: 1024px) {
+          #${anchor || elementId}-container {
+            min-height: ${min_height}px;
+          }
           #${elementId}-bg-top,
           #${elementId}-bg-bottom {
             height: 100%;
@@ -200,8 +206,10 @@ export default function IEditFeaturedJobElement({ content, variant, settings }) 
         }
       `}</style>
       
-      {/* Full-bleed split background - stacks vertically on mobile, horizontal on lg+ */}
-      <div className="absolute inset-0 flex flex-col lg:flex-row">
+      {/* Wrapper with responsive min-height */}
+      <div id={`${anchor || elementId}-container`} className="relative w-full">
+        {/* Full-bleed split background - stacks vertically on mobile, horizontal on lg+ */}
+        <div className="absolute inset-0 flex flex-col lg:flex-row">
         {/* Left/Top half - Gradient */}
         <div 
           id={`${elementId}-bg-top`}
@@ -265,6 +273,7 @@ export default function IEditFeaturedJobElement({ content, variant, settings }) 
             )}
           </div>
         </div>
+      </div>
       </div>
     </div>
   );
