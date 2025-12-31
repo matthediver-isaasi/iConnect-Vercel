@@ -16,7 +16,8 @@ export default function IEditButtonBlockElement({ content, variant, settings, pr
   const fullWidth = settings?.fullWidth;
   
   // Debug log
-  console.log('[ButtonBlock] previewViewport:', previewViewport, 'isMobilePreview:', isMobilePreview, 'instanceId:', instanceId);
+  const finalClassName = `buttonblock-${instanceId} ${fullWidth ? 'w-screen relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw]' : ''} ${isMobilePreview ? 'mobile-preview' : ''}`;
+  console.log('[ButtonBlock] previewViewport:', previewViewport, 'isMobilePreview:', isMobilePreview, 'className:', finalClassName.trim());
   
   const { 
     anchor,
