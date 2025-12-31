@@ -677,12 +677,19 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
         
         {/* Mobile image background (only if different from desktop or if desktop has image) */}
         {effectiveMobileBgType === 'image' && effectiveMobileImageUrl && (
-          <div className="hero-bg-mobile absolute inset-0">
+          <div className="hero-bg-mobile absolute inset-0" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
             <img 
               src={effectiveMobileImageUrl} 
               alt={content.heading || 'Hero background'} 
-              className="absolute inset-0 w-full h-full"
-              style={{ objectFit: effectiveMobileImageFit }}
+              style={{ 
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                height: '100%',
+                objectFit: effectiveMobileImageFit,
+                border: '3px solid red'
+              }}
             />
             {effectiveMobileOverlayEnabled && (
               <div 
