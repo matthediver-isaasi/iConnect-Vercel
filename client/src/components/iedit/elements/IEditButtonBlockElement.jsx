@@ -185,8 +185,6 @@ export default function IEditButtonBlockElement({ content, variant, settings, pr
       padding-bottom: ${mobilePaddingBottom}px;
       padding-left: ${mobilePaddingLeft}px;
       padding-right: ${mobilePaddingRight}px;
-      /* DEBUG: Add visible border to confirm mobile preview CSS is being applied */
-      outline: 3px solid red !important;
     }
     
     .buttonblock-${instanceId}[data-viewport="mobile"] .bb-text-wrapper {

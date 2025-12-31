@@ -122,10 +122,13 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
   const defaultMobilePaddingBottom = Math.max(40, Math.round(padding_bottom * 0.5));
   const defaultMobileButtonMargin = Math.max(16, Math.round(button_top_margin * 0.75));
 
-  // Typography: Only use custom mobile values if mobile_custom_typography is true
-  const mobileHeadingFontSize = mobile_custom_typography && mobile_heading_font_size ? mobile_heading_font_size : defaultMobileHeadingSize;
-  const mobileSubheadingFontSize = mobile_custom_typography && mobile_subheading_font_size ? mobile_subheading_font_size : defaultMobileSubheadingSize;
-  const mobileContentFontSize = mobile_custom_typography && mobile_content_font_size ? mobile_content_font_size : defaultMobileContentSize;
+  // Typography: Use mobile values from typography style OR custom mobile values if set
+  // When inheriting from desktop (mobile_custom_typography=false), still use mobile_heading_font_size if set by typography style
+  // Only fall back to auto-scaled defaults if no mobile font size is set at all
+  const mobileHeadingFontSize = mobile_heading_font_size || defaultMobileHeadingSize;
+  const mobileSubheadingFontSize = mobile_subheading_font_size || defaultMobileSubheadingSize;
+  const mobileContentFontSize = mobile_content_font_size || defaultMobileContentSize;
+  // For non-font-size properties, only use custom values if mobile_custom_typography is explicitly enabled
   const effectiveMobileTextColor = mobile_custom_typography && mobile_text_color ? mobile_text_color : text_color;
   const mobileHeadingLineHeight = mobile_custom_typography && mobile_heading_line_height ? mobile_heading_line_height : heading_line_height;
   const mobileHeadingLetterSpacing = mobile_custom_typography && mobile_heading_letter_spacing !== undefined ? mobile_heading_letter_spacing : heading_letter_spacing;
