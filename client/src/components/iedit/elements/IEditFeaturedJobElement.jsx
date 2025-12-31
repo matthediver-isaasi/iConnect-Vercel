@@ -93,6 +93,20 @@ export default function IEditFeaturedJobElement({ content, variant, settings }) 
     mobile_top_height = 400,
     mobile_bottom_height = 400,
     
+    // Mobile typography (defaults to smaller sizes)
+    mobile_heading_font_size = 36,
+    mobile_subheading_font_size = 14,
+    mobile_header_label_font_size = 12,
+    mobile_job_title_font_size = 24,
+    mobile_job_detail_font_size = 14,
+    mobile_button_font_size = 12,
+    
+    // Mobile spacing
+    mobile_vertical_padding = 24,
+    mobile_card_margin = 16,
+    mobile_card_inner_padding = 20,
+    mobile_outer_padding = 16,
+    
     // Anchor
     anchor
   } = content || {};
@@ -141,30 +155,97 @@ export default function IEditFeaturedJobElement({ content, variant, settings }) 
     return days >= 0 && days <= 7;
   };
 
+  // Generate unique ID for CSS scoping (used by both layouts)
+  const elementId = `featured-job-${anchor || 'default'}`;
+  
+  // Responsive CSS for typography and spacing (shared by both layouts)
+  const responsiveStyles = `
+    /* Mobile typography */
+    #${elementId}-heading {
+      font-size: ${mobile_heading_font_size}px;
+    }
+    #${elementId}-subheading {
+      font-size: ${mobile_subheading_font_size}px;
+    }
+    #${elementId}-header-label {
+      font-size: ${mobile_header_label_font_size}px;
+    }
+    #${elementId}-job-title {
+      font-size: ${mobile_job_title_font_size}px;
+    }
+    #${elementId}-job-details .job-detail-row {
+      font-size: ${mobile_job_detail_font_size}px;
+    }
+    #${elementId}-button {
+      font-size: ${mobile_button_font_size}px;
+    }
+    #${elementId}-right-header {
+      font-size: ${mobile_header_label_font_size}px;
+    }
+    
+    /* Desktop typography overrides */
+    @media (min-width: 1024px) {
+      #${elementId}-heading {
+        font-size: ${heading_font_size}px;
+      }
+      #${elementId}-subheading {
+        font-size: ${subheading_font_size}px;
+      }
+      #${elementId}-header-label {
+        font-size: ${header_label_font_size}px;
+      }
+      #${elementId}-job-title {
+        font-size: ${job_title_font_size}px;
+      }
+      #${elementId}-job-details .job-detail-row {
+        font-size: ${job_detail_font_size}px;
+      }
+      #${elementId}-button {
+        font-size: ${button_font_size}px;
+      }
+      #${elementId}-right-header {
+        font-size: ${right_header_font_size}px;
+      }
+    }
+  `;
+
   // Full-width gradient banner layout
   if (layout_style === 'full-width') {
     return (
-      <div id={anchor || undefined} className="w-full" style={{ ...gradientStyle, padding: `${vertical_padding}px 0` }}>
-        <div className="max-w-6xl mx-auto px-8">
-          <div className="flex flex-col lg:flex-row items-center gap-8">
+      <div id={anchor || undefined} className="w-full" style={gradientStyle}>
+        <style>{responsiveStyles}</style>
+        <style>{`
+          #${elementId}-fw-wrapper {
+            padding: ${mobile_vertical_padding}px ${mobile_outer_padding}px;
+          }
+          @media (min-width: 1024px) {
+            #${elementId}-fw-wrapper {
+              padding: ${vertical_padding}px 32px;
+            }
+          }
+        `}</style>
+        <div id={`${elementId}-fw-wrapper`} className="max-w-6xl mx-auto">
+          <div className="flex flex-col lg:flex-row items-center gap-4 lg:gap-8">
             {/* Left - Static content */}
             <div className="flex-1">
               <StaticContent 
                 content={content} 
                 textColorOverride="#FFFFFF"
                 underlineColorOverride="rgba(255,255,255,0.5)"
+                elementId={elementId}
               />
             </div>
 
             {/* Right - Job details */}
             {featuredJob && (
               <div className="flex-1">
-                <RightSideHeader content={content} colorOverride="#FFFFFF" />
+                <RightSideHeader content={content} colorOverride="#FFFFFF" elementId={elementId} />
                 <JobDetails 
                   job={featuredJob}
                   content={content}
                   formatClosingDate={formatClosingDate}
                   isClosingSoon={isClosingSoon}
+                  elementId={elementId}
                 />
               </div>
             )}
@@ -174,8 +255,6 @@ export default function IEditFeaturedJobElement({ content, variant, settings }) 
     );
   }
 
-  // Generate unique ID for CSS scoping
-  const elementId = `featured-job-${anchor || 'default'}`;
   const mobileMinHeight = mobile_top_height + mobile_bottom_height;
   
   // Default: Split background layout
@@ -184,8 +263,12 @@ export default function IEditFeaturedJobElement({ content, variant, settings }) 
       id={anchor || undefined}
       className="relative w-full overflow-hidden"
     >
-      {/* CSS for responsive container and background heights */}
+      {/* Shared responsive typography CSS */}
+      <style>{responsiveStyles}</style>
+      
+      {/* CSS for container, backgrounds, and spacing (split layout specific) */}
       <style>{`
+        /* Mobile-first container */
         #${anchor || elementId}-container {
           min-height: ${mobileMinHeight}px;
         }
@@ -195,6 +278,19 @@ export default function IEditFeaturedJobElement({ content, variant, settings }) 
         #${elementId}-bg-bottom {
           height: ${mobile_bottom_height}px;
         }
+        
+        /* Mobile spacing */
+        #${elementId}-content-wrapper {
+          padding: ${mobile_vertical_padding}px ${mobile_outer_padding}px;
+        }
+        #${elementId}-card-wrapper {
+          padding: ${mobile_card_margin}px;
+        }
+        #${elementId}-card {
+          padding: ${mobile_card_inner_padding}px;
+        }
+        
+        /* Desktop overrides */
         @media (min-width: 1024px) {
           #${anchor || elementId}-container {
             min-height: ${min_height}px;
@@ -203,6 +299,17 @@ export default function IEditFeaturedJobElement({ content, variant, settings }) 
           #${elementId}-bg-bottom {
             height: 100%;
           }
+          
+          /* Desktop spacing */
+          #${elementId}-content-wrapper {
+            padding: ${vertical_padding}px 32px;
+          }
+          #${elementId}-card-wrapper {
+            padding: ${card_margin}px;
+          }
+          #${elementId}-card {
+            padding: ${card_inner_padding}px;
+          }
         }
       `}</style>
       
@@ -210,76 +317,75 @@ export default function IEditFeaturedJobElement({ content, variant, settings }) 
       <div id={`${anchor || elementId}-container`} className="relative w-full">
         {/* Full-bleed split background - stacks vertically on mobile, horizontal on lg+ */}
         <div className="absolute inset-0 flex flex-col lg:flex-row">
-        {/* Left/Top half - Gradient */}
-        <div 
-          id={`${elementId}-bg-top`}
-          className="w-full lg:w-1/2 shrink-0 lg:shrink"
-          style={gradientStyle}
-        />
-        {/* Right/Bottom half - Solid color */}
-        <div 
-          id={`${elementId}-bg-bottom`}
-          className="w-full lg:w-1/2 shrink-0 lg:shrink"
-          style={{ background: right_side_color }}
-        />
-      </div>
-
-      {/* Centered content container */}
-      <div 
-        className="relative max-w-6xl mx-auto h-full flex items-stretch"
-        style={{ padding: `${vertical_padding}px 32px` }}
-      >
-        {/* Two-column grid for content */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 w-full">
-          {/* Left column - Static content in white card (full height with margin from edges) */}
+          {/* Left/Top half - Gradient */}
           <div 
-            className="flex items-stretch justify-center lg:justify-start"
-            style={{ padding: `${card_margin}px` }}
-          >
+            id={`${elementId}-bg-top`}
+            className="w-full lg:w-1/2 shrink-0 lg:shrink"
+            style={gradientStyle}
+          />
+          {/* Right/Bottom half - Solid color */}
+          <div 
+            id={`${elementId}-bg-bottom`}
+            className="w-full lg:w-1/2 shrink-0 lg:shrink"
+            style={{ background: right_side_color }}
+          />
+        </div>
+
+        {/* Centered content container with responsive padding */}
+        <div 
+          id={`${elementId}-content-wrapper`}
+          className="relative max-w-6xl mx-auto h-full flex items-stretch"
+        >
+          {/* Two-column grid for content */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-8 w-full">
+            {/* Left column - Static content in white card */}
             <div 
-              className="shadow-xl flex flex-col justify-center h-full"
-              style={{ 
-                background: card_background,
-                padding: `${card_inner_padding}px`
-              }}
+              id={`${elementId}-card-wrapper`}
+              className="flex items-stretch justify-center lg:justify-start"
             >
-              <StaticContent content={content} />
+              <div 
+                id={`${elementId}-card`}
+                className="shadow-xl flex flex-col justify-center h-full"
+                style={{ background: card_background }}
+              >
+                <StaticContent content={content} elementId={elementId} />
+              </div>
+            </div>
+
+            {/* Right column - Static header + Dynamic job content */}
+            <div className="flex flex-col justify-center px-2 lg:pl-8 lg:px-0">
+              <RightSideHeader content={content} elementId={elementId} />
+              
+              {isLoading ? (
+                <div className="animate-pulse space-y-4 w-full">
+                  <div className="h-8 bg-white/20 rounded w-3/4" />
+                  <div className="h-px bg-white/20 w-full" />
+                  <div className="h-5 bg-white/20 rounded w-1/2" />
+                  <div className="h-px bg-white/20 w-full" />
+                  <div className="h-5 bg-white/20 rounded w-2/3" />
+                </div>
+              ) : featuredJob ? (
+                <JobDetails 
+                  job={featuredJob}
+                  content={content}
+                  formatClosingDate={formatClosingDate}
+                  isClosingSoon={isClosingSoon}
+                  elementId={elementId}
+                />
+              ) : (
+                <div style={{ color: job_detail_color, opacity: job_detail_opacity }}>
+                  No featured job available
+                </div>
+              )}
             </div>
           </div>
-
-          {/* Right column - Static header + Dynamic job content */}
-          <div className="flex flex-col justify-center lg:pl-8">
-            <RightSideHeader content={content} />
-            
-            {isLoading ? (
-              <div className="animate-pulse space-y-4 w-full">
-                <div className="h-8 bg-white/20 rounded w-3/4" />
-                <div className="h-px bg-white/20 w-full" />
-                <div className="h-5 bg-white/20 rounded w-1/2" />
-                <div className="h-px bg-white/20 w-full" />
-                <div className="h-5 bg-white/20 rounded w-2/3" />
-              </div>
-            ) : featuredJob ? (
-              <JobDetails 
-                job={featuredJob}
-                content={content}
-                formatClosingDate={formatClosingDate}
-                isClosingSoon={isClosingSoon}
-              />
-            ) : (
-              <div style={{ color: job_detail_color, opacity: job_detail_opacity }}>
-                No featured job available
-              </div>
-            )}
-          </div>
         </div>
-      </div>
       </div>
     </div>
   );
 }
 
-function StaticContent({ content, textColorOverride, underlineColorOverride }) {
+function StaticContent({ content, textColorOverride, underlineColorOverride, elementId }) {
   const {
     header_label = 'JOBS',
     header_label_font_family = 'Poppins',
@@ -324,12 +430,12 @@ function StaticContent({ content, textColorOverride, underlineColorOverride }) {
   return (
     <div>
       {/* Header label */}
-      <div className="mb-6">
+      <div className="mb-4 lg:mb-6">
         <span 
+          id={elementId ? `${elementId}-header-label` : undefined}
           className="font-bold uppercase"
           style={{ 
             fontFamily: header_label_font_family,
-            fontSize: `${header_label_font_size}px`,
             letterSpacing: `${header_label_letter_spacing}px`,
             lineHeight: `${header_label_line_height}`,
             color: labelColor
@@ -351,10 +457,10 @@ function StaticContent({ content, textColorOverride, underlineColorOverride }) {
 
       {/* Main heading */}
       <h2 
-        className="font-medium whitespace-pre-line mb-6"
+        id={elementId ? `${elementId}-heading` : undefined}
+        className="font-medium whitespace-pre-line mb-4 lg:mb-6"
         style={{ 
           fontFamily: heading_font_family,
-          fontSize: `${heading_font_size}px`,
           lineHeight: `${heading_line_height}em`,
           letterSpacing: `${heading_letter_spacing}px`,
           color: headingColorFinal
@@ -366,10 +472,10 @@ function StaticContent({ content, textColorOverride, underlineColorOverride }) {
       {/* Subheading */}
       {subheading && (
         <p
-          className="mb-8"
+          id={elementId ? `${elementId}-subheading` : undefined}
+          className="mb-6 lg:mb-8"
           style={{
             fontFamily: subheading_font_family,
-            fontSize: `${subheading_font_size}px`,
             letterSpacing: `${subheading_letter_spacing}px`,
             lineHeight: `${subheading_line_height}`,
             color: subheadingColorFinal
@@ -381,10 +487,11 @@ function StaticContent({ content, textColorOverride, underlineColorOverride }) {
 
       {/* Button */}
       {button_text && (
-        <div className="mt-8">
+        <div className="mt-6 lg:mt-8">
           <Link to={button_url}>
             <button 
-              className={`inline-flex items-center gap-3 px-6 py-3 font-semibold transition-all ${
+              id={elementId ? `${elementId}-button` : undefined}
+              className={`inline-flex items-center gap-2 lg:gap-3 px-4 lg:px-6 py-2 lg:py-3 font-semibold transition-all ${
                 button_style === 'filled' 
                   ? 'hover:opacity-90' 
                   : 'border-2 hover:bg-black/5'
@@ -394,12 +501,11 @@ function StaticContent({ content, textColorOverride, underlineColorOverride }) {
                 color: button_style === 'filled' ? '#FFFFFF' : buttonColorFinal,
                 background: button_style === 'filled' ? buttonColorFinal : 'transparent',
                 fontFamily: button_font_family,
-                fontSize: `${button_font_size}px`,
                 letterSpacing: `${button_letter_spacing}px`
               }}
             >
               {button_text}
-              <ArrowRight className="w-5 h-5" />
+              <ArrowRight className="w-4 h-4 lg:w-5 lg:h-5" />
             </button>
           </Link>
         </div>
@@ -408,7 +514,7 @@ function StaticContent({ content, textColorOverride, underlineColorOverride }) {
   );
 }
 
-function RightSideHeader({ content, colorOverride }) {
+function RightSideHeader({ content, colorOverride, elementId }) {
   const {
     right_header_text = '',
     right_header_font_family = 'Poppins',
@@ -431,10 +537,10 @@ function RightSideHeader({ content, colorOverride }) {
   return (
     <div style={{ marginBottom: `${right_header_underline_to_content_spacing}px` }}>
       <span 
+        id={elementId ? `${elementId}-right-header` : undefined}
         className="font-bold uppercase"
         style={{ 
           fontFamily: right_header_font_family,
-          fontSize: `${right_header_font_size}px`,
           letterSpacing: `${right_header_letter_spacing}px`,
           lineHeight: `${right_header_line_height}`,
           color: headerColor
@@ -456,7 +562,7 @@ function RightSideHeader({ content, colorOverride }) {
   );
 }
 
-function JobDetails({ job, content, formatClosingDate, isClosingSoon }) {
+function JobDetails({ job, content, formatClosingDate, isClosingSoon, elementId }) {
   const {
     job_title_font_family = 'Poppins',
     job_title_font_size = 32,
@@ -487,10 +593,10 @@ function JobDetails({ job, content, formatClosingDate, isClosingSoon }) {
     >
       {/* Job title as header */}
       <h3 
-        className="font-semibold mb-6 group-hover:underline"
+        id={elementId ? `${elementId}-job-title` : undefined}
+        className="font-semibold mb-4 lg:mb-6 group-hover:underline"
         style={{
           fontFamily: job_title_font_family,
-          fontSize: `${job_title_font_size}px`,
           letterSpacing: `${job_title_letter_spacing}px`,
           lineHeight: `${job_title_line_height}`,
           color: job_title_color
@@ -500,7 +606,7 @@ function JobDetails({ job, content, formatClosingDate, isClosingSoon }) {
       </h3>
 
       {/* Details with dividers */}
-      <div className="space-y-0">
+      <div id={elementId ? `${elementId}-job-details` : undefined} className="space-y-0">
         {details.map((detail, index) => (
           <div key={detail.label}>
             {/* Divider line */}
@@ -513,19 +619,18 @@ function JobDetails({ job, content, formatClosingDate, isClosingSoon }) {
             
             {/* Detail row */}
             <div 
-              className="flex items-center gap-3 py-4"
+              className="job-detail-row flex items-center gap-2 lg:gap-3 py-3 lg:py-4"
               style={{
                 fontFamily: job_detail_font_family,
-                fontSize: `${job_detail_font_size}px`,
                 letterSpacing: `${job_detail_letter_spacing}px`,
                 lineHeight: `${job_detail_line_height}`,
                 color: job_detail_color,
                 opacity: job_detail_opacity
               }}
             >
-              <detail.icon className="w-5 h-5 flex-shrink-0" />
-              <span className="font-medium min-w-[120px]">{detail.label}:</span>
-              <span className="flex items-center gap-2">
+              <detail.icon className="w-4 h-4 lg:w-5 lg:h-5 flex-shrink-0" />
+              <span className="font-medium min-w-[80px] lg:min-w-[120px]">{detail.label}:</span>
+              <span className="flex items-center gap-2 flex-wrap">
                 {detail.value}
                 {detail.isClosingSoon && (
                   <span className="px-2 py-0.5 text-xs font-medium rounded bg-amber-500 text-white">
@@ -665,6 +770,118 @@ export function IEditFeaturedJobElementEditor({ element, onChange }) {
             </div>
           </div>
         )}
+
+        {/* Mobile Responsive Settings */}
+        <div className="border rounded-lg p-3 bg-blue-50 space-y-4">
+          <div>
+            <label className="text-sm font-medium text-blue-800">Mobile Responsive Settings</label>
+            <p className="text-xs text-blue-600 mt-1">These settings apply on screens smaller than 1024px width.</p>
+          </div>
+          
+          {/* Mobile Typography */}
+          <div className="space-y-3">
+            <label className="text-xs font-semibold uppercase tracking-wide text-blue-700">Mobile Typography (px)</label>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-xs text-slate-600">Main Heading</label>
+                <input 
+                  type="number"
+                  value={content.mobile_heading_font_size || 36}
+                  onChange={(e) => updateContent('mobile_heading_font_size', parseInt(e.target.value))}
+                  className="w-full px-2 py-1.5 border rounded text-sm"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-slate-600">Subheading</label>
+                <input 
+                  type="number"
+                  value={content.mobile_subheading_font_size || 14}
+                  onChange={(e) => updateContent('mobile_subheading_font_size', parseInt(e.target.value))}
+                  className="w-full px-2 py-1.5 border rounded text-sm"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-slate-600">Header Labels</label>
+                <input 
+                  type="number"
+                  value={content.mobile_header_label_font_size || 12}
+                  onChange={(e) => updateContent('mobile_header_label_font_size', parseInt(e.target.value))}
+                  className="w-full px-2 py-1.5 border rounded text-sm"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-slate-600">Button Text</label>
+                <input 
+                  type="number"
+                  value={content.mobile_button_font_size || 12}
+                  onChange={(e) => updateContent('mobile_button_font_size', parseInt(e.target.value))}
+                  className="w-full px-2 py-1.5 border rounded text-sm"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-slate-600">Job Title</label>
+                <input 
+                  type="number"
+                  value={content.mobile_job_title_font_size || 24}
+                  onChange={(e) => updateContent('mobile_job_title_font_size', parseInt(e.target.value))}
+                  className="w-full px-2 py-1.5 border rounded text-sm"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-slate-600">Job Details</label>
+                <input 
+                  type="number"
+                  value={content.mobile_job_detail_font_size || 14}
+                  onChange={(e) => updateContent('mobile_job_detail_font_size', parseInt(e.target.value))}
+                  className="w-full px-2 py-1.5 border rounded text-sm"
+                />
+              </div>
+            </div>
+          </div>
+          
+          {/* Mobile Spacing */}
+          <div className="space-y-3 border-t border-blue-200 pt-3">
+            <label className="text-xs font-semibold uppercase tracking-wide text-blue-700">Mobile Spacing (px)</label>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-xs text-slate-600">Vertical Padding</label>
+                <input 
+                  type="number"
+                  value={content.mobile_vertical_padding || 24}
+                  onChange={(e) => updateContent('mobile_vertical_padding', parseInt(e.target.value))}
+                  className="w-full px-2 py-1.5 border rounded text-sm"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-slate-600">Outer Padding</label>
+                <input 
+                  type="number"
+                  value={content.mobile_outer_padding || 16}
+                  onChange={(e) => updateContent('mobile_outer_padding', parseInt(e.target.value))}
+                  className="w-full px-2 py-1.5 border rounded text-sm"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-slate-600">Card Margin</label>
+                <input 
+                  type="number"
+                  value={content.mobile_card_margin || 16}
+                  onChange={(e) => updateContent('mobile_card_margin', parseInt(e.target.value))}
+                  className="w-full px-2 py-1.5 border rounded text-sm"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-slate-600">Card Inner Padding</label>
+                <input 
+                  type="number"
+                  value={content.mobile_card_inner_padding || 20}
+                  onChange={(e) => updateContent('mobile_card_inner_padding', parseInt(e.target.value))}
+                  className="w-full px-2 py-1.5 border rounded text-sm"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Background Colors */}
