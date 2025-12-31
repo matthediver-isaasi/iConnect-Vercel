@@ -200,6 +200,7 @@ export default function DraggableEditModal({
                     memberInfo={null}
                     organizationInfo={null}
                     isFirst={false}
+                    previewViewport={previewMode}
                   />
                 </div>
               </div>
