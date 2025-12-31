@@ -550,8 +550,7 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
                   style={{ 
                     display: 'block', 
                     width: '100%', 
-                    height: 'auto',
-                    border: '3px solid red'
+                    height: 'auto'
                   }}
                 />
                 {effectiveMobileOverlayEnabled && (
@@ -685,8 +684,7 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
                 left: 0,
                 width: '100%',
                 height: '100%',
-                objectFit: effectiveMobileImageFit,
-                border: '3px solid red'
+                objectFit: effectiveMobileImageFit
               }}
             />
             {effectiveMobileOverlayEnabled && (
