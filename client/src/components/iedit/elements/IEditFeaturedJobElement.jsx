@@ -177,16 +177,16 @@ export default function IEditFeaturedJobElement({ content, variant, settings }) 
       className="relative w-full overflow-hidden"
       style={{ minHeight: `${min_height}px` }}
     >
-      {/* Full-bleed split background */}
-      <div className="absolute inset-0 flex">
-        {/* Left half - Gradient */}
+      {/* Full-bleed split background - stacks vertically on mobile, horizontal on lg+ */}
+      <div className="absolute inset-0 flex flex-col lg:flex-row">
+        {/* Left/Top half - Gradient */}
         <div 
-          className="w-1/2 h-full"
+          className="w-full lg:w-1/2 h-1/2 lg:h-full"
           style={gradientStyle}
         />
-        {/* Right half - Solid color */}
+        {/* Right/Bottom half - Solid color */}
         <div 
-          className="w-1/2 h-full"
+          className="w-full lg:w-1/2 h-1/2 lg:h-full"
           style={{ background: right_side_color }}
         />
       </div>
