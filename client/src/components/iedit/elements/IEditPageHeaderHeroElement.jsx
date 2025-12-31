@@ -290,6 +290,14 @@ export default function IEditPageHeaderHeroElement({ content, variant, settings,
             display: none;
           }
           
+          /* Mobile preview class override for editor preview mode */
+          .${instanceId}.mobile-preview .hero-bg-desktop {
+            display: none !important;
+          }
+          .${instanceId}.mobile-preview .hero-bg-mobile {
+            display: block !important;
+          }
+          
           .${instanceId} .hero-subheading p,
           .${instanceId} .hero-body-text p {
             margin: 0 0 0.5em 0;
