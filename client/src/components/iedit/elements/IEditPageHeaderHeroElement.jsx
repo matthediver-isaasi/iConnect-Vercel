@@ -491,6 +491,11 @@ export default function IEditPageHeaderHeroElement({ content = {}, variant, sett
           )}
         </div>
         
+        {/* DEBUG: Show desktop background status */}
+        <div style={{ background: 'blue', color: 'white', padding: '5px', fontSize: '10px', position: 'relative', zIndex: 9999 }}>
+          Desktop BG: type={background_type}, hasUrl={!!image_url}, mobile_bg_type={mobile_background_type}, effectiveMobileBgType={effectiveMobileBgType}
+        </div>
+        
         <div 
           className={`hero-content ${background_type === 'image' && image_fit === 'original' ? 'absolute inset-0 flex items-center' : 'relative h-full flex items-center'} max-w-7xl mx-auto z-10`}
         >
