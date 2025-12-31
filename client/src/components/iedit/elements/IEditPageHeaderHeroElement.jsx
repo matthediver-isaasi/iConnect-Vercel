@@ -144,27 +144,32 @@ export default function IEditPageHeaderHeroElement({ content = {}, variant, sett
   const effectiveContentLetterSpacing = contentTypographyStyle?.letter_spacing ?? (content?.content_letter_spacing || 0);
   const effectiveContentLineHeight = contentTypographyStyle?.line_height || content?.content_line_height || 1.6;
 
-  // Auto-scaled default values for mobile (fallback only)
-  const defaultMobileHeadingSize = Math.max(24, Math.round(effectiveHeaderFontSize * 0.6));
-  const defaultMobileSubheadingSize = Math.max(16, Math.round(effectiveSubheadingFontSize * 0.75));
-  const defaultMobileContentSize = Math.max(14, Math.round(effectiveContentFontSize * 0.9));
+  // Auto-scaled default values for mobile (fallback only - used when "Use Desktop Typography" is checked)
+  // Guard against NaN by ensuring we have valid numbers
+  const safeHeaderFontSize = isNaN(effectiveHeaderFontSize) ? 48 : effectiveHeaderFontSize;
+  const safeSubheadingFontSize = isNaN(effectiveSubheadingFontSize) ? 24 : effectiveSubheadingFontSize;
+  const safeContentFontSize = isNaN(effectiveContentFontSize) ? 16 : effectiveContentFontSize;
+  
+  const defaultMobileHeadingSize = Math.max(24, Math.round(safeHeaderFontSize * 0.6));
+  const defaultMobileSubheadingSize = Math.max(16, Math.round(safeSubheadingFontSize * 0.75));
+  const defaultMobileContentSize = Math.max(14, Math.round(safeContentFontSize * 0.9));
 
-  // Typography: Look up mobile font sizes from current typography style (live from InstalledFonts)
-  // Priority: 1) Typography style's font_size_mobile, 2) Saved mobile value, 3) Auto-scaled default
-  const mobileFontSize = 
-    headerTypographyStyle?.font_size_mobile ||
-    mobile_font_size ||
-    defaultMobileHeadingSize;
-  const mobileSubheadingFontSize = 
-    subheadingTypographyStyle?.font_size_mobile ||
-    mobile_subheading_font_size ||
-    defaultMobileSubheadingSize;
-  const mobileContentFontSize = 
-    contentTypographyStyle?.font_size_mobile ||
-    mobile_content_font_size ||
-    defaultMobileContentSize;
+  // Typography: Determine mobile font sizes based on "Use Desktop Typography" toggle
+  // When mobile_custom_typography is FALSE (Use Desktop Typography is checked):
+  //   - Use auto-scaled desktop sizes, bypassing typography style's font_size_mobile
+  // When mobile_custom_typography is TRUE (custom mobile settings):
+  //   - Priority: 1) Typography style's font_size_mobile, 2) Saved mobile value, 3) Auto-scaled default
+  const mobileFontSize = mobile_custom_typography
+    ? (headerTypographyStyle?.font_size_mobile || mobile_font_size || defaultMobileHeadingSize)
+    : defaultMobileHeadingSize;
+  const mobileSubheadingFontSize = mobile_custom_typography
+    ? (subheadingTypographyStyle?.font_size_mobile || mobile_subheading_font_size || defaultMobileSubheadingSize)
+    : defaultMobileSubheadingSize;
+  const mobileContentFontSize = mobile_custom_typography
+    ? (contentTypographyStyle?.font_size_mobile || mobile_content_font_size || defaultMobileContentSize)
+    : defaultMobileContentSize;
 
-  // For non-font-size properties, only use custom values if mobile_custom_typography is explicitly enabled
+  // For non-font-size properties: use custom values only if mobile_custom_typography is enabled
   const effectiveMobileTextColor = mobile_custom_typography && mobile_text_color ? mobile_text_color : header_color;
   const mobileHeadingLineHeight = mobile_custom_typography && mobile_heading_line_height ? mobile_heading_line_height : effectiveHeaderLineHeight;
   const mobileHeadingLetterSpacing = mobile_custom_typography && mobile_heading_letter_spacing !== undefined ? mobile_heading_letter_spacing : effectiveHeaderLetterSpacing;
@@ -205,29 +210,6 @@ export default function IEditPageHeaderHeroElement({ content = {}, variant, sett
     if (mobile_height_type === 'full') return { height: '100vh' };
     if (mobile_height_type === 'custom') return { height: `${mobile_custom_height}px` };
     return { minHeight: '250px' };
-  };
-
-  const getBackgroundStyle = () => {
-    if (background_type === 'color') {
-      return { backgroundColor: background_color };
-    }
-    if (background_type === 'gradient') {
-      return { 
-        background: `linear-gradient(${gradient_angle}deg, ${gradient_start_color}, ${gradient_end_color})` 
-      };
-    }
-    return {};
-  };
-
-  // Generate mobile background CSS string
-  const getMobileBackgroundCSS = () => {
-    if (effectiveMobileBgType === 'color') {
-      return `background-color: ${effectiveMobileBgColor};`;
-    }
-    if (effectiveMobileBgType === 'gradient') {
-      return `background: linear-gradient(${effectiveMobileGradientAngle}deg, ${effectiveMobileGradientStart}, ${effectiveMobileGradientEnd});`;
-    }
-    return '';
   };
 
   const desktopHeight = getDesktopHeight();
@@ -310,7 +292,6 @@ export default function IEditPageHeaderHeroElement({ content = {}, variant, sett
             .${instanceId} {
               ${mobileHeight.minHeight ? `min-height: ${mobileHeight.minHeight};` : ''}
               ${mobileHeight.height ? `height: ${mobileHeight.height};` : ''}
-              ${getMobileBackgroundCSS()}
             }
             
             .${instanceId} .hero-bg-desktop {
@@ -362,7 +343,6 @@ export default function IEditPageHeaderHeroElement({ content = {}, variant, sett
           .${instanceId}.mobile-preview {
             ${mobileHeight.minHeight ? `min-height: ${mobileHeight.minHeight};` : ''}
             ${mobileHeight.height ? `height: ${mobileHeight.height};` : ''}
-            ${getMobileBackgroundCSS()}
           }
           .${instanceId}.mobile-preview .hero-bg-desktop {
             display: none !important;
@@ -402,49 +382,70 @@ export default function IEditPageHeaderHeroElement({ content = {}, variant, sett
       <div 
         id={anchor || undefined}
         className={`${instanceId} ${mobilePreviewClass} relative w-full overflow-hidden`}
-        style={{ ...getBackgroundStyle() }}
       >
-        {/* Desktop background image */}
-        {background_type === 'image' && image_url && (
-          <div className="hero-bg-desktop absolute inset-0">
-            <img 
-              src={image_url} 
-              alt={header_text || 'Hero image'} 
-              className={image_fit === 'original' ? 'w-full h-auto block' : 'absolute inset-0 w-full h-full'}
-              style={image_fit === 'original' ? {} : { objectFit: image_fit }}
+        {/* Desktop background (color/gradient/image) */}
+        <div className="hero-bg-desktop absolute inset-0">
+          {background_type === 'color' && (
+            <div className="absolute inset-0" style={{ backgroundColor: background_color }} />
+          )}
+          {background_type === 'gradient' && (
+            <div 
+              className="absolute inset-0" 
+              style={{ background: `linear-gradient(${gradient_angle}deg, ${gradient_start_color}, ${gradient_end_color})` }} 
             />
-            {overlay_enabled && (
-              <div 
-                className="absolute inset-0" 
-                style={{ 
-                  backgroundColor: overlay_color, 
-                  opacity: parseInt(overlay_opacity) / 100 
-                }} 
+          )}
+          {background_type === 'image' && image_url && (
+            <>
+              <img 
+                src={image_url} 
+                alt={header_text || 'Hero image'} 
+                className={image_fit === 'original' ? 'w-full h-auto block' : 'absolute inset-0 w-full h-full'}
+                style={image_fit === 'original' ? {} : { objectFit: image_fit }}
               />
-            )}
-          </div>
-        )}
+              {overlay_enabled && (
+                <div 
+                  className="absolute inset-0" 
+                  style={{ 
+                    backgroundColor: overlay_color, 
+                    opacity: parseInt(overlay_opacity) / 100 
+                  }} 
+                />
+              )}
+            </>
+          )}
+        </div>
         
-        {/* Mobile background image */}
-        {effectiveMobileBgType === 'image' && effectiveMobileImageUrl && (
-          <div className="hero-bg-mobile absolute inset-0">
-            <img 
-              src={effectiveMobileImageUrl} 
-              alt={header_text || 'Hero image'} 
-              className="absolute inset-0 w-full h-full"
-              style={{ objectFit: effectiveMobileImageFit }}
+        {/* Mobile background (color/gradient/image) */}
+        <div className="hero-bg-mobile absolute inset-0">
+          {effectiveMobileBgType === 'color' && (
+            <div className="absolute inset-0" style={{ backgroundColor: effectiveMobileBgColor }} />
+          )}
+          {effectiveMobileBgType === 'gradient' && (
+            <div 
+              className="absolute inset-0" 
+              style={{ background: `linear-gradient(${effectiveMobileGradientAngle}deg, ${effectiveMobileGradientStart}, ${effectiveMobileGradientEnd})` }} 
             />
-            {effectiveMobileOverlayEnabled && (
-              <div 
-                className="absolute inset-0" 
-                style={{ 
-                  backgroundColor: effectiveMobileOverlayColor, 
-                  opacity: parseInt(effectiveMobileOverlayOpacity) / 100 
-                }} 
+          )}
+          {effectiveMobileBgType === 'image' && effectiveMobileImageUrl && (
+            <>
+              <img 
+                src={effectiveMobileImageUrl} 
+                alt={header_text || 'Hero image'} 
+                className="absolute inset-0 w-full h-full"
+                style={{ objectFit: effectiveMobileImageFit }}
               />
-            )}
-          </div>
-        )}
+              {effectiveMobileOverlayEnabled && (
+                <div 
+                  className="absolute inset-0" 
+                  style={{ 
+                    backgroundColor: effectiveMobileOverlayColor, 
+                    opacity: parseInt(effectiveMobileOverlayOpacity) / 100 
+                  }} 
+                />
+              )}
+            </>
+          )}
+        </div>
         
         <div 
           className={`hero-content ${background_type === 'image' && image_fit === 'original' ? 'absolute inset-0 flex items-center' : 'relative h-full flex items-center'} max-w-7xl mx-auto`}
@@ -668,12 +669,18 @@ export function IEditPageHeaderHeroElementEditor({ element, onChange }) {
   
   const mobileBackgroundType = content.mobile_background_type || 'same';
 
-  // Calculate default mobile values for display
-  const defaultMobileFontSize = Math.max(24, Math.round(parseInt(content.header_font_size || 48) * 0.6));
-  const defaultMobileSubheadingFontSize = Math.max(16, Math.round(parseInt(content.subheading_font_size || 24) * 0.75));
-  const defaultMobileContentFontSize = Math.max(14, Math.round(parseInt(content.content_font_size || 16) * 0.9));
-  const defaultMobilePaddingVertical = Math.max(32, Math.round(parseInt(content.padding_vertical || 80) * 0.5));
-  const defaultMobilePaddingHorizontal = Math.max(16, parseInt(content.padding_horizontal || 16));
+  // Calculate default mobile values for display (with NaN guards)
+  const safeHeaderFontSizeEditor = parseInt(content.header_font_size) || 48;
+  const safeSubheadingFontSizeEditor = parseInt(content.subheading_font_size) || 24;
+  const safeContentFontSizeEditor = parseInt(content.content_font_size) || 16;
+  const safePaddingVerticalEditor = parseInt(content.padding_vertical) || 80;
+  const safePaddingHorizontalEditor = parseInt(content.padding_horizontal) || 16;
+  
+  const defaultMobileFontSize = Math.max(24, Math.round(safeHeaderFontSizeEditor * 0.6));
+  const defaultMobileSubheadingFontSize = Math.max(16, Math.round(safeSubheadingFontSizeEditor * 0.75));
+  const defaultMobileContentFontSize = Math.max(14, Math.round(safeContentFontSizeEditor * 0.9));
+  const defaultMobilePaddingVertical = Math.max(32, Math.round(safePaddingVerticalEditor * 0.5));
+  const defaultMobilePaddingHorizontal = Math.max(16, safePaddingHorizontalEditor);
 
   return (
     <div className="space-y-2">
