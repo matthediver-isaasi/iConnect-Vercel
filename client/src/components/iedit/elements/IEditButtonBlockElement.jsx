@@ -121,9 +121,6 @@ export default function IEditButtonBlockElement({ content, variant, settings, pr
 
   // Full width breakout class
   const fullWidthClass = fullWidth ? 'w-screen relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw]' : '';
-  
-  // Mobile preview class (for editor preview mode)
-  const mobilePreviewClass = isMobilePreview ? 'mobile-preview' : '';
 
   // Generate responsive CSS (for actual mobile viewport AND preview mode)
   const responsiveStyles = `
@@ -182,8 +179,8 @@ export default function IEditButtonBlockElement({ content, variant, settings, pr
       ${uniform_button_width ? 'flex: 1 1 0;' : 'flex: none;'}
     }
     
-    /* Mobile preview styles (for editor preview mode) */
-    .buttonblock-${instanceId}.mobile-preview .bb-container {
+    /* Mobile preview styles (for editor preview mode) - using data attribute */
+    .buttonblock-${instanceId}[data-viewport="mobile"] .bb-container {
       padding-top: ${mobilePaddingTop}px;
       padding-bottom: ${mobilePaddingBottom}px;
       padding-left: ${mobilePaddingLeft}px;
@@ -192,11 +189,11 @@ export default function IEditButtonBlockElement({ content, variant, settings, pr
       outline: 3px solid red !important;
     }
     
-    .buttonblock-${instanceId}.mobile-preview .bb-text-wrapper {
+    .buttonblock-${instanceId}[data-viewport="mobile"] .bb-text-wrapper {
       align-items: ${mobileTextAlign === 'center' ? 'center' : mobileTextAlign === 'right' ? 'flex-end' : 'flex-start'};
     }
     
-    .buttonblock-${instanceId}.mobile-preview .bb-heading {
+    .buttonblock-${instanceId}[data-viewport="mobile"] .bb-heading {
       font-size: ${mobileHeadingFontSize}px;
       line-height: ${mobileHeadingLineHeight};
       letter-spacing: ${mobileHeadingLetterSpacing}px;
@@ -204,26 +201,26 @@ export default function IEditButtonBlockElement({ content, variant, settings, pr
       ${effectiveMobileTextColor ? `color: ${effectiveMobileTextColor};` : ''}
     }
     
-    .buttonblock-${instanceId}.mobile-preview .bb-subheading {
+    .buttonblock-${instanceId}[data-viewport="mobile"] .bb-subheading {
       font-size: ${mobileSubheadingFontSize}px;
       line-height: ${mobileSubheadingLineHeight};
       text-align: ${mobileTextAlign};
       ${effectiveMobileTextColor ? `color: ${effectiveMobileTextColor};` : ''}
     }
     
-    .buttonblock-${instanceId}.mobile-preview .bb-content {
+    .buttonblock-${instanceId}[data-viewport="mobile"] .bb-content {
       font-size: ${mobileContentFontSize}px;
       line-height: ${mobileContentLineHeight};
       text-align: ${mobileTextAlign};
       ${effectiveMobileTextColor ? `color: ${effectiveMobileTextColor};` : ''}
     }
     
-    .buttonblock-${instanceId}.mobile-preview .bb-buttons {
+    .buttonblock-${instanceId}[data-viewport="mobile"] .bb-buttons {
       justify-content: ${effectiveMobileButtonAlignment === 'center' ? 'center' : effectiveMobileButtonAlignment === 'right' ? 'flex-end' : 'flex-start'};
       gap: ${effectiveMobileButtonGap}px;
     }
     
-    .buttonblock-${instanceId}.mobile-preview .bb-button-wrapper {
+    .buttonblock-${instanceId}[data-viewport="mobile"] .bb-button-wrapper {
       ${effectiveMobileUniformWidth ? 'flex: 1 1 0;' : 'flex: none;'}
     }
     
@@ -325,7 +322,8 @@ export default function IEditButtonBlockElement({ content, variant, settings, pr
   return (
     <div 
       id={anchor || undefined}
-      className={`buttonblock-${instanceId} ${fullWidthClass} ${mobilePreviewClass}`}
+      className={`buttonblock-${instanceId} ${fullWidthClass}`}
+      data-viewport={isMobilePreview ? 'mobile' : 'desktop'}
     >
       <style>{responsiveStyles}</style>
       <div className="bb-container">
