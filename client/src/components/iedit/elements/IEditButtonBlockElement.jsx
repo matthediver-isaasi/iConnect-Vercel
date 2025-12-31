@@ -43,6 +43,7 @@ export default function IEditButtonBlockElement({ content, variant, settings, pr
     content_color = '#64748b',
     // Desktop layout
     text_align = 'center',
+    button_alignment,  // Separate alignment for buttons (left, center, right)
     background_color = '#ffffff',
     padding_top = 48,
     padding_bottom = 48,
@@ -53,6 +54,8 @@ export default function IEditButtonBlockElement({ content, variant, settings, pr
     // Uniform button width
     uniform_button_width = false,
     mobile_uniform_button_width,
+    // Mobile button alignment
+    mobile_button_alignment,
     // Mobile custom flags
     mobile_custom_typography = false,
     mobile_custom_padding = false,
@@ -105,6 +108,10 @@ export default function IEditButtonBlockElement({ content, variant, settings, pr
   
   // Effective mobile button gap (inherits from desktop if not set)
   const effectiveMobileButtonGap = mobile_button_gap !== undefined ? mobile_button_gap : button_gap;
+  
+  // Effective button alignment (defaults to text_align if not set)
+  const effectiveButtonAlignment = button_alignment || text_align;
+  const effectiveMobileButtonAlignment = mobile_button_alignment !== undefined ? mobile_button_alignment : (mobile_text_align || effectiveButtonAlignment);
 
   // Determine which styles to use based on preview mode
   const isRenderingMobile = isMobilePreview;
@@ -117,6 +124,7 @@ export default function IEditButtonBlockElement({ content, variant, settings, pr
   const currentTextAlign = isRenderingMobile ? mobileTextAlign : text_align;
   const currentUniformWidth = isRenderingMobile ? effectiveMobileUniformWidth : uniform_button_width;
   const currentButtonGap = isRenderingMobile ? effectiveMobileButtonGap : button_gap;
+  const currentButtonAlignment = isRenderingMobile ? effectiveMobileButtonAlignment : effectiveButtonAlignment;
 
   // Filter out empty buttons
   const validButtons = buttons.filter(btn => btn?.text && btn?.text.trim() !== '');
@@ -174,14 +182,13 @@ export default function IEditButtonBlockElement({ content, variant, settings, pr
     }
     
     .buttonblock-${instanceId} .bb-buttons {
-      justify-content: ${text_align === 'center' ? 'center' : text_align === 'right' ? 'flex-end' : 'flex-start'};
+      justify-content: ${effectiveButtonAlignment === 'center' ? 'center' : effectiveButtonAlignment === 'right' ? 'flex-end' : 'flex-start'};
     }
     
     /* Uniform button width - desktop */
     ${uniform_button_width ? `
     .buttonblock-${instanceId} .bb-buttons > * {
       flex: 1 1 0;
-      min-width: max-content;
     }
     ` : ''}
     
@@ -217,7 +224,7 @@ export default function IEditButtonBlockElement({ content, variant, settings, pr
       }
       
       .buttonblock-${instanceId} .bb-buttons {
-        justify-content: ${mobileTextAlign === 'center' ? 'center' : mobileTextAlign === 'right' ? 'flex-end' : 'flex-start'};
+        justify-content: ${effectiveMobileButtonAlignment === 'center' ? 'center' : effectiveMobileButtonAlignment === 'right' ? 'flex-end' : 'flex-start'};
         display: flex;
         flex-wrap: wrap;
         gap: ${effectiveMobileButtonGap}px;
@@ -225,7 +232,6 @@ export default function IEditButtonBlockElement({ content, variant, settings, pr
       ${effectiveMobileUniformWidth ? `
       .buttonblock-${instanceId} .bb-buttons > * {
         flex: 1 1 0;
-        min-width: max-content;
       }
       ` : ''}
     }
@@ -275,11 +281,19 @@ export default function IEditButtonBlockElement({ content, variant, settings, pr
 
   // Buttons container style
   // For uniform width: use flexbox with flex:1 on each button so they grow equally
+  const getJustifyContent = (alignment) => {
+    switch(alignment) {
+      case 'center': return 'center';
+      case 'right': return 'flex-end';
+      default: return 'flex-start';
+    }
+  };
+  
   const buttonsContainerStyle = {
     display: 'flex',
     flexWrap: 'wrap',
     gap: `${currentButtonGap}px`,
-    justifyContent: currentTextAlign === 'center' ? 'center' : currentTextAlign === 'right' ? 'flex-end' : 'flex-start',
+    justifyContent: getJustifyContent(currentButtonAlignment),
   };
 
   const renderContent = () => (
@@ -313,7 +327,7 @@ export default function IEditButtonBlockElement({ content, variant, settings, pr
         {validButtons.map((button, index) => (
           <div 
             key={index} 
-            style={currentUniformWidth ? { flex: '1 1 0', minWidth: 'max-content' } : undefined}
+            style={currentUniformWidth ? { flex: '1 1 0' } : undefined}
           >
             <AGCASButton
               text={button.text}
@@ -1200,6 +1214,28 @@ export function IEditButtonBlockElementEditor({ element, onChange }) {
                   />
                 </div>
 
+                {/* Button Alignment */}
+                <div>
+                  <Label className="text-sm font-medium">Button Alignment</Label>
+                  <div className="flex gap-2 mt-1">
+                    {['left', 'center', 'right'].map((align) => (
+                      <button
+                        key={align}
+                        type="button"
+                        onClick={() => updateContent('button_alignment', align)}
+                        className={`flex-1 px-3 py-2 text-sm capitalize rounded-md border transition-colors ${
+                          (content.button_alignment || content.text_align || 'center') === align
+                            ? 'bg-blue-600 text-white border-blue-600'
+                            : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                        }`}
+                      >
+                        {align}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-xs text-slate-500 mt-1">How buttons are aligned within each row</p>
+                </div>
+
                 {/* Uniform Button Width Toggle */}
                 <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
                   <div>
@@ -1282,6 +1318,28 @@ export function IEditButtonBlockElementEditor({ element, onChange }) {
                     max="100"
                   />
                   <p className="text-xs text-slate-500 mt-1">Vertical and horizontal spacing between buttons on mobile</p>
+                </div>
+
+                {/* Mobile Button Alignment */}
+                <div>
+                  <Label className="text-sm font-medium">Button Alignment</Label>
+                  <div className="flex gap-2 mt-1">
+                    {['left', 'center', 'right'].map((align) => (
+                      <button
+                        key={align}
+                        type="button"
+                        onClick={() => updateContent('mobile_button_alignment', align)}
+                        className={`flex-1 px-3 py-2 text-sm capitalize rounded-md border transition-colors ${
+                          (content.mobile_button_alignment !== undefined ? content.mobile_button_alignment : (content.mobile_text_align || content.button_alignment || content.text_align || 'center')) === align
+                            ? 'bg-blue-600 text-white border-blue-600'
+                            : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                        }`}
+                      >
+                        {align}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-xs text-slate-500 mt-1">How buttons are aligned on mobile</p>
                 </div>
                 
                 {/* Mobile Uniform Button Width Toggle */}
