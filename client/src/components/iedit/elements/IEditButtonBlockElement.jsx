@@ -113,30 +113,9 @@ export default function IEditButtonBlockElement({ content, variant, settings, pr
   const effectiveButtonAlignment = button_alignment || text_align;
   const effectiveMobileButtonAlignment = mobile_button_alignment !== undefined ? mobile_button_alignment : (mobile_text_align || effectiveButtonAlignment);
 
-  // Determine which styles to use based on preview mode
-  const isRenderingMobile = isMobilePreview;
-  
-  // Current effective values based on viewport
-  const currentPaddingTop = isRenderingMobile ? mobilePaddingTop : padding_top;
-  const currentPaddingBottom = isRenderingMobile ? mobilePaddingBottom : padding_bottom;
-  const currentPaddingLeft = isRenderingMobile ? mobilePaddingLeft : padding_left;
-  const currentPaddingRight = isRenderingMobile ? mobilePaddingRight : padding_right;
-  const currentTextAlign = isRenderingMobile ? mobileTextAlign : text_align;
-  const currentUniformWidth = isRenderingMobile ? effectiveMobileUniformWidth : uniform_button_width;
-  const currentButtonGap = isRenderingMobile ? effectiveMobileButtonGap : button_gap;
-  const currentButtonAlignment = isRenderingMobile ? effectiveMobileButtonAlignment : effectiveButtonAlignment;
-
   // Filter out empty buttons
   const validButtons = buttons.filter(btn => btn?.text && btn?.text.trim() !== '');
   const hasTextContent = heading_text || subheading_text || body_content;
-
-  // Alignment classes for text content wrapper
-  const alignmentClasses = {
-    left: 'items-start',
-    center: 'items-center',
-    right: 'items-end'
-  };
-  const textAlignClass = alignmentClasses[currentTextAlign] || alignmentClasses.center;
 
   // Full width breakout class
   const fullWidthClass = fullWidth ? 'w-screen relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw]' : '';
@@ -153,6 +132,10 @@ export default function IEditButtonBlockElement({ content, variant, settings, pr
       padding-bottom: ${padding_bottom}px;
       padding-left: ${padding_left}px;
       padding-right: ${padding_right}px;
+    }
+    
+    .buttonblock-${instanceId} .bb-text-wrapper {
+      align-items: ${text_align === 'center' ? 'center' : text_align === 'right' ? 'flex-end' : 'flex-start'};
     }
     
     .buttonblock-${instanceId} .bb-heading {
@@ -186,60 +169,59 @@ export default function IEditButtonBlockElement({ content, variant, settings, pr
     }
     
     .buttonblock-${instanceId} .bb-buttons {
+      display: flex;
+      flex-wrap: wrap;
+      gap: ${button_gap}px;
       justify-content: ${effectiveButtonAlignment === 'center' ? 'center' : effectiveButtonAlignment === 'right' ? 'flex-end' : 'flex-start'};
     }
     
     /* Uniform button width - desktop */
-    ${uniform_button_width ? `
-    .buttonblock-${instanceId} .bb-buttons > * {
-      flex: 1 1 0;
+    .buttonblock-${instanceId} .bb-button-wrapper {
+      ${uniform_button_width ? 'flex: 1 1 0;' : 'flex: none;'}
     }
-    ` : ''}
     
-    /* Mobile preview styles (for editor preview mode) - use !important to override inline styles */
+    /* Mobile preview styles (for editor preview mode) */
     .buttonblock-${instanceId}.mobile-preview .bb-container {
-      padding-top: ${mobilePaddingTop}px !important;
-      padding-bottom: ${mobilePaddingBottom}px !important;
-      padding-left: ${mobilePaddingLeft}px !important;
-      padding-right: ${mobilePaddingRight}px !important;
+      padding-top: ${mobilePaddingTop}px;
+      padding-bottom: ${mobilePaddingBottom}px;
+      padding-left: ${mobilePaddingLeft}px;
+      padding-right: ${mobilePaddingRight}px;
+    }
+    
+    .buttonblock-${instanceId}.mobile-preview .bb-text-wrapper {
+      align-items: ${mobileTextAlign === 'center' ? 'center' : mobileTextAlign === 'right' ? 'flex-end' : 'flex-start'};
     }
     
     .buttonblock-${instanceId}.mobile-preview .bb-heading {
-      font-size: ${mobileHeadingFontSize}px !important;
-      line-height: ${mobileHeadingLineHeight} !important;
-      letter-spacing: ${mobileHeadingLetterSpacing}px !important;
-      text-align: ${mobileTextAlign} !important;
-      ${effectiveMobileTextColor ? `color: ${effectiveMobileTextColor} !important;` : ''}
+      font-size: ${mobileHeadingFontSize}px;
+      line-height: ${mobileHeadingLineHeight};
+      letter-spacing: ${mobileHeadingLetterSpacing}px;
+      text-align: ${mobileTextAlign};
+      ${effectiveMobileTextColor ? `color: ${effectiveMobileTextColor};` : ''}
     }
     
     .buttonblock-${instanceId}.mobile-preview .bb-subheading {
-      font-size: ${mobileSubheadingFontSize}px !important;
-      line-height: ${mobileSubheadingLineHeight} !important;
-      text-align: ${mobileTextAlign} !important;
-      ${effectiveMobileTextColor ? `color: ${effectiveMobileTextColor} !important;` : ''}
+      font-size: ${mobileSubheadingFontSize}px;
+      line-height: ${mobileSubheadingLineHeight};
+      text-align: ${mobileTextAlign};
+      ${effectiveMobileTextColor ? `color: ${effectiveMobileTextColor};` : ''}
     }
     
     .buttonblock-${instanceId}.mobile-preview .bb-content {
-      font-size: ${mobileContentFontSize}px !important;
-      line-height: ${mobileContentLineHeight} !important;
-      text-align: ${mobileTextAlign} !important;
-      ${effectiveMobileTextColor ? `color: ${effectiveMobileTextColor} !important;` : ''}
+      font-size: ${mobileContentFontSize}px;
+      line-height: ${mobileContentLineHeight};
+      text-align: ${mobileTextAlign};
+      ${effectiveMobileTextColor ? `color: ${effectiveMobileTextColor};` : ''}
     }
     
     .buttonblock-${instanceId}.mobile-preview .bb-buttons {
-      justify-content: ${effectiveMobileButtonAlignment === 'center' ? 'center' : effectiveMobileButtonAlignment === 'right' ? 'flex-end' : 'flex-start'} !important;
-      gap: ${effectiveMobileButtonGap}px !important;
+      justify-content: ${effectiveMobileButtonAlignment === 'center' ? 'center' : effectiveMobileButtonAlignment === 'right' ? 'flex-end' : 'flex-start'};
+      gap: ${effectiveMobileButtonGap}px;
     }
     
-    ${effectiveMobileUniformWidth ? `
-    .buttonblock-${instanceId}.mobile-preview .bb-buttons > * {
-      flex: 1 1 0 !important;
+    .buttonblock-${instanceId}.mobile-preview .bb-button-wrapper {
+      ${effectiveMobileUniformWidth ? 'flex: 1 1 0;' : 'flex: none;'}
     }
-    ` : `
-    .buttonblock-${instanceId}.mobile-preview .bb-buttons > * {
-      flex: none !important;
-    }
-    `}
     
     /* Mobile styles via media query (for actual mobile devices) */
     @media (max-width: 767px) {
@@ -248,6 +230,10 @@ export default function IEditButtonBlockElement({ content, variant, settings, pr
         padding-bottom: ${mobilePaddingBottom}px;
         padding-left: ${mobilePaddingLeft}px;
         padding-right: ${mobilePaddingRight}px;
+      }
+      
+      .buttonblock-${instanceId} .bb-text-wrapper {
+        align-items: ${mobileTextAlign === 'center' ? 'center' : mobileTextAlign === 'right' ? 'flex-end' : 'flex-start'};
       }
       
       .buttonblock-${instanceId} .bb-heading {
@@ -274,110 +260,46 @@ export default function IEditButtonBlockElement({ content, variant, settings, pr
       
       .buttonblock-${instanceId} .bb-buttons {
         justify-content: ${effectiveMobileButtonAlignment === 'center' ? 'center' : effectiveMobileButtonAlignment === 'right' ? 'flex-end' : 'flex-start'};
-        display: flex;
-        flex-wrap: wrap;
         gap: ${effectiveMobileButtonGap}px;
       }
-      ${effectiveMobileUniformWidth ? `
-      .buttonblock-${instanceId} .bb-buttons > * {
-        flex: 1 1 0;
+      
+      .buttonblock-${instanceId} .bb-button-wrapper {
+        ${effectiveMobileUniformWidth ? 'flex: 1 1 0;' : 'flex: none;'}
       }
-      ` : ''}
     }
   `;
 
-  // Container style (applies mobile styles directly in preview mode)
-  const containerStyle = {
-    backgroundColor: background_color,
-    paddingTop: `${currentPaddingTop}px`,
-    paddingBottom: `${currentPaddingBottom}px`,
-    paddingLeft: `${currentPaddingLeft}px`,
-    paddingRight: `${currentPaddingRight}px`,
-  };
-
-  // Heading style
-  const headingStyle = {
-    fontFamily: heading_font_family,
-    fontSize: `${isRenderingMobile ? mobileHeadingFontSize : heading_font_size}px`,
-    fontWeight: heading_font_weight,
-    lineHeight: isRenderingMobile ? mobileHeadingLineHeight : heading_line_height,
-    letterSpacing: `${isRenderingMobile ? mobileHeadingLetterSpacing : heading_letter_spacing}px`,
-    color: isRenderingMobile && effectiveMobileTextColor ? effectiveMobileTextColor : heading_color,
-    textAlign: currentTextAlign,
-  };
-
-  // Subheading style
-  const subheadingStyle = {
-    fontFamily: subheading_font_family,
-    fontSize: `${isRenderingMobile ? mobileSubheadingFontSize : subheading_font_size}px`,
-    fontWeight: subheading_font_weight,
-    lineHeight: isRenderingMobile ? mobileSubheadingLineHeight : subheading_line_height,
-    letterSpacing: `${subheading_letter_spacing}px`,
-    color: isRenderingMobile && effectiveMobileTextColor ? effectiveMobileTextColor : subheading_color,
-    textAlign: currentTextAlign,
-  };
-
-  // Content style
-  const contentStyle = {
-    fontFamily: content_font_family,
-    fontSize: `${isRenderingMobile ? mobileContentFontSize : content_font_size}px`,
-    fontWeight: content_font_weight,
-    lineHeight: isRenderingMobile ? mobileContentLineHeight : content_line_height,
-    letterSpacing: `${content_letter_spacing}px`,
-    color: isRenderingMobile && effectiveMobileTextColor ? effectiveMobileTextColor : content_color,
-    textAlign: currentTextAlign,
-  };
-
-  // Buttons container style
-  // For uniform width: use flexbox with flex:1 on each button so they grow equally
-  const getJustifyContent = (alignment) => {
-    switch(alignment) {
-      case 'center': return 'center';
-      case 'right': return 'flex-end';
-      default: return 'flex-start';
-    }
-  };
-  
-  const buttonsContainerStyle = {
-    display: 'flex',
-    flexWrap: 'wrap',
-    gap: `${currentButtonGap}px`,
-    justifyContent: getJustifyContent(currentButtonAlignment),
-  };
+  // NOTE: All responsive styles (font-size, line-height, padding, text-align, gap, justify-content)
+  // are handled via CSS only to ensure @media queries work on real mobile devices.
+  // Inline styles should only contain non-responsive properties.
 
   const renderContent = () => (
     <>
       {hasTextContent && (
-        <div className={`flex flex-col ${textAlignClass} mb-8`}>
+        <div className="bb-text-wrapper flex flex-col mb-8">
           {heading_text && (
             <div 
               className="bb-heading prose max-w-none mb-4"
-              style={headingStyle}
               dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(heading_text) }}
             />
           )}
           {subheading_text && (
             <div 
               className="bb-subheading prose max-w-none mb-4"
-              style={subheadingStyle}
               dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(subheading_text) }}
             />
           )}
           {body_content && (
             <div 
               className="bb-content prose max-w-none"
-              style={contentStyle}
               dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(body_content) }}
             />
           )}
         </div>
       )}
-      <div className="bb-buttons" style={buttonsContainerStyle}>
+      <div className="bb-buttons">
         {validButtons.map((button, index) => (
-          <div 
-            key={index} 
-            style={currentUniformWidth ? { flex: '1 1 0' } : undefined}
-          >
+          <div key={index} className="bb-button-wrapper">
             <AGCASButton
               text={button.text}
               link={button.link}
@@ -388,7 +310,7 @@ export default function IEditButtonBlockElement({ content, variant, settings, pr
               openInNewTab={button.open_in_new_tab}
               size={button.size || 'medium'}
               showArrow={button.show_arrow}
-              className={currentUniformWidth ? 'w-full' : ''}
+              className="w-full"
             />
           </div>
         ))}
