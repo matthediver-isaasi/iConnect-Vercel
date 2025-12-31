@@ -341,6 +341,9 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
     .${instanceId} .hero-bg-desktop {
       display: block;
     }
+    .${instanceId} .hero-bg-desktop img {
+      visibility: visible;
+    }
     .${instanceId} .hero-bg-mobile {
       display: none;
     }
@@ -348,7 +351,10 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
     /* Mobile styles - triggered by media query OR .mobile-preview class */
     @media (max-width: 767px) {
       .${instanceId} .hero-bg-desktop {
-        display: none;
+        display: block;
+      }
+      .${instanceId} .hero-bg-desktop img {
+        visibility: hidden;
       }
       .${instanceId} .hero-bg-mobile {
         display: block;
@@ -357,7 +363,10 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
     
     /* Mobile preview class override */
     .${instanceId}.mobile-preview .hero-bg-desktop {
-      display: none !important;
+      display: block !important;
+    }
+    .${instanceId}.mobile-preview .hero-bg-desktop img {
+      visibility: hidden !important;
     }
     .${instanceId}.mobile-preview .hero-bg-mobile {
       display: block !important;
@@ -499,7 +508,8 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
             gridTemplateRows: '1fr',
             width: '100%',
             maxWidth: '100%',
-            overflow: 'hidden'
+            overflow: 'hidden',
+            position: 'relative'
           }}
         >
           {/* Desktop background (image-sized) */}
@@ -537,8 +547,11 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
             style={{ 
               gridColumn: '1 / -1',
               gridRow: '1 / -1',
-              position: 'relative',
-              height: '100%',
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
               overflow: 'hidden',
               ...(effectiveMobileBgType !== 'image' ? getMobileBackgroundStyle() : {})
             }}
