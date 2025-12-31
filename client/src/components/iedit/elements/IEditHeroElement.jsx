@@ -150,6 +150,8 @@ export default function IEditHeroElement({ content, variant, settings }) {
     }
     
     .${instanceId} .hero-content {
+      box-sizing: border-box;
+      width: 100%;
       padding-left: ${padding_left}px;
       padding-right: ${padding_right}px;
       padding-top: ${padding_top}px;
@@ -212,6 +214,8 @@ export default function IEditHeroElement({ content, variant, settings }) {
       }
       
       .${instanceId} .hero-content {
+        box-sizing: border-box;
+        width: 100%;
         padding-left: ${mobilePaddingLeft}px;
         padding-right: ${mobilePaddingRight}px;
         padding-top: ${mobilePaddingTop}px;
@@ -247,18 +251,20 @@ export default function IEditHeroElement({ content, variant, settings }) {
     }
   `;
 
-  const fullWidthClass = fullWidth ? 'w-screen max-w-[100vw] relative left-1/2 -translate-x-1/2' : '';
+  const fullWidthClass = fullWidth ? 'w-screen max-w-[100vw] relative left-1/2 -translate-x-1/2 overflow-hidden' : '';
 
   if (isImageSized) {
     return (
-      <div id={anchor || undefined} className={`${instanceId} ${fullWidthClass}`}>
+      <div id={anchor || undefined} className={`${instanceId} ${fullWidthClass} overflow-hidden`}>
         <style>{responsiveStyles}</style>
         <div 
           style={{ 
             display: 'grid',
             gridTemplateColumns: '1fr',
             gridTemplateRows: '1fr',
-            width: '100%'
+            width: '100%',
+            maxWidth: '100%',
+            overflow: 'hidden'
           }}
         >
           <img 
@@ -355,11 +361,11 @@ export default function IEditHeroElement({ content, variant, settings }) {
   }
 
   return (
-    <div id={anchor || undefined} className={`${instanceId} ${fullWidthClass}`}>
+    <div id={anchor || undefined} className={`${instanceId} ${fullWidthClass} overflow-hidden`}>
       <style>{responsiveStyles}</style>
       <div 
         className="hero-container relative w-full overflow-hidden"
-        style={{ ...getBackgroundStyle() }}
+        style={{ ...getBackgroundStyle(), maxWidth: '100%' }}
       >
         {background_type === 'image' && image_url && (
           <>
