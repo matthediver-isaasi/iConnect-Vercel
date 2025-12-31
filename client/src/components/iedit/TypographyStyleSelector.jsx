@@ -10,9 +10,18 @@ const STYLE_TYPE_LABELS = {
 
 let cachedStyles = null;
 let cachePromise = null;
+let cacheTimestamp = 0;
+const CACHE_TTL = 30000; // 30 seconds cache TTL to pick up changes from InstalledFonts
 
-async function fetchTypographyStyles() {
-  if (cachedStyles) return cachedStyles;
+export async function fetchTypographyStyles(forceRefresh = false) {
+  const now = Date.now();
+  
+  // If cache is valid and not forcing refresh, return cached styles
+  if (cachedStyles && !forceRefresh && (now - cacheTimestamp) < CACHE_TTL) {
+    return cachedStyles;
+  }
+  
+  // If a fetch is already in progress, wait for it
   if (cachePromise) return cachePromise;
   
   cachePromise = (async () => {
@@ -20,16 +29,43 @@ async function fetchTypographyStyles() {
       const { base44 } = await import("@/api/base44Client");
       const allStyles = await base44.entities.TypographyStyle.list();
       cachedStyles = allStyles.filter(s => s.is_active);
+      cacheTimestamp = Date.now();
       return cachedStyles;
     } catch (error) {
       console.error('Failed to fetch typography styles:', error);
-      return [];
+      return cachedStyles || []; // Return stale cache if available
     } finally {
       cachePromise = null;
     }
   })();
   
   return cachePromise;
+}
+
+// Force cache invalidation (call this when typography styles are updated in InstalledFonts)
+export function invalidateTypographyCache() {
+  cachedStyles = null;
+  cacheTimestamp = 0;
+}
+
+// Hook to use typography styles in components
+export function useTypographyStyles() {
+  const [styles, setStyles] = useState(cachedStyles || []);
+  const [isLoading, setIsLoading] = useState(!cachedStyles);
+  
+  useEffect(() => {
+    fetchTypographyStyles().then(loadedStyles => {
+      setStyles(loadedStyles);
+      setIsLoading(false);
+    });
+  }, []);
+  
+  const getStyleById = (styleId) => {
+    if (!styleId) return null;
+    return styles.find(s => s.id === styleId) || null;
+  };
+  
+  return { styles, isLoading, getStyleById };
 }
 
 export default function TypographyStyleSelector({ 

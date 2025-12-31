@@ -1,6 +1,6 @@
 import { useState, useEffect, useId } from "react";
 import AGCASButton from "../../ui/AGCASButton";
-import TypographyStyleSelector, { applyTypographyStyle } from "../TypographyStyleSelector";
+import TypographyStyleSelector, { applyTypographyStyle, useTypographyStyles } from "../TypographyStyleSelector";
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 import DOMPurify from 'dompurify';
@@ -113,8 +113,14 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
   const reactId = useId();
   const instanceId = `hero-${reactId.replace(/:/g, '')}`;
   const fullWidth = settings?.fullWidth;
+  
+  // Look up typography styles at render time to use current values from InstalledFonts
+  const { getStyleById } = useTypographyStyles();
+  const headingTypographyStyle = getStyleById(content.heading_typography_style_id);
+  const subheadingTypographyStyle = getStyleById(content.subheading_typography_style_id);
+  const contentTypographyStyle = getStyleById(content.content_typography_style_id);
 
-  // Auto-scaled default values for mobile
+  // Auto-scaled default values for mobile (fallback only)
   const defaultMobileHeadingSize = Math.max(28, Math.round(heading_font_size * 0.6));
   const defaultMobileSubheadingSize = Math.max(16, Math.round(subheading_font_size * 0.8));
   const defaultMobileContentSize = Math.max(14, Math.round(content_font_size * 0.9));
@@ -122,17 +128,21 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
   const defaultMobilePaddingBottom = Math.max(40, Math.round(padding_bottom * 0.5));
   const defaultMobileButtonMargin = Math.max(16, Math.round(button_top_margin * 0.75));
 
-  // Typography: Use mobile values from typography style OR custom mobile values if set
-  // When inheriting from desktop (mobile_custom_typography=false), still use mobile_heading_font_size if set by typography style
-  // Only fall back to auto-scaled defaults if no mobile font size is set at all
-  const mobileHeadingFontSize = mobile_heading_font_size || defaultMobileHeadingSize;
-  const mobileSubheadingFontSize = mobile_subheading_font_size || defaultMobileSubheadingSize;
-  const mobileContentFontSize = mobile_content_font_size || defaultMobileContentSize;
-  
-  // DEBUG: Log mobile font size values
-  console.log('[Hero Render] mobile_heading_font_size from content:', mobile_heading_font_size);
-  console.log('[Hero Render] defaultMobileHeadingSize:', defaultMobileHeadingSize);
-  console.log('[Hero Render] Final mobileHeadingFontSize:', mobileHeadingFontSize);
+  // Typography: Look up mobile font sizes from current typography style (live from InstalledFonts)
+  // Priority: 1) Typography style's font_size_mobile, 2) Saved mobile_heading_font_size, 3) Auto-scaled default
+  const mobileHeadingFontSize = 
+    (headingTypographyStyle?.font_size_mobile) ||  // Live value from typography style
+    mobile_heading_font_size ||                     // Saved value (if style was manually cleared)
+    defaultMobileHeadingSize;                       // Auto-scaled fallback
+  const mobileSubheadingFontSize = 
+    (subheadingTypographyStyle?.font_size_mobile) || 
+    mobile_subheading_font_size || 
+    defaultMobileSubheadingSize;
+  const mobileContentFontSize = 
+    (contentTypographyStyle?.font_size_mobile) || 
+    mobile_content_font_size || 
+    defaultMobileContentSize;
+
   // For non-font-size properties, only use custom values if mobile_custom_typography is explicitly enabled
   const effectiveMobileTextColor = mobile_custom_typography && mobile_text_color ? mobile_text_color : text_color;
   const mobileHeadingLineHeight = mobile_custom_typography && mobile_heading_line_height ? mobile_heading_line_height : heading_line_height;
