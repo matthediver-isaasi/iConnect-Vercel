@@ -448,7 +448,7 @@ export default function IEditPageHeaderHeroElement({ content = {}, variant, sett
         </div>
         
         <div 
-          className={`hero-content ${background_type === 'image' && image_fit === 'original' ? 'absolute inset-0 flex items-center' : 'relative h-full flex items-center'} max-w-7xl mx-auto`}
+          className={`hero-content ${background_type === 'image' && image_fit === 'original' ? 'absolute inset-0 flex items-center' : 'relative h-full flex items-center'} max-w-7xl mx-auto z-10`}
         >
           <div 
             className={`hero-text-box max-w-2xl ${header_position === 'right' ? 'ml-auto' : 'mr-auto'} ${textAlignClass}`}
