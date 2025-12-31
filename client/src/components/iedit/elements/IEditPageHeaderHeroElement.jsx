@@ -51,8 +51,8 @@ const heroQuillModules = {
   }
 };
 
-export default function IEditPageHeaderHeroElement({ content, variant, settings, isFirst }) {
-  // Match Hero element pattern: destructure first, then hooks
+export default function IEditPageHeaderHeroElement({ content, variant, settings, isFirst, previewViewport }) {
+  const isMobilePreview = previewViewport === 'mobile';
   const { 
     anchor,
     background_type = 'color',
@@ -95,23 +95,17 @@ export default function IEditPageHeaderHeroElement({ content, variant, settings,
     mobile_padding_vertical,
     mobile_padding_horizontal,
     mobile_text_alignment,
-    // Mobile background settings (new - matching Hero element)
+    // Mobile background settings (matching Hero element)
     mobile_background_type = 'same',
-    mobile_background_color,
-    mobile_gradient_start_color,
-    mobile_gradient_end_color,
-    mobile_gradient_angle,
+    mobile_background_color = '#1e3a5f',
+    mobile_gradient_start_color = '#1e3a5f',
+    mobile_gradient_end_color = '#3b82f6',
+    mobile_gradient_angle = 135,
     mobile_image_url,
-    mobile_image_fit,
+    mobile_image_fit = 'cover',
     mobile_overlay_enabled = false,
     mobile_overlay_color = '#000000',
-    mobile_overlay_opacity = '50',
-    // Typography style IDs for live lookup
-    header_typography_style_id,
-    subheading_typography_style_id,
-    content_typography_style_id,
-    // Mobile typography inheritance toggle
-    mobile_custom_typography = false
+    mobile_overlay_opacity = '50'
   } = content;
 
   // Generate unique ID for this instance to scope CSS
@@ -125,6 +119,18 @@ export default function IEditPageHeaderHeroElement({ content, variant, settings,
   const mobilePaddingVertical = mobile_padding_vertical || Math.max(32, Math.round(parseInt(padding_vertical) * 0.5));
   const mobilePaddingHorizontal = mobile_padding_horizontal || Math.max(16, parseInt(padding_horizontal));
   const mobileTextAlignment = mobile_text_alignment || text_alignment;
+
+  // Compute effective mobile background values (use desktop values if 'same')
+  const effectiveMobileBgType = mobile_background_type === 'same' ? background_type : mobile_background_type;
+  const effectiveMobileBgColor = mobile_background_type === 'same' ? background_color : mobile_background_color;
+  const effectiveMobileGradientStart = mobile_background_type === 'same' ? gradient_start_color : mobile_gradient_start_color;
+  const effectiveMobileGradientEnd = mobile_background_type === 'same' ? gradient_end_color : mobile_gradient_end_color;
+  const effectiveMobileGradientAngle = mobile_background_type === 'same' ? gradient_angle : mobile_gradient_angle;
+  const effectiveMobileImageUrl = mobile_background_type === 'same' ? image_url : mobile_image_url;
+  const effectiveMobileImageFit = mobile_background_type === 'same' ? (image_fit || 'cover') : (mobile_image_fit || 'cover');
+  const effectiveMobileOverlayEnabled = mobile_background_type === 'same' ? overlay_enabled : mobile_overlay_enabled;
+  const effectiveMobileOverlayColor = mobile_background_type === 'same' ? overlay_color : mobile_overlay_color;
+  const effectiveMobileOverlayOpacity = mobile_background_type === 'same' ? overlay_opacity : mobile_overlay_opacity;
 
   const textAlignClass = {
     left: 'text-left',
@@ -158,8 +164,20 @@ export default function IEditPageHeaderHeroElement({ content, variant, settings,
     return {};
   };
 
+  // Generate mobile background CSS string
+  const getMobileBackgroundCSS = () => {
+    if (effectiveMobileBgType === 'color') {
+      return `background-color: ${effectiveMobileBgColor};`;
+    }
+    if (effectiveMobileBgType === 'gradient') {
+      return `background: linear-gradient(${effectiveMobileGradientAngle}deg, ${effectiveMobileGradientStart}, ${effectiveMobileGradientEnd});`;
+    }
+    return '';
+  };
+
   const desktopHeight = getDesktopHeight();
   const mobileHeight = getMobileHeight();
+  const mobilePreviewClass = isMobilePreview ? 'mobile-preview' : '';
 
   return (
     <>
@@ -224,11 +242,27 @@ export default function IEditPageHeaderHeroElement({ content, variant, settings,
             margin-bottom: 0;
           }
           
+          /* Desktop/Mobile background visibility */
+          .${instanceId} .hero-bg-desktop {
+            display: block;
+          }
+          .${instanceId} .hero-bg-mobile {
+            display: none;
+          }
+          
           /* Mobile styles - below 768px */
           @media (max-width: 767px) {
             .${instanceId} {
               ${mobileHeight.minHeight ? `min-height: ${mobileHeight.minHeight};` : ''}
               ${mobileHeight.height ? `height: ${mobileHeight.height};` : ''}
+              ${getMobileBackgroundCSS()}
+            }
+            
+            .${instanceId} .hero-bg-desktop {
+              display: none;
+            }
+            .${instanceId} .hero-bg-mobile {
+              display: block;
             }
             
             .${instanceId} .hero-content {
@@ -263,21 +297,56 @@ export default function IEditPageHeaderHeroElement({ content, variant, settings,
               margin-top: 12px;
             }
           }
+          
+          /* Mobile preview class override for editor preview mode */
+          .${instanceId}.mobile-preview {
+            ${mobileHeight.minHeight ? `min-height: ${mobileHeight.minHeight};` : ''}
+            ${mobileHeight.height ? `height: ${mobileHeight.height};` : ''}
+            ${getMobileBackgroundCSS()}
+          }
+          .${instanceId}.mobile-preview .hero-bg-desktop {
+            display: none !important;
+          }
+          .${instanceId}.mobile-preview .hero-bg-mobile {
+            display: block !important;
+          }
+          .${instanceId}.mobile-preview .hero-content {
+            padding-left: ${mobilePaddingHorizontal}px;
+            padding-right: ${mobilePaddingHorizontal}px;
+            padding-top: ${mobilePaddingVertical}px;
+            padding-bottom: ${mobilePaddingVertical}px;
+          }
+          .${instanceId}.mobile-preview .hero-text-box {
+            max-width: 100% !important;
+            margin-left: 0 !important;
+            margin-right: 0 !important;
+            text-align: ${mobileTextAlignment};
+          }
+          .${instanceId}.mobile-preview .hero-title {
+            font-size: ${mobileFontSize}px;
+          }
+          .${instanceId}.mobile-preview .hero-subheading {
+            font-size: ${mobileSubheadingFontSize}px;
+          }
+          .${instanceId}.mobile-preview .hero-body-text {
+            font-size: ${mobileContentFontSize}px;
+          }
         `}
       </style>
       
       <div 
         id={anchor || undefined}
-        className={`${instanceId} relative w-full overflow-hidden`}
+        className={`${instanceId} ${mobilePreviewClass} relative w-full overflow-hidden`}
         style={{ ...getBackgroundStyle() }}
       >
+        {/* Desktop background image */}
         {background_type === 'image' && image_url && (
-          <>
+          <div className="hero-bg-desktop absolute inset-0">
             <img 
               src={image_url} 
               alt={header_text || 'Hero image'} 
-              className={image_fit === 'original' ? 'w-full h-auto block' : 'absolute inset-0 w-full h-full'}
-              style={image_fit === 'original' ? {} : { objectFit: image_fit }}
+              className="absolute inset-0 w-full h-full"
+              style={{ objectFit: image_fit || 'cover' }}
             />
             {overlay_enabled && (
               <div 
@@ -288,7 +357,28 @@ export default function IEditPageHeaderHeroElement({ content, variant, settings,
                 }} 
               />
             )}
-          </>
+          </div>
+        )}
+        
+        {/* Mobile background image */}
+        {effectiveMobileBgType === 'image' && effectiveMobileImageUrl && (
+          <div className="hero-bg-mobile absolute inset-0">
+            <img 
+              src={effectiveMobileImageUrl} 
+              alt={header_text || 'Hero image'} 
+              className="absolute inset-0 w-full h-full"
+              style={{ objectFit: effectiveMobileImageFit || 'cover' }}
+            />
+            {effectiveMobileOverlayEnabled && (
+              <div 
+                className="absolute inset-0" 
+                style={{ 
+                  backgroundColor: effectiveMobileOverlayColor, 
+                  opacity: parseInt(effectiveMobileOverlayOpacity) / 100 
+                }} 
+              />
+            )}
+          </div>
         )}
         
         <div 
@@ -333,10 +423,13 @@ export function IEditPageHeaderHeroElementEditor({ element, onChange }) {
 
   const [isUploading, setIsUploading] = useState(false);
   const [isMobileUploading, setIsMobileUploading] = useState(false);
+  const [viewportTab, setViewportTab] = useState('desktop');
   const [expandedSections, setExpandedSections] = useState({
     textContent: true,
     background: false,
-    mobile: false
+    mobileBackground: false,
+    mobileTypography: false,
+    mobilePadding: false
   });
 
   const toggleSection = (section) => {
@@ -539,6 +632,37 @@ export function IEditPageHeaderHeroElementEditor({ element, onChange }) {
         </p>
       </div>
 
+      {/* Desktop/Mobile Tab Selector */}
+      <div className="flex gap-1 p-1 bg-slate-100 rounded-lg mb-4">
+        <button
+          type="button"
+          onClick={() => setViewportTab('desktop')}
+          data-testid="button-viewport-desktop"
+          className={`flex-1 py-2 px-4 text-sm font-medium rounded-md transition-colors ${
+            viewportTab === 'desktop' 
+              ? 'bg-white shadow text-slate-900' 
+              : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          Desktop
+        </button>
+        <button
+          type="button"
+          onClick={() => setViewportTab('mobile')}
+          data-testid="button-viewport-mobile"
+          className={`flex-1 py-2 px-4 text-sm font-medium rounded-md transition-colors ${
+            viewportTab === 'mobile' 
+              ? 'bg-white shadow text-slate-900' 
+              : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          Mobile
+        </button>
+      </div>
+
+      {/* Desktop Controls */}
+      {viewportTab === 'desktop' && (
+        <>
       {/* Section 1: Header / Subheader / Content */}
       <div className="border border-slate-200 rounded-lg overflow-hidden">
         <button
@@ -1022,47 +1146,49 @@ export function IEditPageHeaderHeroElementEditor({ element, onChange }) {
           </div>
         )}
       </div>
+        </>
+      )}
 
-      {/* Section 3: Mobile Settings */}
-      <div className="border border-slate-200 rounded-lg overflow-hidden">
-        <button
-          type="button"
-          onClick={() => toggleSection('mobile')}
-          className="w-full flex items-center justify-between p-3 bg-slate-50 hover:bg-slate-100 transition-colors text-left"
-          data-testid="accordion-mobile"
-        >
-          <span className="font-medium text-sm">Mobile Settings</span>
-          <svg 
-            className={`w-4 h-4 transition-transform ${expandedSections.mobile ? 'rotate-180' : ''}`} 
-            fill="none" stroke="currentColor" viewBox="0 0 24 24"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-          </svg>
-        </button>
-        
-        {expandedSections.mobile && (
-          <div className="p-4 space-y-4 border-t border-slate-200">
-            <p className="text-xs text-slate-600">
-              Configure mobile-specific settings. Leave fields empty to use automatic scaling based on desktop values.
-            </p>
+      {/* Mobile Controls */}
+      {viewportTab === 'mobile' && (
+        <>
+          {/* Mobile Background Section */}
+          <div className="border border-slate-200 rounded-lg overflow-hidden">
+            <button
+              type="button"
+              onClick={() => toggleSection('mobileBackground')}
+              className="w-full flex items-center justify-between p-3 bg-slate-50 hover:bg-slate-100 transition-colors text-left"
+              data-testid="accordion-mobile-background"
+            >
+              <span className="font-medium text-sm">Mobile Background</span>
+              <svg 
+                className={`w-4 h-4 transition-transform ${expandedSections.mobileBackground ? 'rotate-180' : ''}`} 
+                fill="none" stroke="currentColor" viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+            
+            {expandedSections.mobileBackground && (
+              <div className="p-4 space-y-4 border-t border-slate-200">
+                <p className="text-xs text-slate-600 mb-3">
+                  Configure mobile-specific background. Select "Same as Desktop" to inherit desktop settings.
+                </p>
 
-            {/* Mobile Background */}
-            <div className="space-y-3 p-3 bg-slate-50 rounded-md">
-              <h4 className="text-sm font-semibold">Mobile Background</h4>
-              <div>
-                <label className="block text-sm font-medium mb-1">Background Type</label>
-                <select
-                  value={mobileBackgroundType}
-                  onChange={(e) => updateContent('mobile_background_type', e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-md"
-                  data-testid="select-mobile-background-type"
-                >
-                  <option value="same">Same as Desktop</option>
-                  <option value="color">Solid Color</option>
-                  <option value="gradient">Gradient</option>
-                  <option value="image">Image</option>
-                </select>
-              </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Background Type</label>
+                  <select
+                    value={mobileBackgroundType}
+                    onChange={(e) => updateContent('mobile_background_type', e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                    data-testid="select-mobile-background-type"
+                  >
+                    <option value="same">Same as Desktop</option>
+                    <option value="color">Solid Color</option>
+                    <option value="gradient">Gradient</option>
+                    <option value="image">Image</option>
+                  </select>
+                </div>
 
               {/* Mobile Color Background */}
               {mobileBackgroundType === 'color' && (
@@ -1215,152 +1341,197 @@ export function IEditPageHeaderHeroElementEditor({ element, onChange }) {
                   </div>
                 </div>
               )}
-            </div>
-
-            {/* Mobile Typography Toggle */}
-            <div className="space-y-3 p-3 bg-slate-50 rounded-md">
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="mobile_custom_typography"
-                  checked={content.mobile_custom_typography || false}
-                  onChange={(e) => updateContent('mobile_custom_typography', e.target.checked)}
-                  className="rounded"
-                />
-                <label htmlFor="mobile_custom_typography" className="text-sm font-medium">Use custom mobile typography</label>
               </div>
-              <p className="text-xs text-slate-500">
-                When enabled, you can set different font sizes for mobile. Otherwise, sizes are automatically scaled from desktop values.
-              </p>
-              
-              {content.mobile_custom_typography && (
-                <div className="space-y-3 pt-2">
+            )}
+          </div>
+
+          {/* Mobile Typography Section */}
+          <div className="border border-slate-200 rounded-lg overflow-hidden">
+            <button
+              type="button"
+              onClick={() => toggleSection('mobileTypography')}
+              className="w-full flex items-center justify-between p-3 bg-slate-50 hover:bg-slate-100 transition-colors text-left"
+              data-testid="accordion-mobile-typography"
+            >
+              <span className="font-medium text-sm">Mobile Typography</span>
+              <svg 
+                className={`w-4 h-4 transition-transform ${expandedSections.mobileTypography ? 'rotate-180' : ''}`} 
+                fill="none" stroke="currentColor" viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+            
+            {expandedSections.mobileTypography && (
+              <div className="p-4 space-y-4 border-t border-slate-200">
+                {/* Mobile Typography Toggle */}
+                <div className="space-y-3 p-3 bg-slate-50 rounded-md">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="mobile_custom_typography"
+                      checked={content.mobile_custom_typography || false}
+                      onChange={(e) => updateContent('mobile_custom_typography', e.target.checked)}
+                      className="rounded"
+                    />
+                    <label htmlFor="mobile_custom_typography" className="text-sm font-medium">Use custom mobile typography</label>
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    When enabled, you can set different font sizes for mobile. Otherwise, sizes are automatically scaled from desktop values.
+                  </p>
+                  
+                  {content.mobile_custom_typography && (
+                    <div className="space-y-3 pt-2">
+                      <div>
+                        <label className="block text-sm font-medium mb-1">
+                          Mobile Header Font Size (px)
+                          <span className="text-xs text-slate-500 ml-2">Default: {defaultMobileFontSize}px</span>
+                        </label>
+                        <input
+                          type="number"
+                          value={content.mobile_font_size || ''}
+                          onChange={(e) => updateContent('mobile_font_size', e.target.value)}
+                          placeholder={String(defaultMobileFontSize)}
+                          className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                          min="16"
+                          max="72"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium mb-1">Mobile Subheading Font Size (px)</label>
+                        <input
+                          type="number"
+                          value={content.mobile_subheading_font_size || ''}
+                          onChange={(e) => updateContent('mobile_subheading_font_size', e.target.value)}
+                          placeholder="Auto"
+                          className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                          min="12"
+                          max="48"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium mb-1">Mobile Content Font Size (px)</label>
+                        <input
+                          type="number"
+                          value={content.mobile_content_font_size || ''}
+                          onChange={(e) => updateContent('mobile_content_font_size', e.target.value)}
+                          placeholder="Auto"
+                          className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                          min="12"
+                          max="32"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Mobile Padding Section */}
+          <div className="border border-slate-200 rounded-lg overflow-hidden">
+            <button
+              type="button"
+              onClick={() => toggleSection('mobilePadding')}
+              className="w-full flex items-center justify-between p-3 bg-slate-50 hover:bg-slate-100 transition-colors text-left"
+              data-testid="accordion-mobile-padding"
+            >
+              <span className="font-medium text-sm">Mobile Padding & Layout</span>
+              <svg 
+                className={`w-4 h-4 transition-transform ${expandedSections.mobilePadding ? 'rotate-180' : ''}`} 
+                fill="none" stroke="currentColor" viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+            
+            {expandedSections.mobilePadding && (
+              <div className="p-4 space-y-4 border-t border-slate-200">
+                {/* Mobile Height */}
+                {(content.background_type !== 'image' || content.image_fit !== 'original') && (
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Mobile Container Height</label>
+                      <select
+                        value={content.mobile_height_type || 'auto'}
+                        onChange={(e) => updateContent('mobile_height_type', e.target.value)}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                      >
+                        <option value="auto">Auto (Min 250px)</option>
+                        <option value="full">Full Viewport</option>
+                        <option value="custom">Custom</option>
+                      </select>
+                    </div>
+
+                    {content.mobile_height_type === 'custom' && (
+                      <div>
+                        <label className="block text-sm font-medium mb-1">Mobile Custom Height (px)</label>
+                        <input
+                          type="number"
+                          value={content.mobile_custom_height || 250}
+                          onChange={(e) => updateContent('mobile_custom_height', e.target.value)}
+                          className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                          min="100"
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Mobile Padding */}
+                <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-sm font-medium mb-1">
-                      Mobile Header Font Size (px)
-                      <span className="text-xs text-slate-500 ml-2">Default: {defaultMobileFontSize}px</span>
+                      Mobile Vertical Padding
+                      <span className="text-xs text-slate-500 block">Default: {defaultMobilePaddingVertical}px</span>
                     </label>
                     <input
                       type="number"
-                      value={content.mobile_font_size || ''}
-                      onChange={(e) => updateContent('mobile_font_size', e.target.value)}
-                      placeholder={String(defaultMobileFontSize)}
+                      value={content.mobile_padding_vertical || ''}
+                      onChange={(e) => updateContent('mobile_padding_vertical', e.target.value)}
+                      placeholder={String(defaultMobilePaddingVertical)}
                       className="w-full px-3 py-2 border border-slate-300 rounded-md"
-                      min="16"
-                      max="72"
+                      min="0"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium mb-1">Mobile Subheading Font Size (px)</label>
+                    <label className="block text-sm font-medium mb-1">
+                      Mobile Horizontal Padding
+                      <span className="text-xs text-slate-500 block">Default: {defaultMobilePaddingHorizontal}px</span>
+                    </label>
                     <input
                       type="number"
-                      value={content.mobile_subheading_font_size || ''}
-                      onChange={(e) => updateContent('mobile_subheading_font_size', e.target.value)}
-                      placeholder="Auto"
+                      value={content.mobile_padding_horizontal || ''}
+                      onChange={(e) => updateContent('mobile_padding_horizontal', e.target.value)}
+                      placeholder={String(defaultMobilePaddingHorizontal)}
                       className="w-full px-3 py-2 border border-slate-300 rounded-md"
-                      min="12"
-                      max="48"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Mobile Content Font Size (px)</label>
-                    <input
-                      type="number"
-                      value={content.mobile_content_font_size || ''}
-                      onChange={(e) => updateContent('mobile_content_font_size', e.target.value)}
-                      placeholder="Auto"
-                      className="w-full px-3 py-2 border border-slate-300 rounded-md"
-                      min="12"
-                      max="32"
+                      min="0"
                     />
                   </div>
                 </div>
-              )}
-            </div>
 
-            {/* Mobile Height */}
-            {(content.background_type !== 'image' || content.image_fit !== 'original') && (
-              <div className="space-y-3">
+                {/* Mobile Text Alignment */}
                 <div>
-                  <label className="block text-sm font-medium mb-1">Mobile Container Height</label>
+                  <label className="block text-sm font-medium mb-1">
+                    Mobile Text Alignment
+                    <span className="text-xs text-slate-500 ml-2">Default: Same as desktop</span>
+                  </label>
                   <select
-                    value={content.mobile_height_type || 'auto'}
-                    onChange={(e) => updateContent('mobile_height_type', e.target.value)}
+                    value={content.mobile_text_alignment || ''}
+                    onChange={(e) => updateContent('mobile_text_alignment', e.target.value)}
                     className="w-full px-3 py-2 border border-slate-300 rounded-md"
                   >
-                    <option value="auto">Auto (Min 250px)</option>
-                    <option value="full">Full Viewport</option>
-                    <option value="custom">Custom</option>
+                    <option value="">Same as Desktop ({content.text_alignment || 'left'})</option>
+                    <option value="left">Left</option>
+                    <option value="center">Center</option>
+                    <option value="right">Right</option>
                   </select>
                 </div>
-
-                {content.mobile_height_type === 'custom' && (
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Mobile Custom Height (px)</label>
-                    <input
-                      type="number"
-                      value={content.mobile_custom_height || 250}
-                      onChange={(e) => updateContent('mobile_custom_height', e.target.value)}
-                      className="w-full px-3 py-2 border border-slate-300 rounded-md"
-                      min="100"
-                    />
-                  </div>
-                )}
               </div>
             )}
-
-            {/* Mobile Padding */}
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-sm font-medium mb-1">
-                  Mobile Vertical Padding
-                  <span className="text-xs text-slate-500 block">Default: {defaultMobilePaddingVertical}px</span>
-                </label>
-                <input
-                  type="number"
-                  value={content.mobile_padding_vertical || ''}
-                  onChange={(e) => updateContent('mobile_padding_vertical', e.target.value)}
-                  placeholder={String(defaultMobilePaddingVertical)}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-md"
-                  min="0"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">
-                  Mobile Horizontal Padding
-                  <span className="text-xs text-slate-500 block">Default: {defaultMobilePaddingHorizontal}px</span>
-                </label>
-                <input
-                  type="number"
-                  value={content.mobile_padding_horizontal || ''}
-                  onChange={(e) => updateContent('mobile_padding_horizontal', e.target.value)}
-                  placeholder={String(defaultMobilePaddingHorizontal)}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-md"
-                  min="0"
-                />
-              </div>
-            </div>
-
-            {/* Mobile Text Alignment */}
-            <div>
-              <label className="block text-sm font-medium mb-1">
-                Mobile Text Alignment
-                <span className="text-xs text-slate-500 ml-2">Default: Same as desktop</span>
-              </label>
-              <select
-                value={content.mobile_text_alignment || ''}
-                onChange={(e) => updateContent('mobile_text_alignment', e.target.value)}
-                className="w-full px-3 py-2 border border-slate-300 rounded-md"
-              >
-                <option value="">Same as Desktop ({content.text_alignment || 'left'})</option>
-                <option value="left">Left</option>
-                <option value="center">Center</option>
-                <option value="right">Right</option>
-              </select>
-            </div>
           </div>
-        )}
-      </div>
+        </>
+      )}
     </div>
   );
 }
