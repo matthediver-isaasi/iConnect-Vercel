@@ -51,7 +51,7 @@ const heroQuillModules = {
   }
 };
 
-export default function IEditPageHeaderHeroElement({ content, variant, settings, isFirst, previewViewport }) {
+export default function IEditPageHeaderHeroElement({ content = {}, variant, settings, isFirst, previewViewport }) {
   const isMobilePreview = previewViewport === 'mobile';
   const { 
     anchor,
@@ -242,27 +242,12 @@ export default function IEditPageHeaderHeroElement({ content, variant, settings,
             margin-bottom: 0;
           }
           
-          /* Desktop/Mobile background visibility */
-          .${instanceId} .hero-bg-desktop {
-            display: block;
-          }
-          .${instanceId} .hero-bg-mobile {
-            display: none;
-          }
-          
           /* Mobile styles - below 768px */
           @media (max-width: 767px) {
             .${instanceId} {
               ${mobileHeight.minHeight ? `min-height: ${mobileHeight.minHeight};` : ''}
               ${mobileHeight.height ? `height: ${mobileHeight.height};` : ''}
               ${getMobileBackgroundCSS()}
-            }
-            
-            .${instanceId} .hero-bg-desktop {
-              display: none;
-            }
-            .${instanceId} .hero-bg-mobile {
-              display: block;
             }
             
             .${instanceId} .hero-content {
@@ -304,12 +289,6 @@ export default function IEditPageHeaderHeroElement({ content, variant, settings,
             ${mobileHeight.height ? `height: ${mobileHeight.height};` : ''}
             ${getMobileBackgroundCSS()}
           }
-          .${instanceId}.mobile-preview .hero-bg-desktop {
-            display: none !important;
-          }
-          .${instanceId}.mobile-preview .hero-bg-mobile {
-            display: block !important;
-          }
           .${instanceId}.mobile-preview .hero-content {
             padding-left: ${mobilePaddingHorizontal}px;
             padding-right: ${mobilePaddingHorizontal}px;
@@ -339,14 +318,13 @@ export default function IEditPageHeaderHeroElement({ content, variant, settings,
         className={`${instanceId} ${mobilePreviewClass} relative w-full overflow-hidden`}
         style={{ ...getBackgroundStyle() }}
       >
-        {/* Desktop background image */}
         {background_type === 'image' && image_url && (
-          <div className="hero-bg-desktop absolute inset-0">
+          <>
             <img 
               src={image_url} 
               alt={header_text || 'Hero image'} 
-              className="absolute inset-0 w-full h-full"
-              style={{ objectFit: image_fit || 'cover' }}
+              className={image_fit === 'original' ? 'w-full h-auto block' : 'absolute inset-0 w-full h-full'}
+              style={image_fit === 'original' ? {} : { objectFit: image_fit }}
             />
             {overlay_enabled && (
               <div 
@@ -357,28 +335,7 @@ export default function IEditPageHeaderHeroElement({ content, variant, settings,
                 }} 
               />
             )}
-          </div>
-        )}
-        
-        {/* Mobile background image */}
-        {effectiveMobileBgType === 'image' && effectiveMobileImageUrl && (
-          <div className="hero-bg-mobile absolute inset-0">
-            <img 
-              src={effectiveMobileImageUrl} 
-              alt={header_text || 'Hero image'} 
-              className="absolute inset-0 w-full h-full"
-              style={{ objectFit: effectiveMobileImageFit || 'cover' }}
-            />
-            {effectiveMobileOverlayEnabled && (
-              <div 
-                className="absolute inset-0" 
-                style={{ 
-                  backgroundColor: effectiveMobileOverlayColor, 
-                  opacity: parseInt(effectiveMobileOverlayOpacity) / 100 
-                }} 
-              />
-            )}
-          </div>
+          </>
         )}
         
         <div 
