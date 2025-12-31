@@ -251,8 +251,8 @@ export default function IEditPageHeaderHeroElement({ content = {}, variant, sett
 
   return (
     <>
-      {/* DEBUG: Visible marker to confirm component renders */}
-      <div style={{ 
+      {/* DEBUG: Visible marker to confirm component renders - hidden but kept for debugging */}
+      {false && <div style={{ 
         background: 'red', 
         color: 'white', 
         padding: '10px', 
@@ -261,7 +261,7 @@ export default function IEditPageHeaderHeroElement({ content = {}, variant, sett
         zIndex: 9999
       }}>
         DEBUG: PageHeaderHero rendered - bg_type: {background_type}, instanceId: {instanceId}
-      </div>
+      </div>}
       {/* Instance-scoped responsive styles */}
       <style>
         {`
@@ -553,11 +553,11 @@ export default function IEditPageHeaderHeroElement({ content = {}, variant, sett
           </>
         )}
         
-        {/* DEBUG: Show background status */}
-        <div style={{ background: 'blue', color: 'white', padding: '5px', fontSize: '10px', position: 'relative', zIndex: 9999, wordBreak: 'break-all' }}>
+        {/* DEBUG: Show background status - hidden but kept for debugging */}
+        {false && <div style={{ background: 'blue', color: 'white', padding: '5px', fontSize: '10px', position: 'relative', zIndex: 9999, wordBreak: 'break-all' }}>
           Desktop: type={background_type}, fit={image_fit} | Mobile: type={effectiveMobileBgType} | 
           Padding: desktop H={padding_horizontal} V={padding_vertical}, mobile H={mobilePaddingHorizontal} V={mobilePaddingVertical} (raw: {mobile_padding_horizontal}/{mobile_padding_vertical})
-        </div>
+        </div>}
         
         <div 
           className={`hero-content ${background_type === 'image' && image_fit === 'original' ? 'absolute inset-0 flex items-center' : 'relative h-full flex items-center'} max-w-7xl mx-auto z-10`}
