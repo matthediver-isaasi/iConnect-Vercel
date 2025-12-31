@@ -1006,7 +1006,7 @@ export default function PublicHeader() {
 
           {/* Drawer Panel - slides in from right */}
           <div 
-            className={`absolute top-0 right-0 h-full w-full max-w-md bg-white transform transition-transform duration-300 ease-in-out ${
+            className={`absolute top-0 right-0 h-full w-[90vw] bg-white transform transition-transform duration-300 ease-in-out ${
               mobileMenuOpen ? 'translate-x-0' : 'translate-x-full'
             }`}
           >

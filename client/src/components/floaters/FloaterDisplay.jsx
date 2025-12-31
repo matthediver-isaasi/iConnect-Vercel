@@ -383,7 +383,7 @@ export default function FloaterDisplay({ location = "portal", memberInfo, organi
 
   return (
     <>
-      {floaters.map((floater) => (
+      {!selectedForm && floaters.map((floater) => (
         <div
           key={floater.id}
           style={getPositionStyles(floater)}
