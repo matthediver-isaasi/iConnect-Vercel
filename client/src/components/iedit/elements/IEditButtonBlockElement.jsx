@@ -15,6 +15,9 @@ export default function IEditButtonBlockElement({ content, variant, settings, pr
   const isMobilePreview = previewViewport === 'mobile';
   const fullWidth = settings?.fullWidth;
   
+  // Debug log
+  console.log('[ButtonBlock] previewViewport:', previewViewport, 'isMobilePreview:', isMobilePreview, 'instanceId:', instanceId);
+  
   const { 
     anchor,
     // Desktop typography - Heading
