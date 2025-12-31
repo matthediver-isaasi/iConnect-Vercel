@@ -52,6 +52,11 @@ const heroQuillModules = {
 };
 
 export default function IEditPageHeaderHeroElement({ content, variant, settings, isFirst }) {
+  // Guard clause - return null if content is not provided
+  if (!content) {
+    return null;
+  }
+  
   const { 
     anchor,
     background_type = 'color',
