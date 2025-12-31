@@ -10,7 +10,7 @@ import { toast } from "sonner";
 import { useQuery } from "@tanstack/react-query";
 import { createPageUrl } from "@/utils";
 import { Link } from "react-router-dom";
-import TypographyStyleSelector, { applyTypographyStyle } from "../TypographyStyleSelector";
+import TypographyStyleSelector, { applyTypographyStyle, useTypographyStyles } from "../TypographyStyleSelector";
 import ReactQuill from "react-quill";
 import DOMPurify from "dompurify";
 import "react-quill/dist/quill.snow.css";
