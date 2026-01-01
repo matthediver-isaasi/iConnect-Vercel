@@ -37,13 +37,14 @@ const ORGANIZATION_CORE_FIELDS = [
   { key: 'phone', label: 'Phone', type: 'text' },
   { key: 'address', label: 'Address', type: 'text' },
   { key: 'city', label: 'City', type: 'text' },
-  { key: 'state', label: 'State', type: 'text' },
   { key: 'country', label: 'Country', type: 'text' },
-  { key: 'postal_code', label: 'Postal Code', type: 'text' },
-  { key: 'membership_status', label: 'Membership Status', type: 'text' },
-  { key: 'membership_type', label: 'Membership Type', type: 'text' },
-  { key: 'membership_start_date', label: 'Membership Start Date', type: 'date' },
-  { key: 'membership_end_date', label: 'Membership End Date', type: 'date' },
+  { key: 'postcode', label: 'Postcode', type: 'text' },
+  { key: 'external_id', label: 'External ID', type: 'text' },
+  { key: 'is_active', label: 'Is Active', type: 'boolean' },
+  { key: 'twitter_url', label: 'Twitter URL', type: 'url' },
+  { key: 'linkedin_url', label: 'LinkedIn URL', type: 'url' },
+  { key: 'facebook_url', label: 'Facebook URL', type: 'url' },
+  { key: 'instagram_url', label: 'Instagram URL', type: 'url' },
 ];
 
 export default async function handler(req, res) {
