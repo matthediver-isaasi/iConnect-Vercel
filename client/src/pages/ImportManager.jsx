@@ -134,12 +134,18 @@ export default function ImportManager() {
       const updated = [...prev];
       updated[index] = { ...updated[index], [field]: value };
       
-      // If setting target field, also set scope
+      // If setting target field, also set scope and preferenceFieldId for custom fields
       if (field === 'targetField' && value) {
         const allFields = [...(availableFields?.core || []), ...(availableFields?.custom || [])];
         const targetDef = allFields.find(f => f.key === value);
         if (targetDef) {
           updated[index].targetScope = targetDef.scope;
+          // For custom fields, store the preferenceFieldId for the execute endpoint
+          if (targetDef.preferenceFieldId) {
+            updated[index].preferenceFieldId = targetDef.preferenceFieldId;
+          } else {
+            updated[index].preferenceFieldId = null;
+          }
         }
       }
       

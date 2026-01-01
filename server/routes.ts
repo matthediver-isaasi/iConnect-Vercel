@@ -15655,10 +15655,11 @@ AGCAS Events Team
       res.json({
         core: coreFields.map(f => ({ ...f, scope: 'core' })),
         custom: (customFields || []).map((f: any) => ({
-          key: f.id,
+          key: `custom:${f.id}`,
           label: f.label || f.name,
           type: f.field_type,
-          scope: 'custom'
+          scope: 'custom',
+          preferenceFieldId: f.id
         }))
       });
     } catch (error: any) {

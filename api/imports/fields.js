@@ -82,10 +82,11 @@ export default async function handler(req, res) {
     res.json({
       core: coreFields.map(f => ({ ...f, scope: 'core' })),
       custom: (customFields || []).map(f => ({
-        key: f.id,
+        key: `custom:${f.id}`,
         label: f.label || f.name,
         type: f.field_type || 'text',
-        scope: 'custom'
+        scope: 'custom',
+        preferenceFieldId: f.id
       }))
     });
   } catch (error) {
