@@ -94,6 +94,8 @@ export default function IEditQuoteElement({ content, variant, settings }) {
     quote_mark_color = '#cbd5e1',
     quote_mark_size = 48,
     quote_mark_opacity = 50,
+    quote_mark_padding_horizontal = 20,
+    quote_mark_padding_vertical = 20,
     quote_mark_top_image_url,
     quote_mark_bottom_image_url,
     profile_size = 80,
@@ -146,6 +148,8 @@ export default function IEditQuoteElement({ content, variant, settings }) {
     mobile_name_align,
     mobile_quote_mark_size,
     mobile_quote_mark_opacity,
+    mobile_quote_mark_padding_horizontal,
+    mobile_quote_mark_padding_vertical,
     mobile_element_padding_top,
     mobile_element_padding_bottom,
     mobile_box_padding
@@ -158,6 +162,8 @@ export default function IEditQuoteElement({ content, variant, settings }) {
   const effectiveMobileNameAlign = mobile_name_align || name_align;
   const effectiveMobileQuoteMarkSize = mobile_quote_mark_size || Math.max(32, Math.round(quote_mark_size * 0.7));
   const effectiveMobileQuoteMarkOpacity = mobile_quote_mark_opacity ?? quote_mark_opacity;
+  const effectiveMobileQuoteMarkPaddingH = mobile_quote_mark_padding_horizontal ?? quote_mark_padding_horizontal;
+  const effectiveMobileQuoteMarkPaddingV = mobile_quote_mark_padding_vertical ?? quote_mark_padding_vertical;
   const effectiveMobileElementPaddingTop = mobile_element_padding_top ?? element_padding_top;
   const effectiveMobileElementPaddingBottom = mobile_element_padding_bottom ?? element_padding_bottom;
   const effectiveMobileBoxPadding = mobile_box_padding ?? box_padding;
@@ -324,6 +330,16 @@ export default function IEditQuoteElement({ content, variant, settings }) {
         opacity: ${effectiveMobileQuoteMarkOpacity / 100} !important;
       }
 
+      .${instanceId} .quote-mark-top {
+        top: ${effectiveMobileQuoteMarkPaddingV}px !important;
+        right: ${effectiveMobileQuoteMarkPaddingH}px !important;
+      }
+
+      .${instanceId} .quote-mark-bottom {
+        bottom: ${effectiveMobileQuoteMarkPaddingV}px !important;
+        left: ${effectiveMobileQuoteMarkPaddingH}px !important;
+      }
+
       .${instanceId} .quote-element-wrapper {
         padding-top: ${effectiveMobileElementPaddingTop}px !important;
         padding-bottom: ${effectiveMobileElementPaddingBottom}px !important;
@@ -440,10 +456,10 @@ export default function IEditQuoteElement({ content, variant, settings }) {
         <img 
           src={quote_mark_top_image_url}
           alt="Quote mark"
-          className="quote-mark-img absolute select-none pointer-events-none"
+          className="quote-mark-img quote-mark-top absolute select-none pointer-events-none"
           style={{ 
-            top: `${box_padding / 2}px`,
-            right: `${box_padding / 2}px`,
+            top: `${quote_mark_padding_vertical}px`,
+            right: `${quote_mark_padding_horizontal}px`,
             width: `${quote_mark_size}px`,
             height: `${quote_mark_size}px`,
             objectFit: 'contain',
@@ -452,11 +468,11 @@ export default function IEditQuoteElement({ content, variant, settings }) {
         />
       ) : (
         <div 
-          className="quote-mark absolute select-none pointer-events-none"
+          className="quote-mark quote-mark-top absolute select-none pointer-events-none"
           style={{ 
             ...quoteMarkStyle,
-            top: `${box_padding / 2}px`,
-            right: `${box_padding / 2}px`
+            top: `${quote_mark_padding_vertical}px`,
+            right: `${quote_mark_padding_horizontal}px`
           }}
         >
           "
@@ -467,10 +483,10 @@ export default function IEditQuoteElement({ content, variant, settings }) {
         <img 
           src={quote_mark_bottom_image_url}
           alt="Quote mark"
-          className="quote-mark-img absolute select-none pointer-events-none"
+          className="quote-mark-img quote-mark-bottom absolute select-none pointer-events-none"
           style={{ 
-            bottom: `${box_padding / 2}px`,
-            left: `${box_padding / 2}px`,
+            bottom: `${quote_mark_padding_vertical}px`,
+            left: `${quote_mark_padding_horizontal}px`,
             width: `${quote_mark_size}px`,
             height: `${quote_mark_size}px`,
             objectFit: 'contain',
@@ -480,11 +496,11 @@ export default function IEditQuoteElement({ content, variant, settings }) {
         />
       ) : (
         <div 
-          className="quote-mark absolute select-none pointer-events-none"
+          className="quote-mark quote-mark-bottom absolute select-none pointer-events-none"
           style={{ 
             ...quoteMarkStyle,
-            bottom: `${box_padding / 2}px`,
-            left: `${box_padding / 2}px`,
+            bottom: `${quote_mark_padding_vertical}px`,
+            left: `${quote_mark_padding_horizontal}px`,
             transform: 'rotate(180deg)'
           }}
         >
@@ -2272,6 +2288,32 @@ export function IEditQuoteElementEditor({ element, onChange }) {
               />
             </div>
           </div>
+
+          {/* Quote Mark Padding */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium mb-1">Horizontal Padding (px)</label>
+              <input
+                type="number"
+                value={content.quote_mark_padding_horizontal || 20}
+                onChange={(e) => updateContent('quote_mark_padding_horizontal', parseInt(e.target.value))}
+                className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+                min="0"
+                data-testid="input-quote-mark-padding-h"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Vertical Padding (px)</label>
+              <input
+                type="number"
+                value={content.quote_mark_padding_vertical || 20}
+                onChange={(e) => updateContent('quote_mark_padding_vertical', parseInt(e.target.value))}
+                className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+                min="0"
+                data-testid="input-quote-mark-padding-v"
+              />
+            </div>
+          </div>
         </div>
       )}
 
@@ -2425,6 +2467,32 @@ export function IEditQuoteElementEditor({ element, onChange }) {
                   min="0"
                   max="100"
                   data-testid="input-quote-mobile-mark-opacity"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Horizontal Padding</label>
+                <input
+                  type="number"
+                  value={content.mobile_quote_mark_padding_horizontal ?? ''}
+                  onChange={(e) => updateContent('mobile_quote_mark_padding_horizontal', e.target.value ? parseInt(e.target.value) : undefined)}
+                  placeholder={`Desktop: ${content.quote_mark_padding_horizontal || 20}px`}
+                  className="w-full px-2 py-1.5 border border-slate-300 rounded-md text-sm"
+                  min="0"
+                  data-testid="input-quote-mobile-mark-padding-h"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Vertical Padding</label>
+                <input
+                  type="number"
+                  value={content.mobile_quote_mark_padding_vertical ?? ''}
+                  onChange={(e) => updateContent('mobile_quote_mark_padding_vertical', e.target.value ? parseInt(e.target.value) : undefined)}
+                  placeholder={`Desktop: ${content.quote_mark_padding_vertical || 20}px`}
+                  className="w-full px-2 py-1.5 border border-slate-300 rounded-md text-sm"
+                  min="0"
+                  data-testid="input-quote-mobile-mark-padding-v"
                 />
               </div>
             </div>
