@@ -107,6 +107,7 @@ export default function IEditFiftyFiftyElement({ content, variant, settings, pre
     left_vertical_alignment = 'center',
     right_vertical_alignment = 'center',
     reverse_on_mobile = false,
+    mobile_first_column = 'left', // 'left' or 'right' - which column appears first on mobile
     column_gap = 32,
     vertical_padding = 48,
     // Mobile-specific layout
@@ -158,6 +159,17 @@ export default function IEditFiftyFiftyElement({ content, variant, settings, pre
   const defaultMobileContentSize = Math.max(13, Math.round(content_font_size * 0.9));
   const defaultMobileVerticalPadding = Math.max(24, Math.round(vertical_padding * 0.6));
   const defaultMobileColumnGap = Math.max(16, Math.round(column_gap * 0.5));
+
+  // Determine if we're in mobile view (either actual mobile or preview mobile)
+  const isInMobileView = isMobilePreview || isMobile;
+  
+  // Compute effective column gap based on viewport
+  const effectiveColumnGap = isInMobileView && mobile_custom_layout
+    ? (mobile_column_gap !== undefined ? mobile_column_gap : defaultMobileColumnGap)
+    : column_gap;
+  
+  // Compute column order for mobile - support both legacy reverse_on_mobile and new mobile_first_column
+  const shouldReverseOnMobile = mobile_first_column === 'right' || reverse_on_mobile;
 
   // Desktop background CSS
   const getDesktopBackgroundCSS = () => {
@@ -494,10 +506,10 @@ export default function IEditFiftyFiftyElement({ content, variant, settings, pre
 
         <div 
           className="grid grid-cols-1 md:grid-cols-2 items-stretch"
-          style={{ gap: `${column_gap}px` }}
+          style={{ gap: `${effectiveColumnGap}px` }}
         >
           <div 
-            className={`${reverse_on_mobile ? 'order-2 md:order-1' : ''} flex flex-col`}
+            className={`${shouldReverseOnMobile ? 'order-2 md:order-1' : ''} flex flex-col`}
             style={{
               ...(left_content_type === 'text' && left_column_bg_color ? { 
                 backgroundColor: left_column_bg_color,
@@ -567,7 +579,7 @@ export default function IEditFiftyFiftyElement({ content, variant, settings, pre
             )}
           </div>
           <div 
-            className={`${reverse_on_mobile ? 'order-1 md:order-2' : ''} flex flex-col`}
+            className={`${shouldReverseOnMobile ? 'order-1 md:order-2' : ''} flex flex-col`}
             style={{
               ...(right_content_type === 'text' && right_column_bg_color ? { 
                 backgroundColor: right_column_bg_color,
@@ -2138,7 +2150,79 @@ export function IEditFiftyFiftyElementEditor({ element, onChange }) {
                 {content.mobile_custom_layout && (
                   <>
                     <div>
+                      <Label className="text-sm">Column Order on Mobile</Label>
+                      <p className="text-xs text-slate-500 mb-2">
+                        Choose which column appears first when stacked on mobile
+                      </p>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            // Set left first and clear legacy reverse flag
+                            onChange({ 
+                              ...element, 
+                              content: { 
+                                ...content, 
+                                mobile_first_column: 'left',
+                                reverse_on_mobile: false 
+                              } 
+                            });
+                          }}
+                          data-testid="button-fiftyfifty-mobile-left-first"
+                          className={`flex-1 py-2 px-4 text-sm font-medium rounded-md border transition-colors ${
+                            !content.reverse_on_mobile && (content.mobile_first_column || 'left') === 'left'
+                              ? 'bg-blue-600 text-white border-blue-600'
+                              : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
+                          }`}
+                        >
+                          Left Column First
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            // Set right first and clear legacy reverse flag (use new field instead)
+                            onChange({ 
+                              ...element, 
+                              content: { 
+                                ...content, 
+                                mobile_first_column: 'right',
+                                reverse_on_mobile: false 
+                              } 
+                            });
+                          }}
+                          data-testid="button-fiftyfifty-mobile-right-first"
+                          className={`flex-1 py-2 px-4 text-sm font-medium rounded-md border transition-colors ${
+                            content.mobile_first_column === 'right' || content.reverse_on_mobile
+                              ? 'bg-blue-600 text-white border-blue-600'
+                              : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
+                          }`}
+                        >
+                          Right Column First
+                        </button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <Label className="text-sm">Vertical Gap Between Rows (px)</Label>
+                      <p className="text-xs text-slate-500 mb-2">
+                        Gap between the two columns when stacked vertically on mobile
+                      </p>
+                      <Input
+                        type="number"
+                        value={content.mobile_column_gap !== undefined ? content.mobile_column_gap : ''}
+                        onChange={(e) => updateContent('mobile_column_gap', e.target.value ? parseInt(e.target.value) : undefined)}
+                        min="0"
+                        max="100"
+                        placeholder={`Auto (${defaultMobileColumnGap}px)`}
+                        data-testid="input-fiftyfifty-mobile-column-gap"
+                      />
+                    </div>
+
+                    <div>
                       <Label className="text-sm">Mobile Vertical Padding (px)</Label>
+                      <p className="text-xs text-slate-500 mb-2">
+                        Top and bottom padding for the entire section on mobile
+                      </p>
                       <Input
                         type="number"
                         value={content.mobile_vertical_padding !== undefined ? content.mobile_vertical_padding : ''}
@@ -2147,19 +2231,6 @@ export function IEditFiftyFiftyElementEditor({ element, onChange }) {
                         max="200"
                         placeholder={`Auto (${defaultMobileVerticalPadding}px)`}
                         data-testid="input-fiftyfifty-mobile-vertical-padding"
-                      />
-                    </div>
-
-                    <div>
-                      <Label className="text-sm">Mobile Column Gap (px)</Label>
-                      <Input
-                        type="number"
-                        value={content.mobile_column_gap !== undefined ? content.mobile_column_gap : ''}
-                        onChange={(e) => updateContent('mobile_column_gap', e.target.value ? parseInt(e.target.value) : undefined)}
-                        min="0"
-                        max="50"
-                        placeholder={`Auto (${defaultMobileColumnGap}px)`}
-                        data-testid="input-fiftyfifty-mobile-column-gap"
                       />
                     </div>
                   </>
