@@ -1,11 +1,11 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import AGCASButton from "../../ui/AGCASButton";
 import TypographyStyleSelector, { applyTypographyStyle } from "../TypographyStyleSelector";
 import { useIsMobile } from "@/hooks/use-mobile";
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 import DOMPurify from 'dompurify';
-import { AlignLeft, AlignCenter, AlignRight, ChevronDown, ChevronUp } from "lucide-react";
+import { AlignLeft, AlignCenter, AlignRight, ChevronDown, ChevronUp, ChevronLeft, ChevronRight } from "lucide-react";
 
 const panelQuillModules = {
   toolbar: [
@@ -45,6 +45,54 @@ export default function IEditImagePanelElement({ content, variant, settings }) {
   // Detect mobile for responsive font sizing
   const isMobile = useIsMobile();
 
+  // Mobile swipe state
+  const [currentPanelIndex, setCurrentPanelIndex] = useState(0);
+  const touchStartX = useRef(0);
+  const touchEndX = useRef(0);
+  const containerRef = useRef(null);
+
+  // Swipe threshold in pixels
+  const SWIPE_THRESHOLD = 50;
+
+  const handleTouchStart = (e) => {
+    touchStartX.current = e.touches[0].clientX;
+  };
+
+  const handleTouchMove = (e) => {
+    touchEndX.current = e.touches[0].clientX;
+  };
+
+  const handleTouchEnd = () => {
+    const diff = touchStartX.current - touchEndX.current;
+    if (Math.abs(diff) > SWIPE_THRESHOLD) {
+      if (diff > 0 && currentPanelIndex < displayPanels.length - 1) {
+        // Swipe left - go to next panel
+        setCurrentPanelIndex(prev => prev + 1);
+      } else if (diff < 0 && currentPanelIndex > 0) {
+        // Swipe right - go to previous panel
+        setCurrentPanelIndex(prev => prev - 1);
+      }
+    }
+    touchStartX.current = 0;
+    touchEndX.current = 0;
+  };
+
+  const goToPanel = (index) => {
+    setCurrentPanelIndex(index);
+  };
+
+  const goToPrevPanel = () => {
+    if (currentPanelIndex > 0) {
+      setCurrentPanelIndex(prev => prev - 1);
+    }
+  };
+
+  const goToNextPanel = () => {
+    if (currentPanelIndex < displayPanels.length - 1) {
+      setCurrentPanelIndex(prev => prev + 1);
+    }
+  };
+
   // When height_type is 'image' and we have an image, use CSS Grid to size based on image
   const isImageSized = height_type === 'image' && background_type === 'image' && image_url;
 
@@ -60,108 +108,181 @@ export default function IEditImagePanelElement({ content, variant, settings }) {
     return {};
   };
 
-  // Render panels content - shared between both layouts
-  const renderPanels = () => (
-    displayPanels.map((panel, index) => {
-      const panelPaddingTop = panel.padding_top ?? 40;
-      const panelPaddingBottom = panel.padding_bottom ?? 40;
-      const panelPaddingLeft = panel.padding_left ?? 20;
-      const panelPaddingRight = panel.padding_right ?? 20;
-      const textGap = panel.text_gap ?? 0;
-      const bottomVerticalAlign = panel.bottom_vertical_align || 'bottom';
-      
-      return (
+  // Render a single panel (for mobile view)
+  const renderSinglePanel = (panel, index, forMobile = false) => {
+    const panelPaddingTop = panel.padding_top ?? 40;
+    const panelPaddingBottom = panel.padding_bottom ?? 40;
+    const panelPaddingLeft = panel.padding_left ?? 20;
+    const panelPaddingRight = panel.padding_right ?? 20;
+    const textGap = panel.text_gap ?? 0;
+    const bottomVerticalAlign = panel.bottom_vertical_align || 'bottom';
+    
+    return (
+      <div 
+        key={index}
+        className={`flex flex-col relative ${bottomVerticalAlign === 'bottom' ? 'justify-between' : 'justify-start'} ${forMobile ? 'w-full h-full' : 'flex-1'}`}
+        style={{
+          borderRight: !forMobile && index < displayPanels.length - 1 
+            ? `${divider_weight}px solid rgba(${hexToRgb(divider_color)}, ${divider_opacity / 100})` 
+            : 'none',
+          paddingTop: `${panelPaddingTop}px`,
+          paddingBottom: `${forMobile ? panelPaddingBottom + 40 : panelPaddingBottom}px`, // Extra bottom padding on mobile for indicators
+          paddingLeft: `${panelPaddingLeft}px`,
+          paddingRight: `${panelPaddingRight}px`
+        }}
+      >
         <div 
-          key={index}
-          className={`flex-1 flex flex-col relative ${bottomVerticalAlign === 'bottom' ? 'justify-between' : 'justify-start'}`}
           style={{
-            borderRight: index < displayPanels.length - 1 
-              ? `${divider_weight}px solid rgba(${hexToRgb(divider_color)}, ${divider_opacity / 100})` 
-              : 'none',
-            paddingTop: `${panelPaddingTop}px`,
-            paddingBottom: `${panelPaddingBottom}px`,
-            paddingLeft: `${panelPaddingLeft}px`,
-            paddingRight: `${panelPaddingRight}px`
+            textAlign: panel.header_align || 'left'
           }}
         >
-          <div 
-            style={{
-              textAlign: panel.header_align || 'left'
-            }}
-          >
-            {panel.header_text && (
-              <div 
-                className="panel-rich-text-content"
-                style={{ 
-                  fontFamily: panel.header_font_family || 'Poppins, sans-serif',
-                  fontSize: `${(isMobile && panel.header_font_size_mobile) ? panel.header_font_size_mobile : (panel.header_font_size || 24)}px`,
-                  fontWeight: panel.header_font_weight || 600,
-                  color: panel.header_color || '#ffffff',
-                  letterSpacing: `${panel.header_letter_spacing || 0}px`,
-                  lineHeight: panel.header_line_height || 1.3,
-                  textTransform: panel.header_text_transform || 'none',
-                  margin: 0
-                }}
-                dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(panel.header_text) }}
-              />
-            )}
-          </div>
-          
-          <div 
-            className={bottomVerticalAlign === 'bottom' ? 'mt-auto' : ''}
-            style={{
-              textAlign: panel.bottom_align || 'left',
-              marginTop: textGap > 0 ? `${textGap}px` : undefined
-            }}
-          >
-            {panel.bottom_text && (
-              <div 
-                className="panel-rich-text-content"
-                style={{ 
-                  fontFamily: panel.bottom_font_family || 'Poppins, sans-serif',
-                  fontSize: `${(isMobile && panel.bottom_font_size_mobile) ? panel.bottom_font_size_mobile : (panel.bottom_font_size || 16)}px`,
-                  fontWeight: panel.bottom_font_weight || 400,
-                  color: panel.bottom_color || '#ffffff',
-                  letterSpacing: `${panel.bottom_letter_spacing || 0}px`,
-                  lineHeight: panel.bottom_line_height || 1.5,
-                  textTransform: panel.bottom_text_transform || 'none',
-                  margin: 0,
-                  marginBottom: panel.button?.text ? '16px' : 0
-                }}
-                dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(panel.bottom_text) }}
-              />
-            )}
-            
-            {panel.button?.text && (
-              <AGCASButton
-                text={panel.button.text}
-                link={panel.button.link}
-                buttonStyleId={panel.button.button_style_id}
-                customBgColor={panel.button.custom_bg_color}
-                customTextColor={panel.button.custom_text_color}
-                customBorderColor={panel.button.custom_border_color}
-                transparentBg={panel.button.transparent_bg}
-                openInNewTab={panel.button.open_in_new_tab}
-                size={panel.button.size || 'default'}
-                showArrow={panel.button.show_arrow}
-              />
-            )}
-          </div>
+          {panel.header_text && (
+            <div 
+              className="panel-rich-text-content"
+              style={{ 
+                fontFamily: panel.header_font_family || 'Poppins, sans-serif',
+                fontSize: `${(isMobile && panel.header_font_size_mobile) ? panel.header_font_size_mobile : (panel.header_font_size || 24)}px`,
+                fontWeight: panel.header_font_weight || 600,
+                color: panel.header_color || '#ffffff',
+                letterSpacing: `${panel.header_letter_spacing || 0}px`,
+                lineHeight: panel.header_line_height || 1.3,
+                textTransform: panel.header_text_transform || 'none',
+                margin: 0
+              }}
+              dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(panel.header_text) }}
+            />
+          )}
         </div>
-      );
-    })
+        
+        <div 
+          className={bottomVerticalAlign === 'bottom' ? 'mt-auto' : ''}
+          style={{
+            textAlign: panel.bottom_align || 'left',
+            marginTop: textGap > 0 ? `${textGap}px` : undefined
+          }}
+        >
+          {panel.bottom_text && (
+            <div 
+              className="panel-rich-text-content"
+              style={{ 
+                fontFamily: panel.bottom_font_family || 'Poppins, sans-serif',
+                fontSize: `${(isMobile && panel.bottom_font_size_mobile) ? panel.bottom_font_size_mobile : (panel.bottom_font_size || 16)}px`,
+                fontWeight: panel.bottom_font_weight || 400,
+                color: panel.bottom_color || '#ffffff',
+                letterSpacing: `${panel.bottom_letter_spacing || 0}px`,
+                lineHeight: panel.bottom_line_height || 1.5,
+                textTransform: panel.bottom_text_transform || 'none',
+                margin: 0,
+                marginBottom: panel.button?.text ? '16px' : 0
+              }}
+              dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(panel.bottom_text) }}
+            />
+          )}
+          
+          {panel.button?.text && (
+            <AGCASButton
+              text={panel.button.text}
+              link={panel.button.link}
+              buttonStyleId={panel.button.button_style_id}
+              customBgColor={panel.button.custom_bg_color}
+              customTextColor={panel.button.custom_text_color}
+              customBorderColor={panel.button.custom_border_color}
+              transparentBg={panel.button.transparent_bg}
+              openInNewTab={panel.button.open_in_new_tab}
+              size={panel.button.size || 'default'}
+              showArrow={panel.button.show_arrow}
+            />
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  // Render panels content - shared between both layouts (desktop only)
+  const renderPanels = () => (
+    displayPanels.map((panel, index) => renderSinglePanel(panel, index, false))
   );
+
+  // Mobile carousel indicators and navigation
+  const renderMobileIndicators = () => {
+    if (displayPanels.length <= 1) return null;
+    
+    return (
+      <div className="absolute bottom-4 left-0 right-0 flex items-center justify-center gap-3 z-10">
+        {/* Previous arrow */}
+        <button
+          onClick={goToPrevPanel}
+          disabled={currentPanelIndex === 0}
+          className={`p-1 rounded-full transition-opacity ${
+            currentPanelIndex === 0 ? 'opacity-30 cursor-not-allowed' : 'opacity-80 hover:opacity-100'
+          }`}
+          style={{ backgroundColor: 'rgba(255,255,255,0.2)' }}
+          aria-label="Previous panel"
+        >
+          <ChevronLeft className="w-5 h-5 text-white" />
+        </button>
+
+        {/* Dot indicators */}
+        <div className="flex items-center gap-2">
+          {displayPanels.map((_, index) => (
+            <button
+              key={index}
+              onClick={() => goToPanel(index)}
+              className={`rounded-full transition-all ${
+                index === currentPanelIndex 
+                  ? 'w-3 h-3 bg-white' 
+                  : 'w-2 h-2 bg-white/50 hover:bg-white/70'
+              }`}
+              aria-label={`Go to panel ${index + 1}`}
+            />
+          ))}
+        </div>
+
+        {/* Next arrow */}
+        <button
+          onClick={goToNextPanel}
+          disabled={currentPanelIndex === displayPanels.length - 1}
+          className={`p-1 rounded-full transition-opacity ${
+            currentPanelIndex === displayPanels.length - 1 ? 'opacity-30 cursor-not-allowed' : 'opacity-80 hover:opacity-100'
+          }`}
+          style={{ backgroundColor: 'rgba(255,255,255,0.2)' }}
+          aria-label="Next panel"
+        >
+          <ChevronRight className="w-5 h-5 text-white" />
+        </button>
+      </div>
+    );
+  };
+
+  // Swipe hint text for mobile
+  const renderSwipeHint = () => {
+    if (displayPanels.length <= 1) return null;
+    
+    return (
+      <div className="absolute top-4 right-4 flex items-center gap-1 text-white/60 text-xs z-10">
+        <span>{currentPanelIndex + 1} / {displayPanels.length}</span>
+      </div>
+    );
+  };
+
+  // Check if we should show mobile carousel (more than 1 panel on mobile)
+  const showMobileCarousel = isMobile && displayPanels.length > 1;
 
   // When using image-based sizing, use CSS Grid layout
   if (isImageSized) {
     return (
       <div 
         id={anchor || undefined}
+        ref={containerRef}
+        onTouchStart={showMobileCarousel ? handleTouchStart : undefined}
+        onTouchMove={showMobileCarousel ? handleTouchMove : undefined}
+        onTouchEnd={showMobileCarousel ? handleTouchEnd : undefined}
         style={{ 
           display: 'grid',
           gridTemplateColumns: '1fr',
           gridTemplateRows: '1fr',
-          width: '100%'
+          width: '100%',
+          position: 'relative'
         }}
       >
         {/* Image layer - sets the size */}
@@ -199,8 +320,14 @@ export default function IEditImagePanelElement({ content, variant, settings }) {
             margin: full_width ? '0 auto' : undefined
           }}
         >
-          {renderPanels()}
+          {showMobileCarousel 
+            ? renderSinglePanel(displayPanels[currentPanelIndex], currentPanelIndex, true)
+            : renderPanels()
+          }
         </div>
+        {/* Mobile indicators */}
+        {showMobileCarousel && renderSwipeHint()}
+        {showMobileCarousel && renderMobileIndicators()}
       </div>
     );
   }
@@ -209,6 +336,10 @@ export default function IEditImagePanelElement({ content, variant, settings }) {
   return (
     <div 
       id={anchor || undefined}
+      ref={containerRef}
+      onTouchStart={showMobileCarousel ? handleTouchStart : undefined}
+      onTouchMove={showMobileCarousel ? handleTouchMove : undefined}
+      onTouchEnd={showMobileCarousel ? handleTouchEnd : undefined}
       className="relative w-full overflow-hidden"
       style={{ 
         ...getBackgroundStyle(),
@@ -245,8 +376,14 @@ export default function IEditImagePanelElement({ content, variant, settings }) {
           paddingRight: full_width ? '1rem' : undefined
         }}
       >
-        {renderPanels()}
+        {showMobileCarousel 
+          ? renderSinglePanel(displayPanels[currentPanelIndex], currentPanelIndex, true)
+          : renderPanels()
+        }
       </div>
+      {/* Mobile indicators */}
+      {showMobileCarousel && renderSwipeHint()}
+      {showMobileCarousel && renderMobileIndicators()}
     </div>
   );
 }
