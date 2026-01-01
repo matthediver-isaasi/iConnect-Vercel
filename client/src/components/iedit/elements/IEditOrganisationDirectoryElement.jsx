@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Building2, Search, Globe, Users, Loader2, ChevronLeft, ChevronRight, ArrowDownAZ, ArrowUpZA, AlignLeft, AlignCenter, AlignRight, ChevronDown, ChevronUp } from "lucide-react";
 import TypographyStyleSelector, { applyTypographyStyle, useTypographyStyles } from "../TypographyStyleSelector";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useMemberAccess } from "@/hooks/useMemberAccess";
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 import DOMPurify from 'dompurify';
@@ -618,6 +619,18 @@ export function IEditOrganisationDirectoryElementRenderer({ content, settings })
   const [currentPage, setCurrentPage] = useState(1);
   const isMobile = useIsMobile();
   const { getStyleById } = useTypographyStyles();
+  const { memberInfo } = useMemberAccess();
+
+  // Handler for clicking organization card - checks auth and redirects appropriately
+  const handleOrgCardClick = (orgId) => {
+    if (!memberInfo) {
+      // User not logged in - redirect to login with return URL
+      window.location.href = `/login?redirect=${encodeURIComponent(`/memberdirectory?org=${orgId}`)}`;
+    } else {
+      // User is logged in - navigate to member directory
+      window.location.href = `/memberdirectory?org=${orgId}`;
+    }
+  };
 
   const {
     anchor,
@@ -943,9 +956,7 @@ export function IEditOrganisationDirectoryElementRenderer({ content, settings })
                     key={org.id} 
                     className="border-slate-200 hover:shadow-lg transition-shadow cursor-pointer"
                     style={{ borderRadius: `${cardBorderRadius}px` }}
-                    onClick={() => {
-                      window.location.href = `/memberdirectory?org=${org.id}`;
-                    }}
+                    onClick={() => handleOrgCardClick(org.id)}
                     data-testid={`card-org-element-${org.id}`}
                   >
                     <CardHeader className="flex flex-col items-center text-center pb-2">

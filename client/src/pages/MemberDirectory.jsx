@@ -20,6 +20,19 @@ export default function MemberDirectoryPage() {
   const { memberInfo, isFeatureExcluded } = useMemberAccess();
   const { hasBanner } = useLayoutContext();
   
+  // Auth guard - redirect non-logged-in users to login immediately
+  useEffect(() => {
+    if (memberInfo === null) {
+      const currentUrl = window.location.pathname + window.location.search;
+      window.location.href = `/login?redirect=${encodeURIComponent(currentUrl)}`;
+    }
+  }, [memberInfo]);
+  
+  // Show nothing while checking auth or redirecting
+  if (!memberInfo) {
+    return null;
+  }
+  
   // Check if user can see the "Show disabled accounts" toggle
   const canShowDisabledAccounts = !isFeatureExcluded('element_ShowDisabledAccounts');
   
