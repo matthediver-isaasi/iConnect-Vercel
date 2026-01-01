@@ -181,6 +181,12 @@ export default async function handler(req, res) {
       // Debug: Log raw row data for first few rows
       if (i < 3) {
         console.log(`[Import] Row ${i + 1} raw data:`, JSON.stringify(row));
+        // Log character codes for date field to debug truncation
+        const dateField = row['Joined Date'] || row['Created At'] || row['created_at'];
+        if (dateField) {
+          const charCodes = [...dateField].map(c => c.charCodeAt(0));
+          console.log(`[Import] Row ${i + 1} date field "${dateField}" char codes:`, charCodes);
+        }
       }
       
       const identifierValue = row[identifierMapping.sourceColumn]?.trim();
