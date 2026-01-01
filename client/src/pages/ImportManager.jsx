@@ -57,12 +57,16 @@ export default function ImportManager() {
   const { data: availableFields, isLoading: fieldsLoading } = useQuery({
     queryKey: ['/api/imports/fields', activeTab],
     queryFn: async () => {
+      console.log('[ImportManager] Fetching fields for entity:', activeTab);
       const response = await fetch(`/api/imports/fields?entity=${activeTab}`, {
         credentials: 'include'
       });
       if (!response.ok) throw new Error('Failed to fetch fields');
-      return response.json();
-    }
+      const data = await response.json();
+      console.log('[ImportManager] Received fields:', data.core?.slice(0, 3));
+      return data;
+    },
+    staleTime: 0
   });
 
   // Fetch recent import jobs

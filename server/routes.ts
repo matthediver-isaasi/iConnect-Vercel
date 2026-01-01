@@ -15633,6 +15633,7 @@ AGCAS Events Team
     
     try {
       const entityType = req.query.entity as string || 'member';
+      console.log('[Import] /api/imports/fields called with entity:', entityType);
       
       // Get core fields
       const coreFields = entityType === 'organization' 
