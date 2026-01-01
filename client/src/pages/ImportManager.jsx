@@ -604,7 +604,7 @@ export default function ImportManager() {
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                           <Card className="bg-blue-50 border-blue-200">
                             <CardContent className="p-4 text-center">
-                              <p className="text-2xl font-bold text-blue-700">{importResult.totalRows}</p>
+                              <p className="text-2xl font-bold text-blue-700">{importResult.summary?.totalRows || importResult.totalRows || 0}</p>
                               <p className="text-sm text-blue-600">Total Rows</p>
                             </CardContent>
                           </Card>
@@ -628,18 +628,20 @@ export default function ImportManager() {
                           </Card>
                         </div>
 
-                        {importResult.errorLog?.length > 0 && (
+                        {(importResult.errorDetails?.length > 0 || importResult.errorLog?.length > 0) && (
                           <Alert variant="destructive">
                             <AlertCircle className="w-4 h-4" />
                             <AlertDescription>
                               <p className="font-medium mb-2">Errors occurred during import:</p>
-                              <ScrollArea className="h-32">
+                              <div className="max-h-32 overflow-y-auto">
                                 <ul className="list-disc pl-4 space-y-1">
-                                  {importResult.errorLog.map((err, i) => (
-                                    <li key={i}>Row {err.row}: {err.message}</li>
+                                  {(importResult.errorDetails || importResult.errorLog || []).map((err, i) => (
+                                    <li key={i}>
+                                      Row {err.row}{err.identifier ? ` (${err.identifier})` : ''}: {err.error || err.message}
+                                    </li>
                                   ))}
                                 </ul>
-                              </ScrollArea>
+                              </div>
                             </AlertDescription>
                           </Alert>
                         )}
