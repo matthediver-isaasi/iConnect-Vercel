@@ -15609,7 +15609,7 @@ AGCAS Events Team
     { key: 'name', label: 'Name', type: 'text' },
     { key: 'slug', label: 'Slug', type: 'text' },
     { key: 'description', label: 'Description', type: 'text' },
-    { key: 'website', label: 'Website', type: 'url' },
+    { key: 'website_url', label: 'Website', type: 'url' },
     { key: 'logo_url', label: 'Logo URL', type: 'url' },
     { key: 'email', label: 'Email', type: 'email' },
     { key: 'phone', label: 'Phone', type: 'text' },
