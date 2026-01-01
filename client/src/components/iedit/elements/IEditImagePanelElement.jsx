@@ -294,8 +294,8 @@ export default function IEditImagePanelElement({ content, variant, settings, pre
     );
   };
 
-  // Check if we should show mobile carousel (more than 1 panel on mobile)
-  const showMobileCarousel = isMobile && displayPanels.length > 1;
+  // Check if we should show mobile carousel (more than 1 panel on mobile or mobile preview)
+  const showMobileCarousel = isEffectivelyMobile && displayPanels.length > 1;
 
   // When using image-based sizing, use CSS Grid layout
   if (isImageSized) {
@@ -1158,22 +1158,24 @@ export function IEditImagePanelElementEditor({ element, onChange }) {
                   </>
                 )}
 
-                <div>
-                  <label className="block text-sm font-medium mb-1">Mobile Minimum Height (px)</label>
-                  <input
-                    type="number"
-                    value={content.mobile_min_height || ''}
-                    onChange={(e) => updateContent('mobile_min_height', e.target.value ? parseInt(e.target.value) : null)}
-                    placeholder="Same as desktop"
-                    className="w-full px-3 py-2 border border-slate-300 rounded-md"
-                    min="100"
-                  />
-                  <p className="text-xs text-slate-500 mt-1">
-                    Leave empty to use the desktop minimum height value
-                  </p>
-                </div>
               </>
             )}
+
+            {/* Mobile min height - always available regardless of background type */}
+            <div>
+              <label className="block text-sm font-medium mb-1">Mobile Minimum Height (px)</label>
+              <input
+                type="number"
+                value={content.mobile_min_height || ''}
+                onChange={(e) => updateContent('mobile_min_height', e.target.value ? parseInt(e.target.value) : null)}
+                placeholder="Same as desktop"
+                className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                min="100"
+              />
+              <p className="text-xs text-slate-500 mt-1">
+                Leave empty to use the desktop minimum height value
+              </p>
+            </div>
           </div>
         )}
       </div>
