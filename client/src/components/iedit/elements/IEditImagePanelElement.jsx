@@ -48,7 +48,8 @@ export default function IEditImagePanelElement({ content, variant, settings, pre
     mobile_overlay_enabled = false,
     mobile_overlay_color = '#000000',
     mobile_overlay_opacity = 50,
-    mobile_min_height
+    mobile_min_height,
+    mobile_text_gap
   } = content || {};
 
   // Use all configured panels (up to 5) without filtering empty ones
@@ -143,7 +144,10 @@ export default function IEditImagePanelElement({ content, variant, settings, pre
     const panelPaddingBottom = panel.padding_bottom ?? 40;
     const panelPaddingLeft = panel.padding_left ?? 20;
     const panelPaddingRight = panel.padding_right ?? 20;
-    const textGap = panel.text_gap ?? 0;
+    // Use mobile_text_gap override when on mobile, otherwise use panel's individual text_gap
+    const textGap = (forMobile && mobile_text_gap !== undefined && mobile_text_gap !== null) 
+      ? mobile_text_gap 
+      : (panel.text_gap ?? 0);
     const bottomVerticalAlign = panel.bottom_vertical_align || 'bottom';
     
     return (
@@ -1174,6 +1178,22 @@ export function IEditImagePanelElementEditor({ element, onChange }) {
               />
               <p className="text-xs text-slate-500 mt-1">
                 Leave empty to use the desktop minimum height value
+              </p>
+            </div>
+
+            {/* Mobile text gap - controls spacing between top and bottom text for all cards */}
+            <div>
+              <label className="block text-sm font-medium mb-1">Mobile Text Gap (px)</label>
+              <input
+                type="number"
+                value={content.mobile_text_gap ?? ''}
+                onChange={(e) => updateContent('mobile_text_gap', e.target.value ? parseInt(e.target.value) : null)}
+                placeholder="Use per-card desktop settings"
+                className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                min="0"
+              />
+              <p className="text-xs text-slate-500 mt-1">
+                Distance between top and bottom text on all cards. Leave empty to use each card's individual setting.
               </p>
             </div>
           </div>
