@@ -41,6 +41,7 @@ const ORGANIZATION_CORE_FIELDS = [
   { key: 'postcode', label: 'Postcode', type: 'text' },
   { key: 'external_id', label: 'External ID', type: 'text' },
   { key: 'is_active', label: 'Is Active', type: 'boolean' },
+  { key: 'created_at', label: 'Created At', type: 'date' },
   { key: 'twitter_url', label: 'Twitter URL', type: 'url' },
   { key: 'linkedin_url', label: 'LinkedIn URL', type: 'url' },
   { key: 'facebook_url', label: 'Facebook URL', type: 'url' },
