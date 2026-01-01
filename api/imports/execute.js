@@ -170,6 +170,12 @@ export default async function handler(req, res) {
     
     for (let i = 0; i < records.length; i++) {
       const row = records[i];
+      
+      // Debug: Log raw row data for first few rows
+      if (i < 3) {
+        console.log(`[Import] Row ${i + 1} raw data:`, JSON.stringify(row));
+      }
+      
       const identifierValue = row[identifierMapping.sourceColumn]?.trim();
       
       if (!identifierValue) {
