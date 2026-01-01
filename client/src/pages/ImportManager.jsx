@@ -1,5 +1,5 @@
 import { useState, useRef } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,6 +39,7 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 
 export default function ImportManager() {
   const { isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState('member');
   const [step, setStep] = useState(1); // 1: Upload, 2: Map, 3: Preview, 4: Execute
   const [csvFile, setCsvFile] = useState(null);
@@ -241,6 +242,8 @@ export default function ImportManager() {
     setActiveTab(value);
     resetImport();
     setIdentifierField(value === 'organization' ? 'name' : 'email');
+    // Invalidate fields cache to ensure correct fields are fetched for the new entity type
+    queryClient.invalidateQueries({ queryKey: ['/api/imports/fields', value] });
   };
 
   if (!isAccessReady) {
