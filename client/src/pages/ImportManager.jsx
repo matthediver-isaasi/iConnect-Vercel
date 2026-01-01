@@ -403,82 +403,80 @@ export default function ImportManager() {
                         {/* Column Mappings */}
                         <div className="space-y-3">
                           <Label className="text-lg font-medium">Column Mappings</Label>
-                          <ScrollArea className="h-[400px] pr-4">
-                            <div className="space-y-3">
-                              {mappings.map((mapping, index) => (
-                                <div 
-                                  key={index} 
-                                  className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg"
-                                  data-testid={`mapping-row-${index}`}
-                                >
-                                  <div className="flex-1 min-w-0">
-                                    <p className="font-medium text-sm truncate" title={mapping.sourceColumn}>
-                                      {mapping.sourceColumn}
+                          <div className="max-h-[400px] overflow-y-auto pr-4 space-y-3">
+                            {mappings.map((mapping, index) => (
+                              <div 
+                                key={index} 
+                                className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg"
+                                data-testid={`mapping-row-${index}`}
+                              >
+                                <div className="flex-1 min-w-0">
+                                  <p className="font-medium text-sm truncate" title={mapping.sourceColumn}>
+                                    {mapping.sourceColumn}
+                                  </p>
+                                  {csvData.preview?.[0]?.[mapping.sourceColumn] && (
+                                    <p className="text-xs text-slate-500 truncate">
+                                      e.g., "{csvData.preview[0][mapping.sourceColumn]}"
                                     </p>
-                                    {csvData.preview?.[0]?.[mapping.sourceColumn] && (
-                                      <p className="text-xs text-slate-500 truncate">
-                                        e.g., "{csvData.preview[0][mapping.sourceColumn]}"
-                                      </p>
-                                    )}
-                                  </div>
-                                  
-                                  <ArrowRight className="w-4 h-4 text-slate-400 flex-shrink-0" />
-                                  
-                                  <Select 
-                                    value={mapping.targetField || "__skip__"}
-                                    onValueChange={(val) => handleMappingChange(index, 'targetField', val === "__skip__" ? "" : val)}
-                                  >
-                                    <SelectTrigger className="w-48" data-testid={`select-target-${index}`}>
-                                      <SelectValue placeholder="Select field..." />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      <SelectItem value="__skip__">-- Skip this column --</SelectItem>
-                                      {availableFields?.core?.length > 0 && (
-                                        <>
-                                          <SelectItem disabled value="__core_header__">
-                                            <span className="font-semibold text-slate-500">Core Fields</span>
-                                          </SelectItem>
-                                          {availableFields.core.map(f => (
-                                            <SelectItem key={f.key} value={f.key}>
-                                              {f.label}
-                                            </SelectItem>
-                                          ))}
-                                        </>
-                                      )}
-                                      {availableFields?.custom?.length > 0 && (
-                                        <>
-                                          <SelectItem disabled value="__custom_header__">
-                                            <span className="font-semibold text-slate-500">Custom Fields</span>
-                                          </SelectItem>
-                                          {availableFields.custom.map(f => (
-                                            <SelectItem key={f.key} value={f.key}>
-                                              {f.label}
-                                            </SelectItem>
-                                          ))}
-                                        </>
-                                      )}
-                                    </SelectContent>
-                                  </Select>
-
-                                  <div className="flex items-center gap-2">
-                                    <Checkbox
-                                      id={`clear-${index}`}
-                                      checked={mapping.clearOnEmpty}
-                                      onCheckedChange={(checked) => handleMappingChange(index, 'clearOnEmpty', checked)}
-                                      disabled={!mapping.targetField}
-                                      data-testid={`checkbox-clear-${index}`}
-                                    />
-                                    <Label 
-                                      htmlFor={`clear-${index}`} 
-                                      className="text-xs text-slate-600 whitespace-nowrap"
-                                    >
-                                      Clear if empty
-                                    </Label>
-                                  </div>
+                                  )}
                                 </div>
-                              ))}
-                            </div>
-                          </ScrollArea>
+                                
+                                <ArrowRight className="w-4 h-4 text-slate-400 flex-shrink-0" />
+                                
+                                <Select 
+                                  value={mapping.targetField || "__skip__"}
+                                  onValueChange={(val) => handleMappingChange(index, 'targetField', val === "__skip__" ? "" : val)}
+                                >
+                                  <SelectTrigger className="w-48" data-testid={`select-target-${index}`}>
+                                    <SelectValue placeholder="Select field..." />
+                                  </SelectTrigger>
+                                  <SelectContent position="popper" sideOffset={4}>
+                                    <SelectItem value="__skip__">-- Skip this column --</SelectItem>
+                                    {availableFields?.core?.length > 0 && (
+                                      <>
+                                        <SelectItem disabled value="__core_header__">
+                                          <span className="font-semibold text-slate-500">Core Fields</span>
+                                        </SelectItem>
+                                        {availableFields.core.map(f => (
+                                          <SelectItem key={f.key} value={f.key}>
+                                            {f.label}
+                                          </SelectItem>
+                                        ))}
+                                      </>
+                                    )}
+                                    {availableFields?.custom?.length > 0 && (
+                                      <>
+                                        <SelectItem disabled value="__custom_header__">
+                                          <span className="font-semibold text-slate-500">Custom Fields</span>
+                                        </SelectItem>
+                                        {availableFields.custom.map(f => (
+                                          <SelectItem key={f.key} value={f.key}>
+                                            {f.label}
+                                          </SelectItem>
+                                        ))}
+                                      </>
+                                    )}
+                                  </SelectContent>
+                                </Select>
+
+                                <div className="flex items-center gap-2">
+                                  <Checkbox
+                                    id={`clear-${index}`}
+                                    checked={mapping.clearOnEmpty}
+                                    onCheckedChange={(checked) => handleMappingChange(index, 'clearOnEmpty', checked)}
+                                    disabled={!mapping.targetField}
+                                    data-testid={`checkbox-clear-${index}`}
+                                  />
+                                  <Label 
+                                    htmlFor={`clear-${index}`} 
+                                    className="text-xs text-slate-600 whitespace-nowrap"
+                                  >
+                                    Clear if empty
+                                  </Label>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
                         </div>
 
                         <div className="flex justify-end gap-3">
