@@ -4,8 +4,9 @@ import { Label } from "@/components/ui/label";
 import { ChevronDown, ChevronUp, AlignLeft, AlignCenter, AlignRight } from "lucide-react";
 import AGCASButton from "@/components/ui/AGCASButton";
 
-export default function IEditCtaButtonElement({ content, variant, settings }) {
+export default function IEditCtaButtonElement({ content, variant, settings, previewViewport }) {
   const fullWidth = settings?.fullWidth;
+  const isMobile = previewViewport === 'mobile';
   
   const alignment = {
     left: "justify-start",
@@ -20,6 +21,21 @@ export default function IEditCtaButtonElement({ content, variant, settings }) {
 
   // Full width breakout class - extends background to screen edges
   const fullWidthClass = fullWidth ? 'w-screen relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw]' : '';
+
+  // Determine padding values based on viewport
+  const useCustomMobileSpacing = content?.mobile_custom_spacing && isMobile;
+  const topMargin = useCustomMobileSpacing 
+    ? (content?.mobile_top_margin ?? content?.top_margin ?? 16)
+    : (content?.top_margin || 16);
+  const bottomMargin = useCustomMobileSpacing 
+    ? (content?.mobile_bottom_margin ?? content?.bottom_margin ?? 16)
+    : (content?.bottom_margin || 16);
+  const leftPadding = useCustomMobileSpacing 
+    ? (content?.mobile_left_padding ?? content?.left_padding ?? 0)
+    : (content?.left_padding || 0);
+  const rightPadding = useCustomMobileSpacing 
+    ? (content?.mobile_right_padding ?? content?.right_padding ?? 0)
+    : (content?.right_padding || 0);
 
   if (!shouldShowButton) {
     return (
@@ -66,10 +82,10 @@ export default function IEditCtaButtonElement({ content, variant, settings }) {
       id={anchor || undefined}
       className={fullWidthClass}
       style={{ 
-        paddingTop: `${content?.top_margin || 16}px`,
-        paddingBottom: `${content?.bottom_margin || 16}px`,
-        paddingLeft: `${content?.left_padding || 0}px`,
-        paddingRight: `${content?.right_padding || 0}px`,
+        paddingTop: `${topMargin}px`,
+        paddingBottom: `${bottomMargin}px`,
+        paddingLeft: `${leftPadding}px`,
+        paddingRight: `${rightPadding}px`,
         backgroundColor: backgroundColor || undefined
       }}
     >
@@ -88,9 +104,11 @@ export function IEditCtaButtonElementEditor({ element, onChange }) {
   const content = element.content || {};
   const button = content.button || {};
   const [buttonStyles, setButtonStyles] = useState([]);
+  const [viewportTab, setViewportTab] = useState('desktop');
   const [expandedSections, setExpandedSections] = useState({
     button: true,
-    spacing: false
+    spacing: false,
+    mobileSpacing: true
   });
 
   useEffect(() => {
@@ -185,6 +203,37 @@ export function IEditCtaButtonElementEditor({ element, onChange }) {
         </p>
       </div>
 
+      {/* Desktop/Mobile Tab Selector */}
+      <div className="flex gap-1 p-1 bg-slate-100 rounded-lg mb-4">
+        <button
+          type="button"
+          onClick={() => setViewportTab('desktop')}
+          data-testid="button-ctabutton-viewport-desktop"
+          className={`flex-1 py-2 px-4 text-sm font-medium rounded-md transition-colors ${
+            viewportTab === 'desktop' 
+              ? 'bg-white shadow text-slate-900' 
+              : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          Desktop
+        </button>
+        <button
+          type="button"
+          onClick={() => setViewportTab('mobile')}
+          data-testid="button-ctabutton-viewport-mobile"
+          className={`flex-1 py-2 px-4 text-sm font-medium rounded-md transition-colors ${
+            viewportTab === 'mobile' 
+              ? 'bg-white shadow text-slate-900' 
+              : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          Mobile
+        </button>
+      </div>
+
+      {/* Desktop Controls */}
+      {viewportTab === 'desktop' && (
+        <>
       {/* Button Section */}
       <div className="border rounded-lg overflow-hidden">
         <button
@@ -510,6 +559,128 @@ export function IEditCtaButtonElementEditor({ element, onChange }) {
           </div>
         )}
       </div>
+        </>
+      )}
+
+      {/* Mobile Controls */}
+      {viewportTab === 'mobile' && (
+        <>
+          {/* Mobile Spacing Section */}
+          <div className="border rounded-lg overflow-hidden">
+            <button
+              type="button"
+              onClick={() => toggleSection('mobileSpacing')}
+              className="w-full flex items-center justify-between p-3 bg-slate-100 hover:bg-slate-200 text-left"
+              data-testid="accordion-cta-mobile-spacing"
+            >
+              <span className="font-semibold text-sm">Mobile Spacing</span>
+              {expandedSections.mobileSpacing ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            </button>
+            
+            {expandedSections.mobileSpacing && (
+              <div className="p-4 space-y-4">
+                <div className="bg-blue-50 text-blue-700 p-3 rounded-md text-sm">
+                  <p className="font-medium mb-1">Mobile-Specific Padding</p>
+                  <p className="text-xs">
+                    Configure separate padding values for mobile devices. When not set, desktop values will be used.
+                  </p>
+                </div>
+
+                {/* Use Custom Mobile Spacing Toggle */}
+                <div className="flex items-center gap-2 p-3 bg-slate-50 rounded-md">
+                  <input
+                    type="checkbox"
+                    id="mobile-custom-spacing"
+                    checked={content.mobile_custom_spacing || false}
+                    onChange={(e) => updateContent('mobile_custom_spacing', e.target.checked)}
+                    className="w-4 h-4"
+                    data-testid="checkbox-cta-mobile-custom-spacing"
+                  />
+                  <div>
+                    <label htmlFor="mobile-custom-spacing" className="text-sm cursor-pointer font-medium">
+                      Use custom mobile spacing
+                    </label>
+                    <p className="text-xs text-slate-500">
+                      When disabled, desktop spacing values are used on mobile
+                    </p>
+                  </div>
+                </div>
+
+                {content.mobile_custom_spacing && (
+                  <>
+                    <div className="border-t pt-4">
+                      <h5 className="font-medium text-sm mb-3">Vertical Padding</h5>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-sm font-medium mb-1">Top (px)</label>
+                          <input
+                            type="number"
+                            value={content.mobile_top_margin ?? content.top_margin ?? 16}
+                            onChange={(e) => updateContent('mobile_top_margin', parseInt(e.target.value) || 0)}
+                            className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                            min="0"
+                            max="200"
+                            data-testid="input-cta-mobile-top-margin"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium mb-1">Bottom (px)</label>
+                          <input
+                            type="number"
+                            value={content.mobile_bottom_margin ?? content.bottom_margin ?? 16}
+                            onChange={(e) => updateContent('mobile_bottom_margin', parseInt(e.target.value) || 0)}
+                            className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                            min="0"
+                            max="200"
+                            data-testid="input-cta-mobile-bottom-margin"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="border-t pt-4">
+                      <h5 className="font-medium text-sm mb-3">Horizontal Padding</h5>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-sm font-medium mb-1">Left (px)</label>
+                          <input
+                            type="number"
+                            value={content.mobile_left_padding ?? content.left_padding ?? 0}
+                            onChange={(e) => updateContent('mobile_left_padding', parseInt(e.target.value) || 0)}
+                            className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                            min="0"
+                            max="200"
+                            data-testid="input-cta-mobile-left-padding"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium mb-1">Right (px)</label>
+                          <input
+                            type="number"
+                            value={content.mobile_right_padding ?? content.right_padding ?? 0}
+                            onChange={(e) => updateContent('mobile_right_padding', parseInt(e.target.value) || 0)}
+                            className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                            min="0"
+                            max="200"
+                            data-testid="input-cta-mobile-right-padding"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Info about button settings */}
+          <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
+            <p className="text-sm text-slate-600">
+              <span className="font-medium">Note:</span> Button text, style, and alignment settings are configured in the Desktop tab and apply to both viewports.
+            </p>
+          </div>
+        </>
+      )}
     </div>
   );
 }
