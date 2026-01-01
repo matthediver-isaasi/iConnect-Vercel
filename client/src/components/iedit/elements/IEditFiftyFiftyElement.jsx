@@ -168,6 +168,15 @@ export default function IEditFiftyFiftyElement({ content, variant, settings, pre
     ? (mobile_column_gap !== undefined ? mobile_column_gap : defaultMobileColumnGap)
     : column_gap;
   
+  // Compute effective vertical padding based on viewport
+  // On mobile: use custom mobile padding if set, otherwise use auto-scaled default
+  // On desktop: use desktop vertical_padding
+  const effectiveVerticalPadding = isInMobileView
+    ? (mobile_custom_layout && mobile_vertical_padding !== undefined 
+        ? mobile_vertical_padding 
+        : defaultMobileVerticalPadding)
+    : vertical_padding;
+  
   // Compute column order for mobile - support both legacy reverse_on_mobile and new mobile_first_column
   const shouldReverseOnMobile = mobile_first_column === 'right' || reverse_on_mobile;
 
@@ -466,7 +475,7 @@ export default function IEditFiftyFiftyElement({ content, variant, settings, pre
 
       <div 
         className="relative max-w-7xl mx-auto px-4"
-        style={{ paddingTop: `${vertical_padding}px`, paddingBottom: `${vertical_padding}px` }}
+        style={{ paddingTop: `${effectiveVerticalPadding}px`, paddingBottom: `${effectiveVerticalPadding}px` }}
       >
         {/* Section Header - only render if there's actual content */}
         {hasHeaderContent && (
