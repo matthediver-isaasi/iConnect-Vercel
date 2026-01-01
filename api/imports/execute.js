@@ -9,6 +9,53 @@ const supabase = supabaseUrl && supabaseServiceKey
   ? createClient(supabaseUrl, supabaseServiceKey)
   : null;
 
+// Parse date string according to specified format
+function parseDate(dateStr, format) {
+  if (!dateStr || !format) return null;
+  
+  const str = dateStr.trim();
+  if (!str) return null;
+  
+  // Extract separator from format
+  const separator = format.includes('/') ? '/' : format.includes('-') ? '-' : '.';
+  const parts = str.split(separator);
+  const formatParts = format.split(/[\/\-\.]/);
+  
+  if (parts.length !== formatParts.length) return null;
+  
+  let day, month, year;
+  
+  for (let i = 0; i < formatParts.length; i++) {
+    const fmt = formatParts[i].toLowerCase();
+    const val = parseInt(parts[i], 10);
+    
+    if (isNaN(val)) return null;
+    
+    if (fmt === 'dd') {
+      day = val;
+    } else if (fmt === 'mm') {
+      month = val;
+    } else if (fmt === 'yyyy') {
+      year = val;
+    } else if (fmt === 'yy') {
+      // Assume 2000s for 2-digit years
+      year = val < 50 ? 2000 + val : 1900 + val;
+    }
+  }
+  
+  if (!day || !month || !year) return null;
+  if (day < 1 || day > 31 || month < 1 || month > 12) return null;
+  
+  // Create ISO date string
+  const isoDate = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  
+  // Validate by parsing
+  const parsed = new Date(isoDate);
+  if (isNaN(parsed.getTime())) return null;
+  
+  return isoDate;
+}
+
 export const config = {
   api: {
     bodyParser: false,
@@ -132,6 +179,17 @@ export default async function handler(req, res) {
           
           if (mapping.clearOnEmpty && (!value || value.trim() === '')) {
             value = null;
+          }
+          
+          // Parse date values according to specified format
+          if (value !== null && mapping.targetType === 'date' && mapping.dateFormat) {
+            const parsedDate = parseDate(value, mapping.dateFormat);
+            if (parsedDate) {
+              value = parsedDate;
+            } else if (value.trim()) {
+              // Log warning but don't fail - keep original value
+              console.log(`[Import] Row ${i + 1}: Could not parse date "${value}" with format ${mapping.dateFormat}`);
+            }
           }
           
           if (mapping.targetField.startsWith('custom:')) {

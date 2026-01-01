@@ -46,6 +46,20 @@ export default function ImportManager() {
   const [csvData, setCsvData] = useState(null);
   const [mappings, setMappings] = useState([]);
   const [identifierField, setIdentifierField] = useState('email');
+  
+  const DATE_FORMAT_OPTIONS = [
+    { value: 'dd/mm/yyyy', label: 'DD/MM/YYYY (31/12/2024)' },
+    { value: 'dd-mm-yyyy', label: 'DD-MM-YYYY (31-12-2024)' },
+    { value: 'dd.mm.yyyy', label: 'DD.MM.YYYY (31.12.2024)' },
+    { value: 'mm/dd/yyyy', label: 'MM/DD/YYYY (12/31/2024)' },
+    { value: 'mm-dd-yyyy', label: 'MM-DD-YYYY (12-31-2024)' },
+    { value: 'yyyy-mm-dd', label: 'YYYY-MM-DD (2024-12-31)' },
+    { value: 'yyyy/mm/dd', label: 'YYYY/MM/DD (2024/12/31)' },
+    { value: 'dd/mm/yy', label: 'DD/MM/YY (31/12/24)' },
+    { value: 'dd-mm-yy', label: 'DD-MM-YY (31-12-24)' },
+    { value: 'mm/dd/yy', label: 'MM/DD/YY (12/31/24)' },
+    { value: 'yy-mm-dd', label: 'YY-MM-DD (24-12-31)' },
+  ];
   const [previewResult, setPreviewResult] = useState(null);
   const [importResult, setImportResult] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -134,17 +148,22 @@ export default function ImportManager() {
       const updated = [...prev];
       updated[index] = { ...updated[index], [field]: value };
       
-      // If setting target field, also set scope and preferenceFieldId for custom fields
+      // If setting target field, also set scope, preferenceFieldId, and type for custom fields
       if (field === 'targetField' && value) {
         const allFields = [...(availableFields?.core || []), ...(availableFields?.custom || [])];
         const targetDef = allFields.find(f => f.key === value);
         if (targetDef) {
           updated[index].targetScope = targetDef.scope;
+          updated[index].targetType = targetDef.type;
           // For custom fields, store the preferenceFieldId for the execute endpoint
           if (targetDef.preferenceFieldId) {
             updated[index].preferenceFieldId = targetDef.preferenceFieldId;
           } else {
             updated[index].preferenceFieldId = null;
+          }
+          // Set default date format for date fields
+          if (targetDef.type === 'date' && !updated[index].dateFormat) {
+            updated[index].dateFormat = 'dd/mm/yyyy';
           }
         }
       }
@@ -487,6 +506,25 @@ export default function ImportManager() {
                                     Clear if empty
                                   </Label>
                                 </div>
+                                
+                                {/* Date format selector for date fields */}
+                                {mapping.targetType === 'date' && mapping.targetField && (
+                                  <Select
+                                    value={mapping.dateFormat || 'dd/mm/yyyy'}
+                                    onValueChange={(val) => handleMappingChange(index, 'dateFormat', val)}
+                                  >
+                                    <SelectTrigger className="w-44" data-testid={`select-date-format-${index}`}>
+                                      <SelectValue placeholder="Date format..." />
+                                    </SelectTrigger>
+                                    <SelectContent position="popper" sideOffset={4}>
+                                      {DATE_FORMAT_OPTIONS.map(opt => (
+                                        <SelectItem key={opt.value} value={opt.value}>
+                                          {opt.label}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                )}
                               </div>
                             ))}
                           </div>
