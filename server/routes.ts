@@ -15679,13 +15679,27 @@ AGCAS Events Team
       }
       
       const { parse } = await import('csv-parse/sync');
-      const csvContent = req.file.buffer.toString('utf-8');
+      let csvContent = req.file.buffer.toString('utf-8');
+      
+      // Remove BOM if present
+      if (csvContent.charCodeAt(0) === 0xFEFF) {
+        csvContent = csvContent.slice(1);
+      }
+      
+      // Auto-detect delimiter (semicolon or comma)
+      const firstLine = csvContent.split('\n')[0] || '';
+      const semicolonCount = (firstLine.match(/;/g) || []).length;
+      const commaCount = (firstLine.match(/,/g) || []).length;
+      const delimiter = semicolonCount > commaCount ? ';' : ',';
       
       // Parse CSV
       const records = parse(csvContent, {
         columns: true,
         skip_empty_lines: true,
-        trim: true
+        trim: true,
+        delimiter,
+        relax_quotes: true,
+        relax_column_count: true
       }) as Record<string, string>[];
       
       if (records.length === 0) {
@@ -15726,11 +15740,26 @@ AGCAS Events Team
       }
       
       const { parse } = await import('csv-parse/sync');
-      const csvContent = req.file.buffer.toString('utf-8');
+      let csvContent = req.file.buffer.toString('utf-8');
+      
+      // Remove BOM if present
+      if (csvContent.charCodeAt(0) === 0xFEFF) {
+        csvContent = csvContent.slice(1);
+      }
+      
+      // Auto-detect delimiter
+      const firstLine = csvContent.split('\n')[0] || '';
+      const semicolonCount = (firstLine.match(/;/g) || []).length;
+      const commaCount = (firstLine.match(/,/g) || []).length;
+      const delimiter = semicolonCount > commaCount ? ';' : ',';
+      
       const records = parse(csvContent, {
         columns: true,
         skip_empty_lines: true,
-        trim: true
+        trim: true,
+        delimiter,
+        relax_quotes: true,
+        relax_column_count: true
       }) as Record<string, string>[];
       
       // Find the identifier mapping
@@ -15810,11 +15839,26 @@ AGCAS Events Team
       }
       
       const { parse } = await import('csv-parse/sync');
-      const csvContent = req.file.buffer.toString('utf-8');
+      let csvContent = req.file.buffer.toString('utf-8');
+      
+      // Remove BOM if present
+      if (csvContent.charCodeAt(0) === 0xFEFF) {
+        csvContent = csvContent.slice(1);
+      }
+      
+      // Auto-detect delimiter
+      const firstLine = csvContent.split('\n')[0] || '';
+      const semicolonCount = (firstLine.match(/;/g) || []).length;
+      const commaCount = (firstLine.match(/,/g) || []).length;
+      const delimiter = semicolonCount > commaCount ? ';' : ',';
+      
       const records = parse(csvContent, {
         columns: true,
         skip_empty_lines: true,
-        trim: true
+        trim: true,
+        delimiter,
+        relax_quotes: true,
+        relax_column_count: true
       }) as Record<string, string>[];
       
       const tableName = entityType === 'organization' ? 'organization' : 'member';

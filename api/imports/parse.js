@@ -36,13 +36,27 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'No file uploaded' });
     }
     
-    const csvContent = file.buffer.toString('utf-8');
+    let csvContent = file.buffer.toString('utf-8');
+    
+    // Remove BOM if present
+    if (csvContent.charCodeAt(0) === 0xFEFF) {
+      csvContent = csvContent.slice(1);
+    }
+    
+    // Auto-detect delimiter (semicolon or comma)
+    const firstLine = csvContent.split('\n')[0] || '';
+    const semicolonCount = (firstLine.match(/;/g) || []).length;
+    const commaCount = (firstLine.match(/,/g) || []).length;
+    const delimiter = semicolonCount > commaCount ? ';' : ',';
     
     const { parse } = await import('csv-parse/sync');
     const records = parse(csvContent, {
       columns: true,
       skip_empty_lines: true,
-      trim: true
+      trim: true,
+      delimiter,
+      relax_quotes: true,
+      relax_column_count: true
     });
     
     if (records.length === 0) {
