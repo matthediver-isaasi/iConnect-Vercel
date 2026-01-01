@@ -16049,11 +16049,24 @@ AGCAS Events Team
       const { data: jobs, error } = await query;
       
       if (error) {
+        // If table doesn't exist, return empty array (tables need to be created)
+        if (error.message?.includes('Could not find the table') || 
+            error.code === '42P01' || 
+            error.message?.includes('relation') && error.message?.includes('does not exist')) {
+          console.log('[Import] csv_import_job table does not exist yet - returning empty array');
+          return res.json([]);
+        }
         throw error;
       }
       
       res.json(jobs || []);
     } catch (error: any) {
+      // Also handle table not found in catch block
+      if (error.message?.includes('Could not find the table') || 
+          error.message?.includes('relation') && error.message?.includes('does not exist')) {
+        console.log('[Import] csv_import_job table does not exist yet - returning empty array');
+        return res.json([]);
+      }
       res.status(500).json({ error: error.message || 'Failed to get jobs' });
     }
   });
