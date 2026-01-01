@@ -211,6 +211,7 @@ export default async function handler(req, res) {
         
         const coreData = {};
         const customData = [];
+        let noteContent = null;
         
         for (const mapping of mappings) {
           if (!mapping.sourceColumn || !mapping.targetField) continue;
@@ -230,6 +231,14 @@ export default async function handler(req, res) {
               // Log warning but don't fail - keep original value
               console.log(`[Import] Row ${i + 1}: Could not parse date "${value}" with format ${mapping.dateFormat}`);
             }
+          }
+          
+          // Handle special "__add_note__" action for organizations
+          if (mapping.targetField === '__add_note__') {
+            if (value && typeof value === 'string' && value.trim()) {
+              noteContent = value.trim();
+            }
+            continue;
           }
           
           if (mapping.targetField.startsWith('custom:')) {
@@ -294,6 +303,24 @@ export default async function handler(req, res) {
                 preference_field_id: customField.preferenceFieldId,
                 value: customField.value
               });
+          }
+        }
+        
+        // Create note for organization if __add_note__ was mapped
+        if (entityType === 'organization' && noteContent && entityId) {
+          const { error: noteError } = await supabase
+            .from('organization_note')
+            .insert({
+              organization_id: entityId,
+              member_id: session.data.memberId,
+              content: noteContent,
+              attachments: [],
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            });
+          
+          if (noteError) {
+            console.log(`[Import] Row ${i + 1}: Failed to create note: ${noteError.message}`);
           }
         }
         

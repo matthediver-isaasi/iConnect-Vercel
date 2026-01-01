@@ -464,6 +464,14 @@ export default function ImportManager() {
                                   </SelectTrigger>
                                   <SelectContent position="popper" sideOffset={4}>
                                     <SelectItem value="__skip__">-- Skip this column --</SelectItem>
+                                    {activeTab === 'organization' && (
+                                      <>
+                                        <SelectItem disabled value="__actions_header__">
+                                          <span className="font-semibold text-slate-500">Actions</span>
+                                        </SelectItem>
+                                        <SelectItem value="__add_note__">Add Note (create note from content)</SelectItem>
+                                      </>
+                                    )}
                                     {availableFields?.core?.length > 0 && (
                                       <>
                                         <SelectItem disabled value="__core_header__">
