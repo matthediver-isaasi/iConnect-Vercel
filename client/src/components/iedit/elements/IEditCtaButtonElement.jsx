@@ -4,9 +4,29 @@ import { Label } from "@/components/ui/label";
 import { ChevronDown, ChevronUp, AlignLeft, AlignCenter, AlignRight } from "lucide-react";
 import AGCASButton from "@/components/ui/AGCASButton";
 
+// Hook to detect mobile viewport
+function useIsMobile(breakpoint = 768) {
+  const [isMobile, setIsMobile] = useState(false);
+  
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < breakpoint);
+    };
+    
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, [breakpoint]);
+  
+  return isMobile;
+}
+
 export default function IEditCtaButtonElement({ content, variant, settings, previewViewport }) {
   const fullWidth = settings?.fullWidth;
-  const isMobile = previewViewport === 'mobile';
+  const isActualMobile = useIsMobile();
+  
+  // Use previewViewport if provided (editor mode), otherwise detect actual viewport
+  const isMobile = previewViewport ? previewViewport === 'mobile' : isActualMobile;
   
   const alignment = {
     left: "justify-start",
