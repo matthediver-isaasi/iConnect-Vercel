@@ -108,9 +108,9 @@ export default function JobDetailsPage() {
   };
 
   return (
-    <div className="bg-white h-screen flex flex-col overflow-hidden">
+    <div className="bg-white min-h-screen flex flex-col lg:h-screen lg:overflow-hidden">
       {/* Header - Fixed */}
-      <div className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white py-8 flex-shrink-0">
+      <div className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white py-6 md:py-8 flex-shrink-0">
         <div className="max-w-6xl mx-auto px-4">
           <Button
             variant="ghost"
@@ -151,11 +151,11 @@ export default function JobDetailsPage() {
       </div>
 
       {/* Main Content - Flex container */}
-      <div className="flex-1 overflow-hidden">
-        <div className="max-w-6xl mx-auto px-4 h-full">
-          <div className="grid lg:grid-cols-3 gap-8 h-full py-6">
-            {/* Left Column - Scrollable */}
-            <div className="lg:col-span-2 overflow-y-auto pr-2 space-y-6">
+      <div className="flex-1 lg:overflow-hidden">
+        <div className="max-w-6xl mx-auto px-4 lg:h-full">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8 lg:h-full py-4 md:py-6">
+            {/* Left Column - Scrollable on desktop, normal flow on mobile */}
+            <div className="lg:col-span-2 lg:overflow-y-auto lg:pr-2 space-y-4 md:space-y-6 order-2 lg:order-1">
               {/* Closing Soon Alert */}
               {isClosingSoon && job.closing_date && (
                 <div className="p-4 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-lg flex items-start gap-3">
@@ -218,8 +218,8 @@ export default function JobDetailsPage() {
               )}
             </div>
 
-            {/* Right Column - Fixed */}
-            <div>
+            {/* Right Column - Fixed on desktop, appears first on mobile */}
+            <div className="order-1 lg:order-2">
               <Card className="border-slate-200">
                 <CardContent className="p-6 space-y-4">
                   <AGCASButton 
