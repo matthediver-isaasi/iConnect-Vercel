@@ -177,6 +177,14 @@ export default function IEditFiftyFiftyElement({ content, variant, settings, pre
         : defaultMobileVerticalPadding)
     : vertical_padding;
   
+  // Compute effective column padding - ignore column padding on mobile
+  const effectiveLeftColumnPadding = isInMobileView ? 0 : left_column_padding;
+  const effectiveLeftColumnPaddingTop = isInMobileView ? 0 : left_column_padding_top;
+  const effectiveLeftColumnPaddingBottom = isInMobileView ? 0 : left_column_padding_bottom;
+  const effectiveRightColumnPadding = isInMobileView ? 0 : right_column_padding;
+  const effectiveRightColumnPaddingTop = isInMobileView ? 0 : right_column_padding_top;
+  const effectiveRightColumnPaddingBottom = isInMobileView ? 0 : right_column_padding_bottom;
+  
   // Compute column order for mobile - support both legacy reverse_on_mobile and new mobile_first_column
   const shouldReverseOnMobile = mobile_first_column === 'right' || reverse_on_mobile;
 
@@ -520,16 +528,16 @@ export default function IEditFiftyFiftyElement({ content, variant, settings, pre
           <div 
             className={`${shouldReverseOnMobile ? 'order-2 md:order-1' : ''} flex flex-col`}
             style={{
-              ...(left_content_type === 'text' && left_column_bg_color ? { 
+              ...(left_content_type === 'text' && left_column_bg_color && !isInMobileView ? { 
                 backgroundColor: left_column_bg_color,
-                paddingTop: `${left_column_padding_top + left_column_padding}px`,
-                paddingBottom: `${left_column_padding_bottom + left_column_padding}px`,
-                paddingLeft: `${left_column_padding}px`,
-                paddingRight: `${left_column_padding}px`,
+                paddingTop: `${effectiveLeftColumnPaddingTop + effectiveLeftColumnPadding}px`,
+                paddingBottom: `${effectiveLeftColumnPaddingBottom + effectiveLeftColumnPadding}px`,
+                paddingLeft: `${effectiveLeftColumnPadding}px`,
+                paddingRight: `${effectiveLeftColumnPadding}px`,
                 borderRadius: `${column_border_radius}px`
-              } : left_content_type === 'text' ? {
-                paddingTop: `${left_column_padding_top}px`,
-                paddingBottom: `${left_column_padding_bottom}px`
+              } : left_content_type === 'text' && !isInMobileView ? {
+                paddingTop: `${effectiveLeftColumnPaddingTop}px`,
+                paddingBottom: `${effectiveLeftColumnPaddingBottom}px`
               } : {}),
               ...(left_content_type === 'image' ? { minHeight: 0 } : {})
             }}
@@ -567,8 +575,8 @@ export default function IEditFiftyFiftyElement({ content, variant, settings, pre
                     className={`flex ${button_align === 'left' ? 'justify-start' : button_align === 'center' ? 'justify-center' : 'justify-end'}`}
                     style={{
                       marginTop: `${button_top_padding}px`,
-                      marginRight: left_column_bg_color ? `${-left_column_padding + button_inset_right}px` : `${button_inset_right}px`,
-                      marginBottom: left_column_bg_color ? `${-left_column_padding + button_inset_bottom}px` : `${button_inset_bottom}px`
+                      marginRight: left_column_bg_color && !isInMobileView ? `${-effectiveLeftColumnPadding + button_inset_right}px` : `${button_inset_right}px`,
+                      marginBottom: left_column_bg_color && !isInMobileView ? `${-effectiveLeftColumnPadding + button_inset_bottom}px` : `${button_inset_bottom}px`
                     }}
                   >
                     <AGCASButton
@@ -590,16 +598,16 @@ export default function IEditFiftyFiftyElement({ content, variant, settings, pre
           <div 
             className={`${shouldReverseOnMobile ? 'order-1 md:order-2' : ''} flex flex-col`}
             style={{
-              ...(right_content_type === 'text' && right_column_bg_color ? { 
+              ...(right_content_type === 'text' && right_column_bg_color && !isInMobileView ? { 
                 backgroundColor: right_column_bg_color,
-                paddingTop: `${right_column_padding_top + right_column_padding}px`,
-                paddingBottom: `${right_column_padding_bottom + right_column_padding}px`,
-                paddingLeft: `${right_column_padding}px`,
-                paddingRight: `${right_column_padding}px`,
+                paddingTop: `${effectiveRightColumnPaddingTop + effectiveRightColumnPadding}px`,
+                paddingBottom: `${effectiveRightColumnPaddingBottom + effectiveRightColumnPadding}px`,
+                paddingLeft: `${effectiveRightColumnPadding}px`,
+                paddingRight: `${effectiveRightColumnPadding}px`,
                 borderRadius: `${column_border_radius}px`
-              } : right_content_type === 'text' ? {
-                paddingTop: `${right_column_padding_top}px`,
-                paddingBottom: `${right_column_padding_bottom}px`
+              } : right_content_type === 'text' && !isInMobileView ? {
+                paddingTop: `${effectiveRightColumnPaddingTop}px`,
+                paddingBottom: `${effectiveRightColumnPaddingBottom}px`
               } : {}),
               ...(right_content_type === 'image' ? { minHeight: 0 } : {})
             }}
@@ -637,8 +645,8 @@ export default function IEditFiftyFiftyElement({ content, variant, settings, pre
                     className={`flex ${button_align === 'left' ? 'justify-start' : button_align === 'center' ? 'justify-center' : 'justify-end'}`}
                     style={{
                       marginTop: `${button_top_padding}px`,
-                      marginRight: right_column_bg_color ? `${-right_column_padding + button_inset_right}px` : `${button_inset_right}px`,
-                      marginBottom: right_column_bg_color ? `${-right_column_padding + button_inset_bottom}px` : `${button_inset_bottom}px`
+                      marginRight: right_column_bg_color && !isInMobileView ? `${-effectiveRightColumnPadding + button_inset_right}px` : `${button_inset_right}px`,
+                      marginBottom: right_column_bg_color && !isInMobileView ? `${-effectiveRightColumnPadding + button_inset_bottom}px` : `${button_inset_bottom}px`
                     }}
                   >
                     <AGCASButton
