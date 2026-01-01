@@ -16,7 +16,8 @@ const panelQuillModules = {
   ]
 };
 
-export default function IEditImagePanelElement({ content, variant, settings }) {
+export default function IEditImagePanelElement({ content, variant, settings, previewViewport }) {
+  const isMobilePreview = previewViewport === 'mobile';
   const {
     anchor,
     full_width = false,
@@ -35,7 +36,19 @@ export default function IEditImagePanelElement({ content, variant, settings }) {
     divider_color = '#ffffff',
     divider_weight = 1,
     divider_opacity = 30,
-    panels = []
+    panels = [],
+    // Mobile background settings
+    mobile_background_type = 'same', // 'same', 'color', 'gradient', 'image'
+    mobile_background_color = '#1a1a2e',
+    mobile_gradient_start_color = '#3b82f6',
+    mobile_gradient_end_color = '#8b5cf6',
+    mobile_gradient_angle = 135,
+    mobile_image_url,
+    mobile_image_fit = 'cover',
+    mobile_overlay_enabled = false,
+    mobile_overlay_color = '#000000',
+    mobile_overlay_opacity = 50,
+    mobile_min_height
   } = content || {};
 
   // Use all configured panels (up to 5) without filtering empty ones
@@ -44,6 +57,22 @@ export default function IEditImagePanelElement({ content, variant, settings }) {
 
   // Detect mobile for responsive font sizing
   const isMobile = useIsMobile();
+  const isEffectivelyMobile = isMobile || isMobilePreview;
+
+  // Determine effective background settings based on viewport
+  const useMobileBackground = isEffectivelyMobile && mobile_background_type !== 'same';
+  
+  const effectiveBackgroundType = useMobileBackground ? mobile_background_type : background_type;
+  const effectiveBackgroundColor = useMobileBackground ? mobile_background_color : background_color;
+  const effectiveGradientStart = useMobileBackground ? mobile_gradient_start_color : gradient_start_color;
+  const effectiveGradientEnd = useMobileBackground ? mobile_gradient_end_color : gradient_end_color;
+  const effectiveGradientAngle = useMobileBackground ? mobile_gradient_angle : gradient_angle;
+  const effectiveImageUrl = useMobileBackground ? mobile_image_url : image_url;
+  const effectiveImageFit = useMobileBackground ? mobile_image_fit : image_fit;
+  const effectiveOverlayEnabled = useMobileBackground ? mobile_overlay_enabled : overlay_enabled;
+  const effectiveOverlayColor = useMobileBackground ? mobile_overlay_color : overlay_color;
+  const effectiveOverlayOpacity = useMobileBackground ? mobile_overlay_opacity : overlay_opacity;
+  const effectiveMinHeight = (isEffectivelyMobile && mobile_min_height) ? mobile_min_height : min_height;
 
   // Mobile swipe state
   const [currentPanelIndex, setCurrentPanelIndex] = useState(0);
@@ -94,15 +123,15 @@ export default function IEditImagePanelElement({ content, variant, settings }) {
   };
 
   // When height_type is 'image' and we have an image, use CSS Grid to size based on image
-  const isImageSized = height_type === 'image' && background_type === 'image' && image_url;
+  const isImageSized = height_type === 'image' && effectiveBackgroundType === 'image' && effectiveImageUrl;
 
   const getBackgroundStyle = () => {
-    if (background_type === 'color') {
-      return { backgroundColor: background_color };
+    if (effectiveBackgroundType === 'color') {
+      return { backgroundColor: effectiveBackgroundColor };
     }
-    if (background_type === 'gradient') {
+    if (effectiveBackgroundType === 'gradient') {
       return { 
-        background: `linear-gradient(${gradient_angle}deg, ${gradient_start_color}, ${gradient_end_color})` 
+        background: `linear-gradient(${effectiveGradientAngle}deg, ${effectiveGradientStart}, ${effectiveGradientEnd})` 
       };
     }
     return {};
@@ -287,7 +316,7 @@ export default function IEditImagePanelElement({ content, variant, settings }) {
       >
         {/* Image layer - sets the size */}
         <img 
-          src={image_url} 
+          src={effectiveImageUrl} 
           alt="Panel background" 
           style={{ 
             gridColumn: '1 / -1',
@@ -298,13 +327,13 @@ export default function IEditImagePanelElement({ content, variant, settings }) {
           }}
         />
         {/* Overlay layer */}
-        {overlay_enabled && (
+        {effectiveOverlayEnabled && (
           <div 
             style={{ 
               gridColumn: '1 / -1',
               gridRow: '1 / -1',
-              backgroundColor: overlay_color, 
-              opacity: parseInt(overlay_opacity) / 100
+              backgroundColor: effectiveOverlayColor, 
+              opacity: parseInt(effectiveOverlayOpacity) / 100
             }} 
           />
         )}
@@ -343,23 +372,23 @@ export default function IEditImagePanelElement({ content, variant, settings }) {
       className="relative w-full overflow-hidden"
       style={{ 
         ...getBackgroundStyle(),
-        minHeight: `${min_height}px`
+        minHeight: `${effectiveMinHeight}px`
       }}
     >
-      {background_type === 'image' && image_url && (
+      {effectiveBackgroundType === 'image' && effectiveImageUrl && (
         <>
           <img 
-            src={image_url} 
+            src={effectiveImageUrl} 
             alt="Panel background" 
             className="absolute inset-0 w-full h-full"
-            style={{ objectFit: image_fit }}
+            style={{ objectFit: effectiveImageFit }}
           />
-          {overlay_enabled && (
+          {effectiveOverlayEnabled && (
             <div 
               className="absolute inset-0" 
               style={{ 
-                backgroundColor: overlay_color, 
-                opacity: parseInt(overlay_opacity) / 100 
+                backgroundColor: effectiveOverlayColor, 
+                opacity: parseInt(effectiveOverlayOpacity) / 100 
               }} 
             />
           )}
@@ -369,7 +398,7 @@ export default function IEditImagePanelElement({ content, variant, settings }) {
       <div 
         className="relative h-full flex"
         style={{
-          minHeight: `${min_height}px`,
+          minHeight: `${effectiveMinHeight}px`,
           maxWidth: full_width ? '80rem' : undefined,
           margin: full_width ? '0 auto' : undefined,
           paddingLeft: full_width ? '1rem' : undefined,
