@@ -124,6 +124,11 @@ export default async function handler(req, res) {
     
     console.log(`[Import] Detected delimiter: "${delimiter}", first line columns: ${Math.max(semicolonCount, commaCount) + 1}`);
     
+    // Debug: Log last 100 chars of CSV to check for truncation at file level
+    const last100 = csvContent.slice(-100);
+    console.log(`[Import] Last 100 chars of CSV: ${JSON.stringify(last100)}`);
+    console.log(`[Import] Last 100 char codes:`, [...last100].map(c => c.charCodeAt(0)));
+    
     const { parse } = await import('csv-parse/sync');
     const records = parse(csvContent, {
       columns: true,
