@@ -9,14 +9,12 @@ const supabase = supabaseUrl && supabaseServiceKey
   ? createClient(supabaseUrl, supabaseServiceKey)
   : null;
 
-// Parse date string according to specified format
 function parseDate(dateStr, format) {
   if (!dateStr || !format) return null;
   
   const str = dateStr.trim();
   if (!str) return null;
   
-  // Detect separator from the actual value (not format) - try common separators
   let dateSeparator = null;
   if (str.includes('/')) dateSeparator = '/';
   else if (str.includes('-')) dateSeparator = '-';
@@ -27,48 +25,29 @@ function parseDate(dateStr, format) {
   const parts = str.split(dateSeparator);
   const formatParts = format.split(/[\/\-\.]/);
   
-  if (parts.length !== formatParts.length) {
-    console.log(`[parseDate] Part count mismatch: value has ${parts.length}, format has ${formatParts.length}`);
-    return null;
-  }
+  if (parts.length !== formatParts.length) return null;
   
   let day, month, year;
   
   for (let i = 0; i < formatParts.length; i++) {
     const fmt = formatParts[i].toLowerCase();
-    const rawVal = parts[i].trim();
-    const val = parseInt(rawVal, 10);
+    const val = parseInt(parts[i].trim(), 10);
     
-    if (isNaN(val)) {
-      console.log(`[parseDate] Could not parse "${rawVal}" as number at position ${i}`);
-      return null;
-    }
+    if (isNaN(val)) return null;
     
-    if (fmt === 'dd' || fmt === 'd') {
-      day = val;
-    } else if (fmt === 'mm' || fmt === 'm') {
-      month = val;
-    } else if (fmt === 'yyyy') {
-      year = val;
-    } else if (fmt === 'yy') {
-      // 2-digit year: 00-49 = 2000-2049, 50-99 = 1950-1999
-      year = val < 50 ? 2000 + val : 1900 + val;
-    }
+    if (fmt === 'dd' || fmt === 'd') day = val;
+    else if (fmt === 'mm' || fmt === 'm') month = val;
+    else if (fmt === 'yyyy') year = val;
+    else if (fmt === 'yy') year = val < 50 ? 2000 + val : 1900 + val;
   }
-  
-  console.log(`[parseDate] Parsed "${str}" with format "${format}" → day=${day}, month=${month}, year=${year}`);
   
   if (!day || !month || !year) return null;
   if (day < 1 || day > 31 || month < 1 || month > 12) return null;
   
-  // Create ISO date string
   const isoDate = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-  
-  // Validate by parsing
   const parsed = new Date(isoDate);
   if (isNaN(parsed.getTime())) return null;
   
-  console.log(`[parseDate] Result: ${isoDate}`);
   return isoDate;
 }
 
@@ -76,6 +55,7 @@ export const config = {
   api: {
     bodyParser: false,
   },
+  maxDuration: 60, // Increase timeout to 60 seconds for Pro plans
 };
 
 export default async function handler(req, res) {
@@ -108,26 +88,18 @@ export default async function handler(req, res) {
     
     let csvContent = file.buffer.toString('utf-8');
     
-    // Remove BOM if present
     if (csvContent.charCodeAt(0) === 0xFEFF) {
       csvContent = csvContent.slice(1);
     }
     
-    // Normalize line endings (CRLF -> LF)
     csvContent = csvContent.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
     
-    // Auto-detect delimiter (semicolon or comma)
     const firstLine = csvContent.split('\n')[0] || '';
     const semicolonCount = (firstLine.match(/;/g) || []).length;
     const commaCount = (firstLine.match(/,/g) || []).length;
     const delimiter = semicolonCount > commaCount ? ';' : ',';
     
-    console.log(`[Import] Detected delimiter: "${delimiter}", first line columns: ${Math.max(semicolonCount, commaCount) + 1}`);
-    
-    // Debug: Log last 100 chars of CSV to check for truncation at file level
-    const last100 = csvContent.slice(-100);
-    console.log(`[Import] Last 100 chars of CSV: ${JSON.stringify(last100)}`);
-    console.log(`[Import] Last 100 char codes:`, [...last100].map(c => c.charCodeAt(0)));
+    console.log(`[Import] Delimiter: "${delimiter}", rows parsing...`);
     
     const { parse } = await import('csv-parse/sync');
     const records = parse(csvContent, {
@@ -141,6 +113,8 @@ export default async function handler(req, res) {
       quote: '"'
     });
     
+    console.log(`[Import] Parsed ${records.length} rows`);
+    
     const tableName = entityType === 'organization' ? 'organization' : 'member';
     const customValueTable = entityType === 'organization' 
       ? 'organization_preference_value' 
@@ -152,9 +126,27 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: `No mapping for identifier field: ${identifierField}` });
     }
     
+    // Extract all identifier values for batch lookup
+    const identifierValues = records
+      .map(row => row[identifierMapping.sourceColumn]?.trim())
+      .filter(v => v);
+    
+    // Batch fetch all existing entities
+    console.log(`[Import] Batch fetching existing records...`);
+    const { data: existingEntities } = await supabase
+      .from(tableName)
+      .select('id, ' + identifierField)
+      .in(identifierField, identifierValues);
+    
+    const existingMap = new Map();
+    (existingEntities || []).forEach(e => {
+      existingMap.set(e[identifierField], e.id);
+    });
+    console.log(`[Import] Found ${existingMap.size} existing records`);
+    
     let jobId = null;
     try {
-      const { data: job, error: jobError } = await supabase
+      const { data: job } = await supabase
         .from('csv_import_job')
         .insert({
           entity_type: entityType,
@@ -166,51 +158,42 @@ export default async function handler(req, res) {
         .select()
         .single();
       
-      if (!jobError && job) {
-        jobId = job.id;
-      }
+      if (job) jobId = job.id;
     } catch (e) {
-      console.log('[Import] Could not create job record (table may not exist)');
+      console.log('[Import] Could not create job record');
     }
     
-    let processedRows = 0;
     let createdRows = 0;
     let updatedRows = 0;
     let skippedRows = 0;
     let errorRows = 0;
     const errorLog = [];
+    const notesToCreate = [];
     
-    for (let i = 0; i < records.length; i++) {
-      const row = records[i];
+    // Process records in batches
+    const BATCH_SIZE = 50;
+    
+    for (let batchStart = 0; batchStart < records.length; batchStart += BATCH_SIZE) {
+      const batchEnd = Math.min(batchStart + BATCH_SIZE, records.length);
+      const batch = records.slice(batchStart, batchEnd);
       
-      // Debug: Log raw row data for first few rows
-      if (i < 3) {
-        console.log(`[Import] Row ${i + 1} raw data:`, JSON.stringify(row));
-        // Log character codes for date field to debug truncation
-        const dateField = row['Joined Date'] || row['Created At'] || row['created_at'];
-        if (dateField) {
-          const charCodes = [...dateField].map(c => c.charCodeAt(0));
-          console.log(`[Import] Row ${i + 1} date field "${dateField}" char codes:`, charCodes);
+      console.log(`[Import] Processing batch ${batchStart + 1}-${batchEnd} of ${records.length}`);
+      
+      const toInsert = [];
+      const toUpdate = [];
+      
+      for (let i = 0; i < batch.length; i++) {
+        const rowIndex = batchStart + i;
+        const row = batch[i];
+        const identifierValue = row[identifierMapping.sourceColumn]?.trim();
+        
+        if (!identifierValue) {
+          skippedRows++;
+          errorLog.push({ row: rowIndex + 1, error: 'Empty identifier value' });
+          continue;
         }
-      }
-      
-      const identifierValue = row[identifierMapping.sourceColumn]?.trim();
-      
-      if (!identifierValue) {
-        skippedRows++;
-        errorLog.push({ row: i + 1, error: 'Empty identifier value' });
-        continue;
-      }
-      
-      try {
-        const { data: existing } = await supabase
-          .from(tableName)
-          .select('id')
-          .eq(identifierField, identifierValue)
-          .maybeSingle();
         
         const coreData = {};
-        const customData = [];
         let noteContent = null;
         
         for (const mapping of mappings) {
@@ -222,30 +205,21 @@ export default async function handler(req, res) {
             value = null;
           }
           
-          // Parse date values according to specified format
           if (value !== null && mapping.targetType === 'date' && mapping.dateFormat) {
             const parsedDate = parseDate(value, mapping.dateFormat);
-            if (parsedDate) {
-              value = parsedDate;
-            } else if (value.trim()) {
-              // Log warning but don't fail - keep original value
-              console.log(`[Import] Row ${i + 1}: Could not parse date "${value}" with format ${mapping.dateFormat}`);
-            }
+            if (parsedDate) value = parsedDate;
           }
           
-          // Handle special "__add_note__" action for organizations
           if (mapping.targetField === '__add_note__') {
-            console.log(`[Import] Row ${i + 1}: Found __add_note__ mapping, source column: "${mapping.sourceColumn}", value length: ${value?.length || 0}`);
             if (value && typeof value === 'string' && value.trim()) {
               noteContent = value.trim();
-              console.log(`[Import] Row ${i + 1}: noteContent set, length: ${noteContent.length}`);
             }
             continue;
           }
           
           if (mapping.targetField.startsWith('custom:')) {
-            const fieldKey = mapping.targetField.replace('custom:', '');
-            customData.push({ fieldKey, value, preferenceFieldId: mapping.preferenceFieldId });
+            // Skip custom fields for now - handle after entity creation
+            continue;
           } else {
             if (value === null || (typeof value === 'string' && value.trim() !== '')) {
               coreData[mapping.targetField] = value === null ? null : value.trim();
@@ -253,91 +227,138 @@ export default async function handler(req, res) {
           }
         }
         
-        let entityId;
+        const existingId = existingMap.get(identifierValue);
         
-        if (existing) {
-          if (Object.keys(coreData).length > 0) {
-            const { error: updateError } = await supabase
-              .from(tableName)
-              .update(coreData)
-              .eq('id', existing.id);
-            
-            if (updateError) {
-              throw new Error(`Update failed: ${updateError.message}`);
-            }
-          }
-          entityId = existing.id;
-          updatedRows++;
+        if (existingId) {
+          toUpdate.push({ id: existingId, data: coreData, noteContent, identifierValue, rowIndex });
         } else {
-          const { data: newEntity, error: insertError } = await supabase
-            .from(tableName)
-            .insert(coreData)
-            .select('id')
-            .single();
-          
-          if (insertError) {
-            throw new Error(`Insert failed: ${insertError.message}`);
-          }
-          entityId = newEntity.id;
-          createdRows++;
+          toInsert.push({ data: coreData, noteContent, identifierValue, rowIndex });
         }
+      }
+      
+      // Batch insert new records
+      if (toInsert.length > 0) {
+        const insertData = toInsert.map(r => r.data);
+        const { data: inserted, error: insertError } = await supabase
+          .from(tableName)
+          .insert(insertData)
+          .select('id, ' + identifierField);
         
-        for (const customField of customData) {
-          if (!customField.preferenceFieldId) continue;
+        if (insertError) {
+          console.log(`[Import] Batch insert error: ${insertError.message}`);
+          toInsert.forEach(r => {
+            errorRows++;
+            errorLog.push({ row: r.rowIndex + 1, identifier: r.identifierValue, error: insertError.message });
+          });
+        } else {
+          createdRows += inserted.length;
           
-          const { data: existingValue } = await supabase
-            .from(customValueTable)
-            .select('id')
-            .eq(entityIdField, entityId)
-            .eq('preference_field_id', customField.preferenceFieldId)
-            .maybeSingle();
-          
-          if (existingValue) {
-            await supabase
-              .from(customValueTable)
-              .update({ value: customField.value })
-              .eq('id', existingValue.id);
-          } else if (customField.value !== null && customField.value !== '') {
-            await supabase
-              .from(customValueTable)
-              .insert({
-                [entityIdField]: entityId,
-                preference_field_id: customField.preferenceFieldId,
-                value: customField.value
+          // Map back inserted IDs and collect notes
+          inserted.forEach(entity => {
+            const original = toInsert.find(r => r.data[identifierField] === entity[identifierField]);
+            if (original && original.noteContent) {
+              notesToCreate.push({
+                organization_id: entity.id,
+                member_id: session.data.memberId,
+                content: original.noteContent,
+                attachments: [],
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
               });
-          }
+            }
+            existingMap.set(entity[identifierField], entity.id);
+          });
         }
-        
-        // Create note for organization if __add_note__ was mapped
-        if (entityType === 'organization' && noteContent && entityId) {
-          console.log(`[Import] Row ${i + 1}: Creating note for org ${entityId}, content length: ${noteContent.length}`);
-          const { data: noteData, error: noteError } = await supabase
-            .from('organization_note')
-            .insert({
-              organization_id: entityId,
-              member_id: session.data.memberId,
-              content: noteContent,
-              attachments: [],
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString()
-            })
-            .select();
+      }
+      
+      // Update existing records one by one (can't batch updates with different data)
+      for (const updateItem of toUpdate) {
+        if (Object.keys(updateItem.data).length > 0) {
+          const { error: updateError } = await supabase
+            .from(tableName)
+            .update(updateItem.data)
+            .eq('id', updateItem.id);
           
-          if (noteError) {
-            console.log(`[Import] Row ${i + 1}: Failed to create note: ${noteError.message}`);
-          } else {
-            console.log(`[Import] Row ${i + 1}: Note created successfully, id: ${noteData?.[0]?.id}`);
+          if (updateError) {
+            errorRows++;
+            errorLog.push({ row: updateItem.rowIndex + 1, identifier: updateItem.identifierValue, error: updateError.message });
+            continue;
           }
-        } else if (entityType === 'organization') {
-          console.log(`[Import] Row ${i + 1}: No note to create. noteContent=${noteContent ? 'present' : 'null'}, entityId=${entityId}`);
         }
+        updatedRows++;
         
-        processedRows++;
-      } catch (rowError) {
-        errorRows++;
-        errorLog.push({ row: i + 1, identifier: identifierValue, error: rowError.message });
+        if (updateItem.noteContent && entityType === 'organization') {
+          notesToCreate.push({
+            organization_id: updateItem.id,
+            member_id: session.data.memberId,
+            content: updateItem.noteContent,
+            attachments: [],
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          });
+        }
       }
     }
+    
+    // Batch insert all notes at once
+    if (notesToCreate.length > 0 && entityType === 'organization') {
+      console.log(`[Import] Creating ${notesToCreate.length} notes...`);
+      const { error: notesError } = await supabase
+        .from('organization_note')
+        .insert(notesToCreate);
+      
+      if (notesError) {
+        console.log(`[Import] Failed to create notes: ${notesError.message}`);
+      } else {
+        console.log(`[Import] Created ${notesToCreate.length} notes successfully`);
+      }
+    }
+    
+    // Handle custom fields (simplified - skip for performance if needed)
+    const customMappings = mappings.filter(m => m.targetField?.startsWith('custom:'));
+    if (customMappings.length > 0) {
+      console.log(`[Import] Processing ${customMappings.length} custom field mappings...`);
+      
+      for (let i = 0; i < records.length; i++) {
+        const row = records[i];
+        const identifierValue = row[identifierMapping.sourceColumn]?.trim();
+        if (!identifierValue) continue;
+        
+        const entityId = existingMap.get(identifierValue);
+        if (!entityId) continue;
+        
+        for (const mapping of customMappings) {
+          if (!mapping.preferenceFieldId) continue;
+          
+          let value = row[mapping.sourceColumn];
+          if (mapping.clearOnEmpty && (!value || value.trim() === '')) {
+            value = null;
+          }
+          
+          if (value !== null && mapping.targetType === 'date' && mapping.dateFormat) {
+            const parsedDate = parseDate(value, mapping.dateFormat);
+            if (parsedDate) value = parsedDate;
+          }
+          
+          // Upsert custom field value
+          const { error: upsertError } = await supabase
+            .from(customValueTable)
+            .upsert({
+              [entityIdField]: entityId,
+              preference_field_id: mapping.preferenceFieldId,
+              value: value?.trim?.() || value
+            }, {
+              onConflict: `${entityIdField},preference_field_id`
+            });
+          
+          if (upsertError) {
+            console.log(`[Import] Custom field upsert error: ${upsertError.message}`);
+          }
+        }
+      }
+    }
+    
+    const processedRows = createdRows + updatedRows;
     
     if (jobId) {
       try {
@@ -359,6 +380,8 @@ export default async function handler(req, res) {
       }
     }
     
+    console.log(`[Import] Complete: ${createdRows} created, ${updatedRows} updated, ${skippedRows} skipped, ${errorRows} errors`);
+    
     res.json({
       success: true,
       jobId,
@@ -366,6 +389,7 @@ export default async function handler(req, res) {
       updated: updatedRows,
       skipped: skippedRows,
       errors: errorRows,
+      notesCreated: notesToCreate.length,
       summary: {
         totalRows: records.length,
         processedRows,
