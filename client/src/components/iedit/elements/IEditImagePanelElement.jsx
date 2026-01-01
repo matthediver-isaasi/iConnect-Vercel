@@ -428,12 +428,15 @@ function hexToRgb(hex) {
 export function IEditImagePanelElementEditor({ element, onChange }) {
   const content = element.content || {};
   const backgroundType = content.background_type || 'color';
+  const mobileBackgroundType = content.mobile_background_type || 'same';
   const [isUploading, setIsUploading] = useState(false);
+  const [isUploadingMobile, setIsUploadingMobile] = useState(false);
   const [buttonStyles, setButtonStyles] = useState([]);
   const [expandedPanels, setExpandedPanels] = useState({ 0: true });
   const [expandedSections, setExpandedSections] = useState({
     settings: false,
     background: false,
+    mobileBackground: false,
     layout: false,
     dividers: false,
     panels: true
@@ -608,6 +611,32 @@ export function IEditImagePanelElementEditor({ element, onChange }) {
     }
   };
 
+  const handleMobileImageUpload = async (file) => {
+    if (!file) return;
+
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+    if (!allowedTypes.includes(file.type)) {
+      alert('Please upload a valid image file');
+      return;
+    }
+
+    if (file.size > 10 * 1024 * 1024) {
+      alert('Image must be smaller than 10MB');
+      return;
+    }
+
+    setIsUploadingMobile(true);
+    try {
+      const { base44 } = await import("@/api/base44Client");
+      const response = await base44.integrations.Core.UploadFile({ file });
+      updateContent('mobile_image_url', response.file_url);
+    } catch (error) {
+      alert('Failed to upload image: ' + error.message);
+    } finally {
+      setIsUploadingMobile(false);
+    }
+  };
+
   const AVAILABLE_FONTS = [
     { value: 'Poppins, sans-serif', label: 'Poppins' },
     { value: "'Degular Medium', 'Poppins', sans-serif", label: 'Degular Medium' },
@@ -626,6 +655,7 @@ export function IEditImagePanelElementEditor({ element, onChange }) {
   ];
 
   const gradientPreview = `linear-gradient(${content.gradient_angle || 135}deg, ${content.gradient_start_color || '#3b82f6'}, ${content.gradient_end_color || '#8b5cf6'})`;
+  const mobileGradientPreview = `linear-gradient(${content.mobile_gradient_angle || 135}deg, ${content.mobile_gradient_start_color || '#3b82f6'}, ${content.mobile_gradient_end_color || '#8b5cf6'})`;
 
   return (
     <div className="space-y-4">
@@ -913,6 +943,236 @@ export function IEditImagePanelElementEditor({ element, onChange }) {
                   min="200"
                 />
               </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Mobile Background Section */}
+      <div className="border rounded-lg overflow-hidden">
+        <button
+          type="button"
+          onClick={() => toggleSection('mobileBackground')}
+          className="w-full flex items-center justify-between p-3 bg-blue-50 hover:bg-blue-100 text-left"
+        >
+          <span className="font-semibold text-sm text-blue-800">Mobile Background</span>
+          {expandedSections.mobileBackground ? <ChevronUp className="w-4 h-4 text-blue-800" /> : <ChevronDown className="w-4 h-4 text-blue-800" />}
+        </button>
+        
+        {expandedSections.mobileBackground && (
+          <div className="p-4 space-y-4 bg-blue-50/30">
+            <div className="p-3 bg-blue-100/50 border border-blue-200 rounded-md">
+              <p className="text-sm text-blue-800">
+                Configure a different background for mobile devices. Set to "Same as Desktop" to use the desktop background settings.
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-1">Mobile Background Type</label>
+              <select
+                value={mobileBackgroundType}
+                onChange={(e) => updateContent('mobile_background_type', e.target.value)}
+                className="w-full px-3 py-2 border border-slate-300 rounded-md"
+              >
+                <option value="same">Same as Desktop</option>
+                <option value="color">Solid Color</option>
+                <option value="gradient">Gradient</option>
+                <option value="image">Image</option>
+              </select>
+            </div>
+
+            {mobileBackgroundType !== 'same' && (
+              <>
+                {mobileBackgroundType === 'color' && (
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Mobile Background Color</label>
+                    <div className="flex gap-2 items-center">
+                      <input
+                        type="color"
+                        value={content.mobile_background_color || '#1a1a2e'}
+                        onChange={(e) => updateContent('mobile_background_color', e.target.value)}
+                        className="w-16 h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+                      />
+                      <input
+                        type="text"
+                        value={content.mobile_background_color || '#1a1a2e'}
+                        onChange={(e) => updateContent('mobile_background_color', e.target.value)}
+                        className="flex-1 px-3 py-2 border border-slate-300 rounded-md font-mono text-sm"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {mobileBackgroundType === 'gradient' && (
+                  <div className="space-y-3 p-3 bg-slate-50 rounded-md">
+                    <div 
+                      className="w-full h-16 rounded-md border border-slate-300"
+                      style={{ background: mobileGradientPreview }}
+                    />
+                    
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-sm font-medium mb-1">Start Color</label>
+                        <div className="flex gap-2 items-center">
+                          <input
+                            type="color"
+                            value={content.mobile_gradient_start_color || '#3b82f6'}
+                            onChange={(e) => updateContent('mobile_gradient_start_color', e.target.value)}
+                            className="w-12 h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+                          />
+                          <input
+                            type="text"
+                            value={content.mobile_gradient_start_color || '#3b82f6'}
+                            onChange={(e) => updateContent('mobile_gradient_start_color', e.target.value)}
+                            className="flex-1 px-2 py-2 border border-slate-300 rounded-md font-mono text-xs"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium mb-1">End Color</label>
+                        <div className="flex gap-2 items-center">
+                          <input
+                            type="color"
+                            value={content.mobile_gradient_end_color || '#8b5cf6'}
+                            onChange={(e) => updateContent('mobile_gradient_end_color', e.target.value)}
+                            className="w-12 h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+                          />
+                          <input
+                            type="text"
+                            value={content.mobile_gradient_end_color || '#8b5cf6'}
+                            onChange={(e) => updateContent('mobile_gradient_end_color', e.target.value)}
+                            className="flex-1 px-2 py-2 border border-slate-300 rounded-md font-mono text-xs"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Angle: {content.mobile_gradient_angle || 135}°</label>
+                      <input
+                        type="range"
+                        min="0"
+                        max="360"
+                        value={content.mobile_gradient_angle || 135}
+                        onChange={(e) => updateContent('mobile_gradient_angle', parseInt(e.target.value))}
+                        className="w-full"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {mobileBackgroundType === 'image' && (
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Mobile Background Image</label>
+                      <div className="space-y-2">
+                        <label className="inline-block">
+                          <div className={`px-4 py-2 rounded-md text-sm font-medium cursor-pointer ${
+                            isUploadingMobile 
+                              ? 'bg-slate-300 cursor-not-allowed' 
+                              : 'bg-blue-600 hover:bg-blue-700 text-white'
+                          }`}>
+                            {isUploadingMobile ? 'Uploading...' : 'Upload Mobile Image'}
+                          </div>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) handleMobileImageUpload(file);
+                              e.target.value = '';
+                            }}
+                            className="hidden"
+                            disabled={isUploadingMobile}
+                          />
+                        </label>
+                      </div>
+                      {content.mobile_image_url && (
+                        <div className="mt-2 relative">
+                          <img
+                            src={content.mobile_image_url}
+                            alt="Mobile Preview"
+                            className="w-full h-32 object-cover rounded"
+                            onError={(e) => { e.target.style.display = 'none'; }}
+                          />
+                          <button
+                            onClick={() => updateContent('mobile_image_url', '')}
+                            className="absolute bottom-2 right-2 px-2 py-1 bg-red-600 hover:bg-red-700 text-white text-xs rounded"
+                            type="button"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Mobile Image Fit</label>
+                      <select
+                        value={content.mobile_image_fit || 'cover'}
+                        onChange={(e) => updateContent('mobile_image_fit', e.target.value)}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                      >
+                        <option value="cover">Cover (fill, may crop)</option>
+                        <option value="contain">Contain (show all)</option>
+                      </select>
+                    </div>
+
+                    <div className="space-y-3 p-3 bg-slate-50 rounded-md">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          id="mobile_overlay_enabled"
+                          checked={content.mobile_overlay_enabled || false}
+                          onChange={(e) => updateContent('mobile_overlay_enabled', e.target.checked)}
+                          className="rounded"
+                        />
+                        <label htmlFor="mobile_overlay_enabled" className="text-sm font-medium">Enable Mobile Overlay</label>
+                      </div>
+                      
+                      {content.mobile_overlay_enabled && (
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-sm font-medium mb-1">Overlay Color</label>
+                            <input
+                              type="color"
+                              value={content.mobile_overlay_color || '#000000'}
+                              onChange={(e) => updateContent('mobile_overlay_color', e.target.value)}
+                              className="w-full h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium mb-1">Opacity (%)</label>
+                            <input
+                              type="number"
+                              value={content.mobile_overlay_opacity || 50}
+                              onChange={(e) => updateContent('mobile_overlay_opacity', e.target.value)}
+                              className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                              min="0"
+                              max="100"
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
+
+                <div>
+                  <label className="block text-sm font-medium mb-1">Mobile Minimum Height (px)</label>
+                  <input
+                    type="number"
+                    value={content.mobile_min_height || ''}
+                    onChange={(e) => updateContent('mobile_min_height', e.target.value ? parseInt(e.target.value) : null)}
+                    placeholder="Same as desktop"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                    min="100"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">
+                    Leave empty to use the desktop minimum height value
+                  </p>
+                </div>
+              </>
             )}
           </div>
         )}
