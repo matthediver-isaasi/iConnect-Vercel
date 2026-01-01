@@ -425,14 +425,14 @@ export default function ImportManager() {
                                   <ArrowRight className="w-4 h-4 text-slate-400 flex-shrink-0" />
                                   
                                   <Select 
-                                    value={mapping.targetField || ""}
-                                    onValueChange={(val) => handleMappingChange(index, 'targetField', val)}
+                                    value={mapping.targetField || "__skip__"}
+                                    onValueChange={(val) => handleMappingChange(index, 'targetField', val === "__skip__" ? "" : val)}
                                   >
                                     <SelectTrigger className="w-48" data-testid={`select-target-${index}`}>
                                       <SelectValue placeholder="Select field..." />
                                     </SelectTrigger>
                                     <SelectContent>
-                                      <SelectItem value="">-- Skip this column --</SelectItem>
+                                      <SelectItem value="__skip__">-- Skip this column --</SelectItem>
                                       {availableFields?.core?.length > 0 && (
                                         <>
                                           <SelectItem disabled value="__core_header__">
