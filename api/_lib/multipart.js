@@ -50,11 +50,23 @@ export async function parseMultipartForm(req) {
             const fieldName = nameMatch[1];
             
             if (filenameMatch && fieldName === 'file') {
+              // Only remove trailing CRLF if present, otherwise keep full content
+              let fileBuffer = content;
+              if (content.length >= 2 && 
+                  content[content.length - 2] === 13 && 
+                  content[content.length - 1] === 10) {
+                // Remove trailing \r\n
+                fileBuffer = content.slice(0, content.length - 2);
+              } else if (content.length >= 1 && content[content.length - 1] === 10) {
+                // Remove trailing \n only
+                fileBuffer = content.slice(0, content.length - 1);
+              }
+              
               file = {
                 originalname: filenameMatch[1],
                 mimetype: contentTypeMatch ? contentTypeMatch[1].trim() : 'application/octet-stream',
-                buffer: content.slice(0, content.length - 2),
-                size: content.length - 2
+                buffer: fileBuffer,
+                size: fileBuffer.length
               };
             } else {
               fields[fieldName] = content.toString().trim().replace(/\r\n$/, '');
