@@ -31,13 +31,21 @@ function parseDate(dateStr, format) {
   
   for (let i = 0; i < formatParts.length; i++) {
     const fmt = formatParts[i].toLowerCase();
-    const val = parseInt(parts[i].trim(), 10);
+    const rawPart = parts[i].trim();
+    const val = parseInt(rawPart, 10);
     
     if (isNaN(val)) return null;
     
     if (fmt === 'dd' || fmt === 'd') day = val;
     else if (fmt === 'mm' || fmt === 'm') month = val;
-    else if (fmt === 'yyyy') year = val;
+    else if (fmt === 'yyyy') {
+      // Handle 2-digit years even when yyyy format is selected
+      if (rawPart.length <= 2) {
+        year = val < 50 ? 2000 + val : 1900 + val;
+      } else {
+        year = val;
+      }
+    }
     else if (fmt === 'yy') year = val < 50 ? 2000 + val : 1900 + val;
   }
   
