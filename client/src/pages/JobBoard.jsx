@@ -138,8 +138,8 @@ export default function JobBoardPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
-      <div className="max-w-7xl mx-auto">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 overflow-x-hidden">
+      <div className="max-w-7xl mx-auto w-full">
         {/* Header - hidden when custom banner is present */}
         {!hasBanner && (
           <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
@@ -170,8 +170,8 @@ export default function JobBoardPage() {
         
         {/* Filters */}
         <Card className="border-slate-200 shadow-sm mb-8">
-          <CardContent className="p-6">
-            <div className="grid md:grid-cols-5 gap-4">
+          <CardContent className="p-4 md:p-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3 md:gap-4">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
                 <Input
@@ -236,7 +236,7 @@ export default function JobBoardPage() {
 
         {/* Job Listings - 2 Column Grid */}
         {isLoading ? (
-          <div className="grid md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
             {Array(6).fill(0).map((_, i) => (
               <Card key={i} className="animate-pulse border-slate-200">
                 <CardContent className="p-6">
@@ -255,20 +255,20 @@ export default function JobBoardPage() {
             </CardContent>
           </Card>
         ) : (
-          <div className="grid md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
             {filteredJobs.map((job) => {
               const closingSoon = job.closing_date && isClosingSoon(job.closing_date);
               const daysUntilClosing = job.closing_date ? differenceInDays(new Date(job.closing_date), new Date()) : null;
 
               return (
-                <Link key={job.id} to={createPageUrl(`JobDetails?id=${job.id}`)}>
-                  <Card className={`border-slate-200 hover:shadow-xl transition-all cursor-pointer h-full group ${
+                <Link key={job.id} to={createPageUrl(`JobDetails?id=${job.id}`)} className="min-w-0">
+                  <Card className={`border-slate-200 hover:shadow-xl transition-all cursor-pointer h-full group overflow-hidden ${
                     closingSoon ? 'border-l-4 border-l-amber-500 hover:border-amber-300' : 'hover:border-blue-300'
                   }`}>
-                    <CardContent className="p-6">
+                    <CardContent className="p-4 md:p-6">
                       {/* Closing Soon Banner */}
                       {closingSoon && (
-                        <div className="mb-4 -mx-6 -mt-6 px-6 py-2 bg-gradient-to-r from-amber-50 to-orange-50 border-b border-amber-200 flex items-center gap-2">
+                        <div className="mb-4 -mx-4 md:-mx-6 -mt-4 md:-mt-6 px-4 md:px-6 py-2 bg-gradient-to-r from-amber-50 to-orange-50 border-b border-amber-200 flex items-center gap-2">
                           <AlertCircle className="w-4 h-4 text-amber-600" />
                           <span className="text-sm font-medium text-amber-900">
                             Closing {daysUntilClosing === 0 ? 'today' : `in ${daysUntilClosing} ${daysUntilClosing === 1 ? 'day' : 'days'}`}
