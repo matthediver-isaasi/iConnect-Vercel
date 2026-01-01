@@ -113,11 +113,16 @@ export default async function handler(req, res) {
       csvContent = csvContent.slice(1);
     }
     
+    // Normalize line endings (CRLF -> LF)
+    csvContent = csvContent.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    
     // Auto-detect delimiter (semicolon or comma)
     const firstLine = csvContent.split('\n')[0] || '';
     const semicolonCount = (firstLine.match(/;/g) || []).length;
     const commaCount = (firstLine.match(/,/g) || []).length;
     const delimiter = semicolonCount > commaCount ? ';' : ',';
+    
+    console.log(`[Import] Detected delimiter: "${delimiter}", first line columns: ${Math.max(semicolonCount, commaCount) + 1}`);
     
     const { parse } = await import('csv-parse/sync');
     const records = parse(csvContent, {
@@ -126,7 +131,9 @@ export default async function handler(req, res) {
       trim: true,
       delimiter,
       relax_quotes: true,
-      relax_column_count: true
+      relax_column_count: true,
+      escape: '"',
+      quote: '"'
     });
     
     const tableName = entityType === 'organization' ? 'organization' : 'member';
