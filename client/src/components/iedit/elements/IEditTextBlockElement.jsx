@@ -7,7 +7,8 @@ import { Input } from "@/components/ui/input";
 import TypographyStyleSelector, { applyTypographyStyle, useTypographyStyles } from "../TypographyStyleSelector";
 import { AlignLeft, AlignCenter, AlignRight, ChevronDown, ChevronUp } from "lucide-react";
 
-export default function IEditTextBlockElement({ content, variant, settings }) {
+export default function IEditTextBlockElement({ content, variant, settings, previewViewport }) {
+  const isMobilePreview = previewViewport === 'mobile';
   const {
     anchor,
     heading = '',
@@ -162,12 +163,31 @@ export default function IEditTextBlockElement({ content, variant, settings }) {
         text-align: ${mobile_content_align || content_align};
       }
     }
+
+    /* Mobile preview in page builder */
+    .${instanceId}.mobile-preview .textblock-inner {
+      padding-top: ${mobilePaddingTop}px;
+      padding-bottom: ${mobilePaddingBottom}px;
+      padding-left: ${mobilePaddingLeft}px;
+      padding-right: ${mobilePaddingRight}px;
+    }
+
+    .${instanceId}.mobile-preview .textblock-heading {
+      font-size: ${mobileHeadingFontSize}px;
+      text-align: ${mobile_heading_align || heading_align};
+    }
+
+    .${instanceId}.mobile-preview .textblock-content {
+      font-size: ${mobileContentFontSize}px;
+      text-align: ${mobile_content_align || content_align};
+    }
   `;
 
   const fullWidthClass = fullWidth ? 'w-screen relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw]' : '';
+  const mobilePreviewClass = isMobilePreview ? 'mobile-preview' : '';
 
   return (
-    <div id={anchor || undefined} className={`${instanceId} ${fullWidthClass}`} data-testid="textblock-container">
+    <div id={anchor || undefined} className={`${instanceId} ${fullWidthClass} ${mobilePreviewClass}`} data-testid="textblock-container">
       <style>{scopedStyles}</style>
       <div className="textblock-background">
         {fullWidth ? (
