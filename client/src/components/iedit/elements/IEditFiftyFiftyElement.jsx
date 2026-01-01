@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useId } from "react";
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 import DOMPurify from 'dompurify';
@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ChevronDown, ChevronUp, Upload, X, AlignLeft, AlignCenter, AlignRight } from "lucide-react";
 import AGCASButton from "../../ui/AGCASButton";
-import TypographyStyleSelector, { applyTypographyStyle } from "../TypographyStyleSelector";
+import TypographyStyleSelector, { applyTypographyStyle, useTypographyStyles } from "../TypographyStyleSelector";
 import { useIsMobile } from "@/hooks/use-mobile";
 
 const fiftyFiftyQuillModules = {
@@ -51,8 +51,14 @@ const safeHexColor = (color, fallback = '#000000') => {
   return fallback;
 };
 
-export default function IEditFiftyFiftyElement({ content, variant, settings }) {
+export default function IEditFiftyFiftyElement({ content, variant, settings, previewViewport }) {
   const isMobile = useIsMobile();
+  const isMobilePreview = previewViewport === 'mobile';
+  const reactId = useId();
+  const instanceId = `fiftyfifty-${reactId.replace(/:/g, '')}`;
+  
+  // Look up typography styles at render time to use current values from InstalledFonts
+  const { getStyleById } = useTypographyStyles();
   
   const {
     anchor,
@@ -66,6 +72,17 @@ export default function IEditFiftyFiftyElement({ content, variant, settings }) {
     overlay_enabled = false,
     overlay_color = '#000000',
     overlay_opacity = 50,
+    // Mobile background settings (defaults to 'same' meaning use desktop values)
+    mobile_background_type = 'same',
+    mobile_background_color = '#ffffff',
+    mobile_gradient_start_color = '#3b82f6',
+    mobile_gradient_end_color = '#8b5cf6',
+    mobile_gradient_angle = 135,
+    mobile_background_image_url,
+    mobile_background_image_fit = 'cover',
+    mobile_overlay_enabled = false,
+    mobile_overlay_color = '#000000',
+    mobile_overlay_opacity = 50,
     left_content_type = 'text',
     right_content_type = 'text',
     left_image_url,
@@ -92,6 +109,10 @@ export default function IEditFiftyFiftyElement({ content, variant, settings }) {
     reverse_on_mobile = false,
     column_gap = 32,
     vertical_padding = 48,
+    // Mobile-specific layout
+    mobile_vertical_padding,
+    mobile_column_gap,
+    mobile_custom_layout = false,
     // Section Header fields
     header_title = '',
     header_subtitle = '',
@@ -120,6 +141,51 @@ export default function IEditFiftyFiftyElement({ content, variant, settings }) {
     content_letter_spacing = 0
   } = content || {};
 
+  // Look up typography styles for live rendering
+  const headerTypographyStyle = getStyleById(content?.header_typography_style_id);
+  const subtitleTypographyStyle = getStyleById(content?.subtitle_typography_style_id);
+  const contentTypographyStyle = getStyleById(content?.content_typography_style_id);
+  const leftHeadingStyle = getStyleById(content?.left_heading_typography_style_id);
+  const leftSubheadingStyle = getStyleById(content?.left_subheading_typography_style_id);
+  const leftContentStyle = getStyleById(content?.left_content_typography_style_id);
+  const rightHeadingStyle = getStyleById(content?.right_heading_typography_style_id);
+  const rightSubheadingStyle = getStyleById(content?.right_subheading_typography_style_id);
+  const rightContentStyle = getStyleById(content?.right_content_typography_style_id);
+
+  // Auto-scaled default values for mobile
+  const defaultMobileHeaderSize = Math.max(20, Math.round(header_font_size * 0.75));
+  const defaultMobileSubtitleSize = Math.max(14, Math.round(subtitle_font_size * 0.85));
+  const defaultMobileContentSize = Math.max(13, Math.round(content_font_size * 0.9));
+  const defaultMobileVerticalPadding = Math.max(24, Math.round(vertical_padding * 0.6));
+  const defaultMobileColumnGap = Math.max(16, Math.round(column_gap * 0.5));
+
+  // Desktop background CSS
+  const getDesktopBackgroundCSS = () => {
+    if (background_type === 'color') {
+      return `background-color: ${background_color};`;
+    }
+    if (background_type === 'gradient') {
+      return `background: linear-gradient(${gradient_angle}deg, ${gradient_start_color}, ${gradient_end_color});`;
+    }
+    return '';
+  };
+
+  // Mobile background CSS
+  const getMobileBackgroundCSS = () => {
+    const effectiveType = mobile_background_type === 'same' ? background_type : mobile_background_type;
+    if (effectiveType === 'color') {
+      const color = mobile_background_type === 'same' ? background_color : mobile_background_color;
+      return `background-color: ${color} !important;`;
+    }
+    if (effectiveType === 'gradient') {
+      const start = mobile_background_type === 'same' ? gradient_start_color : mobile_gradient_start_color;
+      const end = mobile_background_type === 'same' ? gradient_end_color : mobile_gradient_end_color;
+      const angle = mobile_background_type === 'same' ? gradient_angle : mobile_gradient_angle;
+      return `background: linear-gradient(${angle}deg, ${start}, ${end}) !important;`;
+    }
+    return '';
+  };
+
   const getBackgroundStyle = () => {
     if (background_type === 'color') {
       return { backgroundColor: background_color };
@@ -133,18 +199,50 @@ export default function IEditFiftyFiftyElement({ content, variant, settings }) {
   };
 
   const hasBackground = background_type && background_type !== 'none';
+  const hasMobileBackground = mobile_background_type !== 'same' && mobile_background_type && mobile_background_type !== 'none';
+
+  // Helper to get typography style for a prefix (left/right heading/subheading/content)
+  const getTypographyStyleForPrefix = (prefix) => {
+    if (prefix === 'left_heading') return leftHeadingStyle;
+    if (prefix === 'left_subheading') return leftSubheadingStyle;
+    if (prefix === 'left_content') return leftContentStyle;
+    if (prefix === 'right_heading') return rightHeadingStyle;
+    if (prefix === 'right_subheading') return rightSubheadingStyle;
+    if (prefix === 'right_content') return rightContentStyle;
+    return null;
+  };
 
   const getTextStyle = (prefix) => {
-    const fontSize = content?.[`${prefix}_font_size`] || 16;
-    const mobileFontSize = content?.[`${prefix}_font_size_mobile`];
+    const savedFontSize = content?.[`${prefix}_font_size`] || 16;
+    const savedMobileFontSize = content?.[`${prefix}_font_size_mobile`];
+    const savedFontFamily = content?.[`${prefix}_font_family`] || 'Poppins';
+    const savedFontWeight = content?.[`${prefix}_font_weight`] || 400;
+    const savedColor = content?.[`${prefix}_color`] || '#1e293b';
+    const savedLetterSpacing = content?.[`${prefix}_letter_spacing`] || 0;
+    const savedLineHeight = content?.[`${prefix}_line_height`] || 1.5;
+    
+    // Look up live typography style
+    const liveStyle = getTypographyStyleForPrefix(prefix);
+    
+    // Priority: 1) Live style value, 2) Saved value
+    const effectiveFontFamily = liveStyle?.font_family || savedFontFamily;
+    const effectiveFontSize = liveStyle?.font_size || savedFontSize;
+    const effectiveFontWeight = liveStyle?.font_weight || savedFontWeight;
+    const effectiveColor = liveStyle?.color || savedColor;
+    const effectiveLetterSpacing = liveStyle?.letter_spacing ?? savedLetterSpacing;
+    const effectiveLineHeight = liveStyle?.line_height || savedLineHeight;
+    
+    // Mobile font size: 1) Live style mobile, 2) Saved mobile, 3) Auto-scaled
+    const defaultMobileSize = Math.max(14, Math.round(effectiveFontSize * 0.85));
+    const effectiveMobileFontSize = liveStyle?.font_size_mobile || savedMobileFontSize || defaultMobileSize;
     
     return {
-      fontFamily: content?.[`${prefix}_font_family`] || 'Poppins',
-      fontWeight: content?.[`${prefix}_font_weight`] || 400,
-      fontSize: `${(isMobile && mobileFontSize) ? mobileFontSize : fontSize}px`,
-      color: content?.[`${prefix}_color`] || '#1e293b',
-      letterSpacing: `${content?.[`${prefix}_letter_spacing`] || 0}px`,
-      lineHeight: content?.[`${prefix}_line_height`] || 1.5
+      fontFamily: effectiveFontFamily,
+      fontWeight: effectiveFontWeight,
+      fontSize: `${(isMobile || isMobilePreview) && effectiveMobileFontSize ? effectiveMobileFontSize : effectiveFontSize}px`,
+      color: effectiveColor,
+      letterSpacing: `${effectiveLetterSpacing}px`,
+      lineHeight: effectiveLineHeight
     };
   };
 
@@ -157,33 +255,69 @@ export default function IEditFiftyFiftyElement({ content, variant, settings }) {
   const leftAlignmentClass = getVerticalAlignmentClass(left_vertical_alignment);
   const rightAlignmentClass = getVerticalAlignmentClass(right_vertical_alignment);
 
-  // Section header styles
-  const getHeaderTitleStyle = () => ({
-    fontFamily: header_font_family,
-    fontSize: `${isMobile && header_font_size_mobile ? header_font_size_mobile : header_font_size}px`,
-    fontWeight: header_font_weight,
-    color: header_color,
-    lineHeight: header_line_height,
-    letterSpacing: `${header_letter_spacing}px`
-  });
+  // Section header styles - with live typography lookups
+  const getHeaderTitleStyle = () => {
+    const effectiveFontFamily = headerTypographyStyle?.font_family || header_font_family;
+    const effectiveFontSize = headerTypographyStyle?.font_size || header_font_size;
+    const effectiveFontWeight = headerTypographyStyle?.font_weight || header_font_weight;
+    const effectiveColor = headerTypographyStyle?.color || header_color;
+    const effectiveLineHeight = headerTypographyStyle?.line_height || header_line_height;
+    const effectiveLetterSpacing = headerTypographyStyle?.letter_spacing ?? header_letter_spacing;
+    
+    const defaultMobileSize = Math.max(20, Math.round(effectiveFontSize * 0.75));
+    const effectiveMobileSize = headerTypographyStyle?.font_size_mobile || header_font_size_mobile || defaultMobileSize;
+    
+    return {
+      fontFamily: effectiveFontFamily,
+      fontSize: `${(isMobile || isMobilePreview) && effectiveMobileSize ? effectiveMobileSize : effectiveFontSize}px`,
+      fontWeight: effectiveFontWeight,
+      color: effectiveColor,
+      lineHeight: effectiveLineHeight,
+      letterSpacing: `${effectiveLetterSpacing}px`
+    };
+  };
 
-  const getSubtitleStyle = () => ({
-    fontFamily: subtitle_font_family,
-    fontSize: `${isMobile && subtitle_font_size_mobile ? subtitle_font_size_mobile : subtitle_font_size}px`,
-    fontWeight: subtitle_font_weight,
-    color: subtitle_color,
-    lineHeight: subtitle_line_height,
-    letterSpacing: `${subtitle_letter_spacing}px`
-  });
+  const getSubtitleStyle = () => {
+    const effectiveFontFamily = subtitleTypographyStyle?.font_family || subtitle_font_family;
+    const effectiveFontSize = subtitleTypographyStyle?.font_size || subtitle_font_size;
+    const effectiveFontWeight = subtitleTypographyStyle?.font_weight || subtitle_font_weight;
+    const effectiveColor = subtitleTypographyStyle?.color || subtitle_color;
+    const effectiveLineHeight = subtitleTypographyStyle?.line_height || subtitle_line_height;
+    const effectiveLetterSpacing = subtitleTypographyStyle?.letter_spacing ?? subtitle_letter_spacing;
+    
+    const defaultMobileSize = Math.max(14, Math.round(effectiveFontSize * 0.85));
+    const effectiveMobileSize = subtitleTypographyStyle?.font_size_mobile || subtitle_font_size_mobile || defaultMobileSize;
+    
+    return {
+      fontFamily: effectiveFontFamily,
+      fontSize: `${(isMobile || isMobilePreview) && effectiveMobileSize ? effectiveMobileSize : effectiveFontSize}px`,
+      fontWeight: effectiveFontWeight,
+      color: effectiveColor,
+      lineHeight: effectiveLineHeight,
+      letterSpacing: `${effectiveLetterSpacing}px`
+    };
+  };
 
-  const getContentStyle = () => ({
-    fontFamily: content_font_family,
-    fontSize: `${isMobile && content_font_size_mobile ? content_font_size_mobile : content_font_size}px`,
-    fontWeight: content_font_weight,
-    color: content_color,
-    lineHeight: content_line_height,
-    letterSpacing: `${content_letter_spacing}px`
-  });
+  const getContentStyle = () => {
+    const effectiveFontFamily = contentTypographyStyle?.font_family || content_font_family;
+    const effectiveFontSize = contentTypographyStyle?.font_size || content_font_size;
+    const effectiveFontWeight = contentTypographyStyle?.font_weight || content_font_weight;
+    const effectiveColor = contentTypographyStyle?.color || content_color;
+    const effectiveLineHeight = contentTypographyStyle?.line_height || content_line_height;
+    const effectiveLetterSpacing = contentTypographyStyle?.letter_spacing ?? content_letter_spacing;
+    
+    const defaultMobileSize = Math.max(13, Math.round(effectiveFontSize * 0.9));
+    const effectiveMobileSize = contentTypographyStyle?.font_size_mobile || content_font_size_mobile || defaultMobileSize;
+    
+    return {
+      fontFamily: effectiveFontFamily,
+      fontSize: `${(isMobile || isMobilePreview) && effectiveMobileSize ? effectiveMobileSize : effectiveFontSize}px`,
+      fontWeight: effectiveFontWeight,
+      color: effectiveColor,
+      lineHeight: effectiveLineHeight,
+      letterSpacing: `${effectiveLetterSpacing}px`
+    };
+  };
 
   // Helper to check if a text value has actual content (not empty/whitespace/empty HTML tags)
   const hasContent = (value) => {
@@ -511,15 +645,23 @@ export default function IEditFiftyFiftyElement({ content, variant, settings }) {
 export function IEditFiftyFiftyElementEditor({ element, onChange }) {
   const content = element.content || {};
   const [isUploading, setIsUploading] = useState({});
+  const [viewportTab, setViewportTab] = useState('desktop');
   const [expandedSections, setExpandedSections] = useState({
     sectionHeader: true,
     background: false,
     leftColumn: false,
     rightColumn: false,
     button: false,
-    layout: false
+    layout: false,
+    // Mobile sections
+    mobileBackground: false,
+    mobileLayout: false
   });
   const [buttonStyles, setButtonStyles] = useState([]);
+
+  // Compute default mobile values for display in editor placeholders
+  const defaultMobileVerticalPadding = Math.max(24, Math.round((content.vertical_padding || 48) * 0.6));
+  const defaultMobileColumnGap = Math.max(16, Math.round((content.column_gap || 32) * 0.5));
 
   useEffect(() => {
     const fetchStyles = async () => {
@@ -576,9 +718,6 @@ export function IEditFiftyFiftyElementEditor({ element, onChange }) {
       setIsUploading(prev => ({ ...prev, [field]: false }));
     }
   };
-
-  const backgroundType = content.background_type || 'none';
-  const gradientPreview = `linear-gradient(${content.gradient_angle || 135}deg, ${content.gradient_start_color || '#3b82f6'}, ${content.gradient_end_color || '#8b5cf6'})`;
 
   const AlignmentButtons = ({ value, onChange, label, testIdPrefix }) => (
     <div className="flex items-center gap-2">
@@ -1023,6 +1162,11 @@ export function IEditFiftyFiftyElementEditor({ element, onChange }) {
     );
   };
 
+  const backgroundType = content.background_type || 'none';
+  const mobileBackgroundType = content.mobile_background_type || 'same';
+  const gradientPreview = `linear-gradient(${content.gradient_angle || 135}deg, ${content.gradient_start_color || '#3b82f6'}, ${content.gradient_end_color || '#8b5cf6'})`;
+  const mobileGradientPreview = `linear-gradient(${content.mobile_gradient_angle || 135}deg, ${content.mobile_gradient_start_color || '#3b82f6'}, ${content.mobile_gradient_end_color || '#8b5cf6'})`;
+
   return (
     <div className="space-y-4">
       {/* Anchor ID Field */}
@@ -1047,6 +1191,37 @@ export function IEditFiftyFiftyElementEditor({ element, onChange }) {
         </p>
       </div>
 
+      {/* Desktop/Mobile Tab Selector */}
+      <div className="flex gap-1 p-1 bg-slate-100 rounded-lg mb-4">
+        <button
+          type="button"
+          onClick={() => setViewportTab('desktop')}
+          data-testid="button-fiftyfifty-viewport-desktop"
+          className={`flex-1 py-2 px-4 text-sm font-medium rounded-md transition-colors ${
+            viewportTab === 'desktop' 
+              ? 'bg-white shadow text-slate-900' 
+              : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          Desktop
+        </button>
+        <button
+          type="button"
+          onClick={() => setViewportTab('mobile')}
+          data-testid="button-fiftyfifty-viewport-mobile"
+          className={`flex-1 py-2 px-4 text-sm font-medium rounded-md transition-colors ${
+            viewportTab === 'mobile' 
+              ? 'bg-white shadow text-slate-900' 
+              : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          Mobile
+        </button>
+      </div>
+
+      {/* Desktop Controls */}
+      {viewportTab === 'desktop' && (
+        <>
       {/* Section Header */}
       <div className="border rounded-lg overflow-hidden">
         <button
@@ -1727,6 +1902,287 @@ export function IEditFiftyFiftyElementEditor({ element, onChange }) {
           </div>
         )}
       </div>
+        </>
+      )}
+
+      {/* Mobile Controls */}
+      {viewportTab === 'mobile' && (
+        <>
+          {/* Mobile Background Section */}
+          <div className="border rounded-lg overflow-hidden">
+            <button
+              type="button"
+              onClick={() => toggleSection('mobileBackground')}
+              className="w-full flex items-center justify-between p-3 bg-slate-100 hover:bg-slate-200 text-left"
+              data-testid="accordion-fiftyfifty-mobile-background"
+            >
+              <span className="font-semibold text-sm">Mobile Background</span>
+              {expandedSections.mobileBackground ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            </button>
+            
+            {expandedSections.mobileBackground && (
+              <div className="p-4 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Background Type</label>
+                  <select
+                    value={mobileBackgroundType}
+                    onChange={(e) => updateContent('mobile_background_type', e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                    data-testid="select-fiftyfifty-mobile-background-type"
+                  >
+                    <option value="same">Same as Desktop</option>
+                    <option value="none">None</option>
+                    <option value="color">Solid Color</option>
+                    <option value="gradient">Gradient</option>
+                    <option value="image">Image</option>
+                  </select>
+                </div>
+
+                {mobileBackgroundType !== 'same' && mobileBackgroundType === 'color' && (
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Background Color</label>
+                    <div className="flex gap-2 items-center">
+                      <input
+                        type="color"
+                        value={content.mobile_background_color || '#ffffff'}
+                        onChange={(e) => updateContent('mobile_background_color', e.target.value)}
+                        className="w-16 h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+                      />
+                      <input
+                        type="text"
+                        value={content.mobile_background_color || '#ffffff'}
+                        onChange={(e) => updateContent('mobile_background_color', e.target.value)}
+                        className="flex-1 px-3 py-2 border border-slate-300 rounded-md font-mono text-sm"
+                        placeholder="#ffffff"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {mobileBackgroundType !== 'same' && mobileBackgroundType === 'gradient' && (
+                  <div className="space-y-3 p-3 bg-slate-50 rounded-md">
+                    <div 
+                      className="w-full h-16 rounded-md border border-slate-300"
+                      style={{ background: mobileGradientPreview }}
+                    />
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-sm font-medium mb-1">Start Color</label>
+                        <div className="flex gap-2 items-center">
+                          <input
+                            type="color"
+                            value={content.mobile_gradient_start_color || '#3b82f6'}
+                            onChange={(e) => updateContent('mobile_gradient_start_color', e.target.value)}
+                            className="w-12 h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+                          />
+                          <input
+                            type="text"
+                            value={content.mobile_gradient_start_color || '#3b82f6'}
+                            onChange={(e) => updateContent('mobile_gradient_start_color', e.target.value)}
+                            className="flex-1 px-2 py-2 border border-slate-300 rounded-md font-mono text-xs"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium mb-1">End Color</label>
+                        <div className="flex gap-2 items-center">
+                          <input
+                            type="color"
+                            value={content.mobile_gradient_end_color || '#8b5cf6'}
+                            onChange={(e) => updateContent('mobile_gradient_end_color', e.target.value)}
+                            className="w-12 h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+                          />
+                          <input
+                            type="text"
+                            value={content.mobile_gradient_end_color || '#8b5cf6'}
+                            onChange={(e) => updateContent('mobile_gradient_end_color', e.target.value)}
+                            className="flex-1 px-2 py-2 border border-slate-300 rounded-md font-mono text-xs"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Angle: {content.mobile_gradient_angle || 135}°</label>
+                      <input
+                        type="range"
+                        min="0"
+                        max="360"
+                        value={content.mobile_gradient_angle || 135}
+                        onChange={(e) => updateContent('mobile_gradient_angle', parseInt(e.target.value))}
+                        className="w-full"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {mobileBackgroundType !== 'same' && mobileBackgroundType === 'image' && (
+                  <div className="space-y-3">
+                    <div>
+                      <label className="inline-block">
+                        <div className={`px-4 py-2 rounded-md text-sm font-medium cursor-pointer inline-flex items-center gap-2 ${
+                          isUploading.mobile_background_image_url 
+                            ? 'bg-slate-300 cursor-not-allowed' 
+                            : 'bg-blue-600 hover:bg-blue-700 text-white'
+                        }`}>
+                          <Upload className="w-4 h-4" />
+                          {isUploading.mobile_background_image_url ? 'Uploading...' : 'Upload Mobile Background'}
+                        </div>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          disabled={isUploading.mobile_background_image_url}
+                          onChange={(e) => handleImageUpload(e.target.files?.[0], 'mobile_background_image_url')}
+                        />
+                      </label>
+                    </div>
+                    {content.mobile_background_image_url && (
+                      <>
+                        <div className="relative aspect-video w-full overflow-hidden rounded-md border border-slate-300">
+                          <img 
+                            src={content.mobile_background_image_url} 
+                            alt="Mobile background preview" 
+                            className="absolute inset-0 w-full h-full object-cover"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => updateContent('mobile_background_image_url', '')}
+                            className="absolute top-2 right-2 p-1 bg-red-500 text-white rounded-full hover:bg-red-600"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium mb-1">Image Fit</label>
+                          <select
+                            value={content.mobile_background_image_fit || 'cover'}
+                            onChange={(e) => updateContent('mobile_background_image_fit', e.target.value)}
+                            className="w-full px-3 py-2 border border-slate-300 rounded-md"
+                          >
+                            <option value="cover">Cover</option>
+                            <option value="contain">Contain</option>
+                            <option value="fill">Fill</option>
+                          </select>
+                        </div>
+                      </>
+                    )}
+
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        id="mobile-overlay-enabled"
+                        checked={content.mobile_overlay_enabled || false}
+                        onChange={(e) => updateContent('mobile_overlay_enabled', e.target.checked)}
+                        className="w-4 h-4"
+                      />
+                      <label htmlFor="mobile-overlay-enabled" className="cursor-pointer text-sm">Enable Overlay</label>
+                    </div>
+
+                    {content.mobile_overlay_enabled && (
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-sm font-medium mb-1">Overlay Color</label>
+                          <input
+                            type="color"
+                            value={content.mobile_overlay_color || '#000000'}
+                            onChange={(e) => updateContent('mobile_overlay_color', e.target.value)}
+                            className="w-full h-10 px-1 py-1 border border-slate-300 rounded-md cursor-pointer"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium mb-1">Overlay Opacity: {content.mobile_overlay_opacity || 50}%</label>
+                          <input
+                            type="range"
+                            min="0"
+                            max="100"
+                            value={content.mobile_overlay_opacity || 50}
+                            onChange={(e) => updateContent('mobile_overlay_opacity', parseInt(e.target.value))}
+                            className="w-full"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Mobile Layout Section */}
+          <div className="border rounded-lg overflow-hidden">
+            <button
+              type="button"
+              onClick={() => toggleSection('mobileLayout')}
+              className="w-full flex items-center justify-between p-3 bg-slate-100 hover:bg-slate-200 text-left"
+              data-testid="accordion-fiftyfifty-mobile-layout"
+            >
+              <span className="font-semibold text-sm">Mobile Layout & Spacing</span>
+              {expandedSections.mobileLayout ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            </button>
+            
+            {expandedSections.mobileLayout && (
+              <div className="p-4 space-y-4">
+                <div className="flex items-center gap-2 mb-4">
+                  <input
+                    type="checkbox"
+                    id="mobile-custom-layout"
+                    checked={content.mobile_custom_layout || false}
+                    onChange={(e) => updateContent('mobile_custom_layout', e.target.checked)}
+                    className="w-4 h-4"
+                  />
+                  <Label htmlFor="mobile-custom-layout" className="cursor-pointer">
+                    Use Custom Mobile Layout
+                  </Label>
+                </div>
+
+                {content.mobile_custom_layout && (
+                  <>
+                    <div>
+                      <Label className="text-sm">Mobile Vertical Padding (px)</Label>
+                      <Input
+                        type="number"
+                        value={content.mobile_vertical_padding !== undefined ? content.mobile_vertical_padding : ''}
+                        onChange={(e) => updateContent('mobile_vertical_padding', e.target.value ? parseInt(e.target.value) : undefined)}
+                        min="0"
+                        max="200"
+                        placeholder={`Auto (${defaultMobileVerticalPadding}px)`}
+                        data-testid="input-fiftyfifty-mobile-vertical-padding"
+                      />
+                    </div>
+
+                    <div>
+                      <Label className="text-sm">Mobile Column Gap (px)</Label>
+                      <Input
+                        type="number"
+                        value={content.mobile_column_gap !== undefined ? content.mobile_column_gap : ''}
+                        onChange={(e) => updateContent('mobile_column_gap', e.target.value ? parseInt(e.target.value) : undefined)}
+                        min="0"
+                        max="50"
+                        placeholder={`Auto (${defaultMobileColumnGap}px)`}
+                        data-testid="input-fiftyfifty-mobile-column-gap"
+                      />
+                    </div>
+                  </>
+                )}
+
+                {!content.mobile_custom_layout && (
+                  <p className="text-sm text-slate-500">
+                    Mobile layout automatically adapts from desktop settings. Enable custom layout to override.
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Info Panel */}
+          <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+            <p className="text-sm text-blue-800">
+              <strong>Mobile Typography:</strong> Font sizes automatically scale from the typography styles selected in Desktop tab. 
+              To customize mobile font sizes, update the typography style in the Typography page.
+            </p>
+          </div>
+        </>
+      )}
     </div>
   );
 }
