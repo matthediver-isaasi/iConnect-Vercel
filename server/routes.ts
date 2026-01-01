@@ -105,6 +105,8 @@ const entityToTable: Record<string, string> = {
   'RoleAccessItem': 'role_access_item',
   'ArticleFollow': 'article_follow',
   'RedirectMapping': 'redirect_mapping',
+  'CsvImportProfile': 'csv_import_profile',
+  'CsvImportJob': 'csv_import_job',
 };
 
 // Extend session type
@@ -15578,6 +15580,481 @@ AGCAS Events Team
     } catch (error: any) {
       console.error('[Zoom] Delete meeting error:', error);
       res.status(500).json({ error: error.message || 'Failed to delete meeting' });
+    }
+  });
+
+  // ============ CSV Import Manager ============
+  
+  // Core field definitions for Member and Organization
+  const MEMBER_CORE_FIELDS = [
+    { key: 'first_name', label: 'First Name', type: 'text' },
+    { key: 'last_name', label: 'Last Name', type: 'text' },
+    { key: 'email', label: 'Email', type: 'email' },
+    { key: 'mobile', label: 'Mobile', type: 'text' },
+    { key: 'landline', label: 'Landline', type: 'text' },
+    { key: 'job_title', label: 'Job Title', type: 'text' },
+    { key: 'biography', label: 'Biography', type: 'text' },
+    { key: 'organization_id', label: 'Organization ID', type: 'text' },
+    { key: 'linkedin_url', label: 'LinkedIn URL', type: 'url' },
+    { key: 'website_url', label: 'Website URL', type: 'url' },
+    { key: 'show_in_directory', label: 'Show in Directory', type: 'boolean' },
+    { key: 'login_enabled', label: 'Login Enabled', type: 'boolean' },
+    { key: 'login_disabled_reason', label: 'Login Disabled Reason', type: 'text' },
+    { key: 'external_id', label: 'External ID', type: 'text' },
+    { key: 'profile_image_url', label: 'Profile Image URL', type: 'url' },
+    { key: 'role_id', label: 'Role ID', type: 'text' },
+  ];
+  
+  const ORGANIZATION_CORE_FIELDS = [
+    { key: 'name', label: 'Name', type: 'text' },
+    { key: 'slug', label: 'Slug', type: 'text' },
+    { key: 'description', label: 'Description', type: 'text' },
+    { key: 'website', label: 'Website', type: 'url' },
+    { key: 'logo_url', label: 'Logo URL', type: 'url' },
+    { key: 'email', label: 'Email', type: 'email' },
+    { key: 'phone', label: 'Phone', type: 'text' },
+    { key: 'address', label: 'Address', type: 'text' },
+    { key: 'city', label: 'City', type: 'text' },
+    { key: 'country', label: 'Country', type: 'text' },
+    { key: 'postcode', label: 'Postcode', type: 'text' },
+    { key: 'external_id', label: 'External ID', type: 'text' },
+    { key: 'is_active', label: 'Is Active', type: 'boolean' },
+    { key: 'twitter_url', label: 'Twitter URL', type: 'url' },
+    { key: 'linkedin_url', label: 'LinkedIn URL', type: 'url' },
+    { key: 'facebook_url', label: 'Facebook URL', type: 'url' },
+    { key: 'instagram_url', label: 'Instagram URL', type: 'url' },
+  ];
+  
+  // Get available fields for import mapping
+  app.get('/api/imports/fields', async (req: Request, res: Response) => {
+    if (!supabase) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+    
+    try {
+      const entityType = req.query.entity as string || 'member';
+      
+      // Get core fields
+      const coreFields = entityType === 'organization' 
+        ? ORGANIZATION_CORE_FIELDS 
+        : MEMBER_CORE_FIELDS;
+      
+      // Get custom fields from PreferenceField
+      const { data: customFields, error } = await supabase
+        .from('preference_field')
+        .select('id, name, label, field_type, entity_scope')
+        .eq('entity_scope', entityType)
+        .eq('is_active', true)
+        .order('display_order', { ascending: true });
+      
+      if (error) {
+        console.error('[Import] Error fetching custom fields:', error);
+      }
+      
+      res.json({
+        core: coreFields.map(f => ({ ...f, scope: 'core' })),
+        custom: (customFields || []).map((f: any) => ({
+          key: f.id,
+          label: f.label || f.name,
+          type: f.field_type,
+          scope: 'custom'
+        }))
+      });
+    } catch (error: any) {
+      console.error('[Import] Error getting fields:', error);
+      res.status(500).json({ error: error.message || 'Failed to get fields' });
+    }
+  });
+  
+  // Parse CSV and return columns
+  const csvUpload = multer({ 
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
+  });
+  
+  app.post('/api/imports/parse', csvUpload.single('file'), async (req: Request, res: Response) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: 'No file uploaded' });
+      }
+      
+      const { parse } = await import('csv-parse/sync');
+      const csvContent = req.file.buffer.toString('utf-8');
+      
+      // Parse CSV
+      const records = parse(csvContent, {
+        columns: true,
+        skip_empty_lines: true,
+        trim: true
+      }) as Record<string, string>[];
+      
+      if (records.length === 0) {
+        return res.status(400).json({ error: 'CSV file is empty' });
+      }
+      
+      // Get column headers
+      const columns = Object.keys(records[0]);
+      
+      // Return columns and preview rows
+      res.json({
+        columns,
+        rowCount: records.length,
+        preview: records.slice(0, 5) // First 5 rows for preview
+      });
+    } catch (error: any) {
+      console.error('[Import] CSV parse error:', error);
+      res.status(400).json({ error: error.message || 'Failed to parse CSV' });
+    }
+  });
+  
+  // Preview import changes
+  app.post('/api/imports/preview', csvUpload.single('file'), async (req: Request, res: Response) => {
+    if (!supabase) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+    
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: 'No file uploaded' });
+      }
+      
+      const { entityType, identifierField, mappings } = req.body;
+      const parsedMappings = typeof mappings === 'string' ? JSON.parse(mappings) : mappings;
+      
+      if (!entityType || !identifierField || !parsedMappings) {
+        return res.status(400).json({ error: 'Missing required fields: entityType, identifierField, mappings' });
+      }
+      
+      const { parse } = await import('csv-parse/sync');
+      const csvContent = req.file.buffer.toString('utf-8');
+      const records = parse(csvContent, {
+        columns: true,
+        skip_empty_lines: true,
+        trim: true
+      }) as Record<string, string>[];
+      
+      // Find the identifier mapping
+      const identifierMapping = parsedMappings.find((m: any) => m.targetField === identifierField);
+      if (!identifierMapping) {
+        return res.status(400).json({ error: `No mapping found for identifier field: ${identifierField}` });
+      }
+      
+      const tableName = entityType === 'organization' ? 'organization' : 'member';
+      let createCount = 0;
+      let updateCount = 0;
+      let skipCount = 0;
+      const errors: any[] = [];
+      
+      for (let i = 0; i < records.length; i++) {
+        const row = records[i];
+        const identifierValue = row[identifierMapping.sourceColumn]?.trim();
+        
+        if (!identifierValue) {
+          skipCount++;
+          continue;
+        }
+        
+        // Check if record exists
+        const { data: existing, error } = await supabase
+          .from(tableName)
+          .select('id')
+          .eq(identifierField, identifierValue)
+          .maybeSingle();
+        
+        if (error) {
+          errors.push({ row: i + 2, message: error.message });
+          continue;
+        }
+        
+        if (existing) {
+          updateCount++;
+        } else {
+          createCount++;
+        }
+      }
+      
+      res.json({
+        totalRows: records.length,
+        toCreate: createCount,
+        toUpdate: updateCount,
+        toSkip: skipCount,
+        errors: errors.slice(0, 10) // First 10 errors
+      });
+    } catch (error: any) {
+      console.error('[Import] Preview error:', error);
+      res.status(500).json({ error: error.message || 'Failed to preview import' });
+    }
+  });
+  
+  // Execute import
+  app.post('/api/imports/execute', csvUpload.single('file'), async (req: Request, res: Response) => {
+    if (!supabase) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+    
+    const session = req.session as any;
+    if (!session?.memberId) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+    
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: 'No file uploaded' });
+      }
+      
+      const { entityType, identifierField, mappings } = req.body;
+      const parsedMappings = typeof mappings === 'string' ? JSON.parse(mappings) : mappings;
+      
+      if (!entityType || !identifierField || !parsedMappings) {
+        return res.status(400).json({ error: 'Missing required fields' });
+      }
+      
+      const { parse } = await import('csv-parse/sync');
+      const csvContent = req.file.buffer.toString('utf-8');
+      const records = parse(csvContent, {
+        columns: true,
+        skip_empty_lines: true,
+        trim: true
+      }) as Record<string, string>[];
+      
+      const tableName = entityType === 'organization' ? 'organization' : 'member';
+      const customValueTable = entityType === 'organization' 
+        ? 'organization_preference_value' 
+        : 'member_preference_value';
+      const entityIdField = entityType === 'organization' ? 'organization_id' : 'member_id';
+      
+      // Find identifier mapping
+      const identifierMapping = parsedMappings.find((m: any) => m.targetField === identifierField);
+      if (!identifierMapping) {
+        return res.status(400).json({ error: `No mapping for identifier field: ${identifierField}` });
+      }
+      
+      // Create import job record
+      const { data: job, error: jobError } = await supabase
+        .from('csv_import_job')
+        .insert({
+          entity_type: entityType,
+          status: 'running',
+          file_name: req.file.originalname,
+          total_rows: records.length,
+          created_by: session.memberId
+        })
+        .select()
+        .single();
+      
+      if (jobError) {
+        console.error('[Import] Failed to create job:', jobError);
+        return res.status(500).json({ error: 'Failed to create import job' });
+      }
+      
+      let processedRows = 0;
+      let createdRows = 0;
+      let updatedRows = 0;
+      let skippedRows = 0;
+      let errorRows = 0;
+      const errorLog: any[] = [];
+      
+      for (let i = 0; i < records.length; i++) {
+        const row = records[i];
+        const identifierValue = row[identifierMapping.sourceColumn]?.trim();
+        
+        if (!identifierValue) {
+          skippedRows++;
+          processedRows++;
+          continue;
+        }
+        
+        try {
+          // Check if record exists
+          const { data: existing, error: lookupError } = await supabase
+            .from(tableName)
+            .select('id')
+            .eq(identifierField, identifierValue)
+            .maybeSingle();
+          
+          if (lookupError) {
+            throw new Error(`Lookup failed: ${lookupError.message}`);
+          }
+          
+          // Build core field updates
+          const coreUpdates: Record<string, any> = {};
+          const customUpdates: { fieldId: string; value: any }[] = [];
+          
+          for (const mapping of parsedMappings) {
+            const sourceValue = row[mapping.sourceColumn];
+            const shouldClear = mapping.clearOnEmpty && (!sourceValue || sourceValue.trim() === '');
+            const finalValue = shouldClear ? null : (sourceValue?.trim() || null);
+            
+            if (mapping.targetScope === 'core') {
+              coreUpdates[mapping.targetField] = finalValue;
+            } else if (mapping.targetScope === 'custom' && mapping.targetField) {
+              customUpdates.push({ fieldId: mapping.targetField, value: finalValue });
+            }
+          }
+          
+          if (existing) {
+            // Update existing record
+            const { error: updateError } = await supabase
+              .from(tableName)
+              .update(coreUpdates)
+              .eq('id', existing.id);
+            
+            if (updateError) {
+              throw new Error(`Update failed: ${updateError.message}`);
+            }
+            
+            // Handle custom field updates
+            for (const cu of customUpdates) {
+              const { data: existingValue } = await supabase
+                .from(customValueTable)
+                .select('id')
+                .eq(entityIdField, existing.id)
+                .eq('preference_field_id', cu.fieldId)
+                .maybeSingle();
+              
+              if (existingValue) {
+                await supabase
+                  .from(customValueTable)
+                  .update({ value: cu.value })
+                  .eq('id', existingValue.id);
+              } else if (cu.value !== null) {
+                await supabase
+                  .from(customValueTable)
+                  .insert({
+                    [entityIdField]: existing.id,
+                    preference_field_id: cu.fieldId,
+                    value: cu.value
+                  });
+              }
+            }
+            
+            updatedRows++;
+          } else {
+            // Create new record
+            const { data: newRecord, error: createError } = await supabase
+              .from(tableName)
+              .insert(coreUpdates)
+              .select('id')
+              .single();
+            
+            if (createError) {
+              throw new Error(`Create failed: ${createError.message}`);
+            }
+            
+            // Handle custom field inserts
+            for (const cu of customUpdates) {
+              if (cu.value !== null) {
+                await supabase
+                  .from(customValueTable)
+                  .insert({
+                    [entityIdField]: newRecord.id,
+                    preference_field_id: cu.fieldId,
+                    value: cu.value
+                  });
+              }
+            }
+            
+            createdRows++;
+          }
+        } catch (rowError: any) {
+          errorRows++;
+          errorLog.push({ row: i + 2, message: rowError.message });
+        }
+        
+        processedRows++;
+        
+        // Update job progress every 50 rows
+        if (processedRows % 50 === 0) {
+          await supabase
+            .from('csv_import_job')
+            .update({ processed_rows: processedRows })
+            .eq('id', job.id);
+        }
+      }
+      
+      // Update job with final stats
+      await supabase
+        .from('csv_import_job')
+        .update({
+          status: errorRows > 0 ? 'completed_with_errors' : 'completed',
+          processed_rows: processedRows,
+          created_rows: createdRows,
+          updated_rows: updatedRows,
+          skipped_rows: skippedRows,
+          error_rows: errorRows,
+          error_log: errorLog.length > 0 ? errorLog : null,
+          completed_at: new Date().toISOString()
+        })
+        .eq('id', job.id);
+      
+      res.json({
+        jobId: job.id,
+        totalRows: records.length,
+        created: createdRows,
+        updated: updatedRows,
+        skipped: skippedRows,
+        errors: errorRows,
+        errorLog: errorLog.slice(0, 20)
+      });
+    } catch (error: any) {
+      console.error('[Import] Execute error:', error);
+      res.status(500).json({ error: error.message || 'Import failed' });
+    }
+  });
+  
+  // Get import job status
+  app.get('/api/imports/jobs/:id', async (req: Request, res: Response) => {
+    if (!supabase) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+    
+    try {
+      const { id } = req.params;
+      
+      const { data: job, error } = await supabase
+        .from('csv_import_job')
+        .select('*')
+        .eq('id', id)
+        .single();
+      
+      if (error || !job) {
+        return res.status(404).json({ error: 'Job not found' });
+      }
+      
+      res.json(job);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message || 'Failed to get job' });
+    }
+  });
+  
+  // Get recent import jobs
+  app.get('/api/imports/jobs', async (req: Request, res: Response) => {
+    if (!supabase) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+    
+    try {
+      const entityType = req.query.entity as string;
+      
+      let query = supabase
+        .from('csv_import_job')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(20);
+      
+      if (entityType) {
+        query = query.eq('entity_type', entityType);
+      }
+      
+      const { data: jobs, error } = await query;
+      
+      if (error) {
+        throw error;
+      }
+      
+      res.json(jobs || []);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message || 'Failed to get jobs' });
     }
   });
 

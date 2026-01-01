@@ -118,3 +118,52 @@ export const insertOrganizationNoteSchema = createInsertSchema(organizationNote)
 
 export type InsertOrganizationNote = z.infer<typeof insertOrganizationNoteSchema>;
 export type OrganizationNote = typeof organizationNote.$inferSelect;
+
+// CSV Import Profile - stores saved import configurations
+export const csvImportProfile = pgTable("csv_import_profile", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(), // User-friendly profile name
+  entity_type: text("entity_type").notNull(), // 'member' or 'organization'
+  identifier_field: text("identifier_field").notNull().default('email'), // Field used to match existing records
+  field_mappings: jsonb("field_mappings").notNull(), // Array of {source_column, target_field, target_scope, clear_on_empty}
+  created_by: varchar("created_by"), // Member ID who created
+  created_at: timestamp("created_at").defaultNow(),
+  updated_at: timestamp("updated_at").defaultNow(),
+});
+
+export const insertCsvImportProfileSchema = createInsertSchema(csvImportProfile).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertCsvImportProfile = z.infer<typeof insertCsvImportProfileSchema>;
+export type CsvImportProfile = typeof csvImportProfile.$inferSelect;
+
+// CSV Import Job - tracks import execution history
+export const csvImportJob = pgTable("csv_import_job", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  profile_id: varchar("profile_id"), // Optional reference to saved profile
+  entity_type: text("entity_type").notNull(), // 'member' or 'organization'
+  status: text("status").notNull().default('pending'), // 'pending', 'running', 'completed', 'failed'
+  file_name: text("file_name"),
+  total_rows: integer("total_rows").default(0),
+  processed_rows: integer("processed_rows").default(0),
+  created_rows: integer("created_rows").default(0),
+  updated_rows: integer("updated_rows").default(0),
+  skipped_rows: integer("skipped_rows").default(0),
+  error_rows: integer("error_rows").default(0),
+  error_log: jsonb("error_log"), // Array of {row, message}
+  created_by: varchar("created_by"),
+  created_at: timestamp("created_at").defaultNow(),
+  completed_at: timestamp("completed_at"),
+});
+
+export const insertCsvImportJobSchema = createInsertSchema(csvImportJob).omit({
+  id: true,
+  created_at: true,
+  completed_at: true,
+});
+
+export type InsertCsvImportJob = z.infer<typeof insertCsvImportJobSchema>;
+export type CsvImportJob = typeof csvImportJob.$inferSelect;
