@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { getSession } from '../_lib/session.js';
+import { parseMultipartForm } from '../_lib/multipart.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -13,76 +14,6 @@ export const config = {
     bodyParser: false,
   },
 };
-
-async function parseMultipartForm(req) {
-  return new Promise((resolve, reject) => {
-    let body = [];
-    let boundary = null;
-    
-    const contentType = req.headers['content-type'] || '';
-    const boundaryMatch = contentType.match(/boundary=(?:"([^"]+)"|([^;\s]+))/);
-    if (boundaryMatch) {
-      boundary = boundaryMatch[1] || boundaryMatch[2];
-    }
-    
-    if (!boundary) {
-      return reject(new Error('No boundary found in content-type'));
-    }
-    
-    req.on('data', chunk => body.push(chunk));
-    req.on('end', () => {
-      try {
-        const buffer = Buffer.concat(body);
-        const boundaryBuffer = Buffer.from(`--${boundary}`);
-        const parts = [];
-        let start = 0;
-        
-        while (true) {
-          const idx = buffer.indexOf(boundaryBuffer, start);
-          if (idx === -1) break;
-          if (start > 0) {
-            parts.push(buffer.slice(start, idx - 2));
-          }
-          start = idx + boundaryBuffer.length + 2;
-        }
-        
-        let file = null;
-        const fields = {};
-        
-        for (const part of parts) {
-          if (part.length < 4) continue;
-          
-          const headerEnd = part.indexOf('\r\n\r\n');
-          if (headerEnd === -1) continue;
-          
-          const headers = part.slice(0, headerEnd).toString();
-          const content = part.slice(headerEnd + 4);
-          
-          const nameMatch = headers.match(/name="([^"]+)"/);
-          const filenameMatch = headers.match(/filename="([^"]+)"/);
-          
-          if (nameMatch) {
-            const fieldName = nameMatch[1];
-            
-            if (filenameMatch && fieldName === 'file') {
-              file = {
-                originalname: filenameMatch[1],
-                buffer: content.slice(0, content.length - 2),
-              };
-            } else {
-              fields[fieldName] = content.toString().trim().replace(/\r\n$/, '');
-            }
-          }
-        }
-        
-        resolve({ file, fields });
-      } catch (err) {
-        reject(err);
-      }
-    });
-    req.on('error', reject);
-  });
-}
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -101,7 +32,7 @@ export default async function handler(req, res) {
   try {
     const { file } = await parseMultipartForm(req);
     
-    if (!file) {
+    if (!file || !file.buffer) {
       return res.status(400).json({ error: 'No file uploaded' });
     }
     
