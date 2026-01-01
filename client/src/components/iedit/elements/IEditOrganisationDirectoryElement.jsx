@@ -434,7 +434,7 @@ export function IEditOrganisationDirectoryElementEditor({ element, onChange }) {
 
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <Label htmlFor="columns">Cards Per Row</Label>
+          <Label htmlFor="columns">Cards Per Row (Desktop)</Label>
           <Select
             value={content.columns || '3'}
             onValueChange={(value) => updateContent('columns', value)}
@@ -452,25 +452,41 @@ export function IEditOrganisationDirectoryElementEditor({ element, onChange }) {
           </Select>
         </div>
         <div>
-          <Label htmlFor="rowsPerPage">Rows Per Page</Label>
+          <Label htmlFor="mobileColumns">Cards Per Row (Mobile)</Label>
           <Select
-            value={content.rowsPerPage || '4'}
-            onValueChange={(value) => updateContent('rowsPerPage', value)}
+            value={content.mobile_columns_per_row || '1'}
+            onValueChange={(value) => updateContent('mobile_columns_per_row', value)}
           >
-            <SelectTrigger>
+            <SelectTrigger data-testid="select-mobile-columns">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="2">2 Rows</SelectItem>
-              <SelectItem value="3">3 Rows</SelectItem>
-              <SelectItem value="4">4 Rows</SelectItem>
-              <SelectItem value="5">5 Rows</SelectItem>
-              <SelectItem value="6">6 Rows</SelectItem>
-              <SelectItem value="8">8 Rows</SelectItem>
-              <SelectItem value="10">10 Rows</SelectItem>
+              <SelectItem value="1">1</SelectItem>
+              <SelectItem value="2">2</SelectItem>
             </SelectContent>
           </Select>
         </div>
+      </div>
+
+      <div>
+        <Label htmlFor="rowsPerPage">Rows Per Page</Label>
+        <Select
+          value={content.rowsPerPage || '4'}
+          onValueChange={(value) => updateContent('rowsPerPage', value)}
+        >
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="2">2 Rows</SelectItem>
+            <SelectItem value="3">3 Rows</SelectItem>
+            <SelectItem value="4">4 Rows</SelectItem>
+            <SelectItem value="5">5 Rows</SelectItem>
+            <SelectItem value="6">6 Rows</SelectItem>
+            <SelectItem value="8">8 Rows</SelectItem>
+            <SelectItem value="10">10 Rows</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       <div>
@@ -615,6 +631,7 @@ export function IEditOrganisationDirectoryElementRenderer({ content, settings })
     showMemberCount = false,
     showNameTooltip = false,
     columns = '3',
+    mobile_columns_per_row = '1',
     rowsPerPage = '4',
     cardBorderRadius = 8,
     // Section header fields
@@ -801,19 +818,20 @@ export function IEditOrganisationDirectoryElementRenderer({ content, settings })
   }, [filteredOrganizations, currentPage, itemsPerPage]);
 
   const getGridClass = () => {
+    const mobileColClass = mobile_columns_per_row === '2' ? 'grid-cols-2' : 'grid-cols-1';
     switch (columns) {
       case '2':
-        return 'grid grid-cols-1 md:grid-cols-2 gap-6';
+        return `grid ${mobileColClass} md:grid-cols-2 gap-6`;
       case '3':
-        return 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6';
+        return `grid ${mobileColClass} md:grid-cols-2 lg:grid-cols-3 gap-6`;
       case '4':
-        return 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6';
+        return `grid ${mobileColClass} md:grid-cols-2 lg:grid-cols-4 gap-6`;
       case '5':
-        return 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6';
+        return `grid ${mobileColClass} md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6`;
       case '6':
-        return 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-6';
+        return `grid ${mobileColClass} md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-6`;
       default:
-        return 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6';
+        return `grid ${mobileColClass} md:grid-cols-2 lg:grid-cols-3 gap-6`;
     }
   };
 
