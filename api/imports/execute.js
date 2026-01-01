@@ -235,8 +235,10 @@ export default async function handler(req, res) {
           
           // Handle special "__add_note__" action for organizations
           if (mapping.targetField === '__add_note__') {
+            console.log(`[Import] Row ${i + 1}: Found __add_note__ mapping, source column: "${mapping.sourceColumn}", value length: ${value?.length || 0}`);
             if (value && typeof value === 'string' && value.trim()) {
               noteContent = value.trim();
+              console.log(`[Import] Row ${i + 1}: noteContent set, length: ${noteContent.length}`);
             }
             continue;
           }
@@ -308,7 +310,8 @@ export default async function handler(req, res) {
         
         // Create note for organization if __add_note__ was mapped
         if (entityType === 'organization' && noteContent && entityId) {
-          const { error: noteError } = await supabase
+          console.log(`[Import] Row ${i + 1}: Creating note for org ${entityId}, content length: ${noteContent.length}`);
+          const { data: noteData, error: noteError } = await supabase
             .from('organization_note')
             .insert({
               organization_id: entityId,
@@ -317,11 +320,16 @@ export default async function handler(req, res) {
               attachments: [],
               created_at: new Date().toISOString(),
               updated_at: new Date().toISOString()
-            });
+            })
+            .select();
           
           if (noteError) {
             console.log(`[Import] Row ${i + 1}: Failed to create note: ${noteError.message}`);
+          } else {
+            console.log(`[Import] Row ${i + 1}: Note created successfully, id: ${noteData?.[0]?.id}`);
           }
+        } else if (entityType === 'organization') {
+          console.log(`[Import] Row ${i + 1}: No note to create. noteContent=${noteContent ? 'present' : 'null'}, entityId=${entityId}`);
         }
         
         processedRows++;
