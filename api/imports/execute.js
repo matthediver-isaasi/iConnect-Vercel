@@ -16,32 +16,47 @@ function parseDate(dateStr, format) {
   const str = dateStr.trim();
   if (!str) return null;
   
-  // Extract separator from format
-  const separator = format.includes('/') ? '/' : format.includes('-') ? '-' : '.';
-  const parts = str.split(separator);
+  // Detect separator from the actual value (not format) - try common separators
+  let dateSeparator = null;
+  if (str.includes('/')) dateSeparator = '/';
+  else if (str.includes('-')) dateSeparator = '-';
+  else if (str.includes('.')) dateSeparator = '.';
+  
+  if (!dateSeparator) return null;
+  
+  const parts = str.split(dateSeparator);
   const formatParts = format.split(/[\/\-\.]/);
   
-  if (parts.length !== formatParts.length) return null;
+  if (parts.length !== formatParts.length) {
+    console.log(`[parseDate] Part count mismatch: value has ${parts.length}, format has ${formatParts.length}`);
+    return null;
+  }
   
   let day, month, year;
   
   for (let i = 0; i < formatParts.length; i++) {
     const fmt = formatParts[i].toLowerCase();
-    const val = parseInt(parts[i], 10);
+    const rawVal = parts[i].trim();
+    const val = parseInt(rawVal, 10);
     
-    if (isNaN(val)) return null;
+    if (isNaN(val)) {
+      console.log(`[parseDate] Could not parse "${rawVal}" as number at position ${i}`);
+      return null;
+    }
     
-    if (fmt === 'dd') {
+    if (fmt === 'dd' || fmt === 'd') {
       day = val;
-    } else if (fmt === 'mm') {
+    } else if (fmt === 'mm' || fmt === 'm') {
       month = val;
     } else if (fmt === 'yyyy') {
       year = val;
     } else if (fmt === 'yy') {
-      // Assume 2000s for 2-digit years
+      // 2-digit year: 00-49 = 2000-2049, 50-99 = 1950-1999
       year = val < 50 ? 2000 + val : 1900 + val;
     }
   }
+  
+  console.log(`[parseDate] Parsed "${str}" with format "${format}" → day=${day}, month=${month}, year=${year}`);
   
   if (!day || !month || !year) return null;
   if (day < 1 || day > 31 || month < 1 || month > 12) return null;
@@ -53,6 +68,7 @@ function parseDate(dateStr, format) {
   const parsed = new Date(isoDate);
   if (isNaN(parsed.getTime())) return null;
   
+  console.log(`[parseDate] Result: ${isoDate}`);
   return isoDate;
 }
 
