@@ -61,42 +61,32 @@ export default async function handler(req, res) {
   }
   
   try {
+    const entityType = req.query.entity || 'member';
+    console.log('[Import Fields] Fetching fields for entity:', entityType);
+    
+    const coreFields = entityType === 'organization' 
+      ? ORGANIZATION_CORE_FIELDS 
+      : MEMBER_CORE_FIELDS;
+    
     const { data: customFields, error } = await supabase
       .from('preference_field')
-      .select('id, field_key, label, field_type, entity_scope')
-      .order('label');
+      .select('id, name, label, field_type, entity_scope')
+      .eq('entity_scope', entityType)
+      .eq('is_active', true)
+      .order('display_order', { ascending: true });
     
     if (error) {
       console.error('[Import Fields] Error fetching custom fields:', error);
     }
     
-    const memberCustomFields = (customFields || [])
-      .filter(f => f.entity_scope === 'member')
-      .map(f => ({
-        key: `custom:${f.field_key}`,
-        label: f.label || f.field_key,
-        type: f.field_type || 'text',
-        isCustom: true,
-        preferenceFieldId: f.id
-      }));
-    
-    const organizationCustomFields = (customFields || [])
-      .filter(f => f.entity_scope === 'organization')
-      .map(f => ({
-        key: `custom:${f.field_key}`,
-        label: f.label || f.field_key,
-        type: f.field_type || 'text',
-        isCustom: true,
-        preferenceFieldId: f.id
-      }));
-    
     res.json({
-      core: MEMBER_CORE_FIELDS,
-      custom: memberCustomFields,
-      organization: {
-        core: ORGANIZATION_CORE_FIELDS,
-        custom: organizationCustomFields
-      }
+      core: coreFields.map(f => ({ ...f, scope: 'core' })),
+      custom: (customFields || []).map(f => ({
+        key: f.id,
+        label: f.label || f.name,
+        type: f.field_type || 'text',
+        scope: 'custom'
+      }))
     });
   } catch (error) {
     console.error('[Import Fields] Error:', error);
