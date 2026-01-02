@@ -73,6 +73,32 @@ Forms use a unified `entity_pipelines` system to configure member and organizati
 
 Forms support conditional visibility rules that control the visibility and enabled state of fields based on other field values. Rules specify `visible` and `enabled` states (true/false/null) for target fields.
 
+## Notes System (Jan 2026)
+
+Both Organizations and Members support internal notes that admins can add, edit, and delete:
+
+**Database Tables:**
+- `organization_note` - Notes attached to organization records
+- `member_note` - Notes attached to member records
+
+**Table Structure:**
+- `id` (UUID primary key)
+- `target_member_id` or `organization_id` - The entity the note is about
+- `author_member_id` or `member_id` - Who created the note
+- `content` (text) - The note content
+- `attachments` (JSONB) - Array of file attachments (organization notes only)
+- `created_at`, `updated_at` timestamps
+
+**API Endpoints:**
+- `GET/POST /api/admin/organizations/[id]/notes` - List/create org notes
+- `PATCH/DELETE /api/admin/organization-notes/[noteId]` - Update/delete org notes
+- `GET/POST /api/admin/members/[id]/notes` - List/create member notes
+- `PATCH/DELETE /api/admin/member-notes/[noteId]` - Update/delete member notes
+
+**UI Components:**
+- Notes tab in OrganisationDetailView (with file attachments)
+- Notes tab in MemberDetailView (text only)
+
 # External Dependencies
 
 **Supabase:** Primary database (PostgreSQL) for application data, including CRUD and realtime subscriptions, and file storage.

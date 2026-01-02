@@ -119,6 +119,26 @@ export const insertOrganizationNoteSchema = createInsertSchema(organizationNote)
 export type InsertOrganizationNote = z.infer<typeof insertOrganizationNoteSchema>;
 export type OrganizationNote = typeof organizationNote.$inferSelect;
 
+// Member notes - for tracking notes on members by other members (admins)
+export const memberNote = pgTable("member_note", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  target_member_id: varchar("target_member_id").notNull(), // References member.id - the member the note is about
+  author_member_id: varchar("author_member_id").notNull(), // References member.id - who added the note
+  content: text("content").notNull(), // The note text
+  attachments: jsonb("attachments"), // Array of {file_url, file_name, file_size, mime_type}
+  created_at: timestamp("created_at").defaultNow(),
+  updated_at: timestamp("updated_at").defaultNow(),
+});
+
+export const insertMemberNoteSchema = createInsertSchema(memberNote).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertMemberNote = z.infer<typeof insertMemberNoteSchema>;
+export type MemberNote = typeof memberNote.$inferSelect;
+
 // CSV Import Profile - stores saved import configurations
 export const csvImportProfile = pgTable("csv_import_profile", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
