@@ -4908,6 +4908,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .select('*')
         .eq('role_id', roleId);
 
+      console.log('[Get Role Member Field Permissions] roleId:', roleId, 'permissions:', permissions);
+
       if (fetchError) {
         console.error('[Get Role Member Field Permissions] Error:', fetchError);
         return res.status(500).json({ error: fetchError.message });
@@ -4919,6 +4921,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         permissionMap[p.field_key] = p.permission;
       });
 
+      console.log('[Get Role Member Field Permissions] Returning permissionMap:', permissionMap);
       res.json(permissionMap);
     } catch (error) {
       console.error('[Get Role Member Field Permissions] Error:', error);
@@ -4975,20 +4978,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const permissionsToInsert = permissions
         .filter(({ permission }) => permission !== 'read_write')
         .map(({ field_key, permission }) => ({
+          id: crypto.randomUUID(),
           role_id: roleId,
           field_key,
           permission
         }));
 
+      console.log('[Update Role Member Field Permissions] Inserting:', permissionsToInsert);
+
       if (permissionsToInsert.length > 0) {
-        const { error: insertError } = await supabase
+        const { data: insertedData, error: insertError } = await supabase
           .from('role_member_field_permission')
-          .insert(permissionsToInsert);
+          .insert(permissionsToInsert)
+          .select();
 
         if (insertError) {
           console.error('[Insert Role Member Field Permissions] Error:', insertError);
           return res.status(500).json({ error: insertError.message });
         }
+        console.log('[Update Role Member Field Permissions] Inserted:', insertedData);
       }
 
       res.json({ success: true, count: permissionsToInsert.length });
