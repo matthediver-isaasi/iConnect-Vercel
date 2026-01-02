@@ -72,7 +72,7 @@ export default async function handler(req, res) {
     return res.status(503).json({ error: 'Database not configured' });
   }
 
-  const { id: targetMemberId } = req.query;
+  const { memberId: targetMemberId } = req.query;
 
   if (req.method === 'GET') {
     try {
