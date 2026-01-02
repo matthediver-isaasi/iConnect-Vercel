@@ -43,6 +43,7 @@ BEGIN
     (row_data->>'mobile')::text as mobile,
     (row_data->>'landline')::text as landline,
     (row_data->>'job_title')::text as job_title,
+    (row_data->>'role_effective_from')::text as role_effective_from,
     (row_data->>'row_index')::integer as row_index
   FROM jsonb_array_elements(batch) AS row_data;
 
@@ -106,13 +107,18 @@ BEGIN
           landline = COALESCE(NULLIF(trim(rec.landline), ''), landline),
           job_title = COALESCE(NULLIF(trim(rec.job_title), ''), job_title),
           role_id = COALESCE(role_id_val, role_id),
+          role_effective_from = CASE 
+            WHEN rec.role_effective_from IS NOT NULL AND trim(rec.role_effective_from) != '' 
+            THEN rec.role_effective_from::date 
+            ELSE role_effective_from 
+          END,
           organization_id = COALESCE(org_id_val, organization_id)
         WHERE id = existing_id;
         
         updated_count := updated_count + 1;
       ELSE
         -- Insert new member
-        INSERT INTO member (email, first_name, last_name, mobile, landline, job_title, role_id, organization_id)
+        INSERT INTO member (email, first_name, last_name, mobile, landline, job_title, role_id, role_effective_from, organization_id)
         VALUES (
           trim(rec.email),
           NULLIF(trim(rec.first_name), ''),
@@ -121,6 +127,7 @@ BEGIN
           NULLIF(trim(rec.landline), ''),
           NULLIF(trim(rec.job_title), ''),
           role_id_val,
+          CASE WHEN rec.role_effective_from IS NOT NULL AND trim(rec.role_effective_from) != '' THEN rec.role_effective_from::date ELSE NULL END,
           org_id_val
         )
         RETURNING id INTO new_member_id;

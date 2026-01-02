@@ -25,6 +25,7 @@ const MEMBER_CORE_FIELDS = [
   { key: 'external_id', label: 'External ID', type: 'text' },
   { key: 'created_on', label: 'Created On', type: 'date' },
   { key: 'role_id', label: 'Role', type: 'role_lookup' },
+  { key: 'role_effective_from', label: 'Effective From', type: 'date' },
   { key: 'organization_id', label: 'Organisation Name', type: 'organization_lookup' },
   { key: '__add_note__', label: 'Add Note', type: 'note' },
 ];

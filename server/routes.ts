@@ -15603,6 +15603,7 @@ AGCAS Events Team
     { key: 'external_id', label: 'External ID', type: 'text' },
     { key: 'profile_image_url', label: 'Profile Image URL', type: 'url' },
     { key: 'role_id', label: 'Role ID', type: 'text' },
+    { key: 'role_effective_from', label: 'Effective From', type: 'date' },
   ];
   
   const ORGANIZATION_CORE_FIELDS = [
