@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
+import { sendEmail } from '../_lib/emailService.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -77,55 +78,37 @@ export default async function handler(req, res) {
     const resetUrl = `${protocol}://${host}/reset-password?token=${resetToken}&email=${encodeURIComponent(email)}`;
     console.log(`[Password Reset] Link for ${email}: ${resetUrl}`);
 
-    const MAILGUN_API_KEY = process.env.MAILGUN_API_KEY;
-    const MAILGUN_DOMAIN = process.env.MAILGUN_DOMAIN;
-    const MAILGUN_FROM_EMAIL = process.env.MAILGUN_FROM_EMAIL;
+    // Send password reset email using the shared email service (includes footer)
+    try {
+      const emailHtml = `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; line-height: 1.6;">
+          <p>Hi,</p>
+          <p>We received a request to reset your password. No worries - we've got you covered! Just click the button below to create a new password:</p>
+          <p style="margin: 30px 0; text-align: center;">
+            <a href="${resetUrl}" style="background-color: #4f46e5; color: white; padding: 14px 28px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 500;">
+              Reset Password
+            </a>
+          </p>
+          <p>This link will expire in 1 hour, so be sure to update your password soon.</p>
+          <p>If you didn't request this reset, you can safely ignore this email.</p>
+          <p>Need help or have questions? Feel free to reach out to us at <a href="mailto:hello@graduatefutures.org" style="color: #4f46e5;">hello@graduatefutures.org</a></p>
+          <p style="margin-top: 30px;">The Graduate Futures Team</p>
+        </div>
+      `;
 
-    if (MAILGUN_API_KEY && MAILGUN_DOMAIN && MAILGUN_FROM_EMAIL) {
-      try {
-        const formData = new FormData();
-        formData.append('from', `AGCAS Portal <${MAILGUN_FROM_EMAIL}>`);
-        formData.append('to', email);
-        formData.append('subject', 'Reset Your Password');
-        formData.append('html', `
-          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <h2 style="color: #333;">Password Reset Request</h2>
-            <p>Hi ${member.first_name || 'there'},</p>
-            <p>We received a request to reset your password. Click the button below to create a new password:</p>
-            <p style="margin: 30px 0;">
-              <a href="${resetUrl}" style="background-color: #4f46e5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
-                Reset Password
-              </a>
-            </p>
-            <p>This link will expire in 1 hour.</p>
-            <p>If you didn't request this reset, you can safely ignore this email.</p>
-            <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
-            <p style="color: #666; font-size: 12px;">AGCAS Member Portal</p>
-          </div>
-        `);
+      const emailResult = await sendEmail({
+        to: email,
+        subject: 'Graduate Futures Password Reset Request',
+        html: emailHtml
+      });
 
-        const apiBase = 'https://api.eu.mailgun.net/v3';
-        const mailgunUrl = `${apiBase}/${MAILGUN_DOMAIN}/messages`;
-
-        const mailResponse = await fetch(mailgunUrl, {
-          method: 'POST',
-          headers: {
-            'Authorization': 'Basic ' + Buffer.from(`api:${MAILGUN_API_KEY}`).toString('base64'),
-          },
-          body: formData
-        });
-
-        if (mailResponse.ok) {
-          console.log(`[Password Reset] Email sent to ${email}`);
-        } else {
-          const errorText = await mailResponse.text();
-          console.error(`[Password Reset] Mailgun error: ${mailResponse.status} - ${errorText}`);
-        }
-      } catch (mailError) {
-        console.error('[Password Reset] Failed to send email:', mailError);
+      if (emailResult.success) {
+        console.log(`[Password Reset] Email sent to ${email}`);
+      } else {
+        console.error(`[Password Reset] Failed to send email: ${emailResult.error}`);
       }
-    } else {
-      console.warn('[Password Reset] Mailgun not configured, email not sent');
+    } catch (mailError) {
+      console.error('[Password Reset] Failed to send email:', mailError);
     }
 
     res.json({ 
