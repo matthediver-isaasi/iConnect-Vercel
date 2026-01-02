@@ -1082,6 +1082,11 @@ export default function AdminSetupPage() {
                   <p className="text-sm text-green-700">
                     Your Xero account is connected and ready to create invoices.
                   </p>
+                  {xeroTokens[0]?.tenant_name && (
+                    <p className="text-sm text-green-700 mt-1">
+                      <strong>Company:</strong> {xeroTokens[0].tenant_name}
+                    </p>
+                  )}
                   {xeroTokens[0] && xeroTokens[0].expires_at && (
                     <p className="text-xs text-green-600 mt-2">
                       Last updated: {new Date(xeroTokens[0].expires_at).toLocaleString()}

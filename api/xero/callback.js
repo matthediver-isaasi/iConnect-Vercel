@@ -181,12 +181,14 @@ export default async function handler(req, res) {
 
     // Single tenant - use it directly
     const tenantId = connections[0].tenantId;
+    const tenantName = connections[0].tenantName;
 
     const tokenRecord = {
       access_token: tokenData.access_token,
       refresh_token: tokenData.refresh_token,
       expires_at: expiresAt,
       tenant_id: tenantId,
+      tenant_name: tenantName,
       token_type: tokenData.token_type || "Bearer"
     };
 

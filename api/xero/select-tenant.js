@@ -28,7 +28,7 @@ export default async function handler(req, res) {
     
     await supabase
       .from("xero_token")
-      .update({ tenant_id: tenantId })
+      .update({ tenant_id: tenantId, tenant_name: tenantName })
       .eq("id", existingTokens[0].id);
     
     res.json({ success: true, tenantName });
