@@ -173,8 +173,9 @@ export default async function handler(req, res) {
         
         if (previewGroups.length < 100) {
           members.sort((a, b) => {
-            const aHasRole = a.role_id ? 0 : 1;
-            const bHasRole = b.role_id ? 0 : 1;
+            // Prefer members WITHOUT a role (they get kept)
+            const aHasRole = a.role_id ? 1 : 0;
+            const bHasRole = b.role_id ? 1 : 0;
             if (aHasRole !== bHasRole) return aHasRole - bHasRole;
             const aDate = a.created_on ? new Date(a.created_on).getTime() : 0;
             const bDate = b.created_on ? new Date(b.created_on).getTime() : 0;

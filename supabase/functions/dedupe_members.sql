@@ -53,7 +53,7 @@ BEGIN
       ROW_NUMBER() OVER (
         PARTITION BY LOWER(TRIM(email)) 
         ORDER BY 
-          (role_id IS NULL)::int,
+          (role_id IS NOT NULL)::int,
           COALESCE(created_on, '1970-01-01'::date),
           id
       ) as rn,
@@ -155,14 +155,14 @@ BEGIN
     ROW_NUMBER() OVER (
       PARTITION BY LOWER(TRIM(email)) 
       ORDER BY 
-        (role_id IS NULL)::int,
+        (role_id IS NOT NULL)::int,
         COALESCE(created_on, '1970-01-01'::date),
         id
     ) as rn,
     FIRST_VALUE(id) OVER (
       PARTITION BY LOWER(TRIM(email)) 
       ORDER BY 
-        (role_id IS NULL)::int,
+        (role_id IS NOT NULL)::int,
         COALESCE(created_on, '1970-01-01'::date),
         id
     ) as keeper_id,
