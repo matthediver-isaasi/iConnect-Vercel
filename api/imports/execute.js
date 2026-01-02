@@ -177,6 +177,26 @@ export default async function handler(req, res) {
     let errorRows = 0;
     const errorLog = [];
     const notesToCreate = [];
+    const memberNotesToCreate = [];
+    
+    // Check if we need to look up roles (for member imports with role mapping)
+    const hasRoleMapping = entityType === 'member' && mappings.some(m => m.targetField === 'role_id');
+    let roleMap = new Map();
+    
+    if (hasRoleMapping) {
+      console.log('[Import] Fetching roles for lookup...');
+      const { data: roles } = await supabase
+        .from('role')
+        .select('id, name');
+      
+      if (roles) {
+        roles.forEach(role => {
+          // Store by lowercase name for case-insensitive matching
+          roleMap.set(role.name.toLowerCase().trim(), role.id);
+        });
+        console.log(`[Import] Loaded ${roleMap.size} roles for lookup`);
+      }
+    }
     
     // Process records in batches
     const BATCH_SIZE = 50;
@@ -225,6 +245,18 @@ export default async function handler(req, res) {
             continue;
           }
           
+          // Handle role_id lookup - convert role name to UUID
+          if (mapping.targetField === 'role_id' && value && typeof value === 'string') {
+            const roleName = value.trim().toLowerCase();
+            const roleId = roleMap.get(roleName);
+            if (roleId) {
+              coreData['role_id'] = roleId;
+            } else {
+              console.log(`[Import] Role not found: "${value}"`);
+            }
+            continue;
+          }
+          
           if (mapping.targetField.startsWith('custom:')) {
             // Skip custom fields for now - handle after entity creation
             continue;
@@ -265,14 +297,25 @@ export default async function handler(req, res) {
           inserted.forEach(entity => {
             const original = toInsert.find(r => r.data[identifierField] === entity[identifierField]);
             if (original && original.noteContent) {
-              notesToCreate.push({
-                organization_id: entity.id,
-                member_id: session.data.memberId,
-                content: original.noteContent,
-                attachments: [],
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString()
-              });
+              if (entityType === 'organization') {
+                notesToCreate.push({
+                  organization_id: entity.id,
+                  member_id: session.data.memberId,
+                  content: original.noteContent,
+                  attachments: [],
+                  created_at: new Date().toISOString(),
+                  updated_at: new Date().toISOString()
+                });
+              } else if (entityType === 'member') {
+                memberNotesToCreate.push({
+                  target_member_id: entity.id,
+                  author_member_id: session.data.memberId,
+                  content: original.noteContent,
+                  attachments: [],
+                  created_at: new Date().toISOString(),
+                  updated_at: new Date().toISOString()
+                });
+              }
             }
             existingMap.set(entity[identifierField], entity.id);
           });
@@ -295,20 +338,31 @@ export default async function handler(req, res) {
         }
         updatedRows++;
         
-        if (updateItem.noteContent && entityType === 'organization') {
-          notesToCreate.push({
-            organization_id: updateItem.id,
-            member_id: session.data.memberId,
-            content: updateItem.noteContent,
-            attachments: [],
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          });
+        if (updateItem.noteContent) {
+          if (entityType === 'organization') {
+            notesToCreate.push({
+              organization_id: updateItem.id,
+              member_id: session.data.memberId,
+              content: updateItem.noteContent,
+              attachments: [],
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            });
+          } else if (entityType === 'member') {
+            memberNotesToCreate.push({
+              target_member_id: updateItem.id,
+              author_member_id: session.data.memberId,
+              content: updateItem.noteContent,
+              attachments: [],
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            });
+          }
         }
       }
     }
     
-    // Batch insert all notes at once
+    // Batch insert all organization notes at once
     if (notesToCreate.length > 0 && entityType === 'organization') {
       console.log(`[Import] Creating ${notesToCreate.length} notes...`);
       const { error: notesError } = await supabase
@@ -316,9 +370,23 @@ export default async function handler(req, res) {
         .insert(notesToCreate);
       
       if (notesError) {
-        console.log(`[Import] Failed to create notes: ${notesError.message}`);
+        console.log(`[Import] Failed to create organization notes: ${notesError.message}`);
       } else {
-        console.log(`[Import] Created ${notesToCreate.length} notes successfully`);
+        console.log(`[Import] Created ${notesToCreate.length} organization notes successfully`);
+      }
+    }
+    
+    // Batch insert all member notes at once
+    if (memberNotesToCreate.length > 0 && entityType === 'member') {
+      console.log(`[Import] Creating ${memberNotesToCreate.length} member notes...`);
+      const { error: memberNotesError } = await supabase
+        .from('member_note')
+        .insert(memberNotesToCreate);
+      
+      if (memberNotesError) {
+        console.log(`[Import] Failed to create member notes: ${memberNotesError.message}`);
+      } else {
+        console.log(`[Import] Created ${memberNotesToCreate.length} member notes successfully`);
       }
     }
     
@@ -390,6 +458,8 @@ export default async function handler(req, res) {
     
     console.log(`[Import] Complete: ${createdRows} created, ${updatedRows} updated, ${skippedRows} skipped, ${errorRows} errors`);
     
+    const totalNotesCreated = notesToCreate.length + memberNotesToCreate.length;
+    
     res.json({
       success: true,
       jobId,
@@ -397,7 +467,7 @@ export default async function handler(req, res) {
       updated: updatedRows,
       skipped: skippedRows,
       errors: errorRows,
-      notesCreated: notesToCreate.length,
+      notesCreated: totalNotesCreated,
       summary: {
         totalRows: records.length,
         processedRows,
