@@ -29,7 +29,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Loader2, FileText, Search, ChevronLeft, ChevronRight, Eye, Trash2, RotateCcw } from "lucide-react";
+import { Loader2, FileText, Search, ChevronLeft, ChevronRight, Eye, Trash2, RotateCcw, Mail } from "lucide-react";
 import moment from "moment";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
@@ -320,9 +320,10 @@ export default function FormSubmissionsPage() {
                             </Badge>
                           )}
                           {submission.submitted_by_email && (
-                            <Badge variant="outline">
+                            <span className="flex items-center gap-1 text-slate-600">
+                              <Mail className="w-3.5 h-3.5" />
                               {submission.submitted_by_email}
-                            </Badge>
+                            </span>
                           )}
                           <Badge variant="outline" className="text-slate-600">
                             {moment(submission.created_date).format('MMM D, YYYY h:mm A')}
