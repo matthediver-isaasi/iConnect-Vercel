@@ -215,6 +215,14 @@ BEGIN
       AND mga2.id < mga.id
   );
 
+  -- Update wall_of_fame_person references - reassign to keeper
+  UPDATE wall_of_fame_person wofp
+  SET member_id = td.keeper_id::uuid
+  FROM temp_dedupe td
+  WHERE wofp.member_id::text = td.id
+    AND td.rn > 1
+    AND td.group_count > 1;
+
   -- Delete duplicates (keep rn=1) - cast for comparison
   DELETE FROM member m
   USING temp_dedupe td
