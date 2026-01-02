@@ -49,28 +49,81 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Invalid mode. Use "preview" or "execute"' });
     }
     
-    // Step 1: Fetch all members in parallel batches for speed
+    // Try to use database functions first (much faster)
+    if (mode === 'preview') {
+      const { data, error } = await supabase.rpc('preview_duplicate_members', {
+        exclude_org_ids: validExcludeOrgIds,
+        exclude_role_ids: validExcludeRoleIds,
+        max_groups: 100
+      });
+      
+      if (!error && data) {
+        console.log('[Dedupe] Preview via RPC successful');
+        // Transform the response to match expected format
+        const groups = (data.groups || []).map(g => ({
+          email: g.email,
+          keeper: g.members?.find(m => m.is_keeper),
+          duplicates: g.members?.filter(m => !m.is_keeper) || []
+        }));
+        
+        return res.json({
+          success: true,
+          mode: 'preview',
+          summary: {
+            totalDuplicateEmails: data.summary?.total_duplicate_emails || 0,
+            totalKeepers: data.summary?.total_keepers || 0,
+            totalToDelete: data.summary?.total_to_delete || 0
+          },
+          groups,
+          note: data.summary?.total_duplicate_emails > 100 
+            ? `Showing first 100 of ${data.summary.total_duplicate_emails} duplicate groups` 
+            : undefined
+        });
+      }
+      
+      console.log('[Dedupe] RPC preview failed, falling back to JS:', error?.message);
+    }
+    
+    if (mode === 'execute') {
+      const { data, error } = await supabase.rpc('execute_duplicate_members', {
+        exclude_org_ids: validExcludeOrgIds,
+        exclude_role_ids: validExcludeRoleIds
+      });
+      
+      if (!error && data) {
+        console.log('[Dedupe] Execute via RPC successful');
+        return res.json({
+          success: true,
+          mode: 'execute',
+          deleted: data.deleted || 0,
+          summary: {
+            totalDuplicateEmails: data.summary?.totalDuplicateEmails || 0,
+            totalDeleted: data.deleted || 0
+          }
+        });
+      }
+      
+      console.log('[Dedupe] RPC execute failed, falling back to JS:', error?.message);
+    }
+    
+    // Fallback to JavaScript-based approach (slower, may timeout for large datasets)
+    console.log('[Dedupe] Using JavaScript fallback...');
+    
+    // Fetch members in parallel batches
     const FETCH_BATCH_SIZE = 1000;
     const MAX_PARALLEL_BATCHES = 10;
     
-    // First, get total count
-    const { count: totalCount, error: countError } = await supabase
+    const { count: totalCount } = await supabase
       .from('member')
       .select('id', { count: 'exact', head: true })
       .not('email', 'is', null)
       .neq('email', '');
     
-    if (countError) {
-      throw new Error(`Failed to count members: ${countError.message}`);
-    }
-    
     console.log(`[Dedupe] Total members with email: ${totalCount}`);
     
-    // Calculate number of batches needed
     const numBatches = Math.ceil(totalCount / FETCH_BATCH_SIZE);
     let allMembers = [];
     
-    // Fetch in parallel waves
     for (let wave = 0; wave < numBatches; wave += MAX_PARALLEL_BATCHES) {
       const batchPromises = [];
       
@@ -89,18 +142,10 @@ export default async function handler(req, res) {
       const results = await Promise.all(batchPromises);
       
       for (const result of results) {
-        if (result.error) {
-          throw new Error(`Failed to fetch members: ${result.error.message}`);
-        }
-        if (result.data) {
-          allMembers = allMembers.concat(result.data);
-        }
+        if (result.error) throw new Error(`Failed to fetch: ${result.error.message}`);
+        if (result.data) allMembers = allMembers.concat(result.data);
       }
-      
-      console.log(`[Dedupe] Fetched ${allMembers.length} members...`);
     }
-    
-    console.log(`[Dedupe] Total members fetched: ${allMembers.length}`);
     
     // Filter by exclusions
     let filteredMembers = allMembers;
@@ -117,21 +162,17 @@ export default async function handler(req, res) {
       );
     }
     
-    // Group by lowercase email using object for speed
+    // Group by email
     const emailGroups = {};
     for (const member of filteredMembers) {
       if (!member.email) continue;
       const emailLower = member.email.toLowerCase().trim();
       if (!emailLower) continue;
-      
-      if (!emailGroups[emailLower]) {
-        emailGroups[emailLower] = [];
-      }
+      if (!emailGroups[emailLower]) emailGroups[emailLower] = [];
       emailGroups[emailLower].push(member);
     }
     
-    // Find duplicates and rank them
-    const duplicateResults = [];
+    // Find and rank duplicates
     const keepers = [];
     const toDelete = [];
     const keeperMap = new Map();
@@ -140,42 +181,32 @@ export default async function handler(req, res) {
       const members = emailGroups[emailLower];
       if (members.length <= 1) continue;
       
-      // Sort: role_id NOT NULL first, then by created_on, then by id
       members.sort((a, b) => {
         const aHasRole = a.role_id ? 0 : 1;
         const bHasRole = b.role_id ? 0 : 1;
         if (aHasRole !== bHasRole) return aHasRole - bHasRole;
-        
         const aDate = a.created_on ? new Date(a.created_on).getTime() : 0;
         const bDate = b.created_on ? new Date(b.created_on).getTime() : 0;
         if (aDate !== bDate) return aDate - bDate;
-        
         return (a.id || '').localeCompare(b.id || '');
       });
       
-      const keeper = members[0];
-      keepers.push({ ...keeper, rn: 1, is_keeper: true });
-      
+      keepers.push(members[0]);
       for (let i = 1; i < members.length; i++) {
-        const dup = { ...members[i], rn: i + 1, is_keeper: false };
-        toDelete.push(dup);
-        keeperMap.set(dup.id, keeper.id);
-        duplicateResults.push(dup);
+        toDelete.push(members[i]);
+        keeperMap.set(members[i].id, members[0].id);
       }
-      duplicateResults.unshift({ ...keeper, rn: 1, is_keeper: true });
     }
     
-    console.log(`[Dedupe] Found ${keepers.length} duplicate email groups, ${toDelete.length} records to delete`);
+    console.log(`[Dedupe] Found ${keepers.length} groups, ${toDelete.length} to delete`);
     
     if (mode === 'preview') {
-      // Get role and org names for display (limit to first 100 groups for preview)
       const previewGroups = [];
-      let groupCount = 0;
-      
+      let count = 0;
       for (const emailLower in emailGroups) {
         const members = emailGroups[emailLower];
         if (members.length <= 1) continue;
-        if (groupCount >= 100) break;
+        if (count >= 100) break;
         
         members.sort((a, b) => {
           const aHasRole = a.role_id ? 0 : 1;
@@ -192,7 +223,7 @@ export default async function handler(req, res) {
           keeper: members[0],
           duplicates: members.slice(1)
         });
-        groupCount++;
+        count++;
       }
       
       return res.json({
@@ -208,21 +239,19 @@ export default async function handler(req, res) {
       });
     }
     
-    // Execute mode - actually delete duplicates
+    // Execute mode
     if (toDelete.length === 0) {
       return res.json({
         success: true,
         mode: 'execute',
-        message: 'No duplicates found to delete',
+        message: 'No duplicates found',
         deleted: 0
       });
     }
     
     const idsToDelete = toDelete.map(r => r.id);
     
-    // Update foreign key references in parallel batches
-    console.log(`[Dedupe] Updating foreign key references for ${keeperMap.size} duplicates...`);
-    
+    // Update FK references in parallel
     const updatePromises = [];
     for (const [dupId, keeperId] of keeperMap) {
       updatePromises.push(
@@ -232,53 +261,28 @@ export default async function handler(req, res) {
       );
     }
     
-    // Execute updates in batches to avoid overwhelming the database
-    const UPDATE_BATCH_SIZE = 50;
-    for (let i = 0; i < updatePromises.length; i += UPDATE_BATCH_SIZE) {
-      await Promise.all(updatePromises.slice(i, i + UPDATE_BATCH_SIZE));
+    const UPDATE_BATCH = 50;
+    for (let i = 0; i < updatePromises.length; i += UPDATE_BATCH) {
+      await Promise.all(updatePromises.slice(i, i + UPDATE_BATCH));
     }
     
-    // Delete duplicates in parallel batches
-    console.log(`[Dedupe] Deleting ${idsToDelete.length} duplicate members...`);
-    
-    const DELETE_BATCH_SIZE = 200;
+    // Delete in batches
+    const DELETE_BATCH = 200;
     let deletedCount = 0;
-    const deleteErrors = [];
     
-    const deleteBatches = [];
-    for (let i = 0; i < idsToDelete.length; i += DELETE_BATCH_SIZE) {
-      deleteBatches.push(idsToDelete.slice(i, i + DELETE_BATCH_SIZE));
+    for (let i = 0; i < idsToDelete.length; i += DELETE_BATCH) {
+      const batch = idsToDelete.slice(i, i + DELETE_BATCH);
+      const { error } = await supabase.from('member').delete().in('id', batch);
+      if (!error) deletedCount += batch.length;
     }
-    
-    // Delete in parallel waves
-    const DELETE_PARALLEL = 5;
-    for (let i = 0; i < deleteBatches.length; i += DELETE_PARALLEL) {
-      const batchPromises = deleteBatches.slice(i, i + DELETE_PARALLEL).map(batch =>
-        supabase.from('member').delete().in('id', batch)
-      );
-      
-      const results = await Promise.all(batchPromises);
-      
-      results.forEach((result, idx) => {
-        if (result.error) {
-          deleteErrors.push({ batch: i + idx + 1, error: result.error.message });
-        } else {
-          deletedCount += deleteBatches[i + idx].length;
-        }
-      });
-    }
-    
-    console.log(`[Dedupe] Complete: Deleted ${deletedCount} duplicates`);
     
     return res.json({
       success: true,
       mode: 'execute',
       deleted: deletedCount,
-      errors: deleteErrors.length > 0 ? deleteErrors : undefined,
       summary: {
         totalDuplicateEmails: keepers.length,
-        totalDeleted: deletedCount,
-        totalErrors: deleteErrors.length
+        totalDeleted: deletedCount
       }
     });
     
