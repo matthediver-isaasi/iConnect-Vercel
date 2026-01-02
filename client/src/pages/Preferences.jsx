@@ -2501,7 +2501,13 @@ export default function PreferencesPage() {
               ) : (
                 <div className="space-y-4">
                   {preferenceFields.map((field) => {
+                    // Check if this custom field should be visible based on role permissions
+                    if (!isFieldVisible(field.id)) {
+                      return null;
+                    }
+                    
                     const fieldValue = additionalInfoValues[field.id] || '';
+                    const canEdit = canEditField(field.id);
                     
                     return (
                       <div key={field.id} className="space-y-2" data-testid={`additional-field-${field.id}`}>
@@ -2511,47 +2517,63 @@ export default function PreferencesPage() {
                         </Label>
                         
                         {field.field_type === 'text' && (
-                          <Input
-                            id={`field-${field.id}`}
-                            value={fieldValue}
-                            onChange={(e) => handleAdditionalInfoChange(field.id, e.target.value)}
-                            placeholder={`Enter ${field.label.toLowerCase()}`}
-                            data-testid={`input-field-${field.id}`}
-                          />
+                          canEdit ? (
+                            <Input
+                              id={`field-${field.id}`}
+                              value={fieldValue}
+                              onChange={(e) => handleAdditionalInfoChange(field.id, e.target.value)}
+                              placeholder={`Enter ${field.label.toLowerCase()}`}
+                              data-testid={`input-field-${field.id}`}
+                            />
+                          ) : (
+                            <p className="text-sm text-slate-700 py-2">{fieldValue || '-'}</p>
+                          )
                         )}
                         
                         {field.field_type === 'url' && (
-                          <Input
-                            id={`field-${field.id}`}
-                            type="url"
-                            value={fieldValue}
-                            onChange={(e) => handleAdditionalInfoChange(field.id, e.target.value)}
-                            placeholder="https://example.com"
-                            data-testid={`input-field-${field.id}`}
-                          />
+                          canEdit ? (
+                            <Input
+                              id={`field-${field.id}`}
+                              type="url"
+                              value={fieldValue}
+                              onChange={(e) => handleAdditionalInfoChange(field.id, e.target.value)}
+                              placeholder="https://example.com"
+                              data-testid={`input-field-${field.id}`}
+                            />
+                          ) : (
+                            <p className="text-sm text-slate-700 py-2">{fieldValue || '-'}</p>
+                          )
                         )}
                         
                         {field.field_type === 'number' && (
-                          <Input
-                            id={`field-${field.id}`}
-                            type="number"
-                            value={fieldValue}
-                            onChange={(e) => handleAdditionalInfoChange(field.id, e.target.value)}
-                            placeholder={`Enter ${field.label.toLowerCase()}`}
-                            data-testid={`input-field-${field.id}`}
-                          />
+                          canEdit ? (
+                            <Input
+                              id={`field-${field.id}`}
+                              type="number"
+                              value={fieldValue}
+                              onChange={(e) => handleAdditionalInfoChange(field.id, e.target.value)}
+                              placeholder={`Enter ${field.label.toLowerCase()}`}
+                              data-testid={`input-field-${field.id}`}
+                            />
+                          ) : (
+                            <p className="text-sm text-slate-700 py-2">{fieldValue || '-'}</p>
+                          )
                         )}
                         
                         {field.field_type === 'decimal' && (
-                          <Input
-                            id={`field-${field.id}`}
-                            type="number"
-                            step="0.01"
-                            value={fieldValue}
-                            onChange={(e) => handleAdditionalInfoChange(field.id, e.target.value)}
-                            placeholder={`Enter ${field.label.toLowerCase()}`}
-                            data-testid={`input-field-${field.id}`}
-                          />
+                          canEdit ? (
+                            <Input
+                              id={`field-${field.id}`}
+                              type="number"
+                              step="0.01"
+                              value={fieldValue}
+                              onChange={(e) => handleAdditionalInfoChange(field.id, e.target.value)}
+                              placeholder={`Enter ${field.label.toLowerCase()}`}
+                              data-testid={`input-field-${field.id}`}
+                            />
+                          ) : (
+                            <p className="text-sm text-slate-700 py-2">{fieldValue || '-'}</p>
+                          )
                         )}
                         
                         {field.field_type === 'boolean' && (
@@ -2560,6 +2582,7 @@ export default function PreferencesPage() {
                               id={`field-${field.id}`}
                               checked={fieldValue === 'true' || fieldValue === true}
                               onCheckedChange={(checked) => handleAdditionalInfoChange(field.id, checked ? 'true' : 'false')}
+                              disabled={!canEdit}
                               data-testid={`switch-field-${field.id}`}
                             />
                             <Label htmlFor={`field-${field.id}`} className="cursor-pointer text-sm text-slate-700">
@@ -2569,21 +2592,27 @@ export default function PreferencesPage() {
                         )}
                         
                         {field.field_type === 'dropdown' && field.options && (
-                          <Select 
-                            value={fieldValue} 
-                            onValueChange={(value) => handleAdditionalInfoChange(field.id, value)}
-                          >
-                            <SelectTrigger data-testid={`select-field-${field.id}`}>
-                              <SelectValue placeholder={`Select ${field.label.toLowerCase()}`} />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {field.options.map((option) => (
-                                <SelectItem key={option.value} value={option.value}>
-                                  {option.label}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                          canEdit ? (
+                            <Select 
+                              value={fieldValue} 
+                              onValueChange={(value) => handleAdditionalInfoChange(field.id, value)}
+                            >
+                              <SelectTrigger data-testid={`select-field-${field.id}`}>
+                                <SelectValue placeholder={`Select ${field.label.toLowerCase()}`} />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {field.options.map((option) => (
+                                  <SelectItem key={option.value} value={option.value}>
+                                    {option.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <p className="text-sm text-slate-700 py-2">
+                              {field.options.find(o => o.value === fieldValue)?.label || fieldValue || '-'}
+                            </p>
+                          )
                         )}
                         
                         {field.field_type === 'picklist' && field.options && (() => {
@@ -2592,6 +2621,14 @@ export default function PreferencesPage() {
                           const maxSelections = field.max_selections;
                           const minSelections = field.min_selections;
                           const isAtMax = maxSelections != null && selectedCount >= maxSelections;
+                          
+                          if (!canEdit) {
+                            // Read-only: show selected values as text
+                            const selectedLabels = selectedValues
+                              .map(v => field.options.find(o => o.value === v)?.label || v)
+                              .join(', ');
+                            return <p className="text-sm text-slate-700 py-2">{selectedLabels || '-'}</p>;
+                          }
                           
                           return (
                             <div className="space-y-2">
@@ -2637,25 +2674,35 @@ export default function PreferencesPage() {
                         })()}
 
                         {field.field_type === 'list' && (
-                          <ListFieldEditor
-                            fieldId={field.id}
-                            values={Array.isArray(fieldValue) ? fieldValue : []}
-                            onChange={(newValues) => {
-                              handleAdditionalInfoChange(field.id, newValues);
-                            }}
-                            placeholder={`Add ${field.label.toLowerCase()}...`}
-                          />
+                          canEdit ? (
+                            <ListFieldEditor
+                              fieldId={field.id}
+                              values={Array.isArray(fieldValue) ? fieldValue : []}
+                              onChange={(newValues) => {
+                                handleAdditionalInfoChange(field.id, newValues);
+                              }}
+                              placeholder={`Add ${field.label.toLowerCase()}...`}
+                            />
+                          ) : (
+                            <p className="text-sm text-slate-700 py-2">
+                              {Array.isArray(fieldValue) ? fieldValue.join(', ') : '-'}
+                            </p>
+                          )
                         )}
 
                         {/* Fallback for unrecognized field types - render as text input */}
                         {!['text', 'url', 'number', 'decimal', 'boolean', 'dropdown', 'picklist', 'list'].includes(field.field_type) && (
-                          <Input
-                            id={`field-${field.id}`}
-                            value={fieldValue}
-                            onChange={(e) => handleAdditionalInfoChange(field.id, e.target.value)}
-                            placeholder={`Enter ${field.label.toLowerCase()}`}
-                            data-testid={`input-field-${field.id}`}
-                          />
+                          canEdit ? (
+                            <Input
+                              id={`field-${field.id}`}
+                              value={fieldValue}
+                              onChange={(e) => handleAdditionalInfoChange(field.id, e.target.value)}
+                              placeholder={`Enter ${field.label.toLowerCase()}`}
+                              data-testid={`input-field-${field.id}`}
+                            />
+                          ) : (
+                            <p className="text-sm text-slate-700 py-2">{fieldValue || '-'}</p>
+                          )
                         )}
                       </div>
                     );
