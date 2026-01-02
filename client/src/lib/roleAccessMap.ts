@@ -194,6 +194,10 @@ export const ROLE_ACCESS_MAP: Module[] = [
       {
         id: "membership.awards",
         label: "Award Management"
+      },
+      {
+        id: "membership.member-field-permissions",
+        label: "Member Field Permissions"
       }
     ]
   },
