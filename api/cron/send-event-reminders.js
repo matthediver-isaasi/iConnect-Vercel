@@ -218,20 +218,37 @@ function replacePlaceholders(template, data) {
   
   let result = template;
   
+  // Handle {{placeholder}} syntax
   result = result.replace(/\{\{event_name\}\}/gi, event.title || '');
   result = result.replace(/\{\{event_date\}\}/gi, formatEventDate(event.start_date));
   result = result.replace(/\{\{event_location\}\}/gi, event.is_online ? 'Online Event' : (event.location || ''));
   result = result.replace(/\{\{attendee_first_name\}\}/gi, booking.attendee_first_name || '');
   result = result.replace(/\{\{attendee_last_name\}\}/gi, booking.attendee_last_name || '');
   
+  // Handle [[placeholder]] syntax (member.* and attendee.* variants)
+  result = result.replace(/\[\[member\.first_name\]\]/gi, booking.attendee_first_name || '');
+  result = result.replace(/\[\[member\.last_name\]\]/gi, booking.attendee_last_name || '');
+  result = result.replace(/\[\[member\.email\]\]/gi, booking.attendee_email || '');
+  result = result.replace(/\[\[attendee\.first_name\]\]/gi, booking.attendee_first_name || '');
+  result = result.replace(/\[\[attendee\.last_name\]\]/gi, booking.attendee_last_name || '');
+  result = result.replace(/\[\[attendee\.email\]\]/gi, booking.attendee_email || '');
+  
+  // Handle event placeholders with [[]] syntax
+  result = result.replace(/\[\[event\.name\]\]/gi, event.title || '');
+  result = result.replace(/\[\[event\.title\]\]/gi, event.title || '');
+  result = result.replace(/\[\[event\.date\]\]/gi, formatEventDate(event.start_date));
+  result = result.replace(/\[\[event\.location\]\]/gi, event.is_online ? 'Online Event' : (event.location || ''));
+  
   // Handle zoom link - check event first, then booking (if field exists)
   const zoomLink = event.zoom_join_url || booking.zoom_join_url || '';
   if (zoomLink) {
     result = result.replace(/\{\{#zoom_link\}\}([\s\S]*?)\{\{\/zoom_link\}\}/gi, '$1');
     result = result.replace(/\{\{zoom_link\}\}/gi, zoomLink);
+    result = result.replace(/\[\[zoom_link\]\]/gi, zoomLink);
   } else {
     result = result.replace(/\{\{#zoom_link\}\}[\s\S]*?\{\{\/zoom_link\}\}/gi, '');
     result = result.replace(/\{\{zoom_link\}\}/gi, '');
+    result = result.replace(/\[\[zoom_link\]\]/gi, '');
   }
   
   return result;
