@@ -5,8 +5,6 @@
 DROP FUNCTION IF EXISTS process_member_import_batch(JSONB);
 
 -- Function to process a batch of member records
--- Accepts a JSON array of member objects with email, first_name, last_name, role_name, organization_name, etc.
--- Returns summary of created/updated/skipped/error counts
 CREATE OR REPLACE FUNCTION process_member_import_batch(
   batch JSONB
 )
@@ -26,6 +24,7 @@ DECLARE
   new_member_id UUID;
   result JSON;
   err_msg TEXT;
+  first_error TEXT := NULL;
 BEGIN
   -- Drop temp tables if they exist from previous calls
   DROP TABLE IF EXISTS temp_import;
@@ -33,7 +32,7 @@ BEGIN
   DROP TABLE IF EXISTS temp_orgs;
   DROP TABLE IF EXISTS temp_existing;
 
-  -- Create temp table from JSON batch (handle date parsing safely)
+  -- Create temp table from JSON batch
   CREATE TEMP TABLE temp_import AS
   SELECT 
     (row_data->>'email')::text as email,
@@ -43,7 +42,6 @@ BEGIN
     (row_data->>'organization_name')::text as organization_name,
     (row_data->>'phone')::text as phone,
     (row_data->>'job_title')::text as job_title,
-    (row_data->>'created_on')::text as created_on_str,
     (row_data->>'row_index')::integer as row_index
   FROM jsonb_array_elements(batch) AS row_data;
 
@@ -52,7 +50,7 @@ BEGIN
   SELECT id as role_id, lower(trim(name)) as role_name_lower
   FROM role;
 
-  -- Build organization lookup
+  -- Build organization lookup  
   CREATE TEMP TABLE temp_orgs AS
   SELECT id as org_id, lower(trim(name)) as org_name_lower
   FROM organization;
@@ -111,7 +109,7 @@ BEGIN
         
         updated_count := updated_count + 1;
       ELSE
-        -- Insert new member and get the new ID
+        -- Insert new member
         INSERT INTO member (email, first_name, last_name, phone, job_title, role_id, organization_id)
         VALUES (
           trim(rec.email),
@@ -133,7 +131,9 @@ BEGIN
 
     EXCEPTION WHEN OTHERS THEN
       GET STACKED DIAGNOSTICS err_msg = MESSAGE_TEXT;
-      RAISE NOTICE 'Error processing row %: %', rec.row_index, err_msg;
+      IF first_error IS NULL THEN
+        first_error := 'Row ' || COALESCE(rec.row_index::text, '?') || ': ' || err_msg;
+      END IF;
       error_count := error_count + 1;
     END;
   END LOOP;
@@ -144,14 +144,15 @@ BEGIN
   DROP TABLE IF EXISTS temp_orgs;
   DROP TABLE IF EXISTS temp_existing;
 
-  -- Return summary
+  -- Return summary with first error for debugging
   SELECT json_build_object(
     'success', true,
     'created', created_count,
     'updated', updated_count,
     'skipped', skipped_count,
     'errors', error_count,
-    'total', created_count + updated_count + skipped_count + error_count
+    'total', created_count + updated_count + skipped_count + error_count,
+    'first_error', first_error
   ) INTO result;
 
   RETURN result;

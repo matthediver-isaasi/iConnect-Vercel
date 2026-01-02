@@ -195,6 +195,9 @@ export default async function handler(req, res) {
           totalUpdated += data.updated || 0;
           totalSkipped += data.skipped || 0;
           totalErrors += data.errors || 0;
+          if (data.first_error) {
+            console.log(`[Import] First error in batch: ${data.first_error}`);
+          }
         }
         
         // If we processed all batches successfully, return early
