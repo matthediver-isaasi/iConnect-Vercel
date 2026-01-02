@@ -150,16 +150,18 @@ export default async function handler(req, res) {
     
     let existingEntities = [];
     if (isEmailIdentifier) {
-      // Use ilike for case-insensitive email matching - fetch in batches to avoid query limits
-      const LOOKUP_BATCH_SIZE = 100;
-      for (let i = 0; i < normalizedIdentifierValues.length; i += LOOKUP_BATCH_SIZE) {
-        const batch = normalizedIdentifierValues.slice(i, i + LOOKUP_BATCH_SIZE);
-        const { data } = await supabase
-          .from(tableName)
-          .select('id, ' + identifierField)
-          .or(batch.map(email => `email.ilike.${email}`).join(','));
-        if (data) existingEntities = existingEntities.concat(data);
+      // For email, fetch ALL members with emails and build a local lowercase map
+      // This is much faster than doing many ilike queries
+      const { data, error } = await supabase
+        .from(tableName)
+        .select('id, email')
+        .not('email', 'is', null)
+        .neq('email', '');
+      
+      if (error) {
+        console.log(`[Import] Error fetching existing emails: ${error.message}`);
       }
+      existingEntities = data || [];
     } else {
       const { data } = await supabase
         .from(tableName)
@@ -172,7 +174,7 @@ export default async function handler(req, res) {
     const existingMap = new Map();
     existingEntities.forEach(e => {
       const key = isEmailIdentifier && e[identifierField] 
-        ? e[identifierField].toLowerCase() 
+        ? e[identifierField].toLowerCase().trim()
         : e[identifierField];
       existingMap.set(key, e.id);
     });
