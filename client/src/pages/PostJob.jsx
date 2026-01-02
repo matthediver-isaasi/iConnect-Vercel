@@ -521,6 +521,25 @@ export default function PostJobPage() {
     console.log('[PostJob] email:', email);
     console.log('[PostJob] agreedToTerms:', agreedToTerms);
 
+    // Validate required fields
+    if (!formData.title?.trim()) {
+      toast.error('Please enter a job title');
+      return;
+    }
+
+    if (!formData.company_name?.trim()) {
+      toast.error('Please enter a company name');
+      return;
+    }
+
+    // Check description - ReactQuill returns "<p><br></p>" for empty content
+    const descriptionText = formData.description?.replace(/<[^>]*>/g, '').trim();
+    if (!descriptionText) {
+      console.log('[PostJob] Missing description');
+      toast.error('Please enter a job description');
+      return;
+    }
+
     if (!formData.closing_date) {
       console.log('[PostJob] Missing closing_date');
       toast.error('Please select a closing date');

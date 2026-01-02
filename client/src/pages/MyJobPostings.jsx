@@ -201,8 +201,22 @@ export default function MyJobPostingsPage() {
   };
 
   const handleSaveEdit = () => {
-    if (!editingJob.title || !editingJob.company_name || !editingJob.closing_date) {
-      toast.error('Please fill in all required fields');
+    if (!editingJob.title?.trim()) {
+      toast.error('Please enter a job title');
+      return;
+    }
+    if (!editingJob.company_name?.trim()) {
+      toast.error('Please enter a company name');
+      return;
+    }
+    // Check description - ReactQuill returns "<p><br></p>" for empty content
+    const descriptionText = editingJob.description?.replace(/<[^>]*>/g, '').trim();
+    if (!descriptionText) {
+      toast.error('Please enter a job description');
+      return;
+    }
+    if (!editingJob.closing_date) {
+      toast.error('Please select a closing date');
       return;
     }
     updateJobMutation.mutate({ id: editingJob.id, data: editingJob });
