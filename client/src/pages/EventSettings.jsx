@@ -26,6 +26,7 @@ export default function EventSettingsPage() {
   const [cancellationDeadlineHours, setCancellationDeadlineHours] = useState(24);
   const [xeroInvoiceEnabled, setXeroInvoiceEnabled] = useState(false);
   const [xeroSalesAccountCode, setXeroSalesAccountCode] = useState("");
+  const [xeroStripeBankAccountCode, setXeroStripeBankAccountCode] = useState("");
   const [xeroInvoiceStatus, setXeroInvoiceStatus] = useState("DRAFT");
   const [summaryMaxLength, setSummaryMaxLength] = useState(150);
   const [descriptionPreviewLines, setDescriptionPreviewLines] = useState(3);
@@ -143,6 +144,11 @@ export default function EventSettingsPage() {
     const xeroStatusSetting = settings.find(s => s.setting_key === 'xero_invoice_status');
     if (xeroStatusSetting) {
       setXeroInvoiceStatus(xeroStatusSetting.setting_value || 'DRAFT');
+    }
+    
+    const xeroStripeBankSetting = settings.find(s => s.setting_key === 'xero_stripe_bank_account_code');
+    if (xeroStripeBankSetting) {
+      setXeroStripeBankAccountCode(xeroStripeBankSetting.setting_value || '');
     }
     
     // Load event types - migrate old string format to new object format
@@ -301,6 +307,22 @@ export default function EventSettingsPage() {
           setting_key: 'xero_invoice_status',
           setting_value: xeroInvoiceStatus,
           description: 'Default Xero invoice status - DRAFT or AUTHORISED (Live)'
+        });
+      }
+      
+      // Save Xero Stripe bank account code
+      const xeroStripeBankSetting = settings.find(s => s.setting_key === 'xero_stripe_bank_account_code');
+      
+      if (xeroStripeBankSetting) {
+        await base44.entities.SystemSettings.update(xeroStripeBankSetting.id, {
+          setting_value: xeroStripeBankAccountCode,
+          description: 'Xero bank account code for Stripe payments'
+        });
+      } else {
+        await base44.entities.SystemSettings.create({
+          setting_key: 'xero_stripe_bank_account_code',
+          setting_value: xeroStripeBankAccountCode,
+          description: 'Xero bank account code for Stripe payments'
         });
       }
       
@@ -1174,6 +1196,30 @@ export default function EventSettingsPage() {
                     <Save className="w-4 h-4 mr-2" />
                     Save
                   </Button>
+                </div>
+              </div>
+              
+              {/* Stripe Bank Account Code */}
+              <div className="flex items-center justify-between pt-4 border-t border-slate-200">
+                <div className="space-y-1">
+                  <Label htmlFor="xero-stripe-bank-code">
+                    Stripe Bank Account Code
+                  </Label>
+                  <p className="text-xs text-slate-500">
+                    The Xero bank account code where Stripe payments are deposited.
+                    Used when recording payments against invoices for Stripe transactions.
+                  </p>
+                </div>
+                <div className="flex items-center gap-4">
+                  <Input
+                    id="xero-stripe-bank-code"
+                    type="text"
+                    value={xeroStripeBankAccountCode}
+                    onChange={(e) => setXeroStripeBankAccountCode(e.target.value)}
+                    placeholder="e.g., 090"
+                    className="w-32"
+                    data-testid="input-xero-stripe-bank-code"
+                  />
                 </div>
               </div>
               

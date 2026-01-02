@@ -2523,6 +2523,86 @@ const functionHandlers = {
                 } else {
                   console.log(`[Xero] Bookings updated with Xero invoice ID: ${invoice.InvoiceNumber}`);
                 }
+
+                // Record payment in Xero if this was a Stripe payment AND invoice is AUTHORISED
+                // Xero only accepts payments against AUTHORISED invoices, not DRAFT
+                if (paymentMethod === 'card' && stripePaymentIntentId && invoice.InvoiceID && invoice.Status === 'AUTHORISED') {
+                  try {
+                    // Get Stripe bank account code from system settings
+                    const { data: stripeBankCodeSetting } = await supabase
+                      .from('system_settings')
+                      .select('setting_value')
+                      .eq('setting_key', 'xero_stripe_bank_account_code')
+                      .maybeSingle();
+
+                    const stripeBankAccountCode = stripeBankCodeSetting?.setting_value;
+                    
+                    if (stripeBankAccountCode) {
+                      console.log(`[Xero] Recording Stripe payment for invoice ${invoice.InvoiceNumber} - Amount: £${validatedRemainingBalance.toFixed(2)}, Bank Account: ${stripeBankAccountCode}`);
+                      
+                      // First, get the bank account ID from the account code
+                      const accountsResponse = await fetch(`https://api.xero.com/api.xro/2.0/Accounts?where=Code=="${stripeBankAccountCode}"`, {
+                        method: 'GET',
+                        headers: {
+                          'Authorization': `Bearer ${accessToken}`,
+                          'xero-tenant-id': tenantId,
+                          'Accept': 'application/json'
+                        }
+                      });
+
+                      const accountsData = await accountsResponse.json();
+                      const bankAccount = accountsData?.Accounts?.[0];
+
+                      if (bankAccount?.AccountID) {
+                        // Create payment against the invoice
+                        const paymentPayload = {
+                          Invoice: { InvoiceID: invoice.InvoiceID },
+                          Account: { AccountID: bankAccount.AccountID },
+                          Date: new Date().toISOString().split('T')[0],
+                          Amount: validatedRemainingBalance,
+                          Reference: `Stripe: ${stripePaymentIntentId}`
+                        };
+
+                        console.log(`[Xero] Creating payment: ${JSON.stringify(paymentPayload)}`);
+
+                        const paymentResponse = await fetch('https://api.xero.com/api.xro/2.0/Payments', {
+                          method: 'POST',
+                          headers: {
+                            'Authorization': `Bearer ${accessToken}`,
+                            'xero-tenant-id': tenantId,
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json'
+                          },
+                          body: JSON.stringify({ Payments: [paymentPayload] })
+                        });
+
+                        const paymentData = await paymentResponse.json();
+                        
+                        if (paymentData?.Payments?.[0]?.PaymentID) {
+                          console.log(`[Xero] Payment recorded successfully - PaymentID: ${paymentData.Payments[0].PaymentID}`);
+                          xeroDebug.paymentRecorded = true;
+                          xeroDebug.paymentId = paymentData.Payments[0].PaymentID;
+                        } else {
+                          console.error(`[Xero] Failed to record payment: ${JSON.stringify(paymentData)}`);
+                          xeroDebug.paymentError = JSON.stringify(paymentData).substring(0, 500);
+                        }
+                      } else {
+                        console.warn(`[Xero] Bank account not found for code: ${stripeBankAccountCode}`);
+                        xeroDebug.paymentSkipped = 'Bank account not found';
+                      }
+                    } else {
+                      console.log(`[Xero] Stripe bank account code not configured - payment not recorded`);
+                      xeroDebug.paymentSkipped = 'No Stripe bank account code configured';
+                    }
+                  } catch (paymentError) {
+                    console.error(`[Xero] Error recording payment: ${paymentError.message}`);
+                    xeroDebug.paymentError = paymentError.message;
+                    // Don't fail the booking, just log the error
+                  }
+                } else if (paymentMethod === 'card' && stripePaymentIntentId && invoice.InvoiceID && invoice.Status !== 'AUTHORISED') {
+                  console.log(`[Xero] Skipping payment recording - invoice is ${invoice.Status} (must be AUTHORISED for payment recording)`);
+                  xeroDebug.paymentSkipped = `Invoice is ${invoice.Status}, not AUTHORISED`;
+                }
               } else {
                 console.error(`[Xero] Invoice creation failed - no invoice in response. Status: ${invoiceResponse.status}`);
                 if (invoiceData?.ErrorNumber) {
