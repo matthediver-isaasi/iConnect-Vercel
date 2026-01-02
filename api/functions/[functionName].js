@@ -27,13 +27,23 @@ const XERO_REDIRECT_URI = process.env.XERO_REDIRECT_URI;
 
 // Helper: Get valid Xero access token (refreshes if needed)
 async function getValidXeroAccessToken() {
-  if (!supabase) throw new Error('Supabase not configured');
+  console.log('[Xero] getValidXeroAccessToken called');
   
-  const { data: tokens } = await supabase
+  if (!supabase) {
+    console.error('[Xero] Supabase not configured');
+    throw new Error('Supabase not configured');
+  }
+  
+  const { data: tokens, error: tokenError } = await supabase
     .from('xero_token')
     .select('*');
 
+  if (tokenError) {
+    console.error('[Xero] Error fetching tokens from database:', tokenError.message);
+  }
+
   if (!tokens || tokens.length === 0) {
+    console.error('[Xero] No Xero token found in database - authentication required');
     throw new Error('No Xero token found. Please authenticate first.');
   }
 
@@ -42,13 +52,19 @@ async function getValidXeroAccessToken() {
   const now = new Date();
   const fiveMinutesFromNow = new Date(now.getTime() + 5 * 60 * 1000);
 
+  console.log(`[Xero] Token expires at: ${expiresAt.toISOString()}, now: ${now.toISOString()}`);
+
   // Token is still valid
   if (expiresAt > fiveMinutesFromNow) {
+    console.log('[Xero] Token is valid, returning existing token');
     return { accessToken: token.access_token, tenantId: token.tenant_id };
   }
 
   // Refresh token
+  console.log('[Xero] Token expired or expiring soon, refreshing...');
+  
   if (!XERO_CLIENT_ID || !XERO_CLIENT_SECRET) {
+    console.error('[Xero] Xero credentials not configured (XERO_CLIENT_ID or XERO_CLIENT_SECRET missing)');
     throw new Error('Xero credentials not configured');
   }
 
@@ -67,9 +83,11 @@ async function getValidXeroAccessToken() {
   const tokenData = await tokenResponse.json();
 
   if (!tokenResponse.ok || tokenData.error) {
+    console.error('[Xero] Token refresh failed:', JSON.stringify(tokenData));
     throw new Error(`Failed to refresh Xero token: ${JSON.stringify(tokenData)}`);
   }
 
+  console.log('[Xero] Token refreshed successfully');
   const newExpiresAt = new Date(Date.now() + (tokenData.expires_in * 1000)).toISOString();
 
   await supabase
@@ -81,13 +99,18 @@ async function getValidXeroAccessToken() {
     })
     .eq('id', token.id);
 
+  console.log('[Xero] Token updated in database, expires at:', newExpiresAt);
   return { accessToken: tokenData.access_token, tenantId: token.tenant_id };
 }
 
 // Helper: Find or create Xero contact
 async function findOrCreateXeroContact(accessToken, tenantId, organizationName) {
+  console.log(`[Xero] Finding/creating contact for organization: ${organizationName}`);
+  
   // Search for existing contact
   const escapedOrgName = organizationName.replace(/"/g, '\\"');
+  console.log(`[Xero] Searching for existing contact...`);
+  
   const contactSearchResponse = await fetch(
     `https://api.xero.com/api.xro/2.0/Contacts?where=${encodeURIComponent(`Name=="${escapedOrgName}"`)}`,
     {
@@ -99,13 +122,16 @@ async function findOrCreateXeroContact(accessToken, tenantId, organizationName) 
     }
   );
 
+  console.log(`[Xero] Contact search response status: ${contactSearchResponse.status}`);
   const contactData = await contactSearchResponse.json();
 
   if (contactData.Contacts && contactData.Contacts.length > 0) {
+    console.log(`[Xero] Found existing contact: ${contactData.Contacts[0].ContactID}`);
     return contactData.Contacts[0].ContactID;
   }
 
   // Create new contact
+  console.log(`[Xero] No existing contact found, creating new contact...`);
   const createContactResponse = await fetch('https://api.xero.com/api.xro/2.0/Contacts', {
     method: 'POST',
     headers: {
@@ -116,11 +142,15 @@ async function findOrCreateXeroContact(accessToken, tenantId, organizationName) 
     body: JSON.stringify({ Contacts: [{ Name: organizationName }] })
   });
 
+  console.log(`[Xero] Create contact response status: ${createContactResponse.status}`);
   const newContactData = await createContactResponse.json();
+  
   if (newContactData.Contacts && newContactData.Contacts.length > 0) {
+    console.log(`[Xero] Created new contact: ${newContactData.Contacts[0].ContactID}`);
     return newContactData.Contacts[0].ContactID;
   }
 
+  console.error(`[Xero] Failed to create contact. Response:`, JSON.stringify(newContactData).substring(0, 500));
   throw new Error('Failed to create Xero contact');
 }
 
@@ -2141,13 +2171,14 @@ const functionHandlers = {
       }
     }
 
-    // If paying to account, create an account charge record and optionally a Xero invoice
+    // If paying to account, create an account charge record
     let xeroInvoiceResult = null;
     let xeroDebug = {
       attempted: false,
       remainingBalance: validatedRemainingBalance,
       paymentMethod: paymentMethod,
-      conditionsMet: validatedRemainingBalance > 0 && paymentMethod === 'account',
+      isGuestBooking: isGuestBooking,
+      hasOrganization: !!org,
       settingEnabled: null,
       settingValue: null,
       tokenFound: null,
@@ -2158,8 +2189,11 @@ const functionHandlers = {
       error: null
     };
     
-    // Account charges and Xero invoices only apply to member bookings (not guest checkouts)
+    console.log(`[Xero] Invoice flow started - remainingBalance: ${validatedRemainingBalance}, paymentMethod: ${paymentMethod}, isGuest: ${isGuestBooking}, hasOrg: ${!!org}`);
+    
+    // Account charges only apply to account/PO payments (not Stripe)
     if (!isGuestBooking && validatedRemainingBalance > 0 && paymentMethod === 'account' && org) {
+      console.log(`[Xero] Creating account charge record for £${validatedRemainingBalance.toFixed(2)}`);
       await supabase
         .from('program_ticket_transaction')
         .insert({
@@ -2173,7 +2207,14 @@ const functionHandlers = {
           po_to_follow: poToFollow,
           notes: `Account charge: £${validatedRemainingBalance.toFixed(2)} for ${event.title || 'event'} (PO: ${poToFollow ? 'To follow' : (purchaseOrderNumber || 'N/A')})`
         });
+    }
 
+    // Xero invoices are created for ANY payment method when there's a balance due
+    // Only skip when training funds/vouchers completely cover the cost (zero balance)
+    // Guest bookings don't get invoices (no organization to bill)
+    if (!isGuestBooking && validatedRemainingBalance > 0 && org) {
+      console.log(`[Xero] Checking if invoice should be created - balance: £${validatedRemainingBalance.toFixed(2)}, org: ${org.name}`);
+      
       // Check if Xero invoice generation is enabled
       const { data: xeroSettings, error: xeroSettingsError } = await supabase
         .from('system_settings')
@@ -2186,18 +2227,31 @@ const functionHandlers = {
 
       const xeroInvoiceEnabled = xeroSettings?.setting_value === 'true';
       xeroDebug.settingEnabled = xeroInvoiceEnabled;
+      
+      console.log(`[Xero] Invoice setting enabled: ${xeroInvoiceEnabled} (raw value: ${xeroSettings?.setting_value})`);
 
-      if (xeroInvoiceEnabled) {
+      if (!xeroInvoiceEnabled) {
+        console.log(`[Xero] Invoice creation skipped - feature not enabled in system settings`);
+      } else {
         xeroDebug.attempted = true;
+        console.log(`[Xero] Attempting invoice creation for ${paymentMethod} payment of £${validatedRemainingBalance.toFixed(2)}`);
+        
         try {
+          console.log(`[Xero] Getting valid access token...`);
           const { accessToken, tenantId } = await getValidXeroAccessToken();
           xeroDebug.tokenFound = !!accessToken;
           xeroDebug.tenantIdFound = !!tenantId;
+          console.log(`[Xero] Token retrieved: ${!!accessToken}, tenantId: ${!!tenantId}`);
 
-          if (accessToken && tenantId) {
+          if (!accessToken || !tenantId) {
+            console.error(`[Xero] Missing token or tenantId - cannot create invoice`);
+            xeroDebug.error = 'Missing access token or tenant ID';
+          } else {
             // Find or create Xero contact
+            console.log(`[Xero] Finding/creating contact for organization: ${org.name}`);
             const contactId = await findOrCreateXeroContact(accessToken, tenantId, org.name);
             xeroDebug.contactId = contactId;
+            console.log(`[Xero] Contact ID: ${contactId}`);
 
             // Build attendee list for description
             const attendeeList = bookingAttendees.map(a => {
@@ -2312,6 +2366,8 @@ const functionHandlers = {
               Status: 'AUTHORISED'
             };
 
+            console.log(`[Xero] Sending invoice to Xero API - Amount: £${validatedRemainingBalance.toFixed(2)}, Reference: ${invoiceReference}, DueDate: ${dueDateString}`);
+            
             const invoiceResponse = await fetch('https://api.xero.com/api.xro/2.0/Invoices', {
               method: 'POST',
               headers: {
@@ -2324,6 +2380,7 @@ const functionHandlers = {
             });
 
             xeroDebug.invoiceResponseStatus = invoiceResponse.status;
+            console.log(`[Xero] API response status: ${invoiceResponse.status}`);
             
             // Get response as text first to handle both JSON and XML errors
             const responseText = await invoiceResponse.text();
@@ -2334,12 +2391,15 @@ const functionHandlers = {
               invoiceData = JSON.parse(responseText);
               xeroDebug.invoiceResponseBody = invoiceData;
             } catch (parseError) {
+              console.error(`[Xero] Failed to parse response as JSON: ${responseText.substring(0, 200)}`);
               xeroDebug.invoiceResponseBody = responseText.substring(0, 500);
               xeroDebug.parseError = 'Response was not JSON: ' + responseText.substring(0, 200);
             }
 
             if (invoiceData && invoiceData.Invoices && invoiceData.Invoices.length > 0) {
               const invoice = invoiceData.Invoices[0];
+              console.log(`[Xero] Invoice created successfully - ID: ${invoice.InvoiceID}, Number: ${invoice.InvoiceNumber}, Total: ${invoice.Total}`);
+              
               xeroInvoiceResult = {
                 invoice_id: invoice.InvoiceID,
                 invoice_number: invoice.InvoiceNumber,
@@ -2349,6 +2409,7 @@ const functionHandlers = {
               
               // Update all booking records with Xero invoice ID and number
               // PDF is fetched on-demand from Xero (single source of truth)
+              console.log(`[Xero] Updating booking records with invoice ID for group: ${bookingReference}`);
               const { error: updateError } = await supabase
                 .from('booking')
                 .update({
@@ -2358,18 +2419,33 @@ const functionHandlers = {
                 .eq('booking_group_reference', bookingReference);
               
               if (updateError) {
-                console.error('[createOneOffEventBooking] Failed to update bookings with Xero data:', updateError);
+                console.error(`[Xero] Failed to update bookings with Xero data: ${updateError.message}`);
                 xeroDebug.updateError = updateError.message;
               } else {
-                console.log('[createOneOffEventBooking] Bookings updated with Xero invoice ID:', invoice.InvoiceNumber);
+                console.log(`[Xero] Bookings updated with Xero invoice ID: ${invoice.InvoiceNumber}`);
+              }
+            } else {
+              console.error(`[Xero] Invoice creation failed - no invoice in response. Status: ${invoiceResponse.status}`);
+              if (invoiceData?.ErrorNumber) {
+                console.error(`[Xero] Error details: ${invoiceData.ErrorNumber} - ${invoiceData.Message}`);
               }
             }
           }
         } catch (xeroError) {
+          console.error(`[Xero] Invoice creation error: ${xeroError.message}`);
           xeroDebug.error = xeroError.message;
           xeroDebug.errorStack = xeroError.stack;
           // Don't fail the booking, just log the error
         }
+      }
+    } else {
+      // Log why invoice was skipped
+      if (isGuestBooking) {
+        console.log(`[Xero] Invoice skipped - guest booking (no organization to bill)`);
+      } else if (validatedRemainingBalance <= 0) {
+        console.log(`[Xero] Invoice skipped - zero balance (fully covered by training funds/vouchers)`);
+      } else if (!org) {
+        console.log(`[Xero] Invoice skipped - no organization found for member`);
       }
     }
 
