@@ -57,6 +57,12 @@ export default function AdminSetupPage() {
   const [vatSyncLoading, setVatSyncLoading] = useState(false);
   const [vatSyncResult, setVatSyncResult] = useState(null);
   
+  // Xero Payment Test state
+  const [testPaymentInvoiceId, setTestPaymentInvoiceId] = useState("");
+  const [testPaymentAmount, setTestPaymentAmount] = useState("");
+  const [testPaymentLoading, setTestPaymentLoading] = useState(false);
+  const [testPaymentResult, setTestPaymentResult] = useState(null);
+  
   // Email settings state
   const [welcomeEmailFromAddress, setWelcomeEmailFromAddress] = useState("");
   const [welcomeEmailFromName, setWelcomeEmailFromName] = useState("");
@@ -396,6 +402,47 @@ export default function AdminSetupPage() {
       toast.error(error.message || 'Failed to sync VAT rates');
     } finally {
       setVatSyncLoading(false);
+    }
+  };
+
+  // Test Xero payment recording
+  const handleTestPaymentRecording = async () => {
+    if (!testPaymentInvoiceId) {
+      toast.error('Please enter a Xero invoice ID or number');
+      return;
+    }
+    if (!testPaymentAmount || parseFloat(testPaymentAmount) <= 0) {
+      toast.error('Please enter a valid payment amount');
+      return;
+    }
+
+    setTestPaymentLoading(true);
+    setTestPaymentResult(null);
+    
+    try {
+      const response = await base44.functions.invoke('testXeroPaymentRecording', {
+        invoiceId: testPaymentInvoiceId,
+        amount: parseFloat(testPaymentAmount),
+        testReference: `TEST-${Date.now()}`
+      });
+      
+      const data = response.data;
+      setTestPaymentResult(data);
+      
+      if (data.success) {
+        toast.success(`Payment recorded successfully: ${data.invoiceNumber}`);
+      } else {
+        toast.error(data.error || 'Failed to record payment');
+      }
+    } catch (error) {
+      console.error('Test payment error:', error);
+      setTestPaymentResult({
+        success: false,
+        error: error.message
+      });
+      toast.error(error.message || 'Failed to test payment recording');
+    } finally {
+      setTestPaymentLoading(false);
     }
   };
 
@@ -1255,6 +1302,115 @@ export default function AdminSetupPage() {
                   <>
                     <RefreshCw className="w-4 h-4 mr-2" />
                     Sync VAT Rates from Xero
+                  </>
+                )}
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Test Xero Payment Recording - only shown when Xero is authenticated */}
+        {isXeroAuthenticated && (
+          <Card className="shadow-xl border-slate-200 mb-6">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Shield className="w-5 h-5" />
+                Test Payment Recording
+              </CardTitle>
+              <CardDescription>
+                Test the Stripe payment recording integration by marking a Xero invoice as paid
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                <p className="text-sm text-amber-800">
+                  <strong>Testing Tool:</strong> This will create a real payment record in Xero against the specified invoice. 
+                  Only use for testing with test invoices or invoices you intend to mark as paid.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="test-invoice-id">Xero Invoice ID or Number</Label>
+                  <Input
+                    id="test-invoice-id"
+                    value={testPaymentInvoiceId}
+                    onChange={(e) => setTestPaymentInvoiceId(e.target.value)}
+                    placeholder="e.g., INV-0001 or UUID"
+                    data-testid="input-test-invoice-id"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="test-payment-amount">Payment Amount (£)</Label>
+                  <Input
+                    id="test-payment-amount"
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    value={testPaymentAmount}
+                    onChange={(e) => setTestPaymentAmount(e.target.value)}
+                    placeholder="e.g., 100.00"
+                    data-testid="input-test-payment-amount"
+                  />
+                </div>
+              </div>
+
+              {/* Show result */}
+              {testPaymentResult && (
+                <div className={`flex items-start gap-3 p-4 rounded-lg border ${
+                  testPaymentResult.success 
+                    ? 'bg-green-50 border-green-200' 
+                    : 'bg-red-50 border-red-200'
+                }`}>
+                  {testPaymentResult.success ? (
+                    <>
+                      <CheckCircle2 className="w-5 h-5 text-green-600 shrink-0 mt-0.5" />
+                      <div className="flex-1">
+                        <h3 className="font-semibold text-green-900 mb-1">Payment Recorded</h3>
+                        <p className="text-sm text-green-700">
+                          Invoice: {testPaymentResult.invoiceNumber}<br />
+                          Amount: £{testPaymentResult.amount?.toFixed(2)}<br />
+                          Bank Account: {testPaymentResult.bankAccount}<br />
+                          Payment ID: {testPaymentResult.paymentId}
+                        </p>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <AlertTriangle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+                      <div className="flex-1">
+                        <h3 className="font-semibold text-red-900 mb-1">Payment Failed</h3>
+                        <p className="text-sm text-red-700">{testPaymentResult.error}</p>
+                        {testPaymentResult.debug && (
+                          <details className="mt-2">
+                            <summary className="text-xs text-red-600 cursor-pointer">Debug Info</summary>
+                            <pre className="text-xs text-red-600 mt-1 overflow-auto max-h-32 bg-red-100 p-2 rounded">
+                              {JSON.stringify(testPaymentResult.debug, null, 2)}
+                            </pre>
+                          </details>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
+              <Button
+                onClick={handleTestPaymentRecording}
+                disabled={testPaymentLoading || !testPaymentInvoiceId || !testPaymentAmount}
+                className="w-full"
+                variant="outline"
+                data-testid="button-test-payment"
+              >
+                {testPaymentLoading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Recording Payment...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-4 h-4 mr-2" />
+                    Test Payment Recording
                   </>
                 )}
               </Button>
