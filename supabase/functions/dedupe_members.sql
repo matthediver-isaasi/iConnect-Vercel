@@ -2,9 +2,13 @@
 -- Run this in Supabase SQL Editor to create the functions
 -- NOTE: This version handles both UUID and TEXT column types
 
--- Drop existing functions first
+-- Drop ALL existing versions of these functions first
 DROP FUNCTION IF EXISTS preview_duplicate_members(UUID[], UUID[], INTEGER);
+DROP FUNCTION IF EXISTS preview_duplicate_members(TEXT[], TEXT[], INTEGER);
+DROP FUNCTION IF EXISTS preview_duplicate_members;
 DROP FUNCTION IF EXISTS execute_duplicate_members(UUID[], UUID[]);
+DROP FUNCTION IF EXISTS execute_duplicate_members(TEXT[], TEXT[]);
+DROP FUNCTION IF EXISTS execute_duplicate_members;
 
 -- Function to preview duplicate members (returns summary and first N groups)
 CREATE OR REPLACE FUNCTION preview_duplicate_members(
