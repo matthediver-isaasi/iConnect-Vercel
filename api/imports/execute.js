@@ -139,16 +139,42 @@ export default async function handler(req, res) {
       .map(row => row[identifierMapping.sourceColumn]?.trim())
       .filter(v => v);
     
-    // Batch fetch all existing entities
-    console.log(`[Import] Batch fetching existing records...`);
-    const { data: existingEntities } = await supabase
-      .from(tableName)
-      .select('id, ' + identifierField)
-      .in(identifierField, identifierValues);
+    // For email field, normalize to lowercase for case-insensitive matching
+    const isEmailIdentifier = identifierField === 'email';
+    const normalizedIdentifierValues = isEmailIdentifier 
+      ? identifierValues.map(v => v.toLowerCase())
+      : identifierValues;
     
+    // Batch fetch all existing entities
+    console.log(`[Import] Batch fetching existing records... (case-insensitive: ${isEmailIdentifier})`);
+    
+    let existingEntities = [];
+    if (isEmailIdentifier) {
+      // Use ilike for case-insensitive email matching - fetch in batches to avoid query limits
+      const LOOKUP_BATCH_SIZE = 100;
+      for (let i = 0; i < normalizedIdentifierValues.length; i += LOOKUP_BATCH_SIZE) {
+        const batch = normalizedIdentifierValues.slice(i, i + LOOKUP_BATCH_SIZE);
+        const { data } = await supabase
+          .from(tableName)
+          .select('id, ' + identifierField)
+          .or(batch.map(email => `email.ilike.${email}`).join(','));
+        if (data) existingEntities = existingEntities.concat(data);
+      }
+    } else {
+      const { data } = await supabase
+        .from(tableName)
+        .select('id, ' + identifierField)
+        .in(identifierField, identifierValues);
+      existingEntities = data || [];
+    }
+    
+    // Build lookup map - normalize email keys to lowercase for consistent matching
     const existingMap = new Map();
-    (existingEntities || []).forEach(e => {
-      existingMap.set(e[identifierField], e.id);
+    existingEntities.forEach(e => {
+      const key = isEmailIdentifier && e[identifierField] 
+        ? e[identifierField].toLowerCase() 
+        : e[identifierField];
+      existingMap.set(key, e.id);
     });
     console.log(`[Import] Found ${existingMap.size} existing records`);
     
@@ -298,7 +324,9 @@ export default async function handler(req, res) {
           }
         }
         
-        const existingId = existingMap.get(identifierValue);
+        // Normalize identifier for lookup (lowercase for email)
+        const lookupKey = isEmailIdentifier ? identifierValue.toLowerCase() : identifierValue;
+        const existingId = existingMap.get(lookupKey);
         
         if (existingId) {
           toUpdate.push({ id: existingId, data: coreData, noteContent, identifierValue, rowIndex });
@@ -326,7 +354,16 @@ export default async function handler(req, res) {
           
           // Map back inserted IDs and collect notes
           inserted.forEach(entity => {
-            const original = toInsert.find(r => r.data[identifierField] === entity[identifierField]);
+            const entityIdentifier = entity[identifierField];
+            const lookupKey = isEmailIdentifier && entityIdentifier 
+              ? entityIdentifier.toLowerCase() 
+              : entityIdentifier;
+            const original = toInsert.find(r => {
+              const origKey = isEmailIdentifier && r.data[identifierField]
+                ? r.data[identifierField].toLowerCase()
+                : r.data[identifierField];
+              return origKey === lookupKey;
+            });
             if (original && original.noteContent) {
               if (entityType === 'organization') {
                 notesToCreate.push({
@@ -348,7 +385,7 @@ export default async function handler(req, res) {
                 });
               }
             }
-            existingMap.set(entity[identifierField], entity.id);
+            existingMap.set(lookupKey, entity.id);
           });
         }
       }
