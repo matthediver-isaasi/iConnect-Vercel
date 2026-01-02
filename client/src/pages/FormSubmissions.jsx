@@ -213,6 +213,29 @@ export default function FormSubmissionsPage() {
     return field?.label || fieldId;
   };
 
+  const getSubmitterEmail = (submission) => {
+    if (submission.submitted_by_email) {
+      return submission.submitted_by_email;
+    }
+    if (submission.submission_data) {
+      const data = submission.submission_data;
+      for (const [key, value] of Object.entries(data)) {
+        if (typeof value === 'string' && value.includes('@') && value.includes('.')) {
+          const keyLower = key.toLowerCase();
+          if (keyLower.includes('email') || keyLower.includes('e-mail')) {
+            return value;
+          }
+        }
+      }
+      for (const [key, value] of Object.entries(data)) {
+        if (typeof value === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+          return value;
+        }
+      }
+    }
+    return null;
+  };
+
   if (!accessChecked) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
@@ -319,10 +342,10 @@ export default function FormSubmissionsPage() {
                               {submission.submitted_by_name}
                             </Badge>
                           )}
-                          {submission.submitted_by_email && (
+                          {getSubmitterEmail(submission) && (
                             <span className="flex items-center gap-1 text-slate-600">
                               <Mail className="w-3.5 h-3.5" />
-                              {submission.submitted_by_email}
+                              {getSubmitterEmail(submission)}
                             </span>
                           )}
                           <Badge variant="outline" className="text-slate-600">
@@ -468,10 +491,10 @@ export default function FormSubmissionsPage() {
                       <p className="font-medium text-slate-900">{viewingSubmission.submitted_by_name}</p>
                     </div>
                   )}
-                  {viewingSubmission.submitted_by_email && (
+                  {getSubmitterEmail(viewingSubmission) && (
                     <div>
                       <Label className="text-slate-600">Email</Label>
-                      <p className="font-medium text-slate-900">{viewingSubmission.submitted_by_email}</p>
+                      <p className="font-medium text-slate-900">{getSubmitterEmail(viewingSubmission)}</p>
                     </div>
                   )}
                 </div>
