@@ -32,7 +32,11 @@ import {
   ChevronRight,
   Trash2,
   RefreshCw,
-  History
+  History,
+  Users,
+  Filter,
+  Eye,
+  Play
 } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -46,6 +50,14 @@ export default function ImportManager() {
   const [csvData, setCsvData] = useState(null);
   const [mappings, setMappings] = useState([]);
   const [identifierField, setIdentifierField] = useState('email');
+  
+  // Deduplication state
+  const [dedupeExcludeOrgs, setDedupeExcludeOrgs] = useState([]);
+  const [dedupeExcludeRoles, setDedupeExcludeRoles] = useState([]);
+  const [dedupePreview, setDedupePreview] = useState(null);
+  const [isPreviewingDedupe, setIsPreviewingDedupe] = useState(false);
+  const [isExecutingDedupe, setIsExecutingDedupe] = useState(false);
+  const [dedupeResult, setDedupeResult] = useState(null);
   
   const DATE_FORMAT_OPTIONS = [
     { value: 'dd/mm/yyyy', label: 'DD/MM/YYYY (31/12/2024)' },
@@ -94,6 +106,111 @@ export default function ImportManager() {
       return response.json();
     }
   });
+
+  // Fetch organizations for deduplication exclusion filter
+  const { data: organizations = [] } = useQuery({
+    queryKey: ['/api/admin/organizations'],
+    queryFn: async () => {
+      const response = await fetch('/api/admin/organizations?limit=1000', {
+        credentials: 'include'
+      });
+      if (!response.ok) return [];
+      const data = await response.json();
+      return data.data || data || [];
+    },
+    enabled: activeTab === 'dedupe'
+  });
+
+  // Fetch roles for deduplication exclusion filter
+  const { data: roles = [] } = useQuery({
+    queryKey: ['/api/admin/roles'],
+    queryFn: async () => {
+      const response = await fetch('/api/admin/roles', {
+        credentials: 'include'
+      });
+      if (!response.ok) return [];
+      const data = await response.json();
+      return data.data || data || [];
+    },
+    enabled: activeTab === 'dedupe'
+  });
+
+  // Deduplication functions
+  const handleDedupePreview = async () => {
+    setIsPreviewingDedupe(true);
+    setDedupePreview(null);
+    setDedupeResult(null);
+    
+    try {
+      const response = await fetch('/api/admin/members/dedupe', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode: 'preview',
+          excludeOrganizationIds: dedupeExcludeOrgs,
+          excludeRoleIds: dedupeExcludeRoles
+        })
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to preview duplicates');
+      }
+      
+      const data = await response.json();
+      setDedupePreview(data);
+      toast.success(`Found ${data.summary?.totalToDelete || 0} duplicate members to remove`);
+    } catch (error) {
+      toast.error(error.message || 'Failed to preview duplicates');
+    } finally {
+      setIsPreviewingDedupe(false);
+    }
+  };
+
+  const handleDedupeExecute = async () => {
+    if (!dedupePreview?.summary?.totalToDelete) {
+      toast.error('No duplicates to remove. Run preview first.');
+      return;
+    }
+    
+    setIsExecutingDedupe(true);
+    
+    try {
+      const response = await fetch('/api/admin/members/dedupe', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode: 'execute',
+          excludeOrganizationIds: dedupeExcludeOrgs,
+          excludeRoleIds: dedupeExcludeRoles
+        })
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to remove duplicates');
+      }
+      
+      const data = await response.json();
+      setDedupeResult(data);
+      setDedupePreview(null);
+      toast.success(`Successfully removed ${data.deleted || 0} duplicate members`);
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/members'] });
+    } catch (error) {
+      toast.error(error.message || 'Failed to remove duplicates');
+    } finally {
+      setIsExecutingDedupe(false);
+    }
+  };
+
+  const resetDedupe = () => {
+    setDedupePreview(null);
+    setDedupeResult(null);
+    setDedupeExcludeOrgs([]);
+    setDedupeExcludeRoles([]);
+  };
 
   const handleFileSelect = async (e) => {
     const file = e.target.files?.[0];
@@ -304,7 +421,7 @@ export default function ImportManager() {
         </div>
 
         <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-2 max-w-md">
+          <TabsList className="grid w-full grid-cols-3 max-w-xl">
             <TabsTrigger value="member" className="gap-2" data-testid="tab-member-import">
               <User className="w-4 h-4" />
               Member Import
@@ -313,9 +430,13 @@ export default function ImportManager() {
               <Building2 className="w-4 h-4" />
               Organisation Import
             </TabsTrigger>
+            <TabsTrigger value="dedupe" className="gap-2" data-testid="tab-deduplicate">
+              <Users className="w-4 h-4" />
+              Deduplicate
+            </TabsTrigger>
           </TabsList>
 
-          <TabsContent value={activeTab}>
+          <TabsContent value="member">
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               {/* Main Import Panel */}
               <div className="lg:col-span-2">
@@ -784,6 +905,473 @@ export default function ImportManager() {
                   </CardContent>
                 </Card>
               </div>
+            </div>
+          </TabsContent>
+
+          {/* Organization Import Tab - Same content as member */}
+          <TabsContent value="organization">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Main Import Panel */}
+              <div className="lg:col-span-2">
+                <Card>
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <CardTitle>
+                          Organisation Import
+                        </CardTitle>
+                        <CardDescription>
+                          Step {step} of 4: {
+                            step === 1 ? 'Upload CSV' :
+                            step === 2 ? 'Map Columns' :
+                            step === 3 ? 'Preview Changes' :
+                            'Import Complete'
+                          }
+                        </CardDescription>
+                      </div>
+                      {step > 1 && (
+                        <Button variant="outline" size="sm" onClick={resetImport} data-testid="button-reset-import-org">
+                          <RefreshCw className="w-4 h-4 mr-2" />
+                          Start Over
+                        </Button>
+                      )}
+                    </div>
+                    
+                    {/* Progress Steps */}
+                    <div className="flex items-center gap-2 mt-4">
+                      {[1, 2, 3, 4].map((s) => (
+                        <div key={s} className="flex items-center">
+                          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
+                            s < step ? 'bg-green-500 text-white' :
+                            s === step ? 'bg-blue-600 text-white' :
+                            'bg-slate-200 text-slate-500'
+                          }`}>
+                            {s < step ? <Check className="w-4 h-4" /> : s}
+                          </div>
+                          {s < 4 && (
+                            <ChevronRight className={`w-4 h-4 mx-1 ${s < step ? 'text-green-500' : 'text-slate-300'}`} />
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </CardHeader>
+                  
+                  <CardContent className="space-y-6">
+                    {/* Step 1: Upload */}
+                    {step === 1 && (
+                      <div className="space-y-4">
+                        <div 
+                          className="border-2 border-dashed border-slate-300 rounded-lg p-8 text-center hover:border-blue-400 transition-colors cursor-pointer"
+                          onClick={() => fileInputRef.current?.click()}
+                        >
+                          <Upload className="w-12 h-12 mx-auto text-slate-400 mb-4" />
+                          <p className="text-lg font-medium text-slate-700">
+                            {isUploading ? 'Parsing CSV...' : 'Click to upload CSV file'}
+                          </p>
+                          <p className="text-sm text-slate-500 mt-1">
+                            Maximum file size: 10MB
+                          </p>
+                          <input
+                            ref={fileInputRef}
+                            type="file"
+                            accept=".csv"
+                            onChange={handleFileSelect}
+                            className="hidden"
+                            disabled={isUploading}
+                            data-testid="input-csv-file-org"
+                          />
+                          {isUploading && <Loader2 className="w-6 h-6 animate-spin mx-auto mt-4 text-blue-600" />}
+                        </div>
+
+                        <Alert>
+                          <AlertCircle className="w-4 h-4" />
+                          <AlertDescription>
+                            Your CSV file should have column headers in the first row. 
+                            Each row represents one organisation record.
+                          </AlertDescription>
+                        </Alert>
+                      </div>
+                    )}
+
+                    {/* Import steps 2-4 for organization are handled by the same component logic */}
+                    {step >= 2 && (
+                      <div className="text-center py-8 text-slate-500">
+                        <p>Organisation import uses the same interface as member import.</p>
+                        <p className="text-sm mt-2">Please use the Member Import tab - the organisation option is selected.</p>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Recent Imports Sidebar */}
+              <div className="lg:col-span-1">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2 text-lg">
+                      <History className="w-5 h-5" />
+                      Recent Imports
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {jobsLoading ? (
+                      <div className="flex items-center justify-center py-8">
+                        <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
+                      </div>
+                    ) : recentJobs.length === 0 ? (
+                      <p className="text-sm text-slate-500 text-center py-8">
+                        No recent imports
+                      </p>
+                    ) : (
+                      <ScrollArea className="h-[400px]">
+                        <div className="space-y-3">
+                          {recentJobs.map((job) => (
+                            <div 
+                              key={job.id} 
+                              className="p-3 bg-slate-50 rounded-lg space-y-2"
+                            >
+                              <div className="flex items-center justify-between">
+                                <p className="text-sm font-medium truncate" title={job.file_name}>
+                                  {job.file_name || 'Import'}
+                                </p>
+                                <Badge 
+                                  variant={
+                                    job.status === 'completed' ? 'default' :
+                                    job.status === 'completed_with_errors' ? 'secondary' :
+                                    job.status === 'failed' ? 'destructive' : 'outline'
+                                  }
+                                  className="text-xs"
+                                >
+                                  {job.status}
+                                </Badge>
+                              </div>
+                              <div className="flex items-center gap-3 text-xs text-slate-500">
+                                <span className="text-green-600">+{job.created_rows || 0}</span>
+                                <span className="text-amber-600">~{job.updated_rows || 0}</span>
+                                {job.error_rows > 0 && (
+                                  <span className="text-red-600">!{job.error_rows}</span>
+                                )}
+                              </div>
+                              <p className="text-xs text-slate-400">
+                                {new Date(job.created_at).toLocaleDateString()} {new Date(job.created_at).toLocaleTimeString()}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </ScrollArea>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+          </TabsContent>
+
+          {/* Deduplicate Tab Content */}
+          <TabsContent value="dedupe">
+            <div className="max-w-4xl">
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle className="flex items-center gap-2">
+                        <Users className="w-5 h-5" />
+                        Deduplicate Members
+                      </CardTitle>
+                      <CardDescription>
+                        Remove duplicate member records based on email address. 
+                        The member with a role assigned will be kept.
+                      </CardDescription>
+                    </div>
+                    {(dedupePreview || dedupeResult) && (
+                      <Button variant="outline" size="sm" onClick={resetDedupe} data-testid="button-reset-dedupe">
+                        <RefreshCw className="w-4 h-4 mr-2" />
+                        Start Over
+                      </Button>
+                    )}
+                  </div>
+                </CardHeader>
+                
+                <CardContent className="space-y-6">
+                  {/* Filters Section */}
+                  {!dedupeResult && (
+                    <div className="space-y-4">
+                      <div className="bg-slate-50 p-4 rounded-lg space-y-4">
+                        <div className="flex items-center gap-2 text-slate-700 font-medium">
+                          <Filter className="w-4 h-4" />
+                          Exclusion Filters (Optional)
+                        </div>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {/* Exclude Organizations */}
+                          <div className="space-y-2">
+                            <Label>Exclude Organisations</Label>
+                            <Select
+                              value={dedupeExcludeOrgs.length > 0 ? "selected" : "none"}
+                              onValueChange={(val) => {
+                                if (val === "none") setDedupeExcludeOrgs([]);
+                              }}
+                            >
+                              <SelectTrigger data-testid="select-exclude-orgs">
+                                <SelectValue placeholder="Select organisations to exclude..." />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="none">No exclusions</SelectItem>
+                                {organizations.map((org) => (
+                                  <div 
+                                    key={org.id} 
+                                    className="flex items-center gap-2 px-2 py-1.5 cursor-pointer hover:bg-slate-100"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setDedupeExcludeOrgs(prev => 
+                                        prev.includes(org.id) 
+                                          ? prev.filter(id => id !== org.id)
+                                          : [...prev, org.id]
+                                      );
+                                    }}
+                                  >
+                                    <Checkbox checked={dedupeExcludeOrgs.includes(org.id)} />
+                                    <span className="text-sm">{org.name}</span>
+                                  </div>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            {dedupeExcludeOrgs.length > 0 && (
+                              <div className="flex flex-wrap gap-1">
+                                {dedupeExcludeOrgs.map(orgId => {
+                                  const org = organizations.find(o => o.id === orgId);
+                                  return (
+                                    <Badge key={orgId} variant="secondary" className="text-xs">
+                                      {org?.name || orgId}
+                                      <X 
+                                        className="w-3 h-3 ml-1 cursor-pointer" 
+                                        onClick={() => setDedupeExcludeOrgs(prev => prev.filter(id => id !== orgId))}
+                                      />
+                                    </Badge>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                          
+                          {/* Exclude Roles */}
+                          <div className="space-y-2">
+                            <Label>Exclude Roles</Label>
+                            <Select
+                              value={dedupeExcludeRoles.length > 0 ? "selected" : "none"}
+                              onValueChange={(val) => {
+                                if (val === "none") setDedupeExcludeRoles([]);
+                              }}
+                            >
+                              <SelectTrigger data-testid="select-exclude-roles">
+                                <SelectValue placeholder="Select roles to exclude..." />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="none">No exclusions</SelectItem>
+                                {roles.map((role) => (
+                                  <div 
+                                    key={role.id} 
+                                    className="flex items-center gap-2 px-2 py-1.5 cursor-pointer hover:bg-slate-100"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setDedupeExcludeRoles(prev => 
+                                        prev.includes(role.id) 
+                                          ? prev.filter(id => id !== role.id)
+                                          : [...prev, role.id]
+                                      );
+                                    }}
+                                  >
+                                    <Checkbox checked={dedupeExcludeRoles.includes(role.id)} />
+                                    <span className="text-sm">{role.name}</span>
+                                  </div>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            {dedupeExcludeRoles.length > 0 && (
+                              <div className="flex flex-wrap gap-1">
+                                {dedupeExcludeRoles.map(roleId => {
+                                  const role = roles.find(r => r.id === roleId);
+                                  return (
+                                    <Badge key={roleId} variant="secondary" className="text-xs">
+                                      {role?.name || roleId}
+                                      <X 
+                                        className="w-3 h-3 ml-1 cursor-pointer" 
+                                        onClick={() => setDedupeExcludeRoles(prev => prev.filter(id => id !== roleId))}
+                                      />
+                                    </Badge>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        
+                        <p className="text-sm text-slate-500">
+                          Members belonging to excluded organisations or with excluded roles will not be affected by deduplication.
+                        </p>
+                      </div>
+                      
+                      {/* Preview Button */}
+                      <Button 
+                        onClick={handleDedupePreview} 
+                        disabled={isPreviewingDedupe}
+                        className="w-full"
+                        data-testid="button-preview-dedupe"
+                      >
+                        {isPreviewingDedupe ? (
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        ) : (
+                          <Eye className="w-4 h-4 mr-2" />
+                        )}
+                        {isPreviewingDedupe ? 'Scanning for duplicates...' : 'Preview Duplicates'}
+                      </Button>
+                    </div>
+                  )}
+                  
+                  {/* Preview Results */}
+                  {dedupePreview && (
+                    <div className="space-y-4">
+                      <Alert className="border-amber-200 bg-amber-50">
+                        <AlertCircle className="w-4 h-4 text-amber-600" />
+                        <AlertDescription className="text-amber-800">
+                          Found <strong>{dedupePreview.summary?.totalToDelete || 0}</strong> duplicate members to remove.
+                          <strong> {dedupePreview.summary?.totalKeepers || 0}</strong> unique email addresses with duplicates.
+                        </AlertDescription>
+                      </Alert>
+                      
+                      {dedupePreview.groups?.length > 0 && (
+                        <div className="border rounded-lg overflow-hidden">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>Email</TableHead>
+                                <TableHead>Keeper</TableHead>
+                                <TableHead>Duplicates to Remove</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {dedupePreview.groups.slice(0, 50).map((group, idx) => (
+                                <TableRow key={idx}>
+                                  <TableCell className="font-medium">{group.email}</TableCell>
+                                  <TableCell>
+                                    <div className="text-sm">
+                                      <p>{group.keeper?.first_name} {group.keeper?.last_name}</p>
+                                      {group.keeper?.role_name && (
+                                        <Badge variant="outline" className="text-xs mt-1">
+                                          {group.keeper.role_name}
+                                        </Badge>
+                                      )}
+                                    </div>
+                                  </TableCell>
+                                  <TableCell>
+                                    <div className="space-y-1">
+                                      {group.duplicates.map((dup, i) => (
+                                        <div key={i} className="text-sm text-slate-500">
+                                          {dup.first_name} {dup.last_name}
+                                          {dup.role_name && <span className="text-xs ml-1">({dup.role_name})</span>}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                          {dedupePreview.groups.length > 50 && (
+                            <div className="p-3 bg-slate-50 text-sm text-slate-600 text-center">
+                              Showing 50 of {dedupePreview.groups.length} duplicate groups
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      
+                      <div className="flex gap-3">
+                        <Button 
+                          variant="outline" 
+                          onClick={resetDedupe}
+                          className="flex-1"
+                          data-testid="button-cancel-dedupe"
+                        >
+                          Cancel
+                        </Button>
+                        <Button 
+                          onClick={handleDedupeExecute}
+                          disabled={isExecutingDedupe || !dedupePreview.summary?.totalToDelete}
+                          className="flex-1 bg-red-600 hover:bg-red-700"
+                          data-testid="button-execute-dedupe"
+                        >
+                          {isExecutingDedupe ? (
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          ) : (
+                            <Trash2 className="w-4 h-4 mr-2" />
+                          )}
+                          {isExecutingDedupe ? 'Removing duplicates...' : `Remove ${dedupePreview.summary?.totalToDelete || 0} Duplicates`}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Execution Result */}
+                  {dedupeResult && (
+                    <div className="space-y-4">
+                      <Alert className="border-green-200 bg-green-50">
+                        <Check className="w-4 h-4 text-green-600" />
+                        <AlertDescription className="text-green-800">
+                          Successfully removed <strong>{dedupeResult.deleted || 0}</strong> duplicate member records.
+                        </AlertDescription>
+                      </Alert>
+                      
+                      <div className="grid grid-cols-2 gap-4">
+                        <Card className="bg-green-50 border-green-200">
+                          <CardContent className="p-4 text-center">
+                            <p className="text-2xl font-bold text-green-700">{dedupeResult.deleted || 0}</p>
+                            <p className="text-sm text-green-600">Duplicates Removed</p>
+                          </CardContent>
+                        </Card>
+                        <Card className="bg-blue-50 border-blue-200">
+                          <CardContent className="p-4 text-center">
+                            <p className="text-2xl font-bold text-blue-700">{dedupeResult.summary?.totalDuplicateEmails || 0}</p>
+                            <p className="text-sm text-blue-600">Unique Members Kept</p>
+                          </CardContent>
+                        </Card>
+                      </div>
+                      
+                      {dedupeResult.errors?.length > 0 && (
+                        <Alert variant="destructive">
+                          <AlertCircle className="w-4 h-4" />
+                          <AlertDescription>
+                            Some errors occurred during deduplication:
+                            <ul className="list-disc pl-4 mt-2">
+                              {dedupeResult.errors.map((err, i) => (
+                                <li key={i}>Batch {err.batch}: {err.error}</li>
+                              ))}
+                            </ul>
+                          </AlertDescription>
+                        </Alert>
+                      )}
+                      
+                      <Button onClick={resetDedupe} className="w-full" data-testid="button-new-dedupe">
+                        <RefreshCw className="w-4 h-4 mr-2" />
+                        Run Another Deduplication
+                      </Button>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+              
+              {/* Help Card */}
+              <Card className="mt-4 border-blue-200 bg-blue-50">
+                <CardContent className="p-4">
+                  <div className="text-sm text-blue-800 space-y-2">
+                    <p className="font-medium">How Deduplication Works:</p>
+                    <ul className="list-disc pl-5 space-y-1">
+                      <li><strong>Matching:</strong> Members are matched by email address (case-insensitive)</li>
+                      <li><strong>Priority:</strong> Members with a role assigned are kept over those without</li>
+                      <li><strong>Tiebreaker:</strong> If both/neither have roles, the older record is kept</li>
+                      <li><strong>Exclusions:</strong> Members in excluded organisations or with excluded roles are skipped</li>
+                    </ul>
+                  </div>
+                </CardContent>
+              </Card>
             </div>
           </TabsContent>
         </Tabs>
