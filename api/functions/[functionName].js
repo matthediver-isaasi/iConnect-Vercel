@@ -2428,6 +2428,7 @@ const functionHandlers = {
               };
 
               console.log(`[Xero] Sending invoice to Xero API - Amount: £${validatedRemainingBalance.toFixed(2)}, Reference: ${invoiceReference}, DueDate: ${dueDateString}`);
+              console.log(`[Xero] Invoice payload: ${JSON.stringify(invoicePayload).substring(0, 500)}`);
 
               const invoiceResponse = await fetch('https://api.xero.com/api.xro/2.0/Invoices', {
                 method: 'POST',
@@ -2489,6 +2490,18 @@ const functionHandlers = {
                 if (invoiceData?.ErrorNumber) {
                   console.error(`[Xero] Error details: ${invoiceData.ErrorNumber} - ${invoiceData.Message}`);
                 }
+                // Log full validation errors if present
+                if (invoiceData?.Elements) {
+                  invoiceData.Elements.forEach((element, idx) => {
+                    if (element.ValidationErrors) {
+                      element.ValidationErrors.forEach((ve, veIdx) => {
+                        console.error(`[Xero] Validation error ${idx}.${veIdx}: ${ve.Message}`);
+                      });
+                    }
+                  });
+                }
+                // Log raw response for debugging
+                console.error(`[Xero] Full response: ${JSON.stringify(invoiceData).substring(0, 1000)}`);
               }
             }
           } catch (xeroError) {
