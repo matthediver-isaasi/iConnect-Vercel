@@ -168,6 +168,13 @@ export default async function handler(req, res) {
       let totalSkipped = 0;
       let totalErrors = 0;
       
+      // Debug: log first record to verify data structure
+      if (batch.length > 0) {
+        console.log('[Import] Sample record:', JSON.stringify(batch[0]));
+        const withEmails = batch.filter(r => r.email && r.email.trim());
+        console.log(`[Import] Records with emails: ${withEmails.length} of ${batch.length}`);
+      }
+      
       for (let i = 0; i < batch.length; i += SQL_BATCH_SIZE) {
         const chunk = batch.slice(i, i + SQL_BATCH_SIZE);
         console.log(`[Import] SQL batch ${i + 1}-${Math.min(i + SQL_BATCH_SIZE, batch.length)} of ${batch.length}`);
@@ -175,6 +182,8 @@ export default async function handler(req, res) {
         const { data, error } = await supabase.rpc('process_member_import_batch', {
           batch: chunk
         });
+        
+        console.log(`[Import] RPC response:`, JSON.stringify({ data, error }));
         
         if (error) {
           console.log(`[Import] SQL function failed: ${error.message}, falling back to JS...`);
