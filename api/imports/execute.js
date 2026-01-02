@@ -344,11 +344,62 @@ export default async function handler(req, res) {
           .select('id, ' + identifierField);
         
         if (insertError) {
-          console.log(`[Import] Batch insert error: ${insertError.message}`);
-          toInsert.forEach(r => {
-            errorRows++;
-            errorLog.push({ row: r.rowIndex + 1, identifier: r.identifierValue, error: insertError.message });
-          });
+          // Handle unique constraint violation (code 23505) - likely duplicate email
+          if (insertError.code === '23505' && isEmailIdentifier) {
+            console.log(`[Import] Unique constraint violation, falling back to individual inserts...`);
+            // Fall back to individual inserts to identify which rows are duplicates
+            for (const record of toInsert) {
+              const { data: singleInserted, error: singleError } = await supabase
+                .from(tableName)
+                .insert(record.data)
+                .select('id, ' + identifierField)
+                .single();
+              
+              if (singleError) {
+                if (singleError.code === '23505') {
+                  // This is a duplicate - try to find and update instead
+                  const { data: existing } = await supabase
+                    .from(tableName)
+                    .select('id')
+                    .ilike('email', record.data.email)
+                    .single();
+                  
+                  if (existing) {
+                    const { error: updateError } = await supabase
+                      .from(tableName)
+                      .update(record.data)
+                      .eq('id', existing.id);
+                    
+                    if (!updateError) {
+                      updatedRows++;
+                      existingMap.set(record.data.email?.toLowerCase(), existing.id);
+                    } else {
+                      errorRows++;
+                      errorLog.push({ row: record.rowIndex + 1, identifier: record.identifierValue, error: 'Failed to update existing record' });
+                    }
+                  } else {
+                    errorRows++;
+                    errorLog.push({ row: record.rowIndex + 1, identifier: record.identifierValue, error: 'Duplicate email exists' });
+                  }
+                } else {
+                  errorRows++;
+                  errorLog.push({ row: record.rowIndex + 1, identifier: record.identifierValue, error: singleError.message });
+                }
+              } else if (singleInserted) {
+                createdRows++;
+                const lookupKey = isEmailIdentifier && singleInserted[identifierField]
+                  ? singleInserted[identifierField].toLowerCase()
+                  : singleInserted[identifierField];
+                existingMap.set(lookupKey, singleInserted.id);
+              }
+            }
+          } else {
+            console.log(`[Import] Batch insert error: ${insertError.message}`);
+            toInsert.forEach(r => {
+              errorRows++;
+              errorLog.push({ row: r.rowIndex + 1, identifier: r.identifierValue, error: insertError.message });
+            });
+          }
         } else {
           createdRows += inserted.length;
           
