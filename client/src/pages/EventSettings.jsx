@@ -25,6 +25,7 @@ export default function EventSettingsPage() {
   const [accessChecked, setAccessChecked] = useState(false);
   const [cancellationDeadlineHours, setCancellationDeadlineHours] = useState(24);
   const [xeroInvoiceEnabled, setXeroInvoiceEnabled] = useState(false);
+  const [xeroSalesAccountCode, setXeroSalesAccountCode] = useState("");
   const [summaryMaxLength, setSummaryMaxLength] = useState(150);
   const [descriptionPreviewLines, setDescriptionPreviewLines] = useState(3);
   const [showEventSeats, setShowEventSeats] = useState(true);
@@ -131,6 +132,11 @@ export default function EventSettingsPage() {
     const xeroSetting = settings.find(s => s.setting_key === 'xero_invoice_enabled');
     if (xeroSetting) {
       setXeroInvoiceEnabled(xeroSetting.setting_value === 'true');
+    }
+    
+    const xeroAccountSetting = settings.find(s => s.setting_key === 'xero_sales_account_code');
+    if (xeroAccountSetting) {
+      setXeroSalesAccountCode(xeroAccountSetting.setting_value || '');
     }
     
     // Load event types - migrate old string format to new object format
@@ -257,6 +263,22 @@ export default function EventSettingsPage() {
           setting_key: 'xero_invoice_enabled',
           setting_value: xeroInvoiceEnabled.toString(),
           description: 'Enable or disable Xero invoice generation for program ticket purchases'
+        });
+      }
+      
+      // Save Xero sales account code
+      const xeroAccountSetting = settings.find(s => s.setting_key === 'xero_sales_account_code');
+      
+      if (xeroAccountSetting) {
+        await base44.entities.SystemSettings.update(xeroAccountSetting.id, {
+          setting_value: xeroSalesAccountCode,
+          description: 'Default Xero account code for event invoices'
+        });
+      } else {
+        await base44.entities.SystemSettings.create({
+          setting_key: 'xero_sales_account_code',
+          setting_value: xeroSalesAccountCode,
+          description: 'Default Xero account code for event invoices'
         });
       }
       
@@ -1073,6 +1095,30 @@ export default function EventSettingsPage() {
                     checked={xeroInvoiceEnabled}
                     onCheckedChange={setXeroInvoiceEnabled}
                     data-testid="switch-xero-invoice"
+                  />
+                </div>
+              </div>
+              
+              {/* Default Xero Account Code */}
+              <div className="flex items-center justify-between pt-4 border-t border-slate-200">
+                <div className="space-y-1">
+                  <Label htmlFor="xero-account-code">
+                    Default Xero Account Code
+                  </Label>
+                  <p className="text-xs text-slate-500">
+                    The Xero account code to use for event invoice line items (e.g., 200 for Sales).
+                    Check your Xero Chart of Accounts for valid codes.
+                  </p>
+                </div>
+                <div className="flex items-center gap-4">
+                  <Input
+                    id="xero-account-code"
+                    type="text"
+                    value={xeroSalesAccountCode}
+                    onChange={(e) => setXeroSalesAccountCode(e.target.value)}
+                    placeholder="e.g., 200"
+                    className="w-32"
+                    data-testid="input-xero-account-code"
                   />
                   <Button
                     onClick={handleSaveSettings}
