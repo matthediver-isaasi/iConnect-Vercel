@@ -23,9 +23,17 @@ DECLARE
   existing_id UUID;
   role_id_val UUID;
   org_id_val UUID;
+  new_member_id UUID;
   result JSON;
+  err_msg TEXT;
 BEGIN
-  -- Create temp table from JSON batch
+  -- Drop temp tables if they exist from previous calls
+  DROP TABLE IF EXISTS temp_import;
+  DROP TABLE IF EXISTS temp_roles;
+  DROP TABLE IF EXISTS temp_orgs;
+  DROP TABLE IF EXISTS temp_existing;
+
+  -- Create temp table from JSON batch (handle date parsing safely)
   CREATE TEMP TABLE temp_import AS
   SELECT 
     (row_data->>'email')::text as email,
@@ -35,23 +43,23 @@ BEGIN
     (row_data->>'organization_name')::text as organization_name,
     (row_data->>'phone')::text as phone,
     (row_data->>'job_title')::text as job_title,
-    (row_data->>'created_on')::date as created_on,
+    (row_data->>'created_on')::text as created_on_str,
     (row_data->>'row_index')::integer as row_index
   FROM jsonb_array_elements(batch) AS row_data;
 
   -- Build role lookup
   CREATE TEMP TABLE temp_roles AS
-  SELECT id::text as role_id, lower(trim(name)) as role_name_lower
+  SELECT id as role_id, lower(trim(name)) as role_name_lower
   FROM role;
 
   -- Build organization lookup
   CREATE TEMP TABLE temp_orgs AS
-  SELECT id::text as org_id, lower(trim(name)) as org_name_lower
+  SELECT id as org_id, lower(trim(name)) as org_name_lower
   FROM organization;
 
   -- Build existing member lookup (case-insensitive email)
   CREATE TEMP TABLE temp_existing AS
-  SELECT id::text as member_id, lower(trim(email)) as email_lower
+  SELECT id as member_id, lower(trim(email)) as email_lower
   FROM member
   WHERE email IS NOT NULL AND trim(email) != '';
 
@@ -67,7 +75,7 @@ BEGIN
       -- Look up role by name (case-insensitive)
       role_id_val := NULL;
       IF rec.role_name IS NOT NULL AND trim(rec.role_name) != '' THEN
-        SELECT role_id::uuid INTO role_id_val
+        SELECT role_id INTO role_id_val
         FROM temp_roles
         WHERE role_name_lower = lower(trim(rec.role_name))
         LIMIT 1;
@@ -76,14 +84,15 @@ BEGIN
       -- Look up organization by name (case-insensitive)
       org_id_val := NULL;
       IF rec.organization_name IS NOT NULL AND trim(rec.organization_name) != '' THEN
-        SELECT org_id::uuid INTO org_id_val
+        SELECT org_id INTO org_id_val
         FROM temp_orgs
         WHERE org_name_lower = lower(trim(rec.organization_name))
         LIMIT 1;
       END IF;
 
       -- Check if member exists (case-insensitive email)
-      SELECT member_id::uuid INTO existing_id
+      existing_id := NULL;
+      SELECT member_id INTO existing_id
       FROM temp_existing
       WHERE email_lower = lower(trim(rec.email))
       LIMIT 1;
@@ -102,8 +111,8 @@ BEGIN
         
         updated_count := updated_count + 1;
       ELSE
-        -- Insert new member
-        INSERT INTO member (email, first_name, last_name, phone, job_title, role_id, organization_id, created_on)
+        -- Insert new member and get the new ID
+        INSERT INTO member (email, first_name, last_name, phone, job_title, role_id, organization_id)
         VALUES (
           trim(rec.email),
           NULLIF(trim(rec.first_name), ''),
@@ -111,18 +120,20 @@ BEGIN
           NULLIF(trim(rec.phone), ''),
           NULLIF(trim(rec.job_title), ''),
           role_id_val,
-          org_id_val,
-          COALESCE(rec.created_on, CURRENT_DATE)
-        );
+          org_id_val
+        )
+        RETURNING id INTO new_member_id;
         
         created_count := created_count + 1;
         
         -- Add to existing lookup to prevent duplicates within batch
         INSERT INTO temp_existing (member_id, email_lower)
-        VALUES (currval('member_id_seq')::text, lower(trim(rec.email)));
+        VALUES (new_member_id, lower(trim(rec.email)));
       END IF;
 
     EXCEPTION WHEN OTHERS THEN
+      GET STACKED DIAGNOSTICS err_msg = MESSAGE_TEXT;
+      RAISE NOTICE 'Error processing row %: %', rec.row_index, err_msg;
       error_count := error_count + 1;
     END;
   END LOOP;
