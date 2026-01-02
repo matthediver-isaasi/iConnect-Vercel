@@ -9,6 +9,15 @@ const supabase = supabaseUrl && supabaseServiceKey
   ? createClient(supabaseUrl, supabaseServiceKey)
   : null;
 
+// Parse boolean values (true/false/yes/no) case-insensitively
+function parseBoolean(value) {
+  if (value === null || value === undefined) return null;
+  const str = String(value).trim().toLowerCase();
+  if (['true', 'yes', '1', 'y', 't'].includes(str)) return true;
+  if (['false', 'no', '0', 'n', 'f'].includes(str)) return false;
+  return null;
+}
+
 function parseDate(dateStr, format) {
   if (!dateStr || !format) return null;
   
@@ -609,6 +618,64 @@ export default async function handler(req, res) {
         console.log(`[Import] Failed to create member notes: ${memberNotesError.message}`);
       } else {
         console.log(`[Import] Created ${memberNotesToCreate.length} member notes successfully`);
+      }
+    }
+    
+    // Handle communication preferences for member imports
+    const commMappings = mappings.filter(m => m.targetField?.startsWith('comm:'));
+    if (entityType === 'member' && commMappings.length > 0) {
+      console.log(`[Import] Processing ${commMappings.length} communication preference mappings...`);
+      
+      const commPrefsToUpsert = [];
+      
+      for (let i = 0; i < records.length; i++) {
+        const row = records[i];
+        const identifierValue = row[identifierMapping.sourceColumn]?.trim();
+        if (!identifierValue) continue;
+        
+        const lookupKey = isEmailIdentifier ? identifierValue.toLowerCase() : identifierValue;
+        const entityId = existingMap.get(lookupKey);
+        if (!entityId) continue;
+        
+        for (const mapping of commMappings) {
+          const categoryId = mapping.targetField.replace('comm:', '');
+          if (!categoryId) continue;
+          
+          const rawValue = row[mapping.sourceColumn];
+          const optedIn = parseBoolean(rawValue);
+          
+          // Only upsert if we have a valid boolean value
+          if (optedIn !== null) {
+            commPrefsToUpsert.push({
+              member_id: entityId,
+              category_id: categoryId,
+              opted_in: optedIn
+            });
+          }
+        }
+      }
+      
+      // Batch upsert communication preferences
+      if (commPrefsToUpsert.length > 0) {
+        console.log(`[Import] Upserting ${commPrefsToUpsert.length} communication preferences...`);
+        
+        // Process in smaller batches to avoid memory issues
+        const COMM_BATCH_SIZE = 500;
+        for (let i = 0; i < commPrefsToUpsert.length; i += COMM_BATCH_SIZE) {
+          const chunk = commPrefsToUpsert.slice(i, i + COMM_BATCH_SIZE);
+          
+          const { error: commError } = await supabase
+            .from('member_communication_preference')
+            .upsert(chunk, {
+              onConflict: 'member_id,category_id'
+            });
+          
+          if (commError) {
+            console.log(`[Import] Communication preference upsert error: ${commError.message}`);
+          }
+        }
+        
+        console.log(`[Import] Communication preferences processed successfully`);
       }
     }
     

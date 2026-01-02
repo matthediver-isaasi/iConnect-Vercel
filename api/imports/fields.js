@@ -84,6 +84,29 @@ export default async function handler(req, res) {
       console.error('[Import Fields] Error fetching custom fields:', error);
     }
     
+    // Fetch communication categories for member imports
+    let communicationFields = [];
+    if (entityType === 'member') {
+      const { data: commCategories, error: commError } = await supabase
+        .from('communication_category')
+        .select('id, name, description')
+        .eq('is_active', true)
+        .order('display_order', { ascending: true });
+      
+      if (commError) {
+        console.error('[Import Fields] Error fetching communication categories:', commError);
+      }
+      
+      communicationFields = (commCategories || []).map(c => ({
+        key: `comm:${c.id}`,
+        label: c.name,
+        description: c.description,
+        type: 'boolean',
+        scope: 'communication',
+        categoryId: c.id
+      }));
+    }
+    
     res.json({
       core: coreFields.map(f => ({ ...f, scope: 'core' })),
       custom: (customFields || []).map(f => ({
@@ -92,7 +115,8 @@ export default async function handler(req, res) {
         type: f.field_type || 'text',
         scope: 'custom',
         preferenceFieldId: f.id
-      }))
+      })),
+      communication: communicationFields
     });
   } catch (error) {
     console.error('[Import Fields] Error:', error);

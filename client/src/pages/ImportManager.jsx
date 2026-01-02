@@ -267,7 +267,7 @@ export default function ImportManager() {
       
       // If setting target field, also set scope, preferenceFieldId, and type for custom fields
       if (field === 'targetField' && value) {
-        const allFields = [...(availableFields?.core || []), ...(availableFields?.custom || [])];
+        const allFields = [...(availableFields?.core || []), ...(availableFields?.custom || []), ...(availableFields?.communication || [])];
         const targetDef = allFields.find(f => f.key === value);
         if (targetDef) {
           updated[index].targetScope = targetDef.scope;
@@ -400,7 +400,7 @@ export default function ImportManager() {
     );
   }
 
-  const allFields = [...(availableFields?.core || []), ...(availableFields?.custom || [])];
+  const allFields = [...(availableFields?.core || []), ...(availableFields?.custom || []), ...(availableFields?.communication || [])];
   const identifierOptions = activeTab === 'organization' 
     ? ['name', 'email', 'external_id', 'slug']
     : ['email', 'external_id'];
@@ -611,6 +611,18 @@ export default function ImportManager() {
                                           <span className="font-semibold text-slate-500">Custom Fields</span>
                                         </SelectItem>
                                         {availableFields.custom.map(f => (
+                                          <SelectItem key={f.key} value={f.key}>
+                                            {f.label}
+                                          </SelectItem>
+                                        ))}
+                                      </>
+                                    )}
+                                    {activeTab === 'member' && availableFields?.communication?.length > 0 && (
+                                      <>
+                                        <SelectItem disabled value="__comm_header__">
+                                          <span className="font-semibold text-slate-500">Communication Preferences</span>
+                                        </SelectItem>
+                                        {availableFields.communication.map(f => (
                                           <SelectItem key={f.key} value={f.key}>
                                             {f.label}
                                           </SelectItem>
