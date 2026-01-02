@@ -40,7 +40,8 @@ BEGIN
     (row_data->>'last_name')::text as last_name,
     (row_data->>'role_name')::text as role_name,
     (row_data->>'organization_name')::text as organization_name,
-    (row_data->>'phone')::text as phone,
+    (row_data->>'mobile')::text as mobile,
+    (row_data->>'landline')::text as landline,
     (row_data->>'job_title')::text as job_title,
     (row_data->>'row_index')::integer as row_index
   FROM jsonb_array_elements(batch) AS row_data;
@@ -101,7 +102,8 @@ BEGIN
         SET 
           first_name = COALESCE(NULLIF(trim(rec.first_name), ''), first_name),
           last_name = COALESCE(NULLIF(trim(rec.last_name), ''), last_name),
-          phone = COALESCE(NULLIF(trim(rec.phone), ''), phone),
+          mobile = COALESCE(NULLIF(trim(rec.mobile), ''), mobile),
+          landline = COALESCE(NULLIF(trim(rec.landline), ''), landline),
           job_title = COALESCE(NULLIF(trim(rec.job_title), ''), job_title),
           role_id = COALESCE(role_id_val, role_id),
           organization_id = COALESCE(org_id_val, organization_id)
@@ -110,12 +112,13 @@ BEGIN
         updated_count := updated_count + 1;
       ELSE
         -- Insert new member
-        INSERT INTO member (email, first_name, last_name, phone, job_title, role_id, organization_id)
+        INSERT INTO member (email, first_name, last_name, mobile, landline, job_title, role_id, organization_id)
         VALUES (
           trim(rec.email),
           NULLIF(trim(rec.first_name), ''),
           NULLIF(trim(rec.last_name), ''),
-          NULLIF(trim(rec.phone), ''),
+          NULLIF(trim(rec.mobile), ''),
+          NULLIF(trim(rec.landline), ''),
           NULLIF(trim(rec.job_title), ''),
           role_id_val,
           org_id_val

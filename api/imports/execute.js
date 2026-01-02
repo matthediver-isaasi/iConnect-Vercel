@@ -151,7 +151,8 @@ export default async function handler(req, res) {
           if (mapping.targetField === 'email') record.email = value;
           else if (mapping.targetField === 'first_name') record.first_name = value;
           else if (mapping.targetField === 'last_name') record.last_name = value;
-          else if (mapping.targetField === 'phone') record.phone = value;
+          else if (mapping.targetField === 'mobile') record.mobile = value;
+          else if (mapping.targetField === 'landline') record.landline = value;
           else if (mapping.targetField === 'job_title') record.job_title = value;
           else if (mapping.targetField === 'role_id') record.role_name = value; // Pass name, SQL will lookup
           else if (mapping.targetField === 'organization_id') record.organization_name = value; // Pass name, SQL will lookup
