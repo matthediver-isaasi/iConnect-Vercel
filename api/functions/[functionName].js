@@ -104,15 +104,21 @@ async function getValidXeroAccessToken() {
 }
 
 // Helper: Find or create Xero contact
-async function findOrCreateXeroContact(accessToken, tenantId, organizationName) {
-  console.log(`[Xero] Finding/creating contact for organization: ${organizationName}`);
+// contactInfo: { name: string, email?: string, isOrganization: boolean }
+async function findOrCreateXeroContact(accessToken, tenantId, contactInfo) {
+  // Support legacy string-only calls
+  const info = typeof contactInfo === 'string' 
+    ? { name: contactInfo, email: null, isOrganization: true }
+    : contactInfo;
   
-  // Search for existing contact
-  const escapedOrgName = organizationName.replace(/"/g, '\\"');
-  console.log(`[Xero] Searching for existing contact...`);
+  console.log(`[Xero] Finding/creating contact: ${info.name} (${info.isOrganization ? 'organization' : 'individual'})`);
+  
+  // Search for existing contact by name
+  const escapedName = info.name.replace(/"/g, '\\"');
+  console.log(`[Xero] Searching for existing contact by name...`);
   
   const contactSearchResponse = await fetch(
-    `https://api.xero.com/api.xro/2.0/Contacts?where=${encodeURIComponent(`Name=="${escapedOrgName}"`)}`,
+    `https://api.xero.com/api.xro/2.0/Contacts?where=${encodeURIComponent(`Name=="${escapedName}"`)}`,
     {
       headers: {
         'Authorization': `Bearer ${accessToken}`,
@@ -130,8 +136,13 @@ async function findOrCreateXeroContact(accessToken, tenantId, organizationName) 
     return contactData.Contacts[0].ContactID;
   }
 
-  // Create new contact
+  // Create new contact with email if provided (useful for individual contacts)
   console.log(`[Xero] No existing contact found, creating new contact...`);
+  const newContact = { Name: info.name };
+  if (info.email) {
+    newContact.EmailAddress = info.email;
+  }
+  
   const createContactResponse = await fetch('https://api.xero.com/api.xro/2.0/Contacts', {
     method: 'POST',
     headers: {
@@ -139,7 +150,7 @@ async function findOrCreateXeroContact(accessToken, tenantId, organizationName) 
       'xero-tenant-id': tenantId,
       'Content-Type': 'application/json'
     },
-    body: JSON.stringify({ Contacts: [{ Name: organizationName }] })
+    body: JSON.stringify({ Contacts: [newContact] })
   });
 
   console.log(`[Xero] Create contact response status: ${createContactResponse.status}`);
@@ -1800,18 +1811,23 @@ const functionHandlers = {
       member = memberData;
       console.log('[createOneOffEventBooking] Member found:', member.id, member.email);
       
-      // Get organization (only for member bookings)
-      const { data: orgData, error: orgError } = await supabase
-        .from('organization')
-        .select('*')
-        .eq('id', member.organization_id)
-        .single();
+      // Get organization if member has one (optional - some members like Alumni may not have an org)
+      if (member.organization_id) {
+        const { data: orgData, error: orgError } = await supabase
+          .from('organization')
+          .select('*')
+          .eq('id', member.organization_id)
+          .single();
 
-      if (orgError || !orgData) {
-        console.error('[createOneOffEventBooking] Organization not found');
-        return { success: false, error: 'Organization not found' };
+        if (!orgError && orgData) {
+          org = orgData;
+          console.log('[createOneOffEventBooking] Organization found:', org.name);
+        } else {
+          console.log('[createOneOffEventBooking] Organization lookup failed, proceeding without org:', orgError?.message);
+        }
+      } else {
+        console.log('[createOneOffEventBooking] Member has no organization_id, proceeding without org');
       }
-      org = orgData;
     } else {
       console.log('[createOneOffEventBooking] Guest booking - no member lookup needed');
     }
@@ -2211,9 +2227,55 @@ const functionHandlers = {
 
     // Xero invoices are created for ANY payment method when there's a balance due
     // Only skip when training funds/vouchers completely cover the cost (zero balance)
-    // Guest bookings don't get invoices (no organization to bill)
-    if (!isGuestBooking && validatedRemainingBalance > 0 && org) {
-      console.log(`[Xero] Checking if invoice should be created - balance: £${validatedRemainingBalance.toFixed(2)}, org: ${org.name}`);
+    // Invoice to: organization (if linked) > plain text org > individual name
+    if (validatedRemainingBalance > 0) {
+      // Resolve invoice contact using priority: linked org > guest plain text org > individual name
+      let invoiceContactInfo = null;
+      
+      if (org) {
+        // Member with linked organization
+        invoiceContactInfo = {
+          name: org.name,
+          email: null, // Organizations don't need email in Xero contact
+          isOrganization: true
+        };
+        console.log(`[Xero] Invoice to linked organization: ${org.name}`);
+      } else if (isGuestBooking && guestInfo) {
+        // Guest booking - use guest's organization or personal details
+        if (guestInfo.organization && guestInfo.organization.trim()) {
+          invoiceContactInfo = {
+            name: guestInfo.organization.trim(),
+            email: guestInfo.email,
+            isOrganization: true
+          };
+          console.log(`[Xero] Invoice to guest organization: ${guestInfo.organization}`);
+        } else {
+          // No organization provided - invoice to individual
+          const guestName = `${guestInfo.first_name || ''} ${guestInfo.last_name || ''}`.trim();
+          invoiceContactInfo = {
+            name: guestName || guestInfo.email,
+            email: guestInfo.email,
+            isOrganization: false
+          };
+          console.log(`[Xero] Invoice to guest individual: ${invoiceContactInfo.name}`);
+        }
+      } else if (member) {
+        // Member without linked organization - invoice to individual member
+        const memberName = `${member.first_name || ''} ${member.last_name || ''}`.trim();
+        invoiceContactInfo = {
+          name: memberName || member.email,
+          email: member.email,
+          isOrganization: false
+        };
+        console.log(`[Xero] Invoice to member individual: ${invoiceContactInfo.name}`);
+      }
+      
+      if (!invoiceContactInfo || !invoiceContactInfo.name) {
+        console.log(`[Xero] Cannot determine invoice contact - skipping invoice creation`);
+        xeroDebug.error = 'Cannot determine invoice contact';
+      } else {
+        xeroDebug.invoiceContactInfo = invoiceContactInfo;
+        console.log(`[Xero] Checking if invoice should be created - balance: £${validatedRemainingBalance.toFixed(2)}, contact: ${invoiceContactInfo.name}`);
       
       // Check if Xero invoice generation is enabled
       const { data: xeroSettings, error: xeroSettingsError } = await supabase
@@ -2247,9 +2309,8 @@ const functionHandlers = {
             console.error(`[Xero] Missing token or tenantId - cannot create invoice`);
             xeroDebug.error = 'Missing access token or tenant ID';
           } else {
-            // Find or create Xero contact
-            console.log(`[Xero] Finding/creating contact for organization: ${org.name}`);
-            const contactId = await findOrCreateXeroContact(accessToken, tenantId, org.name);
+            // Find or create Xero contact using resolved contact info
+            const contactId = await findOrCreateXeroContact(accessToken, tenantId, invoiceContactInfo);
             xeroDebug.contactId = contactId;
             console.log(`[Xero] Contact ID: ${contactId}`);
 
@@ -2438,15 +2499,10 @@ const functionHandlers = {
           // Don't fail the booking, just log the error
         }
       }
+      } // close invoiceContactInfo else block
     } else {
-      // Log why invoice was skipped
-      if (isGuestBooking) {
-        console.log(`[Xero] Invoice skipped - guest booking (no organization to bill)`);
-      } else if (validatedRemainingBalance <= 0) {
-        console.log(`[Xero] Invoice skipped - zero balance (fully covered by training funds/vouchers)`);
-      } else if (!org) {
-        console.log(`[Xero] Invoice skipped - no organization found for member`);
-      }
+      // Invoice skipped - zero balance (fully covered by training funds/vouchers)
+      console.log(`[Xero] Invoice skipped - zero balance (fully covered by training funds/vouchers)`);
     }
 
     // Decrement available seats for the event (if not unlimited)
