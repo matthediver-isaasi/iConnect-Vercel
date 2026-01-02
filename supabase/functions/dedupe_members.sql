@@ -1,6 +1,6 @@
 -- Supabase SQL function for member deduplication
 -- Run this in Supabase SQL Editor to create the functions
--- NOTE: This version handles both UUID and TEXT column types
+-- NOTE: This version handles mixed UUID/TEXT column types
 
 -- Drop ALL existing versions of these functions first
 DROP FUNCTION IF EXISTS preview_duplicate_members(UUID[], UUID[], INTEGER);
@@ -12,8 +12,8 @@ DROP FUNCTION IF EXISTS execute_duplicate_members;
 
 -- Function to preview duplicate members (returns summary and first N groups)
 CREATE OR REPLACE FUNCTION preview_duplicate_members(
-  exclude_org_ids TEXT[] DEFAULT '{}',
-  exclude_role_ids TEXT[] DEFAULT '{}',
+  exclude_org_ids TEXT[] DEFAULT ARRAY[]::TEXT[],
+  exclude_role_ids TEXT[] DEFAULT ARRAY[]::TEXT[],
   max_groups INTEGER DEFAULT 100
 )
 RETURNS JSON
@@ -25,12 +25,12 @@ DECLARE
 BEGIN
   WITH filtered_members AS (
     SELECT 
-      id,
+      id::text as id,
       email,
       first_name,
       last_name,
-      role_id,
-      organization_id,
+      role_id::text as role_id,
+      organization_id::text as organization_id,
       created_on
     FROM member
     WHERE email IS NOT NULL 
@@ -114,8 +114,8 @@ $$;
 
 -- Function to execute member deduplication (deletes duplicates, keeps one per email)
 CREATE OR REPLACE FUNCTION execute_duplicate_members(
-  exclude_org_ids TEXT[] DEFAULT '{}',
-  exclude_role_ids TEXT[] DEFAULT '{}'
+  exclude_org_ids TEXT[] DEFAULT ARRAY[]::TEXT[],
+  exclude_role_ids TEXT[] DEFAULT ARRAY[]::TEXT[]
 )
 RETURNS JSON
 LANGUAGE plpgsql
@@ -126,14 +126,14 @@ DECLARE
   keeper_count INTEGER := 0;
   result JSON;
 BEGIN
-  -- Create temp table with ranked members
+  -- Create temp table with ranked members (all IDs as text to avoid type issues)
   CREATE TEMP TABLE temp_dedupe AS
   WITH filtered_members AS (
     SELECT 
-      id,
+      id::text as id,
       email,
-      role_id,
-      organization_id,
+      role_id::text as role_id,
+      organization_id::text as organization_id,
       created_on
     FROM member
     WHERE email IS NOT NULL 
@@ -173,34 +173,34 @@ BEGIN
   SELECT COUNT(DISTINCT email_lower) INTO keeper_count
   FROM temp_dedupe WHERE group_count > 1;
 
-  -- Update member_note references (target_member_id)
+  -- Update member_note references (target_member_id) - cast for comparison
   UPDATE member_note mn
-  SET target_member_id = td.keeper_id
+  SET target_member_id = td.keeper_id::uuid
   FROM temp_dedupe td
-  WHERE mn.target_member_id = td.id
+  WHERE mn.target_member_id::text = td.id
     AND td.rn > 1
     AND td.group_count > 1;
 
-  -- Update member_note references (author_member_id)
+  -- Update member_note references (author_member_id) - cast for comparison
   UPDATE member_note mn
-  SET author_member_id = td.keeper_id
+  SET author_member_id = td.keeper_id::uuid
   FROM temp_dedupe td
-  WHERE mn.author_member_id = td.id
+  WHERE mn.author_member_id::text = td.id
     AND td.rn > 1
     AND td.group_count > 1;
 
-  -- Update organization_note references
+  -- Update organization_note references - cast for comparison
   UPDATE organization_note orgn
-  SET member_id = td.keeper_id
+  SET member_id = td.keeper_id::uuid
   FROM temp_dedupe td
-  WHERE orgn.member_id = td.id
+  WHERE orgn.member_id::text = td.id
     AND td.rn > 1
     AND td.group_count > 1;
 
-  -- Delete duplicates (keep rn=1)
+  -- Delete duplicates (keep rn=1) - cast for comparison
   DELETE FROM member m
   USING temp_dedupe td
-  WHERE m.id = td.id
+  WHERE m.id::text = td.id
     AND td.rn > 1
     AND td.group_count > 1;
 
@@ -224,10 +224,8 @@ BEGIN
 END;
 $$;
 
--- Grant execute permissions to authenticated users
-GRANT EXECUTE ON FUNCTION preview_duplicate_members TO authenticated;
-GRANT EXECUTE ON FUNCTION execute_duplicate_members TO authenticated;
-
--- Also grant to service role for API access
-GRANT EXECUTE ON FUNCTION preview_duplicate_members TO service_role;
-GRANT EXECUTE ON FUNCTION execute_duplicate_members TO service_role;
+-- Grant execute permissions
+GRANT EXECUTE ON FUNCTION preview_duplicate_members(TEXT[], TEXT[], INTEGER) TO authenticated;
+GRANT EXECUTE ON FUNCTION preview_duplicate_members(TEXT[], TEXT[], INTEGER) TO service_role;
+GRANT EXECUTE ON FUNCTION execute_duplicate_members(TEXT[], TEXT[]) TO authenticated;
+GRANT EXECUTE ON FUNCTION execute_duplicate_members(TEXT[], TEXT[]) TO service_role;
