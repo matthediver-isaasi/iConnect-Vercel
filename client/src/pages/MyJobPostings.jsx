@@ -465,7 +465,7 @@ export default function MyJobPostingsPage() {
                     </div>
 
                     <p className="text-sm text-slate-600 line-clamp-2 leading-relaxed mb-4">
-                      {job.description?.substring(0, 150)}...
+                      {job.description?.replace(/<[^>]*>/g, '').substring(0, 150)}...
                     </p>
 
                     <div className="flex gap-2 pt-4 border-t border-slate-200">
