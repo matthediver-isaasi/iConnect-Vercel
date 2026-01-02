@@ -4882,6 +4882,174 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ============ Member Field Permissions ============
+  
+  // Get all member field permissions for a role (admin only)
+  app.get('/api/roles/:roleId/member-field-permissions', async (req: Request, res: Response) => {
+    const { isAdmin, error } = await verifyAdminSession(req);
+    
+    if (error) {
+      return res.status(401).json({ error });
+    }
+    
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    if (!supabase) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+
+    try {
+      const { roleId } = req.params;
+
+      const { data: permissions, error: fetchError } = await supabase
+        .from('role_member_field_permission')
+        .select('*')
+        .eq('role_id', roleId);
+
+      if (fetchError) {
+        console.error('[Get Role Member Field Permissions] Error:', fetchError);
+        return res.status(500).json({ error: fetchError.message });
+      }
+
+      // Convert to a map for easier frontend usage
+      const permissionMap: Record<string, string> = {};
+      (permissions || []).forEach((p: any) => {
+        permissionMap[p.field_key] = p.permission;
+      });
+
+      res.json(permissionMap);
+    } catch (error) {
+      console.error('[Get Role Member Field Permissions] Error:', error);
+      res.status(500).json({ error: 'Failed to get member field permissions' });
+    }
+  });
+
+  // Update member field permissions for a role (batch update)
+  app.put('/api/roles/:roleId/member-field-permissions', async (req: Request, res: Response) => {
+    const { isAdmin, error } = await verifyAdminSession(req);
+    
+    if (error) {
+      return res.status(401).json({ error });
+    }
+    
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    if (!supabase) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+
+    try {
+      const { roleId } = req.params;
+      const permissions = req.body; // Array of { field_key, permission }
+
+      if (!Array.isArray(permissions)) {
+        return res.status(400).json({ error: 'Request body must be an array of { field_key, permission }' });
+      }
+
+      // Validate permission values
+      const validPermissions = ['hidden', 'read', 'read_write'];
+      for (const { field_key, permission } of permissions) {
+        if (!validPermissions.includes(permission)) {
+          return res.status(400).json({ 
+            error: `Invalid permission '${permission}' for field '${field_key}'. Must be one of: ${validPermissions.join(', ')}` 
+          });
+        }
+      }
+
+      // Delete all existing permissions for this role
+      const { error: deleteError } = await supabase
+        .from('role_member_field_permission')
+        .delete()
+        .eq('role_id', roleId);
+
+      if (deleteError) {
+        console.error('[Delete Role Member Field Permissions] Error:', deleteError);
+        return res.status(500).json({ error: deleteError.message });
+      }
+
+      // Insert new permissions (only those that aren't 'read_write' as that's the default)
+      const permissionsToInsert = permissions
+        .filter(({ permission }) => permission !== 'read_write')
+        .map(({ field_key, permission }) => ({
+          role_id: roleId,
+          field_key,
+          permission
+        }));
+
+      if (permissionsToInsert.length > 0) {
+        const { error: insertError } = await supabase
+          .from('role_member_field_permission')
+          .insert(permissionsToInsert);
+
+        if (insertError) {
+          console.error('[Insert Role Member Field Permissions] Error:', insertError);
+          return res.status(500).json({ error: insertError.message });
+        }
+      }
+
+      res.json({ success: true, count: permissionsToInsert.length });
+    } catch (error) {
+      console.error('[Update Role Member Field Permissions] Error:', error);
+      res.status(500).json({ error: 'Failed to update member field permissions' });
+    }
+  });
+
+  // Get member field permissions for the current member's role (for About-me/Preferences page)
+  app.get('/api/my-member-field-permissions', async (req: Request, res: Response) => {
+    if (!supabase) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+
+    try {
+      const memberEmail = req.session?.memberEmail;
+      if (!memberEmail) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+
+      // Get member's role
+      const { data: member, error: memberError } = await supabase
+        .from('member')
+        .select('role_id')
+        .ilike('email', memberEmail)
+        .single();
+
+      if (memberError || !member) {
+        console.error('[Get My Member Field Permissions] Member error:', memberError);
+        return res.status(404).json({ error: 'Member not found' });
+      }
+
+      if (!member.role_id) {
+        // No role assigned, return empty (default to read_write for all)
+        return res.json({});
+      }
+
+      const { data: permissions, error: fetchError } = await supabase
+        .from('role_member_field_permission')
+        .select('*')
+        .eq('role_id', member.role_id);
+
+      if (fetchError) {
+        console.error('[Get My Member Field Permissions] Error:', fetchError);
+        return res.status(500).json({ error: fetchError.message });
+      }
+
+      // Convert to a map for easier frontend usage
+      const permissionMap: Record<string, string> = {};
+      (permissions || []).forEach((p: any) => {
+        permissionMap[p.field_key] = p.permission;
+      });
+
+      res.json(permissionMap);
+    } catch (error) {
+      console.error('[Get My Member Field Permissions] Error:', error);
+      res.status(500).json({ error: 'Failed to get member field permissions' });
+    }
+  });
+
   // ============ Migration Routes ============
   
   // Fix PortalMenu parent_id values (one-time migration)

@@ -116,6 +116,7 @@ const builtInPages = [
   { value: "OrganisationDirectory", label: "Organisation Directory" },
   { value: "OrganisationDirectorySettings", label: "Organisation Directory Settings" },
   { value: "OrganisationPreferences", label: "Organisation Field Permissions" },
+  { value: "MemberPreferences", label: "Member Field Permissions" },
   { value: "organisations", label: "Organisations (CRM)" },
   { value: "PageBannerManagement", label: "Page Banners" },
   { value: "PageVisibilitySettings", label: "Page Visibility Settings" },

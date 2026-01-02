@@ -104,5 +104,6 @@ export const PAGE_NAMES = [
   "EmailTemplateManagement",
   "WorkflowManagement",
   "OrganisationPreferences",
+  "MemberPreferences",
   "RedirectManagement",
 ];

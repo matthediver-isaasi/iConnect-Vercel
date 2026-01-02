@@ -232,6 +232,8 @@ import MyOrganisation from "./MyOrganisation";
 
 import OrganisationPreferences from "./OrganisationPreferences";
 
+import MemberPreferences from "./MemberPreferences";
+
 import MemberRoleReport from "./MemberRoleReport";
 
 import DynamicDirectoryManagement from "./DynamicDirectoryManagement";
@@ -761,6 +763,8 @@ function PagesContent() {
                 <Route path="/MyOrganisation" element={<MyOrganisation />} />
                 
                 <Route path="/OrganisationPreferences" element={<OrganisationPreferences />} />
+                
+                <Route path="/MemberPreferences" element={<MemberPreferences />} />
                 
                 <Route path="/MemberRoleReport" element={<MemberRoleReport />} />
                 

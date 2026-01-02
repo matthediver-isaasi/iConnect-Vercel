@@ -244,6 +244,36 @@ export default function PreferencesPage() {
   // Use useMemberAccess hook to check both role-level and member-level feature exclusions
   const { isFeatureExcluded } = useMemberAccess();
 
+  // Fetch member field permissions for current role
+  const { data: memberFieldPermissions = {} } = useQuery({
+    queryKey: ['my-member-field-permissions'],
+    enabled: !!memberRecord,
+    queryFn: async () => {
+      try {
+        const response = await fetch('/api/my-member-field-permissions', {
+          credentials: 'include'
+        });
+        if (!response.ok) return {};
+        return response.json();
+      } catch {
+        return {};
+      }
+    }
+  });
+
+  // Helper functions for field permissions
+  const getFieldPermission = (fieldKey) => {
+    return memberFieldPermissions[fieldKey] || 'read_write';
+  };
+
+  const canEditField = (fieldKey) => {
+    return getFieldPermission(fieldKey) === 'read_write';
+  };
+
+  const isFieldVisible = (fieldKey) => {
+    return getFieldPermission(fieldKey) !== 'hidden';
+  };
+
   // crude "is team member" flag – adjust if you later add a real column
   const isTeamMember =
     memberRecord?.is_team_member ?? false; // fallback to false if not present
@@ -1377,110 +1407,146 @@ export default function PreferencesPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label>Profile Photo</Label>
-                <div className="flex items-center gap-4">
-                  <div className="w-24 h-24 rounded-full bg-slate-100 flex items-center justify-center overflow-hidden border-2 border-slate-200">
-                    {profilePhotoUrl ? (
-                      <img
-                        src={profilePhotoUrl}
-                        alt="Profile"
-                        className="w-full h-full object-cover"
-                      />
+              {isFieldVisible('profile_photo_url') && (
+                <div className="space-y-2">
+                  <Label>Profile Photo</Label>
+                  <div className="flex items-center gap-4">
+                    <div className="w-24 h-24 rounded-full bg-slate-100 flex items-center justify-center overflow-hidden border-2 border-slate-200">
+                      {profilePhotoUrl ? (
+                        <img
+                          src={profilePhotoUrl}
+                          alt="Profile"
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <User className="w-12 h-12 text-slate-400" />
+                      )}
+                    </div>
+                    {canEditField('profile_photo_url') ? (
+                      <div>
+                        <input
+                          type="file"
+                          id="photo-upload"
+                          accept="image/*"
+                          onChange={handlePhotoUpload}
+                          className="hidden"
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          disabled={isUploadingPhoto}
+                          onClick={() =>
+                            document.getElementById("photo-upload").click()
+                          }
+                        >
+                          {isUploadingPhoto ? (
+                            <>
+                              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                              Uploading...
+                            </>
+                          ) : (
+                            <>
+                              <Upload className="w-4 h-4 mr-2" />
+                              Upload Photo
+                            </>
+                          )}
+                        </Button>
+                        <p className="text-xs text-slate-500 mt-1">
+                          JPG, PNG or GIF. Max 5MB.
+                        </p>
+                      </div>
                     ) : (
-                      <User className="w-12 h-12 text-slate-400" />
+                      <p className="text-xs text-slate-500">Read only</p>
                     )}
                   </div>
-                  <div>
-                    <input
-                      type="file"
-                      id="photo-upload"
-                      accept="image/*"
-                      onChange={handlePhotoUpload}
-                      className="hidden"
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      disabled={isUploadingPhoto}
-                      onClick={() =>
-                        document.getElementById("photo-upload").click()
-                      }
-                    >
-                      {isUploadingPhoto ? (
-                        <>
-                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                          Uploading...
-                        </>
-                      ) : (
-                        <>
-                          <Upload className="w-4 h-4 mr-2" />
-                          Upload Photo
-                        </>
-                      )}
-                    </Button>
-                    <p className="text-xs text-slate-500 mt-1">
-                      JPG, PNG or GIF. Max 5MB.
-                    </p>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {isFieldVisible('first_name') && (
+                  <div className="space-y-2">
+                    <Label htmlFor="firstName">First Name</Label>
+                    {canEditField('first_name') ? (
+                      <Input
+                        id="firstName"
+                        value={firstName}
+                        onChange={(e) => setFirstName(e.target.value)}
+                        placeholder="Enter your first name"
+                      />
+                    ) : (
+                      <p className="text-sm font-medium text-slate-900 p-2 bg-slate-50 rounded border">{firstName || <span className="text-slate-400 italic font-normal">Not set</span>}</p>
+                    )}
                   </div>
-                </div>
+                )}
+                {isFieldVisible('last_name') && (
+                  <div className="space-y-2">
+                    <Label htmlFor="lastName">Last Name</Label>
+                    {canEditField('last_name') ? (
+                      <Input
+                        id="lastName"
+                        value={lastName}
+                        onChange={(e) => setLastName(e.target.value)}
+                        placeholder="Enter your last name"
+                      />
+                    ) : (
+                      <p className="text-sm font-medium text-slate-900 p-2 bg-slate-50 rounded border">{lastName || <span className="text-slate-400 italic font-normal">Not set</span>}</p>
+                    )}
+                  </div>
+                )}
               </div>
+
+              {isFieldVisible('job_title') && (
+                <div className="space-y-2">
+                  <Label htmlFor="jobTitle">Job Title</Label>
+                  {canEditField('job_title') ? (
+                    <Input
+                      id="jobTitle"
+                      value={jobTitle}
+                      onChange={(e) => setJobTitle(e.target.value)}
+                      placeholder="e.g., Careers Adviser"
+                    />
+                  ) : (
+                    <p className="text-sm font-medium text-slate-900 p-2 bg-slate-50 rounded border">{jobTitle || <span className="text-slate-400 italic font-normal">Not set</span>}</p>
+                  )}
+                </div>
+              )}
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="firstName">First Name</Label>
-                  <Input
-                    id="firstName"
-                    value={firstName}
-                    onChange={(e) => setFirstName(e.target.value)}
-                    placeholder="Enter your first name"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="lastName">Last Name</Label>
-                  <Input
-                    id="lastName"
-                    value={lastName}
-                    onChange={(e) => setLastName(e.target.value)}
-                    placeholder="Enter your last name"
-                  />
-                </div>
+                {isFieldVisible('mobile') && (
+                  <div className="space-y-2">
+                    <Label htmlFor="mobile">Mobile</Label>
+                    {canEditField('mobile') ? (
+                      <Input
+                        id="mobile"
+                        value={mobile}
+                        onChange={(e) => setMobile(e.target.value)}
+                        placeholder="Enter your mobile number"
+                        data-testid="input-mobile"
+                      />
+                    ) : (
+                      <p className="text-sm font-medium text-slate-900 p-2 bg-slate-50 rounded border" data-testid="text-mobile">{mobile || <span className="text-slate-400 italic font-normal">Not set</span>}</p>
+                    )}
+                  </div>
+                )}
+                {isFieldVisible('landline') && (
+                  <div className="space-y-2">
+                    <Label htmlFor="landline">Landline</Label>
+                    {canEditField('landline') ? (
+                      <Input
+                        id="landline"
+                        value={landline}
+                        onChange={(e) => setLandline(e.target.value)}
+                        placeholder="Enter your landline number"
+                        data-testid="input-landline"
+                      />
+                    ) : (
+                      <p className="text-sm font-medium text-slate-900 p-2 bg-slate-50 rounded border" data-testid="text-landline">{landline || <span className="text-slate-400 italic font-normal">Not set</span>}</p>
+                    )}
+                  </div>
+                )}
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="jobTitle">Job Title</Label>
-                <Input
-                  id="jobTitle"
-                  value={jobTitle}
-                  onChange={(e) => setJobTitle(e.target.value)}
-                  placeholder="e.g., Careers Adviser"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="mobile">Mobile</Label>
-                  <Input
-                    id="mobile"
-                    value={mobile}
-                    onChange={(e) => setMobile(e.target.value)}
-                    placeholder="Enter your mobile number"
-                    data-testid="input-mobile"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="landline">Landline</Label>
-                  <Input
-                    id="landline"
-                    value={landline}
-                    onChange={(e) => setLandline(e.target.value)}
-                    placeholder="Enter your landline number"
-                    data-testid="input-landline"
-                  />
-                </div>
-              </div>
-
-              {!isFeatureExcluded('user.about-me.show-in-directory') && (
+              {isFieldVisible('show_in_directory') && !isFeatureExcluded('user.about-me.show-in-directory') && (
                 <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg border border-slate-200">
                   <div className="flex-1">
                     <Label htmlFor="show-in-directory" className="cursor-pointer">
@@ -1491,11 +1557,15 @@ export default function PreferencesPage() {
                       directory
                     </p>
                   </div>
-                  <Switch
-                    id="show-in-directory"
-                    checked={showInDirectory}
-                    onCheckedChange={setShowInDirectory}
-                  />
+                  {canEditField('show_in_directory') ? (
+                    <Switch
+                      id="show-in-directory"
+                      checked={showInDirectory}
+                      onCheckedChange={setShowInDirectory}
+                    />
+                  ) : (
+                    <span className="text-sm font-medium text-slate-700">{showInDirectory ? 'Yes' : 'No'}</span>
+                  )}
                 </div>
               )}
 
@@ -2093,6 +2163,7 @@ export default function PreferencesPage() {
 
       case 'professional_biography':
         if (isFeatureExcluded('user.about-me.professional-biography')) return null;
+        if (!isFieldVisible('biography')) return null;
         return (
           <Card key="professional_biography" className="border-slate-200 shadow-sm">
             <CardHeader>
@@ -2108,29 +2179,37 @@ export default function PreferencesPage() {
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <Label htmlFor="biography">Your Biography</Label>
-                  <span
-                    className={`text-xs ${
-                      getBiographyWordCount() > 500
-                        ? "text-red-600 font-semibold"
-                        : "text-slate-500"
-                    }`}
-                  >
-                    {getBiographyWordCount()} / 500 words
-                  </span>
+                  {canEditField('biography') && (
+                    <span
+                      className={`text-xs ${
+                        getBiographyWordCount() > 500
+                          ? "text-red-600 font-semibold"
+                          : "text-slate-500"
+                      }`}
+                    >
+                      {getBiographyWordCount()} / 500 words
+                    </span>
+                  )}
                 </div>
-                <Textarea
-                  id="biography"
-                  value={biography}
-                  onChange={(e) => setBiography(e.target.value)}
-                  placeholder="Share your professional background, expertise, and experience (max 500 words)"
-                  className="min-h-[200px]"
-                />
+                {canEditField('biography') ? (
+                  <Textarea
+                    id="biography"
+                    value={biography}
+                    onChange={(e) => setBiography(e.target.value)}
+                    placeholder="Share your professional background, expertise, and experience (max 500 words)"
+                    className="min-h-[200px]"
+                  />
+                ) : (
+                  <div className="p-3 bg-slate-50 rounded border min-h-[100px] text-sm text-slate-700">
+                    {biography || <span className="text-slate-400 italic">No biography set</span>}
+                  </div>
+                )}
                 <p className="text-xs text-slate-500">
                   This biography will be displayed on your published articles
                 </p>
               </div>
 
-              {hasUnsavedProfile && (
+              {canEditField('biography') && hasUnsavedProfile && (
                 <div className="flex justify-end pt-4 border-t border-slate-200">
                   <Button
                     onClick={handleSaveProfile}

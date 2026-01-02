@@ -61,6 +61,35 @@ The role management system uses a hierarchical Module→Page→Feature structure
 
 All access control throughout the application now uses `isFeatureExcluded()` from the `useMemberAccess` hook.
 
+## Member Field Permissions (Jan 2026)
+
+Role-based field access control for member profile fields on the About-me page, mirroring the Organization Field Permissions feature.
+
+**Database Table:**
+- `role_member_field_permission` - Stores field permissions per role
+
+**Table Structure:**
+- `id` (UUID primary key)
+- `role_id` - The role this permission applies to
+- `field_key` - Core field name (first_name, last_name, profile_photo_url, job_title, mobile, landline, biography, show_in_directory)
+- `permission` - One of: 'hidden', 'read', 'read_write'
+
+**API Endpoints:**
+- `GET /api/roles/[roleId]/member-field-permissions` - Get permissions for a role (admin only)
+- `PUT /api/roles/[roleId]/member-field-permissions` - Update permissions for a role (admin only)
+- `GET /api/my-member-field-permissions` - Get current member's field permissions (authenticated)
+
+**Admin UI:**
+- MemberPreferences page (`/MemberPreferences`) - Manage field permissions per role
+
+**Frontend Integration:**
+- Preferences.jsx (About-me page) fetches member field permissions
+- Helper functions: `getFieldPermission()`, `canEditField()`, `isFieldVisible()`
+- Fields render as read-only or hidden based on role permissions
+
+**Access Control:**
+- Feature key: `page_admin_MemberPreferences` maps to `membership.member-field-permissions`
+
 ## Email Template Placeholder System
 
 The platform supports dynamic email templates with placeholder substitution for form submissions. Forms can send multiple emails per submission with independent configurations, allowing for system and custom placeholders mapped to form fields. The backend handles placeholder replacement and supports backward compatibility with legacy single email fields.

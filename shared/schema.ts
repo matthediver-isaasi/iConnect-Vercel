@@ -78,6 +78,21 @@ export const insertRoleOrganizationFieldPermissionSchema = createInsertSchema(ro
 export type InsertRoleOrganizationFieldPermission = z.infer<typeof insertRoleOrganizationFieldPermissionSchema>;
 export type RoleOrganizationFieldPermission = typeof roleOrganizationFieldPermission.$inferSelect;
 
+// Role-based member field permissions
+export const roleMemberFieldPermission = pgTable("role_member_field_permission", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  role_id: varchar("role_id").notNull(), // References role.id
+  field_key: text("field_key").notNull(), // Core field name or custom field UUID
+  permission: text("permission").notNull(), // 'hidden', 'read', 'read_write'
+});
+
+export const insertRoleMemberFieldPermissionSchema = createInsertSchema(roleMemberFieldPermission).omit({
+  id: true,
+});
+
+export type InsertRoleMemberFieldPermission = z.infer<typeof insertRoleMemberFieldPermissionSchema>;
+export type RoleMemberFieldPermission = typeof roleMemberFieldPermission.$inferSelect;
+
 // URL Redirect mappings for legacy URL handling
 export const redirectMapping = pgTable("redirect_mapping", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

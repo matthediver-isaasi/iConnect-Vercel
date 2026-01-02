@@ -673,6 +673,7 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_admin_ZoomWebinarProvisioning": "events.zoom-webinars",
   "page_admin_SpeakerManagement": "events.speakers",
   "page_admin_OrganisationPreferences": "organisation.field-permissions",
+  "page_admin_MemberPreferences": "membership.member-field-permissions",
   "page_Dashboard": "system.dashboard",
   "page_EventDetails": "events.event-details",
   "page_ArticleEditor": "content.article-editor",
