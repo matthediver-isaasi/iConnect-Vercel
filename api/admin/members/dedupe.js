@@ -50,10 +50,11 @@ export default async function handler(req, res) {
     }
     
     // Try to use database functions first (much faster)
+    // Pass IDs as text array to avoid UUID type mismatch
     if (mode === 'preview') {
       const { data, error } = await supabase.rpc('preview_duplicate_members', {
-        exclude_org_ids: validExcludeOrgIds,
-        exclude_role_ids: validExcludeRoleIds,
+        exclude_org_ids: validExcludeOrgIds.map(id => String(id)),
+        exclude_role_ids: validExcludeRoleIds.map(id => String(id)),
         max_groups: 100
       });
       
@@ -86,8 +87,8 @@ export default async function handler(req, res) {
     
     if (mode === 'execute') {
       const { data, error } = await supabase.rpc('execute_duplicate_members', {
-        exclude_org_ids: validExcludeOrgIds,
-        exclude_role_ids: validExcludeRoleIds
+        exclude_org_ids: validExcludeOrgIds.map(id => String(id)),
+        exclude_role_ids: validExcludeRoleIds.map(id => String(id))
       });
       
       if (!error && data) {

@@ -1,10 +1,15 @@
 -- Supabase SQL function for member deduplication
 -- Run this in Supabase SQL Editor to create the functions
+-- NOTE: This version handles both UUID and TEXT column types
+
+-- Drop existing functions first
+DROP FUNCTION IF EXISTS preview_duplicate_members(UUID[], UUID[], INTEGER);
+DROP FUNCTION IF EXISTS execute_duplicate_members(UUID[], UUID[]);
 
 -- Function to preview duplicate members (returns summary and first N groups)
 CREATE OR REPLACE FUNCTION preview_duplicate_members(
-  exclude_org_ids UUID[] DEFAULT '{}',
-  exclude_role_ids UUID[] DEFAULT '{}',
+  exclude_org_ids TEXT[] DEFAULT '{}',
+  exclude_role_ids TEXT[] DEFAULT '{}',
   max_groups INTEGER DEFAULT 100
 )
 RETURNS JSON
@@ -29,12 +34,12 @@ BEGIN
       AND (
         array_length(exclude_org_ids, 1) IS NULL 
         OR organization_id IS NULL 
-        OR organization_id != ALL(exclude_org_ids)
+        OR organization_id::text != ALL(exclude_org_ids)
       )
       AND (
         array_length(exclude_role_ids, 1) IS NULL 
         OR role_id IS NULL 
-        OR role_id != ALL(exclude_role_ids)
+        OR role_id::text != ALL(exclude_role_ids)
       )
   ),
   ranked_members AS (
@@ -105,8 +110,8 @@ $$;
 
 -- Function to execute member deduplication (deletes duplicates, keeps one per email)
 CREATE OR REPLACE FUNCTION execute_duplicate_members(
-  exclude_org_ids UUID[] DEFAULT '{}',
-  exclude_role_ids UUID[] DEFAULT '{}'
+  exclude_org_ids TEXT[] DEFAULT '{}',
+  exclude_role_ids TEXT[] DEFAULT '{}'
 )
 RETURNS JSON
 LANGUAGE plpgsql
@@ -132,12 +137,12 @@ BEGIN
       AND (
         array_length(exclude_org_ids, 1) IS NULL 
         OR organization_id IS NULL 
-        OR organization_id != ALL(exclude_org_ids)
+        OR organization_id::text != ALL(exclude_org_ids)
       )
       AND (
         array_length(exclude_role_ids, 1) IS NULL 
         OR role_id IS NULL 
-        OR role_id != ALL(exclude_role_ids)
+        OR role_id::text != ALL(exclude_role_ids)
       )
   )
   SELECT 
@@ -218,3 +223,7 @@ $$;
 -- Grant execute permissions to authenticated users
 GRANT EXECUTE ON FUNCTION preview_duplicate_members TO authenticated;
 GRANT EXECUTE ON FUNCTION execute_duplicate_members TO authenticated;
+
+-- Also grant to service role for API access
+GRANT EXECUTE ON FUNCTION preview_duplicate_members TO service_role;
+GRANT EXECUTE ON FUNCTION execute_duplicate_members TO service_role;
