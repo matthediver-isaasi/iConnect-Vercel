@@ -50,16 +50,38 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Invalid mode. Use "preview" or "execute"' });
     }
     
-    // Fetch all members using Supabase query builder (safe from SQL injection)
-    const { data: allMembers, error: membersError } = await supabase
-      .from('member')
-      .select('id, email, first_name, last_name, role_id, organization_id, created_on')
-      .not('email', 'is', null)
-      .neq('email', '');
+    // Fetch all members using pagination to handle large datasets
+    // Supabase has a default limit of 1000 rows per query
+    const FETCH_BATCH_SIZE = 1000;
+    let allMembers = [];
+    let offset = 0;
+    let hasMore = true;
     
-    if (membersError) {
-      throw new Error(`Failed to fetch members: ${membersError.message}`);
+    console.log('[Dedupe] Fetching all members...');
+    
+    while (hasMore) {
+      const { data: batch, error: batchError } = await supabase
+        .from('member')
+        .select('id, email, first_name, last_name, role_id, organization_id, created_on')
+        .not('email', 'is', null)
+        .neq('email', '')
+        .range(offset, offset + FETCH_BATCH_SIZE - 1);
+      
+      if (batchError) {
+        throw new Error(`Failed to fetch members: ${batchError.message}`);
+      }
+      
+      if (batch && batch.length > 0) {
+        allMembers = allMembers.concat(batch);
+        offset += batch.length;
+        hasMore = batch.length === FETCH_BATCH_SIZE;
+        console.log(`[Dedupe] Fetched ${allMembers.length} members so far...`);
+      } else {
+        hasMore = false;
+      }
     }
+    
+    console.log(`[Dedupe] Total members fetched: ${allMembers.length}`);
     
     // Filter by exclusions in JavaScript (safe approach)
     let filteredMembers = allMembers || [];
