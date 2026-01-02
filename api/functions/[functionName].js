@@ -5319,6 +5319,167 @@ const functionHandlers = {
     };
   },
 
+  // Test handler to simulate Stripe payment recording in Xero without actual Stripe transactions
+  async testXeroPaymentRecording(params) {
+    if (!supabase) throw new Error('Supabase not configured');
+
+    const { invoiceId, amount, testReference } = params;
+    const debug = {};
+
+    // Validate inputs
+    if (!invoiceId) {
+      return { success: false, error: 'Invoice ID is required (Xero InvoiceID or Invoice Number)' };
+    }
+    if (!amount || amount <= 0) {
+      return { success: false, error: 'Amount must be a positive number' };
+    }
+
+    try {
+      // Get valid Xero token
+      const { accessToken, tenantId } = await getValidXeroAccessToken();
+      debug.tokenObtained = true;
+
+      // Get Stripe bank account code from system settings
+      const { data: stripeBankCodeSetting } = await supabase
+        .from('system_settings')
+        .select('setting_value')
+        .eq('setting_key', 'xero_stripe_bank_account_code')
+        .maybeSingle();
+
+      const stripeBankAccountCode = stripeBankCodeSetting?.setting_value;
+      debug.stripeBankAccountCode = stripeBankAccountCode || 'NOT CONFIGURED';
+
+      if (!stripeBankAccountCode) {
+        return {
+          success: false,
+          error: 'Stripe bank account code not configured in Event Settings',
+          debug
+        };
+      }
+
+      // First, fetch the invoice to verify it exists and get its status
+      let invoiceUrl = `https://api.xero.com/api.xro/2.0/Invoices/${invoiceId}`;
+      // If it looks like an invoice number (starts with INV or similar), search by number
+      if (invoiceId.match(/^[A-Z]{2,}/i)) {
+        invoiceUrl = `https://api.xero.com/api.xro/2.0/Invoices?InvoiceNumber=${encodeURIComponent(invoiceId)}`;
+      }
+
+      console.log(`[TestXeroPayment] Fetching invoice: ${invoiceUrl}`);
+      const invoiceResponse = await fetch(invoiceUrl, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'xero-tenant-id': tenantId,
+          'Accept': 'application/json'
+        }
+      });
+
+      const invoiceData = await invoiceResponse.json();
+      const invoice = invoiceData?.Invoices?.[0];
+
+      if (!invoice) {
+        return {
+          success: false,
+          error: `Invoice not found: ${invoiceId}`,
+          debug: { ...debug, invoiceResponse: JSON.stringify(invoiceData).substring(0, 500) }
+        };
+      }
+
+      debug.invoiceFound = true;
+      debug.invoiceNumber = invoice.InvoiceNumber;
+      debug.invoiceStatus = invoice.Status;
+      debug.invoiceTotal = invoice.Total;
+      debug.invoiceAmountDue = invoice.AmountDue;
+
+      // Check if invoice is AUTHORISED
+      if (invoice.Status !== 'AUTHORISED') {
+        return {
+          success: false,
+          error: `Invoice is ${invoice.Status} - must be AUTHORISED for payment recording. Change Invoice Status to "Live" in Event Settings.`,
+          debug
+        };
+      }
+
+      // Get bank account ID from account code
+      console.log(`[TestXeroPayment] Looking up bank account: ${stripeBankAccountCode}`);
+      const accountsResponse = await fetch(`https://api.xero.com/api.xro/2.0/Accounts?where=Code=="${stripeBankAccountCode}"`, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'xero-tenant-id': tenantId,
+          'Accept': 'application/json'
+        }
+      });
+
+      const accountsData = await accountsResponse.json();
+      const bankAccount = accountsData?.Accounts?.[0];
+
+      if (!bankAccount?.AccountID) {
+        return {
+          success: false,
+          error: `Bank account not found for code: ${stripeBankAccountCode}. Check your Stripe Bank Account Code in Event Settings.`,
+          debug: { ...debug, accountsResponse: JSON.stringify(accountsData).substring(0, 500) }
+        };
+      }
+
+      debug.bankAccountFound = true;
+      debug.bankAccountName = bankAccount.Name;
+      debug.bankAccountId = bankAccount.AccountID;
+
+      // Create payment
+      const paymentPayload = {
+        Invoice: { InvoiceID: invoice.InvoiceID },
+        Account: { AccountID: bankAccount.AccountID },
+        Date: new Date().toISOString().split('T')[0],
+        Amount: parseFloat(amount),
+        Reference: testReference || `TEST-${Date.now()}`
+      };
+
+      console.log(`[TestXeroPayment] Creating payment: ${JSON.stringify(paymentPayload)}`);
+
+      const paymentResponse = await fetch('https://api.xero.com/api.xro/2.0/Payments', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'xero-tenant-id': tenantId,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify({ Payments: [paymentPayload] })
+      });
+
+      const paymentData = await paymentResponse.json();
+
+      if (paymentData?.Payments?.[0]?.PaymentID) {
+        console.log(`[TestXeroPayment] Payment recorded successfully: ${paymentData.Payments[0].PaymentID}`);
+        return {
+          success: true,
+          message: 'Payment recorded successfully in Xero',
+          paymentId: paymentData.Payments[0].PaymentID,
+          invoiceNumber: invoice.InvoiceNumber,
+          amount: parseFloat(amount),
+          reference: paymentPayload.Reference,
+          bankAccount: bankAccount.Name,
+          debug
+        };
+      } else {
+        console.error(`[TestXeroPayment] Payment failed: ${JSON.stringify(paymentData)}`);
+        return {
+          success: false,
+          error: 'Failed to create payment in Xero',
+          xeroError: paymentData?.ErrorMessage || JSON.stringify(paymentData).substring(0, 500),
+          debug
+        };
+      }
+
+    } catch (error) {
+      console.error(`[TestXeroPayment] Error: ${error.message}`);
+      return {
+        success: false,
+        error: error.message,
+        debug
+      };
+    }
+  },
+
   async backfillJobPostingCreatedDates(params) {
     if (!supabase) throw new Error('Supabase not configured');
     
