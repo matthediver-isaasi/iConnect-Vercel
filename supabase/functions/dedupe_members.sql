@@ -36,14 +36,14 @@ BEGIN
     WHERE email IS NOT NULL 
       AND TRIM(email) != ''
       AND (
-        array_length(exclude_org_ids, 1) IS NULL 
+        cardinality(exclude_org_ids) = 0 
         OR organization_id IS NULL 
-        OR organization_id::text != ALL(exclude_org_ids)
+        OR NOT (organization_id::text = ANY(exclude_org_ids))
       )
       AND (
-        array_length(exclude_role_ids, 1) IS NULL 
+        cardinality(exclude_role_ids) = 0 
         OR role_id IS NULL 
-        OR role_id::text != ALL(exclude_role_ids)
+        OR NOT (role_id::text = ANY(exclude_role_ids))
       )
   ),
   ranked_members AS (
@@ -139,14 +139,14 @@ BEGIN
     WHERE email IS NOT NULL 
       AND TRIM(email) != ''
       AND (
-        array_length(exclude_org_ids, 1) IS NULL 
+        cardinality(exclude_org_ids) = 0 
         OR organization_id IS NULL 
-        OR organization_id::text != ALL(exclude_org_ids)
+        OR NOT (organization_id::text = ANY(exclude_org_ids))
       )
       AND (
-        array_length(exclude_role_ids, 1) IS NULL 
+        cardinality(exclude_role_ids) = 0 
         OR role_id IS NULL 
-        OR role_id::text != ALL(exclude_role_ids)
+        OR NOT (role_id::text = ANY(exclude_role_ids))
       )
   )
   SELECT 

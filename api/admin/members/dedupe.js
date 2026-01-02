@@ -86,10 +86,14 @@ export default async function handler(req, res) {
     }
     
     if (mode === 'execute') {
-      const { data, error } = await supabase.rpc('execute_duplicate_members', {
+      // Log the exact parameters being sent
+      const rpcParams = {
         exclude_org_ids: validExcludeOrgIds.map(id => String(id)),
         exclude_role_ids: validExcludeRoleIds.map(id => String(id))
-      });
+      };
+      console.log('[Dedupe] Calling RPC with params:', JSON.stringify(rpcParams));
+      
+      const { data, error } = await supabase.rpc('execute_duplicate_members', rpcParams);
       
       if (!error && data) {
         console.log('[Dedupe] Execute via RPC successful');
@@ -104,7 +108,7 @@ export default async function handler(req, res) {
         });
       }
       
-      console.log('[Dedupe] RPC execute failed, falling back to JS:', error?.message);
+      console.log('[Dedupe] RPC execute failed:', error?.message, 'Code:', error?.code, 'Details:', error?.details);
     }
     
     // Fallback to JavaScript-based approach (slower, may timeout for large datasets)
