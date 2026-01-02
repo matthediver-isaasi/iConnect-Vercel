@@ -253,9 +253,15 @@ export default function PreferencesPage() {
         const response = await fetch('/api/my-member-field-permissions', {
           credentials: 'include'
         });
-        if (!response.ok) return {};
-        return response.json();
-      } catch {
+        if (!response.ok) {
+          console.log('[Preferences] my-member-field-permissions response not ok:', response.status);
+          return {};
+        }
+        const data = await response.json();
+        console.log('[Preferences] Fetched member field permissions:', data);
+        return data;
+      } catch (err) {
+        console.error('[Preferences] Error fetching member field permissions:', err);
         return {};
       }
     }
@@ -263,7 +269,8 @@ export default function PreferencesPage() {
 
   // Helper functions for field permissions
   const getFieldPermission = (fieldKey) => {
-    return memberFieldPermissions[fieldKey] || 'read_write';
+    const permission = memberFieldPermissions[fieldKey] || 'read_write';
+    return permission;
   };
 
   const canEditField = (fieldKey) => {
