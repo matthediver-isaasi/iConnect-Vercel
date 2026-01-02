@@ -2140,7 +2140,7 @@ useEffect(() => {
                   <img 
                     src="https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/68efc20f3e0a30fafad6dde7/fe03f7c5e_linked-aa.png" 
                     alt="isaasi"
-                    className="w-[50px] mx-auto"
+                    className="w-[40px] mx-auto"
                   />
                 </a>
                 <p className="text-sm text-slate-600">
@@ -2156,8 +2156,8 @@ useEffect(() => {
                   </a>
                   {' '}- © Copyright {new Date().getFullYear() === 2025 ? '2025' : `2025-${new Date().getFullYear()}`}
                 </p>
-                <p className="text-xs text-orange-500 font-semibold mt-2">
-                  BETA AUTH
+                <p className="text-xs text-slate-400 mt-2">
+                  v2.1
                 </p>
               </div>
             </footer>
