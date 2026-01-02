@@ -197,6 +197,24 @@ BEGIN
     AND td.rn > 1
     AND td.group_count > 1;
 
+  -- Update member_group_assignment references - reassign to keeper
+  UPDATE member_group_assignment mga
+  SET member_id = td.keeper_id::uuid
+  FROM temp_dedupe td
+  WHERE mga.member_id::text = td.id
+    AND td.rn > 1
+    AND td.group_count > 1;
+
+  -- Delete any duplicate member_group_assignment rows that would violate unique constraints
+  -- (keeper might already have same group assignment)
+  DELETE FROM member_group_assignment mga
+  WHERE EXISTS (
+    SELECT 1 FROM member_group_assignment mga2
+    WHERE mga2.member_id = mga.member_id
+      AND mga2.group_id = mga.group_id
+      AND mga2.id < mga.id
+  );
+
   -- Delete duplicates (keep rn=1) - cast for comparison
   DELETE FROM member m
   USING temp_dedupe td
