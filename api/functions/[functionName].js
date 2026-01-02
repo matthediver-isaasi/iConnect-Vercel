@@ -353,7 +353,18 @@ function formatEventDate(dateStr) {
 }
 
 function formatBodyAsHtml(body) {
-  let html = (body || '')
+  if (!body) return '';
+  
+  // Check if the body already contains HTML tags
+  const hasHtmlTags = /<[a-z][\s\S]*>/i.test(body);
+  
+  if (hasHtmlTags) {
+    // Body is already HTML, wrap it but don't escape
+    return `<div style="font-family: Arial, sans-serif; line-height: 1.6;">${body}</div>`;
+  }
+  
+  // Body is plain text, convert to HTML
+  let html = body
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
