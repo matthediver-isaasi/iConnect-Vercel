@@ -5358,11 +5358,17 @@ const functionHandlers = {
       }
 
       // First, fetch the invoice to verify it exists and get its status
-      let invoiceUrl = `https://api.xero.com/api.xro/2.0/Invoices/${invoiceId}`;
-      // If it looks like an invoice number (starts with INV or similar), search by number
+      let invoiceUrl;
+      // If it looks like an invoice number (starts with letters like INV, SI, etc.), search by number using where clause
       if (invoiceId.match(/^[A-Z]{2,}/i)) {
-        invoiceUrl = `https://api.xero.com/api.xro/2.0/Invoices?InvoiceNumber=${encodeURIComponent(invoiceId)}`;
+        // Xero requires the where clause format for filtering by InvoiceNumber
+        invoiceUrl = `https://api.xero.com/api.xro/2.0/Invoices?where=InvoiceNumber=="${encodeURIComponent(invoiceId)}"`;
+      } else {
+        // Assume it's a UUID/InvoiceID
+        invoiceUrl = `https://api.xero.com/api.xro/2.0/Invoices/${invoiceId}`;
       }
+      debug.requestedInvoiceId = invoiceId;
+      debug.invoiceUrl = invoiceUrl;
 
       console.log(`[TestXeroPayment] Fetching invoice: ${invoiceUrl}`);
       const invoiceResponse = await fetch(invoiceUrl, {
