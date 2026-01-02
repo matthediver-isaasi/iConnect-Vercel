@@ -741,12 +741,16 @@ export default function ImportManager() {
                         <div className="bg-slate-50 p-4 rounded-lg">
                           <p className="font-medium mb-2">Field Mappings:</p>
                           <div className="flex flex-wrap gap-2">
-                            {mappings.filter(m => m.targetField).map((m, i) => (
-                              <Badge key={i} variant="secondary" className="gap-1">
-                                {m.sourceColumn} → {m.targetField}
-                                {m.clearOnEmpty && <Trash2 className="w-3 h-3 text-red-500" />}
-                              </Badge>
-                            ))}
+                            {mappings.filter(m => m.targetField).map((m, i) => {
+                              const fieldDef = allFields.find(f => f.key === m.targetField);
+                              const displayLabel = fieldDef?.label || m.targetField;
+                              return (
+                                <Badge key={i} variant="secondary" className="gap-1">
+                                  {m.sourceColumn} → {displayLabel}
+                                  {m.clearOnEmpty && <Trash2 className="w-3 h-3 text-red-500" />}
+                                </Badge>
+                              );
+                            })}
                           </div>
                         </div>
 
