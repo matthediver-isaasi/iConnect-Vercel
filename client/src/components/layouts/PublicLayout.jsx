@@ -626,7 +626,7 @@ export default function PublicLayout({ children, currentPageName }) {
                   />
                 </a>
                 <p className="text-xs text-slate-500">
-                  <span style={{ color: '#eb008c' }}>i</span>Designed and delivered by{' '}
+                  Designed and delivered by{' '}
                   <a
                     href="https://isaasi.co.uk"
                     target="_blank"
@@ -635,7 +635,7 @@ export default function PublicLayout({ children, currentPageName }) {
                     style={{ color: '#eb008c' }}
                   >
                     isaasi
-                  </a> Copyright 2026
+                  </a>. Copyright 2026
                 </p>
                 
               </div>
