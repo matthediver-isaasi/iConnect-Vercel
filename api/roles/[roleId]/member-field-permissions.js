@@ -59,11 +59,19 @@ export default async function handler(req, res) {
         return res.status(500).json({ error: error.message });
       }
 
-      return res.json(permissions || []);
+      // Convert to a map for easier frontend usage
+      const permissionMap = {};
+      (permissions || []).forEach(p => {
+        permissionMap[p.field_key] = p.permission;
+      });
+
+      return res.json(permissionMap);
     }
 
     if (req.method === 'PUT') {
       const permissions = Array.isArray(req.body) ? req.body : req.body?.permissions;
+
+      console.log('[Update Role Member Permissions] Received permissions:', permissions);
 
       if (!Array.isArray(permissions)) {
         return res.status(400).json({ error: 'Permissions must be an array' });
@@ -79,25 +87,32 @@ export default async function handler(req, res) {
         return res.status(500).json({ error: deleteError.message });
       }
 
-      if (permissions.length > 0) {
-        const recordsToInsert = permissions.map(p => ({
+      // Only insert non-default permissions (read_write is the default)
+      const recordsToInsert = permissions
+        .filter(p => p.permission !== 'read_write')
+        .map(p => ({
           id: crypto.randomUUID(),
           role_id: roleId,
           field_key: p.field_key,
           permission: p.permission
         }));
 
-        const { error: insertError } = await supabase
+      console.log('[Update Role Member Permissions] Inserting:', recordsToInsert);
+
+      if (recordsToInsert.length > 0) {
+        const { data: inserted, error: insertError } = await supabase
           .from('role_member_field_permission')
-          .insert(recordsToInsert);
+          .insert(recordsToInsert)
+          .select();
 
         if (insertError) {
           console.error('[Update Role Member Permissions] Insert error:', insertError);
           return res.status(500).json({ error: insertError.message });
         }
+        console.log('[Update Role Member Permissions] Inserted successfully:', inserted);
       }
 
-      return res.json({ success: true });
+      return res.json({ success: true, count: recordsToInsert.length });
     }
 
     return res.status(405).json({ error: 'Method not allowed' });
