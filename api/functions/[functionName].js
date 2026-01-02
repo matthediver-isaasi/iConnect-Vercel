@@ -2374,6 +2374,16 @@ const functionHandlers = {
 
               const xeroAccountCode = accountCodeSetting?.setting_value || '200';
               xeroDebug.accountCodeUsed = xeroAccountCode;
+              
+              // Get Xero invoice status setting (DRAFT or AUTHORISED)
+              const { data: invoiceStatusSetting } = await supabase
+                .from('system_settings')
+                .select('setting_value')
+                .eq('setting_key', 'xero_invoice_status')
+                .maybeSingle();
+              
+              const xeroInvoiceStatus = invoiceStatusSetting?.setting_value || 'DRAFT';
+              xeroDebug.invoiceStatus = xeroInvoiceStatus;
 
               // Calculate due date (30 days from now)
               const dueDate = new Date();
@@ -2424,7 +2434,7 @@ const functionHandlers = {
                 DueDate: dueDateString,
                 LineItems: [lineItem],
                 Reference: invoiceReference,
-                Status: 'AUTHORISED'
+                Status: xeroInvoiceStatus
               };
 
               console.log(`[Xero] Sending invoice to Xero API - Amount: £${validatedRemainingBalance.toFixed(2)}, Reference: ${invoiceReference}, DueDate: ${dueDateString}`);
@@ -4995,6 +5005,23 @@ const functionHandlers = {
 
     // Find or create contact
     const contactId = await findOrCreateXeroContact(accessToken, tenantId, organizationName);
+    
+    // Get Xero settings from system settings
+    const { data: accountCodeSetting } = await supabase
+      .from('system_settings')
+      .select('setting_value')
+      .eq('setting_key', 'xero_sales_account_code')
+      .maybeSingle();
+    
+    const xeroAccountCode = accountCodeSetting?.setting_value || '200';
+    
+    const { data: invoiceStatusSetting } = await supabase
+      .from('system_settings')
+      .select('setting_value')
+      .eq('setting_key', 'xero_invoice_status')
+      .maybeSingle();
+    
+    const xeroInvoiceStatus = invoiceStatusSetting?.setting_value || 'DRAFT';
 
     // Calculate unit price
     const unitPrice = (totalCost / totalTickets).toFixed(2);
@@ -5023,13 +5050,13 @@ const functionHandlers = {
         Type: 'ACCREC',
         Contact: { ContactID: contactId },
         Reference: purchaseOrderNumber || '',
-        Status: 'DRAFT',
+        Status: xeroInvoiceStatus,
         DueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
         LineItems: [{
           Description: description,
           Quantity: totalTickets,
           UnitAmount: unitPrice,
-          AccountCode: '200'
+          AccountCode: xeroAccountCode
         }]
       }]
     };

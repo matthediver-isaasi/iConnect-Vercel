@@ -26,6 +26,7 @@ export default function EventSettingsPage() {
   const [cancellationDeadlineHours, setCancellationDeadlineHours] = useState(24);
   const [xeroInvoiceEnabled, setXeroInvoiceEnabled] = useState(false);
   const [xeroSalesAccountCode, setXeroSalesAccountCode] = useState("");
+  const [xeroInvoiceStatus, setXeroInvoiceStatus] = useState("DRAFT");
   const [summaryMaxLength, setSummaryMaxLength] = useState(150);
   const [descriptionPreviewLines, setDescriptionPreviewLines] = useState(3);
   const [showEventSeats, setShowEventSeats] = useState(true);
@@ -137,6 +138,11 @@ export default function EventSettingsPage() {
     const xeroAccountSetting = settings.find(s => s.setting_key === 'xero_sales_account_code');
     if (xeroAccountSetting) {
       setXeroSalesAccountCode(xeroAccountSetting.setting_value || '');
+    }
+    
+    const xeroStatusSetting = settings.find(s => s.setting_key === 'xero_invoice_status');
+    if (xeroStatusSetting) {
+      setXeroInvoiceStatus(xeroStatusSetting.setting_value || 'DRAFT');
     }
     
     // Load event types - migrate old string format to new object format
@@ -279,6 +285,22 @@ export default function EventSettingsPage() {
           setting_key: 'xero_sales_account_code',
           setting_value: xeroSalesAccountCode,
           description: 'Default Xero account code for event invoices'
+        });
+      }
+      
+      // Save Xero invoice status (DRAFT or AUTHORISED)
+      const xeroStatusSetting = settings.find(s => s.setting_key === 'xero_invoice_status');
+      
+      if (xeroStatusSetting) {
+        await base44.entities.SystemSettings.update(xeroStatusSetting.id, {
+          setting_value: xeroInvoiceStatus,
+          description: 'Default Xero invoice status - DRAFT or AUTHORISED (Live)'
+        });
+      } else {
+        await base44.entities.SystemSettings.create({
+          setting_key: 'xero_invoice_status',
+          setting_value: xeroInvoiceStatus,
+          description: 'Default Xero invoice status - DRAFT or AUTHORISED (Live)'
         });
       }
       
@@ -1120,6 +1142,30 @@ export default function EventSettingsPage() {
                     className="w-32"
                     data-testid="input-xero-account-code"
                   />
+                </div>
+              </div>
+              
+              {/* Invoice Status (Draft vs Live) */}
+              <div className="flex items-center justify-between pt-4 border-t border-slate-200">
+                <div className="space-y-1">
+                  <Label htmlFor="xero-invoice-status">
+                    Default Invoice Status
+                  </Label>
+                  <p className="text-xs text-slate-500">
+                    Choose whether invoices are created as Draft (for review before approval) or Live (approved and ready to send).
+                  </p>
+                </div>
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-2">
+                    <span className={`text-sm ${xeroInvoiceStatus === 'DRAFT' ? 'font-medium' : 'text-slate-500'}`}>Draft</span>
+                    <Switch
+                      id="xero-invoice-status"
+                      checked={xeroInvoiceStatus === 'AUTHORISED'}
+                      onCheckedChange={(checked) => setXeroInvoiceStatus(checked ? 'AUTHORISED' : 'DRAFT')}
+                      data-testid="switch-xero-invoice-status"
+                    />
+                    <span className={`text-sm ${xeroInvoiceStatus === 'AUTHORISED' ? 'font-medium' : 'text-slate-500'}`}>Live</span>
+                  </div>
                   <Button
                     onClick={handleSaveSettings}
                     disabled={isSaving}
