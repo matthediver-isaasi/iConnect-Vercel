@@ -124,6 +124,93 @@ export default async function handler(req, res) {
     console.log(`[Import] Parsed ${records.length} rows`);
     
     const tableName = entityType === 'organization' ? 'organization' : 'member';
+    
+    // For member imports with email identifier, try using the SQL function (much faster)
+    if (entityType === 'member' && identifierField === 'email') {
+      console.log('[Import] Attempting SQL function import...');
+      
+      // Transform records to the format expected by the SQL function
+      const batch = records.map((row, index) => {
+        const record = { row_index: index };
+        
+        for (const mapping of mappings) {
+          if (!mapping.sourceColumn || !mapping.targetField) continue;
+          
+          let value = row[mapping.sourceColumn];
+          if (value !== undefined && value !== null) {
+            value = String(value).trim();
+          }
+          
+          // Parse dates if needed
+          if (value && mapping.targetType === 'date' && mapping.dateFormat) {
+            const parsed = parseDate(value, mapping.dateFormat);
+            if (parsed) value = parsed;
+          }
+          
+          // Map to SQL function expected fields
+          if (mapping.targetField === 'email') record.email = value;
+          else if (mapping.targetField === 'first_name') record.first_name = value;
+          else if (mapping.targetField === 'last_name') record.last_name = value;
+          else if (mapping.targetField === 'phone') record.phone = value;
+          else if (mapping.targetField === 'job_title') record.job_title = value;
+          else if (mapping.targetField === 'role_id') record.role_name = value; // Pass name, SQL will lookup
+          else if (mapping.targetField === 'organization_id') record.organization_name = value; // Pass name, SQL will lookup
+          else if (mapping.targetField === 'created_on') record.created_on = value;
+        }
+        
+        return record;
+      });
+      
+      // Process in batches of 1000 to avoid memory issues
+      const SQL_BATCH_SIZE = 1000;
+      let totalCreated = 0;
+      let totalUpdated = 0;
+      let totalSkipped = 0;
+      let totalErrors = 0;
+      
+      for (let i = 0; i < batch.length; i += SQL_BATCH_SIZE) {
+        const chunk = batch.slice(i, i + SQL_BATCH_SIZE);
+        console.log(`[Import] SQL batch ${i + 1}-${Math.min(i + SQL_BATCH_SIZE, batch.length)} of ${batch.length}`);
+        
+        const { data, error } = await supabase.rpc('process_member_import_batch', {
+          batch: chunk
+        });
+        
+        if (error) {
+          console.log(`[Import] SQL function failed: ${error.message}, falling back to JS...`);
+          break; // Fall through to JS implementation
+        }
+        
+        if (data) {
+          totalCreated += data.created || 0;
+          totalUpdated += data.updated || 0;
+          totalSkipped += data.skipped || 0;
+          totalErrors += data.errors || 0;
+        }
+        
+        // If we processed all batches successfully, return early
+        if (i + SQL_BATCH_SIZE >= batch.length) {
+          console.log(`[Import] SQL function complete: ${totalCreated} created, ${totalUpdated} updated`);
+          return res.json({
+            success: true,
+            created: totalCreated,
+            updated: totalUpdated,
+            skipped: totalSkipped,
+            errors: totalErrors,
+            summary: {
+              totalRows: records.length,
+              processedRows: totalCreated + totalUpdated,
+              createdRows: totalCreated,
+              updatedRows: totalUpdated,
+              skippedRows: totalSkipped,
+              errorRows: totalErrors
+            }
+          });
+        }
+      }
+    }
+    
+    console.log('[Import] Using JavaScript import...');
     const customValueTable = entityType === 'organization' 
       ? 'organization_preference_value' 
       : 'member_preference_value';
