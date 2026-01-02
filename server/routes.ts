@@ -16319,6 +16319,101 @@ AGCAS Events Team
     }
   });
 
+  // ============ Seed Video Template ============
+  app.post('/api/admin/seed-video-template', async (req: Request, res: Response) => {
+    const { isAdmin, error } = await verifyAdminSession(req);
+    
+    if (error) {
+      return res.status(401).json({ error });
+    }
+    
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    if (!supabase) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+
+    try {
+      // Check if video template already exists
+      const { data: existing } = await supabase
+        .from('i_edit_element_template')
+        .select('id')
+        .eq('element_type', 'video')
+        .single();
+
+      if (existing) {
+        return res.json({ 
+          message: 'Video template already exists', 
+          id: existing.id 
+        });
+      }
+
+      const videoTemplate = {
+        element_type: 'video',
+        name: 'Video Embed',
+        description: 'Embed external videos from YouTube, Vimeo, and other platforms',
+        icon: 'Video',
+        category: 'media',
+        is_active: true,
+        display_order: 100,
+        available_variants: ['default'],
+        default_variant: 'default',
+        default_content: {
+          embed_code: '',
+          aspect_ratio: '16:9',
+          max_width: 100,
+          alignment: 'center',
+          title: '',
+          caption: '',
+          border_radius: 8,
+          show_border: false,
+          border_color: '#e2e8f0'
+        },
+        default_settings: {
+          fullWidth: false,
+          paddingTop: 32,
+          paddingBottom: 32
+        },
+        content_schema: {
+          type: 'object',
+          properties: {
+            embed_code: { type: 'string', title: 'Embed Code' },
+            aspect_ratio: { type: 'string', title: 'Aspect Ratio' },
+            max_width: { type: 'number', title: 'Max Width' },
+            alignment: { type: 'string', title: 'Alignment' },
+            title: { type: 'string', title: 'Title' },
+            caption: { type: 'string', title: 'Caption' },
+            border_radius: { type: 'number', title: 'Border Radius' },
+            show_border: { type: 'boolean', title: 'Show Border' },
+            border_color: { type: 'string', title: 'Border Color' }
+          }
+        },
+        created_date: new Date().toISOString()
+      };
+
+      const { data, error: insertError } = await supabase
+        .from('i_edit_element_template')
+        .insert(videoTemplate)
+        .select()
+        .single();
+
+      if (insertError) {
+        console.error('[Seed Video Template] Error:', insertError);
+        return res.status(500).json({ error: insertError.message });
+      }
+
+      res.status(201).json({ 
+        message: 'Video template created successfully', 
+        template: data 
+      });
+    } catch (error: any) {
+      console.error('[Seed Video Template] Error:', error);
+      res.status(500).json({ error: error.message || 'Failed to seed video template' });
+    }
+  });
+
   // ============ Health Check ============
   app.get('/api/health', (req: Request, res: Response) => {
     res.json({ 

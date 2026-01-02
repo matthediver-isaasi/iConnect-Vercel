@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Layers, Plus, Pencil, Trash2, GripVertical, FileText, ExternalLink } from "lucide-react";
+import { Layers, Plus, Pencil, Trash2, GripVertical, FileText, ExternalLink, Video } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
@@ -125,6 +125,34 @@ export default function IEditTemplateManagementPage() {
     }
   });
 
+  const seedVideoTemplateMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch('/api/admin/seed-video-template', { 
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to seed video template');
+      }
+      return response.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['iedit-templates'] });
+      if (data.message?.includes('already exists')) {
+        toast.info('Video template already exists');
+      } else {
+        toast.success('Video template created successfully');
+      }
+    },
+    onError: (error) => {
+      toast.error('Failed to create video template: ' + error.message);
+    }
+  });
+
+  const hasVideoTemplate = templates.some(t => t.element_type === 'video');
+
   const handleCreateNew = () => {
     setEditingTemplate({
       name: "",
@@ -193,10 +221,24 @@ export default function IEditTemplateManagementPage() {
               Manage reusable element templates for the page editor
             </p>
           </div>
-          <Button onClick={handleCreateNew} className="bg-blue-600 hover:bg-blue-700">
-            <Plus className="w-4 h-4 mr-2" />
-            New Template
-          </Button>
+          <div className="flex gap-2">
+            {!hasVideoTemplate && (
+              <Button 
+                onClick={() => seedVideoTemplateMutation.mutate()} 
+                disabled={seedVideoTemplateMutation.isPending}
+                variant="outline"
+                className="border-green-300 text-green-700 hover:bg-green-50"
+                data-testid="button-seed-video-template"
+              >
+                <Video className="w-4 h-4 mr-2" />
+                {seedVideoTemplateMutation.isPending ? 'Adding...' : 'Add Video Element'}
+              </Button>
+            )}
+            <Button onClick={handleCreateNew} className="bg-blue-600 hover:bg-blue-700" data-testid="button-new-template">
+              <Plus className="w-4 h-4 mr-2" />
+              New Template
+            </Button>
+          </div>
         </div>
 
         {/* Templates Grid */}
