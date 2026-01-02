@@ -1,0 +1,59 @@
+2026-01-02 11:29:07.269 [info] [createOneOffEventBooking] Starting booking: {
+  eventId: '6e3f56a9-5cd4-44b8-9351-286e5de97878',
+  memberEmail: 'mat@isaasi.co.uk',
+  ticketsRequired: 1,
+  totalCost: 1,
+  paymentMethod: 'account',
+  ticketClassId: 'ticket-1766445790052-vp8v6',
+  ticketClassName: 'University Member Ticket',
+  attendeesReceived: 1,
+  attendeesData: '[{"email":"mat@isaasi.co.uk","first_name":"Matt","last_name":"Henderson","isValid":true,"isSelf":true}]',
+  isGuestBooking: false,
+  guestInfo: null
+}
+2026-01-02 11:29:07.606 [info] [createOneOffEventBooking] Member found: 48b25075-51da-437f-af20-17836a892bfe mat@isaasi.co.uk
+2026-01-02 11:29:07.915 [info] [createOneOffEventBooking] Organization found: Abertay University
+2026-01-02 11:29:08.263 [info] [createOneOffEventBooking] About to create bookings for 1 attendees (isGuestBooking: false )
+2026-01-02 11:29:08.263 [info] [createOneOffEventBooking] Processing attendee 1/1: mat@isaasi.co.uk
+2026-01-02 11:29:08.263 [info] [createOneOffEventBooking] Inserting booking: {"event_id":"6e3f56a9-5cd4-44b8-9351-286e5de97878","member_id":"48b25075-51da-437f-af20-17836a892bfe","organization_id":"55a86410-7f60-4451-a45c-5760d93ccf1a","booking_reference":"OOE-1767353348262-CPRGA","booking_group_reference":"OOE-1767353348262-CPRGA","attendee_email":"mat@isaasi.co.uk","attendee_first_name":"Matt","attendee_last_name":"Henderson","status":"confirmed","payment_method":"account","ticket_price":1,"total_cost":1,"voucher_amount":0,"training_fund_amount":0,"account_amount":1,"purchase_order_number":"","po_to_follow":true,"stripe_payment_intent_id":null,"is_one_off_event":true,"ticket_class_id":"ticket-1766445790052-vp8v6","ticket_class_name":"University Member Ticket","is_guest_booking":false,"created_at":"2026-01-02T11:29:08.262Z"}
+2026-01-02 11:29:08.586 [info] [createOneOffEventBooking] Booking created: cee06605-4d9a-4dd9-a5c1-6e27900bf3fc
+2026-01-02 11:29:09.234 [info] [scheduleBookingReminderEmails] No reminder emails configured for event
+2026-01-02 11:29:09.234 [info] [createOneOffEventBooking] Event has zoom_webinar_id: e7177f09-6ceb-4e53-a355-634a3cd2dc87
+2026-01-02 11:29:09.370 [info] [createOneOffEventBooking] Found webinar: Test Zoom Webinar 2p zoom_id: 82052939676
+2026-01-02 11:29:09.370 [info] [createOneOffEventBooking] Registering 1 attendees with Zoom
+2026-01-02 11:29:09.434 [info] [createOneOffEventBooking] Registering attendee 1/1: mat@isaasi.co.uk
+2026-01-02 11:29:09.649 [info] [createOneOffEventBooking] Zoom API response status: 201
+2026-01-02 11:29:09.650 [info] [createOneOffEventBooking] ✓ Registered mat@isaasi.co.uk, registrant_id: zwVQj75LRc6RTvW3glv1bw, join_url: https://us02web.zoom.us/w/82052939676?tk=lySlmEvp1CwSTi_S5E_RQj4317CbNL7YeWIYYOV-d3I.DQkAAAATGrx_nBZ6d1ZRajc1TFJjNlJUdlczZ2x2MWJ3AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&uuid=WN_gkLfzltcQaeKfMczKu_FgQ
+2026-01-02 11:29:09.971 [info] [Xero] Invoice flow started - remainingBalance: 1, paymentMethod: account, isGuest: false, hasOrg: true
+2026-01-02 11:29:09.971 [info] [Xero] Creating account charge record for £1.00
+2026-01-02 11:29:10.089 [info] [Xero] Invoice to linked organization: Abertay University
+2026-01-02 11:29:10.089 [info] [Xero] Checking if invoice should be created - balance: £1.00, contact: Abertay University
+2026-01-02 11:29:12.164 [info] [Email Service] Email sent successfully. Message ID: <20260102112912.1a80388795ad6aaf@agcas.isaasi.co.uk>
+2026-01-02 11:29:12.164 [info] [sendConfirmationEmailsFromTemplate] Sent confirmation to mat@isaasi.co.uk
+2026-01-02 11:29:12.165 [info] [createOneOffEventBooking] Sent 1/1 confirmation emails
+2026-01-02 11:29:10.223 [info] [Xero] Invoice setting enabled: true (raw value: true)
+2026-01-02 11:29:10.223 [info] [Xero] Attempting invoice creation for account payment of £1.00
+2026-01-02 11:29:10.223 [info] [Xero] Getting valid access token...
+2026-01-02 11:29:10.223 [info] [Xero] getValidXeroAccessToken called
+2026-01-02 11:29:10.343 [info] [Xero] Token expires at: 2026-01-02T11:54:24.077Z, now: 2026-01-02T11:29:10.342Z
+2026-01-02 11:29:10.343 [info] [Xero] Token is valid, returning existing token
+2026-01-02 11:29:10.343 [info] [Xero] Token retrieved: true, tenantId: true
+2026-01-02 11:29:10.344 [info] [Xero] Finding/creating contact: Abertay University (organization)
+2026-01-02 11:29:10.344 [info] [Xero] Searching for existing contact by name...
+2026-01-02 11:29:10.612 [info] [Xero] Contact search response status: 200
+2026-01-02 11:29:10.612 [info] [Xero] Found existing contact: 6559f8c1-836f-4fc6-acd5-7e28762179f8
+2026-01-02 11:29:10.612 [info] [Xero] Contact ID: 6559f8c1-836f-4fc6-acd5-7e28762179f8
+2026-01-02 11:29:10.929 [info] [Xero] Sending invoice to Xero API - Amount: £1.00, Reference: TBC, DueDate: 2026-02-01
+2026-01-02 11:29:10.929 [info] [Xero] Invoice payload: {"Type":"ACCREC","Contact":{"ContactID":"6559f8c1-836f-4fc6-acd5-7e28762179f8"},"DueDate":"2026-02-01","LineItems":[{"Description":"Event: Test Zoom Webinar 2p\nReference: TEST WEBINAR 2P\nTicket class: University Member Ticket\nAttendees: 1\nMatt Henderson\n\n----------\nFinancial Breakdown:\n1 x University Member Ticket @ £1.00 = £1.00\nTotal to invoice: £1.00","Quantity":1,"UnitAmount":1,"AccountCode":"260","TaxType":"NONE","Tracking":[{"Name":"Projects","Option":"TEST WEBINAR 2P"}]}],"Refere
+2026-01-02 11:29:11.080 [info] [Xero] API response status: 400
+2026-01-02 11:29:11.081 [error] [Xero] Invoice creation failed - no invoice in response. Status: 400
+2026-01-02 11:29:11.081 [error] [Xero] Error details: 10 - A validation exception occurred
+2026-01-02 11:29:11.081 [error] [Xero] Validation error 0.0: Account code '260' has been archived, or has been deleted. Each line item must reference a valid account.
+2026-01-02 11:29:11.081 [error] [Xero] Full response: {"ErrorNumber":10,"Type":"ValidationException","Message":"A validation exception occurred","Elements":[{"Type":"ACCREC","InvoiceID":"00000000-0000-0000-0000-000000000000","Reference":"TBC","Payments":[],"CreditNotes":[],"Prepayments":[],"Overpayments":[],"IsDiscounted":false,"InvoiceAddresses":[],"HasErrors":true,"InvoicePaymentServices":[],"Contact":{"ContactID":"6559f8c1-836f-4fc6-acd5-7e28762179f8","Addresses":[],"Phones":[],"ContactGroups":[],"ContactPersons":[],"HasValidationErrors":false,"ValidationErrors":[]},"DateString":"2026-01-02T00:00:00","Date":"/Date(1767312000000+0000)/","DueDateString":"2026-02-01T00:00:00","DueDate":"/Date(1769904000000+0000)/","Status":"AUTHORISED","LineAmountTypes":"Exclusive","LineItems":[{"Description":"Event: Test Zoom Webinar 2p\nReference: TEST WEBINAR 2P\nTicket class: University Member Ticket\nAttendees: 1\nMatt Henderson\n\n----------\nFinancial Breakdown:\n1 x University Member Ticket @ £1.00 = £1.00\nTotal to invoice: £1.00","UnitAmount":1,
+2026-01-02 11:29:11.081 [info] [createOneOffEventBooking] Sending confirmation emails to attendees...
+2026-01-02 11:29:11.207 [info] [sendConfirmationEmailsFromTemplate] Found 1 confirmation email(s) to send
+2026-01-02 11:29:11.546 [info] [sendConfirmationEmailsFromTemplate] Using Zoom link for mat@isaasi.co.uk: https://us02web.zoom.us/w/82052939676?tk=lySlmEvp1...
+2026-01-02 11:29:11.721 [info] [Email Service] Email footer loaded successfully
+2026-01-02 11:29:11.850 [info] [Email Service] Email footer appended
+2026-01-02 11:29:11.850 [info] [Email Service] Sending email to: mat@isaasi.co.uk
+2026-01-02 11:29:11.850 [info] [Email Service] Subject: Graduate Futures Institute - You're all set! Booking confirmation & Zoom link
