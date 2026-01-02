@@ -33,6 +33,7 @@ import { IEditEventSpotlightElementEditor } from "./elements/IEditEventSpotlight
 import { IEditCtaButtonElementEditor } from "./elements/IEditCtaButtonElement";
 import { IEditImageElementEditor } from "./elements/IEditImageElement";
 import { IEditImageHeroElementEditor } from "./elements/IEditImageHeroElement";
+import { IEditVideoElementEditor } from "./elements/IEditVideoElement";
 
 export default function IEditElementEditor({ element, onClose, onSave, isInlineMode = false, onChange }) {
   const [editedContent, setEditedContent] = useState(element.content || {});
@@ -202,6 +203,9 @@ export default function IEditElementEditor({ element, onClose, onSave, isInlineM
 
   // Check if this is an Image element (custom editor)
   const isImage = element.element_type === 'image';
+
+  // Check if this is a Video element (custom editor)
+  const isVideo = element.element_type === 'video';
 
   // Fetch available forms for form element
   const { data: forms = [] } = useQuery({
@@ -546,6 +550,16 @@ export default function IEditElementEditor({ element, onClose, onSave, isInlineM
               <IEditImageHeroElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
             ) : isTextBlock ? (
               <IEditTextBlockElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
+            ) : isVideo ? (
+              <IEditVideoElementEditor 
+                element={{ ...element, content: editedContent }} 
+                editedContent={editedContent}
+                setEditedContent={setEditedContent}
+                editedSettings={editedSettings}
+                setEditedSettings={setEditedSettings}
+                updateContent={updateContent}
+                updateSetting={updateSetting}
+              />
             ) : (
               renderContentFields()
             )}
