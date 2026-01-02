@@ -198,6 +198,25 @@ export default async function handler(req, res) {
       }
     }
     
+    // Check if we need to look up organizations (for member imports with organization mapping)
+    const hasOrgMapping = entityType === 'member' && mappings.some(m => m.targetField === 'organization_id');
+    let orgMap = new Map();
+    
+    if (hasOrgMapping) {
+      console.log('[Import] Fetching organizations for lookup...');
+      const { data: orgs } = await supabase
+        .from('organization')
+        .select('id, name');
+      
+      if (orgs) {
+        orgs.forEach(org => {
+          // Store by lowercase name for case-insensitive matching
+          orgMap.set(org.name.toLowerCase().trim(), org.id);
+        });
+        console.log(`[Import] Loaded ${orgMap.size} organizations for lookup`);
+      }
+    }
+    
     // Process records in batches
     const BATCH_SIZE = 50;
     
@@ -253,6 +272,18 @@ export default async function handler(req, res) {
               coreData['role_id'] = roleId;
             } else {
               console.log(`[Import] Role not found: "${value}"`);
+            }
+            continue;
+          }
+          
+          // Handle organization_id lookup - convert organization name to UUID
+          if (mapping.targetField === 'organization_id' && value && typeof value === 'string') {
+            const orgName = value.trim().toLowerCase();
+            const orgId = orgMap.get(orgName);
+            if (orgId) {
+              coreData['organization_id'] = orgId;
+            } else {
+              console.log(`[Import] Organization not found: "${value}"`);
             }
             continue;
           }
