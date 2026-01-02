@@ -25,6 +25,7 @@ const MEMBER_CORE_FIELDS = [
   { key: 'membership_end_date', label: 'Membership End Date', type: 'date' },
   { key: 'login_enabled', label: 'Login Enabled', type: 'boolean' },
   { key: 'show_in_directory', label: 'Show in Directory', type: 'boolean' },
+  { key: 'created_at', label: 'Created On', type: 'date' },
   { key: 'role_id', label: 'Role', type: 'role_lookup' },
   { key: 'organization_id', label: 'Organisation Name', type: 'organization_lookup' },
   { key: '__add_note__', label: 'Add Note', type: 'note' },
