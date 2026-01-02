@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
+import { supabase } from "@/api/supabaseClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -116,6 +117,9 @@ export default function MemberDetailView({
   const [editingNoteContent, setEditingNoteContent] = useState('');
   const [noteToDelete, setNoteToDelete] = useState(null);
   const notesPerPage = 5;
+
+  // Communication preferences state
+  const [updatingCommPrefs, setUpdatingCommPrefs] = useState(new Set());
 
   const { data: memberValues = [], isLoading: valuesLoading } = useQuery({
     queryKey: ['member-detail-preference-values', member?.id],
@@ -250,6 +254,90 @@ export default function MemberDetailView({
   });
 
   const verifiedDomains = orgDomainsData?.verified_domains || [];
+
+  // Communication categories and preferences
+  const { data: communicationCategories = [], isLoading: communicationCategoriesLoading } = useQuery({
+    queryKey: ["communicationCategories"],
+    enabled: activeTab === 'communications',
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("communication_category")
+        .select(`
+          *,
+          communication_category_role(role_id)
+        `)
+        .eq("is_active", true)
+        .order("display_order", { ascending: true });
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  const { data: communicationPreferences = [] } = useQuery({
+    queryKey: ["communicationPreferences", member?.id],
+    enabled: !!member?.id && activeTab === 'communications',
+    queryFn: async () => {
+      if (!member?.id) return [];
+      const { data, error } = await supabase
+        .from("member_communication_preference")
+        .select("*")
+        .eq("member_id", member.id);
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  const memberRoleIds = useMemo(() => {
+    const roleId = formData.role_id || member?.role_id;
+    if (!roleId) return [];
+    if (Array.isArray(roleId)) return roleId;
+    return [roleId];
+  }, [formData.role_id, member?.role_id]);
+
+  const availableCommCategories = useMemo(() => {
+    if (!communicationCategories.length) return [];
+    
+    return communicationCategories.filter(category => {
+      if (!category.communication_category_role?.length) return true;
+      const categoryRoleIds = category.communication_category_role.map(r => r.role_id);
+      return memberRoleIds.some(roleId => categoryRoleIds.includes(roleId));
+    });
+  }, [communicationCategories, memberRoleIds]);
+
+  const handleCommunicationToggle = async (categoryId, isSubscribed) => {
+    if (!member?.id) return;
+    
+    setUpdatingCommPrefs(prev => new Set(prev).add(categoryId));
+    
+    try {
+      const response = await fetch(
+        `/api/admin/members/${member.id}/communication-preferences/${categoryId}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ is_subscribed: isSubscribed }),
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to update preference');
+      }
+      
+      queryClient.invalidateQueries({ queryKey: ["communicationPreferences", member.id] });
+      toast.success(isSubscribed ? "Subscribed to updates" : "Unsubscribed from updates");
+    } catch (error) {
+      console.error("Failed to update communication preference:", error);
+      toast.error(error.message || "Failed to update preference");
+    } finally {
+      setUpdatingCommPrefs(prev => {
+        const next = new Set(prev);
+        next.delete(categoryId);
+        return next;
+      });
+    }
+  };
 
   // Filter roles based on organization's segmentation field value
   const filteredRoles = React.useMemo(() => {
@@ -747,6 +835,10 @@ export default function MemberDetailView({
             <TabsTrigger value="notes" className="gap-1" data-testid="tab-member-notes">
               <StickyNote className="w-4 h-4" />
               Notes
+            </TabsTrigger>
+            <TabsTrigger value="communications" className="gap-1" data-testid="tab-member-communications">
+              <Mail className="w-4 h-4" />
+              Communications
             </TabsTrigger>
           </TabsList>
 
@@ -1788,6 +1880,62 @@ export default function MemberDetailView({
                     </>
                   );
                 })()}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="communications" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Mail className="w-5 h-5 text-blue-600" />
+                  Communication Preferences
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {isNew ? (
+                  <div className="text-center py-8 text-slate-500">
+                    <Mail className="w-12 h-12 mx-auto mb-3 text-slate-300" />
+                    <p>Save the member first to manage communication preferences.</p>
+                  </div>
+                ) : communicationCategoriesLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+                  </div>
+                ) : availableCommCategories.length === 0 ? (
+                  <div className="text-center py-8 text-slate-500">
+                    <Mail className="w-12 h-12 mx-auto mb-3 text-slate-300" />
+                    <p>No communication categories available for this member's role.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {availableCommCategories.map((category) => {
+                      const pref = communicationPreferences.find(p => p.category_id === category.id);
+                      const isSubscribed = pref ? pref.is_subscribed : true;
+                      
+                      return (
+                        <div 
+                          key={category.id} 
+                          className="flex items-center justify-between p-4 bg-slate-50 rounded-lg border border-slate-200"
+                          data-testid={`comm-category-${category.id}`}
+                        >
+                          <div className="space-y-1">
+                            <h4 className="font-medium text-slate-900">{category.name}</h4>
+                            {category.description && (
+                              <p className="text-sm text-slate-500">{category.description}</p>
+                            )}
+                          </div>
+                          <Switch
+                            checked={isSubscribed}
+                            onCheckedChange={(checked) => handleCommunicationToggle(category.id, checked)}
+                            disabled={updatingCommPrefs.has(category.id)}
+                            data-testid={`switch-comm-${category.id}`}
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
