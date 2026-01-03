@@ -224,16 +224,15 @@ export function IEditLogoGridElementRenderer({ content, variant, settings }) {
             {validLogos.map((logo, index) => {
               const cols = parseInt(columns_per_row) || 4;
               const itemWidth = `calc((100% - ${(cols - 1) * logo_gap}px) / ${cols})`;
-              return (
-                <div 
-                  key={index}
-                  className="relative aspect-square rounded-lg overflow-hidden bg-slate-100 flex items-center justify-center group/logo"
-                  style={{ 
-                    width: itemWidth,
-                    maxWidth: '300px',
-                    minWidth: '120px'
-                  }}
-                >
+              
+              const itemStyles = { 
+                width: itemWidth,
+                maxWidth: '300px',
+                minWidth: '120px'
+              };
+              
+              const logoInner = (
+                <>
                   <img
                     src={logo.image_url}
                     alt={logo.name || ''}
@@ -248,6 +247,33 @@ export function IEditLogoGridElementRenderer({ content, variant, settings }) {
                       </span>
                     </div>
                   )}
+                </>
+              );
+
+              const isValidUrl = logo.url && /^https?:\/\//i.test(logo.url);
+
+              if (isValidUrl) {
+                return (
+                  <a 
+                    key={index}
+                    href={logo.url}
+                    target={logo.target || '_self'}
+                    rel={logo.target === '_blank' ? 'noopener noreferrer' : undefined}
+                    className="relative aspect-square rounded-lg overflow-hidden bg-slate-100 flex items-center justify-center group/logo block"
+                    style={itemStyles}
+                  >
+                    {logoInner}
+                  </a>
+                );
+              }
+
+              return (
+                <div 
+                  key={index}
+                  className="relative aspect-square rounded-lg overflow-hidden bg-slate-100 flex items-center justify-center group/logo"
+                  style={itemStyles}
+                >
+                  {logoInner}
                 </div>
               );
             })}
@@ -1103,43 +1129,67 @@ export function IEditLogoGridElementEditor({ element, onChange }) {
             {/* Logo List */}
             <div className="space-y-3">
               {logos.map((logo, index) => (
-                <div key={index} className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg border">
-                  <div className="w-16 h-16 bg-white rounded border flex items-center justify-center overflow-hidden shrink-0">
-                    {logo.image_url ? (
-                      <img src={logo.image_url} alt={logo.name || ''} className="w-full h-full object-contain p-1" />
-                    ) : (
-                      <Image className="w-6 h-6 text-slate-400" />
-                    )}
-                  </div>
-                  <div className="flex-1 space-y-2">
-                    <Input
-                      value={logo.name || ''}
-                      onChange={(e) => updateLogo(index, 'name', e.target.value)}
-                      placeholder="Logo name (for rollover)"
-                      className="h-8 text-sm"
-                    />
+                <div key={index} className="p-3 bg-slate-50 rounded-lg border space-y-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-16 h-16 bg-white rounded border flex items-center justify-center overflow-hidden shrink-0">
+                      {logo.image_url ? (
+                        <img src={logo.image_url} alt={logo.name || ''} className="w-full h-full object-contain p-1" />
+                      ) : (
+                        <Image className="w-6 h-6 text-slate-400" />
+                      )}
+                    </div>
+                    <div className="flex-1 space-y-2">
+                      <Input
+                        value={logo.name || ''}
+                        onChange={(e) => updateLogo(index, 'name', e.target.value)}
+                        placeholder="Logo name (for rollover)"
+                        className="h-8 text-sm"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setAddingLogoIndex(index);
+                          setShowFileSelector(true);
+                        }}
+                        className="h-7 text-xs"
+                      >
+                        Change Image
+                      </Button>
+                    </div>
                     <Button
                       type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setAddingLogoIndex(index);
-                        setShowFileSelector(true);
-                      }}
-                      className="h-7 text-xs"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => removeLogo(index)}
+                      className="shrink-0 text-red-500 hover:text-red-600 hover:bg-red-50"
                     >
-                      Change Image
+                      <Trash2 className="w-4 h-4" />
                     </Button>
                   </div>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => removeLogo(index)}
-                    className="shrink-0 text-red-500 hover:text-red-600 hover:bg-red-50"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="col-span-2">
+                      <Label className="text-xs">Link URL</Label>
+                      <Input
+                        value={logo.url || ''}
+                        onChange={(e) => updateLogo(index, 'url', e.target.value)}
+                        placeholder="https://example.com"
+                        className="h-8 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Open In</Label>
+                      <select
+                        value={logo.target || '_self'}
+                        onChange={(e) => updateLogo(index, 'target', e.target.value)}
+                        className="w-full h-8 px-2 border border-slate-300 rounded-md text-sm"
+                      >
+                        <option value="_self">Same Tab</option>
+                        <option value="_blank">New Tab</option>
+                      </select>
+                    </div>
+                  </div>
                 </div>
               ))}
 
