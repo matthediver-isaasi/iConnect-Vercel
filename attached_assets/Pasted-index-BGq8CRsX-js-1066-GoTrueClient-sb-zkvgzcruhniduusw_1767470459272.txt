@@ -1,0 +1,327 @@
+index-BGq8CRsX.js:1066 GoTrueClient@sb-zkvgzcruhniduuswbfyh-auth-token:1 (2.84.0) 2026-01-03T20:00:04.284Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+mg @ index-BGq8CRsX.js:1066
+Kie @ index-BGq8CRsX.js:1067
+_initSupabaseAuthClient @ index-BGq8CRsX.js:1067
+Gie @ index-BGq8CRsX.js:1067
+T4 @ index-BGq8CRsX.js:1067
+(anonymous) @ index-BGq8CRsX.js:2074
+(anonymous) @ index-BGq8CRsX.js:1
+(anonymous) @ index-BGq8CRsX.js:2503
+index-BGq8CRsX.js:1066 GoTrueClient@sb-zkvgzcruhniduuswbfyh-auth-token:2 (2.84.0) 2026-01-03T20:00:04.292Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+mg @ index-BGq8CRsX.js:1066
+Kie @ index-BGq8CRsX.js:1067
+_initSupabaseAuthClient @ index-BGq8CRsX.js:1067
+Gie @ index-BGq8CRsX.js:1067
+T4 @ index-BGq8CRsX.js:1067
+(anonymous) @ index-BGq8CRsX.js:2452
+(anonymous) @ index-BGq8CRsX.js:1
+(anonymous) @ index-BGq8CRsX.js:2503
+index-BGq8CRsX.js:1370 [usePendingPurchaseOrders] memberInfo: null
+index-BGq8CRsX.js:1370 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BGq8CRsX.js:1370 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BGq8CRsX.js:1370 [Layout] currentPageName: FormView currentPortalPageId: null
+index-BGq8CRsX.js:1370 [usePendingPurchaseOrders] memberInfo: null
+index-BGq8CRsX.js:1370 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BGq8CRsX.js:1370 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BGq8CRsX.js:1370 [Layout] currentPageName: FormView currentPortalPageId: null
+index-BGq8CRsX.js:1370 [usePendingPurchaseOrders] memberInfo: null
+index-BGq8CRsX.js:1370 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BGq8CRsX.js:1370 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BGq8CRsX.js:1370 [Layout] currentPageName: FormView currentPortalPageId: null
+index-BGq8CRsX.js:1370 [usePendingPurchaseOrders] memberInfo: null
+index-BGq8CRsX.js:1370 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BGq8CRsX.js:1370 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BGq8CRsX.js:1370 [Layout] currentPageName: FormView currentPortalPageId: null
+index-BGq8CRsX.js:1370 [usePendingPurchaseOrders] memberInfo: null
+index-BGq8CRsX.js:1370 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BGq8CRsX.js:1370 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BGq8CRsX.js:1370 [Layout] currentPageName: FormView currentPortalPageId: null
+index-BGq8CRsX.js:2408 [FormView] entity_pipelines.members: undefined
+index-BGq8CRsX.js:2408 [FormView] First member object (full): none
+index-BGq8CRsX.js:2408 [FormView] primaryMember: undefined
+index-BGq8CRsX.js:2408 [FormView] Extracted primaryMemberRoleId: null
+index-BGq8CRsX.js:2408 [FormView] Capacity check state: {primaryMemberRoleId: null, isCheckingCapacity: false, roleCapacity: undefined, formSlug: 'hos-join', formLoaded: false, …}
+index-BGq8CRsX.js:2408 [FormView Init] Initial hidden fields from starts_hidden: []
+index-BGq8CRsX.js:2408 [FormView Init] All fields with starts_hidden property: undefined
+index-BGq8CRsX.js:1067 [useNavigationRealtime] Setting up realtime subscription for navigation_item table
+index-BGq8CRsX.js:2408 [FormView] Capacity check state: {primaryMemberRoleId: null, isCheckingCapacity: false, roleCapacity: undefined, formSlug: 'hos-join', formLoaded: false, …}
+index-BGq8CRsX.js:1370 [usePendingPurchaseOrders] memberInfo: null
+index-BGq8CRsX.js:1370 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BGq8CRsX.js:1370 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BGq8CRsX.js:1370 [Layout] currentPageName: FormView currentPortalPageId: null
+index-BGq8CRsX.js:1067 [useNavigationRealtime] Subscription status: SUBSCRIBED
+index-BGq8CRsX.js:1370 [Layout] Server returned null for /api/auth/me - member deleted or disabled
+index-BGq8CRsX.js:2408 [FormView] entity_pipelines.members: [{…}]
+index-BGq8CRsX.js:2408 [FormView] First member object (full): {
+  "id": "member_primary_1766309172880",
+  "label": "Primary Member",
+  "role_id": "561682bb-57f2-4a61-89aa-c3c201692923",
+  "mappings": [
+    {
+      "id": "mapping_1765698609076",
+      "source_type": "field",
+      "target_type": "core",
+      "static_value": "",
+      "target_field": "organization_id",
+      "target_entity": "member",
+      "transformation": "none",
+      "source_field_id": "field_1765017571083"
+    },
+    {
+      "id": "mapping_1765698628803",
+      "source_type": "field",
+      "target_type": "core",
+      "static_value": "",
+      "target_field": "first_name",
+      "target_entity": "member",
+      "transformation": "none",
+      "source_field_id": "field_1765017795175"
+    },
+    {
+      "id": "mapping_1765698635192",
+      "source_type": "field",
+      "target_type": "core",
+      "static_value": "",
+      "target_field": "last_name",
+      "target_entity": "member",
+      "transformation": "none",
+      "source_field_id": "field_1765017805976"
+    },
+    {
+      "id": "mapping_1765698640002",
+      "source_type": "field",
+      "target_type": "core",
+      "static_value": "",
+      "target_field": "job_title",
+      "target_entity": "member",
+      "transformation": "none",
+      "source_field_id": "field_1765693757142"
+    },
+    {
+      "id": "mapping_1765698732323",
+      "source_type": "field",
+      "target_type": "core",
+      "static_value": "",
+      "target_field": "mobile",
+      "target_entity": "member",
+      "transformation": "none",
+      "source_field_id": "field_1765017838015"
+    },
+    {
+      "id": "mapping_1765698740104",
+      "source_type": "field",
+      "target_type": "core",
+      "static_value": "",
+      "target_field": "landline",
+      "target_entity": "member",
+      "transformation": "none",
+      "source_field_id": "field_1765698117811"
+    },
+    {
+      "id": "mapping_1765708287619",
+      "source_type": "field",
+      "target_type": "custom",
+      "static_value": "",
+      "target_field": "3b4f312b-1d61-41a6-acf4-95482e2a3359",
+      "target_entity": "member",
+      "transformation": "none",
+      "source_field_id": "field_1765695007112"
+    },
+    {
+      "id": "mapping_1765708309394",
+      "source_type": "field",
+      "target_type": "core",
+      "static_value": "",
+      "target_field": "email",
+      "target_entity": "member",
+      "transformation": "none",
+      "source_field_id": "field_1765017830408"
+    },
+    {
+      "id": "mapping_1765708340306",
+      "source_type": "field",
+      "target_type": "custom",
+      "static_value": "",
+      "target_field": "2bab42f4-4320-4c1c-82bc-b8f67828427e",
+      "target_entity": "member",
+      "transformation": "none",
+      "source_field_id": "field_1765698252552"
+    },
+    {
+      "id": "mapping_1765708384879",
+      "source_type": "field",
+      "target_type": "core",
+      "static_value": "",
+      "target_field": "show_in_directory",
+      "target_entity": "member",
+      "transformation": "none",
+      "source_field_id": "field_1765019805833"
+    }
+  ],
+  "isPrimary": true,
+  "uniqueness_key": "email"
+}
+index-BGq8CRsX.js:2408 [FormView] No is_primary found, using first member as fallback
+index-BGq8CRsX.js:2408 [FormView] primaryMember: {id: 'member_primary_1766309172880', label: 'Primary Member', role_id: '561682bb-57f2-4a61-89aa-c3c201692923', mappings: Array(10), isPrimary: true, …}
+index-BGq8CRsX.js:2408 [FormView] Extracted primaryMemberRoleId: 561682bb-57f2-4a61-89aa-c3c201692923
+index-BGq8CRsX.js:2408 [FormView] Capacity check state: {primaryMemberRoleId: '561682bb-57f2-4a61-89aa-c3c201692923', isCheckingCapacity: true, roleCapacity: undefined, formSlug: 'hos-join', formLoaded: true, …}
+index-BGq8CRsX.js:2408 [FormView Init] Field "Which area does your role align to?" (field_1765695184695) has starts_hidden=true, adding to initial hidden
+index-BGq8CRsX.js:2408 [FormView Init] Initial hidden fields from starts_hidden: ['field_1765695184695']
+index-BGq8CRsX.js:2408 [FormView Init] All fields with starts_hidden property: (12) [{…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}]
+index-BGq8CRsX.js:2408 [FormView] BLOCKING: Still loading capacity check
+index-BGq8CRsX.js:2408 [FormView] Fetching capacity for role: 561682bb-57f2-4a61-89aa-c3c201692923
+index-BGq8CRsX.js:2408 [FormView Init] Hidden field "Which area does your role align to?" (field_1765695184695) initialized with empty string (no default_value)
+index-BGq8CRsX.js:2408 [FormView] Capacity check state: {primaryMemberRoleId: '561682bb-57f2-4a61-89aa-c3c201692923', isCheckingCapacity: true, roleCapacity: undefined, formSlug: 'hos-join', formLoaded: true, …}
+index-BGq8CRsX.js:2408 [FormView] BLOCKING: Still loading capacity check
+index-BGq8CRsX.js:1370 [usePendingPurchaseOrders] memberInfo: null
+index-BGq8CRsX.js:1370 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BGq8CRsX.js:1370 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BGq8CRsX.js:1370 [Layout] currentPageName: FormView currentPortalPageId: null
+index-BGq8CRsX.js:2408  GET https://nav.iconn.app/api/public/role/561682bb-57f2-4a61-89aa-c3c201692923/capacity 404 (Not Found)
+queryFn @ index-BGq8CRsX.js:2408
+i @ index-BGq8CRsX.js:981
+v @ index-BGq8CRsX.js:981
+start @ index-BGq8CRsX.js:981
+fetch @ index-BGq8CRsX.js:981
+of @ index-BGq8CRsX.js:981
+setOptions @ index-BGq8CRsX.js:981
+(anonymous) @ index-BGq8CRsX.js:981
+cj @ index-BGq8CRsX.js:40
+Eh @ index-BGq8CRsX.js:40
+YJ @ index-BGq8CRsX.js:40
+Pu @ index-BGq8CRsX.js:40
+hP @ index-BGq8CRsX.js:40
+nu @ index-BGq8CRsX.js:38
+(anonymous) @ index-BGq8CRsX.js:40
+setTimeout
+r @ index-BGq8CRsX.js:981
+l @ index-BGq8CRsX.js:981
+batch @ index-BGq8CRsX.js:981
+rc @ index-BGq8CRsX.js:981
+setData @ index-BGq8CRsX.js:981
+onSuccess @ index-BGq8CRsX.js:981
+u @ index-BGq8CRsX.js:981
+Promise.then
+v @ index-BGq8CRsX.js:981
+start @ index-BGq8CRsX.js:981
+fetch @ index-BGq8CRsX.js:981
+of @ index-BGq8CRsX.js:981
+onSubscribe @ index-BGq8CRsX.js:981
+subscribe @ index-BGq8CRsX.js:981
+(anonymous) @ index-BGq8CRsX.js:981
+nR @ index-BGq8CRsX.js:38
+cj @ index-BGq8CRsX.js:40
+Eh @ index-BGq8CRsX.js:40
+YJ @ index-BGq8CRsX.js:40
+Pu @ index-BGq8CRsX.js:40
+hP @ index-BGq8CRsX.js:40
+nu @ index-BGq8CRsX.js:38
+(anonymous) @ index-BGq8CRsX.js:40
+setTimeout
+r @ index-BGq8CRsX.js:981
+l @ index-BGq8CRsX.js:981
+batch @ index-BGq8CRsX.js:981
+rc @ index-BGq8CRsX.js:981
+setData @ index-BGq8CRsX.js:981
+onSuccess @ index-BGq8CRsX.js:981
+u @ index-BGq8CRsX.js:981
+Promise.then
+v @ index-BGq8CRsX.js:981
+start @ index-BGq8CRsX.js:981
+fetch @ index-BGq8CRsX.js:981
+of @ index-BGq8CRsX.js:981
+onSubscribe @ index-BGq8CRsX.js:981
+subscribe @ index-BGq8CRsX.js:981
+(anonymous) @ index-BGq8CRsX.js:981
+nR @ index-BGq8CRsX.js:38
+cj @ index-BGq8CRsX.js:40
+Eh @ index-BGq8CRsX.js:40
+(anonymous) @ index-BGq8CRsX.js:40
+N @ index-BGq8CRsX.js:25
+C @ index-BGq8CRsX.js:25
+index-BGq8CRsX.js:2408 [FormView] Capacity API response status: 404
+index-BGq8CRsX.js:2408 [FormView] Failed to check role capacity
+queryFn @ index-BGq8CRsX.js:2408
+await in queryFn
+i @ index-BGq8CRsX.js:981
+v @ index-BGq8CRsX.js:981
+start @ index-BGq8CRsX.js:981
+fetch @ index-BGq8CRsX.js:981
+of @ index-BGq8CRsX.js:981
+setOptions @ index-BGq8CRsX.js:981
+(anonymous) @ index-BGq8CRsX.js:981
+cj @ index-BGq8CRsX.js:40
+Eh @ index-BGq8CRsX.js:40
+YJ @ index-BGq8CRsX.js:40
+Pu @ index-BGq8CRsX.js:40
+hP @ index-BGq8CRsX.js:40
+nu @ index-BGq8CRsX.js:38
+(anonymous) @ index-BGq8CRsX.js:40
+setTimeout
+r @ index-BGq8CRsX.js:981
+l @ index-BGq8CRsX.js:981
+batch @ index-BGq8CRsX.js:981
+rc @ index-BGq8CRsX.js:981
+setData @ index-BGq8CRsX.js:981
+onSuccess @ index-BGq8CRsX.js:981
+u @ index-BGq8CRsX.js:981
+Promise.then
+v @ index-BGq8CRsX.js:981
+start @ index-BGq8CRsX.js:981
+fetch @ index-BGq8CRsX.js:981
+of @ index-BGq8CRsX.js:981
+onSubscribe @ index-BGq8CRsX.js:981
+subscribe @ index-BGq8CRsX.js:981
+(anonymous) @ index-BGq8CRsX.js:981
+nR @ index-BGq8CRsX.js:38
+cj @ index-BGq8CRsX.js:40
+Eh @ index-BGq8CRsX.js:40
+YJ @ index-BGq8CRsX.js:40
+Pu @ index-BGq8CRsX.js:40
+hP @ index-BGq8CRsX.js:40
+nu @ index-BGq8CRsX.js:38
+(anonymous) @ index-BGq8CRsX.js:40
+setTimeout
+r @ index-BGq8CRsX.js:981
+l @ index-BGq8CRsX.js:981
+batch @ index-BGq8CRsX.js:981
+rc @ index-BGq8CRsX.js:981
+setData @ index-BGq8CRsX.js:981
+onSuccess @ index-BGq8CRsX.js:981
+u @ index-BGq8CRsX.js:981
+Promise.then
+v @ index-BGq8CRsX.js:981
+start @ index-BGq8CRsX.js:981
+fetch @ index-BGq8CRsX.js:981
+of @ index-BGq8CRsX.js:981
+onSubscribe @ index-BGq8CRsX.js:981
+subscribe @ index-BGq8CRsX.js:981
+(anonymous) @ index-BGq8CRsX.js:981
+nR @ index-BGq8CRsX.js:38
+cj @ index-BGq8CRsX.js:40
+Eh @ index-BGq8CRsX.js:40
+(anonymous) @ index-BGq8CRsX.js:40
+N @ index-BGq8CRsX.js:25
+C @ index-BGq8CRsX.js:25
+index-BGq8CRsX.js:2408 [FormView] Capacity check state: {primaryMemberRoleId: '561682bb-57f2-4a61-89aa-c3c201692923', isCheckingCapacity: false, roleCapacity: {…}, formSlug: 'hos-join', formLoaded: true, …}
+index-BGq8CRsX.js:2408 [FormView] Capacity block decision: {primaryMemberRoleId: '561682bb-57f2-4a61-89aa-c3c201692923', roleCapacity: {…}, hasCapacity: true, shouldBlockForCapacity: false}
+index-BGq8CRsX.js:2408 [FormView] Capacity check state: {primaryMemberRoleId: '561682bb-57f2-4a61-89aa-c3c201692923', isCheckingCapacity: false, roleCapacity: {…}, formSlug: 'hos-join', formLoaded: true, …}
+index-BGq8CRsX.js:2408 [FormView] Capacity block decision: {primaryMemberRoleId: '561682bb-57f2-4a61-89aa-c3c201692923', roleCapacity: {…}, hasCapacity: true, shouldBlockForCapacity: false}
+index-BGq8CRsX.js:2408 [FormView] Capacity check state: {primaryMemberRoleId: '561682bb-57f2-4a61-89aa-c3c201692923', isCheckingCapacity: false, roleCapacity: {…}, formSlug: 'hos-join', formLoaded: true, …}
+index-BGq8CRsX.js:2408 [FormView] Capacity block decision: {primaryMemberRoleId: '561682bb-57f2-4a61-89aa-c3c201692923', roleCapacity: {…}, hasCapacity: true, shouldBlockForCapacity: false}
+index-BGq8CRsX.js:2408 [FormView] Capacity check state: {primaryMemberRoleId: '561682bb-57f2-4a61-89aa-c3c201692923', isCheckingCapacity: false, roleCapacity: {…}, formSlug: 'hos-join', formLoaded: true, …}
+index-BGq8CRsX.js:2408 [FormView] Capacity block decision: {primaryMemberRoleId: '561682bb-57f2-4a61-89aa-c3c201692923', roleCapacity: {…}, hasCapacity: true, shouldBlockForCapacity: false}
+index-BGq8CRsX.js:2408 [FormView] Capacity check state: {primaryMemberRoleId: '561682bb-57f2-4a61-89aa-c3c201692923', isCheckingCapacity: false, roleCapacity: {…}, formSlug: 'hos-join', formLoaded: true, …}
+index-BGq8CRsX.js:2408 [FormView] Capacity block decision: {primaryMemberRoleId: '561682bb-57f2-4a61-89aa-c3c201692923', roleCapacity: {…}, hasCapacity: true, shouldBlockForCapacity: false}
+index-BGq8CRsX.js:2408 [FormView Prefill] Starting prefill
+index-BGq8CRsX.js:2408 [FormView Prefill] Member entity: undefined
+index-BGq8CRsX.js:2408 [FormView Prefill] Org entity: {id: '55a86410-7f60-4451-a45c-5760d93ccf1a', name: 'Abertay University', logo_url: 'https://zkvgzcruhniduuswbfyh.supabase.co/storage/v…tory/uploads/1767000308365-nowlg19-abertayPNG.png', zoho_account_id: '883813000001519844', domain: 'abertay.ac.uk', …}
+index-BGq8CRsX.js:2408 [FormView Prefill] Fields with prefill_field configured: [{…}]
+index-BGq8CRsX.js:2408 [FormView Prefill] Total newValues to apply: 1 {field_1765017571083: '55a86410-7f60-4451-a45c-5760d93ccf1a'}
+index-BGq8CRsX.js:2408 [FormView Prefill] Merged formValues: {field_1765019805833: true, field_1765695184695: '', field_1765017571083: '55a86410-7f60-4451-a45c-5760d93ccf1a'}
+index-BGq8CRsX.js:2408 [FormView] Capacity check state: {primaryMemberRoleId: '561682bb-57f2-4a61-89aa-c3c201692923', isCheckingCapacity: false, roleCapacity: {…}, formSlug: 'hos-join', formLoaded: true, …}
+index-BGq8CRsX.js:2408 [FormView] Capacity block decision: {primaryMemberRoleId: '561682bb-57f2-4a61-89aa-c3c201692923', roleCapacity: {…}, hasCapacity: true, shouldBlockForCapacity: false}
+index-BGq8CRsX.js:1336 [PublicLayout] Fetching banners for page: FormView portalPageId: null isCustomSlug: true urlSlug: blogs
+index-BGq8CRsX.js:1336 [PublicLayout] All banners found: 14
+index-BGq8CRsX.js:1336 [PublicLayout] pageToPortalPageMap keys: (26) ['Events', 'PublicEvents', 'Bookings', 'MyTickets', 'BuyProgramTickets', 'MemberDirectory', 'OrganisationDirectory', 'Resources', 'PublicResources', 'Articles', 'PublicArticles', 'Team', 'Balances', 'History', 'Profile', 'MyOrganisation', 'JobBoard', 'PublicJobBoard', 'News', 'PublicNews', 'NewsView', 'MyJobPostings', 'Preferences', 'about-me', 'Support', 'Dashboard']
+index-BGq8CRsX.js:1336 [PublicLayout] Matched banners: 0

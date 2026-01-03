@@ -66,12 +66,12 @@ export default function FormViewPage() {
     const members = form?.entity_pipelines?.members;
     console.log('[FormView] entity_pipelines.members:', members);
     console.log('[FormView] First member object (full):', members?.[0] ? JSON.stringify(members[0], null, 2) : 'none');
-    // Try finding by is_primary, or just use the first member if only one exists
-    let primaryMember = members?.find(m => m.is_primary === true);
+    // Try finding by isPrimary (camelCase) or is_primary (snake_case)
+    let primaryMember = members?.find(m => m.isPrimary === true || m.is_primary === true);
     if (!primaryMember && members?.length === 1) {
       // Fallback: if only one member config, use it
       primaryMember = members[0];
-      console.log('[FormView] No is_primary found, using first member as fallback');
+      console.log('[FormView] No isPrimary/is_primary found, using first member as fallback');
     }
     console.log('[FormView] primaryMember:', primaryMember);
     const roleId = primaryMember?.role_id || null;

@@ -242,7 +242,12 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
 
   // Extract role_id from primary member entity_pipeline for capacity checking
   const primaryMemberRoleId = useMemo(() => {
-    const primaryMember = form?.entity_pipelines?.members?.find(m => m.is_primary);
+    const members = form?.entity_pipelines?.members;
+    // Try finding by isPrimary (camelCase) or is_primary (snake_case)
+    let primaryMember = members?.find(m => m.isPrimary === true || m.is_primary === true);
+    if (!primaryMember && members?.length === 1) {
+      primaryMember = members[0];
+    }
     return primaryMember?.role_id || null;
   }, [form?.entity_pipelines?.members]);
 
