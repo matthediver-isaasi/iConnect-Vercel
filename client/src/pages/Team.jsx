@@ -9,7 +9,7 @@ import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Loader2, User, Mail, FileText, Trophy, Search, Users, Shield, Calendar, Clock, Edit, X, ChevronLeft, ChevronRight, UserPlus } from "lucide-react";
+import { Loader2, User, Mail, FileText, Trophy, Search, Users, Shield, Calendar, Clock, Edit, X, ChevronLeft, ChevronRight, UserPlus, Link, Copy, Check } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
 import { sendTeamMemberInvite } from "@/api/functions";
@@ -30,6 +30,7 @@ export default function TeamPage({ hasBanner }) {
   const [inviteSubject, setInviteSubject] = useState("");
   const [inviteBody, setInviteBody] = useState("");
   const [editForm, setEditForm] = useState({ first_name: "", last_name: "", job_title: "", email: "", profile_photo_url: "", linkedin_url: "" });
+  const [signupLinkCopied, setSignupLinkCopied] = useState(false);
   const queryClient = useQueryClient();
 
   const { data: inviteTemplateSetting } = useQuery({
@@ -39,6 +40,33 @@ export default function TeamPage({ hasBanner }) {
       return allSettings.find(s => s.setting_key === 'team_invite_email_template') || null;
     }
   });
+
+  // Fetch signup link template setting
+  const { data: signupLinkSetting } = useQuery({
+    queryKey: ['team-signup-link-template-setting'],
+    queryFn: async () => {
+      const allSettings = await base44.entities.SystemSettings.list();
+      return allSettings.find(s => s.setting_key === 'team_signup_link_template') || null;
+    }
+  });
+
+  // Generate the actual signup link by replacing [[organization_id]] with the real org ID
+  const signupLink = useMemo(() => {
+    if (!signupLinkSetting?.setting_value || !memberInfo?.organization_id) return null;
+    return signupLinkSetting.setting_value.replace(/\[\[organization_id\]\]/g, memberInfo.organization_id);
+  }, [signupLinkSetting?.setting_value, memberInfo?.organization_id]);
+
+  const handleCopySignupLink = async () => {
+    if (!signupLink) return;
+    try {
+      await navigator.clipboard.writeText(signupLink);
+      setSignupLinkCopied(true);
+      toast.success('Link copied to clipboard');
+      setTimeout(() => setSignupLinkCopied(false), 2000);
+    } catch {
+      toast.error('Failed to copy link');
+    }
+  };
 
   const inviteTemplateId = useMemo(() => {
     if (inviteTemplateSetting?.setting_value) {
@@ -500,6 +528,45 @@ export default function TeamPage({ hasBanner }) {
                 )}
               </div>
             </div>
+          )}
+
+          {/* Sign Up Link Card - only show if template is configured */}
+          {signupLink && (
+            <Card className="mb-6 border-blue-200 bg-blue-50/50">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-blue-100 rounded-lg flex-shrink-0">
+                    <Link className="w-5 h-5 text-blue-600" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-slate-700 mb-1">Team Sign Up Link</p>
+                    <p className="text-sm text-slate-600 truncate" title={signupLink}>
+                      {signupLink}
+                    </p>
+                  </div>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        size="icon"
+                        variant="outline"
+                        onClick={handleCopySignupLink}
+                        className="flex-shrink-0"
+                        data-testid="button-copy-signup-link"
+                      >
+                        {signupLinkCopied ? (
+                          <Check className="w-4 h-4 text-green-600" />
+                        ) : (
+                          <Copy className="w-4 h-4" />
+                        )}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>{signupLinkCopied ? 'Copied!' : 'Copy link'}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
+              </CardContent>
+            </Card>
           )}
 
           {/* Search and Filter Card */}

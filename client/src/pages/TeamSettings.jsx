@@ -5,7 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Settings, Loader2, User, Mail, Briefcase, Shield, Clock, Calendar, FileText, Trophy, ToggleLeft, UserPlus } from "lucide-react";
+import { Settings, Loader2, User, Mail, Briefcase, Shield, Clock, Calendar, FileText, Trophy, ToggleLeft, UserPlus, Link } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -28,6 +29,7 @@ export default function TeamSettingsPage() {
   const [accessChecked, setAccessChecked] = useState(false);
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [inviteTemplateId, setInviteTemplateId] = useState(null);
+  const [signupLinkTemplate, setSignupLinkTemplate] = useState('');
   const queryClient = useQueryClient();
 
   const { data: emailTemplates = [] } = useQuery({
@@ -57,6 +59,21 @@ export default function TeamSettingsPage() {
     }
   }, [inviteTemplateSetting]);
 
+  // Fetch signup link template setting
+  const { data: signupLinkSetting } = useQuery({
+    queryKey: ['team-signup-link-template-setting'],
+    queryFn: async () => {
+      const allSettings = await base44.entities.SystemSettings.list();
+      return allSettings.find(s => s.setting_key === 'team_signup_link_template') || null;
+    }
+  });
+
+  useEffect(() => {
+    if (signupLinkSetting?.setting_value) {
+      setSignupLinkTemplate(signupLinkSetting.setting_value);
+    }
+  }, [signupLinkSetting]);
+
   const updateInviteTemplateMutation = useMutation({
     mutationFn: async (templateId) => {
       const settingValue = JSON.stringify({ template_id: templateId });
@@ -78,6 +95,29 @@ export default function TeamSettingsPage() {
     },
     onError: (error) => {
       toast.error('Failed to update invite template: ' + error.message);
+    }
+  });
+
+  const updateSignupLinkMutation = useMutation({
+    mutationFn: async (linkTemplate) => {
+      if (signupLinkSetting) {
+        return await base44.entities.SystemSettings.update(signupLinkSetting.id, {
+          setting_value: linkTemplate
+        });
+      } else {
+        return await base44.entities.SystemSettings.create({
+          setting_key: 'team_signup_link_template',
+          setting_value: linkTemplate,
+          description: 'Sign up link template shown on Team page with [[organization_id]] placeholder'
+        });
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['team-signup-link-template-setting'] });
+      toast.success('Sign up link template saved');
+    },
+    onError: (error) => {
+      toast.error('Failed to save sign up link: ' + error.message);
     }
   });
 
@@ -331,6 +371,51 @@ export default function TeamSettingsPage() {
                     <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
                       <p className="text-sm text-green-700">
                         Template selected: <strong>{emailTemplates.find(t => t.id === inviteTemplateId)?.name || 'Unknown'}</strong>
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Link className="w-5 h-5" />
+                  Team Sign Up Link
+                </CardTitle>
+                <CardDescription>
+                  Configure the sign up link that team members can share. Use <code className="bg-slate-100 px-1 rounded">[[organization_id]]</code> as a placeholder - it will be replaced with the actual organisation ID when displayed on the Team page.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="signup-link-template">Link Template</Label>
+                    <Input
+                      id="signup-link-template"
+                      type="text"
+                      placeholder="https://www.example.org/FormView?slug=join&organization_id=[[organization_id]]"
+                      value={signupLinkTemplate}
+                      onChange={(e) => setSignupLinkTemplate(e.target.value)}
+                      data-testid="input-signup-link-template"
+                    />
+                    <p className="text-xs text-slate-500">
+                      Example: https://www.graduatefutures.org/FormView?slug=individual-join&organization_id=[[organization_id]]
+                    </p>
+                  </div>
+                  <Button
+                    onClick={() => updateSignupLinkMutation.mutate(signupLinkTemplate)}
+                    disabled={updateSignupLinkMutation.isPending}
+                    size="sm"
+                    data-testid="button-save-signup-link"
+                  >
+                    {updateSignupLinkMutation.isPending ? 'Saving...' : 'Save Link Template'}
+                  </Button>
+                  {signupLinkSetting?.setting_value && (
+                    <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                      <p className="text-sm text-green-700">
+                        Current template: <code className="bg-green-100 px-1 rounded break-all">{signupLinkSetting.setting_value}</code>
                       </p>
                     </div>
                   )}
