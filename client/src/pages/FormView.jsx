@@ -96,7 +96,9 @@ export default function FormViewPage() {
     primaryMemberRoleId,
     isCheckingCapacity,
     roleCapacity,
-    formSlug: slug
+    formSlug,
+    formLoaded: !!form,
+    formEntityPipelines: form?.entity_pipelines
   });
 
   // Prefill: Fetch member entity when form has prefill_source = 'member'
