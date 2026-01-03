@@ -16,7 +16,7 @@ function stripHtml(html: string | null | undefined): string {
 }
 
 // Helper to check if a role has capacity for more members
-// Supports per-organization capacity when organizationId is provided
+// Role capacity is ALWAYS per-organization - organizationId is required when role has max_members
 // Returns { hasCapacity: boolean, currentCount: number, maxMembers: number | null, roleName?: string, error?: string }
 async function checkRoleCapacity(supabaseClient: any, roleId: string, organizationId?: string | null): Promise<{
   hasCapacity: boolean;
@@ -24,7 +24,7 @@ async function checkRoleCapacity(supabaseClient: any, roleId: string, organizati
   maxMembers: number | null;
   roleName?: string;
   error?: string;
-  mode?: 'global' | 'per_organization';
+  missingOrgContext?: boolean;
 }> {
   try {
     // Get the role's max_members limit
@@ -38,26 +38,33 @@ async function checkRoleCapacity(supabaseClient: any, roleId: string, organizati
       return { hasCapacity: false, currentCount: 0, maxMembers: null, error: `Role not found: ${roleError.message}` };
     }
 
-    // If max_members is null, unlimited capacity
+    // If max_members is null, unlimited capacity - no check needed
     if (role.max_members === null || role.max_members === undefined) {
       return { hasCapacity: true, currentCount: 0, maxMembers: null, roleName: role.name };
     }
 
-    // Build the query - filter by organization if provided (per-org capacity)
-    let query = supabaseClient
+    // Role capacity is ALWAYS per-organization
+    // If organizationId is not provided, we cannot check capacity
+    if (!organizationId) {
+      console.log(`[checkRoleCapacity] ERROR: Role ${roleId} has max_members=${role.max_members} but no organizationId provided`);
+      return { 
+        hasCapacity: false, 
+        currentCount: 0, 
+        maxMembers: role.max_members, 
+        roleName: role.name,
+        error: 'Organization context required for role capacity check',
+        missingOrgContext: true
+      };
+    }
+
+    console.log(`[checkRoleCapacity] Per-org check for role ${roleId} in org ${organizationId}`);
+
+    const { count, error: countError } = await supabaseClient
       .from('member')
       .select('id', { count: 'exact', head: true })
       .eq('role_id', roleId)
+      .eq('organization_id', organizationId)
       .eq('login_enabled', true);
-
-    if (organizationId) {
-      query = query.eq('organization_id', organizationId);
-      console.log(`[checkRoleCapacity] Per-org check for role ${roleId} in org ${organizationId}`);
-    } else {
-      console.log(`[checkRoleCapacity] Global check for role ${roleId}`);
-    }
-
-    const { count, error: countError } = await query;
 
     if (countError) {
       return { hasCapacity: false, currentCount: 0, maxMembers: role.max_members, roleName: role.name, error: `Count error: ${countError.message}` };
@@ -66,12 +73,13 @@ async function checkRoleCapacity(supabaseClient: any, roleId: string, organizati
     const currentCount = count || 0;
     const hasCapacity = currentCount < role.max_members;
 
+    console.log(`[checkRoleCapacity] Org ${organizationId}: ${currentCount}/${role.max_members} active ${role.name} members, hasCapacity: ${hasCapacity}`);
+
     return { 
       hasCapacity, 
       currentCount, 
       maxMembers: role.max_members, 
-      roleName: role.name,
-      mode: organizationId ? 'per_organization' : 'global'
+      roleName: role.name
     };
   } catch (err: any) {
     return { hasCapacity: false, currentCount: 0, maxMembers: null, error: err.message };
@@ -370,9 +378,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log(`[Entity POST] Role capacity check result:`, JSON.stringify(capacityCheck));
         
         if (!capacityCheck.hasCapacity) {
+          if (capacityCheck.missingOrgContext) {
+            console.error(`[Entity POST] Cannot check capacity: organization context required`);
+            return res.status(400).json({ 
+              error: `Cannot assign this role without an organization. Please provide organization_id.`,
+              code: 'ROLE_CAPACITY_MISSING_ORG'
+            });
+          }
           console.error(`[Entity POST] Role at max capacity: ${capacityCheck.currentCount}/${capacityCheck.maxMembers}`);
           return res.status(400).json({ 
-            error: `This role has reached its maximum capacity of ${capacityCheck.maxMembers} members${capacityCheck.mode === 'per_organization' ? ' for this organization' : ''}.`,
+            error: `This role has reached its maximum capacity of ${capacityCheck.maxMembers} members for this organization.`,
             code: 'ROLE_CAPACITY_EXCEEDED'
           });
         }
@@ -454,9 +469,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
           console.log(`[Entity PATCH] Role capacity check result:`, JSON.stringify(capacityCheck));
           
           if (!capacityCheck.hasCapacity) {
+            if (capacityCheck.missingOrgContext) {
+              console.error(`[Entity PATCH] Cannot check capacity: organization context required`);
+              return res.status(400).json({ 
+                error: `Cannot assign this role without an organization.`,
+                code: 'ROLE_CAPACITY_MISSING_ORG'
+              });
+            }
             console.error(`[Entity PATCH] Role at max capacity: ${capacityCheck.currentCount}/${capacityCheck.maxMembers}`);
             return res.status(400).json({ 
-              error: `This role has reached its maximum capacity of ${capacityCheck.maxMembers} members${capacityCheck.mode === 'per_organization' ? ' for this organization' : ''}.`,
+              error: `This role has reached its maximum capacity of ${capacityCheck.maxMembers} members for this organization.`,
               code: 'ROLE_CAPACITY_EXCEEDED'
             });
           }
@@ -2925,29 +2947,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
             if (memberData.job_title) updateData.job_title = memberData.job_title;
             if (memberData.mobile) updateData.mobile = memberData.mobile;
             if (memberData.landline) updateData.landline = memberData.landline;
-            // Add role_id if triggered from form conditional logic (null clears the role)
-            if (role_id !== undefined) {
+            // Determine effective role_id from multiple sources:
+            // 1. Triggered role from form conditional logic (role_id param)
+            // 2. Field mapping to member.role_id (memberData.role_id)
+            // Priority: triggered role > field mapping
+            const effectiveRoleIdForUpdate = role_id !== undefined ? role_id : memberData.role_id;
+            console.log('[AppProcessor] Role ID resolution (update):', { 
+              role_id_param: role_id, 
+              memberData_role_id: memberData.role_id, 
+              effectiveRoleIdForUpdate 
+            });
+            
+            // Add role_id if we have one from any source (null clears the role)
+            if (effectiveRoleIdForUpdate !== undefined) {
               // Check role capacity before updating to a new role (only if changing to a different role)
               // Uses per-organization capacity based on the member's organization
-              if (role_id !== null && role_id !== existingMember.role_id) {
-                const memberOrgId = createdOrganizationId || prefill_organization_id || existingMember.organization_id;
-                const capacityCheck = await checkRoleCapacity(supabase, role_id, memberOrgId);
+              // Include memberData.organization_id for org dropdown selections
+              if (effectiveRoleIdForUpdate !== null && effectiveRoleIdForUpdate !== existingMember.role_id) {
+                const memberOrgId = createdOrganizationId || memberData.organization_id || prefill_organization_id || existingMember.organization_id;
+                console.log('[AppProcessor] Resolved memberOrgId for update capacity check:', memberOrgId);
+                const capacityCheck = await checkRoleCapacity(supabase, effectiveRoleIdForUpdate, memberOrgId);
                 console.log('[AppProcessor] Role capacity check result (update):', JSON.stringify(capacityCheck));
                 if (capacityCheck.error) {
                   console.error('[AppProcessor] Role capacity check error:', capacityCheck.error);
                 }
                 if (!capacityCheck.hasCapacity) {
+                  if (capacityCheck.missingOrgContext) {
+                    console.error('[AppProcessor] Cannot check capacity: organization context required');
+                    return res.status(400).json({ 
+                      error: `Cannot assign this role without an organization.`,
+                      code: 'ROLE_CAPACITY_MISSING_ORG'
+                    });
+                  }
                   console.error('[AppProcessor] Role at max capacity:', capacityCheck.currentCount, '/', capacityCheck.maxMembers);
                   return res.status(400).json({ 
-                    error: `This role has reached its maximum capacity of ${capacityCheck.maxMembers} members${capacityCheck.mode === 'per_organization' ? ' for this organization' : ''}. Please contact an administrator.`,
+                    error: `This role has reached its maximum capacity of ${capacityCheck.maxMembers} members for this organization. Please contact an administrator.`,
                     code: 'ROLE_CAPACITY_EXCEEDED'
                   });
                 }
               }
-              updateData.role_id = role_id;
+              updateData.role_id = effectiveRoleIdForUpdate;
             }
-            // Use createdOrganizationId if org was created/updated, otherwise use prefill_organization_id
-            const orgIdToLink = createdOrganizationId || prefill_organization_id;
+            // Use createdOrganizationId if org was created/updated, memberData.organization_id (dropdown), or prefill
+            const orgIdToLink = createdOrganizationId || memberData.organization_id || prefill_organization_id;
             if (orgIdToLink) updateData.organization_id = orgIdToLink;
             
             if (Object.keys(updateData).length > 0) {
@@ -2977,8 +3019,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
               memberData.last_name = nameParts.slice(1).join(' ') || '';
             }
 
-            // Use createdOrganizationId if org was created/updated, otherwise use prefill_organization_id
-            const orgIdForNewMember = createdOrganizationId || prefill_organization_id || null;
+            // Use createdOrganizationId if org was created/updated, 
+            // then memberData.organization_id (from form dropdown), then prefill_organization_id
+            const orgIdForNewMember = createdOrganizationId || memberData.organization_id || prefill_organization_id || null;
+            console.log('[AppProcessor] Resolved orgIdForNewMember:', orgIdForNewMember, 
+              'sources:', { createdOrganizationId, memberDataOrgId: memberData.organization_id, prefill_organization_id });
             
             const memberInsertData: any = {
               email: (memberData.email || `pending-${Date.now()}@example.com`).toLowerCase(),
@@ -2992,30 +3037,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
             if (memberData.job_title) memberInsertData.job_title = memberData.job_title;
             if (memberData.mobile) memberInsertData.mobile = memberData.mobile;
             if (memberData.landline) memberInsertData.landline = memberData.landline;
-            // Add role_id if triggered from form conditional logic (null clears the role)
-            if (role_id !== undefined) {
-              memberInsertData.role_id = role_id;
-              console.log('[AppProcessor] Adding role_id to member insert:', role_id);
+            
+            // Determine effective role_id from multiple sources:
+            // 1. Triggered role from form conditional logic (role_id param)
+            // 2. Field mapping to member.role_id (memberData.role_id)
+            // Priority: triggered role > field mapping
+            const effectiveRoleId = role_id !== undefined ? role_id : memberData.role_id;
+            console.log('[AppProcessor] Role ID resolution:', { 
+              role_id_param: role_id, 
+              memberData_role_id: memberData.role_id, 
+              effectiveRoleId 
+            });
+            
+            // Add role_id if we have one from any source (null clears the role)
+            if (effectiveRoleId !== undefined) {
+              memberInsertData.role_id = effectiveRoleId;
+              console.log('[AppProcessor] Adding role_id to member insert:', effectiveRoleId);
               
               // Check role capacity before inserting member
               // Uses per-organization capacity based on the member's organization
-              if (role_id !== null) {
-                const capacityCheck = await checkRoleCapacity(supabase, role_id, orgIdForNewMember);
+              if (effectiveRoleId !== null) {
+                const capacityCheck = await checkRoleCapacity(supabase, effectiveRoleId, orgIdForNewMember);
                 console.log('[AppProcessor] Role capacity check result:', JSON.stringify(capacityCheck));
                 if (capacityCheck.error) {
                   console.error('[AppProcessor] Role capacity check error:', capacityCheck.error);
                   // Still enforce capacity if we got count info despite error
                 } 
                 if (!capacityCheck.hasCapacity) {
+                  if (capacityCheck.missingOrgContext) {
+                    console.error('[AppProcessor] Cannot check capacity: organization context required');
+                    return res.status(400).json({ 
+                      error: `Cannot assign this role without an organization.`,
+                      code: 'ROLE_CAPACITY_MISSING_ORG'
+                    });
+                  }
                   console.error('[AppProcessor] Role at max capacity:', capacityCheck.currentCount, '/', capacityCheck.maxMembers);
                   return res.status(400).json({ 
-                    error: `This role has reached its maximum capacity of ${capacityCheck.maxMembers} members${capacityCheck.mode === 'per_organization' ? ' for this organization' : ''}. Please contact an administrator.`,
+                    error: `This role has reached its maximum capacity of ${capacityCheck.maxMembers} members for this organization. Please contact an administrator.`,
                     code: 'ROLE_CAPACITY_EXCEEDED'
                   });
                 }
               }
             } else {
-              console.log('[AppProcessor] role_id is undefined, not adding to member insert');
+              console.log('[AppProcessor] No role_id from any source, not adding to member insert');
             }
 
             console.log('[AppProcessor] Final memberInsertData:', JSON.stringify(memberInsertData));

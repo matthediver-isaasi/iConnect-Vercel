@@ -100,6 +100,78 @@ const applyTransformation = (value, transformation) => {
   }
 };
 
+// Helper function to check role capacity for per-organization limits
+const checkRoleCapacity = async (supabaseClient, roleId, organizationId) => {
+  console.log('[checkRoleCapacity] Checking capacity for role:', roleId, 'org:', organizationId);
+  
+  // Fetch role to check if it has max_members limit
+  const { data: role, error: roleError } = await supabaseClient
+    .from('role')
+    .select('id, name, max_members')
+    .eq('id', roleId)
+    .single();
+  
+  if (roleError) {
+    console.error('[checkRoleCapacity] Failed to fetch role:', roleError);
+    return { hasCapacity: true, error: roleError.message };
+  }
+  
+  if (!role) {
+    console.log('[checkRoleCapacity] Role not found:', roleId);
+    return { hasCapacity: true, error: 'Role not found' };
+  }
+  
+  // If no max_members limit, allow
+  if (!role.max_members) {
+    console.log('[checkRoleCapacity] No max_members limit for role:', role.name);
+    return { hasCapacity: true, maxMembers: null, roleName: role.name };
+  }
+  
+  // Role capacity is ALWAYS per-organization - no global fallback
+  if (!organizationId) {
+    console.log('[checkRoleCapacity] Organization required for capacity check');
+    return { 
+      hasCapacity: false, 
+      maxMembers: role.max_members, 
+      roleName: role.name,
+      missingOrgContext: true,
+      error: 'Organization context required for per-organization capacity check'
+    };
+  }
+  
+  // Count active members with this role in this organization
+  const { count, error: countError } = await supabaseClient
+    .from('member')
+    .select('id', { count: 'exact', head: true })
+    .eq('role_id', roleId)
+    .eq('organization_id', organizationId)
+    .eq('login_enabled', true);
+  
+  if (countError) {
+    console.error('[checkRoleCapacity] Failed to count members:', countError);
+    return { hasCapacity: true, error: countError.message };
+  }
+  
+  const currentCount = count || 0;
+  const hasCapacity = currentCount < role.max_members;
+  
+  console.log('[checkRoleCapacity] Per-org capacity check:', {
+    roleId,
+    roleName: role.name,
+    organizationId,
+    currentCount,
+    maxMembers: role.max_members,
+    hasCapacity
+  });
+  
+  return {
+    hasCapacity,
+    currentCount,
+    maxMembers: role.max_members,
+    roleName: role.name
+  };
+};
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -765,13 +837,52 @@ export default async function handler(req, res) {
           if (memberData.mobile) memberUpdateData.mobile = memberData.mobile;
           if (memberData.landline) memberUpdateData.landline = memberData.landline;
           
-          // Add role_id: first check pipeline config, then form conditional logic
-          if (memberData.role_id !== undefined) {
-            memberUpdateData.role_id = memberData.role_id;
-            console.log('[AppProcessor] Adding pipeline role_id to member update:', memberData.role_id);
-          } else if (role_id !== undefined) {
-            memberUpdateData.role_id = role_id;
-            console.log('[AppProcessor] Adding conditional logic role_id to member update:', role_id);
+          // Determine effective role_id from multiple sources
+          const effectiveRoleIdForUpdate = memberData.role_id !== undefined ? memberData.role_id : role_id;
+          console.log('[AppProcessor] Role ID resolution (update):', { 
+            memberData_role_id: memberData.role_id, 
+            role_id_param: role_id, 
+            effectiveRoleIdForUpdate 
+          });
+          
+          // Check capacity when:
+          // 1. Role is being changed (different role_id)
+          // 2. Organization is being changed AND member has/will have a role with max_members
+          const targetOrgId = createdOrganizationId || memberData.organization_id || prefill_organization_id || existingMember.organization_id;
+          const roleToCheckCapacity = effectiveRoleIdForUpdate !== undefined ? effectiveRoleIdForUpdate : existingMember.role_id;
+          
+          const roleIsChanging = effectiveRoleIdForUpdate !== undefined && 
+            effectiveRoleIdForUpdate !== null && 
+            effectiveRoleIdForUpdate !== existingMember.role_id;
+          const orgIsChanging = targetOrgId && existingMember.organization_id && 
+            targetOrgId !== existingMember.organization_id;
+          
+          // Check capacity if role or org is changing (and member has/will have a role)
+          if (roleToCheckCapacity && roleToCheckCapacity !== null && (roleIsChanging || orgIsChanging)) {
+            console.log('[AppProcessor] Checking capacity for primary member update:', { 
+              roleIsChanging,
+              orgIsChanging,
+              from: { role: existingMember.role_id, org: existingMember.organization_id },
+              to: { role: roleToCheckCapacity, org: targetOrgId }
+            });
+            const capacityCheck = await checkRoleCapacity(supabase, roleToCheckCapacity, targetOrgId);
+            console.log('[AppProcessor] Role capacity check result (update):', JSON.stringify(capacityCheck));
+            if (!capacityCheck.hasCapacity) {
+              if (capacityCheck.missingOrgContext) {
+                return res.status(400).json({ 
+                  error: `Cannot assign this role without an organization.`,
+                  code: 'ROLE_CAPACITY_MISSING_ORG'
+                });
+              }
+              return res.status(400).json({ 
+                error: `This role has reached its maximum capacity of ${capacityCheck.maxMembers} members for this organization. Please contact an administrator.`,
+                code: 'ROLE_CAPACITY_EXCEEDED'
+              });
+            }
+          }
+          
+          if (effectiveRoleIdForUpdate !== undefined) {
+            memberUpdateData.role_id = effectiveRoleIdForUpdate;
           }
           
           // Add login_enabled from pipeline config if specified
@@ -832,8 +943,10 @@ export default async function handler(req, res) {
             memberData.last_name = nameParts.slice(1).join(' ') || '';
           }
           
-          // Use createdOrganizationId if org was created/updated, otherwise use prefill_organization_id
-          const orgIdForNewMember = createdOrganizationId || prefill_organization_id || null;
+          // Use createdOrganizationId if org was created/updated, 
+          // then memberData.organization_id (from form dropdown), then prefill_organization_id
+          const orgIdForNewMember = createdOrganizationId || memberData.organization_id || prefill_organization_id || null;
+          console.log('[AppProcessor] Resolved orgIdForNewMember:', orgIdForNewMember);
 
           // Note: member table doesn't have phone or status columns
           const memberInsertData = {
@@ -850,16 +963,42 @@ export default async function handler(req, res) {
           if (memberData.mobile) memberInsertData.mobile = memberData.mobile;
           if (memberData.landline) memberInsertData.landline = memberData.landline;
           
-          // Add role_id: first check pipeline config, then form conditional logic
-          if (memberData.role_id !== undefined) {
-            memberInsertData.role_id = memberData.role_id;
-            console.log('[AppProcessor] Adding pipeline role_id to member insert:', memberData.role_id);
-          } else if (role_id !== undefined) {
-            // Fallback to form conditional logic role_id
-            memberInsertData.role_id = role_id;
-            console.log('[AppProcessor] Adding conditional logic role_id to member insert:', role_id);
+          // Determine effective role_id from multiple sources:
+          // 1. Pipeline config role_id (memberData.role_id)
+          // 2. Form conditional logic role_id (role_id param)
+          const effectiveRoleId = memberData.role_id !== undefined ? memberData.role_id : role_id;
+          console.log('[AppProcessor] Role ID resolution:', { 
+            memberData_role_id: memberData.role_id, 
+            role_id_param: role_id, 
+            effectiveRoleId 
+          });
+          
+          // Add role_id if we have one from any source
+          if (effectiveRoleId !== undefined) {
+            memberInsertData.role_id = effectiveRoleId;
+            console.log('[AppProcessor] Adding role_id to member insert:', effectiveRoleId);
+            
+            // Check role capacity before inserting member (per-organization)
+            if (effectiveRoleId !== null) {
+              const capacityCheck = await checkRoleCapacity(supabase, effectiveRoleId, orgIdForNewMember);
+              console.log('[AppProcessor] Role capacity check result:', JSON.stringify(capacityCheck));
+              if (!capacityCheck.hasCapacity) {
+                if (capacityCheck.missingOrgContext) {
+                  console.error('[AppProcessor] Cannot check capacity: organization context required');
+                  return res.status(400).json({ 
+                    error: `Cannot assign this role without an organization.`,
+                    code: 'ROLE_CAPACITY_MISSING_ORG'
+                  });
+                }
+                console.error('[AppProcessor] Role at max capacity:', capacityCheck.currentCount, '/', capacityCheck.maxMembers);
+                return res.status(400).json({ 
+                  error: `This role has reached its maximum capacity of ${capacityCheck.maxMembers} members for this organization. Please contact an administrator.`,
+                  code: 'ROLE_CAPACITY_EXCEEDED'
+                });
+              }
+            }
           } else {
-            console.log('[AppProcessor] No role_id specified for member insert');
+            console.log('[AppProcessor] No role_id from any source');
           }
           
           console.log('[AppProcessor] login_enabled for member insert:', memberInsertData.login_enabled);
@@ -1031,14 +1170,30 @@ export default async function handler(req, res) {
     // Process member pipelines (additional members) with sequential upsert logic
     // Use entity_pipelines.members if available, fall back to legacy additional_member_creations
     // Track processed emails to handle same email appearing in multiple member configs
-    const processedEmails = new Map(); // email -> member_id
+    // Store full context: {id, role_id, organization_id} to ensure capacity checks use latest data
+    const processedEmails = new Map(); // email -> {id, role_id, organization_id}
     
-    // If primary member was created/updated, track its email
+    // If primary member was created/updated, track its email with full context
+    // Fetch current state from DB to ensure we have authoritative role_id/organization_id after mutations
     if (createdMemberId) {
-      const primaryEmail = memberData?.email?.toLowerCase();
-      if (primaryEmail) {
-        processedEmails.set(primaryEmail, createdMemberId);
-        console.log('[AppProcessor] Tracking primary member email:', primaryEmail, '->', createdMemberId);
+      const { data: primaryMemberState } = await supabase
+        .from('member')
+        .select('id, email, role_id, organization_id')
+        .eq('id', createdMemberId)
+        .single();
+      
+      if (primaryMemberState?.email) {
+        const primaryEmail = primaryMemberState.email.toLowerCase();
+        processedEmails.set(primaryEmail, { 
+          id: primaryMemberState.id, 
+          role_id: primaryMemberState.role_id, 
+          organization_id: primaryMemberState.organization_id 
+        });
+        console.log('[AppProcessor] Tracking primary member email (from DB):', primaryEmail, '->', { 
+          id: primaryMemberState.id, 
+          role_id: primaryMemberState.role_id, 
+          organization_id: primaryMemberState.organization_id 
+        });
       }
     }
     
@@ -1236,53 +1391,161 @@ export default async function handler(req, res) {
         console.log('[AppProcessor] Processing additional member:', memberConfig.label, 'email:', normalizedEmail, 'data:', additionalMemberData, 'clearFields:', clearFields);
         
         // Check if we've already processed this email in this submission
-        let existingMemberId = processedEmails.get(normalizedEmail);
+        // processedEmails stores {id, role_id, organization_id} for in-memory context
+        const processedEntry = processedEmails.get(normalizedEmail);
+        let existingMemberId = processedEntry?.id || null;
         let isNewMember = false;
+        
+        // Use in-memory context if available, otherwise fetch from DB
+        let existingMemberRecord = processedEntry ? { 
+          id: processedEntry.id, 
+          role_id: processedEntry.role_id, 
+          organization_id: processedEntry.organization_id 
+        } : null;
         
         if (!existingMemberId) {
           // Check if member exists in database
           const { data: existingMember } = await supabase
             .from('member')
-            .select('id')
+            .select('id, role_id, organization_id')
             .ilike('email', normalizedEmail)
             .limit(1)
             .single();
           
           if (existingMember) {
             existingMemberId = existingMember.id;
+            existingMemberRecord = existingMember;
             console.log('[AppProcessor] Found existing member in DB:', normalizedEmail, '->', existingMemberId);
           }
+        } else {
+          console.log('[AppProcessor] Using in-memory context for:', normalizedEmail, existingMemberRecord);
         }
         
         if (existingMemberId) {
           // UPDATE existing member - merge fields, don't clear unless explicitly requested
           console.log('[AppProcessor] Updating existing member:', existingMemberId, 'with:', additionalMemberData);
           
+          // Check role capacity when:
+          // 1. Role is being changed (different role_id)
+          // 2. Organization is being changed (member moving to new org) AND member has a role with max_members
+          // This ensures per-org capacity is enforced both for role changes and org moves
+          const effectiveRoleToCheck = additionalMemberData.role_id !== undefined 
+            ? additionalMemberData.role_id 
+            : existingMemberRecord?.role_id;
+          const targetOrgId = createdOrganizationId || additionalMemberData.organization_id || prefill_organization_id || existingMemberRecord?.organization_id;
+          
+          const roleIsChanging = additionalMemberData.role_id && additionalMemberData.role_id !== null && 
+            (!existingMemberRecord || additionalMemberData.role_id !== existingMemberRecord.role_id);
+          const orgIsChanging = targetOrgId && existingMemberRecord?.organization_id && 
+            targetOrgId !== existingMemberRecord.organization_id;
+          
+          // Check capacity if role or org is changing (and member has/will have a role)
+          if (effectiveRoleToCheck && effectiveRoleToCheck !== null && (roleIsChanging || orgIsChanging)) {
+            console.log('[AppProcessor] Checking capacity for additional member update:', {
+              roleIsChanging,
+              orgIsChanging,
+              from: { role: existingMemberRecord?.role_id, org: existingMemberRecord?.organization_id },
+              to: { role: effectiveRoleToCheck, org: targetOrgId }
+            });
+            const capacityCheck = await checkRoleCapacity(supabase, effectiveRoleToCheck, targetOrgId);
+            console.log('[AppProcessor] Additional member update capacity check:', JSON.stringify(capacityCheck));
+            if (!capacityCheck.hasCapacity) {
+              if (capacityCheck.missingOrgContext) {
+                return res.status(400).json({ 
+                  error: `Cannot assign this role without an organization.`,
+                  code: 'ROLE_CAPACITY_MISSING_ORG'
+                });
+              }
+              return res.status(400).json({ 
+                error: `This role has reached its maximum capacity of ${capacityCheck.maxMembers} members for this organization. Please contact an administrator.`,
+                code: 'ROLE_CAPACITY_EXCEEDED'
+              });
+            }
+          }
+          
+          let trackingUpdated = false;
           if (Object.keys(additionalMemberData).length > 0) {
-            const { error: updateError } = await supabase
+            const { data: updatedMember, error: updateError } = await supabase
               .from('member')
               .update(additionalMemberData)
-              .eq('id', existingMemberId);
+              .eq('id', existingMemberId)
+              .select('id, role_id, organization_id')
+              .single();
             
             if (updateError) {
               console.error('[AppProcessor] Failed to update additional member:', updateError);
             } else {
               console.log('[AppProcessor] Updated member:', existingMemberId);
+              // Update in-memory context with authoritative values from DB after mutation
+              if (updatedMember) {
+                processedEmails.set(normalizedEmail, { 
+                  id: updatedMember.id, 
+                  role_id: updatedMember.role_id, 
+                  organization_id: updatedMember.organization_id 
+                });
+                trackingUpdated = true;
+                console.log('[AppProcessor] Updated tracking (from DB):', { 
+                  role_id: updatedMember.role_id, 
+                  organization_id: updatedMember.organization_id 
+                });
+              }
+            }
+          }
+          
+          // Always ensure processedEmails has authoritative data - fetch from DB if not already updated
+          // This handles cases where no mutations occurred but we still need accurate tracking
+          if (!trackingUpdated) {
+            const { data: currentMemberState } = await supabase
+              .from('member')
+              .select('id, role_id, organization_id')
+              .eq('id', existingMemberId)
+              .single();
+            
+            if (currentMemberState) {
+              processedEmails.set(normalizedEmail, { 
+                id: currentMemberState.id, 
+                role_id: currentMemberState.role_id, 
+                organization_id: currentMemberState.organization_id 
+              });
+              console.log('[AppProcessor] Refreshed tracking (no mutation):', { 
+                role_id: currentMemberState.role_id, 
+                organization_id: currentMemberState.organization_id 
+              });
             }
           }
           
           additionalMemberIds.push({ id: existingMemberId, label: memberConfig.label, created: false, updated: true });
-          processedEmails.set(normalizedEmail, existingMemberId);
         } else {
           // CREATE new member
           isNewMember = true;
+          const additionalOrgId = createdOrganizationId || additionalMemberData.organization_id || prefill_organization_id || null;
           const newMemberData = {
             email: memberEmail,
             login_enabled: additionalMemberData.login_enabled !== undefined ? additionalMemberData.login_enabled : true,
             show_in_directory: additionalMemberData.show_in_directory !== undefined ? additionalMemberData.show_in_directory : true,
-            organization_id: createdOrganizationId || prefill_organization_id || null,
+            organization_id: additionalOrgId,
             ...additionalMemberData
           };
+          
+          // Check role capacity before creating additional member (per-organization)
+          if (newMemberData.role_id && newMemberData.role_id !== null) {
+            const capacityCheck = await checkRoleCapacity(supabase, newMemberData.role_id, additionalOrgId);
+            console.log('[AppProcessor] Additional member role capacity check:', JSON.stringify(capacityCheck));
+            if (!capacityCheck.hasCapacity) {
+              if (capacityCheck.missingOrgContext) {
+                console.error('[AppProcessor] Additional member: cannot assign role without org');
+                return res.status(400).json({ 
+                  error: `Cannot assign this role without an organization.`,
+                  code: 'ROLE_CAPACITY_MISSING_ORG'
+                });
+              }
+              console.error('[AppProcessor] Additional member: role at max capacity');
+              return res.status(400).json({ 
+                error: `This role has reached its maximum capacity of ${capacityCheck.maxMembers} members for this organization. Please contact an administrator.`,
+                code: 'ROLE_CAPACITY_EXCEEDED'
+              });
+            }
+          }
           
           console.log('[AppProcessor] Creating new additional member:', memberConfig.label, newMemberData);
           
@@ -1299,8 +1562,14 @@ export default async function handler(req, res) {
           
           existingMemberId = newMember.id;
           additionalMemberIds.push({ id: newMember.id, label: memberConfig.label, created: true, updated: false });
-          processedEmails.set(normalizedEmail, newMember.id);
-          console.log('[AppProcessor] Created additional member:', newMember.id);
+          // Track with full context from the actual created record (not the input data)
+          // This ensures subsequent entries get authoritative role_id/organization_id
+          processedEmails.set(normalizedEmail, { 
+            id: newMember.id, 
+            role_id: newMember.role_id || null, 
+            organization_id: newMember.organization_id 
+          });
+          console.log('[AppProcessor] Created additional member:', newMember.id, 'tracking:', { role_id: newMember.role_id, organization_id: newMember.organization_id });
           
           // Trigger workflows for new additional member creation (non-blocking)
           const addlBaseUrl = process.env.APP_URL || `https://${req.headers.host}`;

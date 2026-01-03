@@ -136,64 +136,73 @@ export default function FormViewPage() {
     enabled: !!prefillMember?.organization_id && form?.prefill_source === 'member'
   });
 
-  // Prefill: Fetch organization entity when form has prefill_source = 'organization'
+  // Prefill: Fetch organization entity whenever organization_id URL param is present
+  // This is needed for per-org capacity checks regardless of prefill_source setting
   const { data: prefillOrg } = useQuery({
     queryKey: ['prefill-org', prefillOrgId],
     queryFn: async () => {
       return base44.entities.Organization.get(prefillOrgId);
     },
-    enabled: !!prefillOrgId && form?.prefill_source === 'organization'
+    enabled: !!prefillOrgId // Fetch whenever org ID is in URL
   });
 
-  // Determine the organization name for per-org capacity checking
-  // Uses prefilled org from URL if available
+  // Determine the organization name for display in error messages
   const prefillOrgName = useMemo(() => {
-    // When prefill_source is 'organization' and we have prefillOrg
-    if (prefillOrg?.name) {
-      console.log('[FormView] Using prefillOrg name for capacity check:', prefillOrg.name);
-      return prefillOrg.name;
-    }
-    // When prefill_source is 'member' and we have the member's org
-    if (prefillMemberOrg?.name) {
-      console.log('[FormView] Using prefillMemberOrg name for capacity check:', prefillMemberOrg.name);
-      return prefillMemberOrg.name;
-    }
+    if (prefillOrg?.name) return prefillOrg.name;
+    if (prefillMemberOrg?.name) return prefillMemberOrg.name;
     return null;
   }, [prefillOrg, prefillMemberOrg]);
 
+  // Effective org ID for capacity checking - works for both prefill cases:
+  // 1. Direct org prefill via organization_id URL param
+  // 2. Member prefill where org comes from member's organization_id
+  const effectiveOrgIdForCapacity = useMemo(() => {
+    // Priority 1: Direct org prefill from URL
+    if (prefillOrgId) {
+      console.log('[FormView] Using prefillOrgId for capacity:', prefillOrgId);
+      return prefillOrgId;
+    }
+    // Priority 2: Member's organization (for member-prefill flows)
+    if (prefillMember?.organization_id) {
+      console.log('[FormView] Using prefillMember.organization_id for capacity:', prefillMember.organization_id);
+      return prefillMember.organization_id;
+    }
+    return null;
+  }, [prefillOrgId, prefillMember?.organization_id]);
+
   // Check role capacity before allowing form submission
-  // Uses per-org capacity when we have an org pipeline AND a prefilled org
+  // Role capacity is ALWAYS per-organization - no global fallback
+  // Uses effectiveOrgIdForCapacity for lookup (handles both org prefill and member prefill)
   const { data: roleCapacity, isLoading: isCheckingCapacity } = useQuery({
-    queryKey: ['role-capacity-check', primaryMemberRoleId, orgCapacityConfig?.uniquenessKey, prefillOrgName],
+    queryKey: ['role-capacity-check', primaryMemberRoleId, effectiveOrgIdForCapacity],
     queryFn: async () => {
       console.log('[FormView] Fetching capacity for role:', primaryMemberRoleId);
       
-      // Build URL with org params if we have per-org context
-      let url = `/api/public/role/${primaryMemberRoleId}/capacity`;
-      if (orgCapacityConfig?.hasOrgPipeline && prefillOrgName) {
-        url += `?orgKey=${encodeURIComponent(orgCapacityConfig.uniquenessKey)}&orgValue=${encodeURIComponent(prefillOrgName)}`;
-        console.log('[FormView] Per-org capacity check with prefillOrg:', prefillOrgName);
-      } else {
-        console.log('[FormView] Global capacity check (no prefill org or no org pipeline)');
+      // Role capacity is always per-organization - use orgId for direct lookup
+      if (!effectiveOrgIdForCapacity) {
+        console.error('[FormView] Cannot check capacity: organization ID is required');
+        return { hasCapacity: false, error: 'Organization context required for capacity check', missingOrgContext: true };
       }
+      
+      // Use orgId for direct lookup (more reliable than name-based lookup)
+      const url = `/api/public/role/${primaryMemberRoleId}/capacity?orgId=${encodeURIComponent(effectiveOrgIdForCapacity)}`;
+      console.log('[FormView] Per-org capacity check using orgId:', { roleId: primaryMemberRoleId, orgId: effectiveOrgIdForCapacity });
       
       const response = await fetch(url);
       console.log('[FormView] Capacity API response status:', response.status);
       if (!response.ok) {
         console.error('[FormView] Failed to check role capacity');
-        return { hasCapacity: true }; // Allow form on error (fail open)
+        return { hasCapacity: true }; // Allow form on API error (fail open)
       }
       const data = await response.json();
       console.log('[FormView] Capacity API response data:', data);
       if (data.debug) {
-        console.log('[FormView] Capacity DEBUG - totalMembersWithRole:', data.debug.totalMembersWithRole);
-        console.log('[FormView] Capacity DEBUG - activeMembersWithRole:', data.debug.activeMembersWithRole);
-        console.log('[FormView] Capacity DEBUG - sampleMembers:', JSON.stringify(data.debug.sampleMembers, null, 2));
+        console.log('[FormView] Capacity DEBUG - activeMembersWithRoleInOrg:', data.debug.activeMembersWithRoleInOrg);
       }
       return data;
     },
-    // Wait for prefillOrg to load if we have an org pipeline and a prefill org ID
-    enabled: !!primaryMemberRoleId && (!orgCapacityConfig?.hasOrgPipeline || !prefillOrgId || !!prefillOrgName),
+    // Only run capacity check when we have role AND org ID (from any source)
+    enabled: !!primaryMemberRoleId && !!effectiveOrgIdForCapacity,
     staleTime: 30 * 1000 // Re-check every 30 seconds
   });
 
@@ -203,6 +212,7 @@ export default function FormViewPage() {
     isCheckingCapacity,
     roleCapacity,
     prefillOrgName,
+    effectiveOrgIdForCapacity,
     orgCapacityConfig,
     formSlug,
     formLoaded: !!form
@@ -469,6 +479,27 @@ export default function FormViewPage() {
       if (hasEntityPipelines) {
         try {
           console.log('[FormView] Processing application - roleActionTriggered:', roleActionTriggeredRef.current, 'triggeredRoleId:', triggeredRoleIdRef.current);
+          
+          // Determine organization ID to pass to backend for capacity validation
+          // Priority: 1) prefill org, 2) member's org, 3) org dropdown/pipeline source field value
+          let resolvedOrgIdForBackend = effectiveOrgIdForCapacity;
+          if (!resolvedOrgIdForBackend) {
+            // Check org pipeline config source field
+            if (orgCapacityConfig?.sourceFieldId) {
+              const sourceField = form?.fields?.find(f => f.id === orgCapacityConfig.sourceFieldId);
+              if (sourceField?.type === 'organisation_dropdown') {
+                // Org dropdown value IS the org UUID
+                resolvedOrgIdForBackend = formValues[orgCapacityConfig.sourceFieldId] || null;
+                console.log('[FormView] Using org pipeline dropdown value for backend:', resolvedOrgIdForBackend);
+              }
+            }
+            // Also check for standalone org dropdown (without org pipeline)
+            if (!resolvedOrgIdForBackend && orgDropdownField) {
+              resolvedOrgIdForBackend = formValues[orgDropdownField.id] || null;
+              console.log('[FormView] Using standalone org dropdown value for backend:', resolvedOrgIdForBackend);
+            }
+          }
+          
           const response = await fetch('/api/forms/process-application', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -479,9 +510,14 @@ export default function FormViewPage() {
               field_mappings: form.field_mappings || [],
               application_level: form.application_level || 'member',
               submission_id: submissionResult?.id,
-              prefill_organization_id: form.prefill_source === 'organization' ? prefillOrgId : null,
-              // Pass role_id: use triggered role from visibility rules, or fallback to form's default role
-              role_id: roleActionTriggeredRef.current ? triggeredRoleIdRef.current : (form.default_member_role_id || null),
+              // Pass organization context from any source (URL prefill, member org, or form field dropdown)
+              // This is used for per-organization role capacity validation
+              prefill_organization_id: resolvedOrgIdForBackend || null,
+              // Pass role_id: use triggered role from visibility rules, or pipeline role, or form default
+              // Priority: 1) triggered role (from conditional logic) 2) pipeline role 3) form default
+              role_id: roleActionTriggeredRef.current 
+                ? triggeredRoleIdRef.current 
+                : (primaryMemberRoleId || form.default_member_role_id || null),
               // Pass entity pipelines configuration (unified structure)
               entity_pipelines: form.entity_pipelines || { members: [], organisations: [] },
               // Legacy fallback fields for backward compatibility
@@ -499,6 +535,11 @@ export default function FormViewPage() {
           } else {
             const error = await response.json();
             console.error('[FormView] Application processing failed:', error);
+            // Show user-friendly error for capacity-related errors
+            if (error.code === 'ROLE_CAPACITY_EXCEEDED' || error.code === 'ROLE_CAPACITY_MISSING_ORG') {
+              toast.error(error.error || 'This role has reached its maximum capacity.');
+              return; // Don't continue with form success flow
+            }
           }
         } catch (error) {
           console.error('[FormView] Error processing application:', error);
@@ -1126,8 +1167,9 @@ export default function FormViewPage() {
   }
 
   // Check if still loading capacity
-  if (primaryMemberRoleId && isCheckingCapacity) {
-    console.log('[FormView] BLOCKING: Still loading capacity check');
+  // Only show loading if we actually expect to do a pre-load capacity check (i.e., we have effectiveOrgIdForCapacity)
+  if (primaryMemberRoleId && effectiveOrgIdForCapacity && isCheckingCapacity) {
+    console.log('[FormView] BLOCKING: Still loading capacity check', { isCheckingCapacity, effectiveOrgIdForCapacity });
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
@@ -1135,29 +1177,28 @@ export default function FormViewPage() {
     );
   }
 
-  // Check if role is at capacity - show message instead of form
-  // Now we do per-org capacity check on load when we have a prefilled org
-  // Only skip pre-load blocking if form has org pipeline BUT no prefilled org (will check at submit time)
-  const hasPrefilledOrgContext = !!(prefillOrgName && orgCapacityConfig?.hasOrgPipeline);
-  const shouldBlockForCapacity = primaryMemberRoleId && roleCapacity && !roleCapacity.hasCapacity && 
-    (hasPrefilledOrgContext || !orgCapacityConfig?.hasOrgPipeline);
+  // Role capacity is ALWAYS per-organization
+  // Determine if we can check capacity now (prefilled org via URL or member org) or must defer to submit time (org collected via form)
+  const canCheckCapacityNow = !!effectiveOrgIdForCapacity;
+  const willCollectOrgViaForm = orgCapacityConfig?.hasOrgPipeline && !effectiveOrgIdForCapacity;
+  
+  // Block if we have prefilled org AND capacity is exceeded
+  const shouldBlockForCapacity = primaryMemberRoleId && canCheckCapacityNow && roleCapacity && !roleCapacity.hasCapacity;
+  
   console.log('[FormView] Capacity block decision:', {
     primaryMemberRoleId,
     roleCapacity,
     hasCapacity: roleCapacity?.hasCapacity,
-    hasOrgPipeline: orgCapacityConfig?.hasOrgPipeline,
-    hasPrefilledOrgContext,
+    prefillOrgId,
     prefillOrgName,
+    canCheckCapacityNow,
+    willCollectOrgViaForm,
     shouldBlockForCapacity,
-    note: hasPrefilledOrgContext 
-      ? 'Per-org capacity check with prefilled org' 
-      : orgCapacityConfig?.hasOrgPipeline 
-        ? 'Skipping pre-load block - no prefill org, will check at submit' 
-        : 'Global capacity check'
+    note: willCollectOrgViaForm ? 'Will check capacity at submit time' : canCheckCapacityNow ? 'Checking capacity now' : 'No capacity check needed'
   });
   
   if (shouldBlockForCapacity) {
-    console.log('[FormView] BLOCKING: Role is at capacity');
+    console.log('[FormView] BLOCKING: Role is at capacity for this organization');
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex justify-center pt-8 md:pt-16">
         <Card className="max-w-md h-fit">
@@ -1166,9 +1207,11 @@ export default function FormViewPage() {
           </CardHeader>
           <CardContent className="p-6 text-center">
             <p className="text-slate-600">
-              {roleCapacity.roleName 
-                ? `The ${roleCapacity.roleName} role has reached its maximum capacity of ${roleCapacity.maxMembers} members.`
-                : `This registration has reached its maximum capacity.`
+              {roleCapacity.roleName && prefillOrgName
+                ? `${prefillOrgName} already has ${roleCapacity.currentCount} ${roleCapacity.roleName}(s). Maximum allowed is ${roleCapacity.maxMembers}.`
+                : roleCapacity.roleName 
+                  ? `The ${roleCapacity.roleName} role has reached its maximum capacity of ${roleCapacity.maxMembers} members for this organization.`
+                  : `This registration has reached its maximum capacity for this organization.`
               }
             </p>
             <p className="text-slate-500 text-sm mt-4">
@@ -1243,19 +1286,49 @@ export default function FormViewPage() {
       return;
     }
 
-    // Per-organization capacity check (runs if form has org pipeline and role has max_members)
-    if (orgCapacityConfig?.hasOrgPipeline && primaryMemberRoleId) {
-      const orgValue = formValues[orgCapacityConfig.sourceFieldId];
-      console.log('[FormView] Per-org capacity check:', {
+    // Per-organization capacity check (runs if form assigns a role and no prefill check was done)
+    // Skip if we already checked capacity on load with effectiveOrgIdForCapacity
+    if (primaryMemberRoleId && !effectiveOrgIdForCapacity) {
+      // Try to find org context from multiple sources:
+      // 1. Org pipeline's source field (text field mapped to org name/id)
+      // 2. Organisation dropdown field (contains org UUID directly)
+      
+      let orgIdForCheck = null;
+      let isOrgDropdown = false;
+      
+      // Check org pipeline config first
+      if (orgCapacityConfig?.sourceFieldId) {
+        const sourceField = form?.fields?.find(f => f.id === orgCapacityConfig.sourceFieldId);
+        isOrgDropdown = sourceField?.type === 'organisation_dropdown';
+        orgIdForCheck = formValues[orgCapacityConfig.sourceFieldId];
+      }
+      
+      // Also check for standalone org dropdown if no org pipeline
+      if (!orgIdForCheck && orgDropdownField) {
+        isOrgDropdown = true;
+        orgIdForCheck = formValues[orgDropdownField.id];
+      }
+      
+      console.log('[FormView] Per-org capacity check at submit:', {
         roleId: primaryMemberRoleId,
-        orgKey: orgCapacityConfig.uniquenessKey,
-        orgValue,
-        sourceFieldId: orgCapacityConfig.sourceFieldId
+        orgIdForCheck,
+        isOrgDropdown,
+        orgCapacityConfig,
+        orgDropdownFieldId: orgDropdownField?.id
       });
       
-      if (orgValue) {
+      if (orgIdForCheck) {
         try {
-          const capacityUrl = `/api/public/role/${primaryMemberRoleId}/capacity?orgKey=${encodeURIComponent(orgCapacityConfig.uniquenessKey)}&orgValue=${encodeURIComponent(orgValue)}`;
+          let capacityUrl;
+          if (isOrgDropdown) {
+            // Organisation dropdown returns org UUID directly - use orgId param
+            capacityUrl = `/api/public/role/${primaryMemberRoleId}/capacity?orgId=${encodeURIComponent(orgIdForCheck)}`;
+            console.log('[FormView] Using orgId for dropdown:', orgIdForCheck);
+          } else {
+            // Text field returns uniqueness key value - use orgKey/orgValue params
+            capacityUrl = `/api/public/role/${primaryMemberRoleId}/capacity?orgKey=${encodeURIComponent(orgCapacityConfig?.uniquenessKey || 'name')}&orgValue=${encodeURIComponent(orgIdForCheck)}`;
+            console.log('[FormView] Using orgKey/orgValue:', { key: orgCapacityConfig?.uniquenessKey, value: orgIdForCheck });
+          }
           console.log('[FormView] Fetching per-org capacity:', capacityUrl);
           
           const capacityResponse = await fetch(capacityUrl);
