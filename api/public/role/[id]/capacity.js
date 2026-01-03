@@ -44,6 +44,19 @@ export default async function handler(req, res) {
       });
     }
 
+    // First, get a sample of members to debug the login_enabled values
+    const { data: sampleMembers, error: sampleError } = await supabase
+      .from('member')
+      .select('id, first_name, last_name, login_enabled')
+      .eq('role_id', roleId)
+      .limit(5);
+    
+    console.log(`[Role Capacity Check] Sample members for role ${roleId}:`, JSON.stringify(sampleMembers, null, 2));
+    if (sampleError) {
+      console.error('Error fetching sample members:', sampleError);
+    }
+
+    // Count only members with login_enabled = true
     const { count, error: countError } = await supabase
       .from('member')
       .select('*', { count: 'exact', head: true })
@@ -55,16 +68,34 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Failed to count members' });
     }
 
+    // Also count total members (without login_enabled filter) for debugging
+    const { count: totalCount, error: totalError } = await supabase
+      .from('member')
+      .select('*', { count: 'exact', head: true })
+      .eq('role_id', roleId);
+
+    console.log(`[Role Capacity Check] Total members with role: ${totalCount}, Active (login_enabled=true): ${count}`);
+
     const currentCount = count || 0;
     const hasCapacity = currentCount < role.max_members;
 
-    console.log(`[Role Capacity Check] Role ${role.name}: ${currentCount}/${role.max_members} members, hasCapacity: ${hasCapacity}`);
+    console.log(`[Role Capacity Check] Role ${role.name}: ${currentCount}/${role.max_members} active members, hasCapacity: ${hasCapacity}`);
 
     return res.json({
       hasCapacity,
       currentCount,
       maxMembers: role.max_members,
-      roleName: role.name
+      roleName: role.name,
+      debug: {
+        totalMembersWithRole: totalCount || 0,
+        activeMembersWithRole: count || 0,
+        sampleMembers: sampleMembers?.map(m => ({ 
+          id: m.id, 
+          name: `${m.first_name} ${m.last_name}`,
+          login_enabled: m.login_enabled,
+          login_enabled_type: typeof m.login_enabled
+        })) || []
+      }
     });
   } catch (error) {
     console.error('Role capacity check error:', error);

@@ -1,0 +1,150 @@
+{
+    "primaryMemberRoleId": "561682bb-57f2-4a61-89aa-c3c201692923",
+    "isCheckingCapacity": true,
+    "formSlug": "university-application",
+    "formLoaded": true,
+    "formEntityPipelines": {
+        "members": [
+            {
+                "id": "member_1767009836905",
+                "label": "HoS",
+                "role_id": "561682bb-57f2-4a61-89aa-c3c201692923",
+                "mappings": [
+                    {
+                        "id": "mapping_1767009847672",
+                        "source_type": "field",
+                        "target_type": "core",
+                        "static_value": "",
+                        "target_field": "first_name",
+                        "target_entity": "member",
+                        "transformation": "none",
+                        "source_field_id": "field_1765654276539"
+                    },
+                    {
+                        "id": "mapping_1767009860205",
+                        "source_type": "field",
+                        "target_type": "core",
+                        "static_value": "",
+                        "target_field": "last_name",
+                        "target_entity": "member",
+                        "transformation": "none",
+                        "source_field_id": "field_1765654323522"
+                    },
+                    {
+                        "id": "mapping_1767009868089",
+                        "source_type": "field",
+                        "target_type": "core",
+                        "static_value": "",
+                        "target_field": "job_title",
+                        "target_entity": "member",
+                        "transformation": "none",
+                        "source_field_id": "field_1765919899063"
+                    },
+                    {
+                        "id": "mapping_1767009878888",
+                        "source_type": "field",
+                        "target_type": "core",
+                        "static_value": "",
+                        "target_field": "email",
+                        "target_entity": "member",
+                        "transformation": "none",
+                        "source_field_id": "field_1765654363656"
+                    }
+                ],
+                "isPrimary": true,
+                "login_enabled": false,
+                "uniqueness_key": "email"
+            }
+        ],
+        "organisations": [
+            {
+                "id": "org_primary_1765927484259",
+                "label": "Primary Organisation",
+                "mappings": [
+                    {
+                        "id": "mapping_1765927645960",
+                        "source_type": "field",
+                        "target_type": "core",
+                        "static_value": "",
+                        "target_field": "name",
+                        "target_entity": "organization",
+                        "transformation": "none",
+                        "source_field_id": "field_1765610636257"
+                    },
+                    {
+                        "id": "mapping_1765927665179",
+                        "source_type": "field",
+                        "target_type": "custom",
+                        "static_value": "",
+                        "target_field": "1dfed5fd-64bb-4462-96c7-145daf1bedc2",
+                        "target_entity": "organization",
+                        "transformation": "none",
+                        "source_field_id": "field_1765637262772"
+                    },
+                    {
+                        "id": "mapping_1765927706778",
+                        "source_type": "field",
+                        "target_type": "custom",
+                        "static_value": "",
+                        "target_field": "6a137764-59a2-437c-a110-54701cc41bfe",
+                        "target_entity": "organization",
+                        "transformation": "none",
+                        "source_field_id": "field_1765635992459"
+                    },
+                    {
+                        "id": "mapping_1765929242450",
+                        "source_type": "static",
+                        "target_type": "custom",
+                        "static_value": "Full application received",
+                        "target_field": "1c395ccf-7df2-4818-917d-1cd672216f71",
+                        "target_entity": "organization",
+                        "transformation": "none",
+                        "source_field_id": ""
+                    },
+                    {
+                        "id": "mapping_1765930141420",
+                        "source_type": "static",
+                        "target_type": "custom",
+                        "static_value": "University",
+                        "target_field": "e5ac547d-edb1-4ff1-83ab-fc82c1813065",
+                        "target_entity": "organization",
+                        "transformation": "none",
+                        "source_field_id": ""
+                    },
+                    {
+                        "id": "mapping_1766926026592",
+                        "source_type": "field",
+                        "target_type": "core",
+                        "static_value": "",
+                        "target_field": "invoicing_address",
+                        "target_entity": "organization",
+                        "transformation": "none",
+                        "source_field_id": "field_1766924358873"
+                    },
+                    {
+                        "id": "mapping_1766927583562",
+                        "source_type": "field",
+                        "target_type": "core",
+                        "static_value": "",
+                        "target_field": "invoicing_email",
+                        "target_entity": "organization",
+                        "transformation": "none",
+                        "source_field_id": "field_1765654021220"
+                    },
+                    {
+                        "id": "mapping_1767015619411",
+                        "source_type": "static",
+                        "target_type": "custom",
+                        "static_value": "Full application received",
+                        "target_field": "1c395ccf-7df2-4818-917d-1cd672216f71",
+                        "target_entity": "organization",
+                        "transformation": "none",
+                        "source_field_id": ""
+                    }
+                ],
+                "isPrimary": true,
+                "uniqueness_key": "name"
+            }
+        ]
+    }
+}
