@@ -2731,10 +2731,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
               // Check role capacity before updating to a new role (only if changing to a different role)
               if (role_id !== null && role_id !== existingMember.role_id) {
                 const capacityCheck = await checkRoleCapacity(supabase, role_id);
+                console.log('[AppProcessor] Role capacity check result (update):', JSON.stringify(capacityCheck));
                 if (capacityCheck.error) {
                   console.error('[AppProcessor] Role capacity check error:', capacityCheck.error);
-                  // Don't fail, column may not exist yet
-                } else if (!capacityCheck.hasCapacity) {
+                }
+                if (!capacityCheck.hasCapacity) {
                   console.error('[AppProcessor] Role at max capacity:', capacityCheck.currentCount, '/', capacityCheck.maxMembers);
                   return res.status(400).json({ 
                     error: `This role has reached its maximum capacity of ${capacityCheck.maxMembers} members. Please contact an administrator.`,
@@ -2798,10 +2799,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
               // Check role capacity before inserting member
               if (role_id !== null) {
                 const capacityCheck = await checkRoleCapacity(supabase, role_id);
+                console.log('[AppProcessor] Role capacity check result:', JSON.stringify(capacityCheck));
                 if (capacityCheck.error) {
                   console.error('[AppProcessor] Role capacity check error:', capacityCheck.error);
-                  // Don't fail the submission, just log the error - column may not exist yet
-                } else if (!capacityCheck.hasCapacity) {
+                  // Still enforce capacity if we got count info despite error
+                } 
+                if (!capacityCheck.hasCapacity) {
                   console.error('[AppProcessor] Role at max capacity:', capacityCheck.currentCount, '/', capacityCheck.maxMembers);
                   return res.status(400).json({ 
                     error: `This role has reached its maximum capacity of ${capacityCheck.maxMembers} members. Please contact an administrator.`,
@@ -4010,8 +4013,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
           .eq('role_id', role.id)
           .eq('login_enabled', true);
 
-        if (!countError) {
-          counts[role.id] = count || 0;
+        if (countError) {
+          console.error(`[RoleMemberCounts] Error counting members for role ${role.name}:`, countError);
+        }
+        counts[role.id] = count || 0;
+        
+        // Log roles with limits for debugging
+        if (role.max_members !== null) {
+          console.log(`[RoleMemberCounts] Role "${role.name}" (${role.id}): ${count || 0}/${role.max_members} members`);
         }
       }
 
