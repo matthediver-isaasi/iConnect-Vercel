@@ -92,6 +92,11 @@ export default function FormViewPage() {
       }
       const data = await response.json();
       console.log('[FormView] Capacity API response data:', data);
+      if (data.debug) {
+        console.log('[FormView] Capacity DEBUG - totalMembersWithRole:', data.debug.totalMembersWithRole);
+        console.log('[FormView] Capacity DEBUG - activeMembersWithRole:', data.debug.activeMembersWithRole);
+        console.log('[FormView] Capacity DEBUG - sampleMembers:', JSON.stringify(data.debug.sampleMembers, null, 2));
+      }
       return data;
     },
     enabled: !!primaryMemberRoleId,
