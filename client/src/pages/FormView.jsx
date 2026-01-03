@@ -63,23 +63,40 @@ export default function FormViewPage() {
 
   // Extract role_id from primary member entity_pipeline for capacity checking
   const primaryMemberRoleId = useMemo(() => {
-    const primaryMember = form?.entity_pipelines?.members?.find(m => m.is_primary);
-    return primaryMember?.role_id || null;
+    const members = form?.entity_pipelines?.members;
+    console.log('[FormView] entity_pipelines.members:', members);
+    const primaryMember = members?.find(m => m.is_primary);
+    console.log('[FormView] primaryMember:', primaryMember);
+    const roleId = primaryMember?.role_id || null;
+    console.log('[FormView] Extracted primaryMemberRoleId:', roleId);
+    return roleId;
   }, [form?.entity_pipelines?.members]);
 
   // Check role capacity before allowing form submission
   const { data: roleCapacity, isLoading: isCheckingCapacity } = useQuery({
     queryKey: ['role-capacity-check', primaryMemberRoleId],
     queryFn: async () => {
+      console.log('[FormView] Fetching capacity for role:', primaryMemberRoleId);
       const response = await fetch(`/api/public/role/${primaryMemberRoleId}/capacity`);
+      console.log('[FormView] Capacity API response status:', response.status);
       if (!response.ok) {
         console.error('[FormView] Failed to check role capacity');
         return { hasCapacity: true }; // Allow form on error (fail open)
       }
-      return response.json();
+      const data = await response.json();
+      console.log('[FormView] Capacity API response data:', data);
+      return data;
     },
     enabled: !!primaryMemberRoleId,
     staleTime: 30 * 1000 // Re-check every 30 seconds
+  });
+
+  // Log capacity check state on every render
+  console.log('[FormView] Capacity check state:', {
+    primaryMemberRoleId,
+    isCheckingCapacity,
+    roleCapacity,
+    formSlug: slug
   });
 
   // Prefill: Fetch member entity when form has prefill_source = 'member'
@@ -1029,6 +1046,7 @@ export default function FormViewPage() {
 
   // Check if still loading capacity
   if (primaryMemberRoleId && isCheckingCapacity) {
+    console.log('[FormView] BLOCKING: Still loading capacity check');
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
@@ -1037,7 +1055,16 @@ export default function FormViewPage() {
   }
 
   // Check if role is at capacity - show message instead of form
-  if (primaryMemberRoleId && roleCapacity && !roleCapacity.hasCapacity) {
+  const shouldBlockForCapacity = primaryMemberRoleId && roleCapacity && !roleCapacity.hasCapacity;
+  console.log('[FormView] Capacity block decision:', {
+    primaryMemberRoleId,
+    roleCapacity,
+    hasCapacity: roleCapacity?.hasCapacity,
+    shouldBlockForCapacity
+  });
+  
+  if (shouldBlockForCapacity) {
+    console.log('[FormView] BLOCKING: Role is at capacity');
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
         <Card className="max-w-md">
