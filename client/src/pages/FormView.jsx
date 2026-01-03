@@ -1075,8 +1075,8 @@ export default function FormViewPage() {
   if (shouldBlockForCapacity) {
     console.log('[FormView] BLOCKING: Role is at capacity');
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
-        <Card className="max-w-md">
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex justify-center pt-8 md:pt-16">
+        <Card className="max-w-md h-fit">
           <CardHeader className="text-center">
             <CardTitle className="text-xl text-slate-800">Registration Closed</CardTitle>
           </CardHeader>
