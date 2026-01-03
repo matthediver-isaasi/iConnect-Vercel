@@ -90,6 +90,20 @@ export default function RoleManagementPage() {
     refetchOnMount: true,
   });
 
+  // Fetch role member counts for capacity display
+  const { data: roleMemberCounts = {} } = useQuery({
+    queryKey: ['role-member-counts'],
+    queryFn: async () => {
+      const response = await fetch('/api/admin/roles/member-counts', {
+        credentials: 'include'
+      });
+      if (!response.ok) return {};
+      const data = await response.json();
+      return data.counts || {};
+    },
+    staleTime: 30000
+  });
+
   // Fetch role segmentation field setting
   const { data: segmentationFieldSetting } = useQuery({
     queryKey: ['role-segmentation-field-setting'],
@@ -367,6 +381,7 @@ export default function RoleManagementPage() {
     mutationFn: ({ id, roleData }) => base44.entities.Role.update(id, roleData),
     onSuccess: (updatedRole) => {
       queryClient.invalidateQueries({ queryKey: ['roles'] });
+      queryClient.invalidateQueries({ queryKey: ['role-member-counts'] });
       // Keep dialog open for continued editing - update editingRole with fresh data
       if (updatedRole) {
         setEditingRole({ ...updatedRole, segment_values: updatedRole.segment_values || [] });
@@ -403,7 +418,8 @@ export default function RoleManagementPage() {
       show_tours: true,
       default_landing_page: "about-me",
       layout_theme: "default",
-      segment_values: []  // Initialize empty for new roles
+      segment_values: [],  // Initialize empty for new roles
+      max_members: null    // null = unlimited
     });
     setShowDialog(true);
   };
@@ -452,7 +468,8 @@ export default function RoleManagementPage() {
       layout_theme: editingRole.layout_theme || "default",
       requires_effective_from_date: editingRole.requires_effective_from_date || false,
       badge_image_url: editingRole.badge_image_url || null,
-      segment_values: segmentationFieldId ? (editingRole.segment_values || []) : null
+      segment_values: segmentationFieldId ? (editingRole.segment_values || []) : null,
+      max_members: editingRole.max_members === '' || editingRole.max_members === null ? null : parseInt(editingRole.max_members, 10) || null
     };
 
     if (editingRole.id) {
@@ -583,6 +600,17 @@ export default function RoleManagementPage() {
                         )}
                         {role.requires_effective_from_date && (
                           <Badge className="bg-blue-100 text-blue-700">Effective From Required</Badge>
+                        )}
+                        {role.max_members !== null && role.max_members !== undefined && (
+                          <Badge 
+                            className={
+                              roleMemberCounts[role.id] >= role.max_members 
+                                ? "bg-red-100 text-red-700" 
+                                : "bg-amber-100 text-amber-700"
+                            }
+                          >
+                            {roleMemberCounts[role.id] || 0} / {role.max_members} members
+                          </Badge>
                         )}
                       </div>
                       {/* Show segment values if segmentation is enabled */}
@@ -928,6 +956,41 @@ export default function RoleManagementPage() {
                         Require an "Effective From" date when assigning this role (e.g., for Alumni)
                       </p>
                     </div>
+                  </div>
+
+                  <div className="p-4 bg-amber-50 rounded-lg border border-amber-200">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Users className="w-4 h-4 text-amber-600" />
+                      <Label className="font-medium text-amber-900">Member Limit</Label>
+                    </div>
+                    <p className="text-xs text-amber-700 mb-3">
+                      Set a maximum number of members that can be assigned this role. Leave empty for unlimited.
+                    </p>
+                    <div className="flex items-center gap-3">
+                      <Input
+                        type="number"
+                        min="0"
+                        placeholder="No limit"
+                        value={editingRole.max_members === null || editingRole.max_members === undefined ? '' : editingRole.max_members}
+                        onChange={(e) => setEditingRole({ 
+                          ...editingRole, 
+                          max_members: e.target.value === '' ? null : e.target.value 
+                        })}
+                        className="w-32"
+                        data-testid="input-max-members"
+                      />
+                      {editingRole.id && roleMemberCounts[editingRole.id] !== undefined && (
+                        <span className="text-sm text-amber-700">
+                          Currently: <strong>{roleMemberCounts[editingRole.id]}</strong> active members
+                        </span>
+                      )}
+                    </div>
+                    {editingRole.max_members && editingRole.id && roleMemberCounts[editingRole.id] >= parseInt(editingRole.max_members) && (
+                      <p className="text-xs text-red-600 mt-2 flex items-center gap-1">
+                        <AlertCircle className="w-3 h-3" />
+                        This role has reached its maximum capacity
+                      </p>
+                    )}
                   </div>
                 </div>
 
