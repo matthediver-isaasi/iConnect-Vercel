@@ -2,17 +2,16 @@ import React, { useEffect, useState, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { base44 } from "@/api/base44Client";
-import { Mail, MapPin, Phone, ArrowUpRight, Loader2, CheckCircle2 } from "lucide-react";
+import { Mail, MapPin, Phone, ArrowUpRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import PublicHeader from "./PublicHeader";
 import PageBannerDisplay from "../banners/PageBannerDisplay";
 import PortalHeroBanner from "../banners/PortalHeroBanner";
 import FloaterDisplay from "../floaters/FloaterDisplay";
 import { useArticleUrl } from "@/contexts/ArticleUrlContext";
 import { BannerProvider } from "@/contexts/BannerContext";
-import FormRenderer from "../forms/FormRenderer";
+import IEditFormElement from "../iedit/elements/IEditFormElement";
 
 // Map page names to portal page identifiers for banner matching
 // These identifiers must match the PORTAL_PAGES values in PageBannerManagement.jsx
@@ -48,17 +47,14 @@ const pageToPortalPageMap = {
 
 export default function PublicLayout({ children, currentPageName }) {
   const { getPublicArticlesUrl, articleDisplayName, urlSlug, publicSlug, isCustomSlug, isLoading: articleUrlLoading } = useArticleUrl();
-  const queryClient = useQueryClient();
   const [banners, setBanners] = useState([]);
   const [loadingBanners, setLoadingBanners] = useState(true);
   const [showNewsletterDialog, setShowNewsletterDialog] = useState(false);
-  const [newsletterFormValues, setNewsletterFormValues] = useState({});
-  const [newsletterSubmitted, setNewsletterSubmitted] = useState(false);
   const [socialIcons, setSocialIcons] = useState(null);
   const [footerConfig, setFooterConfig] = useState(null);
-  const [newsletterFormId, setNewsletterFormId] = useState(null);
+  const [newsletterFormSlug, setNewsletterFormSlug] = useState(null);
 
-  // Fetch social icons, footer configuration, and newsletter form ID
+  // Fetch social icons, footer configuration, and newsletter form slug
   useEffect(() => {
     const fetchConfigs = async () => {
       try {
@@ -84,9 +80,20 @@ export default function PublicLayout({ children, currentPageName }) {
 
         const newsletterSetting = allSettings.find(s => s.setting_key === 'newsletter_signup_form_id');
         if (newsletterSetting?.setting_value && newsletterSetting.setting_value !== 'none') {
-          setNewsletterFormId(newsletterSetting.setting_value);
+          // Fetch the form to get its slug
+          try {
+            const form = await base44.entities.Form.get(newsletterSetting.setting_value);
+            if (form?.is_active && form?.slug) {
+              setNewsletterFormSlug(form.slug);
+            } else {
+              setNewsletterFormSlug(null);
+            }
+          } catch (e) {
+            console.error('Failed to fetch newsletter form:', e);
+            setNewsletterFormSlug(null);
+          }
         } else {
-          setNewsletterFormId(null);
+          setNewsletterFormSlug(null);
         }
       } catch (error) {
         console.error('Failed to fetch configs:', error);
@@ -96,60 +103,8 @@ export default function PublicLayout({ children, currentPageName }) {
     fetchConfigs();
   }, []);
 
-  const { data: newsletterForm, isLoading: newsletterFormLoading } = useQuery({
-    queryKey: ['newsletter-signup-form', newsletterFormId],
-    queryFn: async () => {
-      if (!newsletterFormId) return null;
-      const form = await base44.entities.Form.get(newsletterFormId);
-      return form?.is_active ? form : null;
-    },
-    enabled: !!newsletterFormId
-  });
-
-  const submitNewsletterMutation = useMutation({
-    mutationFn: async (submissionData) => {
-      return await base44.entities.FormSubmission.create(submissionData);
-    },
-    onSuccess: async () => {
-      if (newsletterForm) {
-        await base44.entities.Form.update(newsletterForm.id, {
-          submission_count: (newsletterForm.submission_count || 0) + 1
-        });
-      }
-      queryClient.invalidateQueries({ queryKey: ['newsletter-signup-form'] });
-      setNewsletterSubmitted(true);
-    },
-    onError: (error) => {
-      console.error('Failed to submit newsletter form:', error);
-    }
-  });
-
-  const handleNewsletterSubmit = () => {
-    if (!newsletterForm) return;
-    
-    const requiredFields = newsletterForm.fields?.filter(f => f.required) || [];
-    const missingRequired = requiredFields.filter(f => !newsletterFormValues[f.id]);
-    
-    if (missingRequired.length > 0) {
-      return;
-    }
-    
-    submitNewsletterMutation.mutate({
-      form_id: newsletterForm.id,
-      form_name: newsletterForm.name,
-      submission_data: newsletterFormValues,
-      submitted_by_email: null,
-      submitted_by_name: null,
-      created_date: new Date().toISOString()
-    });
-  };
-
   const handleNewsletterDialogChange = (open) => {
     setShowNewsletterDialog(open);
-    if (!open) {
-      setNewsletterFormValues({});
-      setNewsletterSubmitted(false);
-    }
   };
 
   // Resolve page name to portal page ID, accounting for dynamic article URL remapping
@@ -337,7 +292,7 @@ export default function PublicLayout({ children, currentPageName }) {
                 </Link>
 
                 {/* Newsletter Signup - only show if a form is configured */}
-                {newsletterFormId && (
+                {newsletterFormSlug && (
                   <>
                     <h2 
                       className="text-3xl text-white mb-8 mt-12"
@@ -659,67 +614,26 @@ export default function PublicLayout({ children, currentPageName }) {
         {/* Floater Display for Public Pages */}
         <FloaterDisplay location="public" />
       </div>
-      {/* Newsletter Dialog */}
+      {/* Newsletter Dialog - uses IEditFormElement for full form rendering */}
       <Dialog open={showNewsletterDialog} onOpenChange={handleNewsletterDialogChange}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="text-2xl">Subscribe to our newsletter</DialogTitle>
-          </DialogHeader>
-          
-          <div className="space-y-4 py-4">
-            {newsletterSubmitted ? (
-              <div className="text-center py-8">
-                <CheckCircle2 className="w-16 h-16 text-green-500 mx-auto mb-4" />
-                <h3 className="text-xl font-semibold text-slate-900 mb-2">Thank you!</h3>
-                <p className="text-slate-600">
-                  {newsletterForm?.confirmation_message || "You've been successfully subscribed to our newsletter."}
-                </p>
-              </div>
-            ) : newsletterFormLoading ? (
-              <div className="flex items-center justify-center py-12">
-                <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
-              </div>
-            ) : !newsletterForm ? (
-              <div className="text-center py-8">
-                <p className="text-slate-600">Newsletter signup form not found or inactive.</p>
-              </div>
-            ) : (
-              <>
-                {newsletterForm.description && (
-                  <p className="text-slate-600">{newsletterForm.description}</p>
-                )}
-                
-                <div className="space-y-4">
-                  {newsletterForm.fields?.map(field => (
-                    <FormRenderer
-                      key={field.id}
-                      field={field}
-                      value={newsletterFormValues[field.id]}
-                      onChange={(value) => setNewsletterFormValues({ ...newsletterFormValues, [field.id]: value })}
-                    />
-                  ))}
-                </div>
-                
-                <Button 
-                  onClick={handleNewsletterSubmit}
-                  disabled={submitNewsletterMutation.isPending}
-                  className="w-full"
-                  style={{ 
-                    background: 'linear-gradient(to top right, #5C0085, #BA0087, #EE00C3, #FF4229, #FFB000)'
-                  }}
-                >
-                  {submitNewsletterMutation.isPending ? (
-                    <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Submitting...
-                    </>
-                  ) : (
-                    newsletterForm.submit_button_text || 'Subscribe'
-                  )}
-                </Button>
-              </>
-            )}
-          </div>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto p-0">
+          {newsletterFormSlug ? (
+            <IEditFormElement 
+              element={{
+                content: {
+                  form_slug: newsletterFormSlug,
+                  background_type: 'color',
+                  background_color: 'transparent'
+                }
+              }}
+              memberInfo={null}
+              organizationInfo={null}
+            />
+          ) : (
+            <div className="text-center py-8 px-6">
+              <p className="text-slate-600">Newsletter signup form not found or inactive.</p>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </>
