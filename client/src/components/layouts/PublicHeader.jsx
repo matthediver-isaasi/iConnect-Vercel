@@ -191,7 +191,15 @@ export default function PublicHeader() {
     fetchSocialConfig();
   }, []);
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/auth/logout', { 
+        method: 'POST', 
+        credentials: 'include' 
+      });
+    } catch (error) {
+      console.log('[PublicHeader] Server logout error:', error);
+    }
     localStorage.removeItem('agcas_member');
     localStorage.removeItem('agcas_organization');
     setMobileMenuOpen(false);
