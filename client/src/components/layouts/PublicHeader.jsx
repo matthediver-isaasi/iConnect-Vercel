@@ -1012,11 +1012,17 @@ export default function PublicHeader() {
           >
         {/* Mobile Menu Header */}
         <div className="flex items-center justify-between p-4 border-b border-slate-200">
-          <img
-            src="https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/68efc20f3e0a30fafad6dde7/26710cf5a_GFIheaderlogo.png"
-            alt="Graduate Futures Institute"
-            className="h-10 w-auto"
-          />
+          <Link 
+            to="/" 
+            onClick={() => setMobileMenuOpen(false)}
+            data-testid="link-mobile-drawer-logo"
+          >
+            <img
+              src="https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/68efc20f3e0a30fafad6dde7/26710cf5a_GFIheaderlogo.png"
+              alt="Graduate Futures Institute"
+              className="h-10 w-auto"
+            />
+          </Link>
           <button 
             onClick={() => setMobileMenuOpen(false)}
             className="p-2 -mr-2 hover:bg-slate-100 rounded-lg transition-colors"
