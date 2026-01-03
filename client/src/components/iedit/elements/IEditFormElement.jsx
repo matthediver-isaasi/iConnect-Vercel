@@ -372,6 +372,9 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
       if (field.type === 'boolean') {
         fieldDefaults[field.id] = field.default_value === true ? true : false;
       }
+      if (field.type === 'terms_conditions') {
+        fieldDefaults[field.id] = false;
+      }
       // Initialize hidden fields so they're included in form submission
       // This ensures hidden fields mapped to entity_pipelines have their values available
       // Fields with starts_hidden need to be initialized even without default_value
@@ -1117,6 +1120,20 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
       const errors = missingFields.map(f => `Please fill in the required field: ${f.label}`);
       setValidationErrors(errors);
       toast.error(`Please fill in all required fields: ${missingFields.map(f => f.label).join(', ')}`);
+      return;
+    }
+
+    // Validate terms_conditions fields - must be toggled to true before submission
+    // Accept both boolean true and string "true" for compatibility
+    const termsFields = visibleFields.filter(field => field.type === 'terms_conditions');
+    const unacceptedTerms = termsFields.filter(field => {
+      const val = formValues[field.id];
+      return val !== true && val !== 'true';
+    });
+    if (unacceptedTerms.length > 0) {
+      const errors = unacceptedTerms.map(f => `Please accept: ${f.label}`);
+      setValidationErrors(errors);
+      toast.error(`Please accept the terms and conditions: ${unacceptedTerms.map(f => f.label).join(', ')}`);
       return;
     }
 

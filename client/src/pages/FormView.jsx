@@ -1147,6 +1147,18 @@ export default function FormViewPage() {
       }
     }
 
+    // Validate terms_conditions fields - must be toggled to true before submission
+    // Accept both boolean true and string "true" for compatibility
+    const termsFields = visibleFields.filter(field => field.type === 'terms_conditions');
+    const unacceptedTerms = termsFields.filter(field => {
+      const val = formValues[field.id];
+      return val !== true && val !== 'true';
+    });
+    if (unacceptedTerms.length > 0) {
+      toast.error(`Please accept the terms and conditions: ${unacceptedTerms.map(f => f.label).join(', ')}`);
+      return;
+    }
+
     // Uniqueness validation (runs if uniqueness checks are configured)
     if (form.uniqueness_checks && form.uniqueness_checks.length > 0) {
       try {
