@@ -16,13 +16,15 @@ function stripHtml(html: string | null | undefined): string {
 }
 
 // Helper to check if a role has capacity for more members
+// Supports per-organization capacity when organizationId is provided
 // Returns { hasCapacity: boolean, currentCount: number, maxMembers: number | null, roleName?: string, error?: string }
-async function checkRoleCapacity(supabaseClient: any, roleId: string): Promise<{
+async function checkRoleCapacity(supabaseClient: any, roleId: string, organizationId?: string | null): Promise<{
   hasCapacity: boolean;
   currentCount: number;
   maxMembers: number | null;
   roleName?: string;
   error?: string;
+  mode?: 'global' | 'per_organization';
 }> {
   try {
     // Get the role's max_members limit
@@ -41,12 +43,21 @@ async function checkRoleCapacity(supabaseClient: any, roleId: string): Promise<{
       return { hasCapacity: true, currentCount: 0, maxMembers: null, roleName: role.name };
     }
 
-    // Count active members with this role (exclude deleted members)
-    const { count, error: countError } = await supabaseClient
+    // Build the query - filter by organization if provided (per-org capacity)
+    let query = supabaseClient
       .from('member')
       .select('id', { count: 'exact', head: true })
       .eq('role_id', roleId)
       .eq('login_enabled', true);
+
+    if (organizationId) {
+      query = query.eq('organization_id', organizationId);
+      console.log(`[checkRoleCapacity] Per-org check for role ${roleId} in org ${organizationId}`);
+    } else {
+      console.log(`[checkRoleCapacity] Global check for role ${roleId}`);
+    }
+
+    const { count, error: countError } = await query;
 
     if (countError) {
       return { hasCapacity: false, currentCount: 0, maxMembers: role.max_members, roleName: role.name, error: `Count error: ${countError.message}` };
@@ -55,7 +66,13 @@ async function checkRoleCapacity(supabaseClient: any, roleId: string): Promise<{
     const currentCount = count || 0;
     const hasCapacity = currentCount < role.max_members;
 
-    return { hasCapacity, currentCount, maxMembers: role.max_members, roleName: role.name };
+    return { 
+      hasCapacity, 
+      currentCount, 
+      maxMembers: role.max_members, 
+      roleName: role.name,
+      mode: organizationId ? 'per_organization' : 'global'
+    };
   } catch (err: any) {
     return { hasCapacity: false, currentCount: 0, maxMembers: null, error: err.message };
   }
@@ -346,15 +363,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Check role capacity before creating Member with a role_id
+      // Uses per-organization capacity if organization_id is provided
       if (entity === 'Member' && payload.role_id) {
-        console.log(`[Entity POST] Checking role capacity for role_id: ${payload.role_id}`);
-        const capacityCheck = await checkRoleCapacity(supabase, payload.role_id);
+        console.log(`[Entity POST] Checking role capacity for role_id: ${payload.role_id}, org_id: ${payload.organization_id || 'none'}`);
+        const capacityCheck = await checkRoleCapacity(supabase, payload.role_id, payload.organization_id);
         console.log(`[Entity POST] Role capacity check result:`, JSON.stringify(capacityCheck));
         
         if (!capacityCheck.hasCapacity) {
           console.error(`[Entity POST] Role at max capacity: ${capacityCheck.currentCount}/${capacityCheck.maxMembers}`);
           return res.status(400).json({ 
-            error: `This role has reached its maximum capacity of ${capacityCheck.maxMembers} members.`,
+            error: `This role has reached its maximum capacity of ${capacityCheck.maxMembers} members${capacityCheck.mode === 'per_organization' ? ' for this organization' : ''}.`,
             code: 'ROLE_CAPACITY_EXCEEDED'
           });
         }
@@ -423,20 +441,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Check role capacity when changing Member's role_id
+      // Uses per-organization capacity based on the member's organization
       if (entity === 'Member' && req.body.role_id !== undefined) {
         const newRoleId = req.body.role_id;
         const currentRoleId = beforeData?.role_id;
+        const memberOrgId = req.body.organization_id ?? beforeData?.organization_id;
         
         // Only check capacity if changing to a different role (not clearing or same role)
         if (newRoleId !== null && newRoleId !== currentRoleId) {
-          console.log(`[Entity PATCH] Checking role capacity for role_id: ${newRoleId}`);
-          const capacityCheck = await checkRoleCapacity(supabase, newRoleId);
+          console.log(`[Entity PATCH] Checking role capacity for role_id: ${newRoleId}, org_id: ${memberOrgId || 'none'}`);
+          const capacityCheck = await checkRoleCapacity(supabase, newRoleId, memberOrgId);
           console.log(`[Entity PATCH] Role capacity check result:`, JSON.stringify(capacityCheck));
           
           if (!capacityCheck.hasCapacity) {
             console.error(`[Entity PATCH] Role at max capacity: ${capacityCheck.currentCount}/${capacityCheck.maxMembers}`);
             return res.status(400).json({ 
-              error: `This role has reached its maximum capacity of ${capacityCheck.maxMembers} members.`,
+              error: `This role has reached its maximum capacity of ${capacityCheck.maxMembers} members${capacityCheck.mode === 'per_organization' ? ' for this organization' : ''}.`,
               code: 'ROLE_CAPACITY_EXCEEDED'
             });
           }
@@ -1658,6 +1678,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Public endpoint to check role capacity (used by forms before submission)
+  // Supports per-organization capacity checks via orgKey and orgValue query params
   app.get('/api/public/role/:id/capacity', async (req: Request, res: Response) => {
     if (!supabase) {
       return res.status(503).json({ error: 'Supabase not configured' });
@@ -1665,12 +1686,117 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     try {
       const { id: roleId } = req.params;
+      const { orgKey, orgValue } = req.query;
       
       if (!roleId) {
         return res.status(400).json({ error: 'Role ID required' });
       }
 
       console.log(`[Role Capacity Check] Checking capacity for role: ${roleId}`);
+      console.log(`[Role Capacity Check] Organization lookup - key: ${orgKey}, value: ${orgValue}`);
+
+      // Get the role's max_members limit
+      const { data: role, error: roleError } = await supabase
+        .from('role')
+        .select('id, name, max_members')
+        .eq('id', roleId)
+        .single();
+
+      if (roleError) {
+        console.error('Error fetching role:', roleError);
+        return res.status(404).json({ error: 'Role not found' });
+      }
+
+      // If max_members is null, unlimited capacity
+      if (role.max_members === null || role.max_members === undefined) {
+        console.log(`[Role Capacity Check] Role ${roleId} has no capacity limit`);
+        return res.json({
+          hasCapacity: true,
+          currentCount: 0,
+          maxMembers: null,
+          roleName: role.name
+        });
+      }
+
+      // Per-organization capacity check
+      if (orgKey && orgValue) {
+        console.log(`[Role Capacity Check] Performing per-organization check for ${orgKey}=${orgValue}`);
+        
+        // Find the organization by the uniqueness key
+        let orgQuery = supabase.from('organization').select('id, name');
+        
+        if (orgKey === 'name') {
+          orgQuery = orgQuery.eq('name', orgValue);
+        } else {
+          // For custom fields, search in custom_fields JSONB
+          orgQuery = orgQuery.eq(`custom_fields->>${orgKey}`, orgValue);
+        }
+        
+        const { data: orgs, error: orgError } = await orgQuery.limit(1);
+        
+        if (orgError) {
+          console.error('Error finding organization:', orgError);
+          return res.status(500).json({ error: 'Failed to find organization' });
+        }
+
+        // If organization doesn't exist yet, capacity is available
+        if (!orgs || orgs.length === 0) {
+          console.log(`[Role Capacity Check] Organization not found - new org, capacity available`);
+          return res.json({
+            hasCapacity: true,
+            currentCount: 0,
+            maxMembers: role.max_members,
+            roleName: role.name,
+            debug: {
+              mode: 'per_organization',
+              orgKey,
+              orgValue,
+              organizationFound: false,
+              message: 'Organization does not exist yet - capacity available for new org'
+            }
+          });
+        }
+
+        const org = orgs[0];
+        console.log(`[Role Capacity Check] Found organization: ${org.id} (${org.name})`);
+
+        // Count active members with this role in THIS organization only
+        const { count, error: countError } = await supabase
+          .from('member')
+          .select('*', { count: 'exact', head: true })
+          .eq('role_id', roleId)
+          .eq('organization_id', org.id)
+          .eq('login_enabled', true);
+
+        if (countError) {
+          console.error('Error counting org members:', countError);
+          return res.status(500).json({ error: 'Failed to count members' });
+        }
+
+        const currentCount = count || 0;
+        const hasCapacity = currentCount < role.max_members;
+
+        console.log(`[Role Capacity Check] Org ${org.name}: ${currentCount}/${role.max_members} active ${role.name} members, hasCapacity: ${hasCapacity}`);
+
+        return res.json({
+          hasCapacity,
+          currentCount,
+          maxMembers: role.max_members,
+          roleName: role.name,
+          debug: {
+            mode: 'per_organization',
+            orgKey,
+            orgValue,
+            organizationId: org.id,
+            organizationName: org.name,
+            organizationFound: true,
+            activeMembersWithRoleInOrg: currentCount
+          }
+        });
+      }
+
+      // Global capacity check (fallback - original behavior)
+      console.log(`[Role Capacity Check] No org params - performing global check`);
       const capacityResult = await checkRoleCapacity(supabase, roleId);
       console.log(`[Role Capacity Check] Result:`, JSON.stringify(capacityResult));
 
@@ -1679,7 +1805,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         hasCapacity: capacityResult.hasCapacity,
         currentCount: capacityResult.currentCount,
         maxMembers: capacityResult.maxMembers,
-        roleName: capacityResult.roleName || null
+        roleName: capacityResult.roleName || null,
+        debug: {
+          mode: 'global',
+          totalActiveMembersWithRole: capacityResult.currentCount
+        }
       });
     } catch (error) {
       console.error('Role capacity check error:', error);
@@ -2798,8 +2928,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
             // Add role_id if triggered from form conditional logic (null clears the role)
             if (role_id !== undefined) {
               // Check role capacity before updating to a new role (only if changing to a different role)
+              // Uses per-organization capacity based on the member's organization
               if (role_id !== null && role_id !== existingMember.role_id) {
-                const capacityCheck = await checkRoleCapacity(supabase, role_id);
+                const memberOrgId = createdOrganizationId || prefill_organization_id || existingMember.organization_id;
+                const capacityCheck = await checkRoleCapacity(supabase, role_id, memberOrgId);
                 console.log('[AppProcessor] Role capacity check result (update):', JSON.stringify(capacityCheck));
                 if (capacityCheck.error) {
                   console.error('[AppProcessor] Role capacity check error:', capacityCheck.error);
@@ -2807,7 +2939,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 if (!capacityCheck.hasCapacity) {
                   console.error('[AppProcessor] Role at max capacity:', capacityCheck.currentCount, '/', capacityCheck.maxMembers);
                   return res.status(400).json({ 
-                    error: `This role has reached its maximum capacity of ${capacityCheck.maxMembers} members. Please contact an administrator.`,
+                    error: `This role has reached its maximum capacity of ${capacityCheck.maxMembers} members${capacityCheck.mode === 'per_organization' ? ' for this organization' : ''}. Please contact an administrator.`,
                     code: 'ROLE_CAPACITY_EXCEEDED'
                   });
                 }
@@ -2866,8 +2998,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
               console.log('[AppProcessor] Adding role_id to member insert:', role_id);
               
               // Check role capacity before inserting member
+              // Uses per-organization capacity based on the member's organization
               if (role_id !== null) {
-                const capacityCheck = await checkRoleCapacity(supabase, role_id);
+                const capacityCheck = await checkRoleCapacity(supabase, role_id, orgIdForNewMember);
                 console.log('[AppProcessor] Role capacity check result:', JSON.stringify(capacityCheck));
                 if (capacityCheck.error) {
                   console.error('[AppProcessor] Role capacity check error:', capacityCheck.error);
@@ -2876,7 +3009,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 if (!capacityCheck.hasCapacity) {
                   console.error('[AppProcessor] Role at max capacity:', capacityCheck.currentCount, '/', capacityCheck.maxMembers);
                   return res.status(400).json({ 
-                    error: `This role has reached its maximum capacity of ${capacityCheck.maxMembers} members. Please contact an administrator.`,
+                    error: `This role has reached its maximum capacity of ${capacityCheck.maxMembers} members${capacityCheck.mode === 'per_organization' ? ' for this organization' : ''}. Please contact an administrator.`,
                     code: 'ROLE_CAPACITY_EXCEEDED'
                   });
                 }

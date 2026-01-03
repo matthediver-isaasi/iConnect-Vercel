@@ -15,13 +15,14 @@ export default async function handler(req, res) {
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
   try {
-    const { id: roleId } = req.query;
+    const { id: roleId, orgKey, orgValue } = req.query;
     
     if (!roleId) {
       return res.status(400).json({ error: 'Role ID required' });
     }
 
     console.log(`[Role Capacity Check] Checking capacity for role: ${roleId}`);
+    console.log(`[Role Capacity Check] Organization lookup - key: ${orgKey}, value: ${orgValue}`);
 
     const { data: role, error: roleError } = await supabase
       .from('role')
@@ -44,19 +45,88 @@ export default async function handler(req, res) {
       });
     }
 
-    // First, get a sample of members to debug the login_enabled values
-    const { data: sampleMembers, error: sampleError } = await supabase
-      .from('member')
-      .select('id, first_name, last_name, login_enabled')
-      .eq('role_id', roleId)
-      .limit(5);
-    
-    console.log(`[Role Capacity Check] Sample members for role ${roleId}:`, JSON.stringify(sampleMembers, null, 2));
-    if (sampleError) {
-      console.error('Error fetching sample members:', sampleError);
+    // If org lookup params provided, check per-organization capacity
+    if (orgKey && orgValue) {
+      console.log(`[Role Capacity Check] Performing per-organization check for ${orgKey}=${orgValue}`);
+      
+      // Find the organization by the uniqueness key
+      let orgQuery = supabase.from('organization').select('id, name');
+      
+      // Handle different org uniqueness keys
+      if (orgKey === 'name') {
+        orgQuery = orgQuery.eq('name', orgValue);
+      } else {
+        // For custom fields, we need to search in custom_fields JSONB
+        // The custom field value would be stored like: custom_fields->>orgKey = orgValue
+        orgQuery = orgQuery.eq(`custom_fields->>${orgKey}`, orgValue);
+      }
+      
+      const { data: orgs, error: orgError } = await orgQuery.limit(1);
+      
+      if (orgError) {
+        console.error('Error finding organization:', orgError);
+        return res.status(500).json({ error: 'Failed to find organization' });
+      }
+
+      // If organization doesn't exist yet, capacity is available
+      if (!orgs || orgs.length === 0) {
+        console.log(`[Role Capacity Check] Organization not found - new org, capacity available`);
+        return res.json({
+          hasCapacity: true,
+          currentCount: 0,
+          maxMembers: role.max_members,
+          roleName: role.name,
+          debug: {
+            mode: 'per_organization',
+            orgKey,
+            orgValue,
+            organizationFound: false,
+            message: 'Organization does not exist yet - capacity available for new org'
+          }
+        });
+      }
+
+      const org = orgs[0];
+      console.log(`[Role Capacity Check] Found organization: ${org.id} (${org.name})`);
+
+      // Count active members with this role in THIS organization only
+      const { count, error: countError } = await supabase
+        .from('member')
+        .select('*', { count: 'exact', head: true })
+        .eq('role_id', roleId)
+        .eq('organization_id', org.id)
+        .eq('login_enabled', true);
+
+      if (countError) {
+        console.error('Error counting org members:', countError);
+        return res.status(500).json({ error: 'Failed to count members' });
+      }
+
+      const currentCount = count || 0;
+      const hasCapacity = currentCount < role.max_members;
+
+      console.log(`[Role Capacity Check] Org ${org.name}: ${currentCount}/${role.max_members} active ${role.name} members, hasCapacity: ${hasCapacity}`);
+
+      return res.json({
+        hasCapacity,
+        currentCount,
+        maxMembers: role.max_members,
+        roleName: role.name,
+        debug: {
+          mode: 'per_organization',
+          orgKey,
+          orgValue,
+          organizationId: org.id,
+          organizationName: org.name,
+          organizationFound: true,
+          activeMembersWithRoleInOrg: currentCount
+        }
+      });
     }
 
-    // Count only members with login_enabled = true
+    // Fallback: global capacity check (original behavior)
+    console.log(`[Role Capacity Check] No org params - performing global check`);
+    
     const { count, error: countError } = await supabase
       .from('member')
       .select('*', { count: 'exact', head: true })
@@ -68,18 +138,10 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Failed to count members' });
     }
 
-    // Also count total members (without login_enabled filter) for debugging
-    const { count: totalCount, error: totalError } = await supabase
-      .from('member')
-      .select('*', { count: 'exact', head: true })
-      .eq('role_id', roleId);
-
-    console.log(`[Role Capacity Check] Total members with role: ${totalCount}, Active (login_enabled=true): ${count}`);
-
     const currentCount = count || 0;
     const hasCapacity = currentCount < role.max_members;
 
-    console.log(`[Role Capacity Check] Role ${role.name}: ${currentCount}/${role.max_members} active members, hasCapacity: ${hasCapacity}`);
+    console.log(`[Role Capacity Check] Global: Role ${role.name}: ${currentCount}/${role.max_members} active members, hasCapacity: ${hasCapacity}`);
 
     return res.json({
       hasCapacity,
@@ -87,14 +149,8 @@ export default async function handler(req, res) {
       maxMembers: role.max_members,
       roleName: role.name,
       debug: {
-        totalMembersWithRole: totalCount || 0,
-        activeMembersWithRole: count || 0,
-        sampleMembers: sampleMembers?.map(m => ({ 
-          id: m.id, 
-          name: `${m.first_name} ${m.last_name}`,
-          login_enabled: m.login_enabled,
-          login_enabled_type: typeof m.login_enabled
-        })) || []
+        mode: 'global',
+        totalActiveMembersWithRole: currentCount
       }
     });
   } catch (error) {

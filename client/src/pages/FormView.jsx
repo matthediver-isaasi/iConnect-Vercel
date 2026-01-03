@@ -79,6 +79,44 @@ export default function FormViewPage() {
     return roleId;
   }, [form?.entity_pipelines?.members]);
 
+  // Extract organization config for per-org capacity checking
+  const orgCapacityConfig = useMemo(() => {
+    const orgs = form?.entity_pipelines?.organisations;
+    if (!orgs || orgs.length === 0) return null;
+    
+    // Find primary org (or use first one as fallback)
+    let primaryOrg = orgs.find(o => o.isPrimary === true || o.is_primary === true);
+    if (!primaryOrg && orgs.length >= 1) {
+      primaryOrg = orgs[0];
+    }
+    
+    if (!primaryOrg) return null;
+    
+    // Get the uniqueness key (usually 'name')
+    const uniquenessKey = primaryOrg.uniqueness_key || 'name';
+    
+    // Find which form field maps to the org name
+    const nameMapping = primaryOrg.mappings?.find(m => 
+      m.target_field === uniquenessKey && m.source_type === 'field'
+    );
+    
+    if (!nameMapping) {
+      console.log('[FormView] No org name mapping found for uniqueness_key:', uniquenessKey);
+      return null;
+    }
+    
+    console.log('[FormView] Org capacity config:', {
+      uniquenessKey,
+      sourceFieldId: nameMapping.source_field_id
+    });
+    
+    return {
+      uniquenessKey,
+      sourceFieldId: nameMapping.source_field_id,
+      hasOrgPipeline: true
+    };
+  }, [form?.entity_pipelines?.organisations]);
+
   // Check role capacity before allowing form submission
   const { data: roleCapacity, isLoading: isCheckingCapacity } = useQuery({
     queryKey: ['role-capacity-check', primaryMemberRoleId],
@@ -1069,12 +1107,15 @@ export default function FormViewPage() {
   }
 
   // Check if role is at capacity - show message instead of form
-  const shouldBlockForCapacity = primaryMemberRoleId && roleCapacity && !roleCapacity.hasCapacity;
+  // Skip pre-load blocking if form has org pipeline (capacity is per-org, checked at submit time)
+  const shouldBlockForCapacity = primaryMemberRoleId && roleCapacity && !roleCapacity.hasCapacity && !orgCapacityConfig?.hasOrgPipeline;
   console.log('[FormView] Capacity block decision:', {
     primaryMemberRoleId,
     roleCapacity,
     hasCapacity: roleCapacity?.hasCapacity,
-    shouldBlockForCapacity
+    hasOrgPipeline: orgCapacityConfig?.hasOrgPipeline,
+    shouldBlockForCapacity,
+    note: orgCapacityConfig?.hasOrgPipeline ? 'Skipping pre-load block - capacity is per-org, will check at submit' : 'Global capacity check'
   });
   
   if (shouldBlockForCapacity) {
@@ -1162,6 +1203,38 @@ export default function FormViewPage() {
     if (unacceptedTerms.length > 0) {
       toast.error(`Please accept the terms and conditions: ${unacceptedTerms.map(f => f.label).join(', ')}`);
       return;
+    }
+
+    // Per-organization capacity check (runs if form has org pipeline and role has max_members)
+    if (orgCapacityConfig?.hasOrgPipeline && primaryMemberRoleId) {
+      const orgValue = formValues[orgCapacityConfig.sourceFieldId];
+      console.log('[FormView] Per-org capacity check:', {
+        roleId: primaryMemberRoleId,
+        orgKey: orgCapacityConfig.uniquenessKey,
+        orgValue,
+        sourceFieldId: orgCapacityConfig.sourceFieldId
+      });
+      
+      if (orgValue) {
+        try {
+          const capacityUrl = `/api/public/role/${primaryMemberRoleId}/capacity?orgKey=${encodeURIComponent(orgCapacityConfig.uniquenessKey)}&orgValue=${encodeURIComponent(orgValue)}`;
+          console.log('[FormView] Fetching per-org capacity:', capacityUrl);
+          
+          const capacityResponse = await fetch(capacityUrl);
+          if (capacityResponse.ok) {
+            const capacityData = await capacityResponse.json();
+            console.log('[FormView] Per-org capacity response:', capacityData);
+            
+            if (!capacityData.hasCapacity) {
+              toast.error(`This organization already has ${capacityData.currentCount} ${capacityData.roleName}(s). Maximum allowed is ${capacityData.maxMembers}.`);
+              return;
+            }
+          }
+        } catch (error) {
+          console.error('[FormView] Per-org capacity check error:', error);
+          // Continue on error (fail open)
+        }
+      }
     }
 
     // Uniqueness validation (runs if uniqueness checks are configured)
