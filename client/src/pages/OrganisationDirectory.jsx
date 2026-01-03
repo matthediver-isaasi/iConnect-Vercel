@@ -63,6 +63,7 @@ export default function OrganisationDirectoryPage() {
       const nameTooltipSetting = allSettings.find(s => s.setting_key === 'org_directory_show_name_tooltip');
       const cardsPerRowSetting = allSettings.find(s => s.setting_key === 'org_directory_cards_per_row');
       const excludedOrgsSetting = allSettings.find(s => s.setting_key === 'org_directory_excluded_orgs');
+      const allowedStatusesSetting = allSettings.find(s => s.setting_key === 'org_directory_allowed_application_statuses');
       
       let excludedOrgIds = [];
       if (excludedOrgsSetting) {
@@ -70,6 +71,15 @@ export default function OrganisationDirectoryPage() {
           excludedOrgIds = JSON.parse(excludedOrgsSetting.setting_value);
         } catch {
           excludedOrgIds = [];
+        }
+      }
+
+      let allowedApplicationStatuses = [];
+      if (allowedStatusesSetting) {
+        try {
+          allowedApplicationStatuses = JSON.parse(allowedStatusesSetting.setting_value);
+        } catch {
+          allowedApplicationStatuses = [];
         }
       }
       
@@ -80,7 +90,8 @@ export default function OrganisationDirectoryPage() {
         showMemberCount: memberCountSetting?.setting_value !== 'false',
         showNameTooltip: nameTooltipSetting?.setting_value === 'true',
         cardsPerRow: cardsPerRowSetting?.setting_value || '3',
-        excludedOrgIds: excludedOrgIds
+        excludedOrgIds: excludedOrgIds,
+        allowedApplicationStatuses: allowedApplicationStatuses
       };
     },
     staleTime: 5 * 60 * 1000 // Cache for 5 minutes to prevent refetch flickering
@@ -191,6 +202,11 @@ export default function OrganisationDirectoryPage() {
     staleTime: 60 * 1000,
   });
 
+  // Find the application_status field to use for filtering
+  const applicationStatusField = useMemo(() => {
+    return orgCustomFields.find(f => f.name === 'application_status');
+  }, [orgCustomFields]);
+
   // Build a lookup map: organization_id -> { field_id -> value }
   // Normalizes values: JSON arrays/objects are parsed and reduced to primitive values
   const orgPreferenceMap = useMemo(() => {
@@ -244,11 +260,30 @@ export default function OrganisationDirectoryPage() {
 
   const filteredOrganizations = useMemo(() => {
     const excludedIds = displaySettings?.excludedOrgIds || [];
+    const allowedStatuses = displaySettings?.allowedApplicationStatuses || [];
     
     // First filter out excluded organizations
     let filtered = organizations.filter(org => 
       !excludedIds.includes(org.id)
     );
+
+    // Filter by application_status if allowedStatuses is configured
+    if (allowedStatuses.length > 0 && applicationStatusField?.id) {
+      filtered = filtered.filter(org => {
+        const orgValues = orgPreferenceMap[org.id] || {};
+        const statusValue = orgValues[applicationStatusField.id];
+        
+        if (!statusValue) return false;
+        
+        // Handle array values (picklist)
+        if (Array.isArray(statusValue)) {
+          return statusValue.some(v => allowedStatuses.includes(v));
+        }
+        
+        // Handle single value (dropdown)
+        return allowedStatuses.includes(statusValue);
+      });
+    }
     
     // Then apply search filter
     if (searchQuery) {
@@ -289,7 +324,7 @@ export default function OrganisationDirectoryPage() {
     });
     
     return filtered;
-  }, [organizations, searchQuery, displaySettings?.excludedOrgIds, sortOrder, customFieldFilters, orgPreferenceMap]);
+  }, [organizations, searchQuery, displaySettings?.excludedOrgIds, displaySettings?.allowedApplicationStatuses, sortOrder, customFieldFilters, orgPreferenceMap, applicationStatusField]);
 
   // Calculate itemsPerPage based on cardsPerRow and rowsPerPage
   const columnsNum = parseInt(displaySettings?.cardsPerRow) || 3;

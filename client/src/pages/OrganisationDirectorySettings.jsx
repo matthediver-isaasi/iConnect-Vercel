@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -6,7 +6,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Save, Settings, Search, Building } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Save, Settings, Search, Building, Filter } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
@@ -23,6 +24,7 @@ export default function OrganisationDirectorySettingsPage() {
   const [cardsPerRow, setCardsPerRow] = useState("3");
   const [excludedOrgIds, setExcludedOrgIds] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
+  const [allowedApplicationStatuses, setAllowedApplicationStatuses] = useState([]);
 
   useEffect(() => {
     if (isAccessReady) {
@@ -40,6 +42,45 @@ export default function OrganisationDirectorySettingsPage() {
     queryFn: () => base44.entities.Organization.list('name')
   });
 
+  // Fetch organization custom fields to get application_status options
+  const { data: orgCustomFields = [] } = useQuery({
+    queryKey: ['org-custom-fields-for-directory-settings'],
+    queryFn: async () => {
+      try {
+        const fields = await base44.entities.PreferenceField.list({
+          filter: { is_active: true, entity_scope: 'organization' }
+        });
+        return fields || [];
+      } catch {
+        try {
+          const allFields = await base44.entities.PreferenceField.list({
+            filter: { is_active: true }
+          });
+          return (allFields || []).filter(f => f.entity_scope === 'organization');
+        } catch {
+          return [];
+        }
+      }
+    }
+  });
+
+  // Find the application_status field
+  const applicationStatusField = useMemo(() => {
+    return orgCustomFields.find(f => f.name === 'application_status');
+  }, [orgCustomFields]);
+
+  // Normalize application_status options to ensure we always have { value, label } pairs
+  const applicationStatusOptions = useMemo(() => {
+    if (!applicationStatusField?.options) return [];
+    return applicationStatusField.options.map(opt => {
+      // Handle both string options and object options with value/label
+      if (typeof opt === 'string') {
+        return { value: opt, label: opt };
+      }
+      return { value: opt.value || opt, label: opt.label || opt.value || opt };
+    });
+  }, [applicationStatusField]);
+
   // Fetch current settings
   const { data: settings } = useQuery({
     queryKey: ['organisation-directory-settings'],
@@ -52,6 +93,7 @@ export default function OrganisationDirectorySettingsPage() {
       const nameTooltipSetting = allSettings.find((s) => s.setting_key === 'org_directory_show_name_tooltip');
       const cardsPerRowSetting = allSettings.find((s) => s.setting_key === 'org_directory_cards_per_row');
       const excludedOrgsSetting = allSettings.find((s) => s.setting_key === 'org_directory_excluded_orgs');
+      const allowedStatusesSetting = allSettings.find((s) => s.setting_key === 'org_directory_allowed_application_statuses');
       return {
         logo: logoSetting,
         title: titleSetting,
@@ -59,7 +101,8 @@ export default function OrganisationDirectorySettingsPage() {
         memberCount: memberCountSetting,
         nameTooltip: nameTooltipSetting,
         cardsPerRow: cardsPerRowSetting,
-        excludedOrgs: excludedOrgsSetting
+        excludedOrgs: excludedOrgsSetting,
+        allowedStatuses: allowedStatusesSetting
       };
     },
     refetchOnMount: true
@@ -90,6 +133,14 @@ export default function OrganisationDirectorySettingsPage() {
         setExcludedOrgIds(Array.isArray(excluded) ? excluded : []);
       } catch {
         setExcludedOrgIds([]);
+      }
+    }
+    if (settings?.allowedStatuses) {
+      try {
+        const statuses = JSON.parse(settings.allowedStatuses.setting_value);
+        setAllowedApplicationStatuses(Array.isArray(statuses) ? statuses : []);
+      } catch {
+        setAllowedApplicationStatuses([]);
       }
     }
   }, [settings]);
@@ -209,6 +260,19 @@ export default function OrganisationDirectorySettingsPage() {
           description: 'List of organisation IDs excluded from the directory'
         });
       }
+
+      // Save allowed application statuses setting
+      if (settings?.allowedStatuses) {
+        await base44.entities.SystemSettings.update(settings.allowedStatuses.id, {
+          setting_value: JSON.stringify(allowedApplicationStatuses)
+        });
+      } else {
+        await base44.entities.SystemSettings.create({
+          setting_key: 'org_directory_allowed_application_statuses',
+          setting_value: JSON.stringify(allowedApplicationStatuses),
+          description: 'List of application_status values that allow an organisation to appear in the directory'
+        });
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['organisation-directory-settings'] });
@@ -224,6 +288,14 @@ export default function OrganisationDirectorySettingsPage() {
     prev.includes(orgId) ?
     prev.filter((id) => id !== orgId) :
     [...prev, orgId]
+    );
+  };
+
+  const toggleApplicationStatus = (status) => {
+    setAllowedApplicationStatuses((prev) =>
+      prev.includes(status)
+        ? prev.filter((s) => s !== status)
+        : [...prev, status]
     );
   };
 
@@ -392,11 +464,72 @@ export default function OrganisationDirectorySettingsPage() {
           </CardContent>
         </Card>
 
+        {applicationStatusField && applicationStatusOptions.length > 0 && (
+          <Card className="border-slate-200 shadow-sm mt-6">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Filter className="w-5 h-5" />
+                Application Status Filter
+              </CardTitle>
+              <p className="text-sm text-slate-600 mt-2">
+                Only show organisations with specific application status values. If no statuses are selected, all organisations will be shown.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-3">
+                {applicationStatusOptions.map((opt) => (
+                  <div
+                    key={opt.value}
+                    className="flex items-center justify-between p-3 bg-slate-50 rounded-lg hover:bg-slate-100 transition-colors"
+                  >
+                    <span className="font-medium text-slate-900">{opt.label}</span>
+                    <Checkbox
+                      checked={allowedApplicationStatuses.includes(opt.value)}
+                      onCheckedChange={() => toggleApplicationStatus(opt.value)}
+                      data-testid={`checkbox-status-${String(opt.value).toLowerCase().replace(/\s+/g, '-')}`}
+                    />
+                  </div>
+                ))}
+              </div>
+
+              {allowedApplicationStatuses.length > 0 && (
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <p className="text-sm text-blue-800">
+                    Only showing organisations with status: {allowedApplicationStatuses.map(val => {
+                      const opt = applicationStatusOptions.find(o => o.value === val);
+                      return opt?.label || val;
+                    }).join(', ')}
+                  </p>
+                </div>
+              )}
+
+              {allowedApplicationStatuses.length === 0 && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                  <p className="text-sm text-amber-800">
+                    No filter applied - all organisations will be shown regardless of application status
+                  </p>
+                </div>
+              )}
+
+              <div className="pt-4 border-t">
+                <Button
+                  onClick={() => saveMutation.mutate()}
+                  disabled={saveMutation.isPending}
+                  className="bg-blue-600 hover:bg-blue-700"
+                >
+                  <Save className="w-4 h-4 mr-2" />
+                  {saveMutation.isPending ? 'Saving...' : 'Save Settings'}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         <Card className="border-slate-200 shadow-sm mt-6">
           <CardHeader>
             <CardTitle className="text-2xl font-semibold leading-none tracking-tight">Exclude Organisations</CardTitle>
-            <p className="text-sm text-slate-600 mt-2">Hide specific organisations from appearing in the directory
-
+            <p className="text-sm text-slate-600 mt-2">
+              Hide specific organisations from appearing in the directory
             </p>
           </CardHeader>
           <CardContent className="space-y-4">

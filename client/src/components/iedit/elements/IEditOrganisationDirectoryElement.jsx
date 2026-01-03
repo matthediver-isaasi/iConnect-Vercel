@@ -748,6 +748,7 @@ export function IEditOrganisationDirectoryElementRenderer({ content, settings })
       const excludedOrgsSetting = allSettings.find(s => s.setting_key === 'org_directory_excluded_orgs');
       const nameTooltipSetting = allSettings.find(s => s.setting_key === 'org_directory_show_name_tooltip');
       const titleSetting = allSettings.find(s => s.setting_key === 'org_directory_show_title');
+      const allowedStatusesSetting = allSettings.find(s => s.setting_key === 'org_directory_allowed_application_statuses');
       
       let excludedOrgIds = [];
       if (excludedOrgsSetting) {
@@ -757,15 +758,108 @@ export function IEditOrganisationDirectoryElementRenderer({ content, settings })
           excludedOrgIds = [];
         }
       }
+
+      let allowedApplicationStatuses = [];
+      if (allowedStatusesSetting) {
+        try {
+          allowedApplicationStatuses = JSON.parse(allowedStatusesSetting.setting_value);
+        } catch {
+          allowedApplicationStatuses = [];
+        }
+      }
       
       return { 
         excludedOrgIds,
         globalShowNameTooltip: nameTooltipSetting?.setting_value === 'true',
-        globalShowTitle: titleSetting?.setting_value !== 'false'
+        globalShowTitle: titleSetting?.setting_value !== 'false',
+        allowedApplicationStatuses
       };
     },
     staleTime: 5 * 60 * 1000 // Cache for 5 minutes to prevent refetch flickering
   });
+
+  // Fetch organization custom fields to find application_status
+  const { data: orgCustomFields = [] } = useQuery({
+    queryKey: ['org-custom-fields-for-directory-element'],
+    queryFn: async () => {
+      try {
+        const fields = await base44.entities.PreferenceField.list({
+          filter: { is_active: true, entity_scope: 'organization' }
+        });
+        return fields || [];
+      } catch {
+        try {
+          const allFields = await base44.entities.PreferenceField.list({
+            filter: { is_active: true }
+          });
+          return (allFields || []).filter(f => f.entity_scope === 'organization');
+        } catch {
+          return [];
+        }
+      }
+    },
+    staleTime: 5 * 60 * 1000
+  });
+
+  // Find the application_status field
+  const applicationStatusField = useMemo(() => {
+    return orgCustomFields.find(f => f.name === 'application_status');
+  }, [orgCustomFields]);
+
+  // Fetch organization preference values for filtering
+  const { data: allOrgPreferenceValues = [] } = useQuery({
+    queryKey: ['all-org-preference-values-for-directory-element'],
+    enabled: !!applicationStatusField && (displaySettings?.allowedApplicationStatuses?.length > 0),
+    queryFn: async () => {
+      try {
+        const values = await base44.entities.OrganizationPreferenceValue.list();
+        return values || [];
+      } catch {
+        return [];
+      }
+    },
+    staleTime: 60 * 1000
+  });
+
+  // Build a lookup map: organization_id -> { field_id -> value }
+  const orgPreferenceMap = useMemo(() => {
+    const map = {};
+    
+    const extractPrimitiveValue = (val) => {
+      if (val === null || val === undefined) return val;
+      if (typeof val === 'object' && !Array.isArray(val) && val.value !== undefined) {
+        return val.value;
+      }
+      if (Array.isArray(val)) {
+        return val.map(item => {
+          if (typeof item === 'object' && item !== null && item.value !== undefined) {
+            return item.value;
+          }
+          return item;
+        });
+      }
+      return val;
+    };
+    
+    allOrgPreferenceValues.forEach(pv => {
+      if (!map[pv.organization_id]) {
+        map[pv.organization_id] = {};
+      }
+      let normalizedValue = pv.value;
+      if (typeof pv.value === 'string') {
+        try {
+          const parsed = JSON.parse(pv.value);
+          normalizedValue = extractPrimitiveValue(parsed);
+        } catch {
+          normalizedValue = extractPrimitiveValue(pv.value);
+        }
+      } else {
+        normalizedValue = extractPrimitiveValue(pv.value);
+      }
+      map[pv.organization_id][pv.field_id] = normalizedValue;
+    });
+    return map;
+  }, [allOrgPreferenceValues]);
 
   // Use global settings as fallback for showNameTooltip and showTitle
   const effectiveShowNameTooltip = showNameTooltip || displaySettings?.globalShowNameTooltip;
@@ -793,10 +887,29 @@ export function IEditOrganisationDirectoryElementRenderer({ content, settings })
 
   const filteredOrganizations = useMemo(() => {
     const excludedIds = displaySettings?.excludedOrgIds || [];
+    const allowedStatuses = displaySettings?.allowedApplicationStatuses || [];
     
     let filtered = organizations.filter(org => 
       !excludedIds.includes(org.id)
     );
+
+    // Filter by application_status if allowedStatuses is configured
+    if (allowedStatuses.length > 0 && applicationStatusField?.id) {
+      filtered = filtered.filter(org => {
+        const orgValues = orgPreferenceMap[org.id] || {};
+        const statusValue = orgValues[applicationStatusField.id];
+        
+        if (!statusValue) return false;
+        
+        // Handle array values (picklist)
+        if (Array.isArray(statusValue)) {
+          return statusValue.some(v => allowedStatuses.includes(v));
+        }
+        
+        // Handle single value (dropdown)
+        return allowedStatuses.includes(statusValue);
+      });
+    }
     
     if (searchQuery) {
       const searchLower = searchQuery.toLowerCase();
@@ -817,7 +930,7 @@ export function IEditOrganisationDirectoryElementRenderer({ content, settings })
     });
     
     return filtered;
-  }, [organizations, searchQuery, displaySettings?.excludedOrgIds, sortOrder]);
+  }, [organizations, searchQuery, displaySettings?.excludedOrgIds, displaySettings?.allowedApplicationStatuses, sortOrder, applicationStatusField, orgPreferenceMap]);
 
   const columnsNum = parseInt(columns) || 3;
   const rowsPerPageNum = parseInt(rowsPerPage) || 4;
