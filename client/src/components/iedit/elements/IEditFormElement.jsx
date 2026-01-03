@@ -240,6 +240,27 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     enabled: !!formSlug
   });
 
+  // Extract role_id from primary member entity_pipeline for capacity checking
+  const primaryMemberRoleId = useMemo(() => {
+    const primaryMember = form?.entity_pipelines?.members?.find(m => m.is_primary);
+    return primaryMember?.role_id || null;
+  }, [form?.entity_pipelines?.members]);
+
+  // Check role capacity before allowing form submission
+  const { data: roleCapacity, isLoading: isCheckingCapacity } = useQuery({
+    queryKey: ['role-capacity-check-embed', primaryMemberRoleId],
+    queryFn: async () => {
+      const response = await fetch(`/api/public/role/${primaryMemberRoleId}/capacity`);
+      if (!response.ok) {
+        console.error('[IEditFormElement] Failed to check role capacity');
+        return { hasCapacity: true }; // Allow form on error (fail open)
+      }
+      return response.json();
+    },
+    enabled: !!primaryMemberRoleId,
+    staleTime: 30 * 1000 // Re-check every 30 seconds
+  });
+
   // Prefill: Fetch member entity when form has prefill_source = 'member'
   const { data: prefillMember } = useQuery({
     queryKey: ['prefill-member-embed', prefillMemberId],
@@ -1156,6 +1177,39 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
           <AlertCircle className="w-12 h-12 text-slate-300 mx-auto mb-3" />
           <p className="text-slate-600">Form not found or inactive</p>
         </div>
+      </div>
+    );
+  }
+
+  // Check if still loading capacity
+  if (primaryMemberRoleId && isCheckingCapacity) {
+    return (
+      <div className="flex items-center justify-center py-12" style={getBackgroundStyle()}>
+        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+      </div>
+    );
+  }
+
+  // Check if role is at capacity - show message instead of form
+  if (primaryMemberRoleId && roleCapacity && !roleCapacity.hasCapacity) {
+    return (
+      <div className="flex items-center justify-center py-12" style={getBackgroundStyle()}>
+        <Card className="max-w-md">
+          <CardHeader className="text-center">
+            <CardTitle className="text-xl text-slate-800">Registration Closed</CardTitle>
+          </CardHeader>
+          <CardContent className="p-6 text-center">
+            <p className="text-slate-600">
+              {roleCapacity.roleName 
+                ? `The ${roleCapacity.roleName} role has reached its maximum capacity of ${roleCapacity.maxMembers} members.`
+                : `This registration has reached its maximum capacity.`
+              }
+            </p>
+            <p className="text-slate-500 text-sm mt-4">
+              Please contact the administrator for more information.
+            </p>
+          </CardContent>
+        </Card>
       </div>
     );
   }

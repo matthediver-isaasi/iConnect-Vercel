@@ -61,6 +61,27 @@ export default function FormViewPage() {
     staleTime: 5 * 60 * 1000 // Cache for 5 minutes
   });
 
+  // Extract role_id from primary member entity_pipeline for capacity checking
+  const primaryMemberRoleId = useMemo(() => {
+    const primaryMember = form?.entity_pipelines?.members?.find(m => m.is_primary);
+    return primaryMember?.role_id || null;
+  }, [form?.entity_pipelines?.members]);
+
+  // Check role capacity before allowing form submission
+  const { data: roleCapacity, isLoading: isCheckingCapacity } = useQuery({
+    queryKey: ['role-capacity-check', primaryMemberRoleId],
+    queryFn: async () => {
+      const response = await fetch(`/api/public/role/${primaryMemberRoleId}/capacity`);
+      if (!response.ok) {
+        console.error('[FormView] Failed to check role capacity');
+        return { hasCapacity: true }; // Allow form on error (fail open)
+      }
+      return response.json();
+    },
+    enabled: !!primaryMemberRoleId,
+    staleTime: 30 * 1000 // Re-check every 30 seconds
+  });
+
   // Prefill: Fetch member entity when form has prefill_source = 'member'
   const { data: prefillMember } = useQuery({
     queryKey: ['prefill-member', prefillMemberId],
@@ -1000,6 +1021,39 @@ export default function FormViewPage() {
         <Card className="max-w-md">
           <CardContent className="p-6 text-center">
             <p className="text-slate-600">Please log in to access this form.</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // Check if still loading capacity
+  if (primaryMemberRoleId && isCheckingCapacity) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+      </div>
+    );
+  }
+
+  // Check if role is at capacity - show message instead of form
+  if (primaryMemberRoleId && roleCapacity && !roleCapacity.hasCapacity) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+        <Card className="max-w-md">
+          <CardHeader className="text-center">
+            <CardTitle className="text-xl text-slate-800">Registration Closed</CardTitle>
+          </CardHeader>
+          <CardContent className="p-6 text-center">
+            <p className="text-slate-600">
+              {roleCapacity.roleName 
+                ? `The ${roleCapacity.roleName} role has reached its maximum capacity of ${roleCapacity.maxMembers} members.`
+                : `This registration has reached its maximum capacity.`
+              }
+            </p>
+            <p className="text-slate-500 text-sm mt-4">
+              Please contact the administrator for more information.
+            </p>
           </CardContent>
         </Card>
       </div>

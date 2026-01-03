@@ -16,11 +16,12 @@ function stripHtml(html: string | null | undefined): string {
 }
 
 // Helper to check if a role has capacity for more members
-// Returns { hasCapacity: boolean, currentCount: number, maxMembers: number | null, error?: string }
+// Returns { hasCapacity: boolean, currentCount: number, maxMembers: number | null, roleName?: string, error?: string }
 async function checkRoleCapacity(supabaseClient: any, roleId: string): Promise<{
   hasCapacity: boolean;
   currentCount: number;
   maxMembers: number | null;
+  roleName?: string;
   error?: string;
 }> {
   try {
@@ -37,7 +38,7 @@ async function checkRoleCapacity(supabaseClient: any, roleId: string): Promise<{
 
     // If max_members is null, unlimited capacity
     if (role.max_members === null || role.max_members === undefined) {
-      return { hasCapacity: true, currentCount: 0, maxMembers: null };
+      return { hasCapacity: true, currentCount: 0, maxMembers: null, roleName: role.name };
     }
 
     // Count active members with this role (exclude deleted members)
@@ -48,13 +49,13 @@ async function checkRoleCapacity(supabaseClient: any, roleId: string): Promise<{
       .eq('login_enabled', true);
 
     if (countError) {
-      return { hasCapacity: false, currentCount: 0, maxMembers: role.max_members, error: `Count error: ${countError.message}` };
+      return { hasCapacity: false, currentCount: 0, maxMembers: role.max_members, roleName: role.name, error: `Count error: ${countError.message}` };
     }
 
     const currentCount = count || 0;
     const hasCapacity = currentCount < role.max_members;
 
-    return { hasCapacity, currentCount, maxMembers: role.max_members };
+    return { hasCapacity, currentCount, maxMembers: role.max_members, roleName: role.name };
   } catch (err: any) {
     return { hasCapacity: false, currentCount: 0, maxMembers: null, error: err.message };
   }
@@ -1653,6 +1654,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('Public banners fetch error:', error);
       res.status(500).json({ error: 'Failed to fetch banners' });
+    }
+  });
+
+  // Public endpoint to check role capacity (used by forms before submission)
+  app.get('/api/public/role/:id/capacity', async (req: Request, res: Response) => {
+    if (!supabase) {
+      return res.status(503).json({ error: 'Supabase not configured' });
+    }
+
+    try {
+      const { id: roleId } = req.params;
+      
+      if (!roleId) {
+        return res.status(400).json({ error: 'Role ID required' });
+      }
+
+      console.log(`[Role Capacity Check] Checking capacity for role: ${roleId}`);
+      const capacityResult = await checkRoleCapacity(supabase, roleId);
+      console.log(`[Role Capacity Check] Result:`, JSON.stringify(capacityResult));
+
+      // Return capacity info (but don't expose internal error details)
+      res.json({
+        hasCapacity: capacityResult.hasCapacity,
+        currentCount: capacityResult.currentCount,
+        maxMembers: capacityResult.maxMembers,
+        roleName: capacityResult.roleName || null
+      });
+    } catch (error) {
+      console.error('Role capacity check error:', error);
+      res.status(500).json({ error: 'Failed to check role capacity' });
     }
   });
 
