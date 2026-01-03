@@ -15,6 +15,51 @@ function stripHtml(html: string | null | undefined): string {
   return html.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').trim();
 }
 
+// Helper to check if a role has capacity for more members
+// Returns { hasCapacity: boolean, currentCount: number, maxMembers: number | null, error?: string }
+async function checkRoleCapacity(supabaseClient: any, roleId: string): Promise<{
+  hasCapacity: boolean;
+  currentCount: number;
+  maxMembers: number | null;
+  error?: string;
+}> {
+  try {
+    // Get the role's max_members limit
+    const { data: role, error: roleError } = await supabaseClient
+      .from('role')
+      .select('id, name, max_members')
+      .eq('id', roleId)
+      .single();
+
+    if (roleError) {
+      return { hasCapacity: false, currentCount: 0, maxMembers: null, error: `Role not found: ${roleError.message}` };
+    }
+
+    // If max_members is null, unlimited capacity
+    if (role.max_members === null || role.max_members === undefined) {
+      return { hasCapacity: true, currentCount: 0, maxMembers: null };
+    }
+
+    // Count active members with this role (exclude deleted members)
+    const { count, error: countError } = await supabaseClient
+      .from('member')
+      .select('id', { count: 'exact', head: true })
+      .eq('role_id', roleId)
+      .eq('login_enabled', true);
+
+    if (countError) {
+      return { hasCapacity: false, currentCount: 0, maxMembers: role.max_members, error: `Count error: ${countError.message}` };
+    }
+
+    const currentCount = count || 0;
+    const hasCapacity = currentCount < role.max_members;
+
+    return { hasCapacity, currentCount, maxMembers: role.max_members };
+  } catch (err: any) {
+    return { hasCapacity: false, currentCount: 0, maxMembers: null, error: err.message };
+  }
+}
+
 // Supabase client for server-side operations
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -2682,7 +2727,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
             if (memberData.mobile) updateData.mobile = memberData.mobile;
             if (memberData.landline) updateData.landline = memberData.landline;
             // Add role_id if triggered from form conditional logic (null clears the role)
-            if (role_id !== undefined) updateData.role_id = role_id;
+            if (role_id !== undefined) {
+              // Check role capacity before updating to a new role (only if changing to a different role)
+              if (role_id !== null && role_id !== existingMember.role_id) {
+                const capacityCheck = await checkRoleCapacity(supabase, role_id);
+                if (capacityCheck.error) {
+                  console.error('[AppProcessor] Role capacity check error:', capacityCheck.error);
+                  // Don't fail, column may not exist yet
+                } else if (!capacityCheck.hasCapacity) {
+                  console.error('[AppProcessor] Role at max capacity:', capacityCheck.currentCount, '/', capacityCheck.maxMembers);
+                  return res.status(400).json({ 
+                    error: `This role has reached its maximum capacity of ${capacityCheck.maxMembers} members. Please contact an administrator.`,
+                    code: 'ROLE_CAPACITY_EXCEEDED'
+                  });
+                }
+              }
+              updateData.role_id = role_id;
+            }
             // Use createdOrganizationId if org was created/updated, otherwise use prefill_organization_id
             const orgIdToLink = createdOrganizationId || prefill_organization_id;
             if (orgIdToLink) updateData.organization_id = orgIdToLink;
@@ -2733,6 +2794,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
             if (role_id !== undefined) {
               memberInsertData.role_id = role_id;
               console.log('[AppProcessor] Adding role_id to member insert:', role_id);
+              
+              // Check role capacity before inserting member
+              if (role_id !== null) {
+                const capacityCheck = await checkRoleCapacity(supabase, role_id);
+                if (capacityCheck.error) {
+                  console.error('[AppProcessor] Role capacity check error:', capacityCheck.error);
+                  // Don't fail the submission, just log the error - column may not exist yet
+                } else if (!capacityCheck.hasCapacity) {
+                  console.error('[AppProcessor] Role at max capacity:', capacityCheck.currentCount, '/', capacityCheck.maxMembers);
+                  return res.status(400).json({ 
+                    error: `This role has reached its maximum capacity of ${capacityCheck.maxMembers} members. Please contact an administrator.`,
+                    code: 'ROLE_CAPACITY_EXCEEDED'
+                  });
+                }
+              }
             } else {
               console.log('[AppProcessor] role_id is undefined, not adding to member insert');
             }
@@ -3896,6 +3972,55 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const result = await verifyPermission(req, 'admin_can_edit_members');
     return { isAdmin: result.hasPermission, memberId: result.memberId, error: result.error };
   };
+
+  // Get role member counts for all roles (admin only)
+  // Used by RoleManagement to display current usage vs max_members
+  app.get('/api/admin/roles/member-counts', async (req: Request, res: Response) => {
+    const { isAdmin, error } = await verifyAdminSession(req);
+    
+    if (error) {
+      return res.status(401).json({ error });
+    }
+    
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    if (!supabase) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+
+    try {
+      // Get all roles
+      const { data: roles, error: rolesError } = await supabase
+        .from('role')
+        .select('id, name, max_members');
+
+      if (rolesError) {
+        return res.status(500).json({ error: 'Failed to fetch roles' });
+      }
+
+      // Get counts for each role (only active members with login_enabled = true)
+      const counts: Record<string, number> = {};
+      
+      for (const role of roles || []) {
+        const { count, error: countError } = await supabase
+          .from('member')
+          .select('id', { count: 'exact', head: true })
+          .eq('role_id', role.id)
+          .eq('login_enabled', true);
+
+        if (!countError) {
+          counts[role.id] = count || 0;
+        }
+      }
+
+      res.json({ counts });
+    } catch (error) {
+      console.error('[Admin Role Member Counts] Error:', error);
+      res.status(500).json({ error: 'Failed to get role member counts' });
+    }
+  });
 
   // Get member by ID (admin only)
   app.get('/api/admin/members/:id', async (req: Request, res: Response) => {
