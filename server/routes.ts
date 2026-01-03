@@ -344,6 +344,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         payload.email = payload.email.toLowerCase();
       }
 
+      // Check role capacity before creating Member with a role_id
+      if (entity === 'Member' && payload.role_id) {
+        console.log(`[Entity POST] Checking role capacity for role_id: ${payload.role_id}`);
+        const capacityCheck = await checkRoleCapacity(supabase, payload.role_id);
+        console.log(`[Entity POST] Role capacity check result:`, JSON.stringify(capacityCheck));
+        
+        if (!capacityCheck.hasCapacity) {
+          console.error(`[Entity POST] Role at max capacity: ${capacityCheck.currentCount}/${capacityCheck.maxMembers}`);
+          return res.status(400).json({ 
+            error: `This role has reached its maximum capacity of ${capacityCheck.maxMembers} members.`,
+            code: 'ROLE_CAPACITY_EXCEEDED'
+          });
+        }
+      }
+
       const { data, error } = await supabase
         .from(tableName)
         .insert(payload)
@@ -404,6 +419,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Normalize email to lowercase for member, team_member, and magic_link entities
       if ((entity === 'Member' || entity === 'TeamMember' || entity === 'MagicLink') && req.body.email) {
         req.body.email = req.body.email.toLowerCase();
+      }
+
+      // Check role capacity when changing Member's role_id
+      if (entity === 'Member' && req.body.role_id !== undefined) {
+        const newRoleId = req.body.role_id;
+        const currentRoleId = beforeData?.role_id;
+        
+        // Only check capacity if changing to a different role (not clearing or same role)
+        if (newRoleId !== null && newRoleId !== currentRoleId) {
+          console.log(`[Entity PATCH] Checking role capacity for role_id: ${newRoleId}`);
+          const capacityCheck = await checkRoleCapacity(supabase, newRoleId);
+          console.log(`[Entity PATCH] Role capacity check result:`, JSON.stringify(capacityCheck));
+          
+          if (!capacityCheck.hasCapacity) {
+            console.error(`[Entity PATCH] Role at max capacity: ${capacityCheck.currentCount}/${capacityCheck.maxMembers}`);
+            return res.status(400).json({ 
+              error: `This role has reached its maximum capacity of ${capacityCheck.maxMembers} members.`,
+              code: 'ROLE_CAPACITY_EXCEEDED'
+            });
+          }
+        }
       }
 
       // Special validation for Event seat capacity changes
@@ -2407,6 +2443,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Process application form submission and create member/organization entities
   // This is called when auto_create_entity is true or when admin approves an application
   app.post('/api/forms/process-application', async (req: Request, res: Response) => {
+    console.log('[AppProcessor] ============ PROCESS-APPLICATION CALLED ============');
+    
     if (!supabase) {
       return res.status(503).json({ error: 'Supabase not configured' });
     }
