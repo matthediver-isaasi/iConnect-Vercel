@@ -218,8 +218,8 @@ export default function JobDetailsPage() {
               )}
             </div>
 
-            {/* Right Column - Fixed on desktop, appears first on mobile */}
-            <div className="order-1 lg:order-2">
+            {/* Right Column - Scrollable on desktop when content overflows, appears first on mobile */}
+            <div className="order-1 lg:order-2 lg:overflow-y-auto lg:pr-2">
               <Card className="border-slate-200">
                 <CardContent className="p-6 space-y-4">
                   <AGCASButton 
