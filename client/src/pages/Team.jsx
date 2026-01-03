@@ -530,8 +530,8 @@ export default function TeamPage({ hasBanner }) {
             </div>
           )}
 
-          {/* Sign Up Link Card - only show if template is configured */}
-          {signupLink && (
+          {/* Sign Up Link Card - only show if template is configured and user can invite members */}
+          {signupLink && !isFeatureExcluded('element_TeamInviteMember') && (
             <Card className="mb-6 border-blue-200 bg-blue-50/50">
               <CardContent className="p-4">
                 <div className="flex items-center gap-3">
