@@ -56,8 +56,9 @@ export default function PublicLayout({ children, currentPageName }) {
   const [newsletterSubmitted, setNewsletterSubmitted] = useState(false);
   const [socialIcons, setSocialIcons] = useState(null);
   const [footerConfig, setFooterConfig] = useState(null);
+  const [newsletterFormId, setNewsletterFormId] = useState(null);
 
-  // Fetch social icons and footer configuration
+  // Fetch social icons, footer configuration, and newsletter form ID
   useEffect(() => {
     const fetchConfigs = async () => {
       try {
@@ -80,6 +81,13 @@ export default function PublicLayout({ children, currentPageName }) {
             console.error('Failed to parse footer config:', e);
           }
         }
+
+        const newsletterSetting = allSettings.find(s => s.setting_key === 'newsletter_signup_form_id');
+        if (newsletterSetting?.setting_value && newsletterSetting.setting_value !== 'none') {
+          setNewsletterFormId(newsletterSetting.setting_value);
+        } else {
+          setNewsletterFormId(null);
+        }
       } catch (error) {
         console.error('Failed to fetch configs:', error);
       }
@@ -89,12 +97,13 @@ export default function PublicLayout({ children, currentPageName }) {
   }, []);
 
   const { data: newsletterForm, isLoading: newsletterFormLoading } = useQuery({
-    queryKey: ['newsletter-signup-form'],
+    queryKey: ['newsletter-signup-form', newsletterFormId],
     queryFn: async () => {
-      const allForms = await base44.entities.Form.list();
-      return allForms.find(f => f.slug === 'newsletter-signup' && f.is_active);
+      if (!newsletterFormId) return null;
+      const form = await base44.entities.Form.get(newsletterFormId);
+      return form?.is_active ? form : null;
     },
-    enabled: showNewsletterDialog
+    enabled: !!newsletterFormId
   });
 
   const submitNewsletterMutation = useMutation({
@@ -327,25 +336,29 @@ export default function PublicLayout({ children, currentPageName }) {
                   </Button>
                 </Link>
 
-                {/* Newsletter Signup */}
-                <h2 
-                  className="text-3xl text-white mb-8 mt-12"
-                  style={{ fontFamily: "'Degular Medium', sans-serif" }}
-                >Sign up to our newsletter</h2>
-                <div>
-                  <Button 
-                    onClick={() => setShowNewsletterDialog(true)}
-                    className="text-white font-bold hover:opacity-90 transition-opacity px-6 py-5 rounded-none" 
-                    style={{ 
-                      fontFamily: 'Poppins, sans-serif',
-                      background: 'linear-gradient(to top right, #5C0085, #BA0087, #EE00C3, #FF4229, #FFB000)'
-                    }}
-                    data-testid="button-newsletter-signup"
-                  >
-                    Sign up
-                    <ArrowUpRight className="ml-0.5 w-5 h-5" strokeWidth={2.5} />
-                  </Button>
-                </div>
+                {/* Newsletter Signup - only show if a form is configured */}
+                {newsletterFormId && (
+                  <>
+                    <h2 
+                      className="text-3xl text-white mb-8 mt-12"
+                      style={{ fontFamily: "'Degular Medium', sans-serif" }}
+                    >Sign up to our newsletter</h2>
+                    <div>
+                      <Button 
+                        onClick={() => setShowNewsletterDialog(true)}
+                        className="text-white font-bold hover:opacity-90 transition-opacity px-6 py-5 rounded-none" 
+                        style={{ 
+                          fontFamily: 'Poppins, sans-serif',
+                          background: 'linear-gradient(to top right, #5C0085, #BA0087, #EE00C3, #FF4229, #FFB000)'
+                        }}
+                        data-testid="button-newsletter-signup"
+                      >
+                        Sign up
+                        <ArrowUpRight className="ml-0.5 w-5 h-5" strokeWidth={2.5} />
+                      </Button>
+                    </div>
+                  </>
+                )}
               </div>
 
               {/* Middle Column - Address & Contact */}
