@@ -259,8 +259,9 @@ export function IEditLogoGridElementRenderer({ content, variant, settings }) {
                     href={logo.url}
                     target={logo.target || '_self'}
                     rel={logo.target === '_blank' ? 'noopener noreferrer' : undefined}
-                    className="relative aspect-square rounded-lg overflow-hidden bg-slate-100 flex items-center justify-center group/logo block"
+                    className="relative aspect-square rounded-lg overflow-hidden bg-slate-100 flex items-center justify-center group/logo cursor-pointer"
                     style={itemStyles}
+                    data-testid={`link-logo-${index}`}
                   >
                     {logoInner}
                   </a>
@@ -1174,9 +1175,18 @@ export function IEditLogoGridElementEditor({ element, onChange }) {
                       <Input
                         value={logo.url || ''}
                         onChange={(e) => updateLogo(index, 'url', e.target.value)}
+                        onBlur={(e) => {
+                          let value = e.target.value.trim();
+                          if (value && !value.startsWith('http://') && !value.startsWith('https://') && value.includes('.')) {
+                            updateLogo(index, 'url', 'https://' + value);
+                          }
+                        }}
                         placeholder="https://example.com"
                         className="h-8 text-sm"
                       />
+                      {logo.url && !/^https?:\/\//i.test(logo.url) && (
+                        <p className="text-xs text-amber-600 mt-1">URL must start with https:// or http://</p>
+                      )}
                     </div>
                     <div>
                       <Label className="text-xs">Open In</Label>
