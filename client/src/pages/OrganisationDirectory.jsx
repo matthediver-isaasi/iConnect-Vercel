@@ -187,10 +187,40 @@ export default function OrganisationDirectoryPage() {
     return orgCustomFields.filter(f => f.is_filterable);
   }, [orgCustomFields]);
 
+  // Fetch all organization custom fields (including application_status even if not shown on card)
+  const { data: allOrgCustomFields = [] } = useQuery({
+    queryKey: ['all-org-custom-fields-for-status-filter'],
+    queryFn: async () => {
+      try {
+        const fields = await base44.entities.PreferenceField.list({
+          filter: { is_active: true, entity_scope: 'organization' }
+        });
+        return fields || [];
+      } catch {
+        try {
+          const allFields = await base44.entities.PreferenceField.list({
+            filter: { is_active: true }
+          });
+          return (allFields || []).filter(f => f.entity_scope === 'organization');
+        } catch {
+          return [];
+        }
+      }
+    },
+    staleTime: 5 * 60 * 1000
+  });
+
+  // Find the application_status field to use for filtering (from all org fields, not just visible ones)
+  const applicationStatusField = useMemo(() => {
+    return allOrgCustomFields.find(f => f.name === 'application_status');
+  }, [allOrgCustomFields]);
+
   // Fetch ALL organization preference values for filtering
+  // Enable if: there are filterable fields OR we have application_status filtering configured
+  const hasApplicationStatusFilter = !!applicationStatusField && (displaySettings?.allowedApplicationStatuses?.length > 0);
   const { data: allOrgPreferenceValues = [] } = useQuery({
     queryKey: ['all-org-preference-values'],
-    enabled: filterableFields.length > 0,
+    enabled: filterableFields.length > 0 || hasApplicationStatusFilter,
     queryFn: async () => {
       try {
         const values = await base44.entities.OrganizationPreferenceValue.list();
@@ -201,11 +231,6 @@ export default function OrganisationDirectoryPage() {
     },
     staleTime: 60 * 1000,
   });
-
-  // Find the application_status field to use for filtering
-  const applicationStatusField = useMemo(() => {
-    return orgCustomFields.find(f => f.name === 'application_status');
-  }, [orgCustomFields]);
 
   // Build a lookup map: organization_id -> { field_id -> value }
   // Normalizes values: JSON arrays/objects are parsed and reduced to primitive values
