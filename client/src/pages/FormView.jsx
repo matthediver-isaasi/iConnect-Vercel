@@ -117,40 +117,6 @@ export default function FormViewPage() {
     };
   }, [form?.entity_pipelines?.organisations]);
 
-  // Check role capacity before allowing form submission
-  const { data: roleCapacity, isLoading: isCheckingCapacity } = useQuery({
-    queryKey: ['role-capacity-check', primaryMemberRoleId],
-    queryFn: async () => {
-      console.log('[FormView] Fetching capacity for role:', primaryMemberRoleId);
-      const response = await fetch(`/api/public/role/${primaryMemberRoleId}/capacity`);
-      console.log('[FormView] Capacity API response status:', response.status);
-      if (!response.ok) {
-        console.error('[FormView] Failed to check role capacity');
-        return { hasCapacity: true }; // Allow form on error (fail open)
-      }
-      const data = await response.json();
-      console.log('[FormView] Capacity API response data:', data);
-      if (data.debug) {
-        console.log('[FormView] Capacity DEBUG - totalMembersWithRole:', data.debug.totalMembersWithRole);
-        console.log('[FormView] Capacity DEBUG - activeMembersWithRole:', data.debug.activeMembersWithRole);
-        console.log('[FormView] Capacity DEBUG - sampleMembers:', JSON.stringify(data.debug.sampleMembers, null, 2));
-      }
-      return data;
-    },
-    enabled: !!primaryMemberRoleId,
-    staleTime: 30 * 1000 // Re-check every 30 seconds
-  });
-
-  // Log capacity check state on every render
-  console.log('[FormView] Capacity check state:', {
-    primaryMemberRoleId,
-    isCheckingCapacity,
-    roleCapacity,
-    formSlug,
-    formLoaded: !!form,
-    formEntityPipelines: form?.entity_pipelines
-  });
-
   // Prefill: Fetch member entity when form has prefill_source = 'member'
   const { data: prefillMember } = useQuery({
     queryKey: ['prefill-member', prefillMemberId],
@@ -177,6 +143,69 @@ export default function FormViewPage() {
       return base44.entities.Organization.get(prefillOrgId);
     },
     enabled: !!prefillOrgId && form?.prefill_source === 'organization'
+  });
+
+  // Determine the organization name for per-org capacity checking
+  // Uses prefilled org from URL if available
+  const prefillOrgName = useMemo(() => {
+    // When prefill_source is 'organization' and we have prefillOrg
+    if (prefillOrg?.name) {
+      console.log('[FormView] Using prefillOrg name for capacity check:', prefillOrg.name);
+      return prefillOrg.name;
+    }
+    // When prefill_source is 'member' and we have the member's org
+    if (prefillMemberOrg?.name) {
+      console.log('[FormView] Using prefillMemberOrg name for capacity check:', prefillMemberOrg.name);
+      return prefillMemberOrg.name;
+    }
+    return null;
+  }, [prefillOrg, prefillMemberOrg]);
+
+  // Check role capacity before allowing form submission
+  // Uses per-org capacity when we have an org pipeline AND a prefilled org
+  const { data: roleCapacity, isLoading: isCheckingCapacity } = useQuery({
+    queryKey: ['role-capacity-check', primaryMemberRoleId, orgCapacityConfig?.uniquenessKey, prefillOrgName],
+    queryFn: async () => {
+      console.log('[FormView] Fetching capacity for role:', primaryMemberRoleId);
+      
+      // Build URL with org params if we have per-org context
+      let url = `/api/public/role/${primaryMemberRoleId}/capacity`;
+      if (orgCapacityConfig?.hasOrgPipeline && prefillOrgName) {
+        url += `?orgKey=${encodeURIComponent(orgCapacityConfig.uniquenessKey)}&orgValue=${encodeURIComponent(prefillOrgName)}`;
+        console.log('[FormView] Per-org capacity check with prefillOrg:', prefillOrgName);
+      } else {
+        console.log('[FormView] Global capacity check (no prefill org or no org pipeline)');
+      }
+      
+      const response = await fetch(url);
+      console.log('[FormView] Capacity API response status:', response.status);
+      if (!response.ok) {
+        console.error('[FormView] Failed to check role capacity');
+        return { hasCapacity: true }; // Allow form on error (fail open)
+      }
+      const data = await response.json();
+      console.log('[FormView] Capacity API response data:', data);
+      if (data.debug) {
+        console.log('[FormView] Capacity DEBUG - totalMembersWithRole:', data.debug.totalMembersWithRole);
+        console.log('[FormView] Capacity DEBUG - activeMembersWithRole:', data.debug.activeMembersWithRole);
+        console.log('[FormView] Capacity DEBUG - sampleMembers:', JSON.stringify(data.debug.sampleMembers, null, 2));
+      }
+      return data;
+    },
+    // Wait for prefillOrg to load if we have an org pipeline and a prefill org ID
+    enabled: !!primaryMemberRoleId && (!orgCapacityConfig?.hasOrgPipeline || !prefillOrgId || !!prefillOrgName),
+    staleTime: 30 * 1000 // Re-check every 30 seconds
+  });
+
+  // Log capacity check state on every render
+  console.log('[FormView] Capacity check state:', {
+    primaryMemberRoleId,
+    isCheckingCapacity,
+    roleCapacity,
+    prefillOrgName,
+    orgCapacityConfig,
+    formSlug,
+    formLoaded: !!form
   });
 
   // Find the organisation_dropdown field (if any) to determine selected org for domain validation
@@ -1107,15 +1136,24 @@ export default function FormViewPage() {
   }
 
   // Check if role is at capacity - show message instead of form
-  // Skip pre-load blocking if form has org pipeline (capacity is per-org, checked at submit time)
-  const shouldBlockForCapacity = primaryMemberRoleId && roleCapacity && !roleCapacity.hasCapacity && !orgCapacityConfig?.hasOrgPipeline;
+  // Now we do per-org capacity check on load when we have a prefilled org
+  // Only skip pre-load blocking if form has org pipeline BUT no prefilled org (will check at submit time)
+  const hasPrefilledOrgContext = !!(prefillOrgName && orgCapacityConfig?.hasOrgPipeline);
+  const shouldBlockForCapacity = primaryMemberRoleId && roleCapacity && !roleCapacity.hasCapacity && 
+    (hasPrefilledOrgContext || !orgCapacityConfig?.hasOrgPipeline);
   console.log('[FormView] Capacity block decision:', {
     primaryMemberRoleId,
     roleCapacity,
     hasCapacity: roleCapacity?.hasCapacity,
     hasOrgPipeline: orgCapacityConfig?.hasOrgPipeline,
+    hasPrefilledOrgContext,
+    prefillOrgName,
     shouldBlockForCapacity,
-    note: orgCapacityConfig?.hasOrgPipeline ? 'Skipping pre-load block - capacity is per-org, will check at submit' : 'Global capacity check'
+    note: hasPrefilledOrgContext 
+      ? 'Per-org capacity check with prefilled org' 
+      : orgCapacityConfig?.hasOrgPipeline 
+        ? 'Skipping pre-load block - no prefill org, will check at submit' 
+        : 'Global capacity check'
   });
   
   if (shouldBlockForCapacity) {
