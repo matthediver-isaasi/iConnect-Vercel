@@ -16325,6 +16325,69 @@ AGCAS Events Team
     }
   });
   
+  // Helper function to parse date strings based on format
+  // Returns ISO date string in UTC to avoid timezone shifts
+  function parseDateWithFormat(dateString: string, format: string): string | null {
+    if (!dateString || !dateString.trim()) return null;
+    
+    const trimmed = dateString.trim();
+    
+    const parts = trimmed.split(/[\/\-\.]/);
+    if (parts.length !== 3) return null;
+    
+    let day: number, month: number, year: number;
+    
+    // Parse based on format pattern
+    const formatLower = format.toLowerCase();
+    
+    if (formatLower.startsWith('dd')) {
+      // DD/MM/YYYY or DD/MM/YY formats
+      day = parseInt(parts[0], 10);
+      month = parseInt(parts[1], 10);
+      year = parseInt(parts[2], 10);
+    } else if (formatLower.startsWith('mm')) {
+      // MM/DD/YYYY or MM/DD/YY formats  
+      month = parseInt(parts[0], 10);
+      day = parseInt(parts[1], 10);
+      year = parseInt(parts[2], 10);
+    } else if (formatLower.startsWith('yy')) {
+      // YYYY-MM-DD or YY-MM-DD formats
+      year = parseInt(parts[0], 10);
+      month = parseInt(parts[1], 10);
+      day = parseInt(parts[2], 10);
+    } else {
+      // Default: assume DD/MM/YYYY
+      day = parseInt(parts[0], 10);
+      month = parseInt(parts[1], 10);
+      year = parseInt(parts[2], 10);
+    }
+    
+    // Validate parsed values
+    if (isNaN(day) || isNaN(month) || isNaN(year)) return null;
+    if (day < 1 || day > 31) return null;
+    if (month < 1 || month > 12) return null;
+    
+    // Handle 2-digit years
+    if (year < 100) {
+      // Assume 00-49 = 2000-2049, 50-99 = 1950-1999
+      year = year < 50 ? 2000 + year : 1900 + year;
+    }
+    
+    // Use Date.UTC to create date in UTC timezone (avoids local timezone shifts)
+    const utcTimestamp = Date.UTC(year, month - 1, day, 0, 0, 0, 0);
+    if (isNaN(utcTimestamp)) return null;
+    
+    const date = new Date(utcTimestamp);
+    
+    // Verify the date didn't roll over (e.g., Feb 30 becoming Mar 2)
+    if (date.getUTCDate() !== day || date.getUTCMonth() !== month - 1 || date.getUTCFullYear() !== year) {
+      return null;
+    }
+    
+    // Return ISO string - this will be in UTC format (e.g., "2018-05-11T00:00:00.000Z")
+    return date.toISOString();
+  }
+  
   // Preview import changes
   app.post('/api/imports/preview', csvUpload.single('file'), async (req: Request, res: Response) => {
     if (!supabase) {
@@ -16384,6 +16447,29 @@ AGCAS Events Team
         
         if (!identifierValue) {
           skipCount++;
+          continue;
+        }
+        
+        // Validate date fields before checking record existence
+        let hasDateError = false;
+        for (const mapping of parsedMappings) {
+          if (mapping.targetType === 'date' && mapping.dateFormat) {
+            const sourceValue = row[mapping.sourceColumn]?.trim();
+            if (sourceValue) {
+              const parsedDate = parseDateWithFormat(sourceValue, mapping.dateFormat);
+              if (parsedDate === null) {
+                errors.push({ 
+                  row: i + 2, 
+                  message: `Invalid date "${sourceValue}" for field "${mapping.targetField}" (expected format: ${mapping.dateFormat})` 
+                });
+                hasDateError = true;
+                break;
+              }
+            }
+          }
+        }
+        
+        if (hasDateError) {
           continue;
         }
         
@@ -16531,7 +16617,16 @@ AGCAS Events Team
           for (const mapping of parsedMappings) {
             const sourceValue = row[mapping.sourceColumn];
             const shouldClear = mapping.clearOnEmpty && (!sourceValue || sourceValue.trim() === '');
-            const finalValue = shouldClear ? null : (sourceValue?.trim() || null);
+            let finalValue: any = shouldClear ? null : (sourceValue?.trim() || null);
+            
+            // Parse date fields using the specified format
+            if (mapping.targetType === 'date' && finalValue && mapping.dateFormat) {
+              const parsedDate = parseDateWithFormat(finalValue, mapping.dateFormat);
+              if (parsedDate === null) {
+                throw new Error(`Invalid date "${finalValue}" for field "${mapping.targetField}" (expected format: ${mapping.dateFormat})`);
+              }
+              finalValue = parsedDate;
+            }
             
             if (mapping.targetScope === 'core') {
               coreUpdates[mapping.targetField] = finalValue;
