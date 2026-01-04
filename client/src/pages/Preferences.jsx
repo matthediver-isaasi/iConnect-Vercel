@@ -213,21 +213,24 @@ export default function PreferencesPage() {
     setSessionLoading(false);
   }, []);
 
-  // Fetch fresh member data from database to ensure we have all fields (including created_at)
+  // Fetch fresh member data from backend API to ensure we have all fields (including created_at)
+  // Uses /api/auth/me which runs with service key and bypasses RLS
   const { data: freshMemberData, isLoading: freshMemberLoading } = useQuery({
     queryKey: ["fresh-member-data", sessionMember?.id],
     enabled: !!sessionMember?.id,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("member")
-        .select("*")
-        .eq("id", sessionMember.id)
-        .single();
-      if (error) {
-        console.error("[Preferences] Error fetching fresh member data:", error);
+      try {
+        const response = await fetch('/api/auth/me', { credentials: 'include' });
+        if (!response.ok) {
+          console.error("[Preferences] Error fetching fresh member data:", response.status);
+          return null;
+        }
+        const data = await response.json();
+        return data;
+      } catch (err) {
+        console.error("[Preferences] Error fetching fresh member data:", err);
         return null;
       }
-      return data;
     },
     staleTime: 5 * 60 * 1000, // Cache for 5 minutes
   });
