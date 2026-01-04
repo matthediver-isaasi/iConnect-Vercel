@@ -221,11 +221,14 @@ export default function PreferencesPage() {
     queryFn: async () => {
       try {
         const response = await fetch('/api/auth/me', { credentials: 'include' });
+        console.log("[Preferences] /api/auth/me response status:", response.status);
         if (!response.ok) {
           console.error("[Preferences] Error fetching fresh member data:", response.status);
           return null;
         }
         const data = await response.json();
+        console.log("[Preferences] Fresh member data from API:", data);
+        console.log("[Preferences] created_at value:", data?.created_at);
         return data;
       } catch (err) {
         console.error("[Preferences] Error fetching fresh member data:", err);
@@ -239,7 +242,10 @@ export default function PreferencesPage() {
   const memberRecord = useMemo(() => {
     if (!sessionMember) return null;
     if (!freshMemberData) return sessionMember;
-    return { ...sessionMember, ...freshMemberData };
+    const merged = { ...sessionMember, ...freshMemberData };
+    console.log("[Preferences] Merged memberRecord:", merged);
+    console.log("[Preferences] memberRecord.created_at:", merged.created_at);
+    return merged;
   }, [sessionMember, freshMemberData]);
 
   const currentUser = memberRecord;
