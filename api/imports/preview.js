@@ -9,6 +9,68 @@ const supabase = supabaseUrl && supabaseServiceKey
   ? createClient(supabaseUrl, supabaseServiceKey)
   : null;
 
+// Helper function to parse and validate date strings based on format
+function parseDateWithFormat(dateString, format) {
+  if (!dateString || !dateString.trim()) return null;
+  
+  const trimmed = dateString.trim();
+  
+  const parts = trimmed.split(/[\/\-\.]/);
+  if (parts.length !== 3) return null;
+  
+  let day, month, year;
+  
+  // Parse based on format pattern
+  const formatLower = format.toLowerCase();
+  
+  if (formatLower.startsWith('dd')) {
+    // DD/MM/YYYY or DD/MM/YY formats
+    day = parseInt(parts[0], 10);
+    month = parseInt(parts[1], 10);
+    year = parseInt(parts[2], 10);
+  } else if (formatLower.startsWith('mm')) {
+    // MM/DD/YYYY or MM/DD/YY formats  
+    month = parseInt(parts[0], 10);
+    day = parseInt(parts[1], 10);
+    year = parseInt(parts[2], 10);
+  } else if (formatLower.startsWith('yy')) {
+    // YYYY-MM-DD or YY-MM-DD formats
+    year = parseInt(parts[0], 10);
+    month = parseInt(parts[1], 10);
+    day = parseInt(parts[2], 10);
+  } else {
+    // Default: assume DD/MM/YYYY
+    day = parseInt(parts[0], 10);
+    month = parseInt(parts[1], 10);
+    year = parseInt(parts[2], 10);
+  }
+  
+  // Validate parsed values
+  if (isNaN(day) || isNaN(month) || isNaN(year)) return null;
+  if (day < 1 || day > 31) return null;
+  if (month < 1 || month > 12) return null;
+  
+  // Handle 2-digit years
+  if (year < 100) {
+    // Assume 00-49 = 2000-2049, 50-99 = 1950-1999
+    year = year < 50 ? 2000 + year : 1900 + year;
+  }
+  
+  // Use Date.UTC to create date in UTC timezone (avoids local timezone shifts)
+  const utcTimestamp = Date.UTC(year, month - 1, day, 0, 0, 0, 0);
+  if (isNaN(utcTimestamp)) return null;
+  
+  const date = new Date(utcTimestamp);
+  
+  // Verify the date didn't roll over (e.g., Feb 30 becoming Mar 2)
+  if (date.getUTCDate() !== day || date.getUTCMonth() !== month - 1 || date.getUTCFullYear() !== year) {
+    return null;
+  }
+  
+  // Return ISO string - this will be in UTC format
+  return date.toISOString();
+}
+
 export const config = {
   api: {
     bodyParser: false,
@@ -73,7 +135,30 @@ export default async function handler(req, res) {
     
     const tableName = entityType === 'organization' ? 'organization' : 'member';
     const previewResults = [];
+    const errors = [];
     
+    // Validate all rows for date parsing errors (not just preview rows)
+    for (let i = 0; i < records.length; i++) {
+      const row = records[i];
+      
+      // Validate date fields
+      for (const mapping of mappings) {
+        if (mapping.targetType === 'date' && mapping.dateFormat) {
+          const sourceValue = row[mapping.sourceColumn]?.trim();
+          if (sourceValue) {
+            const parsedDate = parseDateWithFormat(sourceValue, mapping.dateFormat);
+            if (parsedDate === null) {
+              errors.push({ 
+                row: i + 2, 
+                message: `Invalid date "${sourceValue}" for field "${mapping.targetField}" (expected format: ${mapping.dateFormat})` 
+              });
+            }
+          }
+        }
+      }
+    }
+    
+    // Generate preview for first 10 rows
     for (let i = 0; i < Math.min(records.length, 10); i++) {
       const row = records[i];
       const identifierValue = row[identifierMapping.sourceColumn]?.trim();
@@ -117,7 +202,8 @@ export default async function handler(req, res) {
         creates: previewResults.filter(r => r.action === 'create').length,
         updates: previewResults.filter(r => r.action === 'update').length,
         skips: previewResults.filter(r => r.action === 'skip').length
-      }
+      },
+      errors: errors.slice(0, 10) // Return first 10 date validation errors
     });
   } catch (error) {
     console.error('[Import Preview] Error:', error);
