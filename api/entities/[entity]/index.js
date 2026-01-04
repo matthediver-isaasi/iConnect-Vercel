@@ -297,9 +297,9 @@ export default async function handler(req, res) {
         'host': req.headers.host
       }));
 
-      // Trigger workflow evaluation for new Organization/Member (non-blocking)
-      if ((entityNormalized === 'organization' || entityNormalized === 'member') && data) {
-        const entityType = entityNormalized;
+      // Trigger workflow evaluation for new Organization/Member/JobPosting (non-blocking)
+      if ((entityNormalized === 'organization' || entityNormalized === 'member' || entityNormalized === 'jobposting') && data) {
+        const entityType = entityNormalized === 'jobposting' ? 'job_posting' : entityNormalized;
         triggerWorkflows(entityType, data.id, null, data, 'record_create', baseUrl).catch(err => {
           console.error('[Entity POST] Workflow error:', err);
         });

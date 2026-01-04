@@ -185,7 +185,8 @@ async function applyFieldMappings(template, fieldMappings, entityType, entityId,
     // Determine which entity type this mapping refers to
     const isOrgField = fieldType.startsWith('org_');
     const isMemberField = fieldType.startsWith('member_');
-    const normalizedFieldType = fieldType.replace(/^(org_|member_)/, '');
+    const isJobPostingField = fieldType.startsWith('job_posting_');
+    const normalizedFieldType = fieldType.replace(/^(org_|member_|job_posting_)/, '');
     
     // Determine which entity to look up from
     let lookupEntityType = entityType;
@@ -199,6 +200,9 @@ async function applyFieldMappings(template, fieldMappings, entityType, entityId,
       continue; // Skip this mapping, let later pass handle it
     } else if (isMemberField && entityType !== 'member') {
       console.log(`[Workflows] Mapping "${placeholder}" refers to member but entityType is ${entityType} - skipping for later pass`);
+      continue; // Skip this mapping, let later pass handle it
+    } else if (isJobPostingField && entityType !== 'job_posting') {
+      console.log(`[Workflows] Mapping "${placeholder}" refers to job_posting but entityType is ${entityType} - skipping for later pass`);
       continue; // Skip this mapping, let later pass handle it
     }
     
@@ -336,8 +340,18 @@ async function executeWorkflowActions(workflow, entityType, entityId, entityData
   const results = [];
   
   for (const action of (workflow.actions || [])) {
-    if (action.type === 'update_field' && action.config?.field_type === 'core') {
-      const table = entityType === 'organization' ? 'organization' : 'member';
+    // Normalize prefixed field types (e.g., job_posting_core -> core)
+    const normalizedFieldType = action.config?.field_type?.replace(/^(org_|member_|job_posting_)/, '') || action.config?.field_type;
+    
+    if (action.type === 'update_field' && normalizedFieldType === 'core') {
+      let table;
+      if (entityType === 'organization') {
+        table = 'organization';
+      } else if (entityType === 'job_posting') {
+        table = 'job_posting';
+      } else {
+        table = 'member';
+      }
       await supabase.from(table).update({ [action.config.field_id]: action.config.value }).eq('id', entityId);
       results.push({ action_type: 'update_field', status: 'success' });
     } else if (action.type === 'send_email') {
@@ -756,16 +770,23 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
           const condition = workflow.conditions[i];
           let beforeValue, afterValue;
           
-          // Normalize field_type: handle prefixed types like member_core, org_core, member_custom, org_custom
+          // Normalize field_type: handle prefixed types like member_core, org_core, member_custom, org_custom, job_posting_core
           const fieldType = condition.field_type || 'core';
           const isMemberField = fieldType === 'core' || fieldType === 'member_core';
           const isOrgField = fieldType === 'org_core';
           const isMemberCustom = fieldType === 'custom' || fieldType === 'member_custom';
           const isOrgCustom = fieldType === 'org_custom';
+          const isJobPostingField = fieldType === 'job_posting_core';
           
-          console.log(`[Workflows] Condition ${i} field_type="${fieldType}", isMemberField=${isMemberField}, isOrgField=${isOrgField}, isMemberCustom=${isMemberCustom}, isOrgCustom=${isOrgCustom}`);
+          console.log(`[Workflows] Condition ${i} field_type="${fieldType}", isMemberField=${isMemberField}, isOrgField=${isOrgField}, isMemberCustom=${isMemberCustom}, isOrgCustom=${isOrgCustom}, isJobPostingField=${isJobPostingField}`);
           
-          if (isMemberField) {
+          // For job_posting entity type, treat 'core' as job posting core field
+          if ((entityType === 'job_posting' && (fieldType === 'core' || isJobPostingField)) || isJobPostingField) {
+            // Job posting core field - get from afterData (which is the job_posting record)
+            beforeValue = beforeData?.[condition.field_id];
+            afterValue = afterData?.[condition.field_id];
+            console.log(`[Workflows] Job posting core field "${condition.field_id}": afterValue="${afterValue}"`);
+          } else if (isMemberField) {
             // Member core field - get from afterData (which is the member record)
             beforeValue = beforeData?.[condition.field_id];
             afterValue = afterData?.[condition.field_id];

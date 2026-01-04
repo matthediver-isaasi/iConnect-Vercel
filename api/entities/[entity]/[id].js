@@ -125,9 +125,9 @@ export default async function handler(req, res) {
       const entityNormalized = entity.replace(/[-_]/g, '').toLowerCase();
       console.log(`[Entity PATCH] Normalized entity: "${entityNormalized}"`);
       
-      // For Organization/Member, fetch before data for workflow evaluation
+      // For Organization/Member/JobPosting, fetch before data for workflow evaluation
       let beforeData = null;
-      const isWorkflowEntity = entityNormalized === 'organization' || entityNormalized === 'member';
+      const isWorkflowEntity = entityNormalized === 'organization' || entityNormalized === 'member' || entityNormalized === 'jobposting';
       const isPreferenceValueEntity = entityNormalized === 'organizationpreferencevalue' || entityNormalized === 'memberpreferencevalue';
       
       console.log(`[Entity PATCH] isPreferenceValueEntity: ${isPreferenceValueEntity}`);
@@ -191,7 +191,7 @@ export default async function handler(req, res) {
 
       // Trigger workflow evaluation (non-blocking)
       if (isWorkflowEntity && data) {
-        const entityType = entity.toLowerCase();
+        const entityType = entityNormalized === 'jobposting' ? 'job_posting' : entityNormalized;
         triggerWorkflows(entityType, id, beforeData, data, 'field_change', baseUrl).catch(err => {
           console.error('[Entity PATCH] Workflow error:', err);
         });
