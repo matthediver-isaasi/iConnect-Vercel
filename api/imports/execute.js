@@ -165,9 +165,15 @@ export default async function handler(req, res) {
         console.log('[Import] WARNING: No created_on mapping found in mappings!');
       }
       
+      // Collect notes by email (lowercase) for creation after SQL RPC
+      // Use array to support multiple notes per email
+      const notesByEmail = new Map();
+      
       // Transform records to the format expected by the SQL function
       const batch = records.map((row, index) => {
         const record = { row_index: index };
+        let recordEmail = null;
+        let recordNote = null;
         
         for (const mapping of mappings) {
           if (!mapping.sourceColumn || !mapping.targetField) continue;
@@ -197,8 +203,19 @@ export default async function handler(req, res) {
             console.log(`[Import] Row ${index} created_on SKIPPED parsing - targetType: "${mapping.targetType}", dateFormat: "${mapping.dateFormat}", value: "${value}"`);
           }
           
+          // Capture note content for later creation
+          if (mapping.targetField === '__add_note__') {
+            if (value && typeof value === 'string' && value.trim()) {
+              recordNote = value.trim();
+            }
+            continue;
+          }
+          
           // Map to SQL function expected fields
-          if (mapping.targetField === 'email') record.email = value;
+          if (mapping.targetField === 'email') {
+            record.email = value;
+            recordEmail = value;
+          }
           else if (mapping.targetField === 'first_name') record.first_name = value;
           else if (mapping.targetField === 'last_name') record.last_name = value;
           else if (mapping.targetField === 'mobile') record.mobile = value;
@@ -210,8 +227,24 @@ export default async function handler(req, res) {
           else if (mapping.targetField === 'created_on') record.created_on = value;
         }
         
+        // Store note by lowercase email for lookup after SQL RPC (support multiple notes per email)
+        if (recordEmail && recordNote) {
+          const emailKey = recordEmail.toLowerCase().trim();
+          if (!notesByEmail.has(emailKey)) {
+            notesByEmail.set(emailKey, []);
+          }
+          notesByEmail.get(emailKey).push(recordNote);
+        }
+        
         return record;
       });
+      
+      // Count total notes collected
+      let totalNotesCollected = 0;
+      for (const notes of notesByEmail.values()) {
+        totalNotesCollected += notes.length;
+      }
+      console.log(`[Import] Notes collected: ${totalNotesCollected} notes for ${notesByEmail.size} members`);
       
       // Debug: Log first 3 records to verify created_on is set
       console.log('[Import] First 3 batch records created_on values:');
@@ -258,22 +291,81 @@ export default async function handler(req, res) {
           }
         }
         
-        // If we processed all batches successfully, return early
+        // If we processed all batches successfully, handle notes then return
         if (i + SQL_BATCH_SIZE >= batch.length) {
           console.log(`[Import] SQL function complete: ${totalCreated} created, ${totalUpdated} updated`);
+          
+          // Create member notes if any were collected
+          let notesCreated = 0;
+          if (notesByEmail.size > 0) {
+            console.log(`[Import] Creating notes for ${notesByEmail.size} members...`);
+            
+            // Fetch member IDs by their emails
+            const emailsWithNotes = Array.from(notesByEmail.keys());
+            const { data: membersWithNotes, error: memberLookupError } = await supabase
+              .from('member')
+              .select('id, email')
+              .not('email', 'is', null);
+            
+            if (memberLookupError) {
+              console.log(`[Import] Error fetching members for notes: ${memberLookupError.message}`);
+            } else if (membersWithNotes) {
+              // Build lowercase email -> member ID map
+              const memberIdByEmail = new Map();
+              membersWithNotes.forEach(m => {
+                if (m.email) {
+                  memberIdByEmail.set(m.email.toLowerCase().trim(), m.id);
+                }
+              });
+              
+              // Create notes for members we found (support multiple notes per member)
+              const notesToInsert = [];
+              for (const [emailLower, noteContents] of notesByEmail) {
+                const memberId = memberIdByEmail.get(emailLower);
+                if (memberId) {
+                  for (const noteContent of noteContents) {
+                    notesToInsert.push({
+                      target_member_id: memberId,
+                      author_member_id: session.data.memberId,
+                      content: noteContent,
+                      created_at: new Date().toISOString(),
+                      updated_at: new Date().toISOString()
+                    });
+                  }
+                }
+              }
+              
+              if (notesToInsert.length > 0) {
+                console.log(`[Import] Inserting ${notesToInsert.length} member notes...`);
+                const { error: notesError } = await supabase
+                  .from('member_note')
+                  .insert(notesToInsert);
+                
+                if (notesError) {
+                  console.log(`[Import] Failed to create member notes: ${notesError.message}`);
+                } else {
+                  notesCreated = notesToInsert.length;
+                  console.log(`[Import] Created ${notesCreated} member notes successfully`);
+                }
+              }
+            }
+          }
+          
           return res.json({
             success: true,
             created: totalCreated,
             updated: totalUpdated,
             skipped: totalSkipped,
             errors: totalErrors,
+            notesCreated,
             summary: {
               totalRows: records.length,
               processedRows: totalCreated + totalUpdated,
               createdRows: totalCreated,
               updatedRows: totalUpdated,
               skippedRows: totalSkipped,
-              errorRows: totalErrors
+              errorRows: totalErrors,
+              notesCreated
             }
           });
         }
