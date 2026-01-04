@@ -3259,19 +3259,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
 
           // Handle communication_preferences field values - save to member_communication_preference table
+          // Only update categories that are explicitly included in the form submission
+          // Do NOT auto-subscribe missing categories - this preserves existing opt-outs
           const commPrefFields = fields.filter((f: any) => f.type === 'communication_preferences');
           if (commPrefFields.length > 0) {
             console.log(`[AppProcessor] Processing ${commPrefFields.length} communication preference fields`);
             
-            // Fetch all active communication categories to ensure all are saved
-            const { data: allCommCategories } = await supabase
-              .from('communication_category')
-              .select('id')
-              .eq('is_active', true);
-            
-            const allCategoryIds = new Set((allCommCategories || []).map((c: any) => c.id));
-            
-            // Collect all communication preference selections from form values
+            // Collect communication preference selections from form values
+            // Only include categories that were explicitly submitted
             const commPrefSelections: Array<{category_id: string, is_subscribed: boolean}> = [];
             const processedCategoryIds = new Set<string>();
             
@@ -3283,7 +3278,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   if (!processedCategoryIds.has(categoryId)) {
                     commPrefSelections.push({
                       category_id: categoryId,
-                      is_subscribed: isSubscribed !== false
+                      is_subscribed: Boolean(isSubscribed)
                     });
                     processedCategoryIds.add(categoryId);
                   }
@@ -3291,15 +3286,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
               }
             }
             
-            // Add any missing categories with default subscribed=true
-            for (const categoryId of allCategoryIds) {
-              if (!processedCategoryIds.has(categoryId)) {
-                commPrefSelections.push({
-                  category_id: categoryId,
-                  is_subscribed: true
-                });
-              }
-            }
+            // Note: We intentionally do NOT add missing categories with default values
+            // This preserves existing preferences for categories not included in this form
             
             if (commPrefSelections.length > 0) {
               console.log(`[AppProcessor] Saving ${commPrefSelections.length} communication preferences for member:`, createdMemberId);

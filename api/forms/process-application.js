@@ -1185,6 +1185,73 @@ export default async function handler(req, res) {
         }
       }
     }
+    
+    // Handle communication_preferences field values - save to member_communication_preference table
+    // Only update categories that are explicitly included in the form submission
+    // Do NOT auto-subscribe missing categories - this preserves existing opt-outs
+    if (createdMemberId && fields) {
+      const commPrefFields = fields.filter(f => f.type === 'communication_preferences');
+      if (commPrefFields.length > 0) {
+        console.log(`[AppProcessor] Processing ${commPrefFields.length} communication preference fields`);
+        
+        // Collect communication preference selections from form values
+        // Only include categories that were explicitly submitted
+        const commPrefSelections = [];
+        const processedCategoryIds = new Set();
+        
+        for (const field of commPrefFields) {
+          const prefValues = form_values[field.id];
+          if (prefValues && typeof prefValues === 'object') {
+            // prefValues is an object: { categoryId: boolean }
+            for (const [categoryId, isSubscribed] of Object.entries(prefValues)) {
+              if (!processedCategoryIds.has(categoryId)) {
+                commPrefSelections.push({
+                  category_id: categoryId,
+                  is_subscribed: Boolean(isSubscribed)
+                });
+                processedCategoryIds.add(categoryId);
+              }
+            }
+          }
+        }
+        
+        // Note: We intentionally do NOT add missing categories with default values
+        // This preserves existing preferences for categories not included in this form
+        
+        if (commPrefSelections.length > 0) {
+          console.log(`[AppProcessor] Saving ${commPrefSelections.length} communication preferences for member:`, createdMemberId);
+          
+          // Upsert each communication preference
+          for (const pref of commPrefSelections) {
+            // Check if preference already exists
+            const { data: existingPref } = await supabase
+              .from('member_communication_preference')
+              .select('id')
+              .eq('member_id', createdMemberId)
+              .eq('category_id', pref.category_id)
+              .single();
+            
+            if (existingPref) {
+              // Update existing preference
+              await supabase
+                .from('member_communication_preference')
+                .update({ is_subscribed: pref.is_subscribed })
+                .eq('id', existingPref.id);
+            } else {
+              // Insert new preference
+              await supabase
+                .from('member_communication_preference')
+                .insert({
+                  member_id: createdMemberId,
+                  category_id: pref.category_id,
+                  is_subscribed: pref.is_subscribed
+                });
+            }
+          }
+          console.log(`[AppProcessor] Saved communication preferences for member:`, createdMemberId);
+        }
+      }
+    }
 
     // Save communication preferences (marketing list subscriptions) for primary member
     if (createdMemberId && memberCommunicationPrefsMap.size > 0) {
