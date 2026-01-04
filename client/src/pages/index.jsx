@@ -244,9 +244,29 @@ import RedirectManagement from "./RedirectManagement";
 
 import SearchResults from "./SearchResults";
 
+import { useEffect, useRef } from 'react';
 import { BrowserRouter as Router, Route, Routes, useLocation } from 'react-router-dom';
 import { LayoutProvider } from '@/contexts/LayoutContext';
 import { ArticleUrlProvider } from '@/contexts/ArticleUrlContext';
+
+// ScrollToTop component - scrolls to top on pathname changes, preserves anchor navigation
+function ScrollToTop() {
+    const { pathname, hash } = useLocation();
+    const prevPathname = useRef(pathname);
+    
+    useEffect(() => {
+        // Only scroll to top when pathname changes (not hash changes)
+        // And only if there's no hash (anchor) in the URL
+        if (prevPathname.current !== pathname) {
+            if (!hash) {
+                window.scrollTo({ top: 0, behavior: 'instant' });
+            }
+            prevPathname.current = pathname;
+        }
+    }, [pathname, hash]);
+    
+    return null;
+}
 
 const PAGES = {
     
@@ -518,8 +538,10 @@ function PagesContent() {
     const currentPage = _getCurrentPage(location.pathname);
     
     return (
-        <Layout currentPageName={currentPage}>
-            <Routes>            
+        <>
+            <ScrollToTop />
+            <Layout currentPageName={currentPage}>
+                <Routes>            
                 
                     <Route path="/" element={<HomePageRedirect />} />
                 
@@ -790,7 +812,8 @@ function PagesContent() {
                 {/* Dynamic CMS pages - catch-all route for IEdit pages by slug */}
                 <Route path="/:slug" element={<DynamicPage />} />
             </Routes>
-        </Layout>
+            </Layout>
+        </>
     );
 }
 
