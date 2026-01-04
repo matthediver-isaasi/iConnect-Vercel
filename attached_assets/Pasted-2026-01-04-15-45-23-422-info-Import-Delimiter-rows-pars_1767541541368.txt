@@ -1,0 +1,35 @@
+2026-01-04 15:45:23.422 [info] [Import] Delimiter: ";", rows parsing...
+2026-01-04 15:45:23.443 [info] [Import] Parsed 1 rows
+2026-01-04 15:45:23.444 [info] [Import] Attempting SQL function import...
+2026-01-04 15:45:23.444 [info] [Import] All mappings: [
+  {
+    "sourceColumn": "Member Email",
+    "targetField": "email",
+    "targetScope": "core",
+    "clearOnEmpty": false,
+    "targetType": "email",
+    "preferenceFieldId": null
+  },
+  {
+    "sourceColumn": "Date joined",
+    "targetField": "created_on",
+    "targetScope": "core",
+    "clearOnEmpty": false,
+    "targetType": "date",
+    "preferenceFieldId": null,
+    "dateFormat": "dd/mm/yy"
+  }
+]
+2026-01-04 15:45:23.444 [info] [Import] created_on mapping found: {"sourceColumn":"Date joined","targetField":"created_on","targetScope":"core","clearOnEmpty":false,"targetType":"date","preferenceFieldId":null,"dateFormat":"dd/mm/yy"}
+2026-01-04 15:45:23.445 [info] [Import] created_on mapping targetType: date
+2026-01-04 15:45:23.445 [info] [Import] created_on mapping dateFormat: dd/mm/yy
+2026-01-04 15:45:23.445 [info] [Import] Row 0 created_on RAW value from CSV: "11/5/18"
+2026-01-04 15:45:23.445 [info] [Import] Row 0 created_on targetType: "date", dateFormat: "dd/mm/yy"
+2026-01-04 15:45:23.446 [info] [Import] Row 0 created_on PARSED value: "2018-05-11T00:00:00.000Z"
+2026-01-04 15:45:23.446 [info] [Import] First 3 batch records created_on values:
+2026-01-04 15:45:23.446 [info] [Import] Record 0 created_on: "2018-05-11T00:00:00.000Z"
+2026-01-04 15:45:23.446 [info] [Import] Sample record: {"row_index":0,"email":"rebecca.payne@aru.ac.uk","created_on":"2018-05-11T00:00:00.000Z"}
+2026-01-04 15:45:23.447 [info] [Import] Records with emails: 1 of 1
+2026-01-04 15:45:23.447 [info] [Import] SQL batch 1-1 of 1
+2026-01-04 15:45:23.650 [info] [Import] RPC response: {"data":{"success":true,"created":0,"updated":1,"skipped":0,"errors":0,"total":1,"first_error":null},"error":null}
+2026-01-04 15:45:23.650 [info] [Import] SQL function complete: 0 created, 1 updated
