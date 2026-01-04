@@ -1044,6 +1044,11 @@ export default function MemberDetailView({
                                 <span className="text-sm text-slate-500">No role assigned</span>
                               )}
                             </div>
+                            {member.role_effective_from && (
+                              <p className="text-xs text-slate-500 mt-1">
+                                Effective from: {formatDate(member.role_effective_from)}
+                              </p>
+                            )}
                           </div>
                         </div>
                         <Separator />
