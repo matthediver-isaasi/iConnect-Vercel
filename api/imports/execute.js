@@ -152,6 +152,19 @@ export default async function handler(req, res) {
     if (entityType === 'member' && identifierField === 'email') {
       console.log('[Import] Attempting SQL function import...');
       
+      // Debug: Log all mappings to see what we're working with
+      console.log('[Import] All mappings:', JSON.stringify(mappings, null, 2));
+      
+      // Find created_on mapping specifically for debugging
+      const createdOnMapping = mappings.find(m => m.targetField === 'created_on');
+      if (createdOnMapping) {
+        console.log('[Import] created_on mapping found:', JSON.stringify(createdOnMapping));
+        console.log('[Import] created_on mapping targetType:', createdOnMapping.targetType);
+        console.log('[Import] created_on mapping dateFormat:', createdOnMapping.dateFormat);
+      } else {
+        console.log('[Import] WARNING: No created_on mapping found in mappings!');
+      }
+      
       // Transform records to the format expected by the SQL function
       const batch = records.map((row, index) => {
         const record = { row_index: index };
@@ -164,10 +177,24 @@ export default async function handler(req, res) {
             value = String(value).trim();
           }
           
+          // Debug: Log created_on specifically before parsing
+          if (mapping.targetField === 'created_on' && index < 3) {
+            console.log(`[Import] Row ${index} created_on RAW value from CSV: "${value}"`);
+            console.log(`[Import] Row ${index} created_on targetType: "${mapping.targetType}", dateFormat: "${mapping.dateFormat}"`);
+          }
+          
           // Parse dates if needed
           if (value && mapping.targetType === 'date' && mapping.dateFormat) {
             const parsed = parseDate(value, mapping.dateFormat);
+            
+            // Debug: Log date parsing for created_on
+            if (mapping.targetField === 'created_on' && index < 3) {
+              console.log(`[Import] Row ${index} created_on PARSED value: "${parsed}"`);
+            }
+            
             if (parsed) value = parsed;
+          } else if (mapping.targetField === 'created_on' && index < 3) {
+            console.log(`[Import] Row ${index} created_on SKIPPED parsing - targetType: "${mapping.targetType}", dateFormat: "${mapping.dateFormat}", value: "${value}"`);
           }
           
           // Map to SQL function expected fields
@@ -185,6 +212,12 @@ export default async function handler(req, res) {
         
         return record;
       });
+      
+      // Debug: Log first 3 records to verify created_on is set
+      console.log('[Import] First 3 batch records created_on values:');
+      for (let i = 0; i < Math.min(3, batch.length); i++) {
+        console.log(`[Import] Record ${i} created_on: "${batch[i].created_on}"`);
+      }
       
       // Process in batches of 1000 to avoid memory issues
       const SQL_BATCH_SIZE = 1000;
