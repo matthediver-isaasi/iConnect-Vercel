@@ -213,11 +213,35 @@ export default function PreferencesPage() {
     setSessionLoading(false);
   }, []);
 
-  // Use session member directly as the member record (it already contains full member data)
-  const currentUser = sessionMember;
-  const memberRecord = sessionMember;
+  // Fetch fresh member data from database to ensure we have all fields (including created_at)
+  const { data: freshMemberData, isLoading: freshMemberLoading } = useQuery({
+    queryKey: ["fresh-member-data", sessionMember?.id],
+    enabled: !!sessionMember?.id,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("member")
+        .select("*")
+        .eq("id", sessionMember.id)
+        .single();
+      if (error) {
+        console.error("[Preferences] Error fetching fresh member data:", error);
+        return null;
+      }
+      return data;
+    },
+    staleTime: 5 * 60 * 1000, // Cache for 5 minutes
+  });
+
+  // Merge fresh data with session data (fresh data takes priority for fields like created_at)
+  const memberRecord = useMemo(() => {
+    if (!sessionMember) return null;
+    if (!freshMemberData) return sessionMember;
+    return { ...sessionMember, ...freshMemberData };
+  }, [sessionMember, freshMemberData]);
+
+  const currentUser = memberRecord;
   const userLoading = sessionLoading;
-  const memberLoading = false;
+  const memberLoading = freshMemberLoading;
   const authError = null;
   const memberError = null;
 
