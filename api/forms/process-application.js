@@ -291,6 +291,8 @@ export default async function handler(req, res) {
     // Use Maps to aggregate values for list fields
     const memberCustomFieldsMap = new Map();
     const orgCustomFieldsMap = new Map();
+    // Map to collect communication preferences (categoryId -> boolean subscribed value)
+    const memberCommunicationPrefsMap = new Map();
 
     const { data: preferenceFields } = await supabase
       .from('preference_field')
@@ -553,6 +555,23 @@ export default async function handler(req, res) {
             } else {
               console.log(`[AppProcessor] Skipped custom field: ${customFieldId} (reason: ${skipReason})`);
             }
+          } else if (mapping.target_type === 'communication' && targetEntity === 'member') {
+            // Communication preference (marketing list subscription)
+            const categoryId = mapping.target_field;
+            // Coerce value to boolean - truthy values mean subscribed
+            let isSubscribed = false;
+            if (typeof value === 'boolean') {
+              isSubscribed = value;
+            } else if (typeof value === 'string') {
+              const lower = value.toLowerCase().trim();
+              isSubscribed = lower === 'true' || lower === '1' || lower === 'yes' || lower === 'on';
+            } else if (typeof value === 'number') {
+              isSubscribed = value !== 0;
+            } else if (value) {
+              isSubscribed = true;
+            }
+            console.log(`[AppProcessor] Communication preference mapping: category=${categoryId}, rawValue=${JSON.stringify(value)}, subscribed=${isSubscribed}`);
+            memberCommunicationPrefsMap.set(categoryId, isSubscribed);
           }
         }
         
@@ -1163,6 +1182,44 @@ export default async function handler(req, res) {
             .from('member_resource_category')
             .insert(insertData);
           console.log(`[AppProcessor] Added ${toAdd.length} category selections`);
+        }
+      }
+    }
+
+    // Save communication preferences (marketing list subscriptions) for primary member
+    if (createdMemberId && memberCommunicationPrefsMap.size > 0) {
+      console.log(`[AppProcessor] Saving ${memberCommunicationPrefsMap.size} communication preferences for member ${createdMemberId}`);
+      
+      for (const [categoryId, isSubscribed] of memberCommunicationPrefsMap) {
+        // Check if preference already exists
+        const { data: existingPref } = await supabase
+          .from('member_communication_preference')
+          .select('id, is_subscribed')
+          .eq('member_id', createdMemberId)
+          .eq('category_id', categoryId)
+          .single();
+        
+        if (existingPref) {
+          // Update existing preference only if different
+          if (existingPref.is_subscribed !== isSubscribed) {
+            await supabase
+              .from('member_communication_preference')
+              .update({ is_subscribed: isSubscribed, updated_at: new Date().toISOString() })
+              .eq('id', existingPref.id);
+            console.log(`[AppProcessor] Updated communication preference: category=${categoryId}, subscribed=${isSubscribed}`);
+          } else {
+            console.log(`[AppProcessor] Communication preference unchanged: category=${categoryId}, subscribed=${isSubscribed}`);
+          }
+        } else {
+          // Create new preference
+          await supabase
+            .from('member_communication_preference')
+            .insert({
+              member_id: createdMemberId,
+              category_id: categoryId,
+              is_subscribed: isSubscribed
+            });
+          console.log(`[AppProcessor] Created communication preference: category=${categoryId}, subscribed=${isSubscribed}`);
         }
       }
     }

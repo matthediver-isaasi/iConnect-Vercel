@@ -2692,6 +2692,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const orgData: Record<string, any> = {};
       const memberCustomFields: Array<{field_id: string, value: string}> = [];
       const orgCustomFields: Array<{field_id: string, value: string}> = [];
+      // Communication preferences (marketing list subscriptions)
+      const memberCommunicationPrefs: Array<{category_id: string, is_subscribed: boolean}> = [];
 
       // Get all preference field definitions for custom field processing
       const { data: preferenceFields } = await supabase
@@ -2740,6 +2742,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
             } else {
               memberCustomFields.push({ field_id: target_field, value: storedValue });
             }
+          } else if (target_type === 'communication' && target_entity === 'member') {
+            // Communication preference (marketing list subscription)
+            const categoryId = target_field;
+            // Coerce value to boolean
+            let isSubscribed = false;
+            if (typeof value === 'boolean') {
+              isSubscribed = value;
+            } else if (typeof value === 'string') {
+              const lower = value.toLowerCase().trim();
+              isSubscribed = lower === 'true' || lower === '1' || lower === 'yes' || lower === 'on';
+            } else if (typeof value === 'number') {
+              isSubscribed = value !== 0;
+            } else if (value) {
+              isSubscribed = true;
+            }
+            console.log(`[AppProcessor] Communication preference mapping: category=${categoryId}, subscribed=${isSubscribed}`);
+            memberCommunicationPrefs.push({ category_id: categoryId, is_subscribed: isSubscribed });
           }
         }
       } else {
@@ -3313,6 +3332,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 }
               }
               console.log(`[AppProcessor] Saved communication preferences for member:`, createdMemberId);
+            }
+          }
+          
+          // Handle communication preferences from field_mappings with target_type === 'communication'
+          if (memberCommunicationPrefs.length > 0) {
+            console.log(`[AppProcessor] Saving ${memberCommunicationPrefs.length} communication preferences from field_mappings`);
+            
+            for (const pref of memberCommunicationPrefs) {
+              // Check if preference already exists
+              const { data: existingPref } = await supabase
+                .from('member_communication_preference')
+                .select('id, is_subscribed')
+                .eq('member_id', createdMemberId)
+                .eq('category_id', pref.category_id)
+                .single();
+              
+              if (existingPref) {
+                // Update only if different
+                if (existingPref.is_subscribed !== pref.is_subscribed) {
+                  await supabase
+                    .from('member_communication_preference')
+                    .update({ is_subscribed: pref.is_subscribed, updated_at: new Date().toISOString() })
+                    .eq('id', existingPref.id);
+                  console.log(`[AppProcessor] Updated communication preference: category=${pref.category_id}, subscribed=${pref.is_subscribed}`);
+                }
+              } else {
+                // Insert new preference
+                await supabase
+                  .from('member_communication_preference')
+                  .insert({
+                    member_id: createdMemberId,
+                    category_id: pref.category_id,
+                    is_subscribed: pref.is_subscribed
+                  });
+                console.log(`[AppProcessor] Created communication preference: category=${pref.category_id}, subscribed=${pref.is_subscribed}`);
+              }
             }
           }
         }
