@@ -738,6 +738,23 @@ export default function PublicHeader() {
           />
         </Link>
 
+        {/* Mobile: Floating Logo in white box with shadow */}
+        <Link 
+          to="/"
+          className="absolute z-50 lg:hidden bg-white rounded shadow-md p-2"
+          style={{
+            top: '8px',
+            left: '12px'
+          }}
+          data-testid="link-header-logo-mobile-floating"
+        >
+          <img
+            src="https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/68efc20f3e0a30fafad6dde7/26710cf5a_GFIheaderlogo.png"
+            alt="Graduate Futures Institute"
+            className="h-24 w-auto"
+          />
+        </Link>
+
         {/* Top Row - Gradient Header (Desktop only) */}
         <div
           className="py-2 relative hidden lg:block"
@@ -952,14 +969,8 @@ export default function PublicHeader() {
         <div className="bg-white border-b border-slate-200">
           <div className="max-w-7xl mx-auto px-4 py-3 lg:py-6">
             <div className="flex justify-between items-center h-full">
-              {/* Mobile Logo */}
-              <Link to="/" className="lg:hidden" data-testid="link-header-logo-mobile">
-                <img
-                  src="https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/68efc20f3e0a30fafad6dde7/26710cf5a_GFIheaderlogo.png"
-                  alt="Graduate Futures Institute"
-                  className="h-12 w-auto"
-                />
-              </Link>
+              {/* Mobile spacer for floating logo */}
+              <div className="lg:hidden" style={{ width: '120px' }}></div>
               
               {/* Desktop spacer for logo */}
               <div className="hidden lg:block" style={{ width: '210px' }}></div>
