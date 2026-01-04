@@ -51,7 +51,7 @@ interface Action {
 interface Workflow {
   id: string;
   name: string;
-  entity_type: 'organization' | 'member';
+  entity_type: 'organization' | 'member' | 'job_posting';
   trigger_type: 'field_change' | 'record_create' | 'record_update';
   trigger_config: TriggerConfig;
   conditions: Condition[];
@@ -108,6 +108,7 @@ function evaluateCondition(
 }
 
 // Get field value from entity, handling both core and custom fields
+// Supports prefixed field types: core, custom, member_core, member_custom, org_core, org_custom, job_posting_core
 async function getFieldValue(
   entityType: string,
   entityId: string,
@@ -120,11 +121,15 @@ async function getFieldValue(
     return undefined;
   }
   
-  if (fieldType === 'core') {
+  // Normalize prefixed field types (e.g., member_core -> core, org_custom -> custom, job_posting_core -> core)
+  const normalizedFieldType = fieldType.replace(/^(org_|member_|job_posting_)/, '');
+  
+  if (normalizedFieldType === 'core') {
     return entityData[fieldId];
   } else {
     // Custom field - fetch from preference values
-    if (!supabase) return null;
+    // Note: job_posting doesn't have custom fields, only core fields
+    if (!supabase || entityType === 'job_posting') return null;
     
     const tableName = entityType === 'organization' 
       ? 'organization_preference_value' 
@@ -168,7 +173,8 @@ async function applyFieldMappings(
     // Determine which entity type this mapping refers to
     const isOrgField = fieldType.startsWith('org_');
     const isMemberField = fieldType.startsWith('member_');
-    const normalizedFieldType = fieldType.replace(/^(org_|member_)/, '');
+    const isJobPostingField = fieldType.startsWith('job_posting_');
+    const normalizedFieldType = fieldType.replace(/^(org_|member_|job_posting_)/, '');
     
     // Determine which entity to look up from
     let lookupEntityType = entityType;
@@ -182,6 +188,9 @@ async function applyFieldMappings(
     } else if (isMemberField && entityType !== 'member') {
       lookupEntityType = 'member';
       console.log(`[Workflow Engine] Mapping "${placeholder}" refers to member but entityType is ${entityType}`);
+    } else if (isJobPostingField && entityType !== 'job_posting') {
+      lookupEntityType = 'job_posting';
+      console.log(`[Workflow Engine] Mapping "${placeholder}" refers to job_posting but entityType is ${entityType}`);
     }
     
     if (normalizedFieldType === 'core') {
@@ -229,11 +238,11 @@ function replacePlaceholders(template: string, entityType: string, entityData: a
     return entityData[path] || match;
   });
   
-  // Then handle [[placeholder]] syntax (core database values like [[organization.id]], [[member.email]])
+  // Then handle [[placeholder]] syntax (core database values like [[organization.id]], [[member.email]], [[job_posting.status]])
   result = result.replace(/\[\[(\w+(?:\.\w+)?)\]\]/g, (match, path) => {
     const parts = path.split('.');
-    // Handle patterns like [[organization.id]], [[member.email]], [[record.field]]
-    if (parts[0] === entityType || parts[0] === 'record' || parts[0] === 'organization' || parts[0] === 'member') {
+    // Handle patterns like [[organization.id]], [[member.email]], [[job_posting.status]], [[record.field]]
+    if (parts[0] === entityType || parts[0] === 'record' || parts[0] === 'organization' || parts[0] === 'member' || parts[0] === 'job_posting') {
       const fieldName = parts[1] || parts[0];
       return entityData[fieldName] || match;
     }
@@ -403,10 +412,20 @@ async function executeUpdateFieldAction(
   }
 
   const newValue = replacePlaceholders(config.value, entityType, entityData);
+  
+  // Normalize prefixed field types
+  const normalizedFieldType = config.field_type.replace(/^(org_|member_|job_posting_)/, '');
 
   try {
-    if (config.field_type === 'core') {
-      const tableName = entityType === 'organization' ? 'organization' : 'member';
+    if (normalizedFieldType === 'core') {
+      let tableName: string;
+      if (entityType === 'organization') {
+        tableName = 'organization';
+      } else if (entityType === 'job_posting') {
+        tableName = 'job_posting';
+      } else {
+        tableName = 'member';
+      }
       const { error } = await supabase
         .from(tableName)
         .update({ [config.field_id]: newValue })
@@ -414,7 +433,10 @@ async function executeUpdateFieldAction(
 
       if (error) throw error;
     } else {
-      // Custom field update
+      // Custom field update - job_posting doesn't have custom fields
+      if (entityType === 'job_posting') {
+        return { action_type: 'update_field', status: 'failed', error: 'Job postings do not have custom fields' };
+      }
       const tableName = entityType === 'organization' 
         ? 'organization_preference_value' 
         : 'member_preference_value';
@@ -482,7 +504,7 @@ async function logExecution(
 
 // Main function to evaluate and execute workflows
 export async function evaluateWorkflows(
-  entityType: 'organization' | 'member',
+  entityType: 'organization' | 'member' | 'job_posting',
   entityId: string,
   beforeData: any,
   afterData: any,

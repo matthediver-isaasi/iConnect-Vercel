@@ -407,10 +407,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       console.log(`[Entity POST] ${entity} created successfully:`, data?.id);
 
-      // Trigger workflow evaluation for new Organization and Member records
-      const isWorkflowEntity = entity === 'Organization' || entity === 'Member';
+      // Trigger workflow evaluation for new Organization, Member, and JobPosting records
+      const isWorkflowEntity = entity === 'Organization' || entity === 'Member' || entity === 'JobPosting';
       if (isWorkflowEntity && data) {
-        const entityType = entity.toLowerCase() as 'organization' | 'member';
+        const entityType = (entity === 'JobPosting' ? 'job_posting' : entity.toLowerCase()) as 'organization' | 'member' | 'job_posting';
         const baseUrl = `${req.protocol}://${req.get('host')}`;
         // Run asynchronously to not block the response
         evaluateWorkflows(entityType, data.id, null, data, 'record_create', baseUrl).catch(err => {
@@ -437,9 +437,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       console.log(`[Entity PATCH] ${entity}/${id} with payload:`, JSON.stringify(req.body));
 
-      // Fetch before state for workflow evaluation (Organization and Member only)
+      // Fetch before state for workflow evaluation (Organization, Member, and JobPosting)
       let beforeData: any = null;
-      const isWorkflowEntity = entity === 'Organization' || entity === 'Member';
+      const isWorkflowEntity = entity === 'Organization' || entity === 'Member' || entity === 'JobPosting';
       
       if (isWorkflowEntity) {
         const { data: existingData } = await supabase
@@ -534,9 +534,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       console.log(`[Entity PATCH] ${entity}/${id} success:`, data ? 'updated' : 'no data returned');
 
-      // Trigger workflow evaluation for Organization and Member updates
+      // Trigger workflow evaluation for Organization, Member, and JobPosting updates
       if (isWorkflowEntity && beforeData && data) {
-        const entityType = entity.toLowerCase() as 'organization' | 'member';
+        const entityType = (entity === 'JobPosting' ? 'job_posting' : entity.toLowerCase()) as 'organization' | 'member' | 'job_posting';
         const baseUrl = `${req.protocol}://${req.get('host')}`;
         // Run asynchronously to not block the response
         evaluateWorkflows(entityType, id, beforeData, data, 'field_change', baseUrl).catch(err => {

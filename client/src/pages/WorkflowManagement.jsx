@@ -18,7 +18,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { 
   Zap, Plus, Pencil, Trash2, AlertCircle, Mail, Play, Pause, 
   ChevronRight, ChevronLeft, Building2, User, Settings, Clock,
-  CheckCircle2, XCircle, History, Filter, ArrowRight, Users, AlertTriangle, Check, ChevronsUpDown
+  CheckCircle2, XCircle, History, Filter, ArrowRight, Users, AlertTriangle, Check, ChevronsUpDown, Briefcase
 } from "lucide-react";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
@@ -88,6 +88,37 @@ const MEMBER_CORE_FIELDS = [
   { id: 'show_in_directory', label: 'Show in Directory', type: 'boolean' },
   { id: 'is_admin', label: 'Is Admin', type: 'boolean' },
   { id: 'login_enabled', label: 'Login Enabled', type: 'boolean' },
+];
+
+const JOB_POSTING_CORE_FIELDS = [
+  { id: 'id', label: 'ID', type: 'text' },
+  { id: 'title', label: 'Job Title', type: 'text' },
+  { id: 'status', label: 'Status', type: 'text', options: [
+    { label: 'Pending Approval', value: 'pending_approval' },
+    { label: 'Active', value: 'active' },
+    { label: 'Expired', value: 'expired' },
+    { label: 'Rejected', value: 'rejected' },
+    { label: 'Pending Payment', value: 'pending_payment' },
+  ]},
+  { id: 'company_name', label: 'Company Name', type: 'text' },
+  { id: 'contact_email', label: 'Contact Email', type: 'email' },
+  { id: 'contact_name', label: 'Contact Name', type: 'text' },
+  { id: 'location', label: 'Location', type: 'text' },
+  { id: 'job_type', label: 'Job Type', type: 'text' },
+  { id: 'hours', label: 'Hours', type: 'text' },
+  { id: 'salary_range', label: 'Salary Range', type: 'text' },
+  { id: 'is_member_post', label: 'Is Member Post', type: 'boolean' },
+  { id: 'payment_status', label: 'Payment Status', type: 'text', options: [
+    { label: 'N/A', value: 'N/A' },
+    { label: 'Pending', value: 'pending' },
+    { label: 'Paid', value: 'paid' },
+    { label: 'Failed', value: 'failed' },
+  ]},
+  { id: 'featured', label: 'Featured', type: 'boolean' },
+  { id: 'closing_date', label: 'Closing Date', type: 'date' },
+  { id: 'expiry_date', label: 'Expiry Date', type: 'date' },
+  { id: 'posted_by_member_id', label: 'Posted By Member ID', type: 'text' },
+  { id: 'posted_by_organization_id', label: 'Posted By Organisation ID', type: 'text' },
 ];
 
 // Extract placeholders from template content - both {{placeholder}} and [[placeholder]] syntax
@@ -201,8 +232,8 @@ export default function WorkflowManagementPage() {
   const orgCustomFields = customFields.filter(f => f.entity_scope === 'organization');
   const memberCustomFields = customFields.filter(f => !f.entity_scope || f.entity_scope === 'member');
 
-  // Returns all member and organization fields (core and custom) for conditions
-  // Both entity types' fields are always available since workflows may need cross-entity conditions
+  // Returns all member, organization, and job posting fields (core and custom) for conditions
+  // All entity types' fields are always available since workflows may need cross-entity conditions
   const getAvailableFields = () => {
     return {
       memberCore: MEMBER_CORE_FIELDS.map(f => ({ ...f, field_type: 'member_core', entity: 'member', options: f.options || null })),
@@ -223,19 +254,31 @@ export default function WorkflowManagementPage() {
         entity: 'organization',
         options: f.options || null
       })),
+      jobPostingCore: JOB_POSTING_CORE_FIELDS.map(f => ({ ...f, field_type: 'job_posting_core', entity: 'job_posting', options: f.options || null })),
     };
   };
   
   // Flatten all fields for lookups
   const getAllFieldsFlat = () => {
     const fields = getAvailableFields();
-    return [...fields.memberCore, ...fields.memberCustom, ...fields.orgCore, ...fields.orgCustom];
+    return [...fields.memberCore, ...fields.memberCustom, ...fields.orgCore, ...fields.orgCustom, ...fields.jobPostingCore];
   };
   
   // Get entity-specific fields for triggers and update actions
   const getEntitySpecificFields = (entityType) => {
-    const coreFields = entityType === 'organization' ? ORGANIZATION_CORE_FIELDS : MEMBER_CORE_FIELDS;
-    const customFieldsList = entityType === 'organization' ? orgCustomFields : memberCustomFields;
+    let coreFields;
+    let customFieldsList = [];
+    
+    if (entityType === 'organization') {
+      coreFields = ORGANIZATION_CORE_FIELDS;
+      customFieldsList = orgCustomFields;
+    } else if (entityType === 'job_posting') {
+      coreFields = JOB_POSTING_CORE_FIELDS;
+      customFieldsList = []; // Job postings don't have custom fields
+    } else {
+      coreFields = MEMBER_CORE_FIELDS;
+      customFieldsList = memberCustomFields;
+    }
     
     return {
       core: coreFields.map(f => ({ ...f, field_type: 'core', options: f.options || null })),
@@ -501,7 +544,9 @@ export default function WorkflowManagementPage() {
                             </Badge>
                             <Badge variant="outline">
                               {workflow.entity_type === 'organization' ? (
-                                <><Building2 className="h-3 w-3 mr-1" /> Organization</>
+                                <><Building2 className="h-3 w-3 mr-1" /> Organisation</>
+                              ) : workflow.entity_type === 'job_posting' ? (
+                                <><Briefcase className="h-3 w-3 mr-1" /> Job Posting</>
                               ) : (
                                 <><User className="h-3 w-3 mr-1" /> Member</>
                               )}
@@ -673,11 +718,11 @@ export default function WorkflowManagementPage() {
                 </div>
                 <div className="space-y-2">
                   <Label>Entity Type</Label>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-3 gap-3">
                     <button
                       type="button"
                       onClick={() => setFormData(prev => ({ ...prev, entity_type: 'organization' }))}
-                      className={`p-4 rounded-lg border-2 flex items-center gap-3 transition-colors ${
+                      className={`p-4 rounded-lg border-2 flex flex-col items-center gap-2 transition-colors ${
                         formData.entity_type === 'organization' 
                           ? 'border-primary bg-primary/5' 
                           : 'border-border hover:border-primary/50'
@@ -685,15 +730,15 @@ export default function WorkflowManagementPage() {
                       data-testid="button-entity-organization"
                     >
                       <Building2 className="h-6 w-6" />
-                      <div className="text-left">
-                        <p className="font-medium">Organization</p>
-                        <p className="text-xs text-muted-foreground">Trigger on organisation changes</p>
+                      <div className="text-center">
+                        <p className="font-medium">Organisation</p>
+                        <p className="text-xs text-muted-foreground">Trigger on org changes</p>
                       </div>
                     </button>
                     <button
                       type="button"
                       onClick={() => setFormData(prev => ({ ...prev, entity_type: 'member' }))}
-                      className={`p-4 rounded-lg border-2 flex items-center gap-3 transition-colors ${
+                      className={`p-4 rounded-lg border-2 flex flex-col items-center gap-2 transition-colors ${
                         formData.entity_type === 'member' 
                           ? 'border-primary bg-primary/5' 
                           : 'border-border hover:border-primary/50'
@@ -701,9 +746,25 @@ export default function WorkflowManagementPage() {
                       data-testid="button-entity-member"
                     >
                       <User className="h-6 w-6" />
-                      <div className="text-left">
+                      <div className="text-center">
                         <p className="font-medium">Member</p>
                         <p className="text-xs text-muted-foreground">Trigger on member changes</p>
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFormData(prev => ({ ...prev, entity_type: 'job_posting' }))}
+                      className={`p-4 rounded-lg border-2 flex flex-col items-center gap-2 transition-colors ${
+                        formData.entity_type === 'job_posting' 
+                          ? 'border-primary bg-primary/5' 
+                          : 'border-border hover:border-primary/50'
+                      }`}
+                      data-testid="button-entity-job-posting"
+                    >
+                      <Briefcase className="h-6 w-6" />
+                      <div className="text-center">
+                        <p className="font-medium">Job Posting</p>
+                        <p className="text-xs text-muted-foreground">Trigger on job changes</p>
                       </div>
                     </button>
                   </div>
@@ -972,6 +1033,14 @@ export default function WorkflowManagementPage() {
                                       ))}
                                     </SelectGroup>
                                   )}
+                                  <SelectGroup>
+                                    <SelectLabel>Job Posting Fields</SelectLabel>
+                                    {availableFieldsGrouped.jobPostingCore.map((field) => (
+                                      <SelectItem key={`job_posting_core:${field.id}`} value={`job_posting_core:${field.id}`}>
+                                        {field.label}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectGroup>
                                 </SelectContent>
                               </Select>
                               <Select
@@ -1240,6 +1309,14 @@ export default function WorkflowManagementPage() {
                                                       ))}
                                                     </SelectGroup>
                                                   )}
+                                                  <SelectGroup>
+                                                    <SelectLabel>Job Posting Fields</SelectLabel>
+                                                    {availableFieldsGrouped.jobPostingCore.map((field) => (
+                                                      <SelectItem key={`job_posting_core-${field.id}`} value={`job_posting_core:${field.id}`}>
+                                                        {field.label}
+                                                      </SelectItem>
+                                                    ))}
+                                                  </SelectGroup>
                                                 </SelectContent>
                                               </Select>
                                             </div>
