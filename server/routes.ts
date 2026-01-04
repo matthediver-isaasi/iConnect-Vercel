@@ -11360,6 +11360,10 @@ AGCAS Events Team
 
   // Create Job Posting Payment Intent - creates Stripe payment intent for job postings
   app.post('/api/functions/createJobPostingPaymentIntent', async (req: Request, res: Response) => {
+    if (!supabase) {
+      return res.status(503).json({ error: 'Supabase not configured' });
+    }
+
     try {
       const { amount, currency = 'gbp', metadata = {} } = req.body;
 
@@ -11392,13 +11396,22 @@ AGCAS Events Team
         amount: Math.round(amount * 100), // Stripe expects amount in pence/cents
         currency: currency,
         metadata: {
-          ...metadata,
-          type: 'job_posting'
+          type: 'job_posting',
+          job_posting_id: String(metadata.job_posting_id),
+          job_title: metadata.job_title || '',
+          company_name: metadata.company_name || '',
+          contact_email: metadata.contact_email || ''
         },
         automatic_payment_methods: {
           enabled: true,
         },
       });
+
+      // Store PaymentIntent ID on job record for confirmation lookup
+      await supabase
+        .from('job_posting')
+        .update({ stripe_payment_intent_id: paymentIntent.id })
+        .eq('id', metadata.job_posting_id);
 
       res.json({
         success: true,
@@ -11625,7 +11638,8 @@ AGCAS Events Team
     }
   });
 
-  // Create Job Posting Non-Member - creates paid job posting with Stripe checkout
+  // Create Job Posting Non-Member - creates job posting with pending_payment status
+  // Frontend then calls createJobPostingPaymentIntent to get Stripe PaymentIntent
   app.post('/api/functions/createJobPostingNonMember', async (req: Request, res: Response) => {
     if (!supabase) {
       return res.status(503).json({ error: 'Supabase not configured' });
@@ -11672,7 +11686,8 @@ AGCAS Events Team
           expiry_date: expiryDate.toISOString(),
           amount_paid: price,
           attachment_urls: jobData.attachment_urls || [],
-          attachment_names: jobData.attachment_names || []
+          attachment_names: jobData.attachment_names || [],
+          created_date: new Date().toISOString()
         })
         .select()
         .single();
@@ -11681,61 +11696,116 @@ AGCAS Events Team
         throw createError;
       }
 
-      // Initialize Stripe with secret key from environment
-      const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
-      if (!stripeSecretKey) {
-        throw new Error('Stripe secret key not configured');
+      // Return job_id for frontend to use with createJobPostingPaymentIntent
+      res.json({
+        success: true,
+        job_id: jobPosting.id,
+        job_posting: jobPosting
+      });
+
+    } catch (error: any) {
+      console.error('Error creating non-member job posting:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Confirm Job Posting Payment - updates job status after Stripe payment succeeds
+  app.post('/api/functions/confirmJobPostingPayment', async (req: Request, res: Response) => {
+    if (!supabase) {
+      return res.status(503).json({ error: 'Supabase not configured' });
+    }
+
+    const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+    if (!stripeSecretKey) {
+      return res.status(503).json({ error: 'Stripe not configured' });
+    }
+
+    try {
+      const { jobPostingId, paymentIntentId } = req.body;
+
+      console.log('[confirmJobPostingPayment] Confirming payment for job:', jobPostingId, 'paymentIntent:', paymentIntentId);
+
+      if (!jobPostingId || !paymentIntentId) {
+        return res.status(400).json({
+          success: false,
+          error: 'Missing jobPostingId or paymentIntentId'
+        });
       }
 
       const stripe = new Stripe(stripeSecretKey, {
         apiVersion: '2023-10-16' as any,
       });
 
-      // Get origin from request headers
-      const origin = req.headers.origin || req.headers.referer?.replace(/\/$/, '') || '';
+      // Verify payment was successful with Stripe
+      const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
 
-      // Create Stripe Checkout Session
-      const session = await stripe.checkout.sessions.create({
-        payment_method_types: ['card'],
-        line_items: [
-          {
-            price_data: {
-              currency: 'gbp',
-              product_data: {
-                name: 'Job Posting',
-                description: `${jobData.title} at ${jobData.company_name}`,
-              },
-              unit_amount: Math.round(price * 100), // Convert to pence
-            },
-            quantity: 1,
-          },
-        ],
-        mode: 'payment',
-        success_url: `${origin}/JobPostSuccess?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${origin}/PostJob?cancelled=true`,
-        customer_email: jobData.contact_email,
-        metadata: {
-          job_posting_id: jobPosting.id,
-          contact_email: jobData.contact_email,
-          contact_name: jobData.contact_name
-        }
-      });
+      console.log('[confirmJobPostingPayment] PaymentIntent status:', paymentIntent.status);
 
-      // Update job posting with session ID
-      await supabase
+      if (paymentIntent.status !== 'succeeded') {
+        return res.json({
+          success: false,
+          error: `Payment not confirmed. Status: ${paymentIntent.status}`
+        });
+      }
+
+      // First, try to find the job by ID and verify the stored PaymentIntent matches
+      const { data: jobPosting } = await supabase
         .from('job_posting')
-        .update({ stripe_checkout_session_id: session.id })
-        .eq('id', jobPosting.id);
+        .select('*')
+        .eq('id', jobPostingId)
+        .single();
 
-      res.json({
-        success: true,
-        checkout_url: session.url,
-        job_id: jobPosting.id
-      });
+      if (!jobPosting) {
+        return res.json({ success: false, error: 'Job posting not found' });
+      }
+
+      // Verify either via metadata or stored PaymentIntent ID on the job record
+      const metadataMatch = String(paymentIntent.metadata.job_posting_id) === String(jobPostingId);
+      const storedMatch = jobPosting.stripe_payment_intent_id === paymentIntentId;
+
+      if (!metadataMatch && !storedMatch) {
+        console.error('[confirmJobPostingPayment] Payment verification failed:', {
+          metadataJobId: paymentIntent.metadata.job_posting_id,
+          providedJobId: jobPostingId,
+          storedPaymentIntentId: jobPosting.stripe_payment_intent_id,
+          providedPaymentIntentId: paymentIntentId
+        });
+        return res.json({
+          success: false,
+          error: 'Payment verification failed - job posting mismatch'
+        });
+      }
+
+      // Check if already processed
+      if (jobPosting.status !== 'pending_payment') {
+        console.log('[confirmJobPostingPayment] Job already processed, status:', jobPosting.status);
+        return res.json({ success: true, job_posting: jobPosting, message: 'Job already processed' });
+      }
+
+      // Update job posting status to pending_approval
+      const { data: updatedJob, error: updateError } = await supabase
+        .from('job_posting')
+        .update({
+          status: 'pending_approval',
+          payment_status: 'paid',
+          stripe_payment_intent_id: paymentIntentId,
+          payment_date: new Date().toISOString()
+        })
+        .eq('id', jobPostingId)
+        .select()
+        .single();
+
+      if (updateError) {
+        console.error('[confirmJobPostingPayment] Update error:', updateError);
+        return res.json({ success: false, error: updateError.message });
+      }
+
+      console.log('[confirmJobPostingPayment] Successfully updated job to pending_approval');
+      res.json({ success: true, job_posting: updatedJob });
 
     } catch (error: any) {
-      console.error('Error creating non-member job posting:', error);
-      res.status(500).json({ error: error.message });
+      console.error('[confirmJobPostingPayment] Error:', error);
+      res.status(500).json({ success: false, error: error.message });
     }
   });
 

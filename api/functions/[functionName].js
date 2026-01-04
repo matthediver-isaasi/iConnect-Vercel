@@ -2941,6 +2941,7 @@ const functionHandlers = {
 
   async createJobPostingPaymentIntent(params) {
     if (!stripe) throw new Error('Stripe not configured');
+    if (!supabase) throw new Error('Supabase not configured');
     
     // Frontend sends: amount, currency, metadata: { job_posting_id, contact_email, company_name, job_title }
     const { amount, currency = 'gbp', metadata = {} } = params;
@@ -2950,12 +2951,20 @@ const functionHandlers = {
       currency: currency,
       metadata: {
         type: 'job_posting',
-        job_posting_id: metadata.job_posting_id || '',
+        job_posting_id: String(metadata.job_posting_id || ''),
         job_title: metadata.job_title || '',
         company_name: metadata.company_name || '',
         contact_email: metadata.contact_email || ''
       }
     });
+
+    // Store PaymentIntent ID on job record for confirmation lookup
+    if (metadata.job_posting_id) {
+      await supabase
+        .from('job_posting')
+        .update({ stripe_payment_intent_id: paymentIntent.id })
+        .eq('id', metadata.job_posting_id);
+    }
 
     return { 
       success: true,
@@ -3199,6 +3208,86 @@ const functionHandlers = {
     }
 
     return { success: true, job_id: jobPosting.id, job_posting: jobPosting };
+  },
+
+  async confirmJobPostingPayment(params) {
+    if (!supabase) throw new Error('Supabase not configured');
+    if (!stripe) throw new Error('Stripe not configured');
+    
+    const { jobPostingId, paymentIntentId } = params;
+    
+    console.log('[confirmJobPostingPayment] Confirming payment for job:', jobPostingId, 'paymentIntent:', paymentIntentId);
+    
+    if (!jobPostingId || !paymentIntentId) {
+      return { success: false, error: 'Missing jobPostingId or paymentIntentId' };
+    }
+    
+    // Verify payment was successful with Stripe
+    try {
+      const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+      
+      console.log('[confirmJobPostingPayment] PaymentIntent status:', paymentIntent.status);
+      
+      if (paymentIntent.status !== 'succeeded') {
+        return { success: false, error: `Payment not confirmed. Status: ${paymentIntent.status}` };
+      }
+      
+      // First, try to find the job by ID and verify the stored PaymentIntent matches
+      const { data: jobPosting } = await supabase
+        .from('job_posting')
+        .select('*')
+        .eq('id', jobPostingId)
+        .single();
+      
+      if (!jobPosting) {
+        return { success: false, error: 'Job posting not found' };
+      }
+      
+      // Verify either via metadata or stored PaymentIntent ID on the job record
+      const metadataMatch = String(paymentIntent.metadata.job_posting_id) === String(jobPostingId);
+      const storedMatch = jobPosting.stripe_payment_intent_id === paymentIntentId;
+      
+      if (!metadataMatch && !storedMatch) {
+        console.error('[confirmJobPostingPayment] Payment verification failed:', {
+          metadataJobId: paymentIntent.metadata.job_posting_id,
+          providedJobId: jobPostingId,
+          storedPaymentIntentId: jobPosting.stripe_payment_intent_id,
+          providedPaymentIntentId: paymentIntentId
+        });
+        return { success: false, error: 'Payment verification failed - job posting mismatch' };
+      }
+      
+      // Check if already processed
+      if (jobPosting.status !== 'pending_payment') {
+        console.log('[confirmJobPostingPayment] Job already processed, status:', jobPosting.status);
+        return { success: true, job_posting: jobPosting, message: 'Job already processed' };
+      }
+      
+      // Update job posting status to pending_approval
+      const { data: updatedJob, error: updateError } = await supabase
+        .from('job_posting')
+        .update({
+          status: 'pending_approval',
+          payment_status: 'paid',
+          stripe_payment_intent_id: paymentIntentId,
+          payment_date: new Date().toISOString()
+        })
+        .eq('id', jobPostingId)
+        .select()
+        .single();
+      
+      if (updateError) {
+        console.error('[confirmJobPostingPayment] Update error:', updateError);
+        return { success: false, error: updateError.message };
+      }
+      
+      console.log('[confirmJobPostingPayment] Successfully updated job to pending_approval');
+      return { success: true, job_posting: updatedJob };
+      
+    } catch (error) {
+      console.error('[confirmJobPostingPayment] Error:', error);
+      return { success: false, error: error.message };
+    }
   },
 
   async cancelProgramTicketTransaction(params) {

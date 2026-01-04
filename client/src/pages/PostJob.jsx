@@ -652,7 +652,26 @@ export default function PostJobPage() {
 
   const handleStripePaymentSuccess = async () => {
     setShowPaymentModal(false);
-    toast.success('Payment successful! Your job posting has been submitted for approval.');
+    
+    // Confirm payment and update job posting status
+    try {
+      const confirmResponse = await base44.functions.invoke('confirmJobPostingPayment', {
+        jobPostingId: jobPostingId,
+        paymentIntentId: stripePaymentIntentId
+      });
+      
+      if (confirmResponse.data.success) {
+        toast.success('Payment successful! Your job posting has been submitted for approval.');
+      } else {
+        console.error('[PostJob] Payment confirmation failed:', confirmResponse.data.error);
+        // Payment succeeded but confirmation failed - still redirect as payment went through
+        toast.success('Payment received! Your job posting is being processed.');
+      }
+    } catch (error) {
+      console.error('[PostJob] Error confirming payment:', error);
+      // Payment succeeded but confirmation call failed - still show success
+      toast.success('Payment received! Your job posting is being processed.');
+    }
 
     setTimeout(() => {
       window.location.href = createPageUrl('JobPostSuccess');
