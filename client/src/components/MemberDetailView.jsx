@@ -258,7 +258,7 @@ export default function MemberDetailView({
   // Communication categories and preferences
   const { data: communicationCategories = [], isLoading: communicationCategoriesLoading } = useQuery({
     queryKey: ["communicationCategories"],
-    enabled: activeTab === 'communications',
+    enabled: activeTab === 'communications' || activeTab === 'overview',
     queryFn: async () => {
       const { data, error } = await supabase
         .from("communication_category")
@@ -275,7 +275,7 @@ export default function MemberDetailView({
 
   const { data: communicationPreferences = [] } = useQuery({
     queryKey: ["communicationPreferences", member?.id],
-    enabled: !!member?.id && activeTab === 'communications',
+    enabled: !!member?.id && (activeTab === 'communications' || activeTab === 'overview'),
     queryFn: async () => {
       if (!member?.id) return [];
       const { data, error } = await supabase
@@ -1093,6 +1093,64 @@ export default function MemberDetailView({
                     )}
                     {isNew && (
                       <p className="text-sm text-slate-500">Membership details will be shown after creation</p>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* Communication Preferences Card */}
+                <Card>
+                  <CardHeader className="py-3">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Mail className="w-4 h-4 text-blue-600" />
+                      Communication Preferences
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="py-3">
+                    {isNew ? (
+                      <p className="text-sm text-slate-500">Save the member first to manage communication preferences.</p>
+                    ) : communicationCategoriesLoading ? (
+                      <div className="flex items-center justify-center py-4">
+                        <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
+                      </div>
+                    ) : availableCommCategories.length === 0 ? (
+                      <p className="text-sm text-slate-500">No communication categories available for this member's role.</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {availableCommCategories.map((category) => {
+                          const pref = communicationPreferences.find(p => p.category_id === category.id);
+                          const isSubscribed = pref ? pref.is_subscribed : true;
+                          
+                          return (
+                            <div 
+                              key={category.id} 
+                              className="flex items-center justify-between py-2"
+                              data-testid={`overview-comm-category-${category.id}`}
+                            >
+                              <div className="flex items-center gap-3">
+                                <Mail className="w-4 h-4 text-slate-400" />
+                                <div>
+                                  <p className="text-sm font-medium text-slate-900">{category.name}</p>
+                                  {category.description && (
+                                    <p className="text-xs text-slate-500">{category.description}</p>
+                                  )}
+                                </div>
+                              </div>
+                              {isEditing ? (
+                                <Switch
+                                  checked={isSubscribed}
+                                  onCheckedChange={(checked) => handleCommunicationToggle(category.id, checked)}
+                                  disabled={updatingCommPrefs.has(category.id)}
+                                  data-testid={`overview-switch-comm-${category.id}`}
+                                />
+                              ) : (
+                                <Badge variant={isSubscribed ? "default" : "secondary"} className="text-xs">
+                                  {isSubscribed ? 'Subscribed' : 'Unsubscribed'}
+                                </Badge>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
                     )}
                   </CardContent>
                 </Card>
