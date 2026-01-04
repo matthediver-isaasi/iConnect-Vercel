@@ -21,6 +21,10 @@ export default function DynamicPage() {
   const { memberInfo, memberRole, isAccessReady } = useMemberAccess();
   const { setForcePublicLayout } = useLayoutContext();
   
+  // Get banners that should appear below the first element
+  // Must be called unconditionally at the top to follow React's Rules of Hooks
+  const belowFirstElementBanners = useBelowFirstElementBanners();
+  
   // Use shared ArticleUrlContext instead of duplicating settings query
   const { 
     displayName: articleDisplayName, 
@@ -360,9 +364,6 @@ export default function DynamicPage() {
       </div>
     );
   }
-
-  // Get banners that should appear below the first element
-  const belowFirstElementBanners = useBelowFirstElementBanners();
 
   // Render the page content - Layout handles the appropriate wrapper (PublicLayout or sidebar)
   return (
