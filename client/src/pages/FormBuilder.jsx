@@ -2560,7 +2560,8 @@ export default function FormBuilderPage() {
         isPrimary: true,
         role_id: form.default_member_role_id || null,
         uniqueness_key: 'email',
-        mappings: []
+        mappings: [],
+        login_enabled: false
       };
       
       // Extract member mappings from field_mappings array
@@ -3293,7 +3294,8 @@ export default function FormBuilderPage() {
                           isPrimary,
                           role_id: null,
                           uniqueness_key: 'email',
-                          mappings: []
+                          mappings: [],
+                          login_enabled: false
                         };
                         setFormData(prev => ({
                           ...prev,
