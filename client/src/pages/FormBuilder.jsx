@@ -136,6 +136,7 @@ function FieldMappingSection({
   onMappingsChange,
   applicationLevel = "member",
   customFields = [],
+  communicationCategories = [],  // Communication categories for marketing preferences
   // New props for entity pipeline use
   fixedTargetEntity = null,  // 'member' or 'organization' - locks entity selection
   showHeader = true,         // Whether to show the header with title and add button
@@ -181,6 +182,10 @@ function FieldMappingSection({
 
   const getAvailableCustomFields = (targetEntity) => {
     return customFields.filter(cf => cf.entity_scope === targetEntity);
+  };
+
+  const getAvailableCommunicationCategories = () => {
+    return communicationCategories || [];
   };
 
   const getCustomFieldById = (fieldId) => {
@@ -345,11 +350,17 @@ function FieldMappingSection({
                     <Label className="text-xs">Type</Label>
                     <Select
                       value={mapping.target_type}
-                      onValueChange={(value) => updateMapping(mapping.id, { 
-                        target_type: value, 
-                        target_field: '',
-                        static_value: ''
-                      })}
+                      onValueChange={(value) => {
+                        const updates = { 
+                          target_type: value, 
+                          target_field: '',
+                          static_value: ''
+                        };
+                        if (value === 'communication') {
+                          updates.target_entity = 'member';
+                        }
+                        updateMapping(mapping.id, updates);
+                      }}
                     >
                       <SelectTrigger className="h-9" data-testid={`select-target-type-${index}`}>
                         <SelectValue />
@@ -357,6 +368,9 @@ function FieldMappingSection({
                       <SelectContent>
                         <SelectItem value="core">Core</SelectItem>
                         <SelectItem value="custom">Custom</SelectItem>
+                        {(mapping.target_entity === 'member' || effectiveEntity === 'member') && communicationCategories.length > 0 && (
+                          <SelectItem value="communication">Communication</SelectItem>
+                        )}
                       </SelectContent>
                     </Select>
                   </div>
@@ -386,7 +400,7 @@ function FieldMappingSection({
 
                   {/* Target Field */}
                   <div className="space-y-1 min-w-[140px] flex-1">
-                    <Label className="text-xs">Target Field</Label>
+                    <Label className="text-xs">{mapping.target_type === 'communication' ? 'Category' : 'Target Field'}</Label>
                     <Select
                       value={mapping.target_field || undefined}
                       onValueChange={(value) => {
@@ -404,6 +418,14 @@ function FieldMappingSection({
                           getAvailableCoreFields(mapping.target_entity).map(f => (
                             <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>
                           ))
+                        ) : mapping.target_type === 'communication' ? (
+                          getAvailableCommunicationCategories().length === 0 ? (
+                            <SelectItem value="__none" disabled>No communication categories available</SelectItem>
+                          ) : (
+                            getAvailableCommunicationCategories().map(cat => (
+                              <SelectItem key={cat.id} value={cat.id}>{cat.name}</SelectItem>
+                            ))
+                          )
                         ) : (
                           getAvailableCustomFields(mapping.target_entity).length === 0 ? (
                             <SelectItem value="__none" disabled>No custom fields available</SelectItem>
@@ -2467,6 +2489,21 @@ export default function FormBuilderPage() {
     }
   });
 
+  // Fetch communication categories for marketing preference mapping
+  const { data: communicationCategories = [] } = useQuery({
+    queryKey: ['communication-categories-for-forms'],
+    queryFn: async () => {
+      try {
+        const categories = await base44.entities.CommunicationCategory.list({ 
+          sort: { display_order: 'asc' } 
+        });
+        return categories || [];
+      } catch {
+        return [];
+      }
+    }
+  });
+
   useEffect(() => {
     if (isAccessReady) {
       if (isFeatureExcluded('page_FormBuilder')) {
@@ -3416,6 +3453,7 @@ export default function FormBuilderPage() {
                               }}
                               applicationLevel="member"
                               customFields={customFields}
+                              communicationCategories={communicationCategories}
                               fixedTargetEntity="member"
                               showHeader={false}
                               compact={true}
@@ -3530,6 +3568,7 @@ export default function FormBuilderPage() {
                               }}
                               applicationLevel="organization"
                               customFields={customFields}
+                              communicationCategories={communicationCategories}
                               fixedTargetEntity="organization"
                               showHeader={false}
                               compact={true}
