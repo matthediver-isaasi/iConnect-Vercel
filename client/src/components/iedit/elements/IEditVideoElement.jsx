@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Video, AlertCircle, Play } from "lucide-react";
+import { Video, AlertCircle, Play, Palette } from "lucide-react";
 
 const ALLOWED_VIDEO_DOMAINS = [
   'youtube.com',
@@ -93,7 +93,37 @@ export default function IEditVideoElement({ content, variant, settings }) {
   const showBorder = content?.show_border || false;
   const borderColor = content?.border_color || '#e2e8f0';
   
+  // Background settings
+  const backgroundType = content?.background_type || 'none';
+  const backgroundColor = content?.background_color || '#f8fafc';
+  const gradientStartColor = content?.gradient_start_color || '#3b82f6';
+  const gradientEndColor = content?.gradient_end_color || '#8b5cf6';
+  const gradientAngle = content?.gradient_angle ?? 135;
+  
+  // Padding settings
+  const paddingTop = content?.padding_top ?? 0;
+  const paddingBottom = content?.padding_bottom ?? 0;
+  const paddingLeft = content?.padding_left ?? 0;
+  const paddingRight = content?.padding_right ?? 0;
+  
   const videoSrc = useMemo(() => extractVideoSrc(embedCode), [embedCode]);
+  
+  const getOuterContainerStyles = () => {
+    const styles = {
+      paddingTop: `${paddingTop}px`,
+      paddingBottom: `${paddingBottom}px`,
+      paddingLeft: `${paddingLeft}px`,
+      paddingRight: `${paddingRight}px`
+    };
+    
+    if (backgroundType === 'color') {
+      styles.backgroundColor = backgroundColor;
+    } else if (backgroundType === 'gradient') {
+      styles.background = `linear-gradient(${gradientAngle}deg, ${gradientStartColor}, ${gradientEndColor})`;
+    }
+    
+    return styles;
+  };
   
   const getContainerStyles = () => {
     const alignments = {
@@ -125,47 +155,53 @@ export default function IEditVideoElement({ content, variant, settings }) {
   
   if (!embedCode) {
     return (
-      <div className="bg-slate-100 aspect-video rounded-lg flex flex-col items-center justify-center gap-2">
-        <Video className="w-12 h-12 text-slate-400" />
-        <p className="text-slate-400">No video embed code provided</p>
+      <div style={getOuterContainerStyles()}>
+        <div className="bg-slate-100 aspect-video rounded-lg flex flex-col items-center justify-center gap-2">
+          <Video className="w-12 h-12 text-slate-400" />
+          <p className="text-slate-400">No video embed code provided</p>
+        </div>
       </div>
     );
   }
   
   if (!videoSrc) {
     return (
-      <div className="bg-amber-50 border border-amber-200 aspect-video rounded-lg flex flex-col items-center justify-center gap-2 p-4">
-        <AlertCircle className="w-12 h-12 text-amber-500" />
-        <p className="text-amber-700 text-center">Could not extract video URL from embed code</p>
-        <p className="text-amber-600 text-sm text-center">
-          Supported platforms: YouTube, Vimeo, Wistia, Loom, Dailymotion, Streamable, Vidyard
-        </p>
+      <div style={getOuterContainerStyles()}>
+        <div className="bg-amber-50 border border-amber-200 aspect-video rounded-lg flex flex-col items-center justify-center gap-2 p-4">
+          <AlertCircle className="w-12 h-12 text-amber-500" />
+          <p className="text-amber-700 text-center">Could not extract video URL from embed code</p>
+          <p className="text-amber-600 text-sm text-center">
+            Supported platforms: YouTube, Vimeo, Wistia, Loom, Dailymotion, Streamable, Vidyard
+          </p>
+        </div>
       </div>
     );
   }
   
   return (
-    <div style={getContainerStyles()}>
-      <div style={getVideoWrapperStyles()}>
-        {title && (
-          <h3 className="text-lg font-semibold text-slate-900 mb-3">{title}</h3>
-        )}
-        
-        <div className={`relative ${getAspectRatioClass(aspectRatio)} bg-black`}>
-          <iframe
-            src={videoSrc}
-            className="absolute inset-0 w-full h-full"
-            frameBorder="0"
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-            allowFullScreen
-            referrerPolicy="strict-origin-when-cross-origin"
-            title={title || "Embedded video"}
-          />
+    <div style={getOuterContainerStyles()}>
+      <div style={getContainerStyles()}>
+        <div style={getVideoWrapperStyles()}>
+          {title && (
+            <h3 className="text-lg font-semibold text-slate-900 mb-3">{title}</h3>
+          )}
+          
+          <div className={`relative ${getAspectRatioClass(aspectRatio)} bg-black`}>
+            <iframe
+              src={videoSrc}
+              className="absolute inset-0 w-full h-full"
+              frameBorder="0"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+              allowFullScreen
+              referrerPolicy="strict-origin-when-cross-origin"
+              title={title || "Embedded video"}
+            />
+          </div>
+          
+          {caption && (
+            <p className="text-sm text-slate-600 mt-3 text-center">{caption}</p>
+          )}
         </div>
-        
-        {caption && (
-          <p className="text-sm text-slate-600 mt-3 text-center">{caption}</p>
-        )}
       </div>
     </div>
   );
@@ -185,6 +221,19 @@ export function IEditVideoElementEditor({ element, onSave, editedContent, setEdi
   const borderRadius = editedContent?.border_radius ?? 8;
   const showBorder = editedContent?.show_border || false;
   const borderColor = editedContent?.border_color || '#e2e8f0';
+  
+  // Background settings
+  const backgroundType = editedContent?.background_type || 'none';
+  const backgroundColor = editedContent?.background_color || '#f8fafc';
+  const gradientStartColor = editedContent?.gradient_start_color || '#3b82f6';
+  const gradientEndColor = editedContent?.gradient_end_color || '#8b5cf6';
+  const gradientAngle = editedContent?.gradient_angle ?? 135;
+  
+  // Padding settings
+  const paddingTop = editedContent?.padding_top ?? 0;
+  const paddingBottom = editedContent?.padding_bottom ?? 0;
+  const paddingLeft = editedContent?.padding_left ?? 0;
+  const paddingRight = editedContent?.padding_right ?? 0;
   
   const videoSrc = useMemo(() => extractVideoSrc(embedCode), [embedCode]);
   
@@ -351,6 +400,183 @@ export function IEditVideoElementEditor({ element, onSave, editedContent, setEdi
               </div>
             </div>
           )}
+        </CardContent>
+      </Card>
+      
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Palette className="w-4 h-4" />
+            Background Settings
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div>
+            <Label>Background Type</Label>
+            <Select value={backgroundType} onValueChange={(v) => updateContent('background_type', v)}>
+              <SelectTrigger className="mt-1" data-testid="select-video-background-type">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">None (Transparent)</SelectItem>
+                <SelectItem value="color">Solid Color</SelectItem>
+                <SelectItem value="gradient">Gradient</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          
+          {backgroundType === 'color' && (
+            <div>
+              <Label htmlFor="background_color">Background Color</Label>
+              <div className="flex gap-2 mt-1">
+                <Input
+                  type="color"
+                  id="background_color"
+                  value={backgroundColor}
+                  onChange={(e) => updateContent('background_color', e.target.value)}
+                  className="w-12 h-10 p-1 cursor-pointer"
+                  data-testid="input-video-background-color"
+                />
+                <Input
+                  value={backgroundColor}
+                  onChange={(e) => updateContent('background_color', e.target.value)}
+                  className="flex-1 font-mono text-sm"
+                  data-testid="input-video-background-color-text"
+                />
+              </div>
+            </div>
+          )}
+          
+          {backgroundType === 'gradient' && (
+            <>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="gradient_start">Start Color</Label>
+                  <div className="flex gap-2 mt-1">
+                    <Input
+                      type="color"
+                      id="gradient_start"
+                      value={gradientStartColor}
+                      onChange={(e) => updateContent('gradient_start_color', e.target.value)}
+                      className="w-12 h-10 p-1 cursor-pointer"
+                      data-testid="input-video-gradient-start"
+                    />
+                    <Input
+                      value={gradientStartColor}
+                      onChange={(e) => updateContent('gradient_start_color', e.target.value)}
+                      className="flex-1 font-mono text-xs"
+                      data-testid="input-video-gradient-start-text"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <Label htmlFor="gradient_end">End Color</Label>
+                  <div className="flex gap-2 mt-1">
+                    <Input
+                      type="color"
+                      id="gradient_end"
+                      value={gradientEndColor}
+                      onChange={(e) => updateContent('gradient_end_color', e.target.value)}
+                      className="w-12 h-10 p-1 cursor-pointer"
+                      data-testid="input-video-gradient-end"
+                    />
+                    <Input
+                      value={gradientEndColor}
+                      onChange={(e) => updateContent('gradient_end_color', e.target.value)}
+                      className="flex-1 font-mono text-xs"
+                      data-testid="input-video-gradient-end-text"
+                    />
+                  </div>
+                </div>
+              </div>
+              
+              <div>
+                <Label>Gradient Angle: {gradientAngle}°</Label>
+                <Slider
+                  value={[gradientAngle]}
+                  onValueChange={([v]) => updateContent('gradient_angle', v)}
+                  min={0}
+                  max={360}
+                  step={5}
+                  className="mt-2"
+                  data-testid="slider-video-gradient-angle"
+                />
+              </div>
+              
+              <div 
+                className="h-8 rounded-md border"
+                style={{
+                  background: `linear-gradient(${gradientAngle}deg, ${gradientStartColor}, ${gradientEndColor})`
+                }}
+                data-testid="preview-video-gradient"
+              />
+            </>
+          )}
+        </CardContent>
+      </Card>
+      
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Padding Settings</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label htmlFor="padding_top">Padding Top (px)</Label>
+              <Input
+                type="number"
+                id="padding_top"
+                value={paddingTop}
+                onChange={(e) => updateContent('padding_top', parseInt(e.target.value) || 0)}
+                min={0}
+                max={200}
+                className="mt-1"
+                data-testid="input-video-padding-top"
+              />
+            </div>
+            <div>
+              <Label htmlFor="padding_bottom">Padding Bottom (px)</Label>
+              <Input
+                type="number"
+                id="padding_bottom"
+                value={paddingBottom}
+                onChange={(e) => updateContent('padding_bottom', parseInt(e.target.value) || 0)}
+                min={0}
+                max={200}
+                className="mt-1"
+                data-testid="input-video-padding-bottom"
+              />
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label htmlFor="padding_left">Padding Left (px)</Label>
+              <Input
+                type="number"
+                id="padding_left"
+                value={paddingLeft}
+                onChange={(e) => updateContent('padding_left', parseInt(e.target.value) || 0)}
+                min={0}
+                max={200}
+                className="mt-1"
+                data-testid="input-video-padding-left"
+              />
+            </div>
+            <div>
+              <Label htmlFor="padding_right">Padding Right (px)</Label>
+              <Input
+                type="number"
+                id="padding_right"
+                value={paddingRight}
+                onChange={(e) => updateContent('padding_right', parseInt(e.target.value) || 0)}
+                min={0}
+                max={200}
+                className="mt-1"
+                data-testid="input-video-padding-right"
+              />
+            </div>
+          </div>
         </CardContent>
       </Card>
     </div>
