@@ -228,7 +228,7 @@ export default function PreferencesPage() {
         }
         const data = await response.json();
         console.log("[Preferences] Fresh member data from API:", data);
-        console.log("[Preferences] created_at value:", data?.created_at);
+        console.log("[Preferences] created_on value:", data?.created_on);
         return data;
       } catch (err) {
         console.error("[Preferences] Error fetching fresh member data:", err);
@@ -244,7 +244,7 @@ export default function PreferencesPage() {
     if (!freshMemberData) return sessionMember;
     const merged = { ...sessionMember, ...freshMemberData };
     console.log("[Preferences] Merged memberRecord:", merged);
-    console.log("[Preferences] memberRecord.created_at:", merged.created_at);
+    console.log("[Preferences] memberRecord.created_on:", merged.created_on);
     return merged;
   }, [sessionMember, freshMemberData]);
 
@@ -1614,8 +1614,8 @@ export default function PreferencesPage() {
                 <div>
                   <p className="text-sm text-slate-600">Member since</p>
                   <p className="text-sm font-semibold text-slate-900">
-                    {memberRecord?.created_at 
-                      ? format(new Date(memberRecord.created_at), "dd MMMM yyyy")
+                    {memberRecord?.created_on 
+                      ? format(new Date(memberRecord.created_on), "dd MMMM yyyy")
                       : "Unknown"}
                   </p>
                 </div>
