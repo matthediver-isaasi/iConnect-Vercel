@@ -418,7 +418,7 @@ export default function ArticlesPage() {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
         <div className="max-w-7xl mx-auto">
-          <div className="grid md:grid-cols-2 gap-6">
+          <div className="grid xl:grid-cols-2 gap-6">
             {Array(6).fill(0).map((_, i) => (
               <Card key={i} className="animate-pulse border-slate-200">
                 <div className="h-48 bg-slate-200" />
@@ -649,7 +649,7 @@ export default function ArticlesPage() {
               </Card>
             ) : (
               <>
-                <div className="grid md:grid-cols-2 gap-6 mb-8">
+                <div className="grid xl:grid-cols-2 gap-6 mb-8">
                   {paginatedArticles.map(article => (
                     <ArticleCard 
                       key={article.id} 
