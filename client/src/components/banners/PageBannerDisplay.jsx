@@ -87,29 +87,21 @@ export default function PageBannerDisplay({ banner }) {
     };
   };
 
-  // Mobile: always centered. Desktop: uses alignment setting
-  const desktopAlignmentClass = {
-    'left': 'md:items-start md:text-left',
-    'center': 'md:items-center md:text-center',
-    'right': 'md:items-end md:text-right'
+  // Text alignment: mobile always centered, desktop uses setting
+  const desktopTextAlignClass = {
+    'left': 'md:text-left',
+    'center': 'md:text-center',
+    'right': 'md:text-right'
   }[banner.header_text_align || 'center'];
 
   return (
     <div className={`${containerClass} ${alignmentClass} overflow-hidden`} style={paddingStyle}>
-      {/* Banner Container - relative for text overlay positioning */}
+      {/* Banner Wrapper - controls width for both text and image */}
       {/* Mobile: 80% width, centered. Desktop: full width */}
-      <div className={`${heightClass} w-[80%] md:w-full mx-auto relative`}>
-        {/* Banner Image */}
-        <img
-          src={banner.image_url}
-          alt={banner.alt_text || banner.name}
-          className={`w-full h-full object-cover ${positionClass}`}
-        />
-        
-        {/* Header Text Overlay - positioned on top of image */}
-        {/* Mobile: centered text. Desktop: uses alignment setting */}
+      <div className="w-[80%] md:w-full mx-auto">
+        {/* Header Text - sits ABOVE the image, same width as banner */}
         {hasHeader && (
-          <div className={`absolute inset-0 flex flex-col justify-center items-center text-center ${desktopAlignmentClass} px-4 md:px-8 lg:px-16`}>
+          <div className={`w-full text-center ${desktopTextAlignClass} px-4 md:px-8 lg:px-16 py-4 md:py-6`}>
             <div 
               className="w-full"
               style={getHeaderStyle()}
@@ -117,6 +109,15 @@ export default function PageBannerDisplay({ banner }) {
             />
           </div>
         )}
+        
+        {/* Banner Image */}
+        <div className={`${heightClass} w-full`}>
+          <img
+            src={banner.image_url}
+            alt={banner.alt_text || banner.name}
+            className={`w-full h-full object-cover ${positionClass}`}
+          />
+        </div>
       </div>
     </div>
   );
