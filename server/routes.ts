@@ -17134,6 +17134,7 @@ AGCAS Events Team
             attendee_email: member.email,
             attendee_first_name: member.first_name || '',
             attendee_last_name: member.last_name || '',
+            ticket_price: 0,
             booking_reference: bookingReference,
             status: 'confirmed',
             payment_method: 'admin_import'
