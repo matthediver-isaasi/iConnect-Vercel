@@ -495,7 +495,7 @@ export default function ResourcesPage() {
 
           <div className="flex-1">
             {isLoading ? (
-              <div className="grid md:grid-cols-2 gap-6">
+              <div className="grid xl:grid-cols-2 gap-6">
                 {Array(12).fill(0).map((_, i) => (
                   <Card key={i} className="animate-pulse border-slate-200 rounded-none">
                     <div className="h-48 bg-slate-200" />
@@ -565,7 +565,7 @@ export default function ResourcesPage() {
                   </Select>
                 </div>
 
-                <div className="grid md:grid-cols-2 gap-6 mb-8">
+                <div className="grid xl:grid-cols-2 gap-6 mb-8">
                   {paginatedResources.map(resource => (
                     <ResourceCard 
                       key={resource.id} 
