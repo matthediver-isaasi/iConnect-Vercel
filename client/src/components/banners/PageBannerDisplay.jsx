@@ -9,8 +9,8 @@ export default function PageBannerDisplay({ banner }) {
 
   const sizeClasses = {
     'full': 'w-full',
-    'half': 'w-1/2',
-    'quarter': 'w-1/4',
+    'half': 'w-full md:w-1/2',
+    'quarter': 'w-full md:w-1/4',
     'full-width': 'w-full',
     'contained': 'max-w-7xl mx-auto',
     'wide': 'max-w-screen-2xl mx-auto'
@@ -30,9 +30,9 @@ export default function PageBannerDisplay({ banner }) {
   };
 
   const horizontalAlignmentClasses = {
-    'left': 'mr-auto',
-    'center': 'mx-auto',
-    'right': 'ml-auto'
+    'left': 'md:mr-auto',
+    'center': 'md:mx-auto',
+    'right': 'md:ml-auto'
   };
 
   // Helper to get padding value - supports both old preset strings and new numeric values
@@ -89,26 +89,22 @@ export default function PageBannerDisplay({ banner }) {
 
   return (
     <div className={`${containerClass} ${alignmentClass} overflow-hidden`} style={paddingStyle}>
-      {/* Banner Wrapper - controls width for both text and image */}
-      {/* Mobile: 80vw max-width, centered. Desktop: full width */}
-      <div className="max-w-[80vw] md:max-w-none w-full mx-auto">
-        {/* Header Text - sits ABOVE the image, same width as banner */}
-        {hasHeader && (
-          <div 
-            className="w-full py-3 md:py-4"
-            style={getHeaderStyle()}
-            dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(banner.header_title) }}
-          />
-        )}
-        
-        {/* Banner Image */}
-        <div className={`${heightClass} w-full`}>
-          <img
-            src={banner.image_url}
-            alt={banner.alt_text || banner.name}
-            className={`w-full h-full object-cover ${positionClass}`}
-          />
-        </div>
+      {/* Header Text - sits ABOVE the image, same width as banner */}
+      {hasHeader && (
+        <div 
+          className="w-full py-3 md:py-4"
+          style={getHeaderStyle()}
+          dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(banner.header_title) }}
+        />
+      )}
+      
+      {/* Banner Image */}
+      <div className={`${heightClass} w-full`}>
+        <img
+          src={banner.image_url}
+          alt={banner.alt_text || banner.name}
+          className={`w-full h-full object-cover ${positionClass}`}
+        />
       </div>
     </div>
   );
