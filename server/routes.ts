@@ -17022,6 +17022,159 @@ AGCAS Events Team
     }
   });
 
+  // ============ Admin: Import Event Attendees via CSV ============
+  app.post('/api/admin/events/:eventId/attendees/import', async (req: Request, res: Response) => {
+    const { isAdmin, error: authError, memberId } = await verifyAdminSession(req);
+    
+    if (authError) {
+      return res.status(401).json({ error: authError });
+    }
+    
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    if (!supabase) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+
+    const { eventId } = req.params;
+    const { emails } = req.body; // Array of email addresses
+
+    if (!eventId) {
+      return res.status(400).json({ error: 'Event ID is required' });
+    }
+
+    if (!emails || !Array.isArray(emails) || emails.length === 0) {
+      return res.status(400).json({ error: 'emails array is required' });
+    }
+
+    try {
+      console.log(`[Admin Import Attendees] Starting import for event ${eventId} with ${emails.length} emails`);
+
+      // Get event details
+      const { data: event, error: eventError } = await supabase
+        .from('event')
+        .select('*')
+        .eq('id', eventId)
+        .single();
+
+      if (eventError || !event) {
+        console.error('[Admin Import Attendees] Event not found:', eventError);
+        return res.status(404).json({ error: 'Event not found' });
+      }
+
+      // Normalize emails (lowercase, trim)
+      const normalizedEmails = [...new Set(emails.map((e: string) => e.toLowerCase().trim()).filter((e: string) => e && e.includes('@')))];
+      console.log(`[Admin Import Attendees] Normalized to ${normalizedEmails.length} unique valid emails`);
+
+      // Look up all members by email
+      const { data: members, error: memberError } = await supabase
+        .from('member')
+        .select('id, email, first_name, last_name, organization_id')
+        .in('email', normalizedEmails);
+
+      if (memberError) {
+        console.error('[Admin Import Attendees] Member lookup error:', memberError);
+        return res.status(500).json({ error: 'Failed to look up members' });
+      }
+
+      // Create email->member map (case-insensitive)
+      const memberMap = new Map<string, any>();
+      (members || []).forEach((m: any) => memberMap.set(m.email.toLowerCase(), m));
+
+      // Check existing bookings for this event
+      const { data: existingBookings, error: bookingError } = await supabase
+        .from('booking')
+        .select('attendee_email')
+        .eq('event_id', eventId)
+        .neq('status', 'cancelled');
+
+      if (bookingError) {
+        console.error('[Admin Import Attendees] Existing bookings lookup error:', bookingError);
+        return res.status(500).json({ error: 'Failed to check existing bookings' });
+      }
+
+      const existingEmails = new Set((existingBookings || []).map((b: any) => b.attendee_email?.toLowerCase()));
+
+      // Generate a shared booking_group_reference for this import batch
+      const batchGroupRef = `IMPG-${Date.now()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
+
+      // Process each email
+      const results = {
+        registered: [] as string[],
+        alreadyRegistered: [] as string[],
+        notFound: [] as string[],
+        errors: [] as { email: string; error: string }[]
+      };
+
+      for (const email of normalizedEmails) {
+        // Check if already registered
+        if (existingEmails.has(email)) {
+          results.alreadyRegistered.push(email);
+          continue;
+        }
+
+        // Check if member exists
+        const member = memberMap.get(email);
+        if (!member) {
+          results.notFound.push(email);
+          continue;
+        }
+
+        // Create booking (bypassing payment/invoice)
+        try {
+          // Generate unique booking reference per booking, but shared group reference for batch
+          const bookingReference = `IMP-${Date.now()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
+          
+          const bookingData = {
+            event_id: eventId,
+            member_id: member.id,
+            organization_id: member.organization_id,
+            attendee_email: member.email,
+            attendee_first_name: member.first_name || '',
+            attendee_last_name: member.last_name || '',
+            ticket_price: 0, // Admin import - no cost
+            total_cost: 0,
+            total_paid: 0,
+            booking_reference: bookingReference,
+            booking_group_reference: batchGroupRef, // Shared across all bookings in this import batch
+            status: 'confirmed',
+            payment_method: 'admin_import',
+            payment_status: 'completed'
+          };
+
+          const { error: insertError } = await supabase
+            .from('booking')
+            .insert(bookingData);
+
+          if (insertError) {
+            console.error(`[Admin Import Attendees] Insert failed for ${email}:`, insertError);
+            results.errors.push({ email, error: insertError.message });
+          } else {
+            results.registered.push(email);
+            existingEmails.add(email); // Prevent duplicates within same import
+          }
+        } catch (insertErr: any) {
+          console.error(`[Admin Import Attendees] Exception for ${email}:`, insertErr);
+          results.errors.push({ email, error: insertErr.message });
+        }
+      }
+
+      console.log(`[Admin Import Attendees] Complete: registered=${results.registered.length}, alreadyRegistered=${results.alreadyRegistered.length}, notFound=${results.notFound.length}, errors=${results.errors.length}`);
+
+      res.json({
+        success: true,
+        eventId,
+        results
+      });
+
+    } catch (error: any) {
+      console.error('[Admin Import Attendees] Error:', error);
+      res.status(500).json({ error: error.message || 'Failed to import attendees' });
+    }
+  });
+
   // ============ Health Check ============
   app.get('/api/health', (req: Request, res: Response) => {
     res.json({ 

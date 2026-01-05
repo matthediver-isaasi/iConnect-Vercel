@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Calendar, MapPin, Users, Clock, Ticket, AlertCircle, ShoppingCart, Pencil, Trash2, Video, Globe, UsersRound, Download, Search, ChevronLeft, ChevronRight } from "lucide-react";
+import { Calendar, MapPin, Users, Clock, Ticket, AlertCircle, ShoppingCart, Pencil, Trash2, Video, Globe, UsersRound, Download, Upload, Search, ChevronLeft, ChevronRight, Loader2, CheckCircle2, XCircle, AlertTriangle } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { formatInTimeZone, toZonedTime } from "date-fns-tz";
 import { createPageUrl } from "@/utils";
@@ -237,6 +237,10 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
   const [searchFilter, setSearchFilter] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 25;
+  
+  const [showImportDialog, setShowImportDialog] = useState(false);
+  const [importEmailsText, setImportEmailsText] = useState("");
+  const [importResults, setImportResults] = useState(null);
 
   // Fetch bookings for this event when attendees modal is open
   const { data: bookingsData, isLoading: bookingsLoading } = useQuery({
@@ -436,6 +440,53 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
       toast.error('Failed to delete event: ' + (error.message || 'Unknown error'));
     }
   });
+
+  const importAttendeesMutation = useMutation({
+    mutationFn: async (emails) => {
+      const response = await fetch(`/api/admin/events/${event.id}/attendees/import`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ emails })
+      });
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || 'Import failed');
+      }
+      return response.json();
+    },
+    onSuccess: (data) => {
+      setImportResults(data.results);
+      queryClient.invalidateQueries({ queryKey: ['event-bookings', event.id] });
+      if (data.results.registered.length > 0) {
+        toast.success(`Successfully registered ${data.results.registered.length} attendee(s)`);
+      }
+    },
+    onError: (error) => {
+      console.error('Import attendees error:', error);
+      toast.error('Failed to import attendees: ' + (error.message || 'Unknown error'));
+    }
+  });
+
+  const handleImportClick = () => {
+    setImportResults(null);
+    setImportEmailsText("");
+    setShowImportDialog(true);
+  };
+
+  const handleImportSubmit = () => {
+    const emails = importEmailsText
+      .split(/[\n,;]+/)
+      .map(e => e.trim())
+      .filter(e => e && e.includes('@'));
+    
+    if (emails.length === 0) {
+      toast.error('Please enter at least one valid email address');
+      return;
+    }
+    
+    importAttendeesMutation.mutate(emails);
+  };
 
   const handleDeleteClick = (e) => {
     e.stopPropagation();
@@ -840,6 +891,14 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
               </Select>
               <Button 
                 variant="outline" 
+                onClick={handleImportClick}
+                data-testid="button-import-attendees"
+              >
+                <Upload className="w-4 h-4 mr-2" />
+                Import
+              </Button>
+              <Button 
+                variant="outline" 
                 onClick={exportToCSV}
                 disabled={!filteredAttendees.length}
                 data-testid="button-export-csv"
@@ -947,6 +1006,124 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                 )}
               </div>
             )}
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* Import Attendees Dialog */}
+      {isAdmin && (
+        <Dialog open={showImportDialog} onOpenChange={(open) => {
+          setShowImportDialog(open);
+          if (!open) {
+            setImportEmailsText("");
+            setImportResults(null);
+          }
+        }}>
+          <DialogContent className="sm:max-w-lg">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Upload className="w-5 h-5 text-purple-600" />
+                Import Attendees
+              </DialogTitle>
+              <DialogDescription>
+                Paste email addresses to directly register members for this event. One email per line, or separated by commas.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="py-4">
+              <textarea
+                className="w-full h-40 p-3 border rounded-md text-sm font-mono resize-none focus:outline-none focus:ring-2 focus:ring-purple-500"
+                placeholder="email1@example.com&#10;email2@example.com&#10;email3@example.com"
+                value={importEmailsText}
+                onChange={(e) => setImportEmailsText(e.target.value)}
+                disabled={importAttendeesMutation.isPending}
+                data-testid="textarea-import-emails"
+              />
+              <p className="text-xs text-slate-500 mt-2">
+                Only existing members will be registered. Non-members will be listed in the results.
+              </p>
+            </div>
+
+            {importResults && (
+              <div className="space-y-3 py-2 border-t">
+                {importResults.registered.length > 0 && (
+                  <div className="flex items-start gap-2 text-sm">
+                    <CheckCircle2 className="w-4 h-4 text-green-600 mt-0.5 shrink-0" />
+                    <div>
+                      <p className="font-medium text-green-700">Registered ({importResults.registered.length})</p>
+                      <p className="text-slate-600 text-xs mt-1">{importResults.registered.join(', ')}</p>
+                    </div>
+                  </div>
+                )}
+                {importResults.alreadyRegistered.length > 0 && (
+                  <div className="flex items-start gap-2 text-sm">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+                    <div>
+                      <p className="font-medium text-amber-700">Already Registered ({importResults.alreadyRegistered.length})</p>
+                      <p className="text-slate-600 text-xs mt-1">{importResults.alreadyRegistered.join(', ')}</p>
+                    </div>
+                  </div>
+                )}
+                {importResults.notFound.length > 0 && (
+                  <div className="flex items-start gap-2 text-sm">
+                    <XCircle className="w-4 h-4 text-red-600 mt-0.5 shrink-0" />
+                    <div>
+                      <p className="font-medium text-red-700">Not Found ({importResults.notFound.length})</p>
+                      <p className="text-slate-600 text-xs mt-1">{importResults.notFound.join(', ')}</p>
+                    </div>
+                  </div>
+                )}
+                {importResults.errors.length > 0 && (
+                  <div className="flex items-start gap-2 text-sm">
+                    <AlertCircle className="w-4 h-4 text-red-600 mt-0.5 shrink-0" />
+                    <div>
+                      <p className="font-medium text-red-700">Errors ({importResults.errors.length})</p>
+                      <p className="text-slate-600 text-xs mt-1">
+                        {importResults.errors.map(e => `${e.email}: ${e.error}`).join('; ')}
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <DialogFooter className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setShowImportDialog(false)}
+                disabled={importAttendeesMutation.isPending}
+                data-testid="button-cancel-import"
+              >
+                {importResults ? 'Close' : 'Cancel'}
+              </Button>
+              {!importResults && (
+                <Button
+                  onClick={handleImportSubmit}
+                  disabled={!importEmailsText.trim() || importAttendeesMutation.isPending}
+                  data-testid="button-submit-import"
+                >
+                  {importAttendeesMutation.isPending ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Importing...
+                    </>
+                  ) : (
+                    'Import Attendees'
+                  )}
+                </Button>
+              )}
+              {importResults && (
+                <Button
+                  onClick={() => {
+                    setImportResults(null);
+                    setImportEmailsText("");
+                  }}
+                  data-testid="button-import-more"
+                >
+                  Import More
+                </Button>
+              )}
+            </DialogFooter>
           </DialogContent>
         </Dialog>
       )}
