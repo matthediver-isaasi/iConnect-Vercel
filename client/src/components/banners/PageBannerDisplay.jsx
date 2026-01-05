@@ -87,16 +87,18 @@ export default function PageBannerDisplay({ banner }) {
     };
   };
 
-  const textAlignmentClass = {
-    'left': 'items-start text-left',
-    'center': 'items-center text-center',
-    'right': 'items-end text-right'
+  // Mobile: always centered. Desktop: uses alignment setting
+  const desktopAlignmentClass = {
+    'left': 'md:items-start md:text-left',
+    'center': 'md:items-center md:text-center',
+    'right': 'md:items-end md:text-right'
   }[banner.header_text_align || 'center'];
 
   return (
     <div className={`${containerClass} ${alignmentClass} overflow-hidden`} style={paddingStyle}>
       {/* Banner Container - relative for text overlay positioning */}
-      <div className={`${heightClass} w-full relative`}>
+      {/* Mobile: 80% width, centered. Desktop: full width */}
+      <div className={`${heightClass} w-[80%] md:w-full mx-auto relative`}>
         {/* Banner Image */}
         <img
           src={banner.image_url}
@@ -105,8 +107,9 @@ export default function PageBannerDisplay({ banner }) {
         />
         
         {/* Header Text Overlay - positioned on top of image */}
+        {/* Mobile: centered text. Desktop: uses alignment setting */}
         {hasHeader && (
-          <div className={`absolute inset-0 flex flex-col justify-center ${textAlignmentClass} px-4 md:px-8 lg:px-16`}>
+          <div className={`absolute inset-0 flex flex-col justify-center items-center text-center ${desktopAlignmentClass} px-4 md:px-8 lg:px-16`}>
             <div 
               className="w-full"
               style={getHeaderStyle()}
