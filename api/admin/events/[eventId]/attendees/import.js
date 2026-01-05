@@ -163,11 +163,7 @@ export default async function handler(req, res) {
           attendee_email: member.email,
           attendee_first_name: member.first_name || '',
           attendee_last_name: member.last_name || '',
-          ticket_price: 0,
-          total_cost: 0,
-          total_paid: 0,
           booking_reference: bookingReference,
-          booking_group_reference: batchGroupRef, // Shared across all bookings in this import batch
           status: 'confirmed',
           payment_method: 'admin_import'
         };
