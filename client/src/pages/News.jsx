@@ -299,12 +299,12 @@ export default function NewsPage() {
   const getGridClass = () => {
     switch (cardsPerRow) {
       case 2:
-        return "grid md:grid-cols-2 gap-6";
+        return "grid xl:grid-cols-2 gap-6";
       case 4:
-        return "grid md:grid-cols-2 lg:grid-cols-4 gap-6";
+        return "grid md:grid-cols-2 xl:grid-cols-4 gap-6";
       case 3:
       default:
-        return "grid md:grid-cols-2 lg:grid-cols-3 gap-6";
+        return "grid xl:grid-cols-2 gap-6";
     }
   };
 
