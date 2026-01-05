@@ -17,9 +17,9 @@ export default function PageBannerDisplay({ banner }) {
   };
 
   const heightClasses = {
-    'small': 'h-32 md:h-48',
-    'medium': 'h-48 md:h-64 lg:h-80',
-    'large': 'h-64 md:h-96 lg:h-[32rem]',
+    'small': 'min-h-32 md:min-h-48 h-auto',
+    'medium': 'min-h-48 md:min-h-64 lg:min-h-80 h-auto',
+    'large': 'min-h-64 md:min-h-96 lg:min-h-[32rem] h-auto',
     'auto': 'h-auto'
   };
 
@@ -87,27 +87,18 @@ export default function PageBannerDisplay({ banner }) {
     };
   };
 
-  // Text alignment: mobile always centered, desktop uses setting
-  const desktopTextAlignClass = {
-    'left': 'md:text-left',
-    'center': 'md:text-center',
-    'right': 'md:text-right'
-  }[banner.header_text_align || 'center'];
-
   return (
     <div className={`${containerClass} ${alignmentClass} overflow-hidden`} style={paddingStyle}>
       {/* Banner Wrapper - controls width for both text and image */}
-      {/* Mobile: 80% width, centered. Desktop: full width */}
-      <div className="w-[80%] md:w-full mx-auto">
+      {/* Mobile: 80vw max-width, centered. Desktop: full width */}
+      <div className="max-w-[80vw] md:max-w-none w-full mx-auto">
         {/* Header Text - sits ABOVE the image, same width as banner */}
         {hasHeader && (
-          <div className={`w-full text-center ${desktopTextAlignClass} px-4 md:px-8 lg:px-16 py-4 md:py-6`}>
-            <div 
-              className="w-full"
-              style={getHeaderStyle()}
-              dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(banner.header_title) }}
-            />
-          </div>
+          <div 
+            className="w-full py-3 md:py-4"
+            style={getHeaderStyle()}
+            dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(banner.header_title) }}
+          />
         )}
         
         {/* Banner Image */}
