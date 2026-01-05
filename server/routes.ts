@@ -17140,8 +17140,7 @@ AGCAS Events Team
             booking_reference: bookingReference,
             booking_group_reference: batchGroupRef, // Shared across all bookings in this import batch
             status: 'confirmed',
-            payment_method: 'admin_import',
-            payment_status: 'completed'
+            payment_method: 'admin_import'
           };
 
           const { error: insertError } = await supabase
