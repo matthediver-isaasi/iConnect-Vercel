@@ -45,7 +45,10 @@ import {
   Search,
   Plus,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Key,
+  Copy,
+  Check
 } from "lucide-react";
 import { format } from "date-fns";
 import {
@@ -58,6 +61,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useDateFormat } from "@/hooks/useDateFormat";
@@ -120,6 +130,52 @@ export default function MemberDetailView({
 
   // Communication preferences state
   const [updatingCommPrefs, setUpdatingCommPrefs] = useState(new Set());
+
+  // Password reset link state
+  const [resetLinkDialogOpen, setResetLinkDialogOpen] = useState(false);
+  const [generatedResetLink, setGeneratedResetLink] = useState('');
+  const [resetLinkCopied, setResetLinkCopied] = useState(false);
+  const [isGeneratingResetLink, setIsGeneratingResetLink] = useState(false);
+
+  const handleGenerateResetLink = async () => {
+    if (!member?.id) return;
+    
+    setIsGeneratingResetLink(true);
+    try {
+      const response = await fetch(`/api/admin/members/${member.id}/generate-reset-link`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to generate reset link');
+      }
+      
+      setGeneratedResetLink(data.resetUrl);
+      setResetLinkCopied(false);
+      setResetLinkDialogOpen(true);
+    } catch (error) {
+      console.error('[Generate Reset Link] Error:', error);
+      toast.error(error.message || 'Failed to generate reset link');
+    } finally {
+      setIsGeneratingResetLink(false);
+    }
+  };
+
+  const handleCopyResetLink = async () => {
+    try {
+      await navigator.clipboard.writeText(generatedResetLink);
+      setResetLinkCopied(true);
+      toast.success('Reset link copied to clipboard');
+      setTimeout(() => setResetLinkCopied(false), 2000);
+    } catch (error) {
+      console.error('[Copy Reset Link] Error:', error);
+      toast.error('Failed to copy link');
+    }
+  };
 
   const { data: memberValues = [], isLoading: valuesLoading } = useQuery({
     queryKey: ['member-detail-preference-values', member?.id],
@@ -953,6 +1009,28 @@ export default function MemberDetailView({
                           <p className="text-sm">{member.job_title || '-'}</p>
                         </div>
                       </div>
+                      {isAdmin && (
+                        <>
+                          <Separator />
+                          <div className="pt-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={handleGenerateResetLink}
+                              disabled={isGeneratingResetLink}
+                              className="w-full"
+                              data-testid="button-generate-reset-link"
+                            >
+                              {isGeneratingResetLink ? (
+                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                              ) : (
+                                <Key className="w-4 h-4 mr-2" />
+                              )}
+                              Generate Reset Password Link
+                            </Button>
+                          </div>
+                        </>
+                      )}
                     </>
                   )}
                 </CardContent>
@@ -2029,6 +2107,45 @@ export default function MemberDetailView({
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        <Dialog open={resetLinkDialogOpen} onOpenChange={setResetLinkDialogOpen}>
+          <DialogContent className="sm:max-w-lg">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Key className="w-5 h-5 text-blue-600" />
+                Password Reset Link
+              </DialogTitle>
+              <DialogDescription>
+                Share this link with the member so they can reset their password. The link expires in 24 hours.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="flex items-center gap-2">
+                <Input
+                  value={generatedResetLink}
+                  readOnly
+                  className="flex-1 text-sm font-mono"
+                  data-testid="input-reset-link"
+                />
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={handleCopyResetLink}
+                  data-testid="button-copy-reset-link"
+                >
+                  {resetLinkCopied ? (
+                    <Check className="w-4 h-4 text-green-600" />
+                  ) : (
+                    <Copy className="w-4 h-4" />
+                  )}
+                </Button>
+              </div>
+              <p className="text-xs text-slate-500">
+                Note: Generating a new link will invalidate any previous reset links for this member.
+              </p>
+            </div>
+          </DialogContent>
+        </Dialog>
       </main>
     </div>
   );

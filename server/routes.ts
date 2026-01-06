@@ -4222,6 +4222,83 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Generate password reset link for a member (admin only)
+  // Returns the full tokenized URL without sending an email
+  app.post('/api/admin/members/:memberId/generate-reset-link', async (req: Request, res: Response) => {
+    const { isAdmin, error: authError } = await verifyAdminSession(req);
+    
+    if (authError) {
+      return res.status(401).json({ success: false, error: authError });
+    }
+    
+    if (!isAdmin) {
+      return res.status(403).json({ success: false, error: 'Admin access required' });
+    }
+
+    if (!supabase) {
+      return res.status(503).json({ success: false, error: 'Database not configured' });
+    }
+
+    try {
+      const { memberId } = req.params;
+
+      // Find member
+      const { data: member, error: memberError } = await supabase
+        .from('member')
+        .select('id, email, first_name')
+        .eq('id', memberId)
+        .single();
+
+      if (memberError || !member) {
+        return res.status(404).json({ success: false, error: 'Member not found' });
+      }
+
+      // Generate reset token
+      const resetToken = crypto.randomUUID();
+      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours for admin-generated links
+
+      // Ensure credentials record exists and update with reset token
+      const { data: existingCreds } = await supabase
+        .from('member_credentials')
+        .select('id')
+        .eq('member_id', member.id)
+        .single();
+
+      if (existingCreds) {
+        await supabase
+          .from('member_credentials')
+          .update({ 
+            reset_token: resetToken,
+            reset_token_expires: expiresAt.toISOString()
+          })
+          .eq('id', existingCreds.id);
+      } else {
+        await supabase
+          .from('member_credentials')
+          .insert({
+            member_id: member.id,
+            email: member.email.toLowerCase(),
+            reset_token: resetToken,
+            reset_token_expires: expiresAt.toISOString()
+          });
+      }
+
+      // Generate reset link
+      const resetUrl = `${req.protocol}://${req.get('host')}/auth/reset-password?token=${resetToken}&email=${encodeURIComponent(member.email)}`;
+      console.log(`[Admin Reset Link] Generated for ${member.email} by admin ${req.session.memberId}`);
+
+      res.json({ 
+        success: true, 
+        resetUrl,
+        expiresAt: expiresAt.toISOString(),
+        memberEmail: member.email
+      });
+    } catch (error) {
+      console.error('[Admin Reset Link] Error:', error);
+      res.status(500).json({ success: false, error: 'Failed to generate reset link' });
+    }
+  });
+
   // ============ Admin Member Routes ============
   // These routes verify permissions server-side to prevent privilege escalation
   // Permissions are controlled via Role Management (excluded_features array)
