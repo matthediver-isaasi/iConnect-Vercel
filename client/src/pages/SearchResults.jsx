@@ -1,12 +1,13 @@
 import { useState, useEffect } from "react";
-import { useSearchParams, Link } from "react-router-dom";
+import { useSearchParams, Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Search, Loader2, Calendar, BookOpen, Newspaper, FolderOpen, FileText, ArrowRight } from "lucide-react";
+import { Search, Loader2, Calendar, BookOpen, Newspaper, FolderOpen, FileText, ArrowRight, Lock } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { base44 } from "@/api/base44Client";
+import { useMemberAccess } from "@/hooks/useMemberAccess";
 
 const typeIconMap = {
   event: Calendar,
@@ -26,6 +27,10 @@ const typeColors = {
 
 export default function SearchResults() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const { memberInfo } = useMemberAccess();
+  const isAuthenticated = !!memberInfo;
+  
   const initialQuery = searchParams.get('q') || '';
   const [query, setQuery] = useState(initialQuery);
   const [results, setResults] = useState([]);
@@ -201,57 +206,87 @@ export default function SearchResults() {
                   </div>
 
                   <div className="grid gap-4">
-                    {items.map((result) => (
-                      <Link
-                        key={`${result.type}-${result.id}`}
-                        to={result.url}
-                        className="block"
-                        data-testid={`result-card-${result.type}-${result.id}`}
-                      >
-                        <Card className="hover:shadow-md transition-shadow">
-                          <CardContent className="p-4">
-                            <div className="flex gap-4">
-                              {result.image && (
-                                <div className="flex-shrink-0 w-24 h-24 rounded-lg overflow-hidden bg-slate-100">
-                                  <img
-                                    src={result.image}
-                                    alt={result.title}
-                                    className="w-full h-full object-cover"
-                                    onError={(e) => {
-                                      e.target.style.display = 'none';
-                                    }}
-                                  />
-                                </div>
-                              )}
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2 mb-1">
-                                  <Badge className={typeColors[result.type] || 'bg-slate-100 text-slate-700'}>
-                                    {getTypeLabel(result.type)}
-                                  </Badge>
-                                  {result.date && (
-                                    <span className="text-sm text-slate-500">
-                                      {formatDate(result.date)}
-                                    </span>
-                                  )}
-                                </div>
-                                <h3 className="font-semibold text-slate-900 mb-1 line-clamp-1">
-                                  {result.title}
-                                </h3>
-                                {result.description && (
-                                  <p className="text-sm text-slate-600 line-clamp-2">
-                                    {result.description}
-                                  </p>
+                    {items.map((result) => {
+                      // Check if this is a member-only resource
+                      const isMemberOnlyResource = result.type === 'resource' && result.isPublic === false;
+                      const requiresLogin = isMemberOnlyResource && !isAuthenticated;
+                      
+                      const handleClick = (e) => {
+                        if (requiresLogin) {
+                          e.preventDefault();
+                          // Redirect to login with return URL
+                          navigate(`/login?redirect=${encodeURIComponent(result.url)}`);
+                        }
+                      };
+                      
+                      return (
+                        <Link
+                          key={`${result.type}-${result.id}`}
+                          to={requiresLogin ? '#' : result.url}
+                          onClick={handleClick}
+                          className="block"
+                          data-testid={`result-card-${result.type}-${result.id}`}
+                        >
+                          <Card className="hover:shadow-md transition-shadow">
+                            <CardContent className="p-4">
+                              <div className="flex gap-4">
+                                {result.image && (
+                                  <div className="flex-shrink-0 w-24 h-24 rounded-lg overflow-hidden bg-slate-100">
+                                    <img
+                                      src={result.image}
+                                      alt={result.title}
+                                      className="w-full h-full object-cover"
+                                      onError={(e) => {
+                                        e.target.style.display = 'none';
+                                      }}
+                                    />
+                                  </div>
                                 )}
-                                <div className="flex items-center gap-1 mt-2 text-sm text-purple-600 font-medium">
-                                  <span>View {getTypeLabel(result.type)?.toLowerCase()}</span>
-                                  <ArrowRight className="w-4 h-4" />
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 mb-1 flex-wrap">
+                                    <Badge className={typeColors[result.type] || 'bg-slate-100 text-slate-700'}>
+                                      {getTypeLabel(result.type)}
+                                    </Badge>
+                                    {isMemberOnlyResource && !isAuthenticated && (
+                                      <Badge variant="outline" className="gap-1 text-amber-600 border-amber-300 bg-amber-50">
+                                        <Lock className="w-3 h-3" />
+                                        Members only
+                                      </Badge>
+                                    )}
+                                    {result.date && (
+                                      <span className="text-sm text-slate-500">
+                                        {formatDate(result.date)}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <h3 className="font-semibold text-slate-900 mb-1 line-clamp-1">
+                                    {result.title}
+                                  </h3>
+                                  {result.description && (
+                                    <p className="text-sm text-slate-600 line-clamp-2">
+                                      {result.description}
+                                    </p>
+                                  )}
+                                  <div className="flex items-center gap-1 mt-2 text-sm text-purple-600 font-medium">
+                                    {requiresLogin ? (
+                                      <>
+                                        <span>Sign in to view</span>
+                                        <Lock className="w-4 h-4" />
+                                      </>
+                                    ) : (
+                                      <>
+                                        <span>View {getTypeLabel(result.type)?.toLowerCase()}</span>
+                                        <ArrowRight className="w-4 h-4" />
+                                      </>
+                                    )}
+                                  </div>
                                 </div>
                               </div>
-                            </div>
-                          </CardContent>
-                        </Card>
-                      </Link>
-                    ))}
+                            </CardContent>
+                          </Card>
+                        </Link>
+                      );
+                    })}
                   </div>
                 </div>
               );

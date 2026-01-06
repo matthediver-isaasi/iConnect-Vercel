@@ -1890,7 +1890,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Search Resources (active only, show all resources regardless of member-only status)
         supabase
           .from('resource')
-          .select('id, title, description, image_url, resource_type')
+          .select('id, title, description, image_url, resource_type, is_public')
           .eq('status', 'active')
           .or(`title.ilike.${searchPattern},description.ilike.${searchPattern}`)
           .order('release_date', { ascending: false })
@@ -1915,6 +1915,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         image?: string;
         url: string;
         date?: string;
+        isPublic?: boolean;
       }> = [];
 
       // Add events
@@ -1971,7 +1972,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             title: resource.title,
             description: resource.description?.substring(0, 150) || '',
             image: resource.image_url,
-            url: `/ResourceDetails?id=${resource.id}`
+            url: `/resources?resourceId=${resource.id}`,
+            isPublic: resource.is_public ?? false
           });
         });
       }

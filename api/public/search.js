@@ -58,7 +58,7 @@ export default async function handler(req, res) {
       // Resources - show all active resources regardless of member-only status
       supabase
         .from('resource')
-        .select('id, title, description, image_url, resource_type')
+        .select('id, title, description, image_url, resource_type, is_public')
         .or(`title.ilike.${searchPattern},description.ilike.${searchPattern}`)
         .eq('status', 'active')
         .limit(limitNum),
@@ -121,8 +121,9 @@ export default async function handler(req, res) {
           title: resource.title,
           description: resource.description?.substring(0, 150) || '',
           image: resource.image_url,
-          url: `/ResourceDetails?id=${resource.id}`,
-          date: null
+          url: `/resources?resourceId=${resource.id}`,
+          date: null,
+          isPublic: resource.is_public ?? false
         });
       });
     }
