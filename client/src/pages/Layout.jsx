@@ -1603,10 +1603,10 @@ useEffect(() => {
               )}
             </SidebarHeader>
             
-            {/* Form Submission Stats Bar - shows for users with FormSubmissions access */}
-            <SubmissionStatsBar />
-            
             <SidebarContent ref={sidebarContentRef} className="p-3">
+              {/* Form Submission Stats Bar - shows for users with FormSubmissions access */}
+              <SubmissionStatsBar />
+              
               {/* Only render navigation once role data is loaded */}
               {!memberRole ? (
                 <div className="flex items-center justify-center py-8">

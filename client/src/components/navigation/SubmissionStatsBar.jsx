@@ -33,7 +33,7 @@ export default function SubmissionStatsBar() {
   return (
     <Link
       to={createPageUrl("FormSubmissions")}
-      className="block mx-3 mt-3 mb-1"
+      className="block mb-3"
       data-testid="link-submission-stats"
     >
       <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-slate-50 hover:bg-slate-100 transition-colors border border-slate-200">
