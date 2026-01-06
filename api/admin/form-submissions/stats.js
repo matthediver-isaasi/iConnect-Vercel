@@ -1,12 +1,24 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
+let supabase = null;
+
+function getSupabaseClient() {
+  if (!supabase) {
+    if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      throw new Error('Missing Supabase environment variables');
+    }
+    supabase = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY
+    );
+  }
+  return supabase;
+}
 
 async function verifyPermission(cookies, permissionId) {
   try {
+    const db = getSupabaseClient();
+    
     const sessionId = cookies?.['connect.sid'];
     if (!sessionId) {
       return { hasPermission: false, memberId: null, error: 'Not authenticated' };
@@ -16,7 +28,7 @@ async function verifyPermission(cookies, permissionId) {
       ? sessionId.slice(2).split('.')[0] 
       : sessionId.split('.')[0];
 
-    const { data: sessions, error: sessionError } = await supabase
+    const { data: sessions, error: sessionError } = await db
       .from('session')
       .select('sess')
       .eq('sid', cleanSessionId);
@@ -31,7 +43,7 @@ async function verifyPermission(cookies, permissionId) {
       return { hasPermission: false, memberId: null, error: 'No member email in session' };
     }
 
-    const { data: member, error: memberError } = await supabase
+    const { data: member, error: memberError } = await db
       .from('member')
       .select('id, role_id, login_enabled')
       .eq('email', memberEmail)
@@ -49,7 +61,7 @@ async function verifyPermission(cookies, permissionId) {
       return { hasPermission: false, memberId: member.id };
     }
 
-    const { data: role, error: roleError } = await supabase
+    const { data: role, error: roleError } = await db
       .from('role')
       .select('excluded_features')
       .eq('id', member.role_id)
@@ -97,7 +109,9 @@ export default async function handler(req, res) {
       return res.status(403).json({ error: 'Access to form submissions required' });
     }
 
-    const { count: totalCount, error: totalError } = await supabase
+    const db = getSupabaseClient();
+
+    const { count: totalCount, error: totalError } = await db
       .from('form_submission')
       .select('id', { count: 'exact', head: true });
 
@@ -106,7 +120,7 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Failed to get submission count' });
     }
 
-    const { count: newCount, error: newError } = await supabase
+    const { count: newCount, error: newError } = await db
       .from('form_submission')
       .select('id', { count: 'exact', head: true })
       .or('status.eq.new,status.is.null');
