@@ -4342,6 +4342,55 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get form submission stats (admin only)
+  // Returns total count and count of submissions with status 'new' (or null)
+  app.get('/api/admin/form-submissions/stats', async (req: Request, res: Response) => {
+    const result = await verifyPermission(req, 'page_FormSubmissions');
+    
+    if (result.error) {
+      return res.status(401).json({ error: result.error });
+    }
+    
+    if (!result.hasPermission) {
+      return res.status(403).json({ error: 'Access to form submissions required' });
+    }
+
+    if (!supabase) {
+      return res.status(503).json({ error: 'Database not configured' });
+    }
+
+    try {
+      // Get total count
+      const { count: totalCount, error: totalError } = await supabase
+        .from('form_submission')
+        .select('id', { count: 'exact', head: true });
+
+      if (totalError) {
+        console.error('[FormSubmissionStats] Error getting total count:', totalError);
+        return res.status(500).json({ error: 'Failed to get submission count' });
+      }
+
+      // Get count of 'new' submissions (status = 'new' OR status is null)
+      const { count: newCount, error: newError } = await supabase
+        .from('form_submission')
+        .select('id', { count: 'exact', head: true })
+        .or('status.eq.new,status.is.null');
+
+      if (newError) {
+        console.error('[FormSubmissionStats] Error getting new count:', newError);
+        return res.status(500).json({ error: 'Failed to get new submission count' });
+      }
+
+      res.json({ 
+        total: totalCount || 0, 
+        new: newCount || 0 
+      });
+    } catch (error) {
+      console.error('[Admin Form Submission Stats] Error:', error);
+      res.status(500).json({ error: 'Failed to get form submission stats' });
+    }
+  });
+
   // Get member by ID (admin only)
   app.get('/api/admin/members/:id', async (req: Request, res: Response) => {
     const { isAdmin, error } = await verifyAdminSession(req);

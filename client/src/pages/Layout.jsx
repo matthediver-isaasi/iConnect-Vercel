@@ -35,6 +35,7 @@ import NewsTickerBar from "@/components/news/NewsTickerBar";
 import PortalHeroBanner from "@/components/banners/PortalHeroBanner";
 import PageBannerDisplay from "@/components/banners/PageBannerDisplay";
 import NextEventCountdown from "@/components/navigation/NextEventCountdown";
+import SubmissionStatsBar from "@/components/navigation/SubmissionStatsBar";
 import { BannerProvider } from "@/contexts/BannerContext";
 import { usePendingPurchaseOrders } from "@/hooks/usePendingPurchaseOrders";
 
@@ -1601,6 +1602,9 @@ useEffect(() => {
                 </Link>
               )}
             </SidebarHeader>
+            
+            {/* Form Submission Stats Bar - shows for users with FormSubmissions access */}
+            <SubmissionStatsBar />
             
             <SidebarContent ref={sidebarContentRef} className="p-3">
               {/* Only render navigation once role data is loaded */}
