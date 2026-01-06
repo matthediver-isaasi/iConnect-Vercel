@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { FileText } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -32,7 +32,7 @@ export default function SubmissionStatsBar() {
 
   return (
     <Link
-      to={createPageUrl("FormSubmissions")}
+      href={createPageUrl("FormSubmissions")}
       className="block mb-3"
       data-testid="link-submission-stats"
     >
