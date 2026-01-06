@@ -1,10 +1,12 @@
-import { Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { FileText } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { createPageUrl } from "@/utils";
 
 export default function SubmissionStatsBar() {
+  const navigate = useNavigate();
+  
   const { data: stats, isLoading, isError } = useQuery({
     queryKey: ['form-submission-stats'],
     queryFn: async () => {
@@ -30,13 +32,20 @@ export default function SubmissionStatsBar() {
     return null;
   }
 
+  const handleClick = () => {
+    navigate(createPageUrl("FormSubmissions"));
+  };
+
   return (
-    <Link
-      to={createPageUrl("FormSubmissions")}
-      className="block mb-3"
-      data-testid="link-submission-stats"
-    >
-      <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-slate-50 hover:bg-slate-100 transition-colors border border-slate-200">
+    <div className="px-3 py-2">
+      <div 
+        onClick={handleClick}
+        className="flex items-center gap-2 px-3 py-2 rounded-md bg-slate-50 hover:bg-slate-100 transition-colors border border-slate-200 cursor-pointer"
+        data-testid="link-submission-stats"
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => e.key === 'Enter' && handleClick()}
+      >
         <FileText className="w-4 h-4 text-slate-500 flex-shrink-0" />
         <span className="text-sm text-slate-700">
           {stats.total} submission{stats.total !== 1 ? 's' : ''}
@@ -51,6 +60,6 @@ export default function SubmissionStatsBar() {
           </Badge>
         )}
       </div>
-    </Link>
+    </div>
   );
 }
