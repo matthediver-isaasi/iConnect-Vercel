@@ -3,9 +3,11 @@ import { useQuery } from "@tanstack/react-query";
 import { FileText } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { createPageUrl } from "@/utils";
+import { useMemberAccess } from "@/hooks/useMemberAccess";
 
 export default function SubmissionStatsBar() {
   const navigate = useNavigate();
+  const { memberInfo } = useMemberAccess();
   
   const { data: stats, isLoading, isError } = useQuery({
     queryKey: ['form-submission-stats'],
@@ -29,6 +31,13 @@ export default function SubmissionStatsBar() {
   });
 
   if (isLoading || isError || !stats) {
+    return null;
+  }
+
+  const allowedRoles = stats.allowed_roles || [];
+  const userRoleId = memberInfo?.role_id;
+  
+  if (allowedRoles.length > 0 && (!userRoleId || !allowedRoles.includes(userRoleId))) {
     return null;
   }
 

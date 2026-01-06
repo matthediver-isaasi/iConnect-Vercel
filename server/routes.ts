@@ -4343,7 +4343,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get form submission stats (admin only)
-  // Returns total count and count of submissions with status 'new' (or null)
+  // Returns total count, count of submissions with status 'new' (or null), and allowed_roles
   app.get('/api/admin/form-submissions/stats', async (req: Request, res: Response) => {
     const result = await verifyPermission(req, 'page_FormSubmissions');
     
@@ -4360,6 +4360,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     try {
+      // Get allowed roles setting
+      const { data: allowedRolesSetting } = await supabase
+        .from('system_settings')
+        .select('setting_value')
+        .eq('setting_key', 'submission_stats_allowed_roles')
+        .single();
+      
+      let allowedRoles: string[] = [];
+      if (allowedRolesSetting?.setting_value) {
+        try {
+          allowedRoles = JSON.parse(allowedRolesSetting.setting_value);
+        } catch (e) {
+          console.error('[FormSubmissionStats] Error parsing allowed_roles:', e);
+        }
+      }
+
       // Get total count
       const { count: totalCount, error: totalError } = await supabase
         .from('form_submission')
@@ -4383,7 +4399,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json({ 
         total: totalCount || 0, 
-        new: newCount || 0 
+        new: newCount || 0,
+        allowed_roles: allowedRoles
       });
     } catch (error) {
       console.error('[Admin Form Submission Stats] Error:', error);

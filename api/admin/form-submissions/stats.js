@@ -53,6 +53,22 @@ export default async function handler(req, res) {
       return res.status(403).json({ error: 'Access to form submissions required' });
     }
 
+    // Get allowed roles setting
+    const { data: allowedRolesSetting } = await supabase
+      .from('system_settings')
+      .select('setting_value')
+      .eq('setting_key', 'submission_stats_allowed_roles')
+      .single();
+    
+    let allowedRoles = [];
+    if (allowedRolesSetting?.setting_value) {
+      try {
+        allowedRoles = JSON.parse(allowedRolesSetting.setting_value);
+      } catch (e) {
+        console.error('[FormSubmissionStats] Error parsing allowed_roles:', e);
+      }
+    }
+
     const { count: totalCount, error: totalError } = await supabase
       .from('form_submission')
       .select('id', { count: 'exact', head: true });
@@ -74,7 +90,8 @@ export default async function handler(req, res) {
 
     return res.json({ 
       total: totalCount || 0, 
-      new: newCount || 0 
+      new: newCount || 0,
+      allowed_roles: allowedRoles
     });
   } catch (error) {
     console.error('[Admin Form Submission Stats] Error:', error);
