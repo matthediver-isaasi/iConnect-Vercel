@@ -81,22 +81,22 @@ function parseCookies(cookieHeader) {
 }
 
 export default async function handler(req, res) {
-  if (req.method !== 'GET') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
-
-  const cookies = parseCookies(req.headers.cookie);
-  const result = await verifyPermission(cookies, 'page_FormSubmissions');
-
-  if (result.error) {
-    return res.status(401).json({ error: result.error });
-  }
-
-  if (!result.hasPermission) {
-    return res.status(403).json({ error: 'Access to form submissions required' });
-  }
-
   try {
+    if (req.method !== 'GET') {
+      return res.status(405).json({ error: 'Method not allowed' });
+    }
+
+    const cookies = parseCookies(req.headers.cookie);
+    const result = await verifyPermission(cookies, 'page_FormSubmissions');
+
+    if (result.error) {
+      return res.status(401).json({ error: result.error });
+    }
+
+    if (!result.hasPermission) {
+      return res.status(403).json({ error: 'Access to form submissions required' });
+    }
+
     const { count: totalCount, error: totalError } = await supabase
       .from('form_submission')
       .select('id', { count: 'exact', head: true });
@@ -116,12 +116,12 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Failed to get new submission count' });
     }
 
-    res.json({ 
+    return res.json({ 
       total: totalCount || 0, 
       new: newCount || 0 
     });
   } catch (error) {
     console.error('[Admin Form Submission Stats] Error:', error);
-    res.status(500).json({ error: 'Failed to get form submission stats' });
+    return res.status(500).json({ error: 'Failed to get form submission stats' });
   }
 }
