@@ -73,8 +73,7 @@ export default async function handler(req, res) {
       .from('member_credentials')
       .update({ 
         failed_attempts: 0, 
-        locked_until: null,
-        last_login: new Date().toISOString() 
+        locked_until: null
       })
       .eq('id', credentials.id);
 

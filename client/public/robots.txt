@@ -24,5 +24,4 @@ Disallow: /DataExport
 Disallow: /SiteMap
 Disallow: /PortalMenuManagement
 Disallow: /PortalNavigationManagement
-Disallow: /TestLogin
 Disallow: /api/

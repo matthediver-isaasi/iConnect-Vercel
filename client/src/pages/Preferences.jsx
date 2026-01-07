@@ -193,7 +193,7 @@ export default function PreferencesPage() {
 
   const queryClient = useQueryClient();
 
-  // --- Get current user from sessionStorage (set by Login/TestLogin) ---
+  // --- Get current user from sessionStorage (set by Login) ---
   const [sessionMember, setSessionMember] = useState(null);
   const [sessionLoading, setSessionLoading] = useState(true);
 

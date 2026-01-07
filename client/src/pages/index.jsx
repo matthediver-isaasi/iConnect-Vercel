@@ -13,8 +13,7 @@ import EventDetails from "./EventDetails";
 import BuyProgramTickets from "./BuyProgramTickets";
 
 // VerifyMagicLink removed - using password authentication instead
-
-import TestLogin from "./TestLogin";
+// TestLogin removed - no longer needed
 
 import Login from "./Login";
 
@@ -281,8 +280,7 @@ const PAGES = {
     BuyProgramTickets: BuyProgramTickets,
     
     // VerifyMagicLink removed - using password authentication
-    
-    TestLogin: TestLogin,
+    // TestLogin removed - no longer needed
     
     Login: Login,
     
@@ -557,9 +555,7 @@ function PagesContent() {
                 <Route path="/BuyProgramTickets" element={<BuyProgramTickets />} />
                 
                 {/* VerifyMagicLink route removed - using password auth */}
-                
-                <Route path="/TestLogin" element={<TestLogin />} />
-                <Route path="/test-login" element={<TestLogin />} />
+                {/* TestLogin routes removed - no longer needed */}
                 
                 <Route path="/Login" element={<Login />} />
                 <Route path="/login" element={<Login />} />

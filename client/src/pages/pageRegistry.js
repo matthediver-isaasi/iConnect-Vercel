@@ -4,7 +4,6 @@ export const PAGE_NAMES = [
   "AdminSetup",
   "EventDetails",
   "BuyProgramTickets",
-  "TestLogin",
   "Login",
   "Balances",
   "Dashboard",
