@@ -2154,18 +2154,18 @@ useEffect(() => {
               </BannerProvider>
             </main>
 
-            <footer className="flex-shrink-0 flex-grow-0 bg-white border-t border-slate-200 py-6">
+            <footer className="flex-shrink-0 flex-grow-0 bg-white border-t border-slate-200 py-2">
               <div className="max-w-7xl mx-auto px-4 text-center">
                 <a 
                   href="https://isaasi.co.uk" 
                   target="_blank" 
                   rel="noopener noreferrer"
-                  className="inline-block mb-3 hover:opacity-80 transition-opacity"
+                  className="inline-block mb-1 hover:opacity-80 transition-opacity"
                 >
                   <img 
                     src="https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/68efc20f3e0a30fafad6dde7/fe03f7c5e_linked-aa.png" 
                     alt="isaasi"
-                    className="w-[40px] mx-auto"
+                    className="w-[32px] mx-auto"
                   />
                 </a>
                 <p className="text-sm text-slate-600">
@@ -2180,9 +2180,6 @@ useEffect(() => {
                     isaasi
                   </a>
                   {' '}- © Copyright {new Date().getFullYear() === 2025 ? '2025' : `2025-${new Date().getFullYear()}`}
-                </p>
-                <p className="text-xs text-slate-400 mt-2">
-                  v2.1
                 </p>
               </div>
             </footer>
