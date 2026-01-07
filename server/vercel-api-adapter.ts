@@ -2,7 +2,6 @@
  * Vercel API Adapter for Express Development Server
  * 
  * This adapter routes API requests to the Vercel serverless functions in /api/
- * instead of the deprecated server/routes.ts
  * 
  * The Vercel API handlers follow the signature: export default async function handler(req, res)
  * which is compatible with Express request/response objects with minor adaptations.

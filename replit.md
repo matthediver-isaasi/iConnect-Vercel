@@ -35,18 +35,17 @@ Development uses Express.js with Vite middleware. Production deploys to Vercel s
 
 ## API Architecture (Jan 2026)
 
-**Vercel Serverless Functions:** All API endpoints are implemented as Vercel serverless functions in the `/api/` directory. In development, `server/vercel-api-adapter.ts` routes `/api/*` requests to these handlers. The legacy `server/routes.ts` is deprecated.
+**Vercel Serverless Functions:** All API endpoints are implemented as Vercel serverless functions in the `/api/` directory. In local development, `server/vercel-api-adapter.ts` routes `/api/*` requests to these handlers.
 
 **Database Configuration:**
-- `api/_lib/database.js` - Centralized Supabase client that switches between development and production databases based on `NODE_ENV`
-- Development uses `DEV_SUPABASE_URL`/`DEV_DATABASE_URL` environment variables
-- Production uses `SUPABASE_URL`/`DATABASE_URL` environment variables
+- `api/_lib/database.js` - Centralized Supabase client
 - `api/_lib/session.js` - Session management with `iconnect.sid` cookie
+- Environment variables use the same names (`SUPABASE_URL`, `DATABASE_URL`, etc.) with different values per Vercel environment scope
 
-**Development Database (Jan 2026):**
-- Project: `lvmzliemqnieeoruhkik` (full clone of production schema and data)
-- This enables safe multi-tenant development without affecting production
-- Production database (`zkvgzcruhniduuswbfyh`) is protected
+**Environment Isolation (Jan 2026):**
+- Vercel Production → Production database (`zkvgzcruhniduuswbfyh`)
+- Vercel Preview → Development database (`lvmzliemqnieeoruhkik`)
+- Replit local → Development database (via `DEV_*` variables)
 
 **Key API Files:**
 - `api/entities/[entity]/index.js` - Generic entity CRUD

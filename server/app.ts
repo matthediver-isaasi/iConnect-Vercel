@@ -67,8 +67,7 @@ app.use((req, res, next) => {
 export default async function runApp(
   setup: (app: Express, server: Server) => Promise<void>,
 ) {
-  // Register Vercel API routes instead of the deprecated server/routes.ts
-  // This routes /api/* requests to the Vercel serverless functions in /api/
+  // Route /api/* requests to the Vercel serverless functions in /api/
   registerVercelApiRoutes(app);
 
   const server = createServer(app);
