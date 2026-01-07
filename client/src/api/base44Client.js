@@ -175,7 +175,6 @@ class EntitiesProxy {
   get Member() { return this._getEntity('Member'); }
   get Organization() { return this._getEntity('Organization'); }
   get Event() { return this._getEntity('Event'); }
-  get ZohoToken() { return this._getEntity('ZohoToken'); }
   get Booking() { return this._getEntity('Booking'); }
   get ProgramTicketTransaction() { return this._getEntity('ProgramTicketTransaction'); }
   get MagicLink() { return this._getEntity('MagicLink'); }

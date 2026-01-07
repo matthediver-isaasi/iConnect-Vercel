@@ -1195,7 +1195,7 @@ export default function DynamicDirectoryView() {
                 {paginatedItems.map(member => {
                   const stats = memberStats[member.id] || {};
                   const role = roles.find(r => r.id === member.role_id);
-                  const organization = allOrganizations.find(o => o.id === member.organization_id || o.zoho_account_id === member.organization_id);
+                  const organization = allOrganizations.find(o => o.id === member.organization_id);
                   
                   return (
                     <Card 

@@ -7,8 +7,6 @@ export const Organization = base44.entities.Organization;
 
 export const Event = base44.entities.Event;
 
-export const ZohoToken = base44.entities.ZohoToken;
-
 export const Booking = base44.entities.Booking;
 
 export const ProgramTicketTransaction = base44.entities.ProgramTicketTransaction;

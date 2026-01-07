@@ -206,16 +206,11 @@ export default function ArticleViewPage() {
   const { data: authorOrganization, isLoading: orgLoading, isError: orgError } = useQuery({
     queryKey: ['author-organization', authorMember?.organization_id],
     queryFn: async () => {
-      console.log('[ArticleView] Fetching organization for Zoho ID:', authorMember?.organization_id);
       if (!authorMember?.organization_id) {
-        console.log('[ArticleView] No organization_id, returning null');
         return null;
       }
       const orgs = await base44.entities.Organization.list();
-      console.log('[ArticleView] All organizations:', orgs.length);
-      console.log('[ArticleView] Looking for org with zoho_account_id:', authorMember.organization_id);
-      const found = orgs.find(o => o.zoho_account_id === authorMember.organization_id);
-      console.log('[ArticleView] Found organization:', found);
+      const found = orgs.find(o => o.id === authorMember.organization_id || o.zoho_account_id === authorMember.organization_id);
       return found;
     },
     enabled: !!authorMember?.organization_id && !isGuestWriter,
