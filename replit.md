@@ -172,33 +172,17 @@ Both Organizations and Members support internal notes that admins can add, edit,
 
 ## Zoho Integration Status (Jan 2026)
 
-**Zoho CRM:** FULLY DEPRECATED AND REMOVED - All CRM sync functionality and authentication UI have been removed from both backend and frontend. The application database is now the single source of truth for member and organization data.
+**Zoho CRM:** FULLY DEPRECATED AND REMOVED - All CRM sync functionality, authentication UI, database columns, and fallback lookups have been removed. The application database is now the single source of truth for member and organization data.
 
-**Removed Functions:**
-- `syncAllOrganizationsFromZoho`, `syncAllMembersFromZoho`, `getValidZohoAccessToken`
-- `syncOrganizationContacts`, `zohoContactWebhook`, `getZohoAuthUrl`
-- AdminSetup.jsx Zoho authentication UI and CRM sync cards
-- `ZohoToken` entity from client API layer
+**Removed (Jan 2026):**
+- Backend: `syncAllOrganizationsFromZoho`, `syncAllMembersFromZoho`, `getValidZohoAccessToken`, `syncOrganizationContacts`, `zohoContactWebhook`, `getZohoAuthUrl`
+- Frontend: AdminSetup.jsx Zoho authentication UI and CRM sync cards, `ZohoToken` entity from client API layer
+- Frontend: All `zoho_account_id` fallback lookups from MemberDirectory.jsx, DynamicDirectoryView.jsx, ArticleView.jsx
+- Database: `zoho_token` table, `zoho_account_id` column on organization, `zoho_contact_id` column on member, `base44_id` columns across all tables
 
-**Frontend Cleanup Completed:**
-- Removed `isAuthenticated` Zoho state and related handlers from AdminSetup.jsx
-
-**Fallback Lookups Retained (Jan 2026):**
-- `zoho_account_id` fallback lookups in MemberDirectory.jsx, DynamicDirectoryView.jsx, ArticleView.jsx are RETAINED until data migration is complete
-- These fallbacks ensure members whose `organization_id` field contains legacy Zoho IDs can still resolve their organizations
-- Can be safely removed once all `member.organization_id` values are migrated to internal org UUIDs
-
-**Zoho Backstage:** DEPRECATED - Event sync from Backstage has been removed. Events are now managed directly in the application. Functions `syncBackstageEvents` and `cancelBackstageOrder` have been stubbed to work locally without Zoho API calls.
+**Zoho Backstage:** DEPRECATED - Event sync from Backstage has been removed. Events are now managed directly in the application.
 
 **Minor Remaining References (non-functional):**
 - `ZOHO_PUBLIC_BACKSTAGE_SUBDOMAIN` constants in MyTickets.jsx and EventCard.jsx (for legacy event links)
 - Placeholder URL in EventSettings.jsx input field
-- `zoho_contact_id` field selection in ColleagueSelector.jsx (database field only)
 - Zoho Backstage widget scripts in UnpackedInternationalEmployability.jsx (external embed)
-
-**Database Cleanup Pending:** The following columns and tables can be dropped:
-- `zoho_contact_id` columns on member table
-- `zoho_account_id` columns on organization table  
-- `base44_id` columns across 58 tables
-- `zoho_token` table
-- SQL cleanup scripts available in `scripts/` directory

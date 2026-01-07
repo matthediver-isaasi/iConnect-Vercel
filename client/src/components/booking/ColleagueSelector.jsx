@@ -31,7 +31,7 @@ export default function ColleagueSelector({ organizationId, onSelect, memberInfo
         console.log('[ColleagueSelector] Loading members from Supabase...');
         const { data, error } = await supabase
           .from('member')
-          .select('id, email, first_name, last_name, zoho_contact_id, login_enabled, role_id')
+          .select('id, email, first_name, last_name, login_enabled, role_id')
           .eq('organization_id', organizationId)
           .eq('login_enabled', true)
           .order('first_name', { ascending: true });
@@ -85,7 +85,6 @@ export default function ColleagueSelector({ organizationId, onSelect, memberInfo
       email: member.email,
       first_name: member.first_name,
       last_name: member.last_name,
-      zoho_contact_id: member.zoho_contact_id,
       isValid: true,
       validationStatus: 'registered'
     });

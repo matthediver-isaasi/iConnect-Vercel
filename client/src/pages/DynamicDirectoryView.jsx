@@ -483,7 +483,7 @@ export default function DynamicDirectoryView() {
 
     if (selectedOrganization) {
       filtered = filtered.filter(member => {
-        const org = allOrganizations.find(o => o.id === member.organization_id || o.zoho_account_id === member.organization_id);
+        const org = allOrganizations.find(o => o.id === member.organization_id);
         return org?.id === selectedOrganization;
       });
     }
@@ -491,7 +491,7 @@ export default function DynamicDirectoryView() {
     if (searchQuery) {
       const searchLower = searchQuery.toLowerCase();
       filtered = filtered.filter(member => {
-        const organization = allOrganizations.find(o => o.id === member.organization_id || o.zoho_account_id === member.organization_id);
+        const organization = allOrganizations.find(o => o.id === member.organization_id);
         return (
           member.first_name?.toLowerCase().includes(searchLower) ||
           member.last_name?.toLowerCase().includes(searchLower) ||
@@ -522,13 +522,13 @@ export default function DynamicDirectoryView() {
         case "name-desc":
           return `${b.first_name} ${b.last_name}`.localeCompare(`${a.first_name} ${a.last_name}`);
         case "org-asc": {
-          const orgA = memberDisplaySettings?.show_organization ? (allOrganizations.find(o => o.id === a.organization_id || o.zoho_account_id === a.organization_id)?.name || "") : "";
-          const orgB = memberDisplaySettings?.show_organization ? (allOrganizations.find(o => o.id === b.organization_id || o.zoho_account_id === b.organization_id)?.name || "") : "";
+          const orgA = memberDisplaySettings?.show_organization ? (allOrganizations.find(o => o.id === a.organization_id)?.name || "") : "";
+          const orgB = memberDisplaySettings?.show_organization ? (allOrganizations.find(o => o.id === b.organization_id)?.name || "") : "";
           return orgA.localeCompare(orgB);
         }
         case "org-desc": {
-          const orgA = memberDisplaySettings?.show_organization ? (allOrganizations.find(o => o.id === a.organization_id || o.zoho_account_id === a.organization_id)?.name || "") : "";
-          const orgB = memberDisplaySettings?.show_organization ? (allOrganizations.find(o => o.id === b.organization_id || o.zoho_account_id === b.organization_id)?.name || "") : "";
+          const orgA = memberDisplaySettings?.show_organization ? (allOrganizations.find(o => o.id === a.organization_id)?.name || "") : "";
+          const orgB = memberDisplaySettings?.show_organization ? (allOrganizations.find(o => o.id === b.organization_id)?.name || "") : "";
           return orgB.localeCompare(orgA);
         }
         case "events-desc": {
@@ -1450,7 +1450,7 @@ export default function DynamicDirectoryView() {
               </div>
 
               {memberDisplaySettings?.show_organization && (() => {
-                const organization = allOrganizations.find(o => o.id === viewingMember.organization_id || o.zoho_account_id === viewingMember.organization_id);
+                const organization = allOrganizations.find(o => o.id === viewingMember.organization_id);
                 return organization ? (
                   <div className="bg-slate-50 rounded-lg p-4 border border-slate-200">
                     <div className="flex items-center gap-2 text-slate-700">

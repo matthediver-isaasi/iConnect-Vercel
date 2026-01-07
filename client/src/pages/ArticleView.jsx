@@ -210,7 +210,7 @@ export default function ArticleViewPage() {
         return null;
       }
       const orgs = await base44.entities.Organization.list();
-      const found = orgs.find(o => o.id === authorMember.organization_id || o.zoho_account_id === authorMember.organization_id);
+      const found = orgs.find(o => o.id === authorMember.organization_id);
       return found;
     },
     enabled: !!authorMember?.organization_id && !isGuestWriter,
