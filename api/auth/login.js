@@ -108,11 +108,11 @@ export default async function handler(req, res) {
       const { data: segmentationSettings } = await supabase
         .from('system_settings')
         .select('*')
-        .eq('key', 'role_segmentation_field_id')
+        .eq('setting_key', 'role_segmentation_field_id')
         .single();
       
       let defaultRole = null;
-      const segmentationFieldId = segmentationSettings?.value;
+      const segmentationFieldId = segmentationSettings?.setting_value;
       
       if (segmentationFieldId && member.organization_id) {
         // Get the organization's segment value

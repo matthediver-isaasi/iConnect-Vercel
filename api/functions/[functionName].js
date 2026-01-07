@@ -789,11 +789,11 @@ const functionHandlers = {
           const { data: segmentationSettings } = await supabase
             .from('system_settings')
             .select('*')
-            .eq('key', 'role_segmentation_field_id')
+            .eq('setting_key', 'role_segmentation_field_id')
             .single();
           
           let defaultRole = null;
-          const segmentationFieldId = segmentationSettings?.value;
+          const segmentationFieldId = segmentationSettings?.setting_value;
           
           // If segmentation is enabled and organization exists, try to find matching role
           if (segmentationFieldId && organizationId) {
