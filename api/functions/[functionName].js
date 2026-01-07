@@ -9,10 +9,6 @@ const stripe = process.env.STRIPE_SECRET_KEY
   ? new Stripe(process.env.STRIPE_SECRET_KEY)
   : null;
 
-const ZOHO_CRM_API_DOMAIN = process.env.ZOHO_CRM_API_DOMAIN || 'https://www.zohoapis.eu';
-const ZOHO_CLIENT_ID = process.env.ZOHO_CLIENT_ID;
-const ZOHO_CLIENT_SECRET = process.env.ZOHO_CLIENT_SECRET;
-
 // Xero OAuth credentials
 const XERO_CLIENT_ID = process.env.XERO_CLIENT_ID;
 const XERO_CLIENT_SECRET = process.env.XERO_CLIENT_SECRET;
@@ -494,62 +490,6 @@ function getHoursFromTimingType(timingType, customHours) {
   }
 }
 
-async function getValidZohoAccessToken() {
-  if (!supabase) throw new Error('Supabase not configured');
-  
-  const { data: tokens } = await supabase
-    .from('zoho_token')
-    .select('*')
-    .limit(1);
-
-  if (!tokens || tokens.length === 0) {
-    throw new Error('No Zoho tokens found. Admin needs to authenticate first.');
-  }
-
-  const token = tokens[0];
-  const now = new Date();
-  const expiresAt = new Date(token.expires_at);
-
-  if (expiresAt > now) {
-    return token.access_token;
-  }
-
-  const accountsDomain = ZOHO_CRM_API_DOMAIN.includes('.eu') 
-    ? 'https://accounts.zoho.eu' 
-    : ZOHO_CRM_API_DOMAIN.includes('.com.au')
-      ? 'https://accounts.zoho.com.au'
-      : 'https://accounts.zoho.com';
-
-  const refreshResponse = await fetch(`${accountsDomain}/oauth/v2/token`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'refresh_token',
-      client_id: ZOHO_CLIENT_ID,
-      client_secret: ZOHO_CLIENT_SECRET,
-      refresh_token: token.refresh_token,
-    }),
-  });
-
-  const refreshData = await refreshResponse.json();
-
-  if (refreshData.error) {
-    throw new Error(`Failed to refresh token: ${refreshData.error}`);
-  }
-
-  const newExpiresAt = new Date(Date.now() + (refreshData.expires_in * 1000)).toISOString();
-
-  await supabase
-    .from('zoho_token')
-    .update({
-      access_token: refreshData.access_token,
-      expires_at: newExpiresAt,
-    })
-    .eq('id', token.id);
-
-  return refreshData.access_token;
-}
-
 const functionHandlers = {
   async sendMagicLink(params, req) {
     if (!supabase) throw new Error('Supabase not configured');
@@ -664,195 +604,11 @@ const functionHandlers = {
     let member = allMembers?.find(m => m.email === email);
 
     if (!member) {
-      console.log('[validateMember] Member not found locally, checking Zoho CRM...');
-      
-      if (!ZOHO_CRM_API_DOMAIN || !ZOHO_CLIENT_ID || !ZOHO_CLIENT_SECRET) {
-        console.log('[validateMember] Zoho not configured, cannot sync from CRM');
-        return {
-          success: false,
-          error: 'Email not found. Please check your email address or contact support.'
-        };
-      }
-
-      try {
-        const accessToken = await getValidZohoAccessToken();
-        
-        const criteria = `(Email:equals:${email})`;
-        const contactFields = 'id,Email,First_Name,Last_Name,Account_Name';
-        const searchUrl = `${ZOHO_CRM_API_DOMAIN}/crm/v3/Contacts/search?criteria=${encodeURIComponent(criteria)}&fields=${contactFields}`;
-        
-        const searchResponse = await fetch(searchUrl, {
-          headers: { 'Authorization': `Zoho-oauthtoken ${accessToken}` }
-        });
-
-        if (!searchResponse.ok) {
-          console.log('[validateMember] CRM search failed');
-          return {
-            success: false,
-            error: 'Email not found. Please check your email address or contact support.'
-          };
-        }
-
-        const searchData = await searchResponse.json();
-        
-        if (!searchData.data || searchData.data.length === 0) {
-          console.log('[validateMember] Email not found in Zoho CRM');
-          return {
-            success: false,
-            error: 'Email not found. Please check your email address or contact support.'
-          };
-        }
-
-        const contact = searchData.data[0];
-        console.log('[validateMember] Found contact in Zoho CRM:', contact.Email, 'zoho_contact_id:', contact.id);
-
-        const { data: existingMemberByZohoId } = await supabase
-          .from('member')
-          .select('*')
-          .eq('zoho_contact_id', contact.id)
-          .limit(1);
-        
-        if (existingMemberByZohoId && existingMemberByZohoId.length > 0) {
-          console.log('[validateMember] Found existing member by zoho_contact_id, updating email');
-          const existingMember = existingMemberByZohoId[0];
-          await supabase
-            .from('member')
-            .update({ 
-              email: email,
-              first_name: contact.First_Name,
-              last_name: contact.Last_Name,
-              last_synced: new Date().toISOString()
-            })
-            .eq('id', existingMember.id);
-          
-          member = { ...existingMember, email, first_name: contact.First_Name, last_name: contact.Last_Name };
-        }
-
-        let organizationId = null;
-        if (!member && contact.Account_Name?.id) {
-          const accountFields = 'id,Account_Name,Training_Fund_Balance,Purchase_Order_Enabled,Email_Domains';
-          const accountUrl = `${ZOHO_CRM_API_DOMAIN}/crm/v3/Accounts/${contact.Account_Name.id}?fields=${accountFields}`;
-          const accountResponse = await fetch(accountUrl, {
-            headers: { 'Authorization': `Zoho-oauthtoken ${accessToken}` }
-          });
-
-          if (accountResponse.ok) {
-            const accountData = await accountResponse.json();
-            const account = accountData.data[0];
-
-            const { data: existingOrgs } = await supabase
-              .from('organization')
-              .select('*')
-              .eq('zoho_account_id', account.id);
-
-            if (existingOrgs && existingOrgs.length > 0) {
-              organizationId = existingOrgs[0].id;
-              await supabase
-                .from('organization')
-                .update({
-                  name: account.Account_Name,
-                  training_fund_balance: account.Training_Fund_Balance || 0,
-                  purchase_order_enabled: account.Purchase_Order_Enabled || false,
-                  last_synced: new Date().toISOString()
-                })
-                .eq('id', existingOrgs[0].id);
-            } else {
-              const { data: newOrg } = await supabase
-                .from('organization')
-                .insert({
-                  name: account.Account_Name,
-                  zoho_account_id: account.id,
-                  training_fund_balance: account.Training_Fund_Balance || 0,
-                  purchase_order_enabled: account.Purchase_Order_Enabled || false,
-                  last_synced: new Date().toISOString()
-                })
-                .select()
-                .single();
-              organizationId = newOrg?.id;
-            }
-          }
-        }
-
-        if (!member) {
-          const { data: allRoles } = await supabase
-            .from('role')
-            .select('*');
-          
-          // Check for role segmentation
-          const { data: segmentationSettings } = await supabase
-            .from('system_settings')
-            .select('*')
-            .eq('setting_key', 'role_segmentation_field_id')
-            .single();
-          
-          let defaultRole = null;
-          const segmentationFieldId = segmentationSettings?.setting_value;
-          
-          // If segmentation is enabled and organization exists, try to find matching role
-          if (segmentationFieldId && organizationId) {
-            const { data: orgPrefValue } = await supabase
-              .from('organization_preference_value')
-              .select('value')
-              .eq('organization_id', organizationId)
-              .eq('field_id', segmentationFieldId)
-              .single();
-            
-            const orgSegmentValue = orgPrefValue?.value;
-            
-            if (orgSegmentValue) {
-              defaultRole = allRoles?.find(r => 
-                r.is_default === true && 
-                r.segment_values && 
-                Array.isArray(r.segment_values) && 
-                r.segment_values.includes(orgSegmentValue)
-              );
-            }
-          }
-          
-          // Fallback to any default role if no segmented match
-          if (!defaultRole) {
-            defaultRole = allRoles?.find(r => r.is_default === true);
-          }
-
-          const memberData = {
-            email: email,
-            first_name: contact.First_Name,
-            last_name: contact.Last_Name,
-            zoho_contact_id: contact.id,
-            organization_id: organizationId,
-            last_synced: new Date().toISOString(),
-            login_enabled: true
-          };
-
-          if (defaultRole) {
-            memberData.role_id = defaultRole.id;
-          }
-
-          const { data: newMember, error: insertError } = await supabase
-            .from('member')
-            .insert(memberData)
-            .select()
-            .single();
-
-          if (insertError) {
-            console.error('[validateMember] Failed to create member:', insertError);
-            return {
-              success: false,
-              error: 'Failed to create member record'
-            };
-          }
-
-          member = newMember;
-          console.log('[validateMember] Created new member from CRM:', member.email);
-        }
-
-      } catch (crmError) {
-        console.error('[validateMember] CRM sync error:', crmError.message);
-        return {
-          success: false,
-          error: 'Email not found. Please check your email address or contact support.'
-        };
-      }
+      console.log('[validateMember] Member not found in database');
+      return {
+        success: false,
+        error: 'Email not found. Please check your email address or contact support.'
+      };
     }
 
     console.log('[validateMember] Found Member record');
@@ -924,11 +680,7 @@ const functionHandlers = {
         .from('organization')
         .select('*');
 
-      let org = allOrgs?.find(o => o.id === organizationId);
-
-      if (!org) {
-        org = allOrgs?.find(o => o.zoho_account_id === organizationId);
-      }
+      const org = allOrgs?.find(o => o.id === organizationId);
 
       if (org) {
         organizationName = org.name;
@@ -985,73 +737,24 @@ const functionHandlers = {
     const { email } = params;
     if (!email) return { error: 'Email required' };
 
-    const accessToken = await getValidZohoAccessToken();
-
-    const { data: allMembers } = await supabase
+    // Find member in local database
+    const { data: member } = await supabase
       .from('member')
-      .select('*');
-
-    const member = allMembers?.find(m => m.email === email);
+      .select('*, organization:organization_id(*)')
+      .ilike('email', email)
+      .single();
 
     if (!member) {
       return { error: 'Member not found', searchedEmail: email };
     }
 
-    const criteria = `(Email:equals:${email})`;
-    const contactFields = 'id,Email,First_Name,Last_Name,Account_Name';
-    const searchUrl = `${ZOHO_CRM_API_DOMAIN}/crm/v3/Contacts/search?criteria=${encodeURIComponent(criteria)}&fields=${contactFields}`;
-    
-    const searchResponse = await fetch(searchUrl, {
-      headers: { 'Authorization': `Zoho-oauthtoken ${accessToken}` }
-    });
-
-    if (!searchResponse.ok) {
-      return { error: 'CRM lookup failed' };
-    }
-
-    const searchData = await searchResponse.json();
-    
-    if (!searchData.data || searchData.data.length === 0) {
-      return { error: 'Contact not found in CRM' };
-    }
-
-    const contact = searchData.data[0];
-
-    if (contact.Account_Name?.id) {
-      const accountFields = 'id,Account_Name,Training_Fund_Balance,Purchase_Order_Enabled,Email_Domains';
-      const accountUrl = `${ZOHO_CRM_API_DOMAIN}/crm/v3/Accounts/${contact.Account_Name.id}?fields=${accountFields}`;
-      const accountResponse = await fetch(accountUrl, {
-        headers: { 'Authorization': `Zoho-oauthtoken ${accessToken}` }
-      });
-
-      if (accountResponse.ok) {
-        const accountData = await accountResponse.json();
-        const account = accountData.data[0];
-
-        const { data: existingOrgs } = await supabase
-          .from('organization')
-          .select('*')
-          .eq('zoho_account_id', account.id);
-
-        if (existingOrgs && existingOrgs.length > 0) {
-          const updatedBalance = account.Training_Fund_Balance || 0;
-          
-          await supabase
-            .from('organization')
-            .update({
-              training_fund_balance: updatedBalance,
-              purchase_order_enabled: account.Purchase_Order_Enabled || false,
-              last_synced: new Date().toISOString()
-            })
-            .eq('id', existingOrgs[0].id);
-
-          return {
-            success: true,
-            training_fund_balance: updatedBalance,
-            organization_name: existingOrgs[0].name
-          };
-        }
-      }
+    // Return balance from local organization record
+    if (member.organization) {
+      return {
+        success: true,
+        training_fund_balance: member.organization.training_fund_balance || 0,
+        organization_name: member.organization.name
+      };
     }
 
     return { success: true, training_fund_balance: 0 };
@@ -1142,32 +845,16 @@ const functionHandlers = {
       return { valid: false, error: 'Missing required parameters' };
     }
 
-    const accessToken = await getValidZohoAccessToken();
+    // Check if colleague already exists as a member in the local database
+    const { data: existingMember } = await supabase
+      .from('member')
+      .select('id, email, first_name, last_name, organization_id')
+      .ilike('email', email)
+      .maybeSingle();
 
-    const criteria = `(Email:equals:${email})`;
-    const contactFields = 'id,Email,First_Name,Last_Name,Account_Name';
-    const searchUrl = `${ZOHO_CRM_API_DOMAIN}/crm/v3/Contacts/search?criteria=${encodeURIComponent(criteria)}&fields=${contactFields}`;
-
-    const searchResponse = await fetch(searchUrl, {
-      headers: { 'Authorization': `Zoho-oauthtoken ${accessToken}` }
-    });
-
-    let searchData = { data: [] };
-    const responseText = await searchResponse.text();
-
-    if (responseText && responseText.trim() !== '') {
-      try {
-        searchData = JSON.parse(responseText);
-      } catch (e) {
-        console.error('Failed to parse search response:', responseText);
-        searchData = { data: [] };
-      }
-    }
-
-    if (searchResponse.ok && searchData.data && searchData.data.length > 0) {
-      const contact = searchData.data[0];
-
-      if (!contact.Account_Name?.id || contact.Account_Name.id !== organizationId) {
+    if (existingMember) {
+      // Check if member belongs to the same organization
+      if (existingMember.organization_id !== organizationId) {
         return {
           valid: false,
           status: 'wrong_organization',
@@ -1178,22 +865,23 @@ const functionHandlers = {
       return {
         valid: true,
         status: 'verified',
-        first_name: contact.First_Name,
-        last_name: contact.Last_Name,
-        zoho_contact_id: contact.id
+        first_name: existingMember.first_name,
+        last_name: existingMember.last_name,
+        member_id: existingMember.id
       };
     }
 
+    // Check email domain against organization's allowed domains
     const emailDomain = email.split('@')[1]?.toLowerCase();
     if (!emailDomain) {
       return { valid: false, status: 'invalid_email', error: 'Invalid email format' };
     }
 
-    const { data: allOrgs } = await supabase.from('organization').select('*');
-    let targetOrg = allOrgs?.find(o => o.id === organizationId);
-    if (!targetOrg) {
-      targetOrg = allOrgs?.find(o => o.zoho_account_id === organizationId);
-    }
+    const { data: targetOrg } = await supabase
+      .from('organization')
+      .select('*')
+      .eq('id', organizationId)
+      .single();
 
     if (targetOrg?.email_domains) {
       const orgDomains = targetOrg.email_domains.map(d => d.toLowerCase());
@@ -1282,22 +970,12 @@ const functionHandlers = {
 
     console.log('[createBooking] Looking up organization:', member.organization_id);
     
-    // Try direct lookup by ID first
+    // Look up organization by ID
     let { data: org, error: orgError } = await supabase
       .from('organization')
       .select('*')
       .eq('id', member.organization_id)
       .maybeSingle();
-    
-    // If not found, try by zoho_account_id
-    if (!org && !orgError) {
-      const { data: orgByZoho } = await supabase
-        .from('organization')
-        .select('*')
-        .eq('zoho_account_id', member.organization_id)
-        .maybeSingle();
-      org = orgByZoho;
-    }
 
     if (!org) {
       console.log('[createBooking] Organization not found for id:', member.organization_id);
@@ -2790,15 +2468,6 @@ const functionHandlers = {
         .maybeSingle();
       org = orgById;
 
-      // Fallback: check if organizationId is actually a zoho_account_id
-      if (!org) {
-        const { data: orgByZoho } = await supabase
-          .from('organization')
-          .select('*')
-          .eq('zoho_account_id', organizationId)
-          .maybeSingle();
-        org = orgByZoho;
-      }
     }
 
     // If no org found by ID, try to find via member email
@@ -2857,7 +2526,7 @@ const functionHandlers = {
     };
   },
 
-  async syncBackstageEvents() {
+  async syncBackstageEventsDeprecated() {
     return { 
       success: false, 
       error: 'Event sync should be triggered from admin panel in development environment' 
@@ -3412,216 +3081,15 @@ const functionHandlers = {
   },
 
   async syncBackstageEvents(params) {
-    if (!supabase) throw new Error('Supabase not configured');
-    
-    const { accessToken } = params;
-    const ZOHO_BACKSTAGE_PORTAL_ID = process.env.ZOHO_BACKSTAGE_PORTAL_ID || '20108049755';
-
-    if (!accessToken) {
-      return { error: 'Missing access token' };
-    }
-
-    const baseUrl = 'https://www.zohoapis.eu/backstage/v3';
-    const url = `${baseUrl}/portals/${ZOHO_BACKSTAGE_PORTAL_ID}/events?status=live`;
-
-    const eventsResponse = await fetch(url, {
-      method: 'GET',
-      headers: { 'Authorization': `Zoho-oauthtoken ${accessToken}` }
-    });
-
-    if (!eventsResponse.ok) {
-      const errorText = await eventsResponse.text();
-      return { error: 'Failed to fetch events from Backstage', details: errorText };
-    }
-
-    const eventsData = await eventsResponse.json();
-    const events = eventsData.events || [];
-
-    if (events.length === 0) {
-      return { success: true, synced: 0, errors: 0, total: 0, message: 'No events found' };
-    }
-
-    let syncedCount = 0;
-    let errorCount = 0;
-    const errors = [];
-
-    const { data: allExistingEvents } = await supabase.from('event').select('*');
-
-    for (const event of events) {
-      try {
-        const programTag = event.tags && event.tags.length > 0 ? event.tags[0] : null;
-
-        const ticketClassesUrl = `${baseUrl}/portals/${ZOHO_BACKSTAGE_PORTAL_ID}/events/${event.id}/ticket_classes`;
-        const ticketClassesResponse = await fetch(ticketClassesUrl, {
-          headers: { 'Authorization': `Zoho-oauthtoken ${accessToken}` }
-        });
-
-        let ticketTypeId = null;
-        let ticketPrice = 0;
-        let availableSeats = 0;
-
-        if (ticketClassesResponse.ok) {
-          const ticketClassesData = await ticketClassesResponse.json();
-          const ticketClasses = ticketClassesData.ticket_classes || [];
-
-          let memberTicket = ticketClasses.find(tc =>
-            tc.translation?.name?.toLowerCase() === 'member' || tc.ticket_class_type_string === 'free'
-          );
-
-          if (!memberTicket && ticketClasses.length > 0) {
-            memberTicket = ticketClasses[0];
-          }
-
-          if (memberTicket) {
-            ticketTypeId = memberTicket.id.toString();
-            ticketPrice = parseFloat(memberTicket.amount || 0);
-            availableSeats = parseInt((memberTicket.quantity || 0) - (memberTicket.sold || 0));
-          }
-        }
-
-        const eventData = {
-          title: event.name,
-          description: event.description || '',
-          program_tag: programTag,
-          start_date: event.start_time,
-          end_date: event.end_time,
-          location: event.venue?.name || 'Online',
-          ticket_price: ticketPrice,
-          available_seats: availableSeats,
-          backstage_event_id: event.id.toString(),
-          backstage_ticket_type_id: ticketTypeId,
-          image_url: event.banner_url || event.thumbnail_url || null,
-          last_synced: new Date().toISOString()
-        };
-
-        const existingEvent = allExistingEvents?.find(e => e.backstage_event_id === eventData.backstage_event_id);
-
-        if (existingEvent) {
-          await supabase.from('event').update(eventData).eq('id', existingEvent.id);
-        } else {
-          await supabase.from('event').insert(eventData);
-        }
-
-        syncedCount++;
-      } catch (error) {
-        errors.push({ eventId: event.id, error: error.message });
-        errorCount++;
-      }
-    }
-
-    return { success: true, synced: syncedCount, errors: errorCount, total: events.length, errorDetails: errors.length > 0 ? errors : undefined };
+    // Zoho Backstage integration deprecated - events are now managed directly in the application
+    return { 
+      success: false, 
+      error: 'Zoho Backstage integration has been deprecated. Events are now managed directly in the application.' 
+    };
   },
 
   async syncEventsFromBackstage(params) {
     return this.syncBackstageEvents(params);
-  },
-
-  async syncOrganizationContacts(params) {
-    if (!supabase) throw new Error('Supabase not configured');
-    
-    const { organizationId } = params;
-
-    if (!organizationId) {
-      return { success: false, error: 'Organization ID is required' };
-    }
-
-    const { data: allOrgs } = await supabase.from('organization').select('*');
-    let org = allOrgs?.find(o => o.id === organizationId);
-    if (!org) {
-      org = allOrgs?.find(o => o.zoho_account_id === organizationId);
-    }
-
-    if (!org || !org.zoho_account_id) {
-      return { success: false, error: 'Organization not found or not linked to Zoho' };
-    }
-
-    const accessToken = await getValidZohoAccessToken();
-
-    let allContacts = [];
-    let page = 1;
-    const perPage = 200;
-    let hasMore = true;
-
-    while (hasMore) {
-      const criteria = `(Account_Name:equals:${org.name})`;
-      const contactFields = 'id,Email,First_Name,Last_Name,Account_Name';
-      const searchUrl = `${ZOHO_CRM_API_DOMAIN}/crm/v3/Contacts/search?criteria=${encodeURIComponent(criteria)}&fields=${contactFields}&page=${page}&per_page=${perPage}`;
-
-      const response = await fetch(searchUrl, {
-        headers: { 'Authorization': `Zoho-oauthtoken ${accessToken}` }
-      });
-
-      if (!response.ok) break;
-
-      let data;
-      try {
-        data = await response.json();
-      } catch (e) {
-        break;
-      }
-
-      if (data.data && data.data.length > 0) {
-        allContacts = allContacts.concat(data.data);
-        hasMore = data.info?.more_records || false;
-        page++;
-      } else {
-        hasMore = false;
-      }
-    }
-
-    if (allContacts.length === 0) {
-      await supabase.from('organization').update({ contacts_synced_at: new Date().toISOString() }).eq('id', org.id);
-      return { success: true, synced_count: 0, created: 0, updated: 0, deactivated: 0 };
-    }
-
-    const { data: existingContacts } = await supabase.from('organization_contact').select('*').eq('organization_id', org.id);
-
-    const existingByZohoId = {};
-    (existingContacts || []).forEach(contact => { existingByZohoId[contact.zoho_contact_id] = contact; });
-
-    const contactsToCreate = [];
-    const contactsToUpdate = [];
-    const zohoIdsFound = new Set();
-
-    for (const zohoContact of allContacts) {
-      zohoIdsFound.add(zohoContact.id);
-      if (!zohoContact.Email) continue;
-
-      const contactData = {
-        organization_id: org.id,
-        zoho_contact_id: zohoContact.id,
-        email: zohoContact.Email,
-        first_name: zohoContact.First_Name || '',
-        last_name: zohoContact.Last_Name || '',
-        is_active: true,
-        last_synced: new Date().toISOString()
-      };
-
-      if (existingByZohoId[zohoContact.id]) {
-        contactsToUpdate.push({ id: existingByZohoId[zohoContact.id].id, ...contactData });
-      } else {
-        contactsToCreate.push(contactData);
-      }
-    }
-
-    const contactsToDeactivate = (existingContacts || []).filter(c => !zohoIdsFound.has(c.zoho_contact_id) && c.is_active);
-
-    if (contactsToCreate.length > 0) {
-      await supabase.from('organization_contact').insert(contactsToCreate);
-    }
-
-    for (const contact of contactsToUpdate) {
-      const { id, ...updateData } = contact;
-      await supabase.from('organization_contact').update(updateData).eq('id', id);
-    }
-
-    for (const contact of contactsToDeactivate) {
-      await supabase.from('organization_contact').update({ is_active: false, last_synced: new Date().toISOString() }).eq('id', contact.id);
-    }
-
-    await supabase.from('organization').update({ contacts_synced_at: new Date().toISOString() }).eq('id', org.id);
-
-    return { success: true, synced_count: allContacts.length, created: contactsToCreate.length, updated: contactsToUpdate.length, deactivated: contactsToDeactivate.length };
   },
 
   async cancelTicketViaFlow(params) {
@@ -3657,9 +3125,11 @@ const functionHandlers = {
     let organizationId = member?.organization_id;
 
     if (organizationId && event?.program_tag) {
-      const { data: allOrgs } = await supabase.from('organization').select('*');
-      let org = allOrgs?.find(o => o.id === organizationId);
-      if (!org) org = allOrgs?.find(o => o.zoho_account_id === organizationId);
+      const { data: org } = await supabase
+        .from('organization')
+        .select('*')
+        .eq('id', organizationId)
+        .single();
 
       if (org) {
         const currentBalances = org.program_ticket_balances || {};
@@ -3686,22 +3156,7 @@ const functionHandlers = {
 
     await supabase.from('booking').update({ status: 'cancelled' }).eq('id', booking.id);
 
-    const ZOHO_FLOW_WEBHOOK_URL = process.env.ZOHO_FLOW_CANCEL_WEBHOOK_URL ||
-      'https://flow.zoho.eu/20108063378/flow/webhook/incoming?zapikey=1001.ee25c218c557d7dddb0eed4f3e0e981a.70bb4e51162d59156ab4899ad8bcc38c&isdebug=false';
-
-    try {
-      const response = await fetch(ZOHO_FLOW_WEBHOOK_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ order_id: orderId, cancel_reason: cancelReason })
-      });
-
-      if (response.ok) {
-        return { success: true, message: 'Ticket cancelled successfully' };
-      }
-    } catch (e) {}
-
-    return { success: true, message: 'Ticket marked as cancelled. Backstage sync may take a moment.', warning: 'Backstage API call failed but local status updated' };
+    return { success: true, message: 'Ticket cancelled successfully' };
   },
 
   async cancelBackstageOrder(params) {
@@ -3713,88 +3168,25 @@ const functionHandlers = {
       return { success: false, error: 'Missing required parameter: orderId' };
     }
 
-    const { data: allBookings } = await supabase.from('booking').select('*');
-    const booking = allBookings?.find(b => b.backstage_order_id === orderId);
+    // Find booking by backstage order ID or regular booking ID
+    const { data: booking } = await supabase
+      .from('booking')
+      .select('*')
+      .or(`backstage_order_id.eq.${orderId},id.eq.${orderId}`)
+      .single();
 
     if (!booking) {
-      return { success: false, error: 'No booking found with this Backstage order ID' };
+      return { success: false, error: 'No booking found with this order ID' };
     }
 
-    const { data: allEvents } = await supabase.from('event').select('*');
-    const event = allEvents?.find(e => e.id === booking.event_id);
-
-    if (!event || !event.backstage_event_id) {
-      return { success: false, error: 'Event not found or missing Backstage event ID' };
+    if (booking.status === 'cancelled') {
+      return { success: true, message: 'Booking already cancelled' };
     }
 
-    const accessToken = await getValidZohoAccessToken();
-    const portalId = process.env.ZOHO_BACKSTAGE_PORTAL_ID || "20108049755";
-    const baseUrl = "https://www.zohoapis.eu/backstage/v3";
-    const orderUrl = `${baseUrl}/portals/${portalId}/events/${event.backstage_event_id}/orders/${orderId}`;
+    // Cancel the booking locally
+    await supabase.from('booking').update({ status: 'cancelled' }).eq('id', booking.id);
 
-    const attempts = [];
-
-    try {
-      const response1 = await fetch(orderUrl, {
-        method: 'PUT',
-        headers: { 'Authorization': `Zoho-oauthtoken ${accessToken}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'cancelled', cancel_reason: cancelReason })
-      });
-
-      attempts.push({ method: 'PUT', status: response1.status, success: response1.ok });
-
-      if (response1.ok) {
-        await supabase.from('booking').update({ status: 'cancelled' }).eq('id', booking.id);
-        return { success: true, method: 'PUT', message: 'Order cancelled successfully' };
-      }
-    } catch (e) {
-      attempts.push({ method: 'PUT', error: e.message });
-    }
-
-    try {
-      const response2 = await fetch(orderUrl, {
-        method: 'POST',
-        headers: { 'Authorization': `Zoho-oauthtoken ${accessToken}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'cancel', cancel_reason: cancelReason })
-      });
-
-      attempts.push({ method: 'POST action', status: response2.status, success: response2.ok });
-
-      if (response2.ok) {
-        await supabase.from('booking').update({ status: 'cancelled' }).eq('id', booking.id);
-        return { success: true, method: 'POST (action parameter)', message: 'Order cancelled successfully' };
-      }
-    } catch (e) {
-      attempts.push({ method: 'POST action', error: e.message });
-    }
-
-    try {
-      const refundUrl = `${orderUrl}/refund`;
-      const response3 = await fetch(refundUrl, {
-        method: 'POST',
-        headers: { 'Authorization': `Zoho-oauthtoken ${accessToken}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cancel_reason: cancelReason, refund_amount: 0 })
-      });
-
-      attempts.push({ method: 'POST refund', url: refundUrl, status: response3.status, success: response3.ok });
-
-      if (response3.ok) {
-        await supabase.from('booking').update({ status: 'cancelled' }).eq('id', booking.id);
-        return { success: true, method: 'POST (refund endpoint)', message: 'Order cancelled successfully' };
-      }
-    } catch (e) {
-      attempts.push({ method: 'POST refund', error: e.message });
-    }
-
-    return {
-      success: false,
-      message: 'All cancellation attempts failed. Zoho Flow webhook approach recommended.',
-      attempts,
-      orderUrl,
-      portalId,
-      backstageEventId: event.backstage_event_id,
-      recommendation: 'Consider using Zoho Flow webhook to handle cancellations'
-    };
+    return { success: true, message: 'Booking cancelled successfully' };
   },
 
   async processBackstageCancellation(params) {
@@ -3822,47 +3214,6 @@ const functionHandlers = {
     }
 
     return { success: true, message: 'Webhook received but not an expected order cancellation event' };
-  },
-
-  async zohoContactWebhook(params) {
-    if (!supabase) throw new Error('Supabase not configured');
-    
-    const contactData = params.data || params;
-
-    if (!contactData.id || !contactData.Email) {
-      return { success: false, error: 'Missing required contact data' };
-    }
-
-    let organizationId = null;
-    if (contactData.Account_Name?.id) {
-      const { data: allOrgs } = await supabase.from('organization').select('*');
-      const org = allOrgs?.find(o => o.zoho_account_id === contactData.Account_Name.id);
-      if (org) organizationId = org.id;
-    }
-
-    if (!organizationId) {
-      return { success: true, message: 'Contact not associated with a synced organization' };
-    }
-
-    const { data: existingContacts } = await supabase.from('organization_contact').select('*').eq('zoho_contact_id', contactData.id);
-
-    const contactRecord = {
-      organization_id: organizationId,
-      zoho_contact_id: contactData.id,
-      email: contactData.Email,
-      first_name: contactData.First_Name || '',
-      last_name: contactData.Last_Name || '',
-      is_active: true,
-      last_synced: new Date().toISOString()
-    };
-
-    if (existingContacts && existingContacts.length > 0) {
-      await supabase.from('organization_contact').update(contactRecord).eq('id', existingContacts[0].id);
-      return { success: true, action: 'updated', contact_id: existingContacts[0].id };
-    } else {
-      const { data: newContact } = await supabase.from('organization_contact').insert(contactRecord).select().single();
-      return { success: true, action: 'created', contact_id: newContact?.id };
-    }
   },
 
   async checkMemberStatusByEmail(params) {
@@ -3982,436 +3333,7 @@ const functionHandlers = {
     return this.validateMember(params);
   },
 
-  async syncAllOrganizationsFromZoho(params = {}) {
-    if (!supabase) throw new Error('Supabase not configured');
-    
-    // Chunked sync: fetch and process limited records per call
-    // Reduced to 1 page (200 records) to stay under Vercel timeout
-    const { page_token: inputPageToken, max_pages = 1 } = params;
-    
-    try {
-      console.log('[syncAllOrganizationsFromZoho] Getting Zoho access token...');
-      
-      const accessToken = await getValidZohoAccessToken();
-      
-      // Pre-load existing organizations for fast lookups
-      const { data: existingOrgs } = await supabase.from('organization').select('id, zoho_account_id');
-      const existingByZohoId = {};
-      (existingOrgs || []).forEach(org => {
-        if (org.zoho_account_id) {
-          existingByZohoId[org.zoho_account_id] = org;
-        }
-      });
-
-      // Parse input token - format: "cursor:TOKEN" or "page:N"
-      let pageToken = null;
-      let page = 1;
-      if (inputPageToken) {
-        if (inputPageToken.startsWith('cursor:')) {
-          pageToken = inputPageToken.substring(7);
-        } else if (inputPageToken.startsWith('page:')) {
-          page = parseInt(inputPageToken.substring(5), 10) || 1;
-        }
-      }
-      
-      const perPage = 200;
-      let pagesProcessed = 0;
-      let totalFetched = 0;
-      let created = 0;
-      let updated = 0;
-      let failed = 0;
-      let hasMore = true;
-      let nextPageToken = null;
-      
-      // Detailed logs for download
-      const logs = [];
-
-      console.log(`[syncAllOrganizationsFromZoho] Starting sync (max ${max_pages} pages per call, starting page ${page})...`);
-
-      while (hasMore && pagesProcessed < max_pages) {
-        const accountFields = 'id,Account_Name,Training_Fund_Balance,Purchase_Order_Enabled,Email_Domains';
-        let accountsUrl;
-        if (pageToken) {
-          // Cursor-based pagination (for records beyond 2000)
-          accountsUrl = `${ZOHO_CRM_API_DOMAIN}/crm/v3/Accounts?fields=${accountFields}&per_page=${perPage}&page_token=${pageToken}`;
-        } else {
-          // Offset-based pagination (for first 2000 records)
-          accountsUrl = `${ZOHO_CRM_API_DOMAIN}/crm/v3/Accounts?fields=${accountFields}&page=${page}&per_page=${perPage}`;
-        }
-        
-        const response = await fetch(accountsUrl, {
-          headers: { 'Authorization': `Zoho-oauthtoken ${accessToken}` },
-        });
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error('[syncAllOrganizationsFromZoho] Failed to fetch accounts:', response.status, errorText);
-          logs.push({ type: 'error', entity: 'API', message: `Zoho API error: ${response.status} - ${errorText}` });
-          return { success: false, error: `Zoho API error: ${response.status} - ${errorText}`, logs };
-        }
-
-        const data = await response.json();
-        
-        if (data.data && data.data.length > 0) {
-          const accounts = data.data;
-          totalFetched += accounts.length;
-          pagesProcessed++;
-          
-          console.log(`[syncAllOrganizationsFromZoho] Page ${pagesProcessed}: processing ${accounts.length} accounts`);
-          
-          // Process this batch - prepare bulk operations
-          const toInsert = [];
-          const toUpdate = [];
-          
-          for (const account of accounts) {
-            const orgData = {
-              zoho_account_id: account.id,
-              name: account.Account_Name || 'Unnamed Organization',
-              website: account.Website || null,
-              phone: account.Phone || null,
-              industry: account.Industry || null,
-              billing_street: account.Billing_Street || null,
-              billing_city: account.Billing_City || null,
-              billing_state: account.Billing_State || null,
-              billing_code: account.Billing_Code || null,
-              billing_country: account.Billing_Country || null,
-              last_synced: new Date().toISOString()
-            };
-
-            if (existingByZohoId[account.id]) {
-              toUpdate.push({ id: existingByZohoId[account.id].id, ...orgData, _zohoName: account.Account_Name });
-            } else {
-              toInsert.push({ ...orgData, _zohoName: account.Account_Name });
-              existingByZohoId[account.id] = { id: 'pending' };
-            }
-          }
-          
-          // Bulk insert new organizations (with fallback to individual inserts on error)
-          if (toInsert.length > 0) {
-            const insertData = toInsert.map(({ _zohoName, ...rest }) => rest);
-            const { error: insertError } = await supabase.from('organization').insert(insertData);
-            if (insertError) {
-              console.warn('[syncAllOrganizationsFromZoho] Bulk insert failed, trying individual inserts:', insertError.message);
-              // Fallback to individual inserts to identify and skip problematic records
-              for (const org of toInsert) {
-                const { _zohoName, ...orgInsertData } = org;
-                const { error: singleError } = await supabase.from('organization').insert([orgInsertData]);
-                if (singleError) {
-                  console.error(`[syncAllOrganizationsFromZoho] Failed to insert org "${org.name}" (Zoho ID: ${org.zoho_account_id}): ${singleError.message}`);
-                  logs.push({ 
-                    type: 'error', 
-                    entity: 'organization', 
-                    action: 'insert',
-                    zoho_id: org.zoho_account_id, 
-                    name: org.name,
-                    zoho_name: _zohoName,
-                    message: singleError.message 
-                  });
-                  failed++;
-                } else {
-                  logs.push({ type: 'success', entity: 'organization', action: 'created', zoho_id: org.zoho_account_id, name: org.name });
-                  created++;
-                }
-              }
-            } else {
-              for (const org of toInsert) {
-                logs.push({ type: 'success', entity: 'organization', action: 'created', zoho_id: org.zoho_account_id, name: org.name });
-              }
-              created += toInsert.length;
-            }
-          }
-          
-          // Bulk update existing organizations (batch of 50 at a time)
-          const updateBatchSize = 50;
-          for (let i = 0; i < toUpdate.length; i += updateBatchSize) {
-            const batch = toUpdate.slice(i, i + updateBatchSize);
-            await Promise.all(batch.map(({ id, _zohoName, ...updateData }) => 
-              supabase.from('organization').update(updateData).eq('id', id)
-            ));
-            for (const org of batch) {
-              logs.push({ type: 'success', entity: 'organization', action: 'updated', zoho_id: org.zoho_account_id, name: org.name });
-            }
-            updated += batch.length;
-          }
-          
-          // Check for next page - encode pagination type in token
-          if (data.info && data.info.next_page_token) {
-            // Zoho provided a cursor for next page
-            pageToken = data.info.next_page_token;
-            nextPageToken = `cursor:${data.info.next_page_token}`;
-            page++;
-          } else if (data.info && data.info.more_records) {
-            // More records using offset pagination
-            page++;
-            pageToken = null;
-            nextPageToken = `page:${page}`;
-          } else {
-            hasMore = false;
-            nextPageToken = null;
-          }
-        } else {
-          hasMore = false;
-          nextPageToken = null;
-        }
-      }
-
-      const isComplete = !hasMore || !nextPageToken;
-      console.log(`[syncAllOrganizationsFromZoho] Chunk complete: ${created} created, ${updated} updated, ${failed} failed, complete: ${isComplete}`);
-
-      return { 
-        success: true, 
-        synced: totalFetched, 
-        created, 
-        updated,
-        failed,
-        complete: isComplete,
-        next_page_token: nextPageToken,
-        logs,
-        message: isComplete 
-          ? `Sync complete: ${totalFetched} organizations (${created} created, ${updated} updated, ${failed} failed)`
-          : `Synced ${totalFetched} organizations so far... (${created} created, ${updated} updated) - continuing...`
-      };
-    } catch (err) {
-      console.error('[syncAllOrganizationsFromZoho] Error:', err);
-      return { success: false, error: err.message };
-    }
-  },
-
-  async syncAllMembersFromZoho(params = {}) {
-    if (!supabase) throw new Error('Supabase not configured');
-    
-    // Chunked sync: fetch and process limited records per call
-    // Reduced to 1 page (200 records) to stay under Vercel timeout
-    const { page_token: inputPageToken, max_pages = 1 } = params;
-    
-    try {
-      const accessToken = await getValidZohoAccessToken();
-      
-      // Pre-load existing members and organizations for fast lookups
-      console.log('[syncAllMembersFromZoho] Loading existing members and organizations...');
-      const { data: existingMembers } = await supabase.from('member').select('id, email, zoho_contact_id');
-      const existingByZohoId = {};
-      const existingByEmail = {};
-      (existingMembers || []).forEach(member => {
-        if (member.zoho_contact_id) {
-          existingByZohoId[member.zoho_contact_id] = member;
-        }
-        if (member.email) {
-          existingByEmail[member.email.toLowerCase()] = member;
-        }
-      });
-
-      const { data: orgs } = await supabase.from('organization').select('id, zoho_account_id');
-      const orgByZohoId = {};
-      (orgs || []).forEach(org => {
-        if (org.zoho_account_id) {
-          orgByZohoId[org.zoho_account_id] = org;
-        }
-      });
-
-      // Parse input token - format: "cursor:TOKEN" or "page:N"
-      let pageToken = null;
-      let page = 1;
-      if (inputPageToken) {
-        if (inputPageToken.startsWith('cursor:')) {
-          pageToken = inputPageToken.substring(7);
-        } else if (inputPageToken.startsWith('page:')) {
-          page = parseInt(inputPageToken.substring(5), 10) || 1;
-        }
-      }
-      
-      const perPage = 200;
-      let pagesProcessed = 0;
-      let totalFetched = 0;
-      let created = 0;
-      let updated = 0;
-      let skipped = 0;
-      let failed = 0;
-      let hasMore = true;
-      let nextPageToken = null;
-      
-      // Detailed logs for download
-      const logs = [];
-      const skippedContacts = [];
-
-      console.log(`[syncAllMembersFromZoho] Starting sync (max ${max_pages} pages per call, starting page ${page})...`);
-
-      while (hasMore && pagesProcessed < max_pages) {
-        const contactFields = 'id,Email,First_Name,Last_Name,Account_Name';
-        let contactsUrl;
-        if (pageToken) {
-          // Cursor-based pagination (for records beyond 2000)
-          contactsUrl = `${ZOHO_CRM_API_DOMAIN}/crm/v3/Contacts?fields=${contactFields}&per_page=${perPage}&page_token=${pageToken}`;
-        } else {
-          // Offset-based pagination (for first 2000 records)
-          contactsUrl = `${ZOHO_CRM_API_DOMAIN}/crm/v3/Contacts?fields=${contactFields}&page=${page}&per_page=${perPage}`;
-        }
-        
-        const response = await fetch(contactsUrl, {
-          headers: { 'Authorization': `Zoho-oauthtoken ${accessToken}` },
-        });
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error('[syncAllMembersFromZoho] Failed to fetch contacts:', response.status, errorText);
-          logs.push({ type: 'error', entity: 'API', message: `Zoho API error: ${response.status} - ${errorText}` });
-          return { success: false, error: `Zoho API error: ${response.status} - ${errorText}`, logs, skippedContacts };
-        }
-
-        const data = await response.json();
-        
-        if (data.data && data.data.length > 0) {
-          const contacts = data.data;
-          totalFetched += contacts.length;
-          pagesProcessed++;
-          
-          console.log(`[syncAllMembersFromZoho] Page ${pagesProcessed}: processing ${contacts.length} contacts`);
-          
-          // Process this batch immediately
-          const toInsert = [];
-          const toUpdate = [];
-          
-          for (const contact of contacts) {
-            if (!contact.Email) {
-              skipped++;
-              skippedContacts.push({
-                zoho_id: contact.id,
-                first_name: contact.First_Name || '',
-                last_name: contact.Last_Name || '',
-                reason: 'No email address'
-              });
-              logs.push({ 
-                type: 'skipped', 
-                entity: 'member', 
-                zoho_id: contact.id, 
-                name: `${contact.First_Name || ''} ${contact.Last_Name || ''}`.trim() || 'Unknown',
-                reason: 'No email address'
-              });
-              continue;
-            }
-
-            let organizationId = null;
-            let orgName = null;
-            if (contact.Account_Name && contact.Account_Name.id) {
-              const linkedOrg = orgByZohoId[contact.Account_Name.id];
-              if (linkedOrg) {
-                organizationId = linkedOrg.id;
-              }
-              orgName = contact.Account_Name.name;
-            }
-
-            const memberData = {
-              zoho_contact_id: contact.id,
-              email: contact.Email,
-              first_name: contact.First_Name || '',
-              last_name: contact.Last_Name || '',
-              organization_id: organizationId,
-              last_synced: new Date().toISOString()
-            };
-
-            const existingMember = existingByZohoId[contact.id] || existingByEmail[contact.Email.toLowerCase()];
-
-            if (existingMember) {
-              toUpdate.push({ id: existingMember.id, ...memberData, _email: contact.Email, _orgName: orgName });
-            } else {
-              toInsert.push({ ...memberData, _email: contact.Email, _orgName: orgName });
-              existingByZohoId[contact.id] = { id: 'pending', zoho_contact_id: contact.id };
-              existingByEmail[contact.Email.toLowerCase()] = { id: 'pending', email: contact.Email };
-            }
-          }
-
-          // Bulk insert new members (with fallback to individual inserts on error)
-          if (toInsert.length > 0) {
-            const insertData = toInsert.map(({ _email, _orgName, ...rest }) => rest);
-            const { error: insertError } = await supabase.from('member').insert(insertData);
-            if (insertError) {
-              console.warn('[syncAllMembersFromZoho] Bulk insert failed, trying individual inserts:', insertError.message);
-              for (const member of toInsert) {
-                const { _email, _orgName, ...memberInsertData } = member;
-                const { error: singleError } = await supabase.from('member').insert([memberInsertData]);
-                if (singleError) {
-                  console.error(`[syncAllMembersFromZoho] Failed to insert member "${_email}": ${singleError.message}`);
-                  logs.push({ 
-                    type: 'error', 
-                    entity: 'member', 
-                    action: 'insert',
-                    zoho_id: member.zoho_contact_id, 
-                    email: _email,
-                    name: `${member.first_name} ${member.last_name}`.trim(),
-                    organization: _orgName,
-                    message: singleError.message 
-                  });
-                  failed++;
-                } else {
-                  logs.push({ type: 'success', entity: 'member', action: 'created', zoho_id: member.zoho_contact_id, email: _email, name: `${member.first_name} ${member.last_name}`.trim() });
-                  created++;
-                }
-              }
-            } else {
-              for (const member of toInsert) {
-                logs.push({ type: 'success', entity: 'member', action: 'created', zoho_id: member.zoho_contact_id, email: member._email, name: `${member.first_name} ${member.last_name}`.trim() });
-              }
-              created += toInsert.length;
-            }
-          }
-
-          // Bulk update existing members (batch of 50 at a time with parallel execution)
-          const updateBatchSize = 50;
-          for (let i = 0; i < toUpdate.length; i += updateBatchSize) {
-            const batch = toUpdate.slice(i, i + updateBatchSize);
-            await Promise.all(batch.map(({ id, _email, _orgName, ...updateData }) => 
-              supabase.from('member').update(updateData).eq('id', id)
-            ));
-            for (const member of batch) {
-              logs.push({ type: 'success', entity: 'member', action: 'updated', zoho_id: member.zoho_contact_id, email: member._email, name: `${member.first_name} ${member.last_name}`.trim() });
-            }
-            updated += batch.length;
-          }
-          
-          // Check for next page - encode pagination type in token
-          if (data.info && data.info.next_page_token) {
-            // Zoho provided a cursor for next page
-            pageToken = data.info.next_page_token;
-            nextPageToken = `cursor:${data.info.next_page_token}`;
-            page++;
-          } else if (data.info && data.info.more_records) {
-            // More records using offset pagination
-            page++;
-            pageToken = null;
-            nextPageToken = `page:${page}`;
-          } else {
-            hasMore = false;
-            nextPageToken = null;
-          }
-        } else {
-          hasMore = false;
-          nextPageToken = null;
-        }
-      }
-
-      const isComplete = !hasMore || !nextPageToken;
-      console.log(`[syncAllMembersFromZoho] Chunk complete: ${created} created, ${updated} updated, ${skipped} skipped, ${failed} failed, complete: ${isComplete}`);
-
-      return { 
-        success: true, 
-        synced: totalFetched, 
-        created, 
-        updated,
-        skipped,
-        failed,
-        complete: isComplete,
-        next_page_token: nextPageToken,
-        logs,
-        skippedContacts,
-        message: isComplete 
-          ? `Sync complete: ${totalFetched} members (${created} created, ${updated} updated, ${skipped} skipped, ${failed} failed)`
-          : `Synced ${totalFetched} members so far... (${created} created, ${updated} updated) - continuing...`
-      };
-    } catch (err) {
-      console.error('[syncAllMembersFromZoho] Error:', err);
-      return { success: false, error: err.message };
-    }
-  },
+  // Zoho CRM sync functions removed - integration deprecated (syncAllOrganizationsFromZoho, syncAllMembersFromZoho)
 
   async exportAllData() {
     return { success: false, error: 'Data export should be triggered from admin panel in development environment' };
@@ -4771,27 +3693,7 @@ const functionHandlers = {
     return { success: true, ...updatePayload };
   },
 
-  async getZohoAuthUrl(params, req) {
-    const ZOHO_CLIENT_ID = process.env.ZOHO_CLIENT_ID;
-    
-    if (!ZOHO_CLIENT_ID) {
-      return { error: 'Zoho OAuth not configured' };
-    }
-
-    const accountsDomain = ZOHO_CRM_API_DOMAIN.includes('.eu') ? 'https://accounts.zoho.eu' : 'https://accounts.zoho.com';
-    const redirectUri = req ? `${req.headers.origin || `https://${req.headers.host}`}/api/functions/zohoOAuthCallback` : '';
-
-    const authUrl = `${accountsDomain}/oauth/v2/auth?` + new URLSearchParams({
-      scope: 'ZohoCRM.modules.contacts.ALL,ZohoCRM.modules.accounts.ALL,zohobackstage.portal.READ,zohobackstage.event.READ,zohobackstage.eventticket.READ,zohobackstage.order.READ,zohobackstage.order.CREATE,zohobackstage.attendee.READ',
-      client_id: ZOHO_CLIENT_ID,
-      response_type: 'code',
-      access_type: 'offline',
-      redirect_uri: redirectUri,
-      prompt: 'consent'
-    }).toString();
-
-    return { authUrl };
-  },
+  // getZohoAuthUrl removed - Zoho CRM integration deprecated
 
   async registerAttendeeToZoom(params) {
     if (!supabase) throw new Error('Supabase not configured');
@@ -5790,7 +4692,7 @@ export default async function handler(req, res) {
   const { functionName, ...queryParams } = req.query;
 
   // Handle OAuth callbacks that come as GET requests
-  const oauthCallbackFunctions = ['xeroOAuthCallback', 'zohoOAuthCallback'];
+  const oauthCallbackFunctions = ['xeroOAuthCallback'];
   
   if (req.method === 'GET' && oauthCallbackFunctions.includes(functionName)) {
     try {

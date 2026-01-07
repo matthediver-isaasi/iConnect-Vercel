@@ -42,11 +42,11 @@ The `getSessionMember()` function validates `login_enabled` status on every auth
 
 ## Data Model
 
-The data model includes core entities like Member, Organization, Role, TeamMember, supporting role segmentation, event/booking management (Zoho Backstage synced and one-off events, guest checkout), content management (BlogPost, Resource), and a dynamic page builder. A custom forms system supports various layouts and advanced uniqueness validation. Workflows provide automation rules triggered by field changes or record creation/updates. Additional features include Speaker profiles, Card Deck content, navigation/settings configuration, communication preferences, custom fields, training funds, and voucher codes.
+The data model includes core entities like Member, Organization, Role, TeamMember, supporting role segmentation, event/booking management (application-native events, guest checkout), content management (BlogPost, Resource), and a dynamic page builder. A custom forms system supports various layouts and advanced uniqueness validation. Workflows provide automation rules triggered by field changes or record creation/updates. Additional features include Speaker profiles, Card Deck content, navigation/settings configuration, communication preferences, custom fields, training funds, and voucher codes.
 
 ## Deployment Architecture
 
-Development uses Express.js with Vite middleware. Production deploys to Vercel serverless functions for API and static assets. Data sync from Zoho CRM is one-way, triggered by member login or admin actions. Data freshness is maintained using TanStack Query and Supabase Realtime Subscriptions.
+Development uses Express.js with Vite middleware. Production deploys to Vercel serverless functions for API and static assets. Data freshness is maintained using TanStack Query and Supabase Realtime Subscriptions.
 
 ## API Architecture (Jan 2026)
 
@@ -166,8 +166,25 @@ Both Organizations and Members support internal notes that admins can add, edit,
 # External Dependencies
 
 **Supabase:** Primary database (PostgreSQL) for application data, including CRUD and realtime subscriptions, and file storage.
-**Zoho CRM:** Contact and account synchronization.
-**Zoho Backstage:** Event management and ticket sales integration.
 **Stripe:** Payment processing.
 **Xero:** Invoice generation.
 **Email Delivery:** For magic links and notifications.
+
+## Zoho Integration Status (Jan 2026)
+
+**Zoho CRM:** DEPRECATED - All CRM sync functionality has been removed. The application database is now the single source of truth for member and organization data. The following functions have been removed:
+- `syncAllOrganizationsFromZoho`
+- `syncAllMembersFromZoho`
+- `getValidZohoAccessToken`
+- `syncOrganizationContacts`
+- `zohoContactWebhook`
+- `getZohoAuthUrl`
+
+**Zoho Backstage:** DEPRECATED - Event sync from Backstage has been removed. Events are now managed directly in the application. Functions `syncBackstageEvents` and `cancelBackstageOrder` have been stubbed to work locally without Zoho API calls.
+
+**Database Cleanup Pending:** The following columns and tables can be dropped after code cleanup is complete:
+- `zoho_contact_id` columns on member table
+- `zoho_account_id` columns on organization table  
+- `base44_id` columns across 58 tables
+- `zoho_token` table
+- SQL cleanup scripts available in `scripts/` directory
