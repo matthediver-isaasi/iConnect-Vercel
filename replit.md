@@ -33,6 +33,27 @@ The data model includes core entities like Member, Organization, Role, TeamMembe
 
 Development uses Express.js with Vite middleware. Production deploys to Vercel serverless functions for API and static assets. Data sync from Zoho CRM is one-way, triggered by member login or admin actions. Data freshness is maintained using TanStack Query and Supabase Realtime Subscriptions.
 
+## API Architecture (Jan 2026)
+
+**Vercel Serverless Functions:** All API endpoints are implemented as Vercel serverless functions in the `/api/` directory. In development, `server/vercel-api-adapter.ts` routes `/api/*` requests to these handlers. The legacy `server/routes.ts` is deprecated.
+
+**Database Configuration:**
+- `api/_lib/database.js` - Centralized Supabase client that switches between development and production databases based on `NODE_ENV`
+- Development uses `DEV_SUPABASE_URL`/`DEV_DATABASE_URL` environment variables
+- Production uses `SUPABASE_URL`/`DATABASE_URL` environment variables
+- `api/_lib/session.js` - Session management with `iconnect.sid` cookie
+
+**Development Database (Jan 2026):**
+- Project: `lvmzliemqnieeoruhkik` (full clone of production schema and data)
+- This enables safe multi-tenant development without affecting production
+- Production database (`zkvgzcruhniduuswbfyh`) is protected
+
+**Key API Files:**
+- `api/entities/[entity]/index.js` - Generic entity CRUD
+- `api/entities/[entity]/[id].js` - Single entity operations
+- `api/functions/[functionName].js` - Server-side functions
+- `api/health.js` - Health check endpoint
+
 ## Runtime Page Provisioning (CMS Feature)
 
 The platform includes a CMS feature for administrators to create and manage dynamic pages and routes at runtime using a `/:slug` catch-all route, with support for draft/published statuses and public/member access controls.
