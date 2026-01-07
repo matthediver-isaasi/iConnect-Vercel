@@ -40,6 +40,11 @@ export default function AdminSetupPage() {
   const [logoUploading, setLogoUploading] = useState(false);
   const [logoSaving, setLogoSaving] = useState(false);
   
+  // Site Favicon state
+  const [faviconUrl, setFaviconUrl] = useState("");
+  const [faviconUploading, setFaviconUploading] = useState(false);
+  const [faviconSaving, setFaviconSaving] = useState(false);
+  
   // Backfill state
   const [backfillDate, setBackfillDate] = useState(new Date());
   const [backfillLoading, setBackfillLoading] = useState(false);
@@ -128,6 +133,9 @@ export default function AdminSetupPage() {
       if (logoLinkSetting?.setting_value) setLogoLink(logoLinkSetting.setting_value);
       if (dateFormatSetting?.setting_value) setDateDisplayFormat(dateFormatSetting.setting_value);
       
+      const faviconUrlSetting = systemSettings.find(s => s.setting_key === 'site_favicon_url');
+      if (faviconUrlSetting?.setting_value) setFaviconUrl(faviconUrlSetting.setting_value);
+      
       const welcomeEmailFromSetting = systemSettings.find(s => s.setting_key === 'welcome_email_from_address');
       const welcomeEmailNameSetting = systemSettings.find(s => s.setting_key === 'welcome_email_from_name');
       if (welcomeEmailFromSetting?.setting_value) setWelcomeEmailFromAddress(welcomeEmailFromSetting.setting_value);
@@ -196,6 +204,63 @@ export default function AdminSetupPage() {
   // Remove logo
   const handleRemoveLogo = () => {
     setLogoUrl("");
+  };
+
+  // Handle favicon file upload
+  const handleFaviconUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type - favicons should be PNG, ICO, or SVG
+    const validTypes = ['image/png', 'image/x-icon', 'image/svg+xml', 'image/vnd.microsoft.icon'];
+    if (!validTypes.includes(file.type) && !file.name.endsWith('.ico')) {
+      toast.error('Please upload a PNG, ICO, or SVG file');
+      return;
+    }
+
+    setFaviconUploading(true);
+    try {
+      const response = await base44.integrations.Core.UploadFile({ file });
+      setFaviconUrl(response.file_url);
+      toast.success('Favicon uploaded successfully');
+    } catch (error) {
+      console.error('Favicon upload error:', error);
+      toast.error('Failed to upload favicon');
+    } finally {
+      setFaviconUploading(false);
+    }
+  };
+
+  // Save favicon settings
+  const handleSaveFaviconSettings = async () => {
+    setFaviconSaving(true);
+    try {
+      const existing = systemSettings.find(s => s.setting_key === 'site_favicon_url');
+      if (existing) {
+        await base44.entities.SystemSettings.update(existing.id, { setting_value: faviconUrl });
+      } else {
+        await base44.entities.SystemSettings.create({ 
+          setting_key: 'site_favicon_url', 
+          setting_value: faviconUrl 
+        });
+      }
+
+      queryClient.invalidateQueries({ queryKey: ['system-settings-logo'] });
+      queryClient.invalidateQueries({ queryKey: ['system-settings'] });
+      queryClient.invalidateQueries({ queryKey: ['portal-logo-settings'] });
+      queryClient.invalidateQueries({ queryKey: ['site-favicon'] });
+      toast.success('Favicon saved - the new icon will appear shortly');
+    } catch (error) {
+      console.error('Save favicon settings error:', error);
+      toast.error('Failed to save favicon settings');
+    } finally {
+      setFaviconSaving(false);
+    }
+  };
+
+  // Remove favicon
+  const handleRemoveFavicon = () => {
+    setFaviconUrl("");
   };
 
   // Save date format settings
@@ -882,6 +947,123 @@ export default function AdminSetupPage() {
                 <>
                   <CheckCircle2 className="w-5 h-5 mr-2" />
                   Save Logo Settings
+                </>
+              )}
+            </Button>
+          </CardContent>
+        </Card>
+
+        {/* Site Favicon Configuration */}
+        <Card className="shadow-xl border-slate-200 mb-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Image className="w-5 h-5" />
+              Site Favicon
+            </CardTitle>
+            <CardDescription>
+              Upload a custom favicon (the small icon shown in browser tabs). This will replace the default site icon.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {/* Favicon Preview */}
+            <div className="space-y-2">
+              <Label>Current Favicon</Label>
+              <div className="border-2 border-dashed border-slate-200 rounded-lg p-4 bg-slate-50">
+                {faviconUrl ? (
+                  <div className="flex items-center gap-4">
+                    <div 
+                      className="bg-white border border-slate-200 rounded-lg p-2 flex items-center justify-center"
+                      style={{ width: '64px', height: '64px' }}
+                    >
+                      <img 
+                        src={faviconUrl} 
+                        alt="Site Favicon" 
+                        className="max-h-full max-w-full object-contain"
+                        style={{ imageRendering: 'pixelated' }}
+                      />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-slate-700">Favicon uploaded</p>
+                      <p className="text-xs text-slate-500">Preview shown at 64x64 pixels</p>
+                    </div>
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={handleRemoveFavicon}
+                      className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                      data-testid="button-remove-favicon"
+                    >
+                      <Trash2 className="w-4 h-4 mr-1" />
+                      Remove
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="text-center py-4">
+                    <Image className="w-12 h-12 text-slate-300 mx-auto mb-2" />
+                    <p className="text-sm text-slate-500">No favicon uploaded</p>
+                    <p className="text-xs text-slate-400">The default favicon will be used</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Upload Button */}
+            <div className="space-y-2">
+              <Label>Upload New Favicon</Label>
+              <div className="flex items-center gap-3">
+                <label className="flex-1">
+                  <input
+                    type="file"
+                    accept=".png,.ico,.svg,image/png,image/x-icon,image/svg+xml"
+                    onChange={handleFaviconUpload}
+                    className="hidden"
+                    data-testid="input-favicon-upload"
+                  />
+                  <div className="flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-slate-300 rounded-lg cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors">
+                    {faviconUploading ? (
+                      <>
+                        <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
+                        <span className="text-sm text-blue-600">Uploading...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="w-5 h-5 text-slate-400" />
+                        <span className="text-sm text-slate-600">Click to upload favicon</span>
+                      </>
+                    )}
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            {/* Size recommendations */}
+            <div className="p-4 bg-blue-50 rounded-lg border border-blue-100">
+              <h4 className="text-sm font-medium text-blue-900 mb-2">Recommended Specifications</h4>
+              <ul className="text-xs text-blue-700 space-y-1">
+                <li><strong>Size:</strong> 32x32 pixels (or 16x16, 48x48, 64x64)</li>
+                <li><strong>Format:</strong> PNG (recommended), ICO, or SVG</li>
+                <li><strong>Background:</strong> Transparent PNG works best</li>
+                <li><strong>Tip:</strong> Keep the design simple - it will appear very small in browser tabs</li>
+              </ul>
+            </div>
+
+            {/* Save Button */}
+            <Button
+              onClick={handleSaveFaviconSettings}
+              disabled={faviconSaving}
+              className="w-full"
+              size="lg"
+              data-testid="button-save-favicon"
+            >
+              {faviconSaving ? (
+                <>
+                  <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="w-5 h-5 mr-2" />
+                  Save Favicon
                 </>
               )}
             </Button>

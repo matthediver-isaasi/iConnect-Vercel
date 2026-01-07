@@ -471,7 +471,7 @@ const { data: borderRadiusSetting = DEFAULT_BORDER_RADIUS } = useQuery({
   }
 });
 
-// Fetch portal logo settings including home page slug
+// Fetch portal logo settings including home page slug and favicon
 const { data: portalLogoSettings } = useQuery({
   queryKey: ['portal-logo-settings'],
   queryFn: async () => {
@@ -481,13 +481,34 @@ const { data: portalLogoSettings } = useQuery({
       const logoHeight = data.find(s => s.setting_key === 'portal_logo_height')?.setting_value || 'medium';
       const logoLink = data.find(s => s.setting_key === 'portal_logo_link')?.setting_value || '';
       const homePageSlug = data.find(s => s.setting_key === 'public_home_page_slug')?.setting_value || '';
-      return { logoUrl, logoHeight, logoLink, homePageSlug };
+      const faviconUrl = data.find(s => s.setting_key === 'site_favicon_url')?.setting_value || '';
+      return { logoUrl, logoHeight, logoLink, homePageSlug, faviconUrl };
     } catch (error) {
       console.error('Error loading portal logo settings:', error);
-      return { logoUrl: '', logoHeight: 'medium', logoLink: '', homePageSlug: '' };
+      return { logoUrl: '', logoHeight: 'medium', logoLink: '', homePageSlug: '', faviconUrl: '' };
     }
   }
 });
+
+// Dynamically update favicon when setting changes
+useEffect(() => {
+  const faviconUrl = portalLogoSettings?.faviconUrl;
+  const link = document.querySelector("link[rel='icon']");
+  
+  if (faviconUrl) {
+    if (link) {
+      link.href = faviconUrl;
+    } else {
+      const newLink = document.createElement('link');
+      newLink.rel = 'icon';
+      newLink.href = faviconUrl;
+      document.head.appendChild(newLink);
+    }
+  } else if (link && portalLogoSettings !== undefined) {
+    // Reset to default favicon when setting is cleared
+    link.href = '/favicon.png';
+  }
+}, [portalLogoSettings?.faviconUrl, portalLogoSettings]);
 
 // Compute logo height in pixels
 const logoHeightPx = useMemo(() => {
