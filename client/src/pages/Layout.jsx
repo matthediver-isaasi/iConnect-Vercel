@@ -894,7 +894,7 @@ useEffect(() => {
         try {
           const parsed = JSON.parse(cachedOrg);
           // Validate that cached org matches the member's organization
-          if (parsed.id === orgId || parsed.base44_id === orgId || parsed.zoho_account_id === orgId) {
+          if (parsed.id === orgId || parsed.zoho_account_id === orgId) {
             if (!organizationInfo || organizationInfo.id !== parsed.id) {
               setOrganizationInfo(parsed);
             }
