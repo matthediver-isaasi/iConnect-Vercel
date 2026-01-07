@@ -1649,6 +1649,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Public endpoint for site favicon URL (used by inline script in index.html)
+  app.get('/api/public/favicon-url', async (req: Request, res: Response) => {
+    res.setHeader('Cache-Control', 'public, max-age=60, s-maxage=60');
+    
+    if (!supabase) {
+      return res.status(200).json({ faviconUrl: null });
+    }
+
+    try {
+      const { data } = await supabase
+        .from('system_settings')
+        .select('setting_value')
+        .eq('setting_key', 'site_favicon_url')
+        .single();
+
+      return res.status(200).json({ faviconUrl: data?.setting_value || null });
+    } catch (error) {
+      return res.status(200).json({ faviconUrl: null });
+    }
+  });
+
   // Public endpoint for form consent message
   app.get('/api/public/form-consent-message', async (req: Request, res: Response) => {
     if (!supabase) {
