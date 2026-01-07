@@ -1,14 +1,7 @@
-import { createClient } from '@supabase/supabase-js';
+import { supabase } from './database.js';
 
-const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
 const XERO_CLIENT_ID = process.env.ZOHO_CLIENT_ID ? undefined : process.env.XERO_CLIENT_ID;
 const XERO_CLIENT_SECRET = process.env.ZOHO_CLIENT_SECRET ? undefined : process.env.XERO_CLIENT_SECRET;
-
-let supabase = null;
-if (supabaseUrl && supabaseServiceKey) {
-  supabase = createClient(supabaseUrl, supabaseServiceKey);
-}
 
 export async function getValidXeroAccessToken() {
   if (!supabase) throw new Error('Supabase not configured');

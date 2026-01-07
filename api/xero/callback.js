@@ -1,14 +1,10 @@
-import { createClient } from "@supabase/supabase-js";
+import { supabase } from "../_lib/database.js";
 
 const XERO_CLIENT_ID = process.env.XERO_CLIENT_ID;
 const XERO_CLIENT_SECRET = process.env.XERO_CLIENT_SECRET;
 const XERO_REDIRECT_URI = process.env.XERO_REDIRECT_URI;
 
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
-
 export default async function handler(req, res) {
-  const supabase = createClient(supabaseUrl, supabaseServiceKey);
   
   const { code, error } = req.query;
 

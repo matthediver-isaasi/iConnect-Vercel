@@ -1,12 +1,5 @@
-import { createClient } from '@supabase/supabase-js';
+import { supabase } from '../../_lib/database.js';
 import { getSession } from '../../_lib/session.js';
-
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
-
-const supabase = supabaseUrl && supabaseServiceKey 
-  ? createClient(supabaseUrl, supabaseServiceKey)
-  : null;
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {

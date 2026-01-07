@@ -1,13 +1,6 @@
-import { createClient } from '@supabase/supabase-js';
+import { supabase } from '../_lib/database.js';
 import { getSession } from '../_lib/session.js';
 import { parseMultipartForm } from '../_lib/multipart.js';
-
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
-
-const supabase = supabaseUrl && supabaseServiceKey 
-  ? createClient(supabaseUrl, supabaseServiceKey)
-  : null;
 
 // Parse boolean values (true/false/yes/no) case-insensitively
 function parseBoolean(value) {

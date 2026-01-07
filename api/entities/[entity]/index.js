@@ -1,13 +1,6 @@
-import { createClient } from '@supabase/supabase-js';
 import { sendEmail } from '../../_lib/emailService.js';
 import { triggerWorkflows, triggerPreferenceWorkflows } from '../../_lib/workflows.js';
-
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
-
-const supabase = supabaseUrl && supabaseServiceKey 
-  ? createClient(supabaseUrl, supabaseServiceKey)
-  : null;
+import { supabase } from '../../_lib/database.js';
 
 // Send email on form submission if configured
 async function sendFormSubmissionEmail(submissionData) {

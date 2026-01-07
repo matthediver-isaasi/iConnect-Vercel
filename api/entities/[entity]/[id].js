@@ -1,13 +1,6 @@
-import { createClient } from '@supabase/supabase-js';
 import { triggerWorkflows, triggerPreferenceWorkflows } from '../../_lib/workflows.js';
 import { invalidateMemberSessions } from '../../_lib/session.js';
-
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
-
-const supabase = supabaseUrl && supabaseServiceKey 
-  ? createClient(supabaseUrl, supabaseServiceKey)
-  : null;
+import { supabase } from '../../_lib/database.js';
 
 // Entity name to Supabase table mapping (singular names for Base44 compatibility)
 const entityToTable = {

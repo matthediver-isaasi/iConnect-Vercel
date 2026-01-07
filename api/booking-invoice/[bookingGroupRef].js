@@ -1,16 +1,13 @@
-import { createClient } from '@supabase/supabase-js';
 import { getSessionMember } from '../_lib/session.js';
 import { fetchXeroInvoicePdf } from '../_lib/xero.js';
-
-const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
+import { supabase } from '../_lib/database.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  if (!supabaseUrl || !supabaseServiceKey) {
+  if (!supabase) {
     return res.status(503).json({ error: 'Supabase not configured' });
   }
 
@@ -20,7 +17,6 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: 'Authentication required' });
   }
 
-  const supabase = createClient(supabaseUrl, supabaseServiceKey);
   const { bookingGroupRef } = req.query;
 
   if (!bookingGroupRef) {

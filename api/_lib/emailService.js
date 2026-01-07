@@ -1,6 +1,6 @@
 import Mailgun from 'mailgun.js';
 import formData from 'form-data';
-import { createClient } from '@supabase/supabase-js';
+import { supabase } from './database.js';
 
 const MAILGUN_API_KEY = process.env.MAILGUN_API_KEY;
 const MAILGUN_DOMAIN = process.env.MAILGUN_DOMAIN || 'mail.iconn.app';
@@ -19,15 +19,11 @@ async function getEmailFooter() {
   }
 
   try {
-    const supabaseUrl = process.env.SUPABASE_URL;
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY;
-    
-    if (!supabaseUrl || !supabaseKey) {
+    if (!supabase) {
       console.log('[Email Service] Supabase not configured, skipping footer');
       return null;
     }
 
-    const supabase = createClient(supabaseUrl, supabaseKey);
     const { data, error } = await supabase
       .from('system_settings')
       .select('setting_value')
@@ -53,12 +49,8 @@ async function replaceSocialPlaceholdersInFooter(footer) {
   if (!footer) return footer;
   
   try {
-    const supabaseUrl = process.env.SUPABASE_URL;
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY;
-    
-    if (!supabaseUrl || !supabaseKey) return footer;
+    if (!supabase) return footer;
 
-    const supabase = createClient(supabaseUrl, supabaseKey);
     const { data } = await supabase
       .from('system_settings')
       .select('setting_value')

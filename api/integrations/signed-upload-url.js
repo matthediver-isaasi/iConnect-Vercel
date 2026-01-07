@@ -1,11 +1,4 @@
-import { createClient } from '@supabase/supabase-js';
-
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
-
-const supabase = supabaseUrl && supabaseServiceKey 
-  ? createClient(supabaseUrl, supabaseServiceKey)
-  : null;
+import { supabase } from '../_lib/database.js';
 
 const STORAGE_BUCKET = 'file-repository';
 const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25MB in bytes

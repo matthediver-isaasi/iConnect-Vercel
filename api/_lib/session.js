@@ -1,15 +1,9 @@
-import { createClient } from '@supabase/supabase-js';
 import { parse, serialize } from 'cookie';
 import crypto from 'crypto';
 import cookieSignature from 'cookie-signature';
+import { supabase } from './database.js';
 
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
 const SESSION_SECRET = process.env.SESSION_SECRET || 'iconnect-session-secret-change-in-production';
-
-const supabase = supabaseUrl && supabaseServiceKey 
-  ? createClient(supabaseUrl, supabaseServiceKey)
-  : null;
 
 const SESSION_COOKIE_NAME = 'iconnect.sid';
 const SESSION_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 days in milliseconds

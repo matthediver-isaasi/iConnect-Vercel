@@ -1,13 +1,6 @@
-import { createClient } from '@supabase/supabase-js';
 import { sendEmail, replacePlaceholders } from './emailService.js';
 import crypto from 'crypto';
-
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
-
-const supabase = supabaseUrl && supabaseServiceKey 
-  ? createClient(supabaseUrl, supabaseServiceKey)
-  : null;
+import { supabase } from './database.js';
 
 // Generate a password setup URL for new members (7 day validity)
 async function generatePasswordSetupUrl(memberId, baseUrl) {

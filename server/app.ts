@@ -1,4 +1,4 @@
-import { type Server } from "node:http";
+import { type Server, createServer } from "node:http";
 
 import express, {
   type Express,
@@ -7,7 +7,7 @@ import express, {
   NextFunction,
 } from "express";
 
-import { registerRoutes } from "./routes";
+import { registerVercelApiRoutes } from "./vercel-api-adapter";
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
@@ -67,7 +67,11 @@ app.use((req, res, next) => {
 export default async function runApp(
   setup: (app: Express, server: Server) => Promise<void>,
 ) {
-  const server = await registerRoutes(app);
+  // Register Vercel API routes instead of the deprecated server/routes.ts
+  // This routes /api/* requests to the Vercel serverless functions in /api/
+  registerVercelApiRoutes(app);
+
+  const server = createServer(app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

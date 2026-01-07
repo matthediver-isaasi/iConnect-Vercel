@@ -1,12 +1,5 @@
-import { createClient } from '@supabase/supabase-js';
 import { sendEmail } from '../_lib/emailService.js';
-
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
-
-const supabase = supabaseUrl && supabaseServiceKey 
-  ? createClient(supabaseUrl, supabaseServiceKey)
-  : null;
+import { supabase } from '../_lib/database.js';
 
 export default async function handler(req, res) {
   const authHeader = req.headers.authorization;

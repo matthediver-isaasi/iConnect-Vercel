@@ -1,7 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
-
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
+import { supabase } from "../_lib/database.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -9,7 +6,6 @@ export default async function handler(req, res) {
   }
 
   try {
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
     
     const { tenantId, tenantName } = req.body;
     
