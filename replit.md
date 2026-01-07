@@ -6,6 +6,21 @@ This project is a comprehensive membership management platform built with React 
 
 Preferred communication style: Simple, everyday language.
 
+# Development Guidelines
+
+## API Development (IMPORTANT)
+
+**All API endpoints MUST be implemented as Vercel serverless functions in the `/api/` directory.**
+
+- NEVER create or recreate `server/routes.ts` - this file was deprecated and deleted in January 2026
+- Use the existing patterns in `api/_lib/database.js` for database access
+- Use `api/_lib/session.js` for session management
+- Follow the existing file structure:
+  - `api/entities/[entity]/index.js` - For entity CRUD operations
+  - `api/entities/[entity]/[id].js` - For single entity operations
+  - `api/functions/[functionName].js` - For server-side functions
+- The Express server (`server/app.ts`) only serves the frontend and routes `/api/*` to Vercel handlers via `server/vercel-api-adapter.ts`
+
 # System Architecture
 
 ## Frontend Architecture
