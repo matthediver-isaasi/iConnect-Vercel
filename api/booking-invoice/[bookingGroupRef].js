@@ -50,8 +50,15 @@ export default async function handler(req, res) {
       return res.status(403).json({ error: 'Not authorized to view this invoice' });
     }
 
+    // Get tenant_id for Xero token lookup (from session member)
+    const appTenantId = sessionMember.tenant_id;
+    if (!appTenantId) {
+      console.error('[booking-invoice] Cannot determine tenant for Xero PDF fetch');
+      return res.status(500).json({ error: 'Cannot determine tenant context for invoice' });
+    }
+
     // Fetch PDF directly from Xero (single source of truth)
-    const pdfBuffer = await fetchXeroInvoicePdf(booking.xero_invoice_id);
+    const pdfBuffer = await fetchXeroInvoicePdf(booking.xero_invoice_id, appTenantId);
 
     // Check if inline preview is requested
     const inline = req.query.inline === 'true';

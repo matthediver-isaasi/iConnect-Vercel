@@ -1,4 +1,4 @@
-import { getSessionMember } from '../_lib/session.js';
+import { getSessionMember, getSessionTenantUser } from '../_lib/session.js';
 import { createClient } from '@supabase/supabase-js';
 import { isResourceExcluded } from '../_lib/roleVisibility.js';
 
@@ -9,6 +9,11 @@ const supabase = supabaseUrl && supabaseServiceKey
   : null;
 
 async function verifyAdminPermission(req) {
+  const tenantUser = await getSessionTenantUser(req);
+  if (tenantUser) {
+    return { isAdmin: true, tenantId: tenantUser.tenant_id };
+  }
+
   const sessionMember = await getSessionMember(req);
   
   if (!sessionMember) {
@@ -35,7 +40,10 @@ async function verifyAdminPermission(req) {
     }
 
     const excludedFeatures = role.excluded_features || [];
-    return { isAdmin: !isResourceExcluded(excludedFeatures, 'admin.role-management') };
+    return { 
+      isAdmin: !isResourceExcluded(excludedFeatures, 'admin.role-management'),
+      tenantId: sessionMember.tenant_id
+    };
   } catch (error) {
     console.error('[Admin Verify] Error:', error);
     return { isAdmin: false, error: 'Verification failed' };
@@ -64,7 +72,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { isAdmin, error } = await verifyAdminPermission(req);
+  const { isAdmin, error, tenantId } = await verifyAdminPermission(req);
 
   if (error) {
     return res.status(401).json({ error });
@@ -81,17 +89,22 @@ export default async function handler(req, res) {
   try {
     console.log('[Fix Blog Handles] Starting...');
 
-    // Fetch all members with pagination to avoid Supabase's 1000 row limit
     let allMembersForHandles = [];
     let offset = 0;
     const pageSize = 1000;
     let hasMore = true;
     
     while (hasMore) {
-      const { data: memberBatch, error: memberError } = await supabase
+      let query = supabase
         .from('member')
-        .select('id, handle, first_name, last_name, email')
+        .select('id, handle, first_name, last_name, email, tenant_id')
         .range(offset, offset + pageSize - 1);
+      
+      if (tenantId) {
+        query = query.eq('tenant_id', tenantId);
+      }
+      
+      const { data: memberBatch, error: memberError } = await query;
       
       if (memberError) {
         console.error('[Fix Blog Handles] Error fetching members:', memberError);
@@ -120,10 +133,16 @@ export default async function handler(req, res) {
     
     console.log(`[Fix Blog Handles] Member map has ${memberMap.size} entries`);
 
-    const { data: blogPosts, error: blogError } = await supabase
+    let blogQuery = supabase
       .from('blog_post')
-      .select('id, slug, author_id, author_name')
+      .select('id, slug, author_id, author_name, tenant_id')
       .not('author_id', 'is', null);
+    
+    if (tenantId) {
+      blogQuery = blogQuery.eq('tenant_id', tenantId);
+    }
+    
+    const { data: blogPosts, error: blogError } = await blogQuery;
 
     if (blogError) {
       console.error('[Fix Blog Handles] Error fetching blogs:', blogError);

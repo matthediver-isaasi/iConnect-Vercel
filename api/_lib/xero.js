@@ -3,18 +3,33 @@ import { supabase } from './database.js';
 const XERO_CLIENT_ID = process.env.ZOHO_CLIENT_ID ? undefined : process.env.XERO_CLIENT_ID;
 const XERO_CLIENT_SECRET = process.env.ZOHO_CLIENT_SECRET ? undefined : process.env.XERO_CLIENT_SECRET;
 
-export async function getValidXeroAccessToken() {
+export async function getValidXeroAccessToken(appTenantId) {
   if (!supabase) throw new Error('Supabase not configured');
   
-  const { data: tokens } = await supabase
+  if (!appTenantId) {
+    throw new Error('appTenantId is required for Xero token lookup');
+  }
+  
+  const { data: tokens, error } = await supabase
     .from('xero_token')
-    .select('*');
+    .select('*')
+    .eq('app_tenant_id', appTenantId);
+
+  if (error) {
+    console.error('[Xero] Token lookup error:', error);
+    throw new Error('Failed to lookup Xero token');
+  }
 
   if (!tokens || tokens.length === 0) {
-    throw new Error('No Xero token found. Please authenticate first.');
+    throw new Error('No Xero token found for this tenant. Please authenticate first.');
   }
 
   const token = tokens[0];
+  
+  if (token.tenant_id === 'PENDING_SELECTION') {
+    throw new Error('Xero authentication incomplete. Please select a Xero organization.');
+  }
+  
   const expiresAt = new Date(token.expires_at);
   const now = new Date();
   const fiveMinutesFromNow = new Date(now.getTime() + 5 * 60 * 1000);
@@ -62,8 +77,8 @@ export async function getValidXeroAccessToken() {
   return { accessToken: tokenData.access_token, tenantId: token.tenant_id };
 }
 
-export async function fetchXeroInvoicePdf(invoiceId) {
-  const { accessToken, tenantId } = await getValidXeroAccessToken();
+export async function fetchXeroInvoicePdf(invoiceId, appTenantId) {
+  const { accessToken, tenantId } = await getValidXeroAccessToken(appTenantId);
   
   const pdfResponse = await fetch(`https://api.xero.com/api.xro/2.0/Invoices/${invoiceId}`, {
     method: 'GET',

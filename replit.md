@@ -90,5 +90,17 @@ Organizations and Members support internal notes that admins can add, edit, and 
 
 **Supabase:** Primary database (PostgreSQL) for application data, including CRUD and realtime subscriptions, and file storage.
 **Stripe:** Payment processing.
-**Xero:** Invoice generation.
+**Xero:** Invoice generation with multi-tenant isolation.
 **Email Delivery:** For magic links and notifications.
+
+## Xero Multi-Tenant Integration
+
+Xero OAuth tokens are scoped to individual tenants via `app_tenant_id` in the `xero_token` table:
+
+- `getValidXeroAccessToken(appTenantId)` requires the appTenantId parameter to ensure tokens are isolated per tenant
+- OAuth callback (`/api/xero/callback`) stores `app_tenant_id` from the state parameter
+- `createXeroInvoice()`, `testXeroPaymentRecording()` require `appTenantId` in params
+- `updateXeroInvoicePO()` derives tenant from the authenticated member's `tenant_id`
+- `getXeroConnectionStatus()` accepts optional `appTenantId` for tenant-scoped status checks
+- VAT rates are stored with tenant-specific keys: `xero_vat_rates_${appTenantId}` in `system_settings`
+- In booking flows, tenant_id is derived from `event.tenant_id` or `member.tenant_id`

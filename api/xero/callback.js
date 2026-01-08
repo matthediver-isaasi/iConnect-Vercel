@@ -6,7 +6,17 @@ const XERO_REDIRECT_URI = process.env.XERO_REDIRECT_URI;
 
 export default async function handler(req, res) {
   
-  const { code, error } = req.query;
+  const { code, error, state } = req.query;
+  
+  let appTenantId = null;
+  if (state) {
+    try {
+      const stateData = JSON.parse(Buffer.from(state, 'base64').toString('utf-8'));
+      appTenantId = stateData.tenantId;
+    } catch (e) {
+      console.error('[Xero Callback] Failed to parse state:', e);
+    }
+  }
 
   if (error) {
     return res.send(`
@@ -84,10 +94,12 @@ export default async function handler(req, res) {
     // Calculate expiration
     const expiresAt = new Date(Date.now() + (tokenData.expires_in * 1000)).toISOString();
 
-    // Get existing tokens
-    const { data: existingTokens } = await supabase
-      .from("xero_token")
-      .select("*");
+    // Get existing tokens for this app tenant
+    let existingTokenQuery = supabase.from("xero_token").select("*");
+    if (appTenantId) {
+      existingTokenQuery = existingTokenQuery.eq("app_tenant_id", appTenantId);
+    }
+    const { data: existingTokens } = await existingTokenQuery;
 
     // If multiple tenants, show selection page
     if (connections.length > 1) {
@@ -97,7 +109,8 @@ export default async function handler(req, res) {
         refresh_token: tokenData.refresh_token,
         expires_at: expiresAt,
         tenant_id: "PENDING_SELECTION",
-        token_type: tokenData.token_type || "Bearer"
+        token_type: tokenData.token_type || "Bearer",
+        app_tenant_id: appTenantId
       };
 
       if (existingTokens && existingTokens.length > 0) {
@@ -151,7 +164,7 @@ export default async function handler(req, res) {
                   const response = await fetch('/api/xero/select-tenant', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ tenantId, tenantName })
+                    body: JSON.stringify({ tenantId, tenantName, appTenantId: '${appTenantId || ''}' })
                   });
                   
                   if (response.ok) {
@@ -185,7 +198,8 @@ export default async function handler(req, res) {
       expires_at: expiresAt,
       tenant_id: tenantId,
       tenant_name: tenantName,
-      token_type: tokenData.token_type || "Bearer"
+      token_type: tokenData.token_type || "Bearer",
+      app_tenant_id: appTenantId
     };
 
     if (existingTokens && existingTokens.length > 0) {

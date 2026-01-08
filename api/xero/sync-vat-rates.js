@@ -1,23 +1,49 @@
 import { supabase } from "../_lib/database.js";
 import { getValidXeroAccessToken } from "../_lib/xero.js";
+import { getSessionTenantUser, getSessionMember } from "../_lib/session.js";
 
 export default async function handler(req, res) {
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
+  }
+
+  let appTenantId = null;
+  
+  const tenantUser = await getSessionTenantUser(req);
+  if (tenantUser) {
+    appTenantId = tenantUser.tenant_id;
+  } else {
+    const sessionMember = await getSessionMember(req);
+    if (sessionMember) {
+      appTenantId = sessionMember.tenant_id;
+    }
+  }
+  
+  if (!appTenantId) {
+    return res.status(401).json({ error: 'Not authenticated' });
   }
 
   try {
     let accessToken, tenantId;
     
     try {
-      const tokenResult = await getValidXeroAccessToken();
+      const tokenResult = await getValidXeroAccessToken(appTenantId);
       accessToken = tokenResult.accessToken;
       tenantId = tokenResult.tenantId;
     } catch (tokenError) {
       console.error("Xero token error:", tokenError);
       return res.status(401).json({
         success: false,
-        error: "Xero authentication failed. Please re-authenticate with Xero in Admin Setup.",
+        error: "Xero authentication failed. Please re-authenticate with Xero in Admin Settings.",
         details: tokenError.message,
       });
     }
@@ -69,20 +95,22 @@ export default async function handler(req, res) {
       syncedAt: new Date().toISOString(),
     };
 
+    const vatRatesKey = `xero_vat_rates_${appTenantId}`;
+    
     const { data: existingSetting } = await supabase
       .from("system_settings")
       .select("*")
-      .eq("setting_key", "xero_vat_rates")
+      .eq("setting_key", vatRatesKey)
       .single();
 
     if (existingSetting) {
       await supabase
         .from("system_settings")
         .update({ setting_value: JSON.stringify(syncData) })
-        .eq("setting_key", "xero_vat_rates");
+        .eq("setting_key", vatRatesKey);
     } else {
       await supabase.from("system_settings").insert({
-        setting_key: "xero_vat_rates",
+        setting_key: vatRatesKey,
         setting_value: JSON.stringify(syncData),
       });
     }

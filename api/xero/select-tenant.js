@@ -6,17 +6,19 @@ export default async function handler(req, res) {
   }
 
   try {
-    
-    const { tenantId, tenantName } = req.body;
+    const { tenantId, tenantName, appTenantId } = req.body;
     
     if (!tenantId) {
       return res.status(400).json({ error: "Tenant ID is required" });
     }
     
-    // Update the existing token record with the selected tenant
-    const { data: existingTokens } = await supabase
-      .from("xero_token")
-      .select("*");
+    // Find the pending token record for this app tenant
+    let query = supabase.from("xero_token").select("*").eq("tenant_id", "PENDING_SELECTION");
+    if (appTenantId) {
+      query = query.eq("app_tenant_id", appTenantId);
+    }
+    
+    const { data: existingTokens } = await query;
     
     if (!existingTokens || existingTokens.length === 0) {
       return res.status(400).json({ error: "No pending token found" });

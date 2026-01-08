@@ -28,16 +28,12 @@ export default async function handler(req, res) {
   try {
     const { data: tokens, error } = await supabase
       .from('xero_token')
-      .select('id, tenant_id, tenant_name, expires_at')
+      .select('id, tenant_id, tenant_name, expires_at, app_tenant_id')
       .eq('app_tenant_id', tenantUser.tenant_id);
 
     if (error) {
-      const { data: legacyTokens } = await supabase
-        .from('xero_token')
-        .select('id, tenant_id, tenant_name, expires_at')
-        .limit(1);
-      
-      return res.json({ tokens: legacyTokens || [] });
+      console.error('[Admin] Xero status query error:', error);
+      return res.json({ tokens: [] });
     }
 
     res.json({ tokens: tokens || [] });

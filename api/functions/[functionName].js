@@ -15,28 +15,40 @@ const XERO_CLIENT_SECRET = process.env.XERO_CLIENT_SECRET;
 const XERO_REDIRECT_URI = process.env.XERO_REDIRECT_URI;
 
 // Helper: Get valid Xero access token (refreshes if needed)
-async function getValidXeroAccessToken() {
-  console.log('[Xero] getValidXeroAccessToken called');
+// REQUIRES appTenantId for multi-tenant isolation
+async function getValidXeroAccessToken(appTenantId) {
+  console.log('[Xero] getValidXeroAccessToken called for appTenantId:', appTenantId);
   
   if (!supabase) {
     console.error('[Xero] Supabase not configured');
     throw new Error('Supabase not configured');
   }
   
+  if (!appTenantId) {
+    console.error('[Xero] appTenantId is required');
+    throw new Error('appTenantId is required for Xero token lookup');
+  }
+  
   const { data: tokens, error: tokenError } = await supabase
     .from('xero_token')
-    .select('*');
+    .select('*')
+    .eq('app_tenant_id', appTenantId);
 
   if (tokenError) {
     console.error('[Xero] Error fetching tokens from database:', tokenError.message);
   }
 
   if (!tokens || tokens.length === 0) {
-    console.error('[Xero] No Xero token found in database - authentication required');
-    throw new Error('No Xero token found. Please authenticate first.');
+    console.error('[Xero] No Xero token found for tenant - authentication required');
+    throw new Error('No Xero token found for this tenant. Please authenticate first.');
   }
 
   const token = tokens[0];
+  
+  if (token.tenant_id === 'PENDING_SELECTION') {
+    throw new Error('Xero authentication incomplete. Please select a Xero organization.');
+  }
+  
   const expiresAt = new Date(token.expires_at);
   const now = new Date();
   const fiveMinutesFromNow = new Date(now.getTime() + 5 * 60 * 1000);
@@ -1993,8 +2005,14 @@ const functionHandlers = {
           console.log(`[Xero] Attempting invoice creation for ${paymentMethod} payment of £${validatedRemainingBalance.toFixed(2)}`);
 
           try {
-            console.log(`[Xero] Getting valid access token...`);
-            const { accessToken, tenantId } = await getValidXeroAccessToken();
+            const appTenantId = event.tenant_id || member?.tenant_id || null;
+            console.log(`[Xero] Getting valid access token for appTenantId: ${appTenantId}`);
+            
+            if (!appTenantId) {
+              console.error(`[Xero] Cannot determine tenant ID for Xero invoice`);
+              xeroDebug.error = 'Cannot determine tenant ID';
+            } else {
+            const { accessToken, tenantId } = await getValidXeroAccessToken(appTenantId);
             xeroDebug.tokenFound = !!accessToken;
             xeroDebug.tenantIdFound = !!tenantId;
             console.log(`[Xero] Token retrieved: ${!!accessToken}, tenantId: ${!!tenantId}`);
@@ -2287,6 +2305,7 @@ const functionHandlers = {
                 // Log raw response for debugging
                 console.error(`[Xero] Full response: ${JSON.stringify(invoiceData).substring(0, 1000)}`);
               }
+            }
             }
           } catch (xeroError) {
             console.error(`[Xero] Invoice creation error: ${xeroError.message}`);
@@ -4065,7 +4084,7 @@ const functionHandlers = {
     };
   },
 
-  async createXeroInvoice(params) {
+  async createXeroInvoice(params, req) {
     if (!supabase) throw new Error('Supabase not configured');
 
     const {
@@ -4080,15 +4099,30 @@ const functionHandlers = {
       discountType,
       discountValue,
       stripePaymentIntentId,
-      internalReference
+      internalReference,
+      appTenantId: providedTenantId
     } = params;
 
     if (!organizationName || !programName || totalCost === undefined || !totalTickets) {
       throw new Error('Missing required parameters: organizationName, programName, totalCost, totalTickets');
     }
+    
+    // Derive appTenantId from session if not provided (backward compatibility)
+    let appTenantId = providedTenantId;
+    if (!appTenantId && req) {
+      const sessionMember = await getSessionMember(req);
+      if (sessionMember?.tenant_id) {
+        appTenantId = sessionMember.tenant_id;
+        console.log('[createXeroInvoice] Derived appTenantId from session:', appTenantId);
+      }
+    }
+    
+    if (!appTenantId) {
+      throw new Error('Missing required parameter: appTenantId for Xero tenant scoping (or authenticated session with tenant context)');
+    }
 
     // Get valid Xero token
-    const { accessToken, tenantId } = await getValidXeroAccessToken();
+    const { accessToken, tenantId } = await getValidXeroAccessToken(appTenantId);
 
     // Find or create contact
     const contactId = await findOrCreateXeroContact(accessToken, tenantId, organizationName);
@@ -4217,8 +4251,19 @@ const functionHandlers = {
       throw new Error('Not authorized to update this booking');
     }
 
+    // Get member's tenant_id for Xero token lookup
+    const { data: memberData } = await supabase
+      .from('member')
+      .select('tenant_id')
+      .eq('id', memberId)
+      .single();
+    
+    if (!memberData?.tenant_id) {
+      throw new Error('Cannot determine tenant for Xero invoice update');
+    }
+
     // Get valid Xero token
-    const { accessToken, tenantId } = await getValidXeroAccessToken();
+    const { accessToken, tenantId } = await getValidXeroAccessToken(memberData.tenant_id);
 
     // Update the invoice reference in Xero using POST to the specific invoice
     const updatePayload = {
@@ -4274,15 +4319,26 @@ const functionHandlers = {
 
   async getXeroConnectionStatus(params) {
     if (!supabase) throw new Error('Supabase not configured');
-
-    const { data: tokens } = await supabase
+    
+    const { appTenantId } = params || {};
+    
+    // Build query with optional tenant filter
+    let query = supabase
       .from('xero_token')
-      .select('expires_at, tenant_id');
+      .select('expires_at, tenant_id, app_tenant_id');
+    
+    if (appTenantId) {
+      query = query.eq('app_tenant_id', appTenantId);
+    }
+    
+    const { data: tokens } = await query;
 
     if (!tokens || tokens.length === 0) {
       return {
         connected: false,
-        message: 'Xero not connected. Please authenticate.'
+        message: appTenantId 
+          ? 'Xero not connected for this tenant. Please authenticate.'
+          : 'Xero not connected. Please authenticate.'
       };
     }
 
@@ -4293,16 +4349,17 @@ const functionHandlers = {
     return {
       connected: true,
       tenant_id: token.tenant_id,
+      app_tenant_id: token.app_tenant_id,
       expires_at: token.expires_at,
       is_expired: expiresAt <= now
     };
   },
 
   // Test handler to simulate Stripe payment recording in Xero without actual Stripe transactions
-  async testXeroPaymentRecording(params) {
+  async testXeroPaymentRecording(params, req) {
     if (!supabase) throw new Error('Supabase not configured');
 
-    const { invoiceId, amount, testReference } = params;
+    const { invoiceId, amount, testReference, appTenantId: providedTenantId } = params;
     const debug = {};
 
     // Validate inputs
@@ -4312,10 +4369,24 @@ const functionHandlers = {
     if (!amount || amount <= 0) {
       return { success: false, error: 'Amount must be a positive number' };
     }
+    
+    // Derive appTenantId from session if not provided (backward compatibility)
+    let appTenantId = providedTenantId;
+    if (!appTenantId && req) {
+      const sessionMember = await getSessionMember(req);
+      if (sessionMember?.tenant_id) {
+        appTenantId = sessionMember.tenant_id;
+        console.log('[testXeroPaymentRecording] Derived appTenantId from session:', appTenantId);
+      }
+    }
+    
+    if (!appTenantId) {
+      return { success: false, error: 'appTenantId is required for Xero tenant scoping (or authenticated session with tenant context)' };
+    }
 
     try {
       // Get valid Xero token
-      const { accessToken, tenantId } = await getValidXeroAccessToken();
+      const { accessToken, tenantId } = await getValidXeroAccessToken(appTenantId);
       debug.tokenObtained = true;
 
       // Get Stripe bank account code from system settings
