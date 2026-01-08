@@ -82,6 +82,7 @@ async function sendFormSubmissionEmail(submissionData) {
 
 // Entity name to Supabase table mapping (singular names for Base44 compatibility)
 const entityToTable = {
+  'Tenant': 'tenant',
   'Member': 'member',
   'Organization': 'organization',
   'Event': 'event',
@@ -186,7 +187,7 @@ export default async function handler(req, res) {
   
   // Determine if tenant filtering should be applied
   // GLOBAL entities are accessible without authentication
-  // TENANT/HYBRID/MEMBER entities require authentication and scoping
+  // TENANT/ORGANIZATION/MEMBER entities require authentication and scoping
   const shouldApplyTenantFilter = tenantScope !== TENANT_SCOPE.GLOBAL;
   
   // For non-global entities, require authentication and valid tenant context
@@ -194,8 +195,14 @@ export default async function handler(req, res) {
     if (!tenantCtx.isAuthenticated) {
       return res.status(401).json({ error: 'Authentication required' });
     }
-    // For tenant-scoped entities, require a valid organization_id
-    if ((tenantScope === TENANT_SCOPE.TENANT || tenantScope === TENANT_SCOPE.HYBRID) && !tenantCtx.organizationId) {
+    // For tenant-scoped entities, require a valid tenant_id
+    // Note: tenantId may be null during migration period while tenant_id columns are backfilled
+    // For now, fall back to organization_id filtering if tenant_id is not available
+    if (tenantScope === TENANT_SCOPE.TENANT && !tenantCtx.tenantId && !tenantCtx.organizationId) {
+      return res.status(403).json({ error: 'Member must belong to an organization to access this resource' });
+    }
+    // For organization-scoped entities, require a valid organization_id
+    if (tenantScope === TENANT_SCOPE.ORGANIZATION && !tenantCtx.organizationId) {
       return res.status(403).json({ error: 'Member must belong to an organization to access this resource' });
     }
     // For member-scoped entities, require a valid member_id
@@ -212,20 +219,29 @@ export default async function handler(req, res) {
       
       // Apply tenant isolation filter (always applied for non-global entities)
       if (shouldApplyTenantFilter) {
-        const tenantColumn = getTenantColumn(entity);
-        
         if (tenantScope === TENANT_SCOPE.MEMBER) {
           // Member-scoped entities filter by member_id
-          query = query.eq(tenantColumn, tenantCtx.memberId);
-        } else if (entity === 'Organization') {
-          // Organization entity: only return the member's own organization
-          query = query.eq('id', tenantCtx.organizationId);
-        } else if (tenantScope === TENANT_SCOPE.HYBRID) {
-          // HYBRID entities (IEditPage, IEditPageElement) filter by organization_id
+          query = query.eq('member_id', tenantCtx.memberId);
+        } else if (tenantScope === TENANT_SCOPE.ORGANIZATION) {
+          // Organization-scoped entities filter by organization_id
           query = query.eq('organization_id', tenantCtx.organizationId);
-        } else {
-          // Tenant-scoped entities filter by organization_id
-          query = query.eq(tenantColumn, tenantCtx.organizationId);
+        } else if (entity === 'Organization') {
+          // Organization entity: filter by tenant_id to show all orgs in tenant
+          // Or fall back to showing only the member's own org if tenant_id not set
+          if (tenantCtx.tenantId) {
+            query = query.eq('tenant_id', tenantCtx.tenantId);
+          } else {
+            query = query.eq('id', tenantCtx.organizationId);
+          }
+        } else if (tenantScope === TENANT_SCOPE.TENANT) {
+          // Tenant-scoped entities filter by tenant_id (or organization_id during migration)
+          if (tenantCtx.tenantId) {
+            query = query.eq('tenant_id', tenantCtx.tenantId);
+          } else {
+            // Fallback: use organization_id during migration period
+            // This requires these tables to still have organization_id column
+            query = query.eq('organization_id', tenantCtx.organizationId);
+          }
         }
       }
       
@@ -298,14 +314,25 @@ export default async function handler(req, res) {
       }
       
       // Apply tenant context for tenant-scoped entities
-      // SECURITY: Force-set organization_id or member_id from session to prevent tenant injection
+      // SECURITY: Force-set tenant_id/organization_id/member_id from session to prevent tenant injection
       if (shouldApplyTenantFilter && tenantCtx.isAuthenticated) {
         if (tenantScope === TENANT_SCOPE.MEMBER) {
           // Member-scoped entities: always force member_id to current member
           sanitizedBody.member_id = tenantCtx.memberId;
-        } else if (entity !== 'Organization') {
-          // Tenant/Hybrid-scoped entities: always force organization_id from session
-          // This prevents malicious clients from supplying arbitrary organization_id
+        } else if (tenantScope === TENANT_SCOPE.ORGANIZATION) {
+          // Organization-scoped entities: force organization_id from session
+          sanitizedBody.organization_id = tenantCtx.organizationId;
+        } else if (entity === 'Organization') {
+          // Creating organizations: set tenant_id if available
+          if (tenantCtx.tenantId) {
+            sanitizedBody.tenant_id = tenantCtx.tenantId;
+          }
+        } else if (tenantScope === TENANT_SCOPE.TENANT) {
+          // Tenant-scoped entities: force tenant_id from session
+          if (tenantCtx.tenantId) {
+            sanitizedBody.tenant_id = tenantCtx.tenantId;
+          }
+          // Also set organization_id during migration period for backward compatibility
           sanitizedBody.organization_id = tenantCtx.organizationId;
         }
       }

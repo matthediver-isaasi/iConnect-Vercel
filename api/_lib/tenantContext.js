@@ -2,22 +2,28 @@
  * Tenant Context for Multi-Tenant Isolation
  * 
  * This module defines tenant scoping rules and provides helpers
- * for enforcing data isolation between organizations.
+ * for enforcing data isolation between tenants.
+ * 
+ * Multi-tenancy hierarchy:
+ * - TENANT: The SaaS subscribing company (top level)
+ * - ORGANIZATION: Organizational members within a tenant (member companies)
+ * - MEMBER: Individual people associated with organizations
  */
 
 import { getSessionMember } from './session.js';
+import { supabase } from './database.js';
 
 /**
  * Entity tenant scope classifications:
  * - GLOBAL: Shared across all tenants (system-wide data)
- * - TENANT: Per-organization data, must be filtered by organization_id
- * - HYBRID: Template is global, instances are per-tenant
- * - MEMBER: Scoped to member's own data or their organization
+ * - TENANT: Per-tenant data, must be filtered by tenant_id
+ * - ORGANIZATION: Per-organization data within a tenant (uses organization_id)
+ * - MEMBER: Scoped to member's own data
  */
 export const TENANT_SCOPE = {
   GLOBAL: 'global',
   TENANT: 'tenant',
-  HYBRID: 'hybrid',
+  ORGANIZATION: 'organization',
   MEMBER: 'member',
 };
 
@@ -28,17 +34,18 @@ export const TENANT_SCOPE = {
  * - SystemSettings, PreferenceField (definitions), TypographyStyle (defaults)
  * - IEditElementTemplate (template library), RoleAccessItem (capability catalog)
  * 
- * TENANT entities are per-organization:
- * - Members, Events, Bookings, Forms, Resources, etc.
+ * TENANT entities are per-tenant (filtered by tenant_id):
+ * - Organization, Role, Event, Program, Form, Resource, JobPosting, etc.
  * 
- * HYBRID entities have global templates but tenant-specific instances:
- * - IEditPage, IEditPageElement (pages are per-tenant, templates are global)
+ * ORGANIZATION entities are per-organization within a tenant:
+ * - Member, OrganizationContact, Booking (through member), etc.
  * 
  * MEMBER entities are scoped to the authenticated member:
  * - MemberPreferenceValue, MemberCommunicationPreference
  */
 export const entityTenantScope = {
   // GLOBAL - System-wide, shared across all tenants
+  'Tenant': TENANT_SCOPE.GLOBAL, // Tenants themselves are global (accessed by slug/domain)
   'SystemSettings': TENANT_SCOPE.GLOBAL,
   'PreferenceField': TENANT_SCOPE.GLOBAL,
   'TypographyStyle': TENANT_SCOPE.GLOBAL,
@@ -50,14 +57,13 @@ export const entityTenantScope = {
   'TourGroup': TENANT_SCOPE.GLOBAL,
   'TourStep': TENANT_SCOPE.GLOBAL,
   'RedirectMapping': TENANT_SCOPE.GLOBAL,
+  'MagicLink': TENANT_SCOPE.GLOBAL, // Magic links are looked up by token, not tenant
   
-  // TENANT - Per-organization data
+  // TENANT - Per-tenant data (filtered by tenant_id)
   'Organization': TENANT_SCOPE.TENANT,
-  'Member': TENANT_SCOPE.TENANT,
+  'Role': TENANT_SCOPE.TENANT,
   'TeamMember': TENANT_SCOPE.TENANT,
-  'OrganizationContact': TENANT_SCOPE.TENANT,
   'Event': TENANT_SCOPE.TENANT,
-  'Booking': TENANT_SCOPE.TENANT,
   'Program': TENANT_SCOPE.TENANT,
   'ProgramTicketTransaction': TENANT_SCOPE.TENANT,
   'TrainingFundTransaction': TENANT_SCOPE.TENANT,
@@ -77,18 +83,12 @@ export const entityTenantScope = {
   'FileRepositoryFolder': TENANT_SCOPE.TENANT,
   'BlogPost': TENANT_SCOPE.TENANT,
   'ArticleCategory': TENANT_SCOPE.TENANT,
-  'ArticleComment': TENANT_SCOPE.TENANT,
-  'ArticleReaction': TENANT_SCOPE.TENANT,
-  'ArticleView': TENANT_SCOPE.TENANT,
-  'CommentReaction': TENANT_SCOPE.TENANT,
-  'GuestWriter': TENANT_SCOPE.TENANT,
   'NewsPost': TENANT_SCOPE.TENANT,
   'NavigationItem': TENANT_SCOPE.TENANT,
   'PortalNavigationItem': TENANT_SCOPE.TENANT,
   'PortalMenu': TENANT_SCOPE.TENANT,
   'PageBanner': TENANT_SCOPE.TENANT,
   'Floater': TENANT_SCOPE.TENANT,
-  'Role': TENANT_SCOPE.TENANT,
   'Award': TENANT_SCOPE.TENANT,
   'OfflineAward': TENANT_SCOPE.TENANT,
   'OfflineAwardAssignment': TENANT_SCOPE.TENANT,
@@ -112,20 +112,25 @@ export const entityTenantScope = {
   'CommunicationCategory': TENANT_SCOPE.TENANT,
   'CommunicationCategoryRole': TENANT_SCOPE.TENANT,
   'PageVisibility': TENANT_SCOPE.TENANT,
-  'OrganizationPreferenceValue': TENANT_SCOPE.TENANT,
   'XeroToken': TENANT_SCOPE.TENANT,
+  'IEditPage': TENANT_SCOPE.TENANT,
+  'IEditPageElement': TENANT_SCOPE.TENANT,
+  'GuestWriter': TENANT_SCOPE.TENANT,
   
-  // HYBRID - Pages are per-tenant, but use global templates
-  'IEditPage': TENANT_SCOPE.HYBRID,
-  'IEditPageElement': TENANT_SCOPE.HYBRID,
+  // ORGANIZATION - Per-organization within a tenant (uses organization_id)
+  'Member': TENANT_SCOPE.ORGANIZATION,
+  'OrganizationContact': TENANT_SCOPE.ORGANIZATION,
+  'OrganizationPreferenceValue': TENANT_SCOPE.ORGANIZATION,
+  'Booking': TENANT_SCOPE.ORGANIZATION, // Linked through member's organization
+  'ArticleComment': TENANT_SCOPE.ORGANIZATION,
+  'ArticleReaction': TENANT_SCOPE.ORGANIZATION,
+  'ArticleView': TENANT_SCOPE.ORGANIZATION,
+  'CommentReaction': TENANT_SCOPE.ORGANIZATION,
   
   // MEMBER - Scoped to the authenticated member
   'MemberPreferenceValue': TENANT_SCOPE.MEMBER,
   'MemberCommunicationPreference': TENANT_SCOPE.MEMBER,
   'MemberCredentials': TENANT_SCOPE.MEMBER,
-  
-  // Special cases - tokens and auth
-  'MagicLink': TENANT_SCOPE.GLOBAL, // Magic links are looked up by token, not tenant
 };
 
 /**
@@ -139,16 +144,17 @@ export function getEntityTenantScope(entity) {
 
 /**
  * Get tenant context from request
- * Returns the organization_id from the authenticated member's session
+ * Returns the tenant_id, organization_id, and member_id from the authenticated session
  * 
  * @param {Request} req - Express/Vercel request object
- * @returns {Promise<{organizationId: string|null, memberId: string|null, isAuthenticated: boolean}>}
+ * @returns {Promise<{tenantId: string|null, organizationId: string|null, memberId: string|null, isAuthenticated: boolean, isSuperAdmin: boolean}>}
  */
 export async function getTenantContext(req) {
   const member = await getSessionMember(req);
   
   if (!member) {
     return {
+      tenantId: null,
       organizationId: null,
       memberId: null,
       isAuthenticated: false,
@@ -156,11 +162,26 @@ export async function getTenantContext(req) {
     };
   }
   
+  // Get tenant_id from the member's organization
+  let tenantId = null;
+  if (member.organization_id && supabase) {
+    const { data: org } = await supabase
+      .from('organization')
+      .select('tenant_id')
+      .eq('id', member.organization_id)
+      .single();
+    
+    if (org) {
+      tenantId = org.tenant_id;
+    }
+  }
+  
   // TODO: Add super-admin detection based on role or specific flag
   // Super admins can bypass tenant restrictions for platform management
   const isSuperAdmin = false; // Will be implemented later
   
   return {
+    tenantId,
     organizationId: member.organization_id,
     memberId: member.id,
     isAuthenticated: true,
@@ -169,24 +190,21 @@ export async function getTenantContext(req) {
 }
 
 /**
- * Get the tenant filter column for an entity
- * Most entities use 'organization_id', but some use different column names
+ * Get the tenant filter column for an entity based on its scope
  * 
  * @param {string} entity - Entity name
+ * @param {string} scope - Tenant scope from getEntityTenantScope
  * @returns {string} - Column name to filter by
  */
-export function getTenantColumn(entity) {
-  // Most entities use organization_id
-  const customColumns = {
-    'Member': 'organization_id',
-    'Organization': 'id', // Organization is filtered by its own ID
-    'OrganizationPreferenceValue': 'organization_id',
-    'MemberPreferenceValue': 'member_id',
-    'MemberCommunicationPreference': 'member_id',
-    'MemberCredentials': 'member_id',
-  };
-  
-  return customColumns[entity] || 'organization_id';
+export function getTenantColumn(entity, scope) {
+  if (scope === TENANT_SCOPE.MEMBER) {
+    return 'member_id';
+  }
+  if (scope === TENANT_SCOPE.ORGANIZATION) {
+    return 'organization_id';
+  }
+  // TENANT scope uses tenant_id
+  return 'tenant_id';
 }
 
 /**
@@ -222,5 +240,5 @@ export function requiresTenantFilter(entity, method = 'GET') {
   
   // For now, require tenant filter for all tenant-scoped reads
   // Public pages will need to use separate public API endpoints
-  return scope === TENANT_SCOPE.TENANT || scope === TENANT_SCOPE.HYBRID || scope === TENANT_SCOPE.MEMBER;
+  return scope === TENANT_SCOPE.TENANT || scope === TENANT_SCOPE.ORGANIZATION || scope === TENANT_SCOPE.MEMBER;
 }

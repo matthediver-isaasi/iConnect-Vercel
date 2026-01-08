@@ -1,25 +1,10 @@
 # Overview
 
-This project is a comprehensive membership management platform built with React (Vite) and Express.js. It facilitates the management of members, organizations, events, bookings, program tickets, resources, and blog posts, alongside essential administrative functions. The platform aims for 100% visual and functional parity with its predecessor (Base44) while leveraging modern technologies. Its core purpose is to streamline membership operations, event management, and content delivery for organizations, integrating with various external services for CRM, payments, and accounting to provide a robust, all-in-one solution.
+This project is a comprehensive membership management platform built with React (Vite) and Express.js. It manages members, organizations, events, bookings, program tickets, resources, and blog posts, along with administrative functions. The platform aims for 100% visual and functional parity with its predecessor (Base44) using modern technologies. Its core purpose is to streamline membership operations, event management, and content delivery for organizations, integrating with various external services for CRM, payments, and accounting to provide a robust, all-in-one solution.
 
 # User Preferences
 
 Preferred communication style: Simple, everyday language.
-
-# Development Guidelines
-
-## API Development (IMPORTANT)
-
-**All API endpoints MUST be implemented as Vercel serverless functions in the `/api/` directory.**
-
-- NEVER create or recreate `server/routes.ts` - this file was deprecated and deleted in January 2026
-- Use the existing patterns in `api/_lib/database.js` for database access
-- Use `api/_lib/session.js` for session management
-- Follow the existing file structure:
-  - `api/entities/[entity]/index.js` - For entity CRUD operations
-  - `api/entities/[entity]/[id].js` - For single entity operations
-  - `api/functions/[functionName].js` - For server-side functions
-- The Express server (`server/app.ts`) only serves the frontend and routes `/api/*` to Vercel handlers via `server/vercel-api-adapter.ts`
 
 # System Architecture
 
@@ -31,162 +16,53 @@ The frontend uses React 18 with TypeScript/JSX, Vite, TanStack Query, shadcn/ui 
 
 The backend is built with Express.js and uses PostgreSQL (Neon serverless) with Drizzle ORM. It follows a generic entity CRUD API pattern, with password-based authentication and server-side session management. An admin security model implements role-based access control. Server-side functions handle specific operations like magic links, Stripe payments, bookings, and event synchronization.
 
-## Session Security (Dec 2025)
+## API Architecture
 
-Immediate session invalidation is enforced when:
-- A member's `login_enabled` is set to false
-- A member is deleted (anonymized)
-- An organization is deleted (all its members are immediately logged out)
+All API endpoints are implemented as Vercel serverless functions in the `/api/` directory. In local development, `server/vercel-api-adapter.ts` routes `/api/*` requests to these handlers. Session management uses `api/_lib/session.js` and database access uses `api/_lib/database.js`. Environment variables are managed per Vercel environment scope.
 
-The `getSessionMember()` function validates `login_enabled` status on every authenticated request. If disabled or deleted, the session is immediately destroyed and the request is rejected. The `invalidateMemberSessions()` helper function is called proactively during admin actions to ensure all active sessions are removed before changes take effect.
+### Multi-Tenant SaaS Architecture
 
-## Data Model
-
-The data model includes core entities like Member, Organization, Role, TeamMember, supporting role segmentation, event/booking management (application-native events, guest checkout), content management (BlogPost, Resource), and a dynamic page builder. A custom forms system supports various layouts and advanced uniqueness validation. Workflows provide automation rules triggered by field changes or record creation/updates. Additional features include Speaker profiles, Card Deck content, navigation/settings configuration, communication preferences, custom fields, training funds, and voucher codes.
+The platform is designed as a multi-tenant SaaS product with a three-tier hierarchy: TENANT (subscribing company), ORGANIZATION (organizational members within a tenant), and MEMBER (individual people within organizations). A `tenant` table stores SaaS subscribing companies, and `api/_lib/tenantContext.js` defines entity scopes. Access control enforces data isolation at GLOBAL, TENANT, ORGANIZATION, and MEMBER levels, ensuring records are scoped to the authenticated user's context.
 
 ## Deployment Architecture
 
 Development uses Express.js with Vite middleware. Production deploys to Vercel serverless functions for API and static assets. Data freshness is maintained using TanStack Query and Supabase Realtime Subscriptions.
 
-## API Architecture (Jan 2026)
+## Session Security
 
-**Vercel Serverless Functions:** All API endpoints are implemented as Vercel serverless functions in the `/api/` directory. In local development, `server/vercel-api-adapter.ts` routes `/api/*` requests to these handlers.
+Immediate session invalidation is enforced when a member's `login_enabled` is set to false, a member is deleted, or an organization is deleted. The `getSessionMember()` function validates `login_enabled` status on every authenticated request, and `invalidateMemberSessions()` is used proactively during admin actions.
 
-**Database Configuration:**
-- `api/_lib/database.js` - Centralized Supabase client
-- `api/_lib/session.js` - Session management with `iconnect.sid` cookie
-- Environment variables use the same names (`SUPABASE_URL`, `DATABASE_URL`, etc.) with different values per Vercel environment scope
+## Data Model
 
-**Environment Isolation (Jan 2026):**
-- Vercel Production → Production database (`zkvgzcruhniduuswbfyh`)
-- Vercel Preview → Development database (`lvmzliemqnieeoruhkik`)
-- Replit local → Development database (via `DEV_*` variables)
-
-**Key API Files:**
-- `api/entities/[entity]/index.js` - Generic entity CRUD
-- `api/entities/[entity]/[id].js` - Single entity operations
-- `api/functions/[functionName].js` - Server-side functions
-- `api/health.js` - Health check endpoint
-
-## Multi-Tenant Isolation (Jan 2026)
-
-The platform enforces strict data isolation between organizations (tenants). Each member belongs to one organization, and can only access data scoped to their organization.
-
-**Tenant Context Module:**
-- `api/_lib/tenantContext.js` - Defines entity scopes and provides tenant context helpers
-
-**Entity Tenant Scopes:**
-- **GLOBAL** - System-wide data accessible without authentication: SystemSettings, PreferenceField (definitions), TypographyStyle, IEditElementTemplate (template library), RoleAccessItem, TourGroup, TourStep, ButtonStyle, AwardClassification, AwardSublevel, RedirectMapping, MagicLink
-- **TENANT** - Per-organization data, filtered by `organization_id`: Member, Event, Booking, Form, Resource, JobPosting, BlogPost, Role, Workflow, etc.
-- **HYBRID** - Global templates with tenant-specific instances: IEditPage, IEditPageElement
-- **MEMBER** - Scoped to the authenticated member's own data: MemberPreferenceValue, MemberCommunicationPreference, MemberCredentials
-
-**Enforcement Points:**
-- Entity API list (`GET /api/entities/[entity]`) - Automatically filters by organization_id from session
-- Entity API single (`GET /api/entities/[entity]/[id]`) - Verifies record belongs to current tenant
-- Entity API create (`POST /api/entities/[entity]`) - Automatically sets organization_id from session
-- Entity API update (`PATCH /api/entities/[entity]/[id]`) - Verifies and restricts updates to current tenant
-- Entity API delete (`DELETE /api/entities/[entity]/[id]`) - Verifies ownership before deletion
-
-**Access Control:**
-- Non-global entities require authentication (401 Unauthorized if no session)
-- Cross-tenant access attempts return 404 (record not found)
-- Organization entity access is restricted to the member's own organization
+The data model includes core entities like Member, Organization, Role, TeamMember, supporting role segmentation, event/booking management (application-native events, guest checkout), content management (BlogPost, Resource), and a dynamic page builder. It also supports a custom forms system, workflows for automation, Speaker profiles, Card Deck content, navigation/settings configuration, communication preferences, custom fields, training funds, and voucher codes.
 
 ## Runtime Page Provisioning (CMS Feature)
 
-The platform includes a CMS feature for administrators to create and manage dynamic pages and routes at runtime using a `/:slug` catch-all route, with support for draft/published statuses and public/member access controls.
-
-## My Organisation Page
-
-A dedicated `/myorganisation` page displays organization details and custom fields, with access controlled via Role Management.
-
-## Organisations CRM List (/organisations)
-
-An admin-only CRM-style page for managing organizations, featuring search, filters, various views, pagination, and detailed profiles. Access is controlled by feature exclusions.
+A CMS feature allows administrators to create and manage dynamic pages and routes at runtime using a `/:slug` catch-all route, supporting draft/published statuses and public/member access controls.
 
 ## Role Management System
 
-The role management system uses a hierarchical Module→Page→Feature structure to control visibility. Roles store `excluded_features` arrays. Dynamic configuration of this hierarchy is managed via an Admin UI, storing data in a `role_access_item` Supabase table.
+The role management system uses a hierarchical Module→Page→Feature structure to control visibility via `excluded_features` arrays stored in roles. Access control is 100% feature-based, with backend endpoints checking specific feature exclusions and UI components dynamically adjusting visibility. The binary `is_admin` concept has been fully deprecated.
 
-**Admin Status Fully Deprecated (Dec 2025):** The binary `is_admin` concept has been completely removed from the application. Access control is now 100% feature-based using the `excluded_features` array:
+## Member Field Permissions
 
-- **Backend endpoints** check specific feature exclusions relevant to their function (e.g., data export checks `admin.data-export`, job postings check `admin.job-postings`)
-- **UI components** no longer display admin badges - roles are shown without special admin indicators
-- **Admin navigation visibility** is determined purely by feature exclusions - if any admin menu items remain after filtering, the admin section shows. No separate `hasAdminNavAccess()` gate exists.
-- **LayoutContext** no longer exposes `isAdmin` state - only `isFeatureExcluded()` is available
-- **RoleManagement** no longer persists the `is_admin` field when saving roles
-- **useMemberAccess hook** still exports `isAdmin` for backward compatibility - computed locally from role's excluded_features (not from context)
-- **Feature exclusion examples**: `admin.data-export`, `admin.member-handles`, `admin.program-tickets`, `admin.programs`, `admin.events`, `admin.job-postings`
-
-All access control throughout the application now uses `isFeatureExcluded()` from the `useMemberAccess` hook.
-
-## Member Field Permissions (Jan 2026)
-
-Role-based field access control for member profile fields on the About-me page, mirroring the Organization Field Permissions feature.
-
-**Database Table:**
-- `role_member_field_permission` - Stores field permissions per role
-
-**Table Structure:**
-- `id` (UUID primary key)
-- `role_id` - The role this permission applies to
-- `field_key` - Core field name (first_name, last_name, profile_photo_url, job_title, mobile, landline, biography, show_in_directory)
-- `permission` - One of: 'hidden', 'read', 'read_write'
-
-**API Endpoints:**
-- `GET /api/roles/[roleId]/member-field-permissions` - Get permissions for a role (admin only)
-- `PUT /api/roles/[roleId]/member-field-permissions` - Update permissions for a role (admin only)
-- `GET /api/my-member-field-permissions` - Get current member's field permissions (authenticated)
-
-**Admin UI:**
-- MemberPreferences page (`/MemberPreferences`) - Manage field permissions per role
-
-**Frontend Integration:**
-- Preferences.jsx (About-me page) fetches member field permissions
-- Helper functions: `getFieldPermission()`, `canEditField()`, `isFieldVisible()`
-- Fields render as read-only or hidden based on role permissions
-
-**Access Control:**
-- Feature key: `page_admin_MemberPreferences` maps to `membership.member-field-permissions`
+Role-based field access control for member profile fields on the About-me page. Permissions (`hidden`, `read`, `read_write`) are stored in the `role_member_field_permission` table per role and enforced via API endpoints and frontend integration.
 
 ## Email Template Placeholder System
 
-The platform supports dynamic email templates with placeholder substitution for form submissions. Forms can send multiple emails per submission with independent configurations, allowing for system and custom placeholders mapped to form fields. The backend handles placeholder replacement and supports backward compatibility with legacy single email fields.
+The platform supports dynamic email templates with placeholder substitution for form submissions. Forms can send multiple emails per submission with independent configurations, allowing for system and custom placeholders mapped to form fields.
 
 ## Entity Pipelines System
 
-Forms use a unified `entity_pipelines` system to configure member and organization record creation/updates on form submission. This system uses a `mappings` array for each entity entry, supporting transformations and both field-based and static value sources. The UI is integrated into the FormBuilder, and processing logic handles primary and additional entity UPSERTs, deduplication, and field clearing using a `__clear__` sentinel value. It maintains backward compatibility with legacy form fields.
+Forms use a unified `entity_pipelines` system to configure member and organization record creation/updates on form submission. This system uses a `mappings` array for each entity entry, supporting transformations, and handles primary and additional entity UPSERTs, deduplication, and field clearing.
 
 ## Form Conditional Logic Visibility System
 
-Forms support conditional visibility rules that control the visibility and enabled state of fields based on other field values. Rules specify `visible` and `enabled` states (true/false/null) for target fields.
+Forms support conditional visibility rules that control the visibility and enabled state of fields based on other field values.
 
-## Notes System (Jan 2026)
+## Notes System
 
-Both Organizations and Members support internal notes that admins can add, edit, and delete:
-
-**Database Tables:**
-- `organization_note` - Notes attached to organization records
-- `member_note` - Notes attached to member records
-
-**Table Structure:**
-- `id` (UUID primary key)
-- `target_member_id` or `organization_id` - The entity the note is about
-- `author_member_id` or `member_id` - Who created the note
-- `content` (text) - The note content
-- `attachments` (JSONB) - Array of file attachments (organization notes only)
-- `created_at`, `updated_at` timestamps
-
-**API Endpoints:**
-- `GET/POST /api/admin/organizations/[id]/notes` - List/create org notes
-- `PATCH/DELETE /api/admin/organization-notes/[noteId]` - Update/delete org notes
-- `GET/POST /api/admin/members/[id]/notes` - List/create member notes
-- `PATCH/DELETE /api/admin/member-notes/[noteId]` - Update/delete member notes
-
-**UI Components:**
-- Notes tab in OrganisationDetailView (with file attachments)
-- Notes tab in MemberDetailView (text only)
+Organizations and Members support internal notes that admins can add, edit, and delete, stored in `organization_note` and `member_note` tables respectively. Organization notes support file attachments.
 
 # External Dependencies
 
@@ -194,22 +70,3 @@ Both Organizations and Members support internal notes that admins can add, edit,
 **Stripe:** Payment processing.
 **Xero:** Invoice generation.
 **Email Delivery:** For magic links and notifications.
-
-## Zoho Integration Status (Jan 2026)
-
-**Zoho CRM:** FULLY DEPRECATED AND REMOVED - All CRM sync functionality, authentication UI, database columns, and fallback lookups have been removed. The application database is now the single source of truth for member and organization data.
-
-**Removed (Jan 2026):**
-- Backend: `syncAllOrganizationsFromZoho`, `syncAllMembersFromZoho`, `getValidZohoAccessToken`, `syncOrganizationContacts`, `zohoContactWebhook`, `getZohoAuthUrl`
-- Frontend: AdminSetup.jsx Zoho authentication UI and CRM sync cards, `ZohoToken` entity from client API layer
-- Frontend: All `zoho_account_id` fallback lookups from MemberDirectory.jsx, DynamicDirectoryView.jsx, ArticleView.jsx
-- Frontend: TestLogin.jsx page removed (development-only testing page)
-- Database: `zoho_token` table, `zoho_account_id` column on organization, `zoho_contact_id` column on member, `base44_id` columns across all tables
-- Database: `member.last_synced` (was for Zoho sync), `member.last_login` (superseded by `last_activity`), `member.has_seen_onboarding_tour` (superseded by `page_tours_seen`)
-
-**Zoho Backstage:** DEPRECATED - Event sync from Backstage has been removed. Events are now managed directly in the application.
-
-**Minor Remaining References (non-functional):**
-- `ZOHO_PUBLIC_BACKSTAGE_SUBDOMAIN` constants in MyTickets.jsx and EventCard.jsx (for legacy event links)
-- Placeholder URL in EventSettings.jsx input field
-- Zoho Backstage widget scripts in UnpackedInternationalEmployability.jsx (external embed)

@@ -3,6 +3,35 @@ import { pgTable, text, varchar, boolean, timestamp, jsonb, integer } from "driz
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
+// Tenant table - top level of multi-tenancy (SaaS subscribing companies)
+export const tenant = pgTable("tenant", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  slug: varchar("slug", { length: 100 }).unique(),
+  domain: varchar("domain", { length: 255 }),
+  status: varchar("status", { length: 50 }).notNull().default('active'),
+  logo_url: text("logo_url"),
+  favicon_url: text("favicon_url"),
+  primary_color: varchar("primary_color", { length: 20 }),
+  subscription_plan: varchar("subscription_plan", { length: 50 }).default('free'),
+  subscription_status: varchar("subscription_status", { length: 50 }).default('active'),
+  stripe_customer_id: varchar("stripe_customer_id", { length: 255 }),
+  stripe_subscription_id: varchar("stripe_subscription_id", { length: 255 }),
+  billing_email: varchar("billing_email", { length: 255 }),
+  settings: jsonb("settings").default({}),
+  created_at: timestamp("created_at").defaultNow(),
+  updated_at: timestamp("updated_at").defaultNow(),
+});
+
+export const insertTenantSchema = createInsertSchema(tenant).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertTenant = z.infer<typeof insertTenantSchema>;
+export type Tenant = typeof tenant.$inferSelect;
+
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   username: text("username").notNull().unique(),

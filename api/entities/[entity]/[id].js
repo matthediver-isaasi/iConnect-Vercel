@@ -5,6 +5,7 @@ import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE }
 
 // Entity name to Supabase table mapping (singular names for Base44 compatibility)
 const entityToTable = {
+  'Tenant': 'tenant',
   'Member': 'member',
   'Organization': 'organization',
   'Event': 'event',
@@ -108,8 +109,12 @@ export default async function handler(req, res) {
     if (!tenantCtx.isAuthenticated) {
       return res.status(401).json({ error: 'Authentication required' });
     }
-    // For tenant-scoped entities, require a valid organization_id
-    if ((tenantScope === TENANT_SCOPE.TENANT || tenantScope === TENANT_SCOPE.HYBRID) && !tenantCtx.organizationId) {
+    // For tenant-scoped entities, require a valid tenant_id or organization_id
+    if (tenantScope === TENANT_SCOPE.TENANT && !tenantCtx.tenantId && !tenantCtx.organizationId) {
+      return res.status(403).json({ error: 'Member must belong to an organization to access this resource' });
+    }
+    // For organization-scoped entities, require a valid organization_id
+    if (tenantScope === TENANT_SCOPE.ORGANIZATION && !tenantCtx.organizationId) {
       return res.status(403).json({ error: 'Member must belong to an organization to access this resource' });
     }
     // For member-scoped entities, require a valid member_id
@@ -130,12 +135,22 @@ export default async function handler(req, res) {
       if (shouldApplyTenantFilter) {
         if (tenantScope === TENANT_SCOPE.MEMBER) {
           query = query.eq('member_id', tenantCtx.memberId);
+        } else if (tenantScope === TENANT_SCOPE.ORGANIZATION) {
+          query = query.eq('organization_id', tenantCtx.organizationId);
         } else if (entity === 'Organization') {
-          query = query.eq('id', tenantCtx.organizationId);
-        } else if (tenantScope === TENANT_SCOPE.HYBRID) {
-          query = query.eq('organization_id', tenantCtx.organizationId);
-        } else {
-          query = query.eq('organization_id', tenantCtx.organizationId);
+          // Organization entity: verify belongs to same tenant or is member's org
+          if (tenantCtx.tenantId) {
+            query = query.eq('tenant_id', tenantCtx.tenantId);
+          } else {
+            query = query.eq('id', tenantCtx.organizationId);
+          }
+        } else if (tenantScope === TENANT_SCOPE.TENANT) {
+          // Tenant-scoped entities: filter by tenant_id or fall back to organization_id
+          if (tenantCtx.tenantId) {
+            query = query.eq('tenant_id', tenantCtx.tenantId);
+          } else {
+            query = query.eq('organization_id', tenantCtx.organizationId);
+          }
         }
       }
       
@@ -172,10 +187,20 @@ export default async function handler(req, res) {
           if (shouldApplyTenantFilter) {
             if (tenantScope === TENANT_SCOPE.MEMBER) {
               beforeQuery = beforeQuery.eq('member_id', tenantCtx.memberId);
-            } else if (entity === 'Organization') {
-              beforeQuery = beforeQuery.eq('id', tenantCtx.organizationId);
-            } else {
+            } else if (tenantScope === TENANT_SCOPE.ORGANIZATION) {
               beforeQuery = beforeQuery.eq('organization_id', tenantCtx.organizationId);
+            } else if (entity === 'Organization') {
+              if (tenantCtx.tenantId) {
+                beforeQuery = beforeQuery.eq('tenant_id', tenantCtx.tenantId);
+              } else {
+                beforeQuery = beforeQuery.eq('id', tenantCtx.organizationId);
+              }
+            } else if (tenantScope === TENANT_SCOPE.TENANT) {
+              if (tenantCtx.tenantId) {
+                beforeQuery = beforeQuery.eq('tenant_id', tenantCtx.tenantId);
+              } else {
+                beforeQuery = beforeQuery.eq('organization_id', tenantCtx.organizationId);
+              }
             }
           }
           
@@ -198,8 +223,9 @@ export default async function handler(req, res) {
       }
       
       // SECURITY: Strip tenant linkage fields from PATCH body to prevent tenant reassignment attacks
-      // organization_id and member_id should never be changed via PATCH
+      // tenant_id, organization_id and member_id should never be changed via PATCH
       if (shouldApplyTenantFilter) {
+        delete sanitizedBody.tenant_id;
         delete sanitizedBody.organization_id;
         delete sanitizedBody.member_id;
       }
@@ -220,10 +246,20 @@ export default async function handler(req, res) {
       if (shouldApplyTenantFilter) {
         if (tenantScope === TENANT_SCOPE.MEMBER) {
           patchQuery = patchQuery.eq('member_id', tenantCtx.memberId);
-        } else if (entity === 'Organization') {
-          patchQuery = patchQuery.eq('id', tenantCtx.organizationId);
-        } else {
+        } else if (tenantScope === TENANT_SCOPE.ORGANIZATION) {
           patchQuery = patchQuery.eq('organization_id', tenantCtx.organizationId);
+        } else if (entity === 'Organization') {
+          if (tenantCtx.tenantId) {
+            patchQuery = patchQuery.eq('tenant_id', tenantCtx.tenantId);
+          } else {
+            patchQuery = patchQuery.eq('id', tenantCtx.organizationId);
+          }
+        } else if (tenantScope === TENANT_SCOPE.TENANT) {
+          if (tenantCtx.tenantId) {
+            patchQuery = patchQuery.eq('tenant_id', tenantCtx.tenantId);
+          } else {
+            patchQuery = patchQuery.eq('organization_id', tenantCtx.organizationId);
+          }
         }
       }
       
@@ -303,10 +339,20 @@ export default async function handler(req, res) {
         
         if (tenantScope === TENANT_SCOPE.MEMBER) {
           verifyQuery = verifyQuery.eq('member_id', tenantCtx.memberId);
-        } else if (entity === 'Organization') {
-          verifyQuery = verifyQuery.eq('id', tenantCtx.organizationId);
-        } else {
+        } else if (tenantScope === TENANT_SCOPE.ORGANIZATION) {
           verifyQuery = verifyQuery.eq('organization_id', tenantCtx.organizationId);
+        } else if (entity === 'Organization') {
+          if (tenantCtx.tenantId) {
+            verifyQuery = verifyQuery.eq('tenant_id', tenantCtx.tenantId);
+          } else {
+            verifyQuery = verifyQuery.eq('id', tenantCtx.organizationId);
+          }
+        } else if (tenantScope === TENANT_SCOPE.TENANT) {
+          if (tenantCtx.tenantId) {
+            verifyQuery = verifyQuery.eq('tenant_id', tenantCtx.tenantId);
+          } else {
+            verifyQuery = verifyQuery.eq('organization_id', tenantCtx.organizationId);
+          }
         }
         
         const { data: verifyData, error: verifyError } = await verifyQuery.single();
