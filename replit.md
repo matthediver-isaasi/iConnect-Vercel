@@ -57,6 +57,15 @@ A CMS feature allows administrators to create and manage dynamic pages and route
 
 The role management system uses a hierarchical Module→Page→Feature structure to control visibility via `excluded_features` arrays stored in roles. Access control is 100% feature-based, with backend endpoints checking specific feature exclusions and UI components dynamically adjusting visibility. The binary `is_admin` concept has been fully deprecated.
 
+### System Role Protection
+
+System roles (like "Super Admin") are protected from modification and deletion using an `is_system` flag on the `role` table. Protection is enforced at three layers:
+1. **Database layer**: A PostgreSQL trigger (`protect_system_roles`) prevents deletion and renaming of system roles
+2. **API layer**: Guards in `api/entities/[entity]/[id].js` check `is_system` before allowing DELETE or PATCH operations on roles
+3. **UI layer**: Role management interface disables delete/rename controls for system roles
+
+**Important**: Run `scripts/add-role-is-system-flag.sql` in Supabase SQL Editor to add the `is_system` column, backfill existing admin roles, and create the protection trigger.
+
 ## Member Field Permissions
 
 Role-based field access control for member profile fields on the About-me page. Permissions (`hidden`, `read`, `read_write`) are stored in the `role_member_field_permission` table per role and enforced via API endpoints and frontend integration.
