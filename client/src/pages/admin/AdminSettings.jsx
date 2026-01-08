@@ -4,42 +4,150 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { 
-  Building2, 
   ArrowLeft, 
   Loader2,
   Save,
   Upload,
   LogOut,
   Image,
-  X
+  Trash2,
+  Calendar,
+  Mail,
+  ExternalLink,
+  CheckCircle2,
+  AlertTriangle,
+  RefreshCw,
+  Database,
+  Users,
+  Building2
 } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
+import { format } from "date-fns";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar as CalendarComponent } from "@/components/ui/calendar";
+
+const DATE_FORMAT_OPTIONS = [
+  { value: 'dd/MM/yyyy', label: 'DD/MM/YYYY (31/12/2024)' },
+  { value: 'MM/dd/yyyy', label: 'MM/DD/YYYY (12/31/2024)' },
+  { value: 'yyyy-MM-dd', label: 'YYYY-MM-DD (2024-12-31)' },
+  { value: 'dd MMM yyyy', label: 'DD Mon YYYY (31 Dec 2024)' },
+  { value: 'MMM dd, yyyy', label: 'Mon DD, YYYY (Dec 31, 2024)' },
+  { value: 'MMMM dd, yyyy', label: 'Month DD, YYYY (December 31, 2024)' },
+  { value: 'dd MMMM yyyy', label: 'DD Month YYYY (31 December 2024)' },
+];
 
 export default function AdminSettings() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
+  const [tenantUser, setTenantUser] = useState(null);
+  const [tenant, setTenant] = useState(null);
+  
+  const [formData, setFormData] = useState({
+    name: '',
+    billing_email: '',
+    logo_url: '',
+    favicon_url: '',
+    settings: {
+      logo_height: 'medium',
+      logo_link: '',
+      date_display_format: 'dd MMM yyyy',
+      welcome_email_from_address: '',
+      welcome_email_from_name: ''
+    }
+  });
+  
   const [saving, setSaving] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [uploadingFavicon, setUploadingFavicon] = useState(false);
-  const [tenantUser, setTenantUser] = useState(null);
-  const [tenant, setTenant] = useState(null);
-  const [formData, setFormData] = useState({
-    name: '',
-    logo_url: '',
-    favicon_url: '',
-    billing_email: ''
-  });
+  
+  const [xeroLoading, setXeroLoading] = useState(false);
+  const [xeroTokens, setXeroTokens] = useState([]);
+  const [vatSyncLoading, setVatSyncLoading] = useState(false);
+  const [vatSyncResult, setVatSyncResult] = useState(null);
+  
+  const [backfillDate, setBackfillDate] = useState(new Date());
+  const [backfillLoading, setBackfillLoading] = useState(false);
+  const [backfillResult, setBackfillResult] = useState(null);
+  
+  const [fixBlogHandlesLoading, setFixBlogHandlesLoading] = useState(false);
+  const [fixBlogHandlesResult, setFixBlogHandlesResult] = useState(null);
   
   const logoInputRef = useRef(null);
   const faviconInputRef = useRef(null);
+
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const response = await fetch('/api/auth/tenant-user-me', { credentials: 'include' });
+        if (response.ok) {
+          const data = await response.json();
+          if (data.authenticated && data.tenantUser) {
+            setTenantUser(data.tenantUser);
+            setTenant(data.tenant);
+            const settings = data.tenant?.settings || {};
+            setFormData({
+              name: data.tenant?.name || '',
+              billing_email: data.tenant?.billing_email || '',
+              logo_url: data.tenant?.logo_url || '',
+              favicon_url: data.tenant?.favicon_url || '',
+              settings: {
+                logo_height: settings.logo_height || 'medium',
+                logo_link: settings.logo_link || '',
+                date_display_format: settings.date_display_format || 'dd MMM yyyy',
+                welcome_email_from_address: settings.welcome_email_from_address || '',
+                welcome_email_from_name: settings.welcome_email_from_name || ''
+              }
+            });
+            
+            fetchXeroTokens(data.tenant?.id);
+          } else {
+            navigate('/admin/login');
+          }
+        } else {
+          navigate('/admin/login');
+        }
+      } catch (err) {
+        navigate('/admin/login');
+      } finally {
+        setLoading(false);
+      }
+    };
+    checkAuth();
+  }, [navigate]);
+
+  const fetchXeroTokens = async (tenantId) => {
+    try {
+      const response = await fetch(`/api/admin/xero-status?tenant_id=${tenantId}`, { credentials: 'include' });
+      if (response.ok) {
+        const data = await response.json();
+        setXeroTokens(data.tokens || []);
+      }
+    } catch (err) {
+      console.error('Failed to fetch Xero status:', err);
+    }
+  };
 
   const handleFileUpload = async (file, type) => {
     if (!file) return;
     
     const isLogo = type === 'logo';
     const setUploading = isLogo ? setUploadingLogo : setUploadingFavicon;
+    
+    if (isLogo && !file.type.startsWith('image/')) {
+      toast({ title: "Invalid file", description: "Please upload an image file", variant: "destructive" });
+      return;
+    }
+    
+    if (!isLogo) {
+      const validTypes = ['image/png', 'image/x-icon', 'image/svg+xml', 'image/vnd.microsoft.icon'];
+      if (!validTypes.includes(file.type) && !file.name.endsWith('.ico')) {
+        toast({ title: "Invalid file", description: "Please upload a PNG, ICO, or SVG file", variant: "destructive" });
+        return;
+      }
+    }
     
     setUploading(true);
     
@@ -72,43 +180,13 @@ export default function AdminSettings() {
     } catch (err) {
       toast({
         title: "Upload failed",
-        description: err.message || "Failed to upload file. Please try again.",
+        description: err.message || "Failed to upload file.",
         variant: "destructive"
       });
     } finally {
       setUploading(false);
     }
   };
-
-  useEffect(() => {
-    const checkAuth = async () => {
-      try {
-        const response = await fetch('/api/auth/tenant-user-me', { credentials: 'include' });
-        if (response.ok) {
-          const data = await response.json();
-          if (data.authenticated && data.tenantUser) {
-            setTenantUser(data.tenantUser);
-            setTenant(data.tenant);
-            setFormData({
-              name: data.tenant?.name || '',
-              logo_url: data.tenant?.logo_url || '',
-              favicon_url: data.tenant?.favicon_url || '',
-              billing_email: data.tenant?.billing_email || ''
-            });
-          } else {
-            navigate('/admin/login');
-          }
-        } else {
-          navigate('/admin/login');
-        }
-      } catch (err) {
-        navigate('/admin/login');
-      } finally {
-        setLoading(false);
-      }
-    };
-    checkAuth();
-  }, [navigate]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -119,7 +197,13 @@ export default function AdminSettings() {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify(formData)
+        body: JSON.stringify({
+          name: formData.name,
+          billing_email: formData.billing_email,
+          logo_url: formData.logo_url,
+          favicon_url: formData.favicon_url,
+          settings: formData.settings
+        })
       });
 
       if (response.ok) {
@@ -141,6 +225,103 @@ export default function AdminSettings() {
     }
   };
 
+  const handleXeroAuthenticate = async () => {
+    setXeroLoading(true);
+    try {
+      const response = await fetch('/api/xero/auth-url', {
+        method: 'POST',
+        credentials: 'include'
+      });
+      
+      if (!response.ok) throw new Error('Failed to get auth URL');
+      
+      const { authUrl } = await response.json();
+      const popup = window.open(authUrl, 'XeroAuth', 'width=600,height=700');
+      
+      const checkClosed = setInterval(() => {
+        if (popup?.closed) {
+          clearInterval(checkClosed);
+          setXeroLoading(false);
+          if (tenant?.id) fetchXeroTokens(tenant.id);
+        }
+      }, 1000);
+    } catch (error) {
+      console.error('Xero auth error:', error);
+      toast({ title: "Error", description: "Failed to start Xero authentication", variant: "destructive" });
+      setXeroLoading(false);
+    }
+  };
+
+  const handleSyncVatRates = async () => {
+    setVatSyncLoading(true);
+    setVatSyncResult(null);
+    try {
+      const response = await fetch('/api/xero/sync-vat-rates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include'
+      });
+      const data = await response.json();
+      
+      if (!response.ok) throw new Error(data.error || 'Failed to sync VAT rates');
+      
+      setVatSyncResult({ success: true, count: data.count });
+      toast({ title: "Success", description: `Synced ${data.count} VAT rates from Xero` });
+    } catch (error) {
+      setVatSyncResult({ success: false, error: error.message });
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    } finally {
+      setVatSyncLoading(false);
+    }
+  };
+
+  const handleBackfillOrgDates = async () => {
+    setBackfillLoading(true);
+    setBackfillResult(null);
+    try {
+      const response = await fetch('/api/admin/backfill-organization-dates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ date: backfillDate.toISOString() })
+      });
+      const data = await response.json();
+      
+      if (!response.ok) throw new Error(data.error || 'Failed to backfill dates');
+      
+      setBackfillResult({ success: true, updated: data.updated });
+      toast({ title: "Success", description: `Updated ${data.updated} organisations` });
+    } catch (error) {
+      setBackfillResult({ success: false, error: error.message });
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    } finally {
+      setBackfillLoading(false);
+    }
+  };
+
+  const handleFixBlogHandles = async () => {
+    setFixBlogHandlesLoading(true);
+    setFixBlogHandlesResult(null);
+    try {
+      const response = await fetch('/api/admin/fix-blog-handles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include'
+      });
+      const data = await response.json();
+      
+      if (!response.ok) throw new Error(data.error || 'Failed to fix blog handles');
+      
+      setFixBlogHandlesResult({ success: true, ...data });
+      toast({ title: "Success", description: `Fixed ${data.slugsUpdated} blog slugs` });
+    } catch (error) {
+      setFixBlogHandlesResult({ success: false, error: error.message });
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    } finally {
+      setFixBlogHandlesLoading(false);
+    }
+  };
+
   const handleLogout = async () => {
     try {
       await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
@@ -149,6 +330,8 @@ export default function AdminSettings() {
     navigate('/admin/login');
   };
 
+  const isXeroAuthenticated = xeroTokens.length > 0;
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-900">
@@ -156,6 +339,9 @@ export default function AdminSettings() {
       </div>
     );
   }
+
+  const logoHeightPx = formData.settings.logo_height === 'small' ? '40px' 
+    : formData.settings.logo_height === 'large' ? '80px' : '60px';
 
   return (
     <div className="min-h-screen bg-slate-900">
@@ -208,7 +394,6 @@ export default function AdminSettings() {
                   data-testid="input-tenant-name"
                 />
               </div>
-
               <div className="space-y-2">
                 <Label htmlFor="billing_email" className="text-slate-200">Billing Email</Label>
                 <Input
@@ -226,14 +411,53 @@ export default function AdminSettings() {
 
           <Card className="bg-slate-800/50 border-slate-700">
             <CardHeader>
-              <CardTitle className="text-white">Branding Assets</CardTitle>
+              <CardTitle className="text-white flex items-center gap-2">
+                <Image className="w-5 h-5" />
+                Portal Logo
+              </CardTitle>
               <CardDescription className="text-slate-400">
-                Logo and favicon for your portal
+                Upload a custom logo to display in the portal navigation
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="space-y-2">
-                <Label htmlFor="logo_url" className="text-slate-200">Logo</Label>
+                <Label className="text-slate-200">Current Logo</Label>
+                <div className="border-2 border-dashed border-slate-600 rounded-lg p-4 bg-slate-900/50">
+                  {formData.logo_url ? (
+                    <div className="flex items-center gap-4">
+                      <div 
+                        className="bg-white border border-slate-600 rounded-lg p-2 flex items-center justify-center"
+                        style={{ width: '200px', height: logoHeightPx }}
+                      >
+                        <img 
+                          src={formData.logo_url} 
+                          alt="Portal Logo" 
+                          className="max-h-full max-w-full object-contain"
+                        />
+                      </div>
+                      <Button 
+                        type="button"
+                        variant="outline" 
+                        size="sm"
+                        onClick={() => setFormData({ ...formData, logo_url: '' })}
+                        className="text-red-400 hover:text-red-300 border-slate-600"
+                        data-testid="button-remove-logo"
+                      >
+                        <Trash2 className="w-4 h-4 mr-1" />
+                        Remove
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="text-center py-4">
+                      <Image className="w-12 h-12 text-slate-500 mx-auto mb-2" />
+                      <p className="text-sm text-slate-400">No logo uploaded</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-slate-200">Upload New Logo</Label>
                 <input
                   ref={logoInputRef}
                   type="file"
@@ -242,106 +466,234 @@ export default function AdminSettings() {
                   onChange={(e) => handleFileUpload(e.target.files?.[0], 'logo')}
                   data-testid="input-logo-file"
                 />
-                <div className="flex gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => logoInputRef.current?.click()}
-                    disabled={uploadingLogo}
-                    className="border-slate-600 text-slate-200 hover:bg-slate-700"
-                    data-testid="button-upload-logo"
-                  >
-                    {uploadingLogo ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Uploading...
-                      </>
-                    ) : (
-                      <>
-                        <Upload className="mr-2 h-4 w-4" />
-                        Upload Logo
-                      </>
-                    )}
-                  </Button>
-                  {formData.logo_url && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => setFormData({ ...formData, logo_url: '' })}
-                      className="text-slate-400 hover:text-red-400 hover:bg-slate-700"
-                      data-testid="button-remove-logo"
-                    >
-                      <X className="h-4 w-4" />
-                    </Button>
+                <div 
+                  onClick={() => !uploadingLogo && logoInputRef.current?.click()}
+                  className="flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-slate-600 rounded-lg cursor-pointer hover:border-blue-500 hover:bg-slate-800 transition-colors"
+                >
+                  {uploadingLogo ? (
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin text-blue-400" />
+                      <span className="text-sm text-blue-400">Uploading...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="w-5 h-5 text-slate-400" />
+                      <span className="text-sm text-slate-300">Click to upload image</span>
+                    </>
                   )}
                 </div>
-                {formData.logo_url && (
-                  <div className="mt-2 p-4 bg-slate-900 rounded-lg inline-block">
-                    <img 
-                      src={formData.logo_url} 
-                      alt="Logo preview" 
-                      className="max-h-20 object-contain"
-                      onError={(e) => e.target.style.display = 'none'}
-                    />
-                  </div>
-                )}
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="favicon_url" className="text-slate-200">Favicon</Label>
+                <Label htmlFor="logo-height" className="text-slate-200">Logo Height</Label>
+                <Select 
+                  value={formData.settings.logo_height} 
+                  onValueChange={(value) => setFormData({
+                    ...formData, 
+                    settings: { ...formData.settings, logo_height: value }
+                  })}
+                >
+                  <SelectTrigger className="bg-slate-900/50 border-slate-600 text-white" data-testid="select-logo-height">
+                    <SelectValue placeholder="Select height" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="small">Small (40px)</SelectItem>
+                    <SelectItem value="medium">Medium (60px)</SelectItem>
+                    <SelectItem value="large">Large (80px)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="logo-link" className="text-slate-200">Logo Click Link (optional)</Label>
+                <Input
+                  id="logo-link"
+                  type="url"
+                  placeholder="https://example.com"
+                  value={formData.settings.logo_link}
+                  onChange={(e) => setFormData({
+                    ...formData,
+                    settings: { ...formData.settings, logo_link: e.target.value }
+                  })}
+                  className="bg-slate-900/50 border-slate-600 text-white placeholder:text-slate-500"
+                  data-testid="input-logo-link"
+                />
+                <p className="text-xs text-slate-500">
+                  When clicked, the logo will navigate to this URL. Leave empty to link to Events page.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-slate-800/50 border-slate-700">
+            <CardHeader>
+              <CardTitle className="text-white flex items-center gap-2">
+                <Image className="w-5 h-5" />
+                Site Favicon
+              </CardTitle>
+              <CardDescription className="text-slate-400">
+                Upload a custom favicon (browser tab icon)
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="space-y-2">
+                <Label className="text-slate-200">Current Favicon</Label>
+                <div className="border-2 border-dashed border-slate-600 rounded-lg p-4 bg-slate-900/50">
+                  {formData.favicon_url ? (
+                    <div className="flex items-center gap-4">
+                      <div 
+                        className="bg-white border border-slate-600 rounded-lg p-2 flex items-center justify-center"
+                        style={{ width: '64px', height: '64px' }}
+                      >
+                        <img 
+                          src={formData.favicon_url} 
+                          alt="Site Favicon" 
+                          className="max-h-full max-w-full object-contain"
+                          style={{ imageRendering: 'pixelated' }}
+                        />
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-sm font-medium text-slate-200">Favicon uploaded</p>
+                        <p className="text-xs text-slate-400">Preview at 64x64 pixels</p>
+                      </div>
+                      <Button 
+                        type="button"
+                        variant="outline" 
+                        size="sm"
+                        onClick={() => setFormData({ ...formData, favicon_url: '' })}
+                        className="text-red-400 hover:text-red-300 border-slate-600"
+                        data-testid="button-remove-favicon"
+                      >
+                        <Trash2 className="w-4 h-4 mr-1" />
+                        Remove
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="text-center py-4">
+                      <Image className="w-12 h-12 text-slate-500 mx-auto mb-2" />
+                      <p className="text-sm text-slate-400">No favicon uploaded</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-slate-200">Upload New Favicon</Label>
                 <input
                   ref={faviconInputRef}
                   type="file"
-                  accept="image/*,.ico"
+                  accept=".png,.ico,.svg,image/png,image/x-icon,image/svg+xml"
                   className="hidden"
                   onChange={(e) => handleFileUpload(e.target.files?.[0], 'favicon')}
                   data-testid="input-favicon-file"
                 />
-                <div className="flex gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => faviconInputRef.current?.click()}
-                    disabled={uploadingFavicon}
-                    className="border-slate-600 text-slate-200 hover:bg-slate-700"
-                    data-testid="button-upload-favicon"
-                  >
-                    {uploadingFavicon ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Uploading...
-                      </>
-                    ) : (
-                      <>
-                        <Upload className="mr-2 h-4 w-4" />
-                        Upload Favicon
-                      </>
-                    )}
-                  </Button>
-                  {formData.favicon_url && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => setFormData({ ...formData, favicon_url: '' })}
-                      className="text-slate-400 hover:text-red-400 hover:bg-slate-700"
-                      data-testid="button-remove-favicon"
-                    >
-                      <X className="h-4 w-4" />
-                    </Button>
+                <div 
+                  onClick={() => !uploadingFavicon && faviconInputRef.current?.click()}
+                  className="flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-slate-600 rounded-lg cursor-pointer hover:border-blue-500 hover:bg-slate-800 transition-colors"
+                >
+                  {uploadingFavicon ? (
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin text-blue-400" />
+                      <span className="text-sm text-blue-400">Uploading...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="w-5 h-5 text-slate-400" />
+                      <span className="text-sm text-slate-300">Click to upload favicon</span>
+                    </>
                   )}
                 </div>
-                {formData.favicon_url && (
-                  <div className="mt-2 p-4 bg-slate-900 rounded-lg inline-block">
-                    <img 
-                      src={formData.favicon_url} 
-                      alt="Favicon preview" 
-                      className="max-h-10 object-contain"
-                      onError={(e) => e.target.style.display = 'none'}
-                    />
-                  </div>
-                )}
+              </div>
+
+              <div className="p-4 bg-blue-900/30 rounded-lg border border-blue-800">
+                <h4 className="text-sm font-medium text-blue-300 mb-2">Recommended Specifications</h4>
+                <ul className="text-xs text-blue-200 space-y-1">
+                  <li><strong>Size:</strong> 32x32 pixels (or 16x16, 48x48, 64x64)</li>
+                  <li><strong>Format:</strong> PNG (recommended), ICO, or SVG</li>
+                  <li><strong>Background:</strong> Transparent PNG works best</li>
+                </ul>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-slate-800/50 border-slate-700">
+            <CardHeader>
+              <CardTitle className="text-white flex items-center gap-2">
+                <Calendar className="w-5 h-5" />
+                Date Display Format
+              </CardTitle>
+              <CardDescription className="text-slate-400">
+                Configure how dates are displayed across the portal
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="date-format" className="text-slate-200">Date Format</Label>
+                <Select 
+                  value={formData.settings.date_display_format} 
+                  onValueChange={(value) => setFormData({
+                    ...formData,
+                    settings: { ...formData.settings, date_display_format: value }
+                  })}
+                >
+                  <SelectTrigger className="bg-slate-900/50 border-slate-600 text-white" data-testid="select-date-format">
+                    <SelectValue placeholder="Select date format" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {DATE_FORMAT_OPTIONS.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="p-4 bg-slate-900/50 rounded-lg border border-slate-600">
+                <p className="text-sm text-slate-400 mb-1">Preview:</p>
+                <p className="text-lg font-medium text-white">
+                  {format(new Date(), formData.settings.date_display_format)}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-slate-800/50 border-slate-700">
+            <CardHeader>
+              <CardTitle className="text-white flex items-center gap-2">
+                <Mail className="w-5 h-5" />
+                Email Settings
+              </CardTitle>
+              <CardDescription className="text-slate-400">
+                Configure outgoing email sender details
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="email-from-name" className="text-slate-200">Welcome Email From Name</Label>
+                <Input
+                  id="email-from-name"
+                  value={formData.settings.welcome_email_from_name}
+                  onChange={(e) => setFormData({
+                    ...formData,
+                    settings: { ...formData.settings, welcome_email_from_name: e.target.value }
+                  })}
+                  placeholder="Your Organization"
+                  className="bg-slate-900/50 border-slate-600 text-white placeholder:text-slate-500"
+                  data-testid="input-email-from-name"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="email-from-address" className="text-slate-200">Welcome Email From Address</Label>
+                <Input
+                  id="email-from-address"
+                  type="email"
+                  value={formData.settings.welcome_email_from_address}
+                  onChange={(e) => setFormData({
+                    ...formData,
+                    settings: { ...formData.settings, welcome_email_from_address: e.target.value }
+                  })}
+                  placeholder="noreply@yourdomain.com"
+                  className="bg-slate-900/50 border-slate-600 text-white placeholder:text-slate-500"
+                  data-testid="input-email-from-address"
+                />
               </div>
             </CardContent>
           </Card>
@@ -350,7 +702,7 @@ export default function AdminSettings() {
             <Button 
               type="submit" 
               disabled={saving}
-              className="min-w-[120px]"
+              className="min-w-[140px]"
               data-testid="button-save"
             >
               {saving ? (
@@ -361,12 +713,238 @@ export default function AdminSettings() {
               ) : (
                 <>
                   <Save className="mr-2 h-4 w-4" />
-                  Save Changes
+                  Save All Settings
                 </>
               )}
             </Button>
           </div>
         </form>
+
+        <div className="mt-8 space-y-6">
+          <Card className="bg-slate-800/50 border-slate-700">
+            <CardHeader>
+              <CardTitle className="text-white">Xero Integration</CardTitle>
+              <CardDescription className="text-slate-400">
+                Connect your Xero account for automatic invoice creation
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {isXeroAuthenticated ? (
+                <div className="flex items-start gap-3 p-4 bg-green-900/30 border border-green-800 rounded-lg">
+                  <CheckCircle2 className="w-5 h-5 text-green-400 shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <h3 className="font-semibold text-green-300 mb-1">Connected</h3>
+                    <p className="text-sm text-green-200">
+                      Your Xero account is connected and ready to create invoices.
+                    </p>
+                    {xeroTokens[0]?.tenant_name && (
+                      <p className="text-sm text-green-200 mt-1">
+                        <strong>Company:</strong> {xeroTokens[0].tenant_name}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="p-4 bg-amber-900/30 border border-amber-800 rounded-lg">
+                  <p className="text-sm text-amber-200">
+                    <strong>Authentication Required</strong> - Connect to Xero to enable automatic invoice creation.
+                  </p>
+                </div>
+              )}
+
+              <Button
+                type="button"
+                onClick={handleXeroAuthenticate}
+                disabled={xeroLoading}
+                className="w-full"
+                data-testid="button-xero-auth"
+              >
+                {xeroLoading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Authenticating...
+                  </>
+                ) : isXeroAuthenticated ? (
+                  <>
+                    <ExternalLink className="w-4 h-4 mr-2" />
+                    Re-authenticate with Xero
+                  </>
+                ) : (
+                  <>
+                    <ExternalLink className="w-4 h-4 mr-2" />
+                    Authenticate with Xero
+                  </>
+                )}
+              </Button>
+
+              {isXeroAuthenticated && (
+                <>
+                  <div className="pt-4 border-t border-slate-700">
+                    <h4 className="text-sm font-medium text-slate-200 mb-3">VAT Rates</h4>
+                    {vatSyncResult && (
+                      <div className={`mb-3 flex items-start gap-2 p-3 rounded-lg ${
+                        vatSyncResult.success 
+                          ? 'bg-green-900/30 border border-green-800' 
+                          : 'bg-red-900/30 border border-red-800'
+                      }`}>
+                        {vatSyncResult.success ? (
+                          <>
+                            <CheckCircle2 className="w-4 h-4 text-green-400 mt-0.5" />
+                            <span className="text-sm text-green-200">Synced {vatSyncResult.count} VAT rates</span>
+                          </>
+                        ) : (
+                          <>
+                            <AlertTriangle className="w-4 h-4 text-red-400 mt-0.5" />
+                            <span className="text-sm text-red-200">{vatSyncResult.error}</span>
+                          </>
+                        )}
+                      </div>
+                    )}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handleSyncVatRates}
+                      disabled={vatSyncLoading}
+                      className="w-full border-slate-600 text-slate-200"
+                      data-testid="button-sync-vat"
+                    >
+                      {vatSyncLoading ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Syncing...
+                        </>
+                      ) : (
+                        <>
+                          <RefreshCw className="w-4 h-4 mr-2" />
+                          Sync VAT Rates from Xero
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="bg-slate-800/50 border-slate-700">
+            <CardHeader>
+              <CardTitle className="text-white flex items-center gap-2">
+                <Database className="w-5 h-5" />
+                Database Utilities
+              </CardTitle>
+              <CardDescription className="text-slate-400">
+                Administrative tools for data maintenance
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="space-y-3">
+                <h4 className="text-sm font-medium text-slate-200 flex items-center gap-2">
+                  <Building2 className="w-4 h-4" />
+                  Backfill Organisation Created Dates
+                </h4>
+                <p className="text-xs text-slate-400">
+                  Set a created date for organisations that don't have one.
+                </p>
+                <div className="flex gap-3">
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" className="border-slate-600 text-slate-200" data-testid="button-backfill-date">
+                        <Calendar className="w-4 h-4 mr-2" />
+                        {format(backfillDate, 'dd MMM yyyy')}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0">
+                      <CalendarComponent
+                        mode="single"
+                        selected={backfillDate}
+                        onSelect={(date) => date && setBackfillDate(date)}
+                        initialFocus
+                      />
+                    </PopoverContent>
+                  </Popover>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleBackfillOrgDates}
+                    disabled={backfillLoading}
+                    className="border-slate-600 text-slate-200"
+                    data-testid="button-backfill-run"
+                  >
+                    {backfillLoading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Running...
+                      </>
+                    ) : (
+                      'Run Backfill'
+                    )}
+                  </Button>
+                </div>
+                {backfillResult && (
+                  <div className={`flex items-center gap-2 text-sm ${
+                    backfillResult.success ? 'text-green-400' : 'text-red-400'
+                  }`}>
+                    {backfillResult.success ? (
+                      <>
+                        <CheckCircle2 className="w-4 h-4" />
+                        Updated {backfillResult.updated} organisations
+                      </>
+                    ) : (
+                      <>
+                        <AlertTriangle className="w-4 h-4" />
+                        {backfillResult.error}
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div className="border-t border-slate-700 pt-6 space-y-3">
+                <h4 className="text-sm font-medium text-slate-200 flex items-center gap-2">
+                  <Users className="w-4 h-4" />
+                  Fix Blog Author Handles
+                </h4>
+                <p className="text-xs text-slate-400">
+                  Create member handles and fix blog author slugs for existing posts.
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleFixBlogHandles}
+                  disabled={fixBlogHandlesLoading}
+                  className="border-slate-600 text-slate-200"
+                  data-testid="button-fix-handles"
+                >
+                  {fixBlogHandlesLoading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Running...
+                    </>
+                  ) : (
+                    'Fix Blog Handles'
+                  )}
+                </Button>
+                {fixBlogHandlesResult && (
+                  <div className={`flex items-center gap-2 text-sm ${
+                    fixBlogHandlesResult.success ? 'text-green-400' : 'text-red-400'
+                  }`}>
+                    {fixBlogHandlesResult.success ? (
+                      <>
+                        <CheckCircle2 className="w-4 h-4" />
+                        Fixed {fixBlogHandlesResult.slugsUpdated} slugs, created {fixBlogHandlesResult.handlesCreated} handles
+                      </>
+                    ) : (
+                      <>
+                        <AlertTriangle className="w-4 h-4" />
+                        {fixBlogHandlesResult.error}
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       </main>
     </div>
   );
