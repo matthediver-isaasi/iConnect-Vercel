@@ -1,6 +1,7 @@
 import bcrypt from 'bcryptjs';
 import { createSession } from '../_lib/session.js';
 import { supabase } from '../_lib/database.js';
+import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -26,6 +27,10 @@ export default async function handler(req, res) {
     if (!email || !password) {
       return res.status(400).json({ success: false, error: 'Email and password are required' });
     }
+
+    // Resolve tenant from subdomain for tenant isolation enforcement
+    const requestTenant = await resolveTenantFromRequest(req);
+    const requestTenantId = requestTenant?.id || null;
 
     const { data: credentials, error: credError } = await supabase
       .from('member_credentials')
@@ -85,6 +90,32 @@ export default async function handler(req, res) {
 
     if (memberError || !member) {
       return res.status(401).json({ success: false, error: 'Member not found' });
+    }
+
+    // TENANT ISOLATION: Verify member belongs to the tenant from the subdomain
+    // This prevents cross-tenant authentication attacks
+    if (requestTenantId) {
+      let memberTenantId = member.tenant_id;
+      
+      // If member doesn't have direct tenant_id, check via organization
+      if (!memberTenantId && member.organization_id) {
+        const { data: orgData } = await supabase
+          .from('organization')
+          .select('tenant_id')
+          .eq('id', member.organization_id)
+          .single();
+        
+        memberTenantId = orgData?.tenant_id;
+      }
+      
+      // Reject login if member doesn't belong to this tenant
+      if (memberTenantId !== requestTenantId) {
+        console.log('[Auth Login] Tenant mismatch - member tenant:', memberTenantId, 'request tenant:', requestTenantId);
+        return res.status(403).json({ 
+          success: false, 
+          error: 'This account does not have access to this portal. Please use the correct login URL for your organization.' 
+        });
+      }
     }
 
     // Check if login is enabled for this member
@@ -203,10 +234,22 @@ export default async function handler(req, res) {
       }
     }
 
-    // Create PostgreSQL-backed session
+    // Determine the member's tenant_id for session storage
+    let sessionTenantId = member.tenant_id;
+    if (!sessionTenantId && member.organization_id) {
+      const { data: orgData } = await supabase
+        .from('organization')
+        .select('tenant_id')
+        .eq('id', member.organization_id)
+        .single();
+      sessionTenantId = orgData?.tenant_id;
+    }
+
+    // Create PostgreSQL-backed session with tenant context
     await createSession(res, {
       memberId: member.id,
-      memberEmail: member.email
+      memberEmail: member.email,
+      tenantId: sessionTenantId || null
     });
 
     console.log('[Auth Login] Success for:', email);
