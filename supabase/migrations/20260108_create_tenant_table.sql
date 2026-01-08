@@ -69,6 +69,29 @@ ALTER TABLE dynamic_directory ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES
 ALTER TABLE iedit_page ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
 ALTER TABLE iedit_page_element ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
 
+-- Additional tenant-scoped tables
+ALTER TABLE program_ticket_transaction ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
+ALTER TABLE training_fund_transaction ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
+ALTER TABLE voucher_transaction ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
+ALTER TABLE discount_code_usage ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
+ALTER TABLE email_template ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
+ALTER TABLE resource_author_settings ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
+ALTER TABLE article_category ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
+ALTER TABLE offline_award_assignment ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
+ALTER TABLE engagement_award ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
+ALTER TABLE engagement_award_assignment ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
+ALTER TABLE organisation_award ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
+ALTER TABLE organisation_award_assignment ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
+ALTER TABLE member_group_assignment ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
+ALTER TABLE member_group_guest ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
+ALTER TABLE support_ticket_response ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
+ALTER TABLE workflow_log ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
+ALTER TABLE communication_category ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
+ALTER TABLE communication_category_role ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
+ALTER TABLE page_visibility ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
+ALTER TABLE xero_token ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
+ALTER TABLE guest_writer ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
+
 -- Create indexes for efficient tenant-scoped queries
 CREATE INDEX IF NOT EXISTS idx_organization_tenant_id ON organization(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_role_tenant_id ON role(tenant_id);
@@ -83,3 +106,6 @@ CREATE INDEX IF NOT EXISTS idx_blog_post_tenant_id ON blog_post(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_workflow_tenant_id ON workflow(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_member_group_tenant_id ON member_group(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_team_member_tenant_id ON team_member(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_program_ticket_transaction_tenant_id ON program_ticket_transaction(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_email_template_tenant_id ON email_template(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_article_category_tenant_id ON article_category(tenant_id);
