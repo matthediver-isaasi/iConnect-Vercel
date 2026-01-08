@@ -123,8 +123,10 @@ async function findHandler(urlPath: string): Promise<{ handler: any; params: Rec
  */
 function adaptRequest(req: Request, params: Record<string, string>) {
   // Vercel uses req.query for both URL params and dynamic route segments
+  // Explicitly preserve headers since object spread doesn't copy getters properly
   return {
     ...req,
+    headers: req.headers,
     query: { ...req.query, ...params },
     // Ensure body is available
     body: req.body,
