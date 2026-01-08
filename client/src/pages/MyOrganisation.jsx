@@ -229,6 +229,26 @@ export default function MyOrganisationPage() {
     }
   });
 
+  // Fetch verified domains from organization preference values
+  const { data: verifiedDomainsData } = useQuery({
+    queryKey: ['org-verified-domains', memberInfo?.organization_id],
+    enabled: !!memberInfo?.organization_id && accessChecked,
+    queryFn: async () => {
+      if (!memberInfo?.organization_id) return { verified_domains: [] };
+      try {
+        const response = await fetch(`/api/public/organisation/${memberInfo.organization_id}/domains`, {
+          credentials: 'include'
+        });
+        if (!response.ok) return { verified_domains: [] };
+        return response.json();
+      } catch {
+        return { verified_domains: [] };
+      }
+    }
+  });
+
+  const verifiedDomains = verifiedDomainsData?.verified_domains || [];
+
   // Fetch organisation award assignments for this organization
   const { data: organisationAwardAssignments = [], isLoading: awardsLoading } = useQuery({
     queryKey: ['myOrganisationAwards', memberInfo?.organization_id],
@@ -1083,11 +1103,11 @@ export default function MyOrganisationPage() {
                   </div>
                 )}
 
-                {organization.additional_verified_domains?.length > 0 && (
+                {verifiedDomains.length > 0 && (
                   <div className="mt-4 pt-4 border-t border-slate-200">
-                    <p className="text-sm font-medium text-slate-700 mb-2">Additional Domains</p>
+                    <p className="text-sm font-medium text-slate-700 mb-2">Verified Domains</p>
                     <div className="flex flex-wrap gap-1">
-                      {organization.additional_verified_domains.map((domain, idx) => (
+                      {verifiedDomains.map((domain, idx) => (
                         <Badge key={idx} variant="secondary" className="text-xs">
                           @{domain}
                         </Badge>

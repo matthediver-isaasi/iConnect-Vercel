@@ -1062,7 +1062,6 @@ export function IEditOrganisationDirectoryElementRenderer({ content, settings })
             <div className={getGridClass()}>
               {displayedOrganizations.map((org) => {
                 const memberCount = organizationMemberCounts[org.id] || 0;
-                const allDomains = [org.domain, ...(org.additional_verified_domains || [])].filter(Boolean);
 
                 return (
                   <Card 
@@ -1101,24 +1100,6 @@ export function IEditOrganisationDirectoryElementRenderer({ content, settings })
                       )}
                     </CardHeader>
                     <CardContent className="space-y-3">
-                      {showDomains && allDomains.length > 0 && (
-                        <div className="space-y-1 text-center">
-                          <div className="flex items-center justify-center gap-2">
-                            <Globe className="w-4 h-4 text-slate-400" />
-                            <span className="text-sm font-medium text-slate-700">
-                              {allDomains.length > 1 ? 'Domains' : 'Domain'}
-                            </span>
-                          </div>
-                          <div className="flex flex-wrap justify-center gap-1">
-                            {allDomains.map((domain, idx) => (
-                              <span key={idx} className="text-xs bg-slate-100 text-slate-700 px-2 py-1 rounded">
-                                @{domain}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
                       {showMemberCount && (
                         <div className="flex items-center justify-center gap-2 pt-2 border-t border-slate-200">
                           <Users className="w-4 h-4 text-slate-400" />

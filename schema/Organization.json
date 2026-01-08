@@ -10,18 +10,6 @@
         "type": "string",
         "description": "URL to organization logo image"
       },
-      "domain": {
-        "type": "string",
-        "description": "Primary domain for the organization"
-      },
-      "additional_verified_domains": {
-        "type": "array",
-        "items": {
-          "type": "string"
-        },
-        "description": "Additional verified domains for the organization",
-        "default": []
-      },
       "training_fund_balance": {
         "type": "number",
         "default": 0,

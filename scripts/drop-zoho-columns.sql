@@ -1,16 +1,18 @@
--- Drop Zoho-related columns and tables
+-- Drop Zoho-related columns and tables, plus deprecated organization columns
 -- Run this script in your Supabase SQL Editor
 -- Generated: January 2026
 
 DO $$ 
 BEGIN
-  -- Drop zoho_account_id from organization table
+  -- Drop zoho_account_id, contacts_synced_at, last_synced, domain, additional_verified_domains from organization table
   IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'organization') THEN
     DROP INDEX IF EXISTS idx_organization_zoho_account_id;
     ALTER TABLE organization DROP COLUMN IF EXISTS zoho_account_id;
     ALTER TABLE organization DROP COLUMN IF EXISTS contacts_synced_at;
     ALTER TABLE organization DROP COLUMN IF EXISTS last_synced;
-    RAISE NOTICE 'Dropped zoho_account_id, contacts_synced_at, last_synced from organization table';
+    ALTER TABLE organization DROP COLUMN IF EXISTS domain;
+    ALTER TABLE organization DROP COLUMN IF EXISTS additional_verified_domains;
+    RAISE NOTICE 'Dropped zoho_account_id, contacts_synced_at, last_synced, domain, additional_verified_domains from organization table';
   END IF;
 
   -- Drop zoho_contact_id from member table
@@ -31,5 +33,5 @@ BEGIN
   DROP TABLE IF EXISTS zoho_token;
   RAISE NOTICE 'Dropped zoho_token table';
 
-  RAISE NOTICE 'Zoho cleanup completed successfully!';
+  RAISE NOTICE 'Zoho and legacy column cleanup completed successfully!';
 END $$;

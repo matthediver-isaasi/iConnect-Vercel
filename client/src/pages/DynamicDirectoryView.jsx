@@ -767,7 +767,6 @@ export default function DynamicDirectoryView() {
               <div className={getGridClass()}>
                 {paginatedItems.map((org) => {
                   const memberCount = organizationMemberCounts[org.id] || 0;
-                  const allDomains = [org.domain, ...(org.additional_verified_domains || [])].filter(Boolean);
 
                   return (
                     <Card 
@@ -830,23 +829,6 @@ export default function DynamicDirectoryView() {
                         )}
                       </CardHeader>
                       <CardContent className="space-y-3">
-                        {orgDisplaySettings?.showDomains && allDomains.length > 0 && (
-                          <div className="space-y-1 text-center">
-                            <div className="flex items-center justify-center gap-2">
-                              <Globe className="w-4 h-4 text-slate-400" />
-                              <span className="text-sm font-medium text-slate-700">
-                                {allDomains.length > 1 ? 'Domains' : 'Domain'}
-                              </span>
-                            </div>
-                            <div className="flex flex-wrap justify-center gap-1">
-                              {allDomains.map((domain, idx) => (
-                                <span key={idx} className="text-xs bg-slate-100 text-slate-700 px-2 py-1 rounded">
-                                  @{domain}
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                        )}
                         {orgDisplaySettings?.showMemberCount && (
                           <div className="flex items-center justify-center gap-2 pt-2 border-t border-slate-200">
                             <Users className="w-4 h-4 text-slate-400" />
@@ -969,11 +951,6 @@ export default function DynamicDirectoryView() {
                 </div>
                 <div>
                   <DialogTitle className="text-xl">{selectedOrg?.name}</DialogTitle>
-                  {selectedOrg?.domain && (
-                    <p className="text-sm text-slate-500 flex items-center gap-1 mt-1">
-                      <Globe className="w-3 h-3" />@{selectedOrg.domain}
-                    </p>
-                  )}
                 </div>
               </div>
             </DialogHeader>
@@ -982,16 +959,6 @@ export default function DynamicDirectoryView() {
                 <Users className="w-4 h-4" />
                 <span>{organizationMemberCounts[selectedOrg?.id] || 0} members</span>
               </div>
-              {selectedOrg?.additional_verified_domains?.length > 0 && (
-                <div className="space-y-2">
-                  <p className="text-sm font-medium text-slate-700">Additional Domains</p>
-                  <div className="flex flex-wrap gap-1">
-                    {selectedOrg.additional_verified_domains.map((domain, idx) => (
-                      <Badge key={idx} variant="secondary" className="text-xs">@{domain}</Badge>
-                    ))}
-                  </div>
-                </div>
-              )}
               {orgCustomFields.length > 0 && (
                 <div className="space-y-3 pt-2 border-t">
                   <div className="flex items-center gap-2">
