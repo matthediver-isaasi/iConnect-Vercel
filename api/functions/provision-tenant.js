@@ -32,7 +32,7 @@ export default async function handler(req, res) {
 
   let tenantId = null;
   let organizationId = null;
-  let memberId = null;
+  let tenantUserId = null;
   let adminRoleId = null;
   let memberRoleId = null;
 
@@ -40,9 +40,9 @@ export default async function handler(req, res) {
     console.error(`[Provision Tenant] Rolling back due to: ${reason}`);
     
     try {
-      if (memberId) {
-        await supabase.from('member_credentials').delete().eq('member_id', memberId);
-        await supabase.from('member').delete().eq('id', memberId);
+      if (tenantUserId) {
+        await supabase.from('tenant_user_credentials').delete().eq('tenant_user_id', tenantUserId);
+        await supabase.from('tenant_user').delete().eq('id', tenantUserId);
       }
       if (memberRoleId) {
         await supabase.from('role').delete().eq('id', memberRoleId);
@@ -72,13 +72,13 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'This subdomain is already taken' });
     }
 
-    const { data: existingMember } = await supabase
-      .from('member')
+    const { data: existingTenantUser } = await supabase
+      .from('tenant_user_credentials')
       .select('id')
       .eq('email', adminEmail.toLowerCase())
       .single();
 
-    if (existingMember) {
+    if (existingTenantUser) {
       return res.status(400).json({ error: 'An account with this email already exists' });
     }
 
@@ -157,33 +157,32 @@ export default async function handler(req, res) {
     }
     memberRoleId = memberRole.id;
 
-    const passwordHash = await bcrypt.hash(password, 10);
-
-    const { data: member, error: memberError } = await supabase
-      .from('member')
+    const { data: tenantUser, error: tenantUserError } = await supabase
+      .from('tenant_user')
       .insert({
+        tenant_id: tenant.id,
+        email: adminEmail.toLowerCase(),
         first_name: adminFirstName,
         last_name: adminLastName,
-        email: adminEmail.toLowerCase(),
-        organization_id: organization.id,
-        role_id: adminRole.id,
-        login_enabled: true,
+        role: 'owner',
         status: 'active'
       })
       .select()
       .single();
 
-    if (memberError) {
-      console.error('[Provision Tenant] Error creating admin member:', memberError);
-      await rollbackAll('admin member creation failed');
+    if (tenantUserError) {
+      console.error('[Provision Tenant] Error creating tenant user:', tenantUserError);
+      await rollbackAll('tenant user creation failed');
       return res.status(500).json({ error: 'Failed to create admin account' });
     }
-    memberId = member.id;
+    tenantUserId = tenantUser.id;
+
+    const passwordHash = await bcrypt.hash(password, 10);
 
     const { error: credError } = await supabase
-      .from('member_credentials')
+      .from('tenant_user_credentials')
       .insert({
-        member_id: member.id,
+        tenant_user_id: tenantUser.id,
         email: adminEmail.toLowerCase(),
         password_hash: passwordHash,
         is_temporary: false
@@ -203,6 +202,11 @@ export default async function handler(req, res) {
         id: tenant.id,
         name: tenant.name,
         slug: tenant.slug
+      },
+      tenantUser: {
+        id: tenantUser.id,
+        email: tenantUser.email,
+        role: tenantUser.role
       },
       message: 'Workspace created successfully'
     });
