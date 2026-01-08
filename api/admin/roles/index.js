@@ -25,7 +25,7 @@ export default async function handler(req, res) {
   try {
     const { data, error } = await supabase
       .from('role')
-      .select('id, name')
+      .select('id, name, is_system')
       .order('name', { ascending: true });
     
     if (error) {

@@ -127,9 +127,10 @@ export default async function handler(req, res) {
     const { data: adminRole, error: roleError } = await supabase
       .from('role')
       .insert({
-        name: 'Administrator',
+        name: 'Super Admin',
         tenant_id: tenant.id,
         is_default: false,
+        is_system: true,
         excluded_features: [],
         default_landing_page: 'Dashboard'
       })
@@ -137,8 +138,8 @@ export default async function handler(req, res) {
       .single();
 
     if (roleError) {
-      console.error('[Provision Tenant] Error creating admin role:', roleError);
-      await rollbackAll('admin role creation failed');
+      console.error('[Provision Tenant] Error creating Super Admin role:', roleError);
+      await rollbackAll('Super Admin role creation failed');
       return res.status(500).json({ error: 'Failed to create workspace roles' });
     }
     adminRoleId = adminRole.id;

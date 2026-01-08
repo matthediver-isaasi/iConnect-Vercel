@@ -440,6 +440,10 @@ export default function RoleManagementPage() {
   };
 
   const handleDelete = (role) => {
+    if (role.is_system) {
+      toast.error('System roles cannot be deleted');
+      return;
+    }
     setRoleToDelete(role);
     setShowDeleteConfirm(true);
   };
@@ -695,6 +699,8 @@ export default function RoleManagementPage() {
                       size="sm"
                       onClick={() => handleDelete(role)}
                       className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                      disabled={role.is_system}
+                      title={role.is_system ? 'System roles cannot be deleted' : 'Delete role'}
                     >
                       <Trash2 className="w-3 h-3" />
                     </Button>
@@ -723,7 +729,12 @@ export default function RoleManagementPage() {
                     value={editingRole.name}
                     onChange={(e) => setEditingRole({ ...editingRole, name: e.target.value })}
                     placeholder="e.g., Standard Member"
+                    disabled={editingRole.is_system}
+                    title={editingRole.is_system ? 'System role names cannot be changed' : ''}
                   />
+                  {editingRole.is_system && (
+                    <p className="text-xs text-amber-600">This is a system role and cannot be renamed.</p>
+                  )}
                 </div>
 
                 <div className="space-y-2">

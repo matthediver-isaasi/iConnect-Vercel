@@ -236,6 +236,24 @@ export default async function handler(req, res) {
         sanitizedBody.email = sanitizedBody.email.toLowerCase();
       }
 
+      // SECURITY: Protect system roles from being renamed or having is_system flag changed
+      if (entityNormalized === 'role' && (sanitizedBody.name !== undefined || sanitizedBody.is_system !== undefined)) {
+        const { data: existingRole } = await supabase
+          .from('role')
+          .select('name, is_system')
+          .eq('id', id)
+          .single();
+        
+        if (existingRole?.is_system === true) {
+          // Prevent renaming system roles
+          if (sanitizedBody.name !== undefined && sanitizedBody.name !== existingRole.name) {
+            return res.status(403).json({ error: 'System roles cannot be renamed' });
+          }
+          // Prevent changing is_system flag
+          delete sanitizedBody.is_system;
+        }
+      }
+
       // Build PATCH query with tenant isolation
       let patchQuery = supabase
         .from(tableName)
@@ -363,6 +381,17 @@ export default async function handler(req, res) {
       
       // Check if Role has members assigned - if so, reassign them to default role before deletion
       if (entity === 'Role') {
+        // Protect system roles from deletion
+        const { data: roleToDelete } = await supabase
+          .from('role')
+          .select('name, is_system')
+          .eq('id', id)
+          .single();
+        
+        if (roleToDelete?.is_system === true) {
+          return res.status(403).json({ error: 'System roles cannot be deleted' });
+        }
+
         const { count: memberCount, error: countError } = await supabase
           .from('member')
           .select('*', { count: 'exact', head: true })
