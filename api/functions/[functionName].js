@@ -589,8 +589,7 @@ const functionHandlers = {
           last_name: teamMember.last_name,
           role_id: teamMember.role_id,
           is_team_member: true,
-          member_excluded_features: [],
-          has_seen_onboarding_tour: true
+          member_excluded_features: []
         }
       };
     }
@@ -706,7 +705,6 @@ const functionHandlers = {
         program_ticket_balances: programTicketBalances,
         role_id: member.role_id || null,
         member_excluded_features: member.member_excluded_features || [],
-        has_seen_onboarding_tour: member.has_seen_onboarding_tour || false,
         is_team_member: false
       }
     };

@@ -180,7 +180,7 @@ Both Organizations and Members support internal notes that admins can add, edit,
 - Frontend: All `zoho_account_id` fallback lookups from MemberDirectory.jsx, DynamicDirectoryView.jsx, ArticleView.jsx
 - Frontend: TestLogin.jsx page removed (development-only testing page)
 - Database: `zoho_token` table, `zoho_account_id` column on organization, `zoho_contact_id` column on member, `base44_id` columns across all tables
-- Database: `member.last_synced` (was for Zoho sync), `member.last_login` (superseded by `last_activity`)
+- Database: `member.last_synced` (was for Zoho sync), `member.last_login` (superseded by `last_activity`), `member.has_seen_onboarding_tour` (superseded by `page_tours_seen`)
 
 **Zoho Backstage:** DEPRECATED - Event sync from Backstage has been removed. Events are now managed directly in the application.
 
