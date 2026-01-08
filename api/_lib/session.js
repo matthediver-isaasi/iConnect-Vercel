@@ -79,6 +79,7 @@ export async function createSession(res, sessionData) {
   const expire = new Date(Date.now() + SESSION_MAX_AGE);
   
   // Build session object in Express/connect-pg-simple compatible format
+  // Spread sessionData to support both member and tenant_user sessions
   const sessObject = {
     cookie: {
       originalMaxAge: SESSION_MAX_AGE,
@@ -88,8 +89,7 @@ export async function createSession(res, sessionData) {
       path: '/',
       sameSite: 'lax'
     },
-    memberId: sessionData.memberId,
-    memberEmail: sessionData.memberEmail
+    ...sessionData
   };
   
   try {
@@ -236,6 +236,41 @@ export async function getSessionMember(req) {
     return member;
   } catch (err) {
     console.error('Error getting session member:', err);
+    return null;
+  }
+}
+
+export async function getSessionTenantUser(req) {
+  const session = await getSession(req);
+  
+  if (!session?.data?.tenantUserId || session.data.userType !== 'tenant_user') {
+    return null;
+  }
+  
+  if (!supabase) return null;
+  
+  try {
+    const { data: tenantUser, error } = await supabase
+      .from('tenant_user')
+      .select('*, tenant:tenant_id(*)')
+      .eq('id', session.data.tenantUserId)
+      .single();
+    
+    if (error || !tenantUser) {
+      console.log('[Session] Tenant user not found in database, cleaning up stale session:', session.data.tenantUserId);
+      await supabase.from('session').delete().eq('sid', session.id);
+      return null;
+    }
+    
+    if (tenantUser.status !== 'active') {
+      console.log('[Session] Tenant user inactive, rejecting session:', tenantUser.id);
+      await supabase.from('session').delete().eq('sid', session.id);
+      return null;
+    }
+    
+    return tenantUser;
+  } catch (err) {
+    console.error('Error getting session tenant user:', err);
     return null;
   }
 }

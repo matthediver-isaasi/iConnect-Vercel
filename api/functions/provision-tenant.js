@@ -33,6 +33,7 @@ export default async function handler(req, res) {
   let tenantId = null;
   let organizationId = null;
   let tenantUserId = null;
+  let memberId = null;
   let adminRoleId = null;
   let memberRoleId = null;
 
@@ -40,6 +41,10 @@ export default async function handler(req, res) {
     console.error(`[Provision Tenant] Rolling back due to: ${reason}`);
     
     try {
+      if (memberId) {
+        await supabase.from('member_credentials').delete().eq('member_id', memberId);
+        await supabase.from('member').delete().eq('id', memberId);
+      }
       if (tenantUserId) {
         await supabase.from('tenant_user_credentials').delete().eq('tenant_user_id', tenantUserId);
         await supabase.from('tenant_user').delete().eq('id', tenantUserId);
@@ -157,6 +162,44 @@ export default async function handler(req, res) {
     }
     memberRoleId = memberRole.id;
 
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    const { data: member, error: memberError } = await supabase
+      .from('member')
+      .insert({
+        first_name: adminFirstName,
+        last_name: adminLastName,
+        email: adminEmail.toLowerCase(),
+        organization_id: organization.id,
+        role_id: adminRole.id,
+        login_enabled: true,
+        status: 'active'
+      })
+      .select()
+      .single();
+
+    if (memberError) {
+      console.error('[Provision Tenant] Error creating admin member:', memberError);
+      await rollbackAll('admin member creation failed');
+      return res.status(500).json({ error: 'Failed to create admin account' });
+    }
+    memberId = member.id;
+
+    const { error: memberCredError } = await supabase
+      .from('member_credentials')
+      .insert({
+        member_id: member.id,
+        email: adminEmail.toLowerCase(),
+        password_hash: passwordHash,
+        is_temporary: false
+      });
+
+    if (memberCredError) {
+      console.error('[Provision Tenant] Error creating member credentials:', memberCredError);
+      await rollbackAll('member credentials creation failed');
+      return res.status(500).json({ error: 'Failed to create login credentials' });
+    }
+
     const { data: tenantUser, error: tenantUserError } = await supabase
       .from('tenant_user')
       .insert({
@@ -177,9 +220,7 @@ export default async function handler(req, res) {
     }
     tenantUserId = tenantUser.id;
 
-    const passwordHash = await bcrypt.hash(password, 10);
-
-    const { error: credError } = await supabase
+    const { error: tenantCredError } = await supabase
       .from('tenant_user_credentials')
       .insert({
         tenant_user_id: tenantUser.id,
@@ -188,9 +229,9 @@ export default async function handler(req, res) {
         is_temporary: false
       });
 
-    if (credError) {
-      console.error('[Provision Tenant] Error creating credentials:', credError);
-      await rollbackAll('credentials creation failed');
+    if (tenantCredError) {
+      console.error('[Provision Tenant] Error creating tenant user credentials:', tenantCredError);
+      await rollbackAll('tenant user credentials creation failed');
       return res.status(500).json({ error: 'Failed to create login credentials' });
     }
 
@@ -207,6 +248,10 @@ export default async function handler(req, res) {
         id: tenantUser.id,
         email: tenantUser.email,
         role: tenantUser.role
+      },
+      member: {
+        id: member.id,
+        email: member.email
       },
       message: 'Workspace created successfully'
     });
