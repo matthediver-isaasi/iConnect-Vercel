@@ -145,20 +145,31 @@ export function getEntityTenantScope(entity) {
 /**
  * Get tenant context from request
  * Returns the tenant_id, organization_id, and member_id from the authenticated session
+ * Also supports hostname-based tenant resolution for unauthenticated requests
  * 
  * @param {Request} req - Express/Vercel request object
- * @returns {Promise<{tenantId: string|null, organizationId: string|null, memberId: string|null, isAuthenticated: boolean, isSuperAdmin: boolean}>}
+ * @returns {Promise<{tenantId: string|null, organizationId: string|null, memberId: string|null, isAuthenticated: boolean, isSuperAdmin: boolean, tenantFromHost: object|null}>}
  */
 export async function getTenantContext(req) {
   const member = await getSessionMember(req);
   
+  // Try hostname-based tenant resolution for public access
+  let tenantFromHost = null;
+  try {
+    const { resolveTenantFromRequest } = await import('./tenantResolver.js');
+    tenantFromHost = await resolveTenantFromRequest(req);
+  } catch (err) {
+    // Tenant resolver may not be available in all contexts
+  }
+  
   if (!member) {
     return {
-      tenantId: null,
+      tenantId: tenantFromHost?.id || null,
       organizationId: null,
       memberId: null,
       isAuthenticated: false,
       isSuperAdmin: false,
+      tenantFromHost,
     };
   }
   
@@ -176,6 +187,11 @@ export async function getTenantContext(req) {
     }
   }
   
+  // If no tenant from session, use hostname-based tenant
+  if (!tenantId && tenantFromHost) {
+    tenantId = tenantFromHost.id;
+  }
+  
   // TODO: Add super-admin detection based on role or specific flag
   // Super admins can bypass tenant restrictions for platform management
   const isSuperAdmin = false; // Will be implemented later
@@ -186,6 +202,7 @@ export async function getTenantContext(req) {
     memberId: member.id,
     isAuthenticated: true,
     isSuperAdmin,
+    tenantFromHost,
   };
 }
 

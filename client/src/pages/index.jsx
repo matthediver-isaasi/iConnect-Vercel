@@ -243,6 +243,10 @@ import RedirectManagement from "./RedirectManagement";
 
 import SearchResults from "./SearchResults";
 
+import TenantSignup from "./TenantSignup";
+
+import DomainSettings from "./DomainSettings";
+
 import { useEffect, useRef } from 'react';
 import { BrowserRouter as Router, Route, Routes, useLocation } from 'react-router-dom';
 import { LayoutProvider } from '@/contexts/LayoutContext';
@@ -283,6 +287,10 @@ const PAGES = {
     // TestLogin removed - no longer needed
     
     Login: Login,
+    
+    Signup: TenantSignup,
+    
+    DomainSettings: DomainSettings,
     
     ResetPassword: ResetPassword,
     
@@ -561,6 +569,10 @@ function PagesContent() {
                 <Route path="/login" element={<Login />} />
                 <Route path="/auth/login" element={<Login />} />
                 
+                <Route path="/signup" element={<TenantSignup />} />
+                <Route path="/Signup" element={<TenantSignup />} />
+                <Route path="/register" element={<TenantSignup />} />
+                
                 <Route path="/ResetPassword" element={<ResetPassword />} />
                 <Route path="/reset-password" element={<ResetPassword />} />
                 <Route path="/auth/reset-password" element={<ResetPassword />} />
@@ -791,6 +803,9 @@ function PagesContent() {
                 <Route path="/directory/:slug" element={<DynamicDirectoryView />} />
                 
                 <Route path="/RedirectManagement" element={<RedirectManagement />} />
+                
+                <Route path="/DomainSettings" element={<DomainSettings />} />
+                <Route path="/domain-settings" element={<DomainSettings />} />
                 
                 <Route path="/search" element={<SearchResults />} />
                 <Route path="/Search" element={<SearchResults />} />
