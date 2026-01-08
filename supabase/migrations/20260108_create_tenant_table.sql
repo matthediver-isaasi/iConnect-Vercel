@@ -66,8 +66,8 @@ ALTER TABLE team_member ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenan
 ALTER TABLE speaker ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
 ALTER TABLE card_deck ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
 ALTER TABLE dynamic_directory ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
-ALTER TABLE iedit_page ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
-ALTER TABLE iedit_page_element ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
+ALTER TABLE i_edit_page ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
+ALTER TABLE i_edit_page_element ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
 
 -- Additional tenant-scoped tables
 ALTER TABLE program_ticket_transaction ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
