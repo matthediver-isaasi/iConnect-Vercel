@@ -569,9 +569,7 @@ function PagesContent() {
                 <Route path="/login" element={<Login />} />
                 <Route path="/auth/login" element={<Login />} />
                 
-                <Route path="/signup" element={<TenantSignup />} />
-                <Route path="/Signup" element={<TenantSignup />} />
-                <Route path="/register" element={<TenantSignup />} />
+{/* Signup routes moved outside Layout - see StandaloneRoutes */}
                 
                 <Route path="/ResetPassword" element={<ResetPassword />} />
                 <Route path="/reset-password" element={<ResetPassword />} />
@@ -828,12 +826,37 @@ function PagesContent() {
     );
 }
 
+function StandaloneRoutes() {
+    return (
+        <Routes>
+            <Route path="/signup" element={<TenantSignup />} />
+            <Route path="/Signup" element={<TenantSignup />} />
+            <Route path="/register" element={<TenantSignup />} />
+        </Routes>
+    );
+}
+
+function AppRoutes() {
+    const location = useLocation();
+    
+    const standalonePages = ['/signup', '/register'];
+    const isStandalonePage = standalonePages.some(path => 
+        location.pathname.toLowerCase() === path.toLowerCase()
+    );
+    
+    if (isStandalonePage) {
+        return <StandaloneRoutes />;
+    }
+    
+    return <PagesContent />;
+}
+
 export default function Pages() {
     return (
         <Router>
             <ArticleUrlProvider>
                 <LayoutProvider>
-                    <PagesContent />
+                    <AppRoutes />
                 </LayoutProvider>
             </ArticleUrlProvider>
         </Router>

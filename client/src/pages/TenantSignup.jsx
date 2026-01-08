@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useLocation } from "wouter";
+import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
@@ -8,7 +8,7 @@ import { Loader2, Building2, CheckCircle2, AlertCircle, Globe, Mail, User } from
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
 export default function TenantSignup() {
-  const [, setLocation] = useLocation();
+  const navigate = useNavigate();
   const [formData, setFormData] = useState({
     tenantName: "",
     slug: "",
