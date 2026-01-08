@@ -671,7 +671,6 @@ const functionHandlers = {
     let organizationId = member.organization_id;
     let organizationName = null;
     let trainingFundBalance = 0;
-    let purchaseOrderEnabled = false;
     let programTicketBalances = {};
 
     if (organizationId) {
@@ -685,7 +684,6 @@ const functionHandlers = {
         organizationName = org.name;
         organizationId = org.id;
         trainingFundBalance = org.training_fund_balance || 0;
-        purchaseOrderEnabled = org.purchase_order_enabled || false;
         programTicketBalances = org.program_ticket_balances || {};
       }
     }
@@ -701,7 +699,6 @@ const functionHandlers = {
         organization_id: organizationId,
         organization_name: organizationName,
         training_fund_balance: trainingFundBalance,
-        purchase_order_enabled: purchaseOrderEnabled,
         program_ticket_balances: programTicketBalances,
         role_id: member.role_id || null,
         member_excluded_features: member.member_excluded_features || [],

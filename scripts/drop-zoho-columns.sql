@@ -4,7 +4,7 @@
 
 DO $$ 
 BEGIN
-  -- Drop zoho_account_id, contacts_synced_at, last_synced, domain, additional_verified_domains from organization table
+  -- Drop zoho_account_id, contacts_synced_at, last_synced, domain, additional_verified_domains, purchase_order_enabled from organization table
   IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'organization') THEN
     DROP INDEX IF EXISTS idx_organization_zoho_account_id;
     ALTER TABLE organization DROP COLUMN IF EXISTS zoho_account_id;
@@ -12,7 +12,8 @@ BEGIN
     ALTER TABLE organization DROP COLUMN IF EXISTS last_synced;
     ALTER TABLE organization DROP COLUMN IF EXISTS domain;
     ALTER TABLE organization DROP COLUMN IF EXISTS additional_verified_domains;
-    RAISE NOTICE 'Dropped zoho_account_id, contacts_synced_at, last_synced, domain, additional_verified_domains from organization table';
+    ALTER TABLE organization DROP COLUMN IF EXISTS purchase_order_enabled;
+    RAISE NOTICE 'Dropped zoho_account_id, contacts_synced_at, last_synced, domain, additional_verified_domains, purchase_order_enabled from organization table';
   END IF;
 
   -- Drop zoho_contact_id from member table

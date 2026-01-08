@@ -22,11 +22,6 @@
         },
         "description": "Available program tickets by program name",
         "default": {}
-      },
-      "purchase_order_enabled": {
-        "type": "boolean",
-        "default": false,
-        "description": "Whether this organization can use purchase orders"
       }
     },
     "required": [
