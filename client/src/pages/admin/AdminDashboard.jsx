@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate, Link, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { useToast } from "@/components/ui/use-toast";
 import { 
   Building2, 
   Settings, 
@@ -12,13 +13,15 @@ import {
   Loader2,
   ChevronRight,
   Palette,
-  FileText
+  ExternalLink
 } from "lucide-react";
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { toast } = useToast();
   const [loading, setLoading] = useState(true);
+  const [portalLoading, setPortalLoading] = useState(false);
   const [tenantUser, setTenantUser] = useState(null);
   const [tenant, setTenant] = useState(null);
 
@@ -57,6 +60,38 @@ export default function AdminDashboard() {
     }
     localStorage.removeItem('saas_admin');
     navigate('/admin/login');
+  };
+
+  const handleAccessPortal = async () => {
+    setPortalLoading(true);
+    try {
+      const response = await fetch('/api/admin/portal-session', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        window.location.href = data.redirectUrl;
+      } else {
+        toast({
+          title: "Portal Access Failed",
+          description: data.error || data.message || "Unable to access portal",
+          variant: "destructive"
+        });
+      }
+    } catch (err) {
+      console.error('Portal access error:', err);
+      toast({
+        title: "Error",
+        description: "Failed to connect to portal",
+        variant: "destructive"
+      });
+    } finally {
+      setPortalLoading(false);
+    }
   };
 
   if (loading) {
@@ -188,20 +223,31 @@ export default function AdminDashboard() {
         </div>
 
         <div className="mt-8 p-4 rounded-lg bg-slate-800/30 border border-slate-700">
-          <div className="flex items-center gap-3">
-            <FileText className="h-5 w-5 text-slate-500" />
-            <div>
-              <p className="text-sm text-slate-300">Portal Access</p>
-              <a 
-                href="/" 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="text-xs text-primary hover:underline"
-                data-testid="link-portal"
-              >
-                Open member portal
-              </a>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                <ExternalLink className="h-5 w-5 text-primary" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-white">Access Member Portal</p>
+                <p className="text-xs text-slate-400">
+                  {tenant?.domain || (tenant?.slug + '.iconn.app')}
+                </p>
+              </div>
             </div>
+            <Button
+              onClick={handleAccessPortal}
+              disabled={portalLoading}
+              className="bg-primary hover:bg-primary/90"
+              data-testid="button-access-portal"
+            >
+              {portalLoading ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              ) : (
+                <ExternalLink className="h-4 w-4 mr-2" />
+              )}
+              Open Portal
+            </Button>
           </div>
         </div>
       </main>

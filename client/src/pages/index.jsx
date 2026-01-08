@@ -250,6 +250,7 @@ import DomainSettings from "./DomainSettings";
 import AdminLogin from "./admin/AdminLogin";
 import AdminDashboard from "./admin/AdminDashboard";
 import AdminSettings from "./admin/AdminSettings";
+import SaasLanding from "./admin/SaasLanding";
 
 import { useEffect, useRef } from 'react';
 import { BrowserRouter as Router, Route, Routes, useLocation } from 'react-router-dom';
@@ -851,8 +852,34 @@ function AdminRoutes() {
     );
 }
 
+function isRootDomain() {
+    const hostname = window.location.hostname;
+    return hostname === 'iconn.app' || 
+           hostname === 'www.iconn.app' ||
+           hostname === 'localhost' && window.location.pathname.startsWith('/saas');
+}
+
+function SaasRoutes() {
+    return (
+        <Routes>
+            <Route path="/" element={<SaasLanding />} />
+            <Route path="/admin/login" element={<AdminLogin />} />
+            <Route path="/admin/dashboard" element={<AdminDashboard />} />
+            <Route path="/admin/settings" element={<AdminSettings />} />
+            <Route path="/admin" element={<AdminDashboard />} />
+            <Route path="/signup" element={<TenantSignup />} />
+            <Route path="/register" element={<TenantSignup />} />
+            <Route path="*" element={<SaasLanding />} />
+        </Routes>
+    );
+}
+
 function AppRoutes() {
     const location = useLocation();
+    
+    if (isRootDomain()) {
+        return <SaasRoutes />;
+    }
     
     const standalonePages = ['/signup', '/register'];
     const isStandalonePage = standalonePages.some(path => 

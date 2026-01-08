@@ -235,6 +235,18 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Failed to create login credentials' });
     }
 
+    const { error: linkError } = await supabase
+      .from('tenant_user_member_link')
+      .insert({
+        tenant_user_id: tenantUser.id,
+        member_id: member.id,
+        tenant_id: tenant.id
+      });
+
+    if (linkError) {
+      console.error('[Provision Tenant] Error creating tenant_user_member_link:', linkError);
+    }
+
     console.log(`[Provision Tenant] Successfully created tenant: ${tenant.name} (${tenant.slug})`);
 
     return res.status(200).json({
