@@ -189,9 +189,19 @@ export default async function handler(req, res) {
   // TENANT/HYBRID/MEMBER entities require authentication and scoping
   const shouldApplyTenantFilter = tenantScope !== TENANT_SCOPE.GLOBAL;
   
-  // For non-global entities, require authentication
-  if (shouldApplyTenantFilter && !tenantCtx.isAuthenticated) {
-    return res.status(401).json({ error: 'Authentication required' });
+  // For non-global entities, require authentication and valid tenant context
+  if (shouldApplyTenantFilter) {
+    if (!tenantCtx.isAuthenticated) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+    // For tenant-scoped entities, require a valid organization_id
+    if ((tenantScope === TENANT_SCOPE.TENANT || tenantScope === TENANT_SCOPE.HYBRID) && !tenantCtx.organizationId) {
+      return res.status(403).json({ error: 'Member must belong to an organization to access this resource' });
+    }
+    // For member-scoped entities, require a valid member_id
+    if (tenantScope === TENANT_SCOPE.MEMBER && !tenantCtx.memberId) {
+      return res.status(403).json({ error: 'Invalid member context' });
+    }
   }
 
   try {
@@ -200,8 +210,8 @@ export default async function handler(req, res) {
       const { filter, sort, limit, offset, expand } = req.query;
       let query = supabase.from(tableName).select(expand || '*');
       
-      // Apply tenant isolation filter
-      if (shouldApplyTenantFilter && tenantCtx.organizationId) {
+      // Apply tenant isolation filter (always applied for non-global entities)
+      if (shouldApplyTenantFilter) {
         const tenantColumn = getTenantColumn(entity);
         
         if (tenantScope === TENANT_SCOPE.MEMBER) {
@@ -210,6 +220,9 @@ export default async function handler(req, res) {
         } else if (entity === 'Organization') {
           // Organization entity: only return the member's own organization
           query = query.eq('id', tenantCtx.organizationId);
+        } else if (tenantScope === TENANT_SCOPE.HYBRID) {
+          // HYBRID entities (IEditPage, IEditPageElement) filter by organization_id
+          query = query.eq('organization_id', tenantCtx.organizationId);
         } else {
           // Tenant-scoped entities filter by organization_id
           query = query.eq(tenantColumn, tenantCtx.organizationId);
@@ -285,20 +298,15 @@ export default async function handler(req, res) {
       }
       
       // Apply tenant context for tenant-scoped entities
-      // Automatically set organization_id or member_id based on session
+      // SECURITY: Force-set organization_id or member_id from session to prevent tenant injection
       if (shouldApplyTenantFilter && tenantCtx.isAuthenticated) {
-        const tenantColumn = getTenantColumn(entity);
-        
-        if (tenantScope === TENANT_SCOPE.MEMBER && tenantCtx.memberId) {
-          // Member-scoped entities: ensure member_id is set to current member
-          if (!sanitizedBody[tenantColumn]) {
-            sanitizedBody[tenantColumn] = tenantCtx.memberId;
-          }
-        } else if (tenantScope === TENANT_SCOPE.TENANT || tenantScope === TENANT_SCOPE.HYBRID) {
-          // Tenant-scoped entities: ensure organization_id is set
-          if (!sanitizedBody[tenantColumn] && tenantCtx.organizationId && entity !== 'Organization') {
-            sanitizedBody[tenantColumn] = tenantCtx.organizationId;
-          }
+        if (tenantScope === TENANT_SCOPE.MEMBER) {
+          // Member-scoped entities: always force member_id to current member
+          sanitizedBody.member_id = tenantCtx.memberId;
+        } else if (entity !== 'Organization') {
+          // Tenant/Hybrid-scoped entities: always force organization_id from session
+          // This prevents malicious clients from supplying arbitrary organization_id
+          sanitizedBody.organization_id = tenantCtx.organizationId;
         }
       }
       

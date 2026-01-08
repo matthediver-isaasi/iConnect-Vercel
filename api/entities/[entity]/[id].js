@@ -103,9 +103,19 @@ export default async function handler(req, res) {
   // Determine if tenant filtering should be applied
   const shouldApplyTenantFilter = tenantScope !== TENANT_SCOPE.GLOBAL;
   
-  // For non-global entities, require authentication
-  if (shouldApplyTenantFilter && !tenantCtx.isAuthenticated) {
-    return res.status(401).json({ error: 'Authentication required' });
+  // For non-global entities, require authentication and valid tenant context
+  if (shouldApplyTenantFilter) {
+    if (!tenantCtx.isAuthenticated) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+    // For tenant-scoped entities, require a valid organization_id
+    if ((tenantScope === TENANT_SCOPE.TENANT || tenantScope === TENANT_SCOPE.HYBRID) && !tenantCtx.organizationId) {
+      return res.status(403).json({ error: 'Member must belong to an organization to access this resource' });
+    }
+    // For member-scoped entities, require a valid member_id
+    if (tenantScope === TENANT_SCOPE.MEMBER && !tenantCtx.memberId) {
+      return res.status(403).json({ error: 'Invalid member context' });
+    }
   }
 
   try {
@@ -116,16 +126,16 @@ export default async function handler(req, res) {
         .select(expand || '*')
         .eq('id', id);
       
-      // Apply tenant isolation filter for single-entity GET
-      if (shouldApplyTenantFilter && tenantCtx.organizationId) {
-        const tenantColumn = getTenantColumn(entity);
-        
+      // Apply tenant isolation filter for single-entity GET (always applied for non-global entities)
+      if (shouldApplyTenantFilter) {
         if (tenantScope === TENANT_SCOPE.MEMBER) {
-          query = query.eq(tenantColumn, tenantCtx.memberId);
+          query = query.eq('member_id', tenantCtx.memberId);
         } else if (entity === 'Organization') {
           query = query.eq('id', tenantCtx.organizationId);
+        } else if (tenantScope === TENANT_SCOPE.HYBRID) {
+          query = query.eq('organization_id', tenantCtx.organizationId);
         } else {
-          query = query.eq(tenantColumn, tenantCtx.organizationId);
+          query = query.eq('organization_id', tenantCtx.organizationId);
         }
       }
       
@@ -158,15 +168,14 @@ export default async function handler(req, res) {
             .select('*')
             .eq('id', id);
           
-          // Apply tenant filter to beforeData fetch
-          if (shouldApplyTenantFilter && tenantCtx.organizationId) {
-            const tenantColumn = getTenantColumn(entity);
+          // Apply tenant filter to beforeData fetch (always applied for non-global entities)
+          if (shouldApplyTenantFilter) {
             if (tenantScope === TENANT_SCOPE.MEMBER) {
-              beforeQuery = beforeQuery.eq(tenantColumn, tenantCtx.memberId);
+              beforeQuery = beforeQuery.eq('member_id', tenantCtx.memberId);
             } else if (entity === 'Organization') {
               beforeQuery = beforeQuery.eq('id', tenantCtx.organizationId);
             } else {
-              beforeQuery = beforeQuery.eq(tenantColumn, tenantCtx.organizationId);
+              beforeQuery = beforeQuery.eq('organization_id', tenantCtx.organizationId);
             }
           }
           
@@ -187,6 +196,13 @@ export default async function handler(req, res) {
           sanitizedBody[field] = null;
         }
       }
+      
+      // SECURITY: Strip tenant linkage fields from PATCH body to prevent tenant reassignment attacks
+      // organization_id and member_id should never be changed via PATCH
+      if (shouldApplyTenantFilter) {
+        delete sanitizedBody.organization_id;
+        delete sanitizedBody.member_id;
+      }
 
       // Normalize email to lowercase for member, team_member, and magic_link entities
       // Use normalized entity name (already computed above) to handle both PascalCase and slug-case variants
@@ -200,16 +216,14 @@ export default async function handler(req, res) {
         .update(sanitizedBody)
         .eq('id', id);
       
-      // Apply tenant filter to ensure user can only update records in their tenant
-      if (shouldApplyTenantFilter && tenantCtx.organizationId) {
-        const tenantColumn = getTenantColumn(entity);
-        
+      // Apply tenant filter to ensure user can only update records in their tenant (always applied for non-global entities)
+      if (shouldApplyTenantFilter) {
         if (tenantScope === TENANT_SCOPE.MEMBER) {
-          patchQuery = patchQuery.eq(tenantColumn, tenantCtx.memberId);
+          patchQuery = patchQuery.eq('member_id', tenantCtx.memberId);
         } else if (entity === 'Organization') {
           patchQuery = patchQuery.eq('id', tenantCtx.organizationId);
         } else {
-          patchQuery = patchQuery.eq(tenantColumn, tenantCtx.organizationId);
+          patchQuery = patchQuery.eq('organization_id', tenantCtx.organizationId);
         }
       }
       
@@ -283,17 +297,16 @@ export default async function handler(req, res) {
     } else if (req.method === 'DELETE') {
       // Handle cascade deletion for entities with foreign key relationships
       
-      // First, verify tenant access to this entity before deleting
-      if (shouldApplyTenantFilter && tenantCtx.organizationId) {
+      // First, verify tenant access to this entity before deleting (always applied for non-global entities)
+      if (shouldApplyTenantFilter) {
         let verifyQuery = supabase.from(tableName).select('id').eq('id', id);
-        const tenantColumn = getTenantColumn(entity);
         
         if (tenantScope === TENANT_SCOPE.MEMBER) {
-          verifyQuery = verifyQuery.eq(tenantColumn, tenantCtx.memberId);
+          verifyQuery = verifyQuery.eq('member_id', tenantCtx.memberId);
         } else if (entity === 'Organization') {
           verifyQuery = verifyQuery.eq('id', tenantCtx.organizationId);
         } else {
-          verifyQuery = verifyQuery.eq(tenantColumn, tenantCtx.organizationId);
+          verifyQuery = verifyQuery.eq('organization_id', tenantCtx.organizationId);
         }
         
         const { data: verifyData, error: verifyError } = await verifyQuery.single();
