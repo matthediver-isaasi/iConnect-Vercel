@@ -29,83 +29,108 @@ COMMENT ON COLUMN tenant.status IS 'active, suspended, cancelled, trial';
 COMMENT ON COLUMN tenant.subscription_plan IS 'SaaS pricing tier';
 COMMENT ON COLUMN tenant.settings IS 'Tenant-specific configuration and feature flags';
 
--- Add tenant_id to organization table
-ALTER TABLE organization ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
+-- Helper function to safely add tenant_id column to tables that exist
+CREATE OR REPLACE FUNCTION add_tenant_id_if_table_exists(table_name TEXT)
+RETURNS VOID AS $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND information_schema.tables.table_name = add_tenant_id_if_table_exists.table_name) THEN
+    EXECUTE format('ALTER TABLE %I ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id)', table_name);
+  END IF;
+END;
+$$ LANGUAGE plpgsql;
 
--- Add tenant_id to other tenant-scoped tables
-ALTER TABLE role ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
-ALTER TABLE event ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
-ALTER TABLE program ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
-ALTER TABLE form ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
-ALTER TABLE form_submission ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
-ALTER TABLE booking ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
-ALTER TABLE voucher ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
-ALTER TABLE discount_code ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
-ALTER TABLE job_posting ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
-ALTER TABLE resource ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
-ALTER TABLE resource_category ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
-ALTER TABLE resource_folder ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
-ALTER TABLE blog_post ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
-ALTER TABLE news_post ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
-ALTER TABLE navigation_item ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
-ALTER TABLE portal_navigation_item ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
-ALTER TABLE portal_menu ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
-ALTER TABLE page_banner ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
-ALTER TABLE floater ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
-ALTER TABLE support_ticket ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
-ALTER TABLE workflow ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
-ALTER TABLE award ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
-ALTER TABLE offline_award ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
-ALTER TABLE wall_of_fame_section ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
-ALTER TABLE wall_of_fame_category ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
-ALTER TABLE wall_of_fame_person ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
-ALTER TABLE member_group ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
-ALTER TABLE file_repository ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
-ALTER TABLE file_repository_folder ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
-ALTER TABLE team_member ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
-ALTER TABLE speaker ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
-ALTER TABLE card_deck ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
-ALTER TABLE dynamic_directory ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
-ALTER TABLE i_edit_page ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
-ALTER TABLE i_edit_page_element ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
+-- Helper function to safely create index on tables that exist
+CREATE OR REPLACE FUNCTION create_tenant_index_if_table_exists(table_name TEXT)
+RETURNS VOID AS $$
+DECLARE
+  idx_name TEXT;
+BEGIN
+  idx_name := 'idx_' || table_name || '_tenant_id';
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND information_schema.tables.table_name = create_tenant_index_if_table_exists.table_name) THEN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND information_schema.columns.table_name = create_tenant_index_if_table_exists.table_name AND column_name = 'tenant_id') THEN
+      EXECUTE format('CREATE INDEX IF NOT EXISTS %I ON %I(tenant_id)', idx_name, table_name);
+    END IF;
+  END IF;
+END;
+$$ LANGUAGE plpgsql;
 
--- Additional tenant-scoped tables
-ALTER TABLE program_ticket_transaction ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
-ALTER TABLE training_fund_transaction ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
-ALTER TABLE voucher_transaction ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
-ALTER TABLE discount_code_usage ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
-ALTER TABLE email_template ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
-ALTER TABLE resource_author_settings ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
-ALTER TABLE article_category ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
-ALTER TABLE offline_award_assignment ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
-ALTER TABLE engagement_award ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
-ALTER TABLE engagement_award_assignment ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
-ALTER TABLE organisation_award ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
-ALTER TABLE organisation_award_assignment ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
-ALTER TABLE member_group_assignment ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
-ALTER TABLE member_group_guest ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
-ALTER TABLE support_ticket_response ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
-ALTER TABLE workflow_log ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
-ALTER TABLE communication_category ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
-ALTER TABLE communication_category_role ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
-ALTER TABLE page_visibility ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
-ALTER TABLE xero_token ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
-ALTER TABLE guest_writer ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id);
+-- Add tenant_id to all tenant-scoped tables (safely skips non-existent tables)
+SELECT add_tenant_id_if_table_exists('organization');
+SELECT add_tenant_id_if_table_exists('role');
+SELECT add_tenant_id_if_table_exists('event');
+SELECT add_tenant_id_if_table_exists('program');
+SELECT add_tenant_id_if_table_exists('form');
+SELECT add_tenant_id_if_table_exists('form_submission');
+SELECT add_tenant_id_if_table_exists('booking');
+SELECT add_tenant_id_if_table_exists('voucher');
+SELECT add_tenant_id_if_table_exists('discount_code');
+SELECT add_tenant_id_if_table_exists('job_posting');
+SELECT add_tenant_id_if_table_exists('resource');
+SELECT add_tenant_id_if_table_exists('resource_category');
+SELECT add_tenant_id_if_table_exists('resource_folder');
+SELECT add_tenant_id_if_table_exists('blog_post');
+SELECT add_tenant_id_if_table_exists('news_post');
+SELECT add_tenant_id_if_table_exists('navigation_item');
+SELECT add_tenant_id_if_table_exists('portal_navigation_item');
+SELECT add_tenant_id_if_table_exists('portal_menu');
+SELECT add_tenant_id_if_table_exists('page_banner');
+SELECT add_tenant_id_if_table_exists('floater');
+SELECT add_tenant_id_if_table_exists('support_ticket');
+SELECT add_tenant_id_if_table_exists('workflow');
+SELECT add_tenant_id_if_table_exists('award');
+SELECT add_tenant_id_if_table_exists('offline_award');
+SELECT add_tenant_id_if_table_exists('wall_of_fame_section');
+SELECT add_tenant_id_if_table_exists('wall_of_fame_category');
+SELECT add_tenant_id_if_table_exists('wall_of_fame_person');
+SELECT add_tenant_id_if_table_exists('member_group');
+SELECT add_tenant_id_if_table_exists('file_repository');
+SELECT add_tenant_id_if_table_exists('file_repository_folder');
+SELECT add_tenant_id_if_table_exists('team_member');
+SELECT add_tenant_id_if_table_exists('speaker');
+SELECT add_tenant_id_if_table_exists('card_deck');
+SELECT add_tenant_id_if_table_exists('dynamic_directory');
+SELECT add_tenant_id_if_table_exists('i_edit_page');
+SELECT add_tenant_id_if_table_exists('i_edit_page_element');
+SELECT add_tenant_id_if_table_exists('program_ticket_transaction');
+SELECT add_tenant_id_if_table_exists('training_fund_transaction');
+SELECT add_tenant_id_if_table_exists('voucher_transaction');
+SELECT add_tenant_id_if_table_exists('discount_code_usage');
+SELECT add_tenant_id_if_table_exists('email_template');
+SELECT add_tenant_id_if_table_exists('resource_author_settings');
+SELECT add_tenant_id_if_table_exists('article_category');
+SELECT add_tenant_id_if_table_exists('offline_award_assignment');
+SELECT add_tenant_id_if_table_exists('engagement_award');
+SELECT add_tenant_id_if_table_exists('engagement_award_assignment');
+SELECT add_tenant_id_if_table_exists('organisation_award');
+SELECT add_tenant_id_if_table_exists('organisation_award_assignment');
+SELECT add_tenant_id_if_table_exists('member_group_assignment');
+SELECT add_tenant_id_if_table_exists('member_group_guest');
+SELECT add_tenant_id_if_table_exists('support_ticket_response');
+SELECT add_tenant_id_if_table_exists('workflow_log');
+SELECT add_tenant_id_if_table_exists('communication_category');
+SELECT add_tenant_id_if_table_exists('communication_category_role');
+SELECT add_tenant_id_if_table_exists('page_visibility');
+SELECT add_tenant_id_if_table_exists('xero_token');
+SELECT add_tenant_id_if_table_exists('guest_writer');
 
--- Create indexes for efficient tenant-scoped queries
-CREATE INDEX IF NOT EXISTS idx_organization_tenant_id ON organization(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_role_tenant_id ON role(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_event_tenant_id ON event(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_program_tenant_id ON program(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_form_tenant_id ON form(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_form_submission_tenant_id ON form_submission(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_booking_tenant_id ON booking(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_job_posting_tenant_id ON job_posting(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_resource_tenant_id ON resource(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_blog_post_tenant_id ON blog_post(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_workflow_tenant_id ON workflow(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_member_group_tenant_id ON member_group(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_team_member_tenant_id ON team_member(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_program_ticket_transaction_tenant_id ON program_ticket_transaction(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_email_template_tenant_id ON email_template(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_article_category_tenant_id ON article_category(tenant_id);
+-- Create indexes for efficient tenant-scoped queries (safely skips non-existent tables)
+SELECT create_tenant_index_if_table_exists('organization');
+SELECT create_tenant_index_if_table_exists('role');
+SELECT create_tenant_index_if_table_exists('event');
+SELECT create_tenant_index_if_table_exists('program');
+SELECT create_tenant_index_if_table_exists('form');
+SELECT create_tenant_index_if_table_exists('form_submission');
+SELECT create_tenant_index_if_table_exists('booking');
+SELECT create_tenant_index_if_table_exists('job_posting');
+SELECT create_tenant_index_if_table_exists('resource');
+SELECT create_tenant_index_if_table_exists('blog_post');
+SELECT create_tenant_index_if_table_exists('workflow');
+SELECT create_tenant_index_if_table_exists('member_group');
+SELECT create_tenant_index_if_table_exists('team_member');
+SELECT create_tenant_index_if_table_exists('program_ticket_transaction');
+SELECT create_tenant_index_if_table_exists('email_template');
+SELECT create_tenant_index_if_table_exists('article_category');
+
+-- Clean up helper functions (optional - comment out if you want to keep them)
+DROP FUNCTION IF EXISTS add_tenant_id_if_table_exists(TEXT);
+DROP FUNCTION IF EXISTS create_tenant_index_if_table_exists(TEXT);
