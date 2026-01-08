@@ -52,8 +52,20 @@ export default async function handler(req, res) {
       }
     }
 
+    // Check if member has a linked tenant_user account (for SaaS admin access)
+    let hasTenantUserLink = false;
+    if (supabase) {
+      const { data: link } = await supabase
+        .from('tenant_user_member_link')
+        .select('id')
+        .eq('member_id', member.id)
+        .maybeSingle();
+      
+      hasTenantUserLink = !!link;
+    }
+
     // Return member with permission flags
-    return res.json({ ...member, isAdmin, canEditMembers, canManageCommunications });
+    return res.json({ ...member, isAdmin, canEditMembers, canManageCommunications, hasTenantUserLink });
   } catch (error) {
     console.error('Auth me error:', error);
     return res.status(500).json({ error: 'Failed to get user' });
