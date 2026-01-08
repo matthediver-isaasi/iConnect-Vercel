@@ -26,15 +26,31 @@ export default async function handler(req, res) {
     
     if (!tenant) {
       const sessionMember = await getSessionMember(req);
-      if (sessionMember?.tenant_id) {
-        const { data: tenantData } = await supabase
-          .from('tenant')
-          .select('id, name, slug, logo_url, favicon_url, primary_color, settings')
-          .eq('id', sessionMember.tenant_id)
-          .single();
+      if (sessionMember) {
+        let tenantId = sessionMember.tenant_id;
         
-        if (tenantData) {
-          tenant = tenantData;
+        if (!tenantId && sessionMember.organization_id) {
+          const { data: orgData } = await supabase
+            .from('organization')
+            .select('tenant_id')
+            .eq('id', sessionMember.organization_id)
+            .single();
+          
+          if (orgData?.tenant_id) {
+            tenantId = orgData.tenant_id;
+          }
+        }
+        
+        if (tenantId) {
+          const { data: tenantData } = await supabase
+            .from('tenant')
+            .select('id, name, slug, logo_url, favicon_url, primary_color, settings')
+            .eq('id', tenantId)
+            .single();
+          
+          if (tenantData) {
+            tenant = tenantData;
+          }
         }
       }
     }

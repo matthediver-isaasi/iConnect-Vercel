@@ -16,21 +16,39 @@ export default async function handler(req, res) {
   try {
     let tenant = await resolveTenantFromRequest(req);
     
+    if (tenant?.favicon_url) {
+      return res.status(200).json({ faviconUrl: tenant.favicon_url });
+    }
+    
     if (!tenant) {
       const sessionMember = await getSessionMember(req);
-      if (sessionMember?.tenant_id) {
-        const { data: tenantData } = await supabase
-          .from('tenant')
-          .select('favicon_url')
-          .eq('id', sessionMember.tenant_id)
-          .single();
+      if (sessionMember) {
+        let tenantId = sessionMember.tenant_id;
         
-        if (tenantData?.favicon_url) {
-          return res.status(200).json({ faviconUrl: tenantData.favicon_url });
+        if (!tenantId && sessionMember.organization_id) {
+          const { data: orgData } = await supabase
+            .from('organization')
+            .select('tenant_id')
+            .eq('id', sessionMember.organization_id)
+            .single();
+          
+          if (orgData?.tenant_id) {
+            tenantId = orgData.tenant_id;
+          }
+        }
+        
+        if (tenantId) {
+          const { data: tenantData } = await supabase
+            .from('tenant')
+            .select('favicon_url')
+            .eq('id', tenantId)
+            .single();
+          
+          if (tenantData?.favicon_url) {
+            return res.status(200).json({ faviconUrl: tenantData.favicon_url });
+          }
         }
       }
-    } else if (tenant.favicon_url) {
-      return res.status(200).json({ faviconUrl: tenant.favicon_url });
     }
 
     const { data } = await supabase
