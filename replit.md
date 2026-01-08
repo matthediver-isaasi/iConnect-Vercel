@@ -24,6 +24,19 @@ All API endpoints are implemented as Vercel serverless functions in the `/api/` 
 
 The platform is designed as a multi-tenant SaaS product with a three-tier hierarchy: TENANT (subscribing company), ORGANIZATION (organizational members within a tenant), and MEMBER (individual people within organizations). A `tenant` table stores SaaS subscribing companies, and `api/_lib/tenantContext.js` defines entity scopes. Access control enforces data isolation at GLOBAL, TENANT, ORGANIZATION, and MEMBER levels, ensuring records are scoped to the authenticated user's context.
 
+### Dual Authentication System
+
+The platform uses two separate authentication systems:
+1. **tenant_user** (SaaS-level): For platform admins managing billing, domains, and tenant settings. Login at iconn.app (root domain).
+2. **member** (Portal-level): For organizational members accessing the membership portal. Login at tenant subdomains (*.iconn.app).
+
+**SSO Flow (SaaS → Portal):** When a tenant_user clicks "Open Portal" on the SaaS dashboard:
+1. `/api/admin/portal-session` generates a short-lived (5 min) single-use token
+2. User is redirected to tenant subdomain with token: `gfi.iconn.app/api/auth/portal-sso?token=xxx`
+3. `/api/auth/portal-sso` validates token, creates member session, redirects to landing page
+
+**Linking table:** `tenant_user_member_link` connects tenant_user accounts to their member accounts for SSO. During tenant provisioning, both accounts are created with the same credentials and automatically linked.
+
 ## Deployment Architecture
 
 Development uses Express.js with Vite middleware. Production deploys to Vercel serverless functions for API and static assets. Data freshness is maintained using TanStack Query and Supabase Realtime Subscriptions.
