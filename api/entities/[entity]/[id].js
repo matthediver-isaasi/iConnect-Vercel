@@ -1,6 +1,7 @@
 import { triggerWorkflows, triggerPreferenceWorkflows } from '../../_lib/workflows.js';
 import { invalidateMemberSessions } from '../../_lib/session.js';
 import { supabase } from '../../_lib/database.js';
+import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE } from '../../_lib/tenantContext.js';
 
 // Entity name to Supabase table mapping (singular names for Base44 compatibility)
 const entityToTable = {
@@ -95,14 +96,40 @@ export default async function handler(req, res) {
   const { entity, id } = req.query;
   const tableName = getTableName(entity);
 
+  // Get tenant context from session
+  const tenantCtx = await getTenantContext(req);
+  const tenantScope = getEntityTenantScope(entity);
+  
+  // Determine if tenant filtering should be applied
+  const shouldApplyTenantFilter = tenantScope !== TENANT_SCOPE.GLOBAL;
+  
+  // For non-global entities, require authentication
+  if (shouldApplyTenantFilter && !tenantCtx.isAuthenticated) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+
   try {
     if (req.method === 'GET') {
       const { expand } = req.query;
-      const { data, error } = await supabase
+      let query = supabase
         .from(tableName)
         .select(expand || '*')
-        .eq('id', id)
-        .single();
+        .eq('id', id);
+      
+      // Apply tenant isolation filter for single-entity GET
+      if (shouldApplyTenantFilter && tenantCtx.organizationId) {
+        const tenantColumn = getTenantColumn(entity);
+        
+        if (tenantScope === TENANT_SCOPE.MEMBER) {
+          query = query.eq(tenantColumn, tenantCtx.memberId);
+        } else if (entity === 'Organization') {
+          query = query.eq('id', tenantCtx.organizationId);
+        } else {
+          query = query.eq(tenantColumn, tenantCtx.organizationId);
+        }
+      }
+      
+      const { data, error } = await query.single();
 
       if (error) {
         if (error.code === 'PGRST116') return res.status(404).json({ error: 'Not found' });
@@ -126,11 +153,24 @@ export default async function handler(req, res) {
       
       if (isWorkflowEntity) {
         try {
-          const { data: existingData } = await supabase
+          let beforeQuery = supabase
             .from(tableName)
             .select('*')
-            .eq('id', id)
-            .single();
+            .eq('id', id);
+          
+          // Apply tenant filter to beforeData fetch
+          if (shouldApplyTenantFilter && tenantCtx.organizationId) {
+            const tenantColumn = getTenantColumn(entity);
+            if (tenantScope === TENANT_SCOPE.MEMBER) {
+              beforeQuery = beforeQuery.eq(tenantColumn, tenantCtx.memberId);
+            } else if (entity === 'Organization') {
+              beforeQuery = beforeQuery.eq('id', tenantCtx.organizationId);
+            } else {
+              beforeQuery = beforeQuery.eq(tenantColumn, tenantCtx.organizationId);
+            }
+          }
+          
+          const { data: existingData } = await beforeQuery.single();
           beforeData = existingData;
         } catch (e) {
           console.error('[Entity PATCH] Error fetching before data:', e);
@@ -154,14 +194,31 @@ export default async function handler(req, res) {
         sanitizedBody.email = sanitizedBody.email.toLowerCase();
       }
 
-      const { data, error } = await supabase
+      // Build PATCH query with tenant isolation
+      let patchQuery = supabase
         .from(tableName)
         .update(sanitizedBody)
-        .eq('id', id)
-        .select()
-        .single();
+        .eq('id', id);
+      
+      // Apply tenant filter to ensure user can only update records in their tenant
+      if (shouldApplyTenantFilter && tenantCtx.organizationId) {
+        const tenantColumn = getTenantColumn(entity);
+        
+        if (tenantScope === TENANT_SCOPE.MEMBER) {
+          patchQuery = patchQuery.eq(tenantColumn, tenantCtx.memberId);
+        } else if (entity === 'Organization') {
+          patchQuery = patchQuery.eq('id', tenantCtx.organizationId);
+        } else {
+          patchQuery = patchQuery.eq(tenantColumn, tenantCtx.organizationId);
+        }
+      }
+      
+      const { data, error } = await patchQuery.select().single();
 
-      if (error) return res.status(500).json({ error: error.message });
+      if (error) {
+        if (error.code === 'PGRST116') return res.status(404).json({ error: 'Not found or access denied' });
+        return res.status(500).json({ error: error.message });
+      }
 
       // SECURITY: If login_enabled was changed to false for a member, invalidate all their sessions
       if (entityNormalized === 'member' && sanitizedBody.login_enabled === false) {
@@ -225,6 +282,25 @@ export default async function handler(req, res) {
 
     } else if (req.method === 'DELETE') {
       // Handle cascade deletion for entities with foreign key relationships
+      
+      // First, verify tenant access to this entity before deleting
+      if (shouldApplyTenantFilter && tenantCtx.organizationId) {
+        let verifyQuery = supabase.from(tableName).select('id').eq('id', id);
+        const tenantColumn = getTenantColumn(entity);
+        
+        if (tenantScope === TENANT_SCOPE.MEMBER) {
+          verifyQuery = verifyQuery.eq(tenantColumn, tenantCtx.memberId);
+        } else if (entity === 'Organization') {
+          verifyQuery = verifyQuery.eq('id', tenantCtx.organizationId);
+        } else {
+          verifyQuery = verifyQuery.eq(tenantColumn, tenantCtx.organizationId);
+        }
+        
+        const { data: verifyData, error: verifyError } = await verifyQuery.single();
+        if (verifyError || !verifyData) {
+          return res.status(404).json({ error: 'Not found or access denied' });
+        }
+      }
       
       // Check if Role has members assigned - if so, reassign them to default role before deletion
       if (entity === 'Role') {

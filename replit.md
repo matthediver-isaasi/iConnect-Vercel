@@ -68,6 +68,31 @@ Development uses Express.js with Vite middleware. Production deploys to Vercel s
 - `api/functions/[functionName].js` - Server-side functions
 - `api/health.js` - Health check endpoint
 
+## Multi-Tenant Isolation (Jan 2026)
+
+The platform enforces strict data isolation between organizations (tenants). Each member belongs to one organization, and can only access data scoped to their organization.
+
+**Tenant Context Module:**
+- `api/_lib/tenantContext.js` - Defines entity scopes and provides tenant context helpers
+
+**Entity Tenant Scopes:**
+- **GLOBAL** - System-wide data accessible without authentication: SystemSettings, PreferenceField (definitions), TypographyStyle, IEditElementTemplate (template library), RoleAccessItem, TourGroup, TourStep, ButtonStyle, AwardClassification, AwardSublevel, RedirectMapping, MagicLink
+- **TENANT** - Per-organization data, filtered by `organization_id`: Member, Event, Booking, Form, Resource, JobPosting, BlogPost, Role, Workflow, etc.
+- **HYBRID** - Global templates with tenant-specific instances: IEditPage, IEditPageElement
+- **MEMBER** - Scoped to the authenticated member's own data: MemberPreferenceValue, MemberCommunicationPreference, MemberCredentials
+
+**Enforcement Points:**
+- Entity API list (`GET /api/entities/[entity]`) - Automatically filters by organization_id from session
+- Entity API single (`GET /api/entities/[entity]/[id]`) - Verifies record belongs to current tenant
+- Entity API create (`POST /api/entities/[entity]`) - Automatically sets organization_id from session
+- Entity API update (`PATCH /api/entities/[entity]/[id]`) - Verifies and restricts updates to current tenant
+- Entity API delete (`DELETE /api/entities/[entity]/[id]`) - Verifies ownership before deletion
+
+**Access Control:**
+- Non-global entities require authentication (401 Unauthorized if no session)
+- Cross-tenant access attempts return 404 (record not found)
+- Organization entity access is restricted to the member's own organization
+
 ## Runtime Page Provisioning (CMS Feature)
 
 The platform includes a CMS feature for administrators to create and manage dynamic pages and routes at runtime using a `/:slug` catch-all route, with support for draft/published statuses and public/member access controls.

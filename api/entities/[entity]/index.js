@@ -1,6 +1,7 @@
 import { sendEmail } from '../../_lib/emailService.js';
 import { triggerWorkflows, triggerPreferenceWorkflows } from '../../_lib/workflows.js';
 import { supabase } from '../../_lib/database.js';
+import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE } from '../../_lib/tenantContext.js';
 
 // Send email on form submission if configured
 async function sendFormSubmissionEmail(submissionData) {
@@ -177,6 +178,21 @@ export default async function handler(req, res) {
 
   const { entity } = req.query;
   const tableName = getTableName(entity);
+  const entityNorm = entity.replace(/[-_]/g, '').toLowerCase();
+
+  // Get tenant context from session
+  const tenantCtx = await getTenantContext(req);
+  const tenantScope = getEntityTenantScope(entity);
+  
+  // Determine if tenant filtering should be applied
+  // GLOBAL entities are accessible without authentication
+  // TENANT/HYBRID/MEMBER entities require authentication and scoping
+  const shouldApplyTenantFilter = tenantScope !== TENANT_SCOPE.GLOBAL;
+  
+  // For non-global entities, require authentication
+  if (shouldApplyTenantFilter && !tenantCtx.isAuthenticated) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
 
   try {
     if (req.method === 'GET') {
@@ -184,9 +200,24 @@ export default async function handler(req, res) {
       const { filter, sort, limit, offset, expand } = req.query;
       let query = supabase.from(tableName).select(expand || '*');
       
+      // Apply tenant isolation filter
+      if (shouldApplyTenantFilter && tenantCtx.organizationId) {
+        const tenantColumn = getTenantColumn(entity);
+        
+        if (tenantScope === TENANT_SCOPE.MEMBER) {
+          // Member-scoped entities filter by member_id
+          query = query.eq(tenantColumn, tenantCtx.memberId);
+        } else if (entity === 'Organization') {
+          // Organization entity: only return the member's own organization
+          query = query.eq('id', tenantCtx.organizationId);
+        } else {
+          // Tenant-scoped entities filter by organization_id
+          query = query.eq(tenantColumn, tenantCtx.organizationId);
+        }
+      }
+      
       // For Member entity, exclude deleted/anonymized members at the query level
       // This ensures pagination works correctly
-      const entityNorm = entity.replace(/[-_]/g, '').toLowerCase();
       if (entityNorm === 'member') {
         query = query.not('email', 'ilike', 'deleted_%@deleted.local');
       }
@@ -253,10 +284,27 @@ export default async function handler(req, res) {
         }
       }
       
+      // Apply tenant context for tenant-scoped entities
+      // Automatically set organization_id or member_id based on session
+      if (shouldApplyTenantFilter && tenantCtx.isAuthenticated) {
+        const tenantColumn = getTenantColumn(entity);
+        
+        if (tenantScope === TENANT_SCOPE.MEMBER && tenantCtx.memberId) {
+          // Member-scoped entities: ensure member_id is set to current member
+          if (!sanitizedBody[tenantColumn]) {
+            sanitizedBody[tenantColumn] = tenantCtx.memberId;
+          }
+        } else if (tenantScope === TENANT_SCOPE.TENANT || tenantScope === TENANT_SCOPE.HYBRID) {
+          // Tenant-scoped entities: ensure organization_id is set
+          if (!sanitizedBody[tenantColumn] && tenantCtx.organizationId && entity !== 'Organization') {
+            sanitizedBody[tenantColumn] = tenantCtx.organizationId;
+          }
+        }
+      }
+      
       // Normalize email to lowercase for member, team_member, and magic_link entities
       // Use normalized entity name to handle both PascalCase and slug-case variants
-      const entityNormalized = entity.replace(/[-_]/g, '').toLowerCase();
-      if ((entityNormalized === 'member' || entityNormalized === 'teammember' || entityNormalized === 'magiclink') && sanitizedBody.email) {
+      if ((entityNorm === 'member' || entityNorm === 'teammember' || entityNorm === 'magiclink') && sanitizedBody.email) {
         sanitizedBody.email = sanitizedBody.email.toLowerCase();
       }
       
@@ -290,17 +338,17 @@ export default async function handler(req, res) {
       }));
 
       // Trigger workflow evaluation for new Organization/Member/JobPosting (non-blocking)
-      if ((entityNormalized === 'organization' || entityNormalized === 'member' || entityNormalized === 'jobposting') && data) {
-        const entityType = entityNormalized === 'jobposting' ? 'job_posting' : entityNormalized;
+      if ((entityNorm === 'organization' || entityNorm === 'member' || entityNorm === 'jobposting') && data) {
+        const entityType = entityNorm === 'jobposting' ? 'job_posting' : entityNorm;
         triggerWorkflows(entityType, data.id, null, data, 'record_create', baseUrl).catch(err => {
           console.error('[Entity POST] Workflow error:', err);
         });
       }
       
       // Also trigger workflows when preference values are created
-      const isPreferenceValueEntity = entityNormalized === 'organizationpreferencevalue' || entityNormalized === 'memberpreferencevalue';
+      const isPreferenceValueEntity = entityNorm === 'organizationpreferencevalue' || entityNorm === 'memberpreferencevalue';
       if (isPreferenceValueEntity && data) {
-        const entityType = entityNormalized === 'organizationpreferencevalue' ? 'organization' : 'member';
+        const entityType = entityNorm === 'organizationpreferencevalue' ? 'organization' : 'member';
         const entityId = data.organization_id || data.member_id;
         const fieldId = data.field_id;
         
@@ -314,7 +362,7 @@ export default async function handler(req, res) {
       }
 
       // Send email on FormSubmission creation (non-blocking)
-      if (entityNormalized === 'formsubmission' && data) {
+      if (entityNorm === 'formsubmission' && data) {
         sendFormSubmissionEmail(data).catch(err => {
           console.error('[Entity POST] Form submission email error:', err);
         });
