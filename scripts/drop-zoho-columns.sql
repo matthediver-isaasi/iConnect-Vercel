@@ -8,7 +8,9 @@ BEGIN
   IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'organization') THEN
     DROP INDEX IF EXISTS idx_organization_zoho_account_id;
     ALTER TABLE organization DROP COLUMN IF EXISTS zoho_account_id;
-    RAISE NOTICE 'Dropped zoho_account_id from organization table';
+    ALTER TABLE organization DROP COLUMN IF EXISTS contacts_synced_at;
+    ALTER TABLE organization DROP COLUMN IF EXISTS last_synced;
+    RAISE NOTICE 'Dropped zoho_account_id, contacts_synced_at, last_synced from organization table';
   END IF;
 
   -- Drop zoho_contact_id from member table
@@ -18,10 +20,11 @@ BEGIN
     RAISE NOTICE 'Dropped zoho_contact_id from member table';
   END IF;
 
-  -- Drop zoho_contact_id from organization_contact table
+  -- Drop zoho_contact_id and last_synced from organization_contact table
   IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'organization_contact') THEN
     ALTER TABLE organization_contact DROP COLUMN IF EXISTS zoho_contact_id;
-    RAISE NOTICE 'Dropped zoho_contact_id from organization_contact table';
+    ALTER TABLE organization_contact DROP COLUMN IF EXISTS last_synced;
+    RAISE NOTICE 'Dropped zoho_contact_id, last_synced from organization_contact table';
   END IF;
 
   -- Drop the zoho_token table entirely
