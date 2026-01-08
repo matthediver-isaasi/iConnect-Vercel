@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,7 +10,9 @@ import {
   Loader2,
   Save,
   Upload,
-  LogOut
+  LogOut,
+  Image,
+  X
 } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 
@@ -19,6 +21,8 @@ export default function AdminSettings() {
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [uploadingFavicon, setUploadingFavicon] = useState(false);
   const [tenantUser, setTenantUser] = useState(null);
   const [tenant, setTenant] = useState(null);
   const [formData, setFormData] = useState({
@@ -27,6 +31,54 @@ export default function AdminSettings() {
     favicon_url: '',
     billing_email: ''
   });
+  
+  const logoInputRef = useRef(null);
+  const faviconInputRef = useRef(null);
+
+  const handleFileUpload = async (file, type) => {
+    if (!file) return;
+    
+    const isLogo = type === 'logo';
+    const setUploading = isLogo ? setUploadingLogo : setUploadingFavicon;
+    
+    setUploading(true);
+    
+    try {
+      const formDataUpload = new FormData();
+      formDataUpload.append('file', file);
+      
+      const response = await fetch('/api/integrations/upload-file', {
+        method: 'POST',
+        credentials: 'include',
+        body: formDataUpload
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Upload failed');
+      }
+      
+      const result = await response.json();
+      
+      setFormData(prev => ({
+        ...prev,
+        [isLogo ? 'logo_url' : 'favicon_url']: result.file_url
+      }));
+      
+      toast({
+        title: "File uploaded",
+        description: `${isLogo ? 'Logo' : 'Favicon'} uploaded successfully.`
+      });
+    } catch (err) {
+      toast({
+        title: "Upload failed",
+        description: err.message || "Failed to upload file. Please try again.",
+        variant: "destructive"
+      });
+    } finally {
+      setUploading(false);
+    }
+  };
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -179,23 +231,57 @@ export default function AdminSettings() {
                 Logo and favicon for your portal
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-6">
               <div className="space-y-2">
-                <Label htmlFor="logo_url" className="text-slate-200">Logo URL</Label>
-                <Input
-                  id="logo_url"
-                  value={formData.logo_url}
-                  onChange={(e) => setFormData({ ...formData, logo_url: e.target.value })}
-                  placeholder="https://..."
-                  className="bg-slate-900/50 border-slate-600 text-white placeholder:text-slate-500"
-                  data-testid="input-logo-url"
+                <Label htmlFor="logo_url" className="text-slate-200">Logo</Label>
+                <input
+                  ref={logoInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => handleFileUpload(e.target.files?.[0], 'logo')}
+                  data-testid="input-logo-file"
                 />
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => logoInputRef.current?.click()}
+                    disabled={uploadingLogo}
+                    className="border-slate-600 text-slate-200 hover:bg-slate-700"
+                    data-testid="button-upload-logo"
+                  >
+                    {uploadingLogo ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Uploading...
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="mr-2 h-4 w-4" />
+                        Upload Logo
+                      </>
+                    )}
+                  </Button>
+                  {formData.logo_url && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setFormData({ ...formData, logo_url: '' })}
+                      className="text-slate-400 hover:text-red-400 hover:bg-slate-700"
+                      data-testid="button-remove-logo"
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
                 {formData.logo_url && (
-                  <div className="mt-2 p-4 bg-slate-900 rounded-lg">
+                  <div className="mt-2 p-4 bg-slate-900 rounded-lg inline-block">
                     <img 
                       src={formData.logo_url} 
                       alt="Logo preview" 
-                      className="max-h-16 object-contain"
+                      className="max-h-20 object-contain"
                       onError={(e) => e.target.style.display = 'none'}
                     />
                   </div>
@@ -203,15 +289,59 @@ export default function AdminSettings() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="favicon_url" className="text-slate-200">Favicon URL</Label>
-                <Input
-                  id="favicon_url"
-                  value={formData.favicon_url}
-                  onChange={(e) => setFormData({ ...formData, favicon_url: e.target.value })}
-                  placeholder="https://..."
-                  className="bg-slate-900/50 border-slate-600 text-white placeholder:text-slate-500"
-                  data-testid="input-favicon-url"
+                <Label htmlFor="favicon_url" className="text-slate-200">Favicon</Label>
+                <input
+                  ref={faviconInputRef}
+                  type="file"
+                  accept="image/*,.ico"
+                  className="hidden"
+                  onChange={(e) => handleFileUpload(e.target.files?.[0], 'favicon')}
+                  data-testid="input-favicon-file"
                 />
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => faviconInputRef.current?.click()}
+                    disabled={uploadingFavicon}
+                    className="border-slate-600 text-slate-200 hover:bg-slate-700"
+                    data-testid="button-upload-favicon"
+                  >
+                    {uploadingFavicon ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Uploading...
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="mr-2 h-4 w-4" />
+                        Upload Favicon
+                      </>
+                    )}
+                  </Button>
+                  {formData.favicon_url && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setFormData({ ...formData, favicon_url: '' })}
+                      className="text-slate-400 hover:text-red-400 hover:bg-slate-700"
+                      data-testid="button-remove-favicon"
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
+                {formData.favicon_url && (
+                  <div className="mt-2 p-4 bg-slate-900 rounded-lg inline-block">
+                    <img 
+                      src={formData.favicon_url} 
+                      alt="Favicon preview" 
+                      className="max-h-10 object-contain"
+                      onError={(e) => e.target.style.display = 'none'}
+                    />
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>
