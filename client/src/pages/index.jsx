@@ -247,6 +247,10 @@ import TenantSignup from "./TenantSignup";
 
 import DomainSettings from "./DomainSettings";
 
+import AdminLogin from "./admin/AdminLogin";
+import AdminDashboard from "./admin/AdminDashboard";
+import AdminSettings from "./admin/AdminSettings";
+
 import { useEffect, useRef } from 'react';
 import { BrowserRouter as Router, Route, Routes, useLocation } from 'react-router-dom';
 import { LayoutProvider } from '@/contexts/LayoutContext';
@@ -836,6 +840,17 @@ function StandaloneRoutes() {
     );
 }
 
+function AdminRoutes() {
+    return (
+        <Routes>
+            <Route path="/admin/login" element={<AdminLogin />} />
+            <Route path="/admin/dashboard" element={<AdminDashboard />} />
+            <Route path="/admin/settings" element={<AdminSettings />} />
+            <Route path="/admin" element={<AdminDashboard />} />
+        </Routes>
+    );
+}
+
 function AppRoutes() {
     const location = useLocation();
     
@@ -844,8 +859,14 @@ function AppRoutes() {
         location.pathname.toLowerCase() === path.toLowerCase()
     );
     
+    const isAdminPage = location.pathname.toLowerCase().startsWith('/admin');
+    
     if (isStandalonePage) {
         return <StandaloneRoutes />;
+    }
+    
+    if (isAdminPage) {
+        return <AdminRoutes />;
     }
     
     return <PagesContent />;
