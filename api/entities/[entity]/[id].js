@@ -7,7 +7,6 @@ const entityToTable = {
   'Member': 'member',
   'Organization': 'organization',
   'Event': 'event',
-  'ZohoToken': 'zoho_token',
   'Booking': 'booking',
   'ProgramTicketTransaction': 'program_ticket_transaction',
   'MagicLink': 'magic_link',
@@ -403,7 +402,6 @@ export default async function handler(req, res) {
             job_title: null,
             biography: null,
             profile_photo_url: null,
-            zoho_contact_id: null,
             login_enabled: false,
             show_in_directory: false,
           })
@@ -492,7 +490,6 @@ export default async function handler(req, res) {
                 job_title: null,
                 biography: null,
                 profile_photo_url: null,
-                zoho_contact_id: null,
                 login_enabled: false,
                 show_in_directory: false,
                 organization_id: null, // Unlink from organization

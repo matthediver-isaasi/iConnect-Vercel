@@ -77,24 +77,13 @@ export default async function handler(req, res) {
               authorHandle = member.handle;
               authorProfilePhoto = member.profile_photo_url;
               
-              // Fetch organization if member has one - try by id first, then by zoho_account_id
+              // Fetch organization if member has one
               if (member.organization_id) {
-                // Try lookup by primary id first
-                let { data: org } = await supabase
+                const { data: org } = await supabase
                   .from('organization')
                   .select('name')
                   .eq('id', member.organization_id)
                   .single();
-                
-                // If not found, try by zoho_account_id
-                if (!org) {
-                  const { data: orgByZoho } = await supabase
-                    .from('organization')
-                    .select('name')
-                    .eq('zoho_account_id', member.organization_id)
-                    .single();
-                  org = orgByZoho;
-                }
                 
                 if (org) {
                   authorOrganization = org.name;

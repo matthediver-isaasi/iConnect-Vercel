@@ -84,7 +84,6 @@ const entityToTable = {
   'Member': 'member',
   'Organization': 'organization',
   'Event': 'event',
-  'ZohoToken': 'zoho_token',
   'Booking': 'booking',
   'ProgramTicketTransaction': 'program_ticket_transaction',
   'MagicLink': 'magic_link',

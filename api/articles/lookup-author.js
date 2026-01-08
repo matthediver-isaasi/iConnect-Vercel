@@ -34,7 +34,7 @@ export default async function handler(req, res) {
         const { data: org } = await supabase
           .from('organization')
           .select('name')
-          .eq('zoho_account_id', member.organization_id)
+          .eq('id', member.organization_id)
           .single();
         
         if (org) {

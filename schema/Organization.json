@@ -4,15 +4,11 @@
     "properties": {
       "name": {
         "type": "string",
-        "description": "Organization name from Zoho CRM Accounts"
+        "description": "Organization name"
       },
       "logo_url": {
         "type": "string",
         "description": "URL to organization logo image"
-      },
-      "zoho_account_id": {
-        "type": "string",
-        "description": "Zoho CRM Account ID"
       },
       "domain": {
         "type": "string",
@@ -43,16 +39,6 @@
         "type": "boolean",
         "default": false,
         "description": "Whether this organization can use purchase orders"
-      },
-      "contacts_synced_at": {
-        "type": "string",
-        "format": "date-time",
-        "description": "When organization contacts were last fully synced"
-      },
-      "last_synced": {
-        "type": "string",
-        "format": "date-time",
-        "description": "Last sync from Zoho CRM"
       }
     },
     "required": [
