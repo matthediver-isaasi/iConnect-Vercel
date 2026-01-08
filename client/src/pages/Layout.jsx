@@ -471,18 +471,25 @@ const { data: borderRadiusSetting = DEFAULT_BORDER_RADIUS } = useQuery({
   }
 });
 
-// Fetch portal logo settings including home page slug and favicon
+// Fetch portal logo settings including home page slug and favicon (tenant-scoped with fallback)
 const { data: portalLogoSettings } = useQuery({
   queryKey: ['portal-logo-settings'],
   queryFn: async () => {
     try {
-      const data = await base44.entities.SystemSettings.list();
-      const logoUrl = data.find(s => s.setting_key === 'portal_logo_url')?.setting_value || '';
-      const logoHeight = data.find(s => s.setting_key === 'portal_logo_height')?.setting_value || 'medium';
-      const logoLink = data.find(s => s.setting_key === 'portal_logo_link')?.setting_value || '';
-      const homePageSlug = data.find(s => s.setting_key === 'public_home_page_slug')?.setting_value || '';
-      const faviconUrl = data.find(s => s.setting_key === 'site_favicon_url')?.setting_value || '';
-      return { logoUrl, logoHeight, logoLink, homePageSlug, faviconUrl };
+      const response = await fetch('/api/public/portal-branding', {
+        credentials: 'include'
+      });
+      if (!response.ok) {
+        throw new Error('Failed to fetch portal branding');
+      }
+      const data = await response.json();
+      return { 
+        logoUrl: data.logoUrl || '', 
+        logoHeight: data.logoHeight || 'medium', 
+        logoLink: data.logoLink || '', 
+        homePageSlug: data.homePageSlug || '', 
+        faviconUrl: data.faviconUrl || '' 
+      };
     } catch (error) {
       console.error('Error loading portal logo settings:', error);
       return { logoUrl: '', logoHeight: 'medium', logoLink: '', homePageSlug: '', faviconUrl: '' };
