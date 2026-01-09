@@ -42,29 +42,6 @@ export default async function handler(req, res) {
 
     console.log(`[Platform Delete Tenant] Starting deletion of tenant: ${tenant.name} (${tenant.slug})`);
 
-    // Try to use the stored procedure first (handles system roles correctly)
-    const { data: rpcResult, error: rpcError } = await supabase.rpc('platform_delete_tenant', {
-      p_tenant_id: tenantId
-    });
-
-    if (!rpcError && rpcResult?.success) {
-      console.log(`[Platform Delete Tenant] Successfully deleted tenant via RPC:`, rpcResult);
-      return res.status(200).json({
-        tenant: rpcResult.tenant,
-        deleted: rpcResult.deleted,
-        errors: [],
-        tenantDeletion: 'success'
-      });
-    }
-
-    // Log RPC error and fall back to manual deletion
-    if (rpcError) {
-      console.log(`[Platform Delete Tenant] RPC not available, falling back to manual deletion:`, rpcError.message);
-    } else if (rpcResult && !rpcResult.success) {
-      console.log(`[Platform Delete Tenant] RPC failed:`, rpcResult.error);
-    }
-
-    // Fallback: Manual deletion (may fail on system roles if trigger not updated)
     const results = {
       tenant: { id: tenant.id, name: tenant.name, slug: tenant.slug },
       deleted: {},
@@ -94,7 +71,6 @@ export default async function handler(req, res) {
       { table: 'blog_post', tenantDirect: true },
       { table: 'resource', tenantDirect: true },
       { table: 'event', tenantDirect: true },
-      { table: 'role', tenantDirect: true },
       { table: 'speaker', tenantDirect: true },
       { table: 'card', tenantVia: 'card_deck' },
       { table: 'card_deck', tenantDirect: true },
@@ -171,14 +147,12 @@ export default async function handler(req, res) {
               recordIds = (data || []).map(r => r.id);
             }
           } else if (tenantVia === 'member_jsonb') {
-            // Special handling for session table where memberId is in JSONB
             const { data: orgs } = await supabase.from('organization').select('id').eq('tenant_id', tenantId);
             const orgIds = (orgs || []).map(o => o.id);
             if (orgIds.length > 0) {
               const { data: members } = await supabase.from('member').select('id').in('organization_id', orgIds);
               const memberIds = (members || []).map(m => m.id);
               if (memberIds.length > 0) {
-                // Session table uses JSONB sess column with memberId
                 const { data: sessions } = await supabase.from('session').select('sid, sess');
                 const matchingSessions = (sessions || []).filter(s => {
                   const sessData = typeof s.sess === 'string' ? JSON.parse(s.sess) : s.sess;
@@ -196,7 +170,8 @@ export default async function handler(req, res) {
               const { data: members } = await supabase.from('member').select('id').in('organization_id', orgIds);
               const memberIds = (members || []).map(m => m.id);
               if (memberIds.length > 0) {
-                const { data } = await supabase.from(table).select('id').in('member_id', memberIds);
+                const idColumn = table === 'member_note' ? 'target_member_id' : 'member_id';
+                const { data } = await supabase.from(table).select('id').in(idColumn, memberIds);
                 recordIds = (data || []).map(r => r.id);
               }
             }
@@ -211,7 +186,6 @@ export default async function handler(req, res) {
         }
 
         if (recordIds.length > 0) {
-          // Session table uses 'sid' as primary key, others use 'id'
           const pkColumn = table === 'session' ? 'sid' : 'id';
           const { error } = await supabase
             .from(table)
@@ -235,6 +209,60 @@ export default async function handler(req, res) {
       }
     }
 
+    // Delete roles - need to disable trigger first for system roles
+    let triggerDisabled = false;
+    try {
+      console.log('[Platform Delete Tenant] Disabling role protection trigger...');
+      const { error: disableError } = await supabase.rpc('disable_role_protection_trigger');
+      if (disableError) {
+        console.error('[Platform Delete Tenant] Failed to disable trigger:', disableError.message);
+        results.errors.push({ table: 'role', error: `Trigger disable failed: ${disableError.message}` });
+      } else {
+        triggerDisabled = true;
+        console.log('[Platform Delete Tenant] Trigger disabled successfully');
+      }
+    } catch (err) {
+      console.error('[Platform Delete Tenant] Trigger disable exception:', err.message);
+    }
+
+    // Delete roles
+    try {
+      const { data: roles } = await supabase.from('role').select('id').eq('tenant_id', tenantId);
+      const roleIds = (roles || []).map(r => r.id);
+      if (roleIds.length > 0) {
+        const { error } = await supabase.from('role').delete().in('id', roleIds);
+        if (error) {
+          console.error('[Platform Delete Tenant] Error deleting roles:', error.message);
+          results.errors.push({ table: 'role', error: error.message });
+          results.deleted['role'] = { attempted: roleIds.length, error: error.message };
+        } else {
+          results.deleted['role'] = roleIds.length;
+          console.log(`[Platform Delete Tenant] Deleted ${roleIds.length} roles`);
+        }
+      } else {
+        results.deleted['role'] = 0;
+      }
+    } catch (err) {
+      console.error('[Platform Delete Tenant] Role deletion exception:', err.message);
+      results.errors.push({ table: 'role', error: err.message });
+    }
+
+    // Re-enable trigger
+    if (triggerDisabled) {
+      try {
+        console.log('[Platform Delete Tenant] Re-enabling role protection trigger...');
+        const { error: enableError } = await supabase.rpc('enable_role_protection_trigger');
+        if (enableError) {
+          console.error('[Platform Delete Tenant] Failed to re-enable trigger:', enableError.message);
+        } else {
+          console.log('[Platform Delete Tenant] Trigger re-enabled successfully');
+        }
+      } catch (err) {
+        console.error('[Platform Delete Tenant] Trigger re-enable exception:', err.message);
+      }
+    }
+
+    // Finally delete the tenant
     const { error: deleteTenantError } = await supabase
       .from('tenant')
       .delete()
