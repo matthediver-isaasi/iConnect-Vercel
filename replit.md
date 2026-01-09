@@ -86,6 +86,37 @@ Forms support conditional visibility rules that control the visibility and enabl
 
 Organizations and Members support internal notes that admins can add, edit, and delete, stored in `organization_note` and `member_note` tables respectively. Organization notes support file attachments.
 
+## Platform Owner Configuration System
+
+A third authentication tier exists for platform-wide SaaS administration:
+
+**Platform Owner:** Super-admins who manage the entire SaaS platform, not tied to any specific tenant.
+- Separate authentication system with secure server-side session management
+- Sessions stored in `platform_owner_session` table with cryptographically strong 32-byte tokens
+- Access at `/platform/admin` route on any domain (root or subdomain)
+- Manages platform-wide preferences stored in `platform_preferences` table
+
+**Role Templates:**
+- Platform admins configure default role templates that are used when provisioning new tenants
+- Stored in `platform_preferences` with key `default_role_templates`
+- Templates are independent snapshots - changes to GFI roles don't affect templates
+- Each template includes: name, excluded_features, default_landing_page, is_system, member_field_permissions, organization_field_permissions
+
+**Database Tables:**
+- `platform_owner`: Platform admin accounts (email, password_hash, name, is_active)
+- `platform_owner_session`: Server-side session store (session_token, owner_id, expires_at)
+- `platform_preferences`: Key-value store for platform configuration (key, value, description)
+
+**Setup Scripts:**
+- `scripts/migrations/add-platform-owner-tables.sql`: Creates the platform tables (run in Supabase SQL Editor)
+- `scripts/create-platform-owner.js`: Creates a platform owner account
+- `scripts/seed-role-templates.js`: Snapshots GFI tenant roles as default templates
+
+**API Endpoints:**
+- `/api/platform/auth/login|logout|session`: Platform owner authentication
+- `/api/platform/preferences`: CRUD for platform preferences
+- `/api/platform/role-templates`: Get/update role templates
+
 # External Dependencies
 
 **Supabase:** Primary database (PostgreSQL) for application data, including CRUD and realtime subscriptions, and file storage.
