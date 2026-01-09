@@ -1,4 +1,68 @@
-import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
+import { supabase } from '../_lib/database.js';
+import { getHostFromRequest } from '../_lib/tenantResolver.js';
+
+// Directly query tenant without cache to ensure fresh settings
+async function getTenantFresh(hostname) {
+  if (!hostname || !supabase) return null;
+
+  try {
+    const host = hostname.toLowerCase().split(':')[0];
+    
+    const isLocalhost = host === 'localhost' || host === '127.0.0.1';
+    const isReplitDev = host.includes('.replit.dev') || host.includes('.repl.co');
+    
+    if (isLocalhost || isReplitDev) {
+      return null;
+    }
+
+    let slug = null;
+    let customDomain = null;
+
+    if (host.endsWith('.iconn.app')) {
+      const parts = host.replace('.iconn.app', '').split('.');
+      if (parts.length === 1 && parts[0] !== 'www' && parts[0] !== 'iconn') {
+        slug = parts[0];
+      }
+    } else if (!host.includes('.iconn.app')) {
+      customDomain = host;
+    }
+
+    if (!slug && !customDomain) {
+      return null;
+    }
+
+    let tenant = null;
+
+    if (slug) {
+      const { data, error } = await supabase
+        .from('tenant')
+        .select('id, name, slug, domain, status, settings')
+        .eq('slug', slug)
+        .eq('status', 'active')
+        .single();
+
+      if (!error && data) {
+        tenant = data;
+      }
+    } else if (customDomain) {
+      const { data, error } = await supabase
+        .from('tenant')
+        .select('id, name, slug, domain, status, settings')
+        .eq('domain', customDomain)
+        .eq('status', 'active')
+        .single();
+
+      if (!error && data) {
+        tenant = data;
+      }
+    }
+
+    return tenant;
+  } catch (err) {
+    console.error('[Tenant Public Settings] Error resolving tenant:', err);
+    return null;
+  }
+}
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -9,10 +73,11 @@ export default async function handler(req, res) {
   }
 
   try {
-    const hostname = req.headers['x-forwarded-host'] || req.headers.host || '';
+    const hostname = getHostFromRequest(req);
     console.log('[Tenant Public Settings] Request from hostname:', hostname);
     
-    const tenant = await resolveTenantFromRequest(req);
+    // Query tenant directly without cache to ensure fresh settings
+    const tenant = await getTenantFresh(hostname);
     console.log('[Tenant Public Settings] Resolved tenant:', tenant ? { id: tenant.id, name: tenant.name, slug: tenant.slug } : null);
     
     if (!tenant) {

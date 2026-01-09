@@ -1,5 +1,6 @@
 import { getSessionTenantUser } from '../_lib/session.js';
 import { supabase } from '../_lib/database.js';
+import { clearTenantCache } from '../_lib/tenantResolver.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -74,6 +75,14 @@ export default async function handler(req, res) {
       if (error) {
         console.error('[Admin] Update tenant error:', error);
         return res.status(500).json({ error: 'Failed to update tenant' });
+      }
+
+      // Clear tenant cache so updated settings take effect immediately
+      if (tenant.slug) {
+        clearTenantCache(tenant.slug);
+      }
+      if (tenant.domain) {
+        clearTenantCache(tenant.domain);
       }
 
       console.log('[Admin] Tenant updated:', tenantId);
