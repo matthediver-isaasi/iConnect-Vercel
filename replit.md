@@ -111,6 +111,13 @@ A third authentication tier exists for platform-wide SaaS administration:
 - `scripts/migrations/add-platform-owner-tables.sql`: Creates the platform tables (run in Supabase SQL Editor)
 - `scripts/create-platform-owner.js`: Creates a platform owner account
 - `scripts/seed-role-templates.js`: Snapshots GFI tenant roles as default templates
+- `scripts/seed-navigation-templates.js`: Snapshots GFI portal navigation as templates for new tenants
+
+**Navigation Templates:**
+- Platform preferences key `default_navigation_templates` stores portal navigation configuration
+- Templates include: `portal_navigation_items`, `portal_menus`, `navigation_items` (public site)
+- New tenants automatically receive navigation from templates during provisioning
+- Run `scripts/seed-navigation-templates.js` after configuring GFI navigation to update templates
 
 **API Endpoints:**
 - `/api/platform/auth/login|logout|session`: Platform owner authentication

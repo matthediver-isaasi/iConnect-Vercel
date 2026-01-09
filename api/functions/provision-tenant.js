@@ -310,54 +310,106 @@ export default async function handler(req, res) {
     if (navPref?.value) {
       const { portal_navigation_items, portal_menus, navigation_items } = navPref.value;
 
-      // Create portal navigation items
-      if (portal_navigation_items?.length > 0) {
-        const navItemsToInsert = portal_navigation_items.map((item, index) => ({
-          ...item,
-          tenant_id: tenant.id,
-          order_index: item.order_index ?? index
-        }));
-        const { error: navItemError } = await supabase
-          .from('portal_navigation_item')
-          .insert(navItemsToInsert);
-        if (navItemError) {
-          console.error('[Provision Tenant] Error creating portal navigation items:', navItemError);
-        } else {
-          console.log(`[Provision Tenant] Created ${navItemsToInsert.length} portal navigation items`);
-        }
-      }
+      // Build a map from template_key to new menu_id for FK remapping
+      const templateKeyToMenuId = {};
 
-      // Create portal menus
+      // Create portal menus FIRST (so we can get their new IDs)
       if (portal_menus?.length > 0) {
-        const menusToInsert = portal_menus.map((menu, index) => ({
-          ...menu,
-          tenant_id: tenant.id,
-          order_index: menu.order_index ?? index
-        }));
-        const { error: menuError } = await supabase
-          .from('portal_menu')
-          .insert(menusToInsert);
-        if (menuError) {
-          console.error('[Provision Tenant] Error creating portal menus:', menuError);
-        } else {
-          console.log(`[Provision Tenant] Created ${menusToInsert.length} portal menus`);
+        for (const menu of portal_menus) {
+          const { template_key, ...menuData } = menu;
+          const { data: newMenu, error: menuError } = await supabase
+            .from('portal_menu')
+            .insert({
+              ...menuData,
+              tenant_id: tenant.id
+            })
+            .select('id')
+            .single();
+          
+          if (menuError) {
+            console.error('[Provision Tenant] Error creating portal menu:', menuError);
+          } else if (template_key) {
+            templateKeyToMenuId[template_key] = newMenu.id;
+          }
+        }
+        console.log(`[Provision Tenant] Created ${Object.keys(templateKeyToMenuId).length} portal menus`);
+      }
+
+      // Create portal navigation items with remapped menu_id and parent_id
+      // Two-pass: first insert all items without parent_id, then update parent relationships
+      const navTemplateKeyToNewId = {};
+      if (portal_navigation_items?.length > 0) {
+        for (const item of portal_navigation_items) {
+          const { menu_template_key, parent_template_key, template_key, ...navData } = item;
+          const { data: newItem, error: navItemError } = await supabase
+            .from('portal_navigation_item')
+            .insert({
+              ...navData,
+              tenant_id: tenant.id,
+              menu_id: menu_template_key ? templateKeyToMenuId[menu_template_key] : null,
+              parent_id: null // Will be updated in second pass
+            })
+            .select('id')
+            .single();
+          
+          if (navItemError) {
+            console.error('[Provision Tenant] Error creating portal navigation item:', navItemError);
+          } else if (template_key) {
+            navTemplateKeyToNewId[template_key] = newItem.id;
+          }
+        }
+        console.log(`[Provision Tenant] Created ${Object.keys(navTemplateKeyToNewId).length} portal navigation items`);
+
+        // Second pass: update parent_id references
+        for (const item of portal_navigation_items) {
+          if (item.parent_template_key && item.template_key) {
+            const newItemId = navTemplateKeyToNewId[item.template_key];
+            const newParentId = navTemplateKeyToNewId[item.parent_template_key];
+            if (newItemId && newParentId) {
+              await supabase
+                .from('portal_navigation_item')
+                .update({ parent_id: newParentId })
+                .eq('id', newItemId);
+            }
+          }
         }
       }
 
-      // Create public navigation items
+      // Create public navigation items with parent_id remapping
+      const publicNavTemplateKeyToNewId = {};
       if (navigation_items?.length > 0) {
-        const publicNavToInsert = navigation_items.map((item, index) => ({
-          ...item,
-          tenant_id: tenant.id,
-          order_index: item.order_index ?? index
-        }));
-        const { error: publicNavError } = await supabase
-          .from('navigation_item')
-          .insert(publicNavToInsert);
-        if (publicNavError) {
-          console.error('[Provision Tenant] Error creating public navigation items:', publicNavError);
-        } else {
-          console.log(`[Provision Tenant] Created ${publicNavToInsert.length} public navigation items`);
+        for (const item of navigation_items) {
+          const { parent_template_key, template_key, ...navData } = item;
+          const { data: newItem, error: publicNavError } = await supabase
+            .from('navigation_item')
+            .insert({
+              ...navData,
+              tenant_id: tenant.id,
+              parent_id: null // Will be updated in second pass
+            })
+            .select('id')
+            .single();
+          
+          if (publicNavError) {
+            console.error('[Provision Tenant] Error creating public navigation item:', publicNavError);
+          } else if (template_key) {
+            publicNavTemplateKeyToNewId[template_key] = newItem.id;
+          }
+        }
+        console.log(`[Provision Tenant] Created ${Object.keys(publicNavTemplateKeyToNewId).length} public navigation items`);
+
+        // Second pass: update parent_id references
+        for (const item of navigation_items) {
+          if (item.parent_template_key && item.template_key) {
+            const newItemId = publicNavTemplateKeyToNewId[item.template_key];
+            const newParentId = publicNavTemplateKeyToNewId[item.parent_template_key];
+            if (newItemId && newParentId) {
+              await supabase
+                .from('navigation_item')
+                .update({ parent_id: newParentId })
+                .eq('id', newItemId);
+            }
+          }
         }
       }
     }

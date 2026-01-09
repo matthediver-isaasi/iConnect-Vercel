@@ -75,19 +75,54 @@ async function seedNavigationTemplates() {
     }
 
     // Create templates by stripping IDs and tenant_id
-    const portalNavigationTemplates = (navItems || []).map(item => {
-      const { id, tenant_id, created_at, updated_at, ...template } = item;
-      return template;
-    });
-
-    const portalMenuTemplates = (menus || []).map(menu => {
+    // For menus, we use a stable template_key based on their name/slug for later remapping
+    const portalMenuTemplates = (menus || []).map((menu, index) => {
       const { id, tenant_id, created_at, updated_at, ...template } = menu;
-      return template;
+      return {
+        ...template,
+        template_key: `menu_${index}_${(menu.name || menu.slug || 'default').toLowerCase().replace(/\s+/g, '_')}`
+      };
     });
 
-    const publicNavigationTemplates = (publicNavItems || []).map(item => {
-      const { id, tenant_id, created_at, updated_at, ...template } = item;
-      return template;
+    // Build a map from old menu IDs to template_keys for remapping nav items
+    const menuIdToTemplateKey = {};
+    (menus || []).forEach((menu, index) => {
+      const templateKey = `menu_${index}_${(menu.name || menu.slug || 'default').toLowerCase().replace(/\s+/g, '_')}`;
+      menuIdToTemplateKey[menu.id] = templateKey;
+    });
+
+    // Build a map from old nav item IDs to template_keys for parent_id remapping
+    const navItemIdToTemplateKey = {};
+    (navItems || []).forEach((item, index) => {
+      const templateKey = `navitem_${index}_${(item.label || item.name || 'item').toLowerCase().replace(/\s+/g, '_')}`;
+      navItemIdToTemplateKey[item.id] = templateKey;
+    });
+
+    // For nav items, replace menu_id and parent_id with template_keys for later reconstruction
+    const portalNavigationTemplates = (navItems || []).map((item, index) => {
+      const { id, tenant_id, created_at, updated_at, menu_id, parent_id, ...template } = item;
+      return {
+        ...template,
+        template_key: `navitem_${index}_${(item.label || item.name || 'item').toLowerCase().replace(/\s+/g, '_')}`,
+        menu_template_key: menu_id ? menuIdToTemplateKey[menu_id] : null,
+        parent_template_key: parent_id ? navItemIdToTemplateKey[parent_id] : null
+      };
+    });
+
+    // Same for public navigation items - handle parent_id
+    const publicNavItemIdToTemplateKey = {};
+    (publicNavItems || []).forEach((item, index) => {
+      const templateKey = `publicnav_${index}_${(item.label || item.name || 'item').toLowerCase().replace(/\s+/g, '_')}`;
+      publicNavItemIdToTemplateKey[item.id] = templateKey;
+    });
+
+    const publicNavigationTemplates = (publicNavItems || []).map((item, index) => {
+      const { id, tenant_id, created_at, updated_at, parent_id, ...template } = item;
+      return {
+        ...template,
+        template_key: `publicnav_${index}_${(item.label || item.name || 'item').toLowerCase().replace(/\s+/g, '_')}`,
+        parent_template_key: parent_id ? publicNavItemIdToTemplateKey[parent_id] : null
+      };
     });
 
     // Store in platform_preferences
