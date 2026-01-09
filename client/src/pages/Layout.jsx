@@ -38,6 +38,7 @@ import NextEventCountdown from "@/components/navigation/NextEventCountdown";
 import SubmissionStatsBar from "@/components/navigation/SubmissionStatsBar";
 import { BannerProvider } from "@/contexts/BannerContext";
 import { usePendingPurchaseOrders } from "@/hooks/usePendingPurchaseOrders";
+import { SiGoogle } from "react-icons/si";
 
 import { useQuery } from '@tanstack/react-query';
 import { base44 } from "@/api/base44Client";
@@ -1840,7 +1841,11 @@ useEffect(() => {
                 <div className="space-y-3">
                   <div className="px-3 py-2 bg-slate-50 rounded-lg">
                     <div className="flex items-center gap-2 mb-1">
-                      <User className="w-4 h-4 text-slate-500" />
+                      {memberInfo.google_id ? (
+                        <SiGoogle className="w-4 h-4 text-[#4285F4]" />
+                      ) : (
+                        <User className="w-4 h-4 text-slate-500" />
+                      )}
                       <span className="text-sm font-medium text-slate-900">
                         {memberInfo.first_name} {memberInfo.last_name}
                       </span>
@@ -2134,7 +2139,11 @@ useEffect(() => {
                     <div className="space-y-3">
                       <div className="px-3 py-2 bg-slate-50 rounded-lg">
                         <div className="flex items-center gap-2 mb-1">
-                          <User className="w-4 h-4 text-slate-500" />
+                          {memberInfo.google_id ? (
+                            <SiGoogle className="w-4 h-4 text-[#4285F4]" />
+                          ) : (
+                            <User className="w-4 h-4 text-slate-500" />
+                          )}
                           <span className="text-sm font-medium text-slate-900">
                             {memberInfo.first_name} {memberInfo.last_name}
                           </span>
