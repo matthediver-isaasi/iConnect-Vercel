@@ -50,24 +50,26 @@ async function seedNavigationTemplates() {
       .from('portal_menu')
       .select('*')
       .eq('tenant_id', gfiTenant.id)
+      .eq('is_active', true)
       .order('id');
 
     if (menuError) {
       console.error('Error fetching portal_menu:', menuError.message);
     } else {
-      console.log(`Found ${menus?.length || 0} portal menus`);
+      console.log(`Found ${menus?.length || 0} active portal menus`);
     }
 
     const { data: publicNavItems, error: publicNavError } = await supabase
       .from('navigation_item')
       .select('*')
       .eq('tenant_id', gfiTenant.id)
+      .eq('is_active', true)
       .order('id');
 
     if (publicNavError) {
       console.error('Error fetching navigation_item:', publicNavError.message);
     } else {
-      console.log(`Found ${publicNavItems?.length || 0} public navigation items`);
+      console.log(`Found ${publicNavItems?.length || 0} active public navigation items`);
     }
 
     // Build menu ID to template_key mapping (using stable IDs)
@@ -78,12 +80,14 @@ async function seedNavigationTemplates() {
     });
 
     // Portal menus now include parent_id for hierarchy
+    // Only include parent_template_key if the parent is in our active set
     const portalMenuTemplates = (menus || []).map((menu) => {
       const { id, tenant_id, created_at, updated_at, parent_id, ...template } = menu;
+      const parentTemplateKey = parent_id && menuIdToTemplateKey[parent_id] ? menuIdToTemplateKey[parent_id] : null;
       return {
         ...template,
         template_key: menuIdToTemplateKey[id],
-        parent_template_key: parent_id ? menuIdToTemplateKey[parent_id] : null
+        parent_template_key: parentTemplateKey
       };
     });
 
@@ -106,11 +110,13 @@ async function seedNavigationTemplates() {
 
     const portalNavigationTemplates = (navItems || []).map((item) => {
       const { id, tenant_id, created_at, updated_at, menu_id, parent_id, ...template } = item;
+      const menuTemplateKey = menu_id && menuIdToTemplateKey[menu_id] ? menuIdToTemplateKey[menu_id] : null;
+      const parentTemplateKey = parent_id && navItemIdToTemplateKey[parent_id] ? navItemIdToTemplateKey[parent_id] : null;
       return {
         ...template,
         template_key: navItemIdToTemplateKey[id],
-        menu_template_key: menu_id ? menuIdToTemplateKey[menu_id] : null,
-        parent_template_key: parent_id ? navItemIdToTemplateKey[parent_id] : null
+        menu_template_key: menuTemplateKey,
+        parent_template_key: parentTemplateKey
       };
     });
 
@@ -123,10 +129,11 @@ async function seedNavigationTemplates() {
 
     const publicNavigationTemplates = (publicNavItems || []).map((item) => {
       const { id, tenant_id, created_at, updated_at, parent_id, ...template } = item;
+      const parentTemplateKey = parent_id && publicNavItemIdToTemplateKey[parent_id] ? publicNavItemIdToTemplateKey[parent_id] : null;
       return {
         ...template,
         template_key: publicNavItemIdToTemplateKey[id],
-        parent_template_key: parent_id ? publicNavItemIdToTemplateKey[parent_id] : null
+        parent_template_key: parentTemplateKey
       };
     });
 
