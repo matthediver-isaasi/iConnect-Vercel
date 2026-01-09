@@ -774,10 +774,10 @@ export default function AdminSettings() {
             <CardContent className="space-y-4">
               <div className="flex items-center justify-between p-4 bg-slate-900/50 rounded-lg border border-slate-600">
                 <div className="space-y-1">
-                  <Label htmlFor="google-login" className="text-slate-200 font-medium">Allow Google Sign-In for Members</Label>
+                  <Label htmlFor="google-login" className="text-slate-200 font-medium">Allow Google Sign-In for Portal Members</Label>
                   <p className="text-sm text-slate-400">
-                    When disabled, members can only log in with email and password. 
-                    Useful for organizations that restrict logins to specific domains.
+                    When disabled, portal members can only log in with email and password. 
+                    This does not affect your admin account login or "Access Portal" SSO.
                   </p>
                 </div>
                 <Switch
