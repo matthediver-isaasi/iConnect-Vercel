@@ -48,6 +48,15 @@ export default async function handler(req, res) {
       errors: []
     };
 
+    // Enable tenant deletion mode to bypass system role protection trigger
+    try {
+      await supabase.rpc('enable_tenant_deletion_mode');
+      console.log('[Platform Delete Tenant] Enabled tenant deletion mode');
+    } catch (rpcError) {
+      console.log('[Platform Delete Tenant] Could not enable deletion mode (function may not exist):', rpcError.message);
+      // Continue anyway - the function might not be deployed yet
+    }
+
     const deletionOrder = [
       { table: 'member_note', fkPath: 'member.organization.tenant_id' },
       { table: 'organization_note', fkPath: 'organization.tenant_id' },

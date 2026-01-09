@@ -109,9 +109,16 @@ A third authentication tier exists for platform-wide SaaS administration:
 
 **Setup Scripts:**
 - `scripts/migrations/add-platform-owner-tables.sql`: Creates the platform tables (run in Supabase SQL Editor)
+- `scripts/migrations/update-role-trigger-allow-tenant-delete.sql`: Updates the system role protection trigger to allow bypass during tenant deletion
 - `scripts/create-platform-owner.js`: Creates a platform owner account
 - `scripts/seed-role-templates.js`: Snapshots GFI tenant roles as default templates
 - `scripts/seed-navigation-templates.js`: Snapshots GFI portal navigation as templates for new tenants
+
+**Tenant Deletion:**
+- Platform owners can delete entire tenants via `/api/platform/tenants/delete`
+- Deletion requires confirmSlug to match the tenant's subdomain (two-step safety)
+- Uses `enable_tenant_deletion_mode()` RPC to temporarily bypass the system role protection trigger
+- Deletes all related records in FK-safe order before deleting the tenant record
 
 **Navigation Templates:**
 - Platform preferences key `default_navigation_templates` stores portal navigation configuration
