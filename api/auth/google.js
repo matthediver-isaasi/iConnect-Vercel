@@ -47,7 +47,9 @@ export default async function handler(req, res) {
     });
     res.setHeader('Set-Cookie', nonceCookie);
 
-    const redirectUri = `https://${tenant.slug}.iconn.app/api/auth/google/callback`;
+    const host = req.headers.host || `${tenant.slug}.iconn.app`;
+    const protocol = req.headers['x-forwarded-proto'] || (process.env.NODE_ENV === 'production' ? 'https' : 'http');
+    const redirectUri = `${protocol}://${host}/api/auth/google/callback`;
     
     const statePayload = {
       nonce,

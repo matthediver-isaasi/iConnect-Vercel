@@ -78,7 +78,9 @@ export default async function handler(req, res) {
   try {
     const { tenantId, tenantSlug, returnTo } = stateData;
 
-    const redirectUri = `https://${tenantSlug}.iconn.app/api/auth/google/callback`;
+    const host = req.headers.host || `${tenantSlug}.iconn.app`;
+    const protocol = req.headers['x-forwarded-proto'] || (process.env.NODE_ENV === 'production' ? 'https' : 'http');
+    const redirectUri = `${protocol}://${host}/api/auth/google/callback`;
 
     const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
       method: 'POST',
