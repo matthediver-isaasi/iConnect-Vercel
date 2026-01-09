@@ -43,18 +43,24 @@ export default async function handler(req, res) {
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
       path: '/',
+      domain: process.env.NODE_ENV === 'production' ? '.iconn.app' : undefined,
       maxAge: 300
     });
     res.setHeader('Set-Cookie', nonceCookie);
 
-    const host = req.headers.host || `${tenant.slug}.iconn.app`;
+    const host = req.headers.host || 'iconn.app';
     const protocol = req.headers['x-forwarded-proto'] || (process.env.NODE_ENV === 'production' ? 'https' : 'http');
-    const redirectUri = `${protocol}://${host}/api/auth/google/callback`;
+    
+    const isProduction = process.env.NODE_ENV === 'production';
+    const redirectUri = isProduction 
+      ? 'https://iconn.app/api/auth/google/callback'
+      : `${protocol}://${host}/api/auth/google/callback`;
     
     const statePayload = {
       nonce,
       tenantId: tenant.id,
       tenantSlug: tenant.slug,
+      originHost: req.headers.host,
       returnTo: req.query.returnTo || null,
       timestamp: Date.now()
     };

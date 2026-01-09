@@ -41,9 +41,11 @@ The platform uses two separate authentication systems:
 
 Both authentication tiers support "Sign in with Google" as an alternative to password-based login:
 
-**Portal Member OAuth (subdomain login):**
-- `/api/auth/google`: Initiates OAuth flow, redirects to Google with tenant context in state
-- `/api/auth/google/callback`: Exchanges code for tokens, links/creates member session
+**Portal Member OAuth (subdomain login - centralized auth):**
+- `/api/auth/google`: Initiates OAuth flow from tenant subdomain, redirects to Google
+- `/api/auth/google/callback`: Exchanges code for tokens at iconn.app root domain, then redirects back to tenant subdomain
+- **Centralized Auth Pattern**: Since Google doesn't support wildcard redirect URIs, all member OAuth callbacks go through `https://iconn.app/api/auth/google/callback`, then redirect to the tenant subdomain stored in state
+- Session cookies are set on `.iconn.app` domain for cross-subdomain sharing
 - Tenant isolation: Members must belong to the subdomain's tenant to authenticate
 - Account linking: First Google login on existing email account automatically links Google ID
 

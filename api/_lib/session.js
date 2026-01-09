@@ -72,11 +72,12 @@ export async function getSession(req) {
   }
 }
 
-export async function createSession(res, sessionData) {
+export async function createSession(res, sessionData, options = {}) {
   if (!supabase) return null;
   
   const sessionId = generateSessionId();
   const expire = new Date(Date.now() + SESSION_MAX_AGE);
+  const { cookieDomain } = options;
   
   // Build session object in Express/connect-pg-simple compatible format
   // Spread sessionData to support both member and tenant_user sessions
@@ -87,7 +88,8 @@ export async function createSession(res, sessionData) {
       secure: process.env.NODE_ENV === 'production',
       httpOnly: true,
       path: '/',
-      sameSite: 'lax'
+      sameSite: 'lax',
+      domain: cookieDomain || undefined
     },
     ...sessionData
   };
@@ -101,13 +103,19 @@ export async function createSession(res, sessionData) {
     
     // Sign the cookie value like Express does
     const signedId = signSessionId(sessionId);
-    const cookie = serialize(SESSION_COOKIE_NAME, signedId, {
+    const cookieOptions = {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
       path: '/',
       maxAge: SESSION_MAX_AGE / 1000 // maxAge in seconds for cookie
-    });
+    };
+    
+    if (cookieDomain) {
+      cookieOptions.domain = cookieDomain;
+    }
+    
+    const cookie = serialize(SESSION_COOKIE_NAME, signedId, cookieOptions);
     
     res.setHeader('Set-Cookie', cookie);
     

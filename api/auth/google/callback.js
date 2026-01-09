@@ -29,6 +29,13 @@ function verifyState(signedState) {
   }
 }
 
+function buildErrorRedirect(tenantSlug, error, isProduction, extraParams = '') {
+  if (isProduction && tenantSlug) {
+    return `https://${tenantSlug}.iconn.app/login?error=${error}${extraParams}`;
+  }
+  return `/login?error=${error}${extraParams}`;
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
@@ -42,20 +49,30 @@ export default async function handler(req, res) {
   }
 
   const { code, state, error: oauthError } = req.query;
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  let tenantSlug = null;
+  let stateData = null;
+
+  if (state) {
+    stateData = verifyState(state);
+    if (stateData) {
+      tenantSlug = stateData.tenantSlug;
+    }
+  }
 
   if (oauthError) {
     console.error('[Google OAuth Callback] OAuth error:', oauthError);
-    return res.redirect('/login?error=oauth_denied');
+    return res.redirect(buildErrorRedirect(tenantSlug, 'oauth_denied', isProduction));
   }
 
   if (!code || !state) {
-    return res.redirect('/login?error=missing_params');
+    return res.redirect(buildErrorRedirect(tenantSlug, 'missing_params', isProduction));
   }
 
-  const stateData = verifyState(state);
   if (!stateData) {
     console.error('[Google OAuth Callback] Invalid or expired state');
-    return res.redirect('/login?error=invalid_state');
+    return res.redirect(buildErrorRedirect(tenantSlug, 'invalid_state', isProduction));
   }
 
   const cookies = parse(req.headers.cookie || '');
@@ -63,24 +80,27 @@ export default async function handler(req, res) {
   
   if (!storedNonce || storedNonce !== stateData.nonce) {
     console.error('[Google OAuth Callback] Nonce mismatch - possible CSRF attack');
-    return res.redirect('/login?error=csrf_error');
+    return res.redirect(buildErrorRedirect(tenantSlug, 'csrf_error', isProduction));
   }
 
   const clearNonceCookie = serialize('google_oauth_nonce', '', {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
+    secure: isProduction,
     sameSite: 'lax',
     path: '/',
+    domain: isProduction ? '.iconn.app' : undefined,
     maxAge: 0
   });
-  res.setHeader('Set-Cookie', clearNonceCookie);
 
   try {
-    const { tenantId, tenantSlug, returnTo } = stateData;
+    const { tenantId, returnTo } = stateData;
 
-    const host = req.headers.host || `${tenantSlug}.iconn.app`;
-    const protocol = req.headers['x-forwarded-proto'] || (process.env.NODE_ENV === 'production' ? 'https' : 'http');
-    const redirectUri = `${protocol}://${host}/api/auth/google/callback`;
+    const host = req.headers.host || 'iconn.app';
+    const protocol = req.headers['x-forwarded-proto'] || (isProduction ? 'https' : 'http');
+    
+    const redirectUri = isProduction 
+      ? 'https://iconn.app/api/auth/google/callback'
+      : `${protocol}://${host}/api/auth/google/callback`;
 
     const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
       method: 'POST',
@@ -97,7 +117,7 @@ export default async function handler(req, res) {
     if (!tokenResponse.ok) {
       const errorData = await tokenResponse.text();
       console.error('[Google OAuth Callback] Token exchange failed:', errorData);
-      return res.redirect('/login?error=token_exchange_failed');
+      return res.redirect(buildErrorRedirect(tenantSlug, 'token_exchange_failed', isProduction));
     }
 
     const tokens = await tokenResponse.json();
@@ -109,7 +129,7 @@ export default async function handler(req, res) {
 
     if (!userInfoResponse.ok) {
       console.error('[Google OAuth Callback] Failed to get user info');
-      return res.redirect('/login?error=user_info_failed');
+      return res.redirect(buildErrorRedirect(tenantSlug, 'user_info_failed', isProduction));
     }
 
     const googleUser = await userInfoResponse.json();
@@ -142,7 +162,7 @@ export default async function handler(req, res) {
 
         if (updateError) {
           console.error('[Google OAuth Callback] Failed to link Google account:', updateError);
-          return res.redirect('/login?error=link_failed');
+          return res.redirect(buildErrorRedirect(tenantSlug, 'link_failed', isProduction));
         }
 
         member = updatedMember;
@@ -152,12 +172,12 @@ export default async function handler(req, res) {
 
     if (!member) {
       console.log('[Google OAuth Callback] No member found for Google account, registration required');
-      return res.redirect('/login?error=no_account&email=' + encodeURIComponent(email));
+      return res.redirect(buildErrorRedirect(tenantSlug, 'no_account', isProduction, `&email=${encodeURIComponent(email)}`));
     }
 
     if (member.login_enabled === false) {
       console.log('[Google OAuth Callback] Login disabled for member:', member.id);
-      return res.redirect('/login?error=login_disabled');
+      return res.redirect(buildErrorRedirect(tenantSlug, 'login_disabled', isProduction));
     }
 
     let sessionTenantId = member.tenant_id;
@@ -170,11 +190,21 @@ export default async function handler(req, res) {
       sessionTenantId = orgData?.tenant_id;
     }
 
+    const cookieDomain = isProduction ? '.iconn.app' : undefined;
+    
     await createSession(res, {
       memberId: member.id,
       memberEmail: member.email,
       tenantId: sessionTenantId || null
-    });
+    }, { cookieDomain });
+
+    const existingCookies = res.getHeader('Set-Cookie');
+    const allCookies = Array.isArray(existingCookies) 
+      ? [...existingCookies, clearNonceCookie]
+      : existingCookies 
+        ? [existingCookies, clearNonceCookie]
+        : [clearNonceCookie];
+    res.setHeader('Set-Cookie', allCookies);
 
     const sessionExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
     
@@ -192,7 +222,10 @@ export default async function handler(req, res) {
       }
     }
 
-    const redirectUrl = returnTo || landingPage;
+    const finalPath = returnTo || landingPage;
+    const finalRedirect = isProduction 
+      ? `https://${tenantSlug}.iconn.app${finalPath}`
+      : finalPath;
     
     const html = `
       <!DOCTYPE html>
@@ -201,7 +234,7 @@ export default async function handler(req, res) {
         <body>
           <script>
             localStorage.setItem('agcas_member', JSON.stringify(${JSON.stringify({ ...member, sessionExpiry })}));
-            window.location.href = '${redirectUrl}';
+            window.location.href = '${finalRedirect}';
           </script>
           <p>Signing in...</p>
         </body>
@@ -213,6 +246,6 @@ export default async function handler(req, res) {
 
   } catch (error) {
     console.error('[Google OAuth Callback] Error:', error);
-    res.redirect('/login?error=callback_failed');
+    res.redirect(buildErrorRedirect(tenantSlug, 'callback_failed', isProduction));
   }
 }
