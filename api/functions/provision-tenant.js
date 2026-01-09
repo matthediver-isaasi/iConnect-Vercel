@@ -241,6 +241,7 @@ export default async function handler(req, res) {
       .from('member_credentials')
       .insert({
         member_id: member.id,
+        tenant_id: tenant.id,
         email: adminEmail.toLowerCase(),
         password_hash: passwordHash,
         is_temporary: false
