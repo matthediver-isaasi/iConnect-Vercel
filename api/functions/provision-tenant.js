@@ -316,7 +316,7 @@ export default async function handler(req, res) {
       // Create portal menus FIRST (so we can get their new IDs)
       if (portal_menus?.length > 0) {
         for (const menu of portal_menus) {
-          const { template_key, ...menuData } = menu;
+          const { template_key, order_index, ...menuData } = menu;
           const { data: newMenu, error: menuError } = await supabase
             .from('portal_menu')
             .insert({
@@ -340,7 +340,7 @@ export default async function handler(req, res) {
       const navTemplateKeyToNewId = {};
       if (portal_navigation_items?.length > 0) {
         for (const item of portal_navigation_items) {
-          const { menu_template_key, parent_template_key, template_key, ...navData } = item;
+          const { menu_template_key, parent_template_key, template_key, order_index, ...navData } = item;
           const { data: newItem, error: navItemError } = await supabase
             .from('portal_navigation_item')
             .insert({
@@ -379,7 +379,7 @@ export default async function handler(req, res) {
       const publicNavTemplateKeyToNewId = {};
       if (navigation_items?.length > 0) {
         for (const item of navigation_items) {
-          const { parent_template_key, template_key, ...navData } = item;
+          const { parent_template_key, template_key, order_index, ...navData } = item;
           const { data: newItem, error: publicNavError } = await supabase
             .from('navigation_item')
             .insert({

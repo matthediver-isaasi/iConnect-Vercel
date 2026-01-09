@@ -39,8 +39,7 @@ async function seedNavigationTemplates() {
     const { data: navItems, error: navError } = await supabase
       .from('portal_navigation_item')
       .select('*')
-      .eq('tenant_id', gfiTenant.id)
-      .order('order_index');
+      .eq('tenant_id', gfiTenant.id);
 
     if (navError) {
       console.error('Error fetching portal_navigation_item:', navError.message);
@@ -52,8 +51,7 @@ async function seedNavigationTemplates() {
     const { data: menus, error: menuError } = await supabase
       .from('portal_menu')
       .select('*')
-      .eq('tenant_id', gfiTenant.id)
-      .order('order_index');
+      .eq('tenant_id', gfiTenant.id);
 
     if (menuError) {
       console.error('Error fetching portal_menu:', menuError.message);
@@ -65,8 +63,7 @@ async function seedNavigationTemplates() {
     const { data: publicNavItems, error: publicNavError } = await supabase
       .from('navigation_item')
       .select('*')
-      .eq('tenant_id', gfiTenant.id)
-      .order('order_index');
+      .eq('tenant_id', gfiTenant.id);
 
     if (publicNavError) {
       console.error('Error fetching navigation_item:', publicNavError.message);
