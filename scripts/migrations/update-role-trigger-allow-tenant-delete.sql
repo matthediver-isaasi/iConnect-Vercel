@@ -112,8 +112,8 @@ BEGIN
   GET DIAGNOSTICS v_count = ROW_COUNT;
   v_result := v_result || jsonb_build_object('role_organization_field_permission', v_count);
 
-  -- Member auth
-  DELETE FROM member_credentials WHERE tenant_id = p_tenant_id;
+  -- Member auth (tenant_id is VARCHAR in member_credentials)
+  DELETE FROM member_credentials WHERE tenant_id = p_tenant_id::text;
   GET DIAGNOSTICS v_count = ROW_COUNT;
   v_result := v_result || jsonb_build_object('member_credentials', v_count);
 
