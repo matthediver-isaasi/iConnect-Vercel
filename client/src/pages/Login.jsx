@@ -19,7 +19,7 @@ export default function LoginPage() {
   const [mode, setMode] = useState("login"); // 'login', 'set-password', 'forgot-password'
   const [emailSent, setEmailSent] = useState(false);
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [googleLoginEnabled, setGoogleLoginEnabled] = useState(true);
+  const [googleLoginEnabled, setGoogleLoginEnabled] = useState(null); // null = loading, true/false = loaded
   
   // Get returnTo and resourceId parameters from URL
   const urlParams = new URLSearchParams(window.location.search);
@@ -73,13 +73,19 @@ export default function LoginPage() {
             const isEnabled = data.settings.member_google_login_enabled !== false;
             console.log('[Login] Setting Google login enabled:', isEnabled);
             setGoogleLoginEnabled(isEnabled);
+          } else {
+            // Default to enabled if response format unexpected
+            setGoogleLoginEnabled(true);
           }
         } else {
           console.log('[Login] Tenant public settings response not ok:', response.status);
+          // Default to enabled if response not ok
+          setGoogleLoginEnabled(true);
         }
       } catch (err) {
         console.error('[Login] Failed to fetch tenant settings:', err);
         // Default to enabled if fetch fails
+        setGoogleLoginEnabled(true);
       }
     };
     fetchTenantSettings();
@@ -348,7 +354,7 @@ export default function LoginPage() {
                       )}
                     </Button>
 
-                    {googleLoginEnabled && (
+                    {googleLoginEnabled === true && (
                       <>
                         <div className="relative my-4">
                           <div className="absolute inset-0 flex items-center">
