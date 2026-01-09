@@ -814,8 +814,10 @@ export default function PreferencesPage() {
   });
 
   // Filter to only visible sections and extract order
+  // Also hide password_security if user logged in via Google (no password to change)
   const sectionOrder = sectionConfig
     .filter(section => section.visible !== false)
+    .filter(section => !(section.id === 'password_security' && memberRecord?.google_id))
     .map(section => section.id);
 
   // --- Derived awards from stats ---
