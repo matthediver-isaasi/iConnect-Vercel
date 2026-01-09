@@ -1,8 +1,7 @@
-import { getSupabaseClient } from '../_lib/database.js';
+import { supabase } from '../_lib/database.js';
 import { getSessionPlatformOwner } from '../_lib/platformSession.js';
 
 export default async function handler(req, res) {
-  const supabase = getSupabaseClient();
   if (!supabase) {
     return res.status(503).json({ error: 'Database not configured' });
   }

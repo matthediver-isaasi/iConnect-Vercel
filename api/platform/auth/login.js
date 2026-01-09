@@ -1,4 +1,4 @@
-import { getSupabaseClient } from '../../_lib/database.js';
+import { supabase } from '../../_lib/database.js';
 import { createPlatformOwnerSession } from '../../_lib/platformSession.js';
 import bcrypt from 'bcryptjs';
 
@@ -7,7 +7,6 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const supabase = getSupabaseClient();
   if (!supabase) {
     return res.status(503).json({ error: 'Database not configured' });
   }
