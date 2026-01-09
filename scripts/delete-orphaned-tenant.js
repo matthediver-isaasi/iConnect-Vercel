@@ -54,29 +54,39 @@ async function deleteTenant() {
     if (linkError) console.log('tenant_user_member_link:', linkError.message);
     else console.log('Deleted tenant_user_member_link records');
     
-    // 2. Delete member_credentials (via member)
-    const { data: members } = await supabase
-      .from('member')
+    // 2. Get organizations for this tenant to find members
+    const { data: orgs } = await supabase
+      .from('organization')
       .select('id')
       .eq('tenant_id', tenantId);
     
-    if (members?.length > 0) {
-      const memberIds = members.map(m => m.id);
-      const { error: credError } = await supabase
-        .from('member_credentials')
-        .delete()
-        .in('member_id', memberIds);
-      if (credError) console.log('member_credentials:', credError.message);
-      else console.log(`Deleted member_credentials for ${memberIds.length} members`);
-    }
+    const orgIds = orgs?.map(o => o.id) || [];
     
-    // 3. Delete members
-    const { error: memberError } = await supabase
-      .from('member')
-      .delete()
-      .eq('tenant_id', tenantId);
-    if (memberError) console.log('member:', memberError.message);
-    else console.log('Deleted member records');
+    // 3. Delete member_credentials (via member -> organization)
+    if (orgIds.length > 0) {
+      const { data: members } = await supabase
+        .from('member')
+        .select('id')
+        .in('organization_id', orgIds);
+      
+      if (members?.length > 0) {
+        const memberIds = members.map(m => m.id);
+        const { error: credError } = await supabase
+          .from('member_credentials')
+          .delete()
+          .in('member_id', memberIds);
+        if (credError) console.log('member_credentials:', credError.message);
+        else console.log(`Deleted member_credentials for ${memberIds.length} members`);
+        
+        // Delete members
+        const { error: memberError } = await supabase
+          .from('member')
+          .delete()
+          .in('id', memberIds);
+        if (memberError) console.log('member:', memberError.message);
+        else console.log('Deleted member records');
+      }
+    }
     
     // 4. Delete tenant_user_credentials (via tenant_user)
     const { data: tenantUsers } = await supabase
@@ -126,7 +136,12 @@ async function deleteTenant() {
       else console.log('Deleted role_organization_field_permission records');
     }
     
-    // 7. Delete roles
+    // 7. Delete roles (first unmark system roles so they can be deleted)
+    await supabase
+      .from('role')
+      .update({ is_system: false })
+      .eq('tenant_id', tenantId);
+    
     const { error: roleError } = await supabase
       .from('role')
       .delete()
