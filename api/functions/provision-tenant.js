@@ -124,6 +124,18 @@ export default async function handler(req, res) {
     }
     organizationId = organization.id;
 
+    // Fetch role templates from platform preferences
+    const { data: templatePref } = await supabase
+      .from('platform_preferences')
+      .select('value')
+      .eq('key', 'default_role_templates')
+      .single();
+    
+    const roleTemplates = templatePref?.value?.roles || [];
+    const superAdminTemplate = roleTemplates.find(r => r.name === 'Super Admin');
+    const memberTemplate = roleTemplates.find(r => r.name === 'Member');
+
+    // Create Super Admin role from template or defaults
     const { data: adminRole, error: roleError } = await supabase
       .from('role')
       .insert({
@@ -131,8 +143,8 @@ export default async function handler(req, res) {
         tenant_id: tenant.id,
         is_default: false,
         is_system: true,
-        excluded_features: [],
-        default_landing_page: 'Dashboard'
+        excluded_features: superAdminTemplate?.excluded_features || [],
+        default_landing_page: superAdminTemplate?.default_landing_page || 'Dashboard'
       })
       .select()
       .single();
@@ -144,14 +156,34 @@ export default async function handler(req, res) {
     }
     adminRoleId = adminRole.id;
 
+    // Create field permissions for Super Admin if template exists
+    if (superAdminTemplate?.member_field_permissions?.length > 0) {
+      const memberPerms = superAdminTemplate.member_field_permissions.map(p => ({
+        role_id: adminRole.id,
+        field_key: p.field_key,
+        permission: p.permission
+      }));
+      await supabase.from('role_member_field_permission').insert(memberPerms);
+    }
+    if (superAdminTemplate?.organization_field_permissions?.length > 0) {
+      const orgPerms = superAdminTemplate.organization_field_permissions.map(p => ({
+        role_id: adminRole.id,
+        field_key: p.field_key,
+        permission: p.permission
+      }));
+      await supabase.from('role_organization_field_permission').insert(orgPerms);
+    }
+
+    // Create Member role from template or defaults
     const { data: memberRole, error: memberRoleError } = await supabase
       .from('role')
       .insert({
         name: 'Member',
         tenant_id: tenant.id,
         is_default: true,
-        excluded_features: ['admin.*'],
-        default_landing_page: 'Preferences'
+        is_system: memberTemplate?.is_system || false,
+        excluded_features: memberTemplate?.excluded_features || ['admin.*'],
+        default_landing_page: memberTemplate?.default_landing_page || 'Preferences'
       })
       .select()
       .single();
@@ -162,6 +194,24 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Failed to create workspace roles' });
     }
     memberRoleId = memberRole.id;
+
+    // Create field permissions for Member if template exists
+    if (memberTemplate?.member_field_permissions?.length > 0) {
+      const memberPerms = memberTemplate.member_field_permissions.map(p => ({
+        role_id: memberRole.id,
+        field_key: p.field_key,
+        permission: p.permission
+      }));
+      await supabase.from('role_member_field_permission').insert(memberPerms);
+    }
+    if (memberTemplate?.organization_field_permissions?.length > 0) {
+      const orgPerms = memberTemplate.organization_field_permissions.map(p => ({
+        role_id: memberRole.id,
+        field_key: p.field_key,
+        permission: p.permission
+      }));
+      await supabase.from('role_organization_field_permission').insert(orgPerms);
+    }
 
     const passwordHash = await bcrypt.hash(password, 10);
 

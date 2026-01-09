@@ -231,3 +231,61 @@ export const insertCsvImportJobSchema = createInsertSchema(csvImportJob).omit({
 
 export type InsertCsvImportJob = z.infer<typeof insertCsvImportJobSchema>;
 export type CsvImportJob = typeof csvImportJob.$inferSelect;
+
+// Platform Owner accounts - SaaS owners separate from tenant_user
+export const platformOwner = pgTable("platform_owner", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  email: varchar("email", { length: 255 }).notNull().unique(),
+  password_hash: text("password_hash").notNull(),
+  name: text("name"),
+  is_active: boolean("is_active").default(true),
+  last_login_at: timestamp("last_login_at"),
+  created_at: timestamp("created_at").defaultNow(),
+  updated_at: timestamp("updated_at").defaultNow(),
+});
+
+export const insertPlatformOwnerSchema = createInsertSchema(platformOwner).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+  last_login_at: true,
+});
+
+export type InsertPlatformOwner = z.infer<typeof insertPlatformOwnerSchema>;
+export type PlatformOwner = typeof platformOwner.$inferSelect;
+
+// Platform Preferences - GLOBAL scope (not tenant-scoped)
+export const platformPreferences = pgTable("platform_preferences", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  key: varchar("key", { length: 255 }).notNull().unique(),
+  value: jsonb("value").notNull().default({}),
+  description: text("description"),
+  created_at: timestamp("created_at").defaultNow(),
+  updated_at: timestamp("updated_at").defaultNow(),
+});
+
+export const insertPlatformPreferencesSchema = createInsertSchema(platformPreferences).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertPlatformPreferences = z.infer<typeof insertPlatformPreferencesSchema>;
+export type PlatformPreferences = typeof platformPreferences.$inferSelect;
+
+// Platform Owner Sessions - server-side session store
+export const platformOwnerSession = pgTable("platform_owner_session", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  owner_id: varchar("owner_id").notNull(),
+  session_token: varchar("session_token", { length: 255 }).notNull().unique(),
+  expires_at: timestamp("expires_at").notNull(),
+  created_at: timestamp("created_at").defaultNow(),
+});
+
+export const insertPlatformOwnerSessionSchema = createInsertSchema(platformOwnerSession).omit({
+  id: true,
+  created_at: true,
+});
+
+export type InsertPlatformOwnerSession = z.infer<typeof insertPlatformOwnerSessionSchema>;
+export type PlatformOwnerSession = typeof platformOwnerSession.$inferSelect;

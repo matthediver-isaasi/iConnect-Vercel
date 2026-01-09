@@ -252,6 +252,9 @@ import AdminDashboard from "./admin/AdminDashboard";
 import AdminSettings from "./admin/AdminSettings";
 import SaasLanding from "./admin/SaasLanding";
 
+import PlatformLogin from "./platform/PlatformLogin";
+import PlatformAdmin from "./platform/PlatformAdmin";
+
 import { useEffect, useRef } from 'react';
 import { BrowserRouter as Router, Route, Routes, useLocation } from 'react-router-dom';
 import { LayoutProvider } from '@/contexts/LayoutContext';
@@ -852,6 +855,16 @@ function AdminRoutes() {
     );
 }
 
+function PlatformRoutes() {
+    return (
+        <Routes>
+            <Route path="/platform/login" element={<PlatformLogin />} />
+            <Route path="/platform/admin" element={<PlatformAdmin />} />
+            <Route path="/platform" element={<PlatformAdmin />} />
+        </Routes>
+    );
+}
+
 function isRootDomain() {
     const hostname = window.location.hostname;
     return hostname === 'iconn.app' || 
@@ -867,6 +880,9 @@ function SaasRoutes() {
             <Route path="/admin/dashboard" element={<AdminDashboard />} />
             <Route path="/admin/settings" element={<AdminSettings />} />
             <Route path="/admin" element={<AdminDashboard />} />
+            <Route path="/platform/login" element={<PlatformLogin />} />
+            <Route path="/platform/admin" element={<PlatformAdmin />} />
+            <Route path="/platform" element={<PlatformAdmin />} />
             <Route path="/signup" element={<TenantSignup />} />
             <Route path="/register" element={<TenantSignup />} />
             <Route path="*" element={<SaasLanding />} />
@@ -887,9 +903,14 @@ function AppRoutes() {
     );
     
     const isAdminPage = location.pathname.toLowerCase().startsWith('/admin');
+    const isPlatformPage = location.pathname.toLowerCase().startsWith('/platform');
     
     if (isStandalonePage) {
         return <StandaloneRoutes />;
+    }
+    
+    if (isPlatformPage) {
+        return <PlatformRoutes />;
     }
     
     if (isAdminPage) {
