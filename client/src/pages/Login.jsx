@@ -19,6 +19,7 @@ export default function LoginPage() {
   const [mode, setMode] = useState("login"); // 'login', 'set-password', 'forgot-password'
   const [emailSent, setEmailSent] = useState(false);
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [googleLoginEnabled, setGoogleLoginEnabled] = useState(true);
   
   // Get returnTo and resourceId parameters from URL
   const urlParams = new URLSearchParams(window.location.search);
@@ -37,14 +38,15 @@ export default function LoginPage() {
         'callback_failed': 'Google sign-in failed. Please try again.',
         'invalid_state': 'Sign-in session expired. Please try again.',
         'csrf_error': 'Security check failed. Please try signing in again.',
-        'missing_params': 'Sign-in was incomplete. Please try again.'
+        'missing_params': 'Sign-in was incomplete. Please try again.',
+        'google_disabled': 'Google sign-in is not available for this organization. Please use email and password.'
       };
       setError(errorMessages[oauthError] || 'Sign-in failed. Please try again.');
       window.history.replaceState({}, '', '/login');
     }
   }, [oauthError]);
 
-  // Check if user is already logged in
+  // Check if user is already logged in and fetch tenant settings
   useEffect(() => {
     const checkAuth = async () => {
       try {
@@ -60,6 +62,21 @@ export default function LoginPage() {
       }
     };
     checkAuth();
+    
+    const fetchTenantSettings = async () => {
+      try {
+        const response = await fetch('/api/auth/tenant-public-settings', { credentials: 'include' });
+        if (response.ok) {
+          const data = await response.json();
+          if (data.success && data.settings) {
+            setGoogleLoginEnabled(data.settings.member_google_login_enabled !== false);
+          }
+        }
+      } catch (err) {
+        // Default to enabled if fetch fails
+      }
+    };
+    fetchTenantSettings();
   }, []);
 
   const redirectToLandingPage = async (member) => {
@@ -325,30 +342,34 @@ export default function LoginPage() {
                       )}
                     </Button>
 
-                    <div className="relative my-4">
-                      <div className="absolute inset-0 flex items-center">
-                        <span className="w-full border-t border-slate-200" />
-                      </div>
-                      <div className="relative flex justify-center text-xs uppercase">
-                        <span className="bg-white px-2 text-slate-500">Or continue with</span>
-                      </div>
-                    </div>
+                    {googleLoginEnabled && (
+                      <>
+                        <div className="relative my-4">
+                          <div className="absolute inset-0 flex items-center">
+                            <span className="w-full border-t border-slate-200" />
+                          </div>
+                          <div className="relative flex justify-center text-xs uppercase">
+                            <span className="bg-white px-2 text-slate-500">Or continue with</span>
+                          </div>
+                        </div>
 
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="w-full"
-                      onClick={() => {
-                        const googleUrl = returnTo 
-                          ? `/api/auth/google?returnTo=${encodeURIComponent(returnTo)}`
-                          : '/api/auth/google';
-                        window.location.href = googleUrl;
-                      }}
-                      data-testid="button-google-login"
-                    >
-                      <SiGoogle className="mr-2 h-4 w-4" />
-                      Sign in with Google
-                    </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="w-full"
+                          onClick={() => {
+                            const googleUrl = returnTo 
+                              ? `/api/auth/google?returnTo=${encodeURIComponent(returnTo)}`
+                              : '/api/auth/google';
+                            window.location.href = googleUrl;
+                          }}
+                          data-testid="button-google-login"
+                        >
+                          <SiGoogle className="mr-2 h-4 w-4" />
+                          Sign in with Google
+                        </Button>
+                      </>
+                    )}
 
                     <div className="text-center">
                       <button

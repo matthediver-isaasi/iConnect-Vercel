@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { 
   ArrowLeft, 
   Loader2,
@@ -23,7 +24,8 @@ import {
   Users,
   Building2,
   Menu,
-  Eye
+  Eye,
+  Shield
 } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import { format } from "date-fns";
@@ -57,7 +59,8 @@ export default function AdminSettings() {
       logo_link: '',
       date_display_format: 'dd MMM yyyy',
       welcome_email_from_address: '',
-      welcome_email_from_name: ''
+      welcome_email_from_name: '',
+      member_google_login_enabled: true
     }
   });
   
@@ -105,7 +108,8 @@ export default function AdminSettings() {
                 logo_link: settings.logo_link || '',
                 date_display_format: settings.date_display_format || 'dd MMM yyyy',
                 welcome_email_from_address: settings.welcome_email_from_address || '',
-                welcome_email_from_name: settings.welcome_email_from_name || ''
+                welcome_email_from_name: settings.welcome_email_from_name || '',
+                member_google_login_enabled: settings.member_google_login_enabled !== false
               }
             });
             
@@ -752,6 +756,38 @@ export default function AdminSettings() {
                   placeholder="noreply@yourdomain.com"
                   className="bg-slate-900/50 border-slate-600 text-white placeholder:text-slate-500"
                   data-testid="input-email-from-address"
+                />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-slate-800/50 border-slate-700">
+            <CardHeader>
+              <CardTitle className="text-white flex items-center gap-2">
+                <Shield className="w-5 h-5" />
+                Member Authentication
+              </CardTitle>
+              <CardDescription className="text-slate-400">
+                Configure login options for portal members
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between p-4 bg-slate-900/50 rounded-lg border border-slate-600">
+                <div className="space-y-1">
+                  <Label htmlFor="google-login" className="text-slate-200 font-medium">Allow Google Sign-In for Members</Label>
+                  <p className="text-sm text-slate-400">
+                    When disabled, members can only log in with email and password. 
+                    Useful for organizations that restrict logins to specific domains.
+                  </p>
+                </div>
+                <Switch
+                  id="google-login"
+                  checked={formData.settings.member_google_login_enabled}
+                  onCheckedChange={(checked) => setFormData({
+                    ...formData,
+                    settings: { ...formData.settings, member_google_login_enabled: checked }
+                  })}
+                  data-testid="switch-member-google-login"
                 />
               </div>
             </CardContent>

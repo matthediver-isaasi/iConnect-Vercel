@@ -36,6 +36,11 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Could not determine tenant from request' });
     }
 
+    const settings = tenant.settings || {};
+    if (settings.member_google_login_enabled === false) {
+      return res.redirect('/login?error=google_disabled');
+    }
+
     const nonce = crypto.randomBytes(32).toString('hex');
     
     const nonceCookie = serialize('google_oauth_nonce', nonce, {
