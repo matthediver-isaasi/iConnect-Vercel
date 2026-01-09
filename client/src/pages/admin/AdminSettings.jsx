@@ -21,7 +21,9 @@ import {
   RefreshCw,
   Database,
   Users,
-  Building2
+  Building2,
+  Menu,
+  Eye
 } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import { format } from "date-fns";
@@ -74,6 +76,11 @@ export default function AdminSettings() {
   
   const [fixBlogHandlesLoading, setFixBlogHandlesLoading] = useState(false);
   const [fixBlogHandlesResult, setFixBlogHandlesResult] = useState(null);
+  
+  const [navDiagnosticsLoading, setNavDiagnosticsLoading] = useState(false);
+  const [navDiagnosticsResult, setNavDiagnosticsResult] = useState(null);
+  const [navBackfillLoading, setNavBackfillLoading] = useState(false);
+  const [navBackfillResult, setNavBackfillResult] = useState(null);
   
   const logoInputRef = useRef(null);
   const faviconInputRef = useRef(null);
@@ -319,6 +326,58 @@ export default function AdminSettings() {
       toast({ title: "Error", description: error.message, variant: "destructive" });
     } finally {
       setFixBlogHandlesLoading(false);
+    }
+  };
+
+  const handleNavDiagnostics = async () => {
+    setNavDiagnosticsLoading(true);
+    setNavDiagnosticsResult(null);
+    try {
+      const response = await fetch('/api/admin/navigation-diagnostics', {
+        method: 'GET',
+        credentials: 'include'
+      });
+      const data = await response.json();
+      
+      if (!response.ok) throw new Error(data.error || 'Failed to get diagnostics');
+      
+      setNavDiagnosticsResult({ success: true, ...data });
+      toast({ title: "Success", description: "Navigation diagnostics loaded" });
+    } catch (error) {
+      setNavDiagnosticsResult({ success: false, error: error.message });
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    } finally {
+      setNavDiagnosticsLoading(false);
+    }
+  };
+
+  const handleNavBackfill = async () => {
+    if (!tenant?.id) {
+      toast({ title: "Error", description: "No tenant selected", variant: "destructive" });
+      return;
+    }
+    
+    setNavBackfillLoading(true);
+    setNavBackfillResult(null);
+    try {
+      const response = await fetch('/api/admin/backfill-tenant-navigation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ targetTenantId: tenant.id })
+      });
+      const data = await response.json();
+      
+      if (!response.ok) throw new Error(data.error || 'Failed to backfill');
+      
+      setNavBackfillResult({ success: true, ...data });
+      const totalUpdated = Object.values(data.updated || {}).reduce((sum, t) => sum + (t.count || 0), 0);
+      toast({ title: "Success", description: `Updated ${totalUpdated} navigation records` });
+    } catch (error) {
+      setNavBackfillResult({ success: false, error: error.message });
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    } finally {
+      setNavBackfillLoading(false);
     }
   };
 
@@ -939,6 +998,101 @@ export default function AdminSettings() {
                         {fixBlogHandlesResult.error}
                       </>
                     )}
+                  </div>
+                )}
+              </div>
+
+              <div className="border-t border-slate-700 pt-6 space-y-3">
+                <h4 className="text-sm font-medium text-slate-200 flex items-center gap-2">
+                  <Menu className="w-4 h-4" />
+                  Navigation Tenant Assignment
+                </h4>
+                <p className="text-xs text-slate-400">
+                  View and fix tenant assignments for portal navigation items, menus, and navigation items.
+                </p>
+                <div className="flex gap-3">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleNavDiagnostics}
+                    disabled={navDiagnosticsLoading}
+                    className="border-slate-600 text-slate-200"
+                    data-testid="button-nav-diagnostics"
+                  >
+                    {navDiagnosticsLoading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Loading...
+                      </>
+                    ) : (
+                      <>
+                        <Eye className="w-4 h-4 mr-2" />
+                        View Diagnostics
+                      </>
+                    )}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleNavBackfill}
+                    disabled={navBackfillLoading}
+                    className="border-slate-600 text-slate-200"
+                    data-testid="button-nav-backfill"
+                  >
+                    {navBackfillLoading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Running...
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw className="w-4 h-4 mr-2" />
+                        Backfill to Current Tenant
+                      </>
+                    )}
+                  </Button>
+                </div>
+                {navBackfillResult && (
+                  <div className={`flex items-center gap-2 text-sm ${
+                    navBackfillResult.success ? 'text-green-400' : 'text-red-400'
+                  }`}>
+                    {navBackfillResult.success ? (
+                      <>
+                        <CheckCircle2 className="w-4 h-4" />
+                        Backfill complete for {navBackfillResult.targetTenant}
+                      </>
+                    ) : (
+                      <>
+                        <AlertTriangle className="w-4 h-4" />
+                        {navBackfillResult.error}
+                      </>
+                    )}
+                  </div>
+                )}
+                {navDiagnosticsResult && navDiagnosticsResult.success && (
+                  <div className="mt-4 space-y-3">
+                    <div className="text-xs text-slate-400">
+                      <strong className="text-slate-200">Tenants:</strong>
+                      <ul className="mt-1 ml-4 list-disc">
+                        {navDiagnosticsResult.tenants?.map(t => (
+                          <li key={t.id}>{t.name} ({t.slug}) - {t.id}</li>
+                        ))}
+                      </ul>
+                    </div>
+                    {Object.entries(navDiagnosticsResult.navigation || {}).map(([table, info]) => (
+                      <div key={table} className="text-xs text-slate-400">
+                        <strong className="text-slate-200">{table}:</strong> {info.total || 0} records
+                        {info.byTenantId && (
+                          <ul className="mt-1 ml-4 list-disc">
+                            {Object.entries(info.byTenantId).map(([tid, items]) => (
+                              <li key={tid}>
+                                tenant_id={tid === 'null' ? <span className="text-yellow-400">NULL</span> : tid.substring(0, 8) + '...'}: {items.length} items
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
