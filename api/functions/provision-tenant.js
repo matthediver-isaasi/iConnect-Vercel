@@ -300,6 +300,68 @@ export default async function handler(req, res) {
       console.error('[Provision Tenant] Error creating tenant_user_member_link:', linkError);
     }
 
+    // Create navigation from templates
+    const { data: navPref } = await supabase
+      .from('platform_preferences')
+      .select('value')
+      .eq('key', 'default_navigation_templates')
+      .single();
+
+    if (navPref?.value) {
+      const { portal_navigation_items, portal_menus, navigation_items } = navPref.value;
+
+      // Create portal navigation items
+      if (portal_navigation_items?.length > 0) {
+        const navItemsToInsert = portal_navigation_items.map((item, index) => ({
+          ...item,
+          tenant_id: tenant.id,
+          order_index: item.order_index ?? index
+        }));
+        const { error: navItemError } = await supabase
+          .from('portal_navigation_item')
+          .insert(navItemsToInsert);
+        if (navItemError) {
+          console.error('[Provision Tenant] Error creating portal navigation items:', navItemError);
+        } else {
+          console.log(`[Provision Tenant] Created ${navItemsToInsert.length} portal navigation items`);
+        }
+      }
+
+      // Create portal menus
+      if (portal_menus?.length > 0) {
+        const menusToInsert = portal_menus.map((menu, index) => ({
+          ...menu,
+          tenant_id: tenant.id,
+          order_index: menu.order_index ?? index
+        }));
+        const { error: menuError } = await supabase
+          .from('portal_menu')
+          .insert(menusToInsert);
+        if (menuError) {
+          console.error('[Provision Tenant] Error creating portal menus:', menuError);
+        } else {
+          console.log(`[Provision Tenant] Created ${menusToInsert.length} portal menus`);
+        }
+      }
+
+      // Create public navigation items
+      if (navigation_items?.length > 0) {
+        const publicNavToInsert = navigation_items.map((item, index) => ({
+          ...item,
+          tenant_id: tenant.id,
+          order_index: item.order_index ?? index
+        }));
+        const { error: publicNavError } = await supabase
+          .from('navigation_item')
+          .insert(publicNavToInsert);
+        if (publicNavError) {
+          console.error('[Provision Tenant] Error creating public navigation items:', publicNavError);
+        } else {
+          console.log(`[Provision Tenant] Created ${publicNavToInsert.length} public navigation items`);
+        }
+      }
+    }
+
     console.log(`[Provision Tenant] Successfully created tenant: ${tenant.name} (${tenant.slug})`);
 
     return res.status(200).json({
