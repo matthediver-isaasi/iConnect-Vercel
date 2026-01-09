@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useLocation } from 'wouter';
+import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -8,7 +8,7 @@ import { Loader2, LogOut, Shield, Settings, Users, FileText } from 'lucide-react
 import RoleTemplatesEditor from './RoleTemplatesEditor';
 
 export default function PlatformAdmin() {
-  const [, setLocation] = useLocation();
+  const navigate = useNavigate();
   const { toast } = useToast();
   const [owner, setOwner] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -25,13 +25,13 @@ export default function PlatformAdmin() {
       const data = await response.json();
 
       if (!data.authenticated) {
-        setLocation('/platform/login');
+        navigate('/platform/login');
         return;
       }
 
       setOwner(data.owner);
     } catch (error) {
-      setLocation('/platform/login');
+      navigate('/platform/login');
     } finally {
       setLoading(false);
     }
@@ -43,7 +43,7 @@ export default function PlatformAdmin() {
         method: 'POST',
         credentials: 'include'
       });
-      setLocation('/platform/login');
+      navigate('/platform/login');
     } catch (error) {
       toast({ title: 'Error', description: 'Logout failed', variant: 'destructive' });
     }

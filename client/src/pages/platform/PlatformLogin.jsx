@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useLocation } from 'wouter';
+import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -8,7 +8,7 @@ import { useToast } from '@/components/ui/use-toast';
 import { Loader2, Shield } from 'lucide-react';
 
 export default function PlatformLogin() {
-  const [, setLocation] = useLocation();
+  const navigate = useNavigate();
   const { toast } = useToast();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -33,7 +33,7 @@ export default function PlatformLogin() {
       }
 
       toast({ title: 'Success', description: 'Welcome back!' });
-      setLocation('/platform/admin');
+      navigate('/platform/admin');
     } catch (error) {
       toast({ 
         title: 'Login Failed', 
