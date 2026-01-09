@@ -66,7 +66,7 @@ BEGIN
 
   -- Delete in FK-safe order
   -- Notes
-  DELETE FROM member_note WHERE member_id IN (
+  DELETE FROM member_note WHERE target_member_id IN (
     SELECT m.id FROM member m 
     JOIN organization o ON m.organization_id = o.id 
     WHERE o.tenant_id = p_tenant_id
