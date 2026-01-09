@@ -87,6 +87,17 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'An account with this email already exists' });
     }
 
+    // Also check member_credentials to prevent conflicts
+    const { data: existingMemberCred } = await supabase
+      .from('member_credentials')
+      .select('id')
+      .eq('email', adminEmail.toLowerCase())
+      .single();
+
+    if (existingMemberCred) {
+      return res.status(400).json({ error: 'An account with this email already exists' });
+    }
+
     const { data: tenant, error: tenantError } = await supabase
       .from('tenant')
       .insert({
