@@ -117,13 +117,15 @@ BEGIN
   GET DIAGNOSTICS v_count = ROW_COUNT;
   v_result := v_result || jsonb_build_object('member_credentials', v_count);
 
-  DELETE FROM member_session WHERE member_id IN (
-    SELECT m.id FROM member m 
+  -- Sessions are stored in 'session' table with JSONB sess column containing memberId
+  -- Delete sessions where sess->memberId matches any member from this tenant
+  DELETE FROM session WHERE sess->>'memberId' IN (
+    SELECT m.id::text FROM member m 
     JOIN organization o ON m.organization_id = o.id 
     WHERE o.tenant_id = p_tenant_id
   );
   GET DIAGNOSTICS v_count = ROW_COUNT;
-  v_result := v_result || jsonb_build_object('member_session', v_count);
+  v_result := v_result || jsonb_build_object('session', v_count);
 
   -- Tenant user auth
   DELETE FROM tenant_user_member_link WHERE tenant_id = p_tenant_id;

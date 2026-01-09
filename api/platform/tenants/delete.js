@@ -81,7 +81,7 @@ export default async function handler(req, res) {
       { table: 'role_member_field_permission', tenantVia: 'role' },
       { table: 'role_organization_field_permission', tenantVia: 'role' },
       { table: 'member_credentials', tenantDirect: true },
-      { table: 'member_session', tenantVia: 'member' },
+      { table: 'session', tenantVia: 'member_jsonb' },
       { table: 'tenant_user_member_link', tenantDirect: true },
       { table: 'tenant_user_credentials', tenantVia: 'tenant_user' },
       { table: 'tenant_user', tenantDirect: true },
@@ -170,6 +170,23 @@ export default async function handler(req, res) {
               const { data } = await supabase.from(table).select('id').in('tenant_user_id', userIds);
               recordIds = (data || []).map(r => r.id);
             }
+          } else if (tenantVia === 'member_jsonb') {
+            // Special handling for session table where memberId is in JSONB
+            const { data: orgs } = await supabase.from('organization').select('id').eq('tenant_id', tenantId);
+            const orgIds = (orgs || []).map(o => o.id);
+            if (orgIds.length > 0) {
+              const { data: members } = await supabase.from('member').select('id').in('organization_id', orgIds);
+              const memberIds = (members || []).map(m => m.id);
+              if (memberIds.length > 0) {
+                // Session table uses JSONB sess column with memberId
+                const { data: sessions } = await supabase.from('session').select('sid, sess');
+                const matchingSessions = (sessions || []).filter(s => {
+                  const sessData = typeof s.sess === 'string' ? JSON.parse(s.sess) : s.sess;
+                  return memberIds.includes(sessData?.memberId);
+                });
+                recordIds = matchingSessions.map(s => s.sid);
+              }
+            }
           }
         } else if (fkPath) {
           if (fkPath === 'member.organization.tenant_id') {
@@ -194,10 +211,12 @@ export default async function handler(req, res) {
         }
 
         if (recordIds.length > 0) {
+          // Session table uses 'sid' as primary key, others use 'id'
+          const pkColumn = table === 'session' ? 'sid' : 'id';
           const { error } = await supabase
             .from(table)
             .delete()
-            .in('id', recordIds);
+            .in(pkColumn, recordIds);
 
           if (error) {
             console.error(`[Platform Delete Tenant] Error deleting from ${table}:`, error.message);
