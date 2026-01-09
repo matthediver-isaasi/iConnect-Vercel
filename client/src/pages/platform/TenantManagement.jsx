@@ -30,7 +30,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/components/ui/use-toast';
-import { Loader2, Trash2, Building2, AlertTriangle } from 'lucide-react';
+import { Loader2, Trash2, Building2, AlertTriangle, RefreshCw, Navigation } from 'lucide-react';
 import { format } from 'date-fns';
 
 export default function TenantManagement() {
@@ -43,6 +43,8 @@ export default function TenantManagement() {
   const [confirmSlug, setConfirmSlug] = useState('');
   const [deleting, setDeleting] = useState(false);
   const [deleteResults, setDeleteResults] = useState(null);
+  const [seedingNav, setSeedingNav] = useState(false);
+  const [navTemplateStats, setNavTemplateStats] = useState(null);
 
   useEffect(() => {
     fetchTenants();
@@ -93,6 +95,39 @@ export default function TenantManagement() {
 
     setDeleteDialogOpen(false);
     setConfirmDialogOpen(true);
+  };
+
+  const handleSeedNavigationTemplates = async () => {
+    setSeedingNav(true);
+    try {
+      const response = await fetch('/api/platform/seed-navigation-templates', {
+        method: 'POST',
+        credentials: 'include'
+      });
+      const data = await response.json();
+
+      if (response.ok) {
+        setNavTemplateStats(data.stats);
+        toast({
+          title: 'Templates Updated',
+          description: `Navigation templates reseeded: ${data.stats.portal_menus} menus, ${data.stats.public_navigation_items} public nav items`
+        });
+      } else {
+        toast({
+          title: 'Error',
+          description: data.error || 'Failed to seed navigation templates',
+          variant: 'destructive'
+        });
+      }
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to seed navigation templates',
+        variant: 'destructive'
+      });
+    } finally {
+      setSeedingNav(false);
+    }
   };
 
   const handleFinalDelete = async () => {
@@ -148,6 +183,48 @@ export default function TenantManagement() {
 
   return (
     <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Navigation className="w-5 h-5" />
+            Tenant Provisioning Templates
+          </CardTitle>
+          <CardDescription>
+            Re-seed navigation templates from the GFI tenant to update what new tenants receive when provisioned.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-between gap-4">
+            <div className="text-sm text-muted-foreground">
+              {navTemplateStats ? (
+                <span>
+                  Last seeded: {navTemplateStats.portal_menus} menus ({navTemplateStats.portal_menus_with_parents} with parents), {navTemplateStats.public_navigation_items} public nav items
+                </span>
+              ) : (
+                <span>Click to reseed navigation templates from GFI tenant</span>
+              )}
+            </div>
+            <Button
+              onClick={handleSeedNavigationTemplates}
+              disabled={seedingNav}
+              data-testid="button-seed-nav-templates"
+            >
+              {seedingNav ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Seeding...
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="w-4 h-4 mr-2" />
+                  Reseed Navigation Templates
+                </>
+              )}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
