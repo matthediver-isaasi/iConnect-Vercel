@@ -489,11 +489,12 @@ const { data: portalLogoSettings } = useQuery({
         logoHeight: data.logoHeight || 'medium', 
         logoLink: data.logoLink || '', 
         homePageSlug: data.homePageSlug || '', 
-        faviconUrl: data.faviconUrl || '' 
+        faviconUrl: data.faviconUrl || '',
+        tenantName: data.tenantName || ''
       };
     } catch (error) {
       console.error('Error loading portal logo settings:', error);
-      return { logoUrl: '', logoHeight: 'medium', logoLink: '', homePageSlug: '', faviconUrl: '' };
+      return { logoUrl: '', logoHeight: 'medium', logoLink: '', homePageSlug: '', faviconUrl: '', tenantName: '' };
     }
   }
 });
@@ -1611,21 +1612,17 @@ useEffect(() => {
                   />
                 </a>
               ) : (
-                // Default AGCAS Events branding
+                // Fallback branding with isaasi logo and tenant name
                 <Link to={defaultLogoHref} className="flex items-center gap-3 hover:opacity-80 transition-opacity">
-                  <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center shadow-md border border-slate-200 overflow-hidden">
-                    {memberRecord?.profile_photo_url ? (
-                      <img 
-                        src={memberRecord.profile_photo_url} 
-                        alt="Profile" 
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <User className="w-6 h-6 text-slate-400" />
-                    )}
+                  <div className="w-10 h-10 flex items-center justify-center">
+                    <img 
+                      src="https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/68efc20f3e0a30fafad6dde7/fe03f7c5e_linked-aa.png"
+                      alt="isaasi"
+                      className="w-10 h-10 object-contain"
+                    />
                   </div>
                   <div>
-                    <h2 className="font-bold text-slate-900">AGCAS Events</h2>
+                    <h2 className="font-bold text-slate-900">{portalLogoSettings?.tenantName || 'Member Portal'}</h2>
                     <p className="text-xs text-slate-500">Member Portal</p>
                   </div>
                 </Link>
@@ -1911,21 +1908,17 @@ useEffect(() => {
                   />
                 </a>
               ) : (
-                // Default branding for mobile
+                // Fallback branding for mobile with isaasi logo and tenant name
                 <Link to={defaultLogoHref} className="flex items-center gap-2">
-                  <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center shadow-sm border border-slate-200 overflow-hidden">
-                    {memberRecord?.profile_photo_url ? (
-                      <img 
-                        src={memberRecord.profile_photo_url} 
-                        alt="Profile" 
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <User className="w-4 h-4 text-slate-400" />
-                    )}
+                  <div className="w-8 h-8 flex items-center justify-center">
+                    <img 
+                      src="https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/68efc20f3e0a30fafad6dde7/fe03f7c5e_linked-aa.png"
+                      alt="isaasi"
+                      className="w-8 h-8 object-contain"
+                    />
                   </div>
                   <div>
-                    <h2 className="font-bold text-slate-900 text-sm">AGCAS Events</h2>
+                    <h2 className="font-bold text-slate-900 text-sm">{portalLogoSettings?.tenantName || 'Member Portal'}</h2>
                   </div>
                 </Link>
               )}
@@ -1958,21 +1951,17 @@ useEffect(() => {
                       />
                     </a>
                   ) : (
-                    // Default branding in mobile sheet
+                    // Fallback branding in mobile sheet with isaasi logo and tenant name
                     <SheetTitle className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center shadow-md border border-slate-200 overflow-hidden">
-                        {memberRecord?.profile_photo_url ? (
-                          <img 
-                            src={memberRecord.profile_photo_url} 
-                            alt="Profile" 
-                            className="w-full h-full object-cover"
-                          />
-                        ) : (
-                          <User className="w-6 h-6 text-slate-400" />
-                        )}
+                      <div className="w-10 h-10 flex items-center justify-center">
+                        <img 
+                          src="https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/68efc20f3e0a30fafad6dde7/fe03f7c5e_linked-aa.png"
+                          alt="isaasi"
+                          className="w-10 h-10 object-contain"
+                        />
                       </div>
                       <div className="text-left">
-                        <div className="font-bold text-slate-900">AGCAS Events</div>
+                        <div className="font-bold text-slate-900">{portalLogoSettings?.tenantName || 'Member Portal'}</div>
                         <div className="text-xs text-slate-500 font-normal">Member Portal</div>
                       </div>
                     </SheetTitle>

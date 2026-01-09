@@ -64,6 +64,7 @@ export default async function handler(req, res) {
         logoLink: settings.logo_link || '',
         homePageSlug: settings.home_page_slug || '',
         dateDisplayFormat: settings.date_display_format || 'DD/MM/YYYY',
+        tenantName: tenant.name || null,
         source: 'tenant'
       });
     }
