@@ -26,6 +26,7 @@ export default async function handler(req, res) {
       .from('portal_navigation_item')
       .select('*')
       .eq('tenant_id', gfiTenant.id)
+      .eq('is_active', true)
       .order('id');
 
     if (navError) {

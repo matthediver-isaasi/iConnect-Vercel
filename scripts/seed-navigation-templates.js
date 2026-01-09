@@ -38,12 +38,13 @@ async function seedNavigationTemplates() {
       .from('portal_navigation_item')
       .select('*')
       .eq('tenant_id', gfiTenant.id)
+      .eq('is_active', true)
       .order('id');
 
     if (navError) {
       console.error('Error fetching portal_navigation_item:', navError.message);
     } else {
-      console.log(`Found ${navItems?.length || 0} portal navigation items`);
+      console.log(`Found ${navItems?.length || 0} active portal navigation items`);
     }
 
     const { data: menus, error: menuError } = await supabase
