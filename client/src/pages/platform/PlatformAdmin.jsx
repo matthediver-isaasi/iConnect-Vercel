@@ -4,8 +4,9 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast';
-import { Loader2, LogOut, Shield, Settings, Users, FileText } from 'lucide-react';
+import { Loader2, LogOut, Shield, Settings, Users, Building2 } from 'lucide-react';
 import RoleTemplatesEditor from './RoleTemplatesEditor';
+import TenantManagement from './TenantManagement';
 
 export default function PlatformAdmin() {
   const navigate = useNavigate();
@@ -82,8 +83,12 @@ export default function PlatformAdmin() {
       </header>
 
       <main className="container mx-auto px-4 py-8">
-        <Tabs defaultValue="roles" className="space-y-6">
+        <Tabs defaultValue="tenants" className="space-y-6">
           <TabsList>
+            <TabsTrigger value="tenants" data-testid="tab-tenants">
+              <Building2 className="w-4 h-4 mr-2" />
+              Tenants
+            </TabsTrigger>
             <TabsTrigger value="roles" data-testid="tab-roles">
               <Users className="w-4 h-4 mr-2" />
               Default Roles
@@ -93,6 +98,10 @@ export default function PlatformAdmin() {
               Provisioning
             </TabsTrigger>
           </TabsList>
+
+          <TabsContent value="tenants">
+            <TenantManagement />
+          </TabsContent>
 
           <TabsContent value="roles">
             <Card>
