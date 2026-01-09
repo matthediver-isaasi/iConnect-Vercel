@@ -1,19 +1,39 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Loader2, Lock, Eye, EyeOff, Building2 } from "lucide-react";
+import { SiGoogle } from "react-icons/si";
 
 export default function AdminLogin() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [checkingAuth, setCheckingAuth] = useState(true);
+
+  useEffect(() => {
+    const oauthError = searchParams.get('error');
+    if (oauthError) {
+      const errorMessages = {
+        'oauth_denied': 'Google sign-in was cancelled',
+        'no_account': 'No tenant account found for this Google email. Please sign in with your email and password first.',
+        'account_inactive': 'This account is inactive. Please contact support.',
+        'link_failed': 'Failed to link Google account. Please try again.',
+        'callback_failed': 'Google sign-in failed. Please try again.',
+        'invalid_state': 'Sign-in session expired. Please try again.',
+        'csrf_error': 'Security check failed. Please try signing in again.',
+        'missing_params': 'Sign-in was incomplete. Please try again.'
+      };
+      setError(errorMessages[oauthError] || 'Sign-in failed. Please try again.');
+      window.history.replaceState({}, '', '/admin/login');
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -150,6 +170,28 @@ export default function AdminLogin() {
               ) : (
                 "Sign In"
               )}
+            </Button>
+
+            <div className="relative my-4">
+              <div className="absolute inset-0 flex items-center">
+                <span className="w-full border-t border-slate-600" />
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-slate-800 px-2 text-slate-400">Or continue with</span>
+              </div>
+            </div>
+
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full border-slate-600 text-slate-200 hover:bg-slate-700 hover:text-white"
+              onClick={() => {
+                window.location.href = '/api/tenant/auth/google';
+              }}
+              data-testid="button-google-login"
+            >
+              <SiGoogle className="mr-2 h-4 w-4" />
+              Sign in with Google
             </Button>
           </form>
 

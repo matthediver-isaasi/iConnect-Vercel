@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Mail, Loader2, CheckCircle2, AlertCircle, Lock, Eye, EyeOff, ArrowLeft } from "lucide-react";
+import { SiGoogle } from "react-icons/si";
 import { createPageUrl } from "@/utils";
 
 export default function LoginPage() {
@@ -23,6 +24,25 @@ export default function LoginPage() {
   const urlParams = new URLSearchParams(window.location.search);
   const returnTo = urlParams.get('returnTo');
   const resourceId = urlParams.get('resourceId');
+  const oauthError = urlParams.get('error');
+
+  // Handle OAuth error messages
+  useEffect(() => {
+    if (oauthError) {
+      const errorMessages = {
+        'oauth_denied': 'Google sign-in was cancelled',
+        'no_account': 'No account found for this Google email. Please sign in with your email and password first.',
+        'login_disabled': 'Login is disabled for this account. Please contact an administrator.',
+        'link_failed': 'Failed to link Google account. Please try again.',
+        'callback_failed': 'Google sign-in failed. Please try again.',
+        'invalid_state': 'Sign-in session expired. Please try again.',
+        'csrf_error': 'Security check failed. Please try signing in again.',
+        'missing_params': 'Sign-in was incomplete. Please try again.'
+      };
+      setError(errorMessages[oauthError] || 'Sign-in failed. Please try again.');
+      window.history.replaceState({}, '', '/login');
+    }
+  }, [oauthError]);
 
   // Check if user is already logged in
   useEffect(() => {
@@ -303,6 +323,31 @@ export default function LoginPage() {
                       ) : (
                         "Sign In"
                       )}
+                    </Button>
+
+                    <div className="relative my-4">
+                      <div className="absolute inset-0 flex items-center">
+                        <span className="w-full border-t border-slate-200" />
+                      </div>
+                      <div className="relative flex justify-center text-xs uppercase">
+                        <span className="bg-white px-2 text-slate-500">Or continue with</span>
+                      </div>
+                    </div>
+
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full"
+                      onClick={() => {
+                        const googleUrl = returnTo 
+                          ? `/api/auth/google?returnTo=${encodeURIComponent(returnTo)}`
+                          : '/api/auth/google';
+                        window.location.href = googleUrl;
+                      }}
+                      data-testid="button-google-login"
+                    >
+                      <SiGoogle className="mr-2 h-4 w-4" />
+                      Sign in with Google
                     </Button>
 
                     <div className="text-center">

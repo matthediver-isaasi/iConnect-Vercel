@@ -37,6 +37,35 @@ The platform uses two separate authentication systems:
 
 **Linking table:** `tenant_user_member_link` connects tenant_user accounts to their member accounts for SSO. During tenant provisioning, both accounts are created with the same credentials and automatically linked.
 
+### Google OAuth Integration
+
+Both authentication tiers support "Sign in with Google" as an alternative to password-based login:
+
+**Portal Member OAuth (subdomain login):**
+- `/api/auth/google`: Initiates OAuth flow, redirects to Google with tenant context in state
+- `/api/auth/google/callback`: Exchanges code for tokens, links/creates member session
+- Tenant isolation: Members must belong to the subdomain's tenant to authenticate
+- Account linking: First Google login on existing email account automatically links Google ID
+
+**Tenant User OAuth (root domain login):**
+- `/api/tenant/auth/google`: Initiates OAuth flow for SaaS admin login
+- `/api/tenant/auth/google/callback`: Exchanges code, creates tenant_user session
+- Account linking: First Google login on existing email account automatically links Google ID
+
+**Database Columns:**
+- `member.google_id`: Stores Google account ID for portal members
+- `tenant_user.google_id`: Stores Google account ID for tenant admins
+
+**Environment Variables (Vercel secrets):**
+- `GOOGLE_CLIENT_ID`: OAuth client ID from Google Cloud Console
+- `GOOGLE_CLIENT_SECRET`: OAuth client secret
+
+**Setup:**
+1. Run `scripts/migrations/add-google-oauth-columns.sql` in Supabase SQL Editor
+2. Configure Google OAuth credentials in Google Cloud Console
+3. Add redirect URIs: `https://iconn.app/api/tenant/auth/google/callback` and `https://*.iconn.app/api/auth/google/callback`
+4. Add `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` to Vercel environment variables
+
 ## Deployment Architecture
 
 Development uses Express.js with Vite middleware. Production deploys to Vercel serverless functions for API and static assets. Data freshness is maintained using TanStack Query and Supabase Realtime Subscriptions.
