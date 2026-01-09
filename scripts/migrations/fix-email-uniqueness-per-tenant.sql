@@ -14,11 +14,12 @@ ALTER TABLE member_credentials
 ADD COLUMN IF NOT EXISTS tenant_id VARCHAR;
 
 -- ============================================
--- STEP 2: Backfill tenant_id from member table
+-- STEP 2: Backfill tenant_id from member -> organization
 -- ============================================
 UPDATE member_credentials mc
-SET tenant_id = m.tenant_id
+SET tenant_id = o.tenant_id
 FROM member m
+JOIN organization o ON m.organization_id = o.id
 WHERE mc.member_id = m.id
 AND mc.tenant_id IS NULL;
 
