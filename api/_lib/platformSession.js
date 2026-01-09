@@ -1,4 +1,4 @@
-import { getSupabaseClient } from './database.js';
+import { supabase } from './database.js';
 
 const PLATFORM_SESSION_COOKIE = 'platform_session';
 const SESSION_DURATION_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
@@ -10,7 +10,6 @@ function generateSecureToken() {
 }
 
 export async function createPlatformOwnerSession(res, ownerId) {
-  const supabase = getSupabaseClient();
   if (!supabase) return null;
 
   const sessionToken = generateSecureToken();
@@ -55,7 +54,6 @@ export async function createPlatformOwnerSession(res, ownerId) {
 }
 
 export async function getSessionPlatformOwner(req) {
-  const supabase = getSupabaseClient();
   if (!supabase) return null;
 
   const cookies = req.headers.cookie || '';
@@ -96,8 +94,6 @@ export async function getSessionPlatformOwner(req) {
 }
 
 export async function clearPlatformOwnerSession(req, res) {
-  const supabase = getSupabaseClient();
-  
   // Get token from cookie to delete session from DB
   const cookies = req.headers.cookie || '';
   const sessionCookie = cookies.split(';').find(c => c.trim().startsWith(`${PLATFORM_SESSION_COOKIE}=`));
