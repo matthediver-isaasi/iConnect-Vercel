@@ -77,6 +77,7 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'This subdomain is already taken' });
     }
 
+    // Check if this email already exists as a tenant_user (globally unique for tenant owners)
     const { data: existingTenantUser } = await supabase
       .from('tenant_user_credentials')
       .select('id')
@@ -84,18 +85,7 @@ export default async function handler(req, res) {
       .single();
 
     if (existingTenantUser) {
-      return res.status(400).json({ error: 'An account with this email already exists' });
-    }
-
-    // Also check member_credentials to prevent conflicts
-    const { data: existingMemberCred } = await supabase
-      .from('member_credentials')
-      .select('id')
-      .eq('email', adminEmail.toLowerCase())
-      .single();
-
-    if (existingMemberCred) {
-      return res.status(400).json({ error: 'An account with this email already exists' });
+      return res.status(400).json({ error: 'An account with this email already exists as a tenant owner' });
     }
 
     const { data: tenant, error: tenantError } = await supabase
