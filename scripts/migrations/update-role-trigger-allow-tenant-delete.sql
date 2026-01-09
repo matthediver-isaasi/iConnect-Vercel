@@ -31,18 +31,29 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Create a helper function that sets the bypass flag and can be called from the app
-CREATE OR REPLACE FUNCTION enable_tenant_deletion_mode()
-RETURNS void AS $$
+-- Create a function that deletes all roles for a tenant, bypassing the trigger
+-- This runs in a single transaction with the bypass enabled
+CREATE OR REPLACE FUNCTION delete_tenant_roles(p_tenant_id UUID)
+RETURNS INTEGER AS $$
+DECLARE
+  deleted_count INTEGER;
 BEGIN
+  -- Set the bypass flag for this transaction
   PERFORM set_config('app.allow_tenant_deletion', 'true', true);
+  
+  -- Delete all roles for the tenant
+  DELETE FROM role WHERE tenant_id = p_tenant_id;
+  GET DIAGNOSTICS deleted_count = ROW_COUNT;
+  
+  RETURN deleted_count;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Create a helper function to disable the bypass
-CREATE OR REPLACE FUNCTION disable_tenant_deletion_mode()
-RETURNS void AS $$
+-- Create a function that deletes the tenant record itself
+CREATE OR REPLACE FUNCTION delete_tenant_record(p_tenant_id UUID)
+RETURNS BOOLEAN AS $$
 BEGIN
-  PERFORM set_config('app.allow_tenant_deletion', 'false', true);
+  DELETE FROM tenant WHERE id = p_tenant_id;
+  RETURN FOUND;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
