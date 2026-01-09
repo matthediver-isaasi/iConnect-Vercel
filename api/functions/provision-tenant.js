@@ -313,15 +313,16 @@ export default async function handler(req, res) {
       // Build a map from template_key to new menu_id for FK remapping
       const templateKeyToMenuId = {};
 
-      // Create portal menus FIRST (so we can get their new IDs)
+      // Create portal menus FIRST without parent_id (two-pass for hierarchy)
       if (portal_menus?.length > 0) {
         for (const menu of portal_menus) {
-          const { template_key, order_index, ...menuData } = menu;
+          const { template_key, parent_template_key, order_index, ...menuData } = menu;
           const { data: newMenu, error: menuError } = await supabase
             .from('portal_menu')
             .insert({
               ...menuData,
-              tenant_id: tenant.id
+              tenant_id: tenant.id,
+              parent_id: null // Will be updated in second pass
             })
             .select('id')
             .single();
@@ -333,6 +334,27 @@ export default async function handler(req, res) {
           }
         }
         console.log(`[Provision Tenant] Created ${Object.keys(templateKeyToMenuId).length} portal menus`);
+
+        // Second pass: update parent_id references for menus
+        let menuParentsUpdated = 0;
+        for (const menu of portal_menus) {
+          if (menu.parent_template_key && menu.template_key) {
+            const newMenuId = templateKeyToMenuId[menu.template_key];
+            const newParentId = templateKeyToMenuId[menu.parent_template_key];
+            if (newMenuId && newParentId) {
+              const { error: updateError } = await supabase
+                .from('portal_menu')
+                .update({ parent_id: newParentId })
+                .eq('id', newMenuId);
+              if (!updateError) {
+                menuParentsUpdated++;
+              }
+            }
+          }
+        }
+        if (menuParentsUpdated > 0) {
+          console.log(`[Provision Tenant] Updated ${menuParentsUpdated} portal menu parent relationships`);
+        }
       }
 
       // Create portal navigation items with remapped menu_id and parent_id

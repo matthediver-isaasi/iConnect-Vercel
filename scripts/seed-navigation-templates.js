@@ -21,7 +21,6 @@ const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 async function seedNavigationTemplates() {
   try {
-    // Get the GFI tenant
     const { data: gfiTenant, error: tenantError } = await supabase
       .from('tenant')
       .select('id, name, slug')
@@ -35,11 +34,11 @@ async function seedNavigationTemplates() {
 
     console.log(`Found GFI tenant: ${gfiTenant.name} (${gfiTenant.id})`);
 
-    // Fetch portal_navigation_item records
     const { data: navItems, error: navError } = await supabase
       .from('portal_navigation_item')
       .select('*')
-      .eq('tenant_id', gfiTenant.id);
+      .eq('tenant_id', gfiTenant.id)
+      .order('id');
 
     if (navError) {
       console.error('Error fetching portal_navigation_item:', navError.message);
@@ -47,11 +46,11 @@ async function seedNavigationTemplates() {
       console.log(`Found ${navItems?.length || 0} portal navigation items`);
     }
 
-    // Fetch portal_menu records
     const { data: menus, error: menuError } = await supabase
       .from('portal_menu')
       .select('*')
-      .eq('tenant_id', gfiTenant.id);
+      .eq('tenant_id', gfiTenant.id)
+      .order('id');
 
     if (menuError) {
       console.error('Error fetching portal_menu:', menuError.message);
@@ -59,11 +58,11 @@ async function seedNavigationTemplates() {
       console.log(`Found ${menus?.length || 0} portal menus`);
     }
 
-    // Fetch navigation_item records (public site navigation)
     const { data: publicNavItems, error: publicNavError } = await supabase
       .from('navigation_item')
       .select('*')
-      .eq('tenant_id', gfiTenant.id);
+      .eq('tenant_id', gfiTenant.id)
+      .order('id');
 
     if (publicNavError) {
       console.error('Error fetching navigation_item:', publicNavError.message);
@@ -71,58 +70,71 @@ async function seedNavigationTemplates() {
       console.log(`Found ${publicNavItems?.length || 0} public navigation items`);
     }
 
-    // Create templates by stripping IDs and tenant_id
-    // For menus, we use a stable template_key based on their name/slug for later remapping
-    const portalMenuTemplates = (menus || []).map((menu, index) => {
-      const { id, tenant_id, created_at, updated_at, ...template } = menu;
-      return {
-        ...template,
-        template_key: `menu_${index}_${(menu.name || menu.slug || 'default').toLowerCase().replace(/\s+/g, '_')}`
-      };
-    });
-
-    // Build a map from old menu IDs to template_keys for remapping nav items
+    // Build menu ID to template_key mapping (using stable IDs)
     const menuIdToTemplateKey = {};
-    (menus || []).forEach((menu, index) => {
-      const templateKey = `menu_${index}_${(menu.name || menu.slug || 'default').toLowerCase().replace(/\s+/g, '_')}`;
+    (menus || []).forEach((menu) => {
+      const templateKey = `menu_${menu.id}`;
       menuIdToTemplateKey[menu.id] = templateKey;
     });
 
-    // Build a map from old nav item IDs to template_keys for parent_id remapping
+    // Portal menus now include parent_id for hierarchy
+    const portalMenuTemplates = (menus || []).map((menu) => {
+      const { id, tenant_id, created_at, updated_at, parent_id, ...template } = menu;
+      return {
+        ...template,
+        template_key: menuIdToTemplateKey[id],
+        parent_template_key: parent_id ? menuIdToTemplateKey[parent_id] : null
+      };
+    });
+
+    // Count menus with parent relationships
+    const menusWithParents = portalMenuTemplates.filter(m => m.parent_template_key);
+    console.log(`\nPortal menu parent-child relationships found: ${menusWithParents.length}`);
+    menusWithParents.slice(0, 10).forEach(m => {
+      console.log(`  ${m.template_key} (${m.label || m.name}) -> parent: ${m.parent_template_key}`);
+    });
+    if (menusWithParents.length > 10) {
+      console.log(`  ... and ${menusWithParents.length - 10} more`);
+    }
+
+    // Portal navigation items
     const navItemIdToTemplateKey = {};
-    (navItems || []).forEach((item, index) => {
-      const templateKey = `navitem_${index}_${(item.label || item.name || 'item').toLowerCase().replace(/\s+/g, '_')}`;
+    (navItems || []).forEach((item) => {
+      const templateKey = `navitem_${item.id}`;
       navItemIdToTemplateKey[item.id] = templateKey;
     });
 
-    // For nav items, replace menu_id and parent_id with template_keys for later reconstruction
-    const portalNavigationTemplates = (navItems || []).map((item, index) => {
+    const portalNavigationTemplates = (navItems || []).map((item) => {
       const { id, tenant_id, created_at, updated_at, menu_id, parent_id, ...template } = item;
       return {
         ...template,
-        template_key: `navitem_${index}_${(item.label || item.name || 'item').toLowerCase().replace(/\s+/g, '_')}`,
+        template_key: navItemIdToTemplateKey[id],
         menu_template_key: menu_id ? menuIdToTemplateKey[menu_id] : null,
         parent_template_key: parent_id ? navItemIdToTemplateKey[parent_id] : null
       };
     });
 
-    // Same for public navigation items - handle parent_id
+    // Public navigation items
     const publicNavItemIdToTemplateKey = {};
-    (publicNavItems || []).forEach((item, index) => {
-      const templateKey = `publicnav_${index}_${(item.label || item.name || 'item').toLowerCase().replace(/\s+/g, '_')}`;
+    (publicNavItems || []).forEach((item) => {
+      const templateKey = `publicnav_${item.id}`;
       publicNavItemIdToTemplateKey[item.id] = templateKey;
     });
 
-    const publicNavigationTemplates = (publicNavItems || []).map((item, index) => {
+    const publicNavigationTemplates = (publicNavItems || []).map((item) => {
       const { id, tenant_id, created_at, updated_at, parent_id, ...template } = item;
       return {
         ...template,
-        template_key: `publicnav_${index}_${(item.label || item.name || 'item').toLowerCase().replace(/\s+/g, '_')}`,
+        template_key: publicNavItemIdToTemplateKey[id],
         parent_template_key: parent_id ? publicNavItemIdToTemplateKey[parent_id] : null
       };
     });
 
-    // Store in platform_preferences
+    console.log('\nPublic navigation parent-child relationships:');
+    publicNavigationTemplates.filter(t => t.parent_template_key).forEach(t => {
+      console.log(`  ${t.template_key} (${t.label || t.name}) -> parent: ${t.parent_template_key}`);
+    });
+
     const { error: saveError } = await supabase
       .from('platform_preferences')
       .upsert({
@@ -145,7 +157,7 @@ async function seedNavigationTemplates() {
 
     console.log('\nSuccessfully saved navigation templates to platform_preferences:');
     console.log(`  - ${portalNavigationTemplates.length} portal navigation items`);
-    console.log(`  - ${portalMenuTemplates.length} portal menus`);
+    console.log(`  - ${portalMenuTemplates.length} portal menus (${menusWithParents.length} with parents)`);
     console.log(`  - ${publicNavigationTemplates.length} public navigation items`);
 
   } catch (err) {
