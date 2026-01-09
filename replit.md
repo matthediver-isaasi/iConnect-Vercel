@@ -69,10 +69,17 @@ Both authentication tiers support "Sign in with Google" as an alternative to pas
 - Provisions tenant without password when using Google (google_id stored instead)
 - Deduplication: Checks both email and google_id to prevent duplicate tenant owners
 
+**Per-Tenant Google Login Control:**
+- Tenant admins can enable/disable Google login for portal members via Admin Settings toggle
+- Setting stored in `tenant.settings.member_google_login_enabled` (defaults to true)
+- `/api/auth/tenant-public-settings`: Public endpoint returns tenant settings without authentication (uses domain-based resolution)
+- Login page fetches this endpoint to conditionally show/hide Google login button
+- OAuth initiation endpoint checks setting and redirects with `?error=google_disabled` if blocked
+
 **Setup:**
 1. Run `scripts/migrations/add-google-oauth-columns.sql` in Supabase SQL Editor
 2. Configure Google OAuth credentials in Google Cloud Console
-3. Add redirect URIs: `https://iconn.app/api/tenant/auth/google/callback`, `https://iconn.app/api/tenant/auth/google-signup/callback`, and `https://*.iconn.app/api/auth/google/callback`
+3. Add redirect URIs: `https://iconn.app/api/tenant/auth/google/callback`, `https://iconn.app/api/tenant/auth/google-signup/callback`, and `https://iconn.app/api/auth/google/callback`
 4. Add `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` to Vercel environment variables
 
 ## Deployment Architecture
