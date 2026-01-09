@@ -42,6 +42,29 @@ export default async function handler(req, res) {
 
     console.log(`[Platform Delete Tenant] Starting deletion of tenant: ${tenant.name} (${tenant.slug})`);
 
+    // Try to use the stored procedure first (handles system roles correctly)
+    const { data: rpcResult, error: rpcError } = await supabase.rpc('platform_delete_tenant', {
+      p_tenant_id: tenantId
+    });
+
+    if (!rpcError && rpcResult?.success) {
+      console.log(`[Platform Delete Tenant] Successfully deleted tenant via RPC:`, rpcResult);
+      return res.status(200).json({
+        tenant: rpcResult.tenant,
+        deleted: rpcResult.deleted,
+        errors: [],
+        tenantDeletion: 'success'
+      });
+    }
+
+    // Log RPC error and fall back to manual deletion
+    if (rpcError) {
+      console.log(`[Platform Delete Tenant] RPC not available, falling back to manual deletion:`, rpcError.message);
+    } else if (rpcResult && !rpcResult.success) {
+      console.log(`[Platform Delete Tenant] RPC failed:`, rpcResult.error);
+    }
+
+    // Fallback: Manual deletion (may fail on system roles if trigger not updated)
     const results = {
       tenant: { id: tenant.id, name: tenant.name, slug: tenant.slug },
       deleted: {},
@@ -171,30 +194,15 @@ export default async function handler(req, res) {
         }
 
         if (recordIds.length > 0) {
-          let deleteError = null;
-          
-          // Special handling for role table - use RPC to bypass system role trigger
-          if (table === 'role') {
-            const { data: deletedCount, error: rpcError } = await supabase.rpc('delete_tenant_roles', {
-              p_tenant_id: tenantId
-            });
-            if (rpcError) {
-              deleteError = rpcError;
-            } else {
-              console.log(`[Platform Delete Tenant] Deleted ${deletedCount} roles via RPC`);
-            }
-          } else {
-            const { error } = await supabase
-              .from(table)
-              .delete()
-              .in('id', recordIds);
-            deleteError = error;
-          }
+          const { error } = await supabase
+            .from(table)
+            .delete()
+            .in('id', recordIds);
 
-          if (deleteError) {
-            console.error(`[Platform Delete Tenant] Error deleting from ${table}:`, deleteError.message);
-            results.errors.push({ table, error: deleteError.message });
-            results.deleted[table] = { attempted: recordIds.length, error: deleteError.message };
+          if (error) {
+            console.error(`[Platform Delete Tenant] Error deleting from ${table}:`, error.message);
+            results.errors.push({ table, error: error.message });
+            results.deleted[table] = { attempted: recordIds.length, error: error.message };
           } else {
             results.deleted[table] = recordIds.length;
             console.log(`[Platform Delete Tenant] Deleted ${recordIds.length} records from ${table}`);
