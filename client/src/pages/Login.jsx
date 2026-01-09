@@ -68,11 +68,17 @@ export default function LoginPage() {
         const response = await fetch('/api/auth/tenant-public-settings', { credentials: 'include' });
         if (response.ok) {
           const data = await response.json();
+          console.log('[Login] Tenant public settings response:', data);
           if (data.success && data.settings) {
-            setGoogleLoginEnabled(data.settings.member_google_login_enabled !== false);
+            const isEnabled = data.settings.member_google_login_enabled !== false;
+            console.log('[Login] Setting Google login enabled:', isEnabled);
+            setGoogleLoginEnabled(isEnabled);
           }
+        } else {
+          console.log('[Login] Tenant public settings response not ok:', response.status);
         }
       } catch (err) {
+        console.error('[Login] Failed to fetch tenant settings:', err);
         // Default to enabled if fetch fails
       }
     };

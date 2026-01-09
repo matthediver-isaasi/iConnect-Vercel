@@ -9,9 +9,14 @@ export default async function handler(req, res) {
   }
 
   try {
+    const hostname = req.headers['x-forwarded-host'] || req.headers.host || '';
+    console.log('[Tenant Public Settings] Request from hostname:', hostname);
+    
     const tenant = await resolveTenantFromRequest(req);
+    console.log('[Tenant Public Settings] Resolved tenant:', tenant ? { id: tenant.id, name: tenant.name, slug: tenant.slug } : null);
     
     if (!tenant) {
+      console.log('[Tenant Public Settings] No tenant found, returning default enabled=true');
       return res.json({
         success: true,
         settings: {
@@ -21,13 +26,15 @@ export default async function handler(req, res) {
     }
 
     const settings = tenant.settings || {};
+    const isEnabled = settings.member_google_login_enabled !== false;
+    console.log('[Tenant Public Settings] Tenant settings:', { member_google_login_enabled: settings.member_google_login_enabled, isEnabled });
     
     return res.json({
       success: true,
       tenantId: tenant.id,
       tenantName: tenant.name,
       settings: {
-        member_google_login_enabled: settings.member_google_login_enabled !== false
+        member_google_login_enabled: isEnabled
       }
     });
   } catch (error) {
