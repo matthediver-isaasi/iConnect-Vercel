@@ -6,17 +6,21 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { tenantName, slug, adminEmail, adminFirstName, adminLastName, password } = req.body;
+  const { tenantName, slug, adminEmail, adminFirstName, adminLastName, password, googleId } = req.body;
 
-  if (!tenantName || !slug || !adminEmail || !adminFirstName || !adminLastName || !password) {
+  if (!tenantName || !slug || !adminEmail || !adminFirstName || !adminLastName) {
     return res.status(400).json({ error: 'All fields are required' });
+  }
+
+  if (!password && !googleId) {
+    return res.status(400).json({ error: 'Either password or Google authentication is required' });
   }
 
   if (slug.length < 3) {
     return res.status(400).json({ error: 'Subdomain must be at least 3 characters' });
   }
 
-  if (password.length < 8) {
+  if (password && password.length < 8) {
     return res.status(400).json({ error: 'Password must be at least 8 characters' });
   }
 
@@ -79,13 +83,26 @@ export default async function handler(req, res) {
 
     // Check if this email already exists as a tenant_user (globally unique for tenant owners)
     const { data: existingTenantUser } = await supabase
-      .from('tenant_user_credentials')
+      .from('tenant_user')
       .select('id')
       .eq('email', adminEmail.toLowerCase())
       .single();
 
     if (existingTenantUser) {
       return res.status(400).json({ error: 'An account with this email already exists as a tenant owner' });
+    }
+
+    // Check if this Google ID is already linked to another tenant_user
+    if (googleId) {
+      const { data: existingGoogleUser } = await supabase
+        .from('tenant_user')
+        .select('id')
+        .eq('google_id', googleId)
+        .single();
+
+      if (existingGoogleUser) {
+        return res.status(400).json({ error: 'This Google account is already linked to another tenant' });
+      }
     }
 
     const { data: tenant, error: tenantError } = await supabase
@@ -214,19 +231,24 @@ export default async function handler(req, res) {
       await supabase.from('role_organization_field_permission').insert(orgPerms);
     }
 
-    const passwordHash = await bcrypt.hash(password, 10);
+    const passwordHash = password ? await bcrypt.hash(password, 10) : null;
+
+    const memberInsert = {
+      first_name: adminFirstName,
+      last_name: adminLastName,
+      email: adminEmail.toLowerCase(),
+      organization_id: organization.id,
+      role_id: adminRole.id,
+      login_enabled: true,
+      status: 'active'
+    };
+    if (googleId) {
+      memberInsert.google_id = googleId;
+    }
 
     const { data: member, error: memberError } = await supabase
       .from('member')
-      .insert({
-        first_name: adminFirstName,
-        last_name: adminLastName,
-        email: adminEmail.toLowerCase(),
-        organization_id: organization.id,
-        role_id: adminRole.id,
-        login_enabled: true,
-        status: 'active'
-      })
+      .insert(memberInsert)
       .select()
       .single();
 
@@ -237,32 +259,39 @@ export default async function handler(req, res) {
     }
     memberId = member.id;
 
-    const { error: memberCredError } = await supabase
-      .from('member_credentials')
-      .insert({
-        member_id: member.id,
-        tenant_id: tenant.id,
-        email: adminEmail.toLowerCase(),
-        password_hash: passwordHash,
-        is_temporary: false
-      });
+    if (passwordHash) {
+      const { error: memberCredError } = await supabase
+        .from('member_credentials')
+        .insert({
+          member_id: member.id,
+          tenant_id: tenant.id,
+          email: adminEmail.toLowerCase(),
+          password_hash: passwordHash,
+          is_temporary: false
+        });
 
-    if (memberCredError) {
-      console.error('[Provision Tenant] Error creating member credentials:', memberCredError);
-      await rollbackAll('member credentials creation failed');
-      return res.status(500).json({ error: 'Failed to create login credentials' });
+      if (memberCredError) {
+        console.error('[Provision Tenant] Error creating member credentials:', memberCredError);
+        await rollbackAll('member credentials creation failed');
+        return res.status(500).json({ error: 'Failed to create login credentials' });
+      }
+    }
+
+    const tenantUserInsert = {
+      tenant_id: tenant.id,
+      email: adminEmail.toLowerCase(),
+      first_name: adminFirstName,
+      last_name: adminLastName,
+      role: 'owner',
+      status: 'active'
+    };
+    if (googleId) {
+      tenantUserInsert.google_id = googleId;
     }
 
     const { data: tenantUser, error: tenantUserError } = await supabase
       .from('tenant_user')
-      .insert({
-        tenant_id: tenant.id,
-        email: adminEmail.toLowerCase(),
-        first_name: adminFirstName,
-        last_name: adminLastName,
-        role: 'owner',
-        status: 'active'
-      })
+      .insert(tenantUserInsert)
       .select()
       .single();
 
@@ -273,19 +302,21 @@ export default async function handler(req, res) {
     }
     tenantUserId = tenantUser.id;
 
-    const { error: tenantCredError } = await supabase
-      .from('tenant_user_credentials')
-      .insert({
-        tenant_user_id: tenantUser.id,
-        email: adminEmail.toLowerCase(),
-        password_hash: passwordHash,
-        is_temporary: false
-      });
+    if (passwordHash) {
+      const { error: tenantCredError } = await supabase
+        .from('tenant_user_credentials')
+        .insert({
+          tenant_user_id: tenantUser.id,
+          email: adminEmail.toLowerCase(),
+          password_hash: passwordHash,
+          is_temporary: false
+        });
 
-    if (tenantCredError) {
-      console.error('[Provision Tenant] Error creating tenant user credentials:', tenantCredError);
-      await rollbackAll('tenant user credentials creation failed');
-      return res.status(500).json({ error: 'Failed to create login credentials' });
+      if (tenantCredError) {
+        console.error('[Provision Tenant] Error creating tenant user credentials:', tenantCredError);
+        await rollbackAll('tenant user credentials creation failed');
+        return res.status(500).json({ error: 'Failed to create login credentials' });
+      }
     }
 
     const { error: linkError } = await supabase

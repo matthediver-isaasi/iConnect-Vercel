@@ -1,14 +1,18 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Loader2, Building2, CheckCircle2, AlertCircle, Globe, Mail, User } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { SiGoogle } from "react-icons/si";
+import { Separator } from "@/components/ui/separator";
 
 export default function TenantSignup() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const [googleData, setGoogleData] = useState(null);
   const [formData, setFormData] = useState({
     tenantName: "",
     slug: "",
@@ -24,6 +28,43 @@ export default function TenantSignup() {
   const [createdTenant, setCreatedTenant] = useState(null);
   const [slugAvailable, setSlugAvailable] = useState(null);
   const [checkingSlug, setCheckingSlug] = useState(false);
+
+  useEffect(() => {
+    const oauthError = searchParams.get('error');
+    if (oauthError) {
+      const errorMessages = {
+        'oauth_denied': 'Google sign-up was cancelled',
+        'invalid_state': 'Sign-up session expired. Please try again.',
+        'csrf_error': 'Security check failed. Please try again.',
+        'missing_params': 'Sign-up was incomplete. Please try again.',
+        'callback_failed': 'Google sign-up failed. Please try again.'
+      };
+      setError(errorMessages[oauthError] || 'Sign-up failed. Please try again.');
+      window.history.replaceState({}, '', '/signup');
+    }
+    
+    if (searchParams.get('google') === 'true') {
+      fetch('/api/tenant/auth/google-signup/data', { credentials: 'include' })
+        .then(res => {
+          if (res.ok) return res.json();
+          throw new Error('Failed to fetch Google data');
+        })
+        .then(data => {
+          setGoogleData(data);
+          setFormData(prev => ({
+            ...prev,
+            adminEmail: data.email || '',
+            adminFirstName: data.firstName || '',
+            adminLastName: data.lastName || ''
+          }));
+        })
+        .catch(e => {
+          console.error('Failed to fetch Google data:', e);
+          setError('Failed to retrieve Google account information. Please try again.');
+        });
+      window.history.replaceState({}, '', '/signup');
+    }
+  }, [searchParams]);
 
   const generateSlug = (name) => {
     return name
@@ -69,14 +110,16 @@ export default function TenantSignup() {
     e.preventDefault();
     setError("");
 
-    if (formData.password.length < 8) {
-      setError("Password must be at least 8 characters");
-      return;
-    }
+    if (!googleData) {
+      if (formData.password.length < 8) {
+        setError("Password must be at least 8 characters");
+        return;
+      }
 
-    if (formData.password !== formData.confirmPassword) {
-      setError("Passwords do not match");
-      return;
+      if (formData.password !== formData.confirmPassword) {
+        setError("Passwords do not match");
+        return;
+      }
     }
 
     if (formData.slug.length < 3) {
@@ -87,17 +130,24 @@ export default function TenantSignup() {
     setLoading(true);
 
     try {
+      const payload = {
+        tenantName: formData.tenantName,
+        slug: formData.slug,
+        adminEmail: formData.adminEmail.toLowerCase().trim(),
+        adminFirstName: formData.adminFirstName,
+        adminLastName: formData.adminLastName
+      };
+
+      if (googleData) {
+        payload.googleId = googleData.googleId;
+      } else {
+        payload.password = formData.password;
+      }
+
       const response = await fetch('/api/functions/provision-tenant', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          tenantName: formData.tenantName,
-          slug: formData.slug,
-          adminEmail: formData.adminEmail.toLowerCase().trim(),
-          adminFirstName: formData.adminFirstName,
-          adminLastName: formData.adminLastName,
-          password: formData.password
-        })
+        body: JSON.stringify(payload)
       });
 
       const data = await response.json();
@@ -113,6 +163,10 @@ export default function TenantSignup() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleGoogleSignup = () => {
+    window.location.href = '/api/tenant/auth/google-signup';
   };
 
   if (success && createdTenant) {
@@ -175,6 +229,41 @@ export default function TenantSignup() {
               <Alert variant="destructive">
                 <AlertCircle className="h-4 w-4" />
                 <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
+
+            {!googleData && (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full"
+                  onClick={handleGoogleSignup}
+                  data-testid="button-google-signup"
+                >
+                  <SiGoogle className="mr-2 h-4 w-4" />
+                  Continue with Google
+                </Button>
+
+                <div className="relative">
+                  <div className="absolute inset-0 flex items-center">
+                    <Separator className="w-full" />
+                  </div>
+                  <div className="relative flex justify-center text-xs uppercase">
+                    <span className="bg-card px-2 text-muted-foreground">
+                      Or continue with email
+                    </span>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {googleData && (
+              <Alert>
+                <CheckCircle2 className="h-4 w-4 text-green-600" />
+                <AlertDescription>
+                  Signed in with Google as {googleData.email}
+                </AlertDescription>
               </Alert>
             )}
 
@@ -254,35 +343,41 @@ export default function TenantSignup() {
                 value={formData.adminEmail}
                 onChange={(e) => setFormData(prev => ({ ...prev, adminEmail: e.target.value }))}
                 required
+                readOnly={!!googleData}
+                className={googleData ? "bg-muted" : ""}
                 data-testid="input-email"
               />
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                placeholder="At least 8 characters"
-                value={formData.password}
-                onChange={(e) => setFormData(prev => ({ ...prev, password: e.target.value }))}
-                required
-                data-testid="input-password"
-              />
-            </div>
+            {!googleData && (
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="password">Password</Label>
+                  <Input
+                    id="password"
+                    type="password"
+                    placeholder="At least 8 characters"
+                    value={formData.password}
+                    onChange={(e) => setFormData(prev => ({ ...prev, password: e.target.value }))}
+                    required
+                    data-testid="input-password"
+                  />
+                </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="confirmPassword">Confirm Password</Label>
-              <Input
-                id="confirmPassword"
-                type="password"
-                placeholder="Confirm your password"
-                value={formData.confirmPassword}
-                onChange={(e) => setFormData(prev => ({ ...prev, confirmPassword: e.target.value }))}
-                required
-                data-testid="input-confirm-password"
-              />
-            </div>
+                <div className="space-y-2">
+                  <Label htmlFor="confirmPassword">Confirm Password</Label>
+                  <Input
+                    id="confirmPassword"
+                    type="password"
+                    placeholder="Confirm your password"
+                    value={formData.confirmPassword}
+                    onChange={(e) => setFormData(prev => ({ ...prev, confirmPassword: e.target.value }))}
+                    required
+                    data-testid="input-confirm-password"
+                  />
+                </div>
+              </>
+            )}
           </CardContent>
           <CardFooter className="flex flex-col gap-4">
             <Button 

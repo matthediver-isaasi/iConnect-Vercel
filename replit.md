@@ -60,10 +60,17 @@ Both authentication tiers support "Sign in with Google" as an alternative to pas
 - `GOOGLE_CLIENT_ID`: OAuth client ID from Google Cloud Console
 - `GOOGLE_CLIENT_SECRET`: OAuth client secret
 
+**Tenant Signup with Google:**
+- `/api/tenant/auth/google-signup`: Initiates OAuth flow for new tenant registration
+- `/api/tenant/auth/google-signup/callback`: Exchanges code, stores signed data in HttpOnly cookie
+- `/api/tenant/auth/google-signup/data`: API to retrieve Google profile data from signed cookie
+- Provisions tenant without password when using Google (google_id stored instead)
+- Deduplication: Checks both email and google_id to prevent duplicate tenant owners
+
 **Setup:**
 1. Run `scripts/migrations/add-google-oauth-columns.sql` in Supabase SQL Editor
 2. Configure Google OAuth credentials in Google Cloud Console
-3. Add redirect URIs: `https://iconn.app/api/tenant/auth/google/callback` and `https://*.iconn.app/api/auth/google/callback`
+3. Add redirect URIs: `https://iconn.app/api/tenant/auth/google/callback`, `https://iconn.app/api/tenant/auth/google-signup/callback`, and `https://*.iconn.app/api/auth/google/callback`
 4. Add `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` to Vercel environment variables
 
 ## Deployment Architecture
