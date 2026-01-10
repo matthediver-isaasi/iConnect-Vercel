@@ -48,6 +48,10 @@ ALTER TABLE tenant_identity ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tenant_membership ENABLE ROW LEVEL SECURITY;
 
 -- Step 5: RLS policies (allow service role full access)
+-- Drop existing policies first to make migration idempotent
+DROP POLICY IF EXISTS "Service role has full access to tenant_identity" ON tenant_identity;
+DROP POLICY IF EXISTS "Service role has full access to tenant_membership" ON tenant_membership;
+
 CREATE POLICY "Service role has full access to tenant_identity" ON tenant_identity
   FOR ALL USING (true) WITH CHECK (true);
 
