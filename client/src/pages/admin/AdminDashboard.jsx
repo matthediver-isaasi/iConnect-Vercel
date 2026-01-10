@@ -3,6 +3,14 @@ import { useNavigate, Link, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useToast } from "@/components/ui/use-toast";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { 
   Building2, 
   Settings, 
@@ -13,7 +21,10 @@ import {
   Loader2,
   ChevronRight,
   Palette,
-  ExternalLink
+  ExternalLink,
+  ChevronDown,
+  Check,
+  Plus
 } from "lucide-react";
 
 export default function AdminDashboard() {
@@ -24,6 +35,9 @@ export default function AdminDashboard() {
   const [portalLoading, setPortalLoading] = useState(false);
   const [tenantUser, setTenantUser] = useState(null);
   const [tenant, setTenant] = useState(null);
+  const [availableTenants, setAvailableTenants] = useState([]);
+  const [hasMultipleTenants, setHasMultipleTenants] = useState(false);
+  const [switchingTenant, setSwitchingTenant] = useState(false);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -34,6 +48,16 @@ export default function AdminDashboard() {
           if (data.authenticated && data.tenantUser) {
             setTenantUser(data.tenantUser);
             setTenant(data.tenant);
+            
+            // Check for multi-tenant info in localStorage
+            const savedAdmin = localStorage.getItem('saas_admin');
+            if (savedAdmin) {
+              const parsed = JSON.parse(savedAdmin);
+              if (parsed.hasMultipleTenants) {
+                setHasMultipleTenants(true);
+                fetchAvailableTenants();
+              }
+            }
           } else {
             navigate('/admin/login');
           }
@@ -48,6 +72,61 @@ export default function AdminDashboard() {
     };
     checkAuth();
   }, [navigate]);
+
+  const fetchAvailableTenants = async () => {
+    try {
+      const response = await fetch('/api/auth/tenant-list', { credentials: 'include' });
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.tenants?.length > 1) {
+          setAvailableTenants(data.tenants);
+          setHasMultipleTenants(true);
+        }
+      }
+    } catch (err) {
+      console.log('Failed to fetch tenant list:', err);
+    }
+  };
+
+  const handleSwitchTenant = async (tenantId) => {
+    if (tenantId === tenant?.id) return;
+    
+    setSwitchingTenant(true);
+    try {
+      const response = await fetch('/api/auth/tenant-switch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ tenantId })
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        localStorage.setItem('saas_admin', JSON.stringify({
+          tenantUser: data.tenantUser,
+          tenant: data.tenant,
+          hasMultipleTenants: true
+        }));
+        // Reload to refresh all data for new tenant
+        window.location.reload();
+      } else {
+        toast({
+          title: "Switch Failed",
+          description: data.error || "Failed to switch workspace",
+          variant: "destructive"
+        });
+      }
+    } catch (err) {
+      toast({
+        title: "Error",
+        description: "Failed to switch workspace",
+        variant: "destructive"
+      });
+    } finally {
+      setSwitchingTenant(false);
+    }
+  };
 
   const handleLogout = async () => {
     try {
@@ -146,17 +225,90 @@ export default function AdminDashboard() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center">
-                <Building2 className="h-5 w-5 text-primary" />
-              </div>
-              <div>
-                <h1 className="text-lg font-semibold text-white" data-testid="text-tenant-name">
-                  {tenant?.name || 'Tenant Admin'}
-                </h1>
-                <p className="text-xs text-slate-400" data-testid="text-tenant-domain">
-                  {tenant?.domain || tenant?.slug + '.iconn.app'}
-                </p>
-              </div>
+              {hasMultipleTenants && availableTenants.length > 1 ? (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button 
+                      className="flex items-center gap-3 hover:bg-slate-800 rounded-lg p-2 -m-2 transition-colors"
+                      disabled={switchingTenant}
+                      data-testid="button-tenant-switcher"
+                    >
+                      <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center">
+                        {tenant?.logo_url ? (
+                          <img src={tenant.logo_url} alt={tenant.name} className="w-8 h-8 rounded object-cover" />
+                        ) : (
+                          <Building2 className="h-5 w-5 text-primary" />
+                        )}
+                      </div>
+                      <div className="text-left">
+                        <h1 className="text-lg font-semibold text-white" data-testid="text-tenant-name">
+                          {tenant?.name || 'Tenant Admin'}
+                        </h1>
+                        <p className="text-xs text-slate-400" data-testid="text-tenant-domain">
+                          {tenant?.domain || tenant?.slug + '.iconn.app'}
+                        </p>
+                      </div>
+                      {switchingTenant ? (
+                        <Loader2 className="h-4 w-4 text-slate-400 animate-spin ml-1" />
+                      ) : (
+                        <ChevronDown className="h-4 w-4 text-slate-400 ml-1" />
+                      )}
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-64 bg-slate-800 border-slate-700">
+                    <DropdownMenuLabel className="text-slate-400 text-xs font-normal">
+                      Switch Workspace
+                    </DropdownMenuLabel>
+                    <DropdownMenuSeparator className="bg-slate-700" />
+                    {availableTenants.map((t) => (
+                      <DropdownMenuItem
+                        key={t.id}
+                        onClick={() => handleSwitchTenant(t.id)}
+                        className="flex items-center gap-3 cursor-pointer hover:bg-slate-700 focus:bg-slate-700"
+                        data-testid={`menu-item-tenant-${t.id}`}
+                      >
+                        <div className="w-8 h-8 bg-primary/10 rounded flex items-center justify-center flex-shrink-0">
+                          {t.logo_url ? (
+                            <img src={t.logo_url} alt={t.name} className="w-6 h-6 rounded object-cover" />
+                          ) : (
+                            <Building2 className="h-4 w-4 text-primary" />
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-white truncate">{t.name}</p>
+                          <p className="text-xs text-slate-400 capitalize">{t.role}</p>
+                        </div>
+                        {t.id === tenant?.id && (
+                          <Check className="h-4 w-4 text-primary" />
+                        )}
+                      </DropdownMenuItem>
+                    ))}
+                    <DropdownMenuSeparator className="bg-slate-700" />
+                    <DropdownMenuItem
+                      onClick={() => window.open('/signup', '_blank')}
+                      className="flex items-center gap-3 cursor-pointer hover:bg-slate-700 focus:bg-slate-700 text-slate-400"
+                      data-testid="menu-item-create-workspace"
+                    >
+                      <Plus className="h-4 w-4" />
+                      <span>Create New Workspace</span>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ) : (
+                <>
+                  <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center">
+                    <Building2 className="h-5 w-5 text-primary" />
+                  </div>
+                  <div>
+                    <h1 className="text-lg font-semibold text-white" data-testid="text-tenant-name">
+                      {tenant?.name || 'Tenant Admin'}
+                    </h1>
+                    <p className="text-xs text-slate-400" data-testid="text-tenant-domain">
+                      {tenant?.domain || tenant?.slug + '.iconn.app'}
+                    </p>
+                  </div>
+                </>
+              )}
             </div>
 
             <div className="flex items-center gap-4">

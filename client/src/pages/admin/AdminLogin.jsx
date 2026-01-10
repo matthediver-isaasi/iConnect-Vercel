@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
-import { Loader2, Lock, Eye, EyeOff, Building2 } from "lucide-react";
+import { Loader2, Lock, Eye, EyeOff, Building2, ChevronRight, Check } from "lucide-react";
 import { SiGoogle } from "react-icons/si";
 
 export default function AdminLogin() {
@@ -16,6 +16,9 @@ export default function AdminLogin() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [checkingAuth, setCheckingAuth] = useState(true);
+  const [showTenantSelection, setShowTenantSelection] = useState(false);
+  const [availableTenants, setAvailableTenants] = useState([]);
+  const [identity, setIdentity] = useState(null);
 
   useEffect(() => {
     const oauthError = searchParams.get('error');
@@ -60,19 +63,40 @@ export default function AdminLogin() {
     setLoading(true);
 
     try {
-      const response = await fetch('/api/auth/tenant-user-login', {
+      // Try new multi-tenant login first
+      let response = await fetch('/api/auth/tenant-identity-login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({ email: email.toLowerCase().trim(), password })
       });
 
+      // Fall back to legacy login if new endpoint not available
+      if (response.status === 404) {
+        response = await fetch('/api/auth/tenant-user-login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ email: email.toLowerCase().trim(), password })
+        });
+      }
+
       const data = await response.json();
 
       if (data.success) {
+        // Check if user needs to select a tenant
+        if (data.requiresTenantSelection && data.tenants?.length > 1) {
+          setIdentity(data.identity);
+          setAvailableTenants(data.tenants);
+          setShowTenantSelection(true);
+          setLoading(false);
+          return;
+        }
+
         localStorage.setItem('saas_admin', JSON.stringify({
           tenantUser: data.tenantUser,
-          tenant: data.tenant
+          tenant: data.tenant,
+          hasMultipleTenants: data.hasMultipleTenants
         }));
         navigate('/admin/dashboard');
       } else {
@@ -85,10 +109,119 @@ export default function AdminLogin() {
     }
   };
 
+  const handleTenantSelect = async (tenantId) => {
+    setLoading(true);
+    setError("");
+
+    try {
+      const response = await fetch('/api/auth/tenant-identity-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ 
+          email: email.toLowerCase().trim(), 
+          password,
+          tenantId 
+        })
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        localStorage.setItem('saas_admin', JSON.stringify({
+          tenantUser: data.tenantUser,
+          tenant: data.tenant,
+          hasMultipleTenants: true
+        }));
+        navigate('/admin/dashboard');
+      } else {
+        setError(data.error || "Failed to select workspace");
+      }
+    } catch (err) {
+      setError("An error occurred. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   if (checkingAuth) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  // Tenant selection screen
+  if (showTenantSelection && availableTenants.length > 0) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-4">
+        <Card className="w-full max-w-md shadow-2xl border-slate-700 bg-slate-800/50 backdrop-blur">
+          <CardHeader className="text-center space-y-4">
+            <div className="mx-auto w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center">
+              <Building2 className="h-8 w-8 text-primary" />
+            </div>
+            <div>
+              <CardTitle className="text-2xl font-bold text-white" data-testid="text-select-workspace-title">
+                Select Workspace
+              </CardTitle>
+              <CardDescription className="text-slate-400" data-testid="text-select-workspace-description">
+                Welcome back, {identity?.first_name || email}! Choose a workspace to continue.
+              </CardDescription>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {error && (
+              <div className="p-3 rounded-md bg-destructive/10 border border-destructive/20 text-destructive text-sm" data-testid="text-error">
+                {error}
+              </div>
+            )}
+            
+            {availableTenants.map((tenant) => (
+              <button
+                key={tenant.id}
+                onClick={() => handleTenantSelect(tenant.id)}
+                disabled={loading}
+                className="w-full p-4 rounded-lg border border-slate-600 bg-slate-900/50 hover:bg-slate-700/50 hover:border-slate-500 transition-all flex items-center gap-4 text-left group disabled:opacity-50"
+                data-testid={`button-select-tenant-${tenant.id}`}
+              >
+                <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
+                  {tenant.logo_url ? (
+                    <img src={tenant.logo_url} alt={tenant.name} className="w-8 h-8 rounded object-cover" />
+                  ) : (
+                    <Building2 className="h-5 w-5 text-primary" />
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-white truncate">{tenant.name}</span>
+                    {tenant.is_default && (
+                      <span className="text-xs px-1.5 py-0.5 rounded bg-primary/20 text-primary">Default</span>
+                    )}
+                  </div>
+                  <span className="text-sm text-slate-400 capitalize">{tenant.role}</span>
+                </div>
+                <ChevronRight className="h-5 w-5 text-slate-500 group-hover:text-slate-300 transition-colors" />
+              </button>
+            ))}
+
+            <div className="pt-4">
+              <Button
+                variant="ghost"
+                className="w-full text-slate-400 hover:text-slate-200"
+                onClick={() => {
+                  setShowTenantSelection(false);
+                  setAvailableTenants([]);
+                  setIdentity(null);
+                  setPassword("");
+                }}
+                data-testid="button-back-to-login"
+              >
+                Sign in with a different account
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     );
   }

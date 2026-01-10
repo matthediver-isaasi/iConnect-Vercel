@@ -255,17 +255,29 @@ export async function getSessionTenantUser(req) {
     return null;
   }
   
+  // SECURITY: Reject sessions without tenantId to prevent tenant isolation bypass
+  // This ensures pre-patch sessions that lack tenantId cannot access APIs
+  if (!session.data.tenantId) {
+    console.warn('[Session] SECURITY: Tenant user session missing tenantId, forcing re-authentication:', session.data.tenantUserId);
+    if (supabase) {
+      await supabase.from('session').delete().eq('sid', session.id);
+    }
+    return null;
+  }
+  
   if (!supabase) return null;
   
   try {
+    // Verify the user belongs to the tenant in their session (double-check isolation)
     const { data: tenantUser, error } = await supabase
       .from('tenant_user')
       .select('*, tenant:tenant_id(*)')
       .eq('id', session.data.tenantUserId)
+      .eq('tenant_id', session.data.tenantId) // SECURITY: Verify tenant match
       .single();
     
     if (error || !tenantUser) {
-      console.log('[Session] Tenant user not found in database, cleaning up stale session:', session.data.tenantUserId);
+      console.log('[Session] Tenant user not found in database or tenant mismatch, cleaning up stale session:', session.data.tenantUserId);
       await supabase.from('session').delete().eq('sid', session.id);
       return null;
     }
@@ -275,6 +287,10 @@ export async function getSessionTenantUser(req) {
       await supabase.from('session').delete().eq('sid', session.id);
       return null;
     }
+    
+    // Attach session metadata to the tenant user for downstream use
+    tenantUser._sessionTenantId = session.data.tenantId;
+    tenantUser._sessionIdentityId = session.data.identityId;
     
     return tenantUser;
   } catch (err) {

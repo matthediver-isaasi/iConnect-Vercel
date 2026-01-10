@@ -6,13 +6,13 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { tenantName, slug, adminEmail, adminFirstName, adminLastName, password, googleId } = req.body;
+  const { tenantName, slug, adminEmail, adminFirstName, adminLastName, password, googleId, linkExistingAccount } = req.body;
 
   if (!tenantName || !slug || !adminEmail || !adminFirstName || !adminLastName) {
     return res.status(400).json({ error: 'All fields are required' });
   }
 
-  if (!password && !googleId) {
+  if (!password && !googleId && !linkExistingAccount) {
     return res.status(400).json({ error: 'Either password or Google authentication is required' });
   }
 
@@ -40,11 +40,20 @@ export default async function handler(req, res) {
   let memberId = null;
   let adminRoleId = null;
   let memberRoleId = null;
+  let identityId = null;
+  let membershipId = null;
+  let existingIdentity = null;
 
   async function rollbackAll(reason) {
     console.error(`[Provision Tenant] Rolling back due to: ${reason}`);
     
     try {
+      if (membershipId) {
+        await supabase.from('tenant_membership').delete().eq('id', membershipId);
+      }
+      if (identityId && !existingIdentity) {
+        await supabase.from('tenant_identity').delete().eq('id', identityId);
+      }
       if (memberId) {
         await supabase.from('member_credentials').delete().eq('member_id', memberId);
         await supabase.from('member').delete().eq('id', memberId);
@@ -81,27 +90,62 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'This subdomain is already taken' });
     }
 
-    // Check if this email already exists as a tenant_user (globally unique for tenant owners)
-    const { data: existingTenantUser } = await supabase
-      .from('tenant_user')
-      .select('id')
+    // Check for existing identity (supports multi-tenant ownership)
+    const { data: foundIdentity } = await supabase
+      .from('tenant_identity')
+      .select('*')
       .eq('email', adminEmail.toLowerCase())
       .single();
 
-    if (existingTenantUser) {
-      return res.status(400).json({ error: 'An account with this email already exists as a tenant owner' });
+    existingIdentity = foundIdentity;
+
+    // If identity exists but linkExistingAccount is not set, check if we should prompt
+    if (existingIdentity && !linkExistingAccount) {
+      // Return a response indicating the user can link to existing account
+      return res.status(409).json({ 
+        error: 'An account with this email already exists',
+        existingAccount: true,
+        canLinkAccount: true,
+        message: 'You already have an account with this email. Would you like to add this new workspace to your existing account?'
+      });
     }
 
-    // Check if this Google ID is already linked to another tenant_user
-    if (googleId) {
-      const { data: existingGoogleUser } = await supabase
+    // If no identity exists, check legacy tables
+    if (!existingIdentity) {
+      const { data: existingTenantUser } = await supabase
         .from('tenant_user')
+        .select('id')
+        .eq('email', adminEmail.toLowerCase())
+        .single();
+
+      if (existingTenantUser) {
+        return res.status(400).json({ 
+          error: 'An account with this email already exists. Please run the database migration to enable multi-tenant support.',
+          needsMigration: true
+        });
+      }
+    }
+
+    // Check if this Google ID is already linked
+    if (googleId && !existingIdentity) {
+      const { data: existingGoogleIdentity } = await supabase
+        .from('tenant_identity')
         .select('id')
         .eq('google_id', googleId)
         .single();
 
-      if (existingGoogleUser) {
-        return res.status(400).json({ error: 'This Google account is already linked to another tenant' });
+      if (existingGoogleIdentity) {
+        existingIdentity = existingGoogleIdentity;
+      } else {
+        const { data: existingGoogleUser } = await supabase
+          .from('tenant_user')
+          .select('id')
+          .eq('google_id', googleId)
+          .single();
+
+        if (existingGoogleUser) {
+          return res.status(400).json({ error: 'This Google account is already linked to another tenant' });
+        }
       }
     }
 
@@ -233,6 +277,58 @@ export default async function handler(req, res) {
 
     const passwordHash = password ? await bcrypt.hash(password, 10) : null;
 
+    // Create or use existing tenant_identity (new multi-tenant system)
+    let identity = existingIdentity;
+    if (!identity) {
+      const identityInsert = {
+        email: adminEmail.toLowerCase(),
+        first_name: adminFirstName,
+        last_name: adminLastName,
+        password_hash: passwordHash
+      };
+      if (googleId) {
+        identityInsert.google_id = googleId;
+      }
+
+      const { data: newIdentity, error: identityError } = await supabase
+        .from('tenant_identity')
+        .insert(identityInsert)
+        .select()
+        .single();
+
+      if (identityError) {
+        console.error('[Provision Tenant] Error creating tenant identity:', identityError);
+        // Fall through to legacy flow if new tables don't exist yet
+      } else {
+        identity = newIdentity;
+        identityId = newIdentity.id;
+      }
+    } else {
+      identityId = identity.id;
+    }
+
+    // Create tenant_membership linking identity to tenant
+    if (identity) {
+      const { data: membership, error: membershipError } = await supabase
+        .from('tenant_membership')
+        .insert({
+          identity_id: identity.id,
+          tenant_id: tenant.id,
+          role: 'owner',
+          status: 'active',
+          is_default: !existingIdentity // First tenant is default
+        })
+        .select()
+        .single();
+
+      if (membershipError) {
+        console.error('[Provision Tenant] Error creating tenant membership:', membershipError);
+        // Fall through to legacy flow
+      } else {
+        membershipId = membership.id;
+      }
+    }
+
     const memberInsert = {
       first_name: adminFirstName,
       last_name: adminLastName,
@@ -277,6 +373,7 @@ export default async function handler(req, res) {
       }
     }
 
+    // Create legacy tenant_user (for backwards compatibility during transition)
     const tenantUserInsert = {
       tenant_id: tenant.id,
       email: adminEmail.toLowerCase(),
@@ -287,6 +384,9 @@ export default async function handler(req, res) {
     };
     if (googleId) {
       tenantUserInsert.google_id = googleId;
+    }
+    if (identityId) {
+      tenantUserInsert.identity_id = identityId;
     }
 
     const { data: tenantUser, error: tenantUserError } = await supabase
@@ -302,7 +402,8 @@ export default async function handler(req, res) {
     }
     tenantUserId = tenantUser.id;
 
-    if (passwordHash) {
+    // Only create credentials if identity wasn't used (legacy path)
+    if (passwordHash && !identityId) {
       const { error: tenantCredError } = await supabase
         .from('tenant_user_credentials')
         .insert({
