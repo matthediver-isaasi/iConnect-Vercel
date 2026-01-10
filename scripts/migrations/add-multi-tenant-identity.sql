@@ -151,6 +151,10 @@ AND tu.google_id IS NOT NULL
 AND tu.identity_id IS NULL;
 
 -- Step 8: Create trigger to keep updated_at current
+-- Drop existing triggers first to make migration idempotent
+DROP TRIGGER IF EXISTS trigger_tenant_identity_updated_at ON tenant_identity;
+DROP TRIGGER IF EXISTS trigger_tenant_membership_updated_at ON tenant_membership;
+
 CREATE OR REPLACE FUNCTION update_tenant_identity_updated_at()
 RETURNS TRIGGER AS $$
 BEGIN
