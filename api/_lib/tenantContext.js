@@ -116,6 +116,8 @@ export const entityTenantScope = {
   'IEditPage': TENANT_SCOPE.TENANT,
   'IEditPageElement': TENANT_SCOPE.TENANT,
   'GuestWriter': TENANT_SCOPE.TENANT,
+  'FormDueDiligenceConfig': TENANT_SCOPE.TENANT,
+  'FormSubmissionDueDiligence': TENANT_SCOPE.TENANT,
   
   // ORGANIZATION - Per-organization within a tenant (uses organization_id)
   'Member': TENANT_SCOPE.ORGANIZATION,

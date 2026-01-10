@@ -85,6 +85,8 @@ const entityToTable = {
   'WorkflowLog': 'workflow_log',
   'RoleAccessItem': 'role_access_item',
   'RedirectMapping': 'redirect_mapping',
+  'FormDueDiligenceConfig': 'form_due_diligence_config',
+  'FormSubmissionDueDiligence': 'form_submission_due_diligence',
 };
 
 const getTableName = (entity) => entityToTable[entity] || entity.toLowerCase().replace(/([A-Z])/g, '_$1').toLowerCase().replace(/^_/, '');

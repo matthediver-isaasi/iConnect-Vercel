@@ -289,3 +289,107 @@ export const insertPlatformOwnerSessionSchema = createInsertSchema(platformOwner
 
 export type InsertPlatformOwnerSession = z.infer<typeof insertPlatformOwnerSessionSchema>;
 export type PlatformOwnerSession = typeof platformOwnerSession.$inferSelect;
+
+// Form Due Diligence Configuration - extends Form with due diligence settings
+export const formDueDiligenceConfig = pgTable("form_due_diligence_config", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  form_id: varchar("form_id").notNull().unique(), // References form.id
+  tenant_id: varchar("tenant_id").notNull(), // Tenant isolation
+  
+  // Scoring configuration
+  scoring_approach: varchar("scoring_approach", { length: 50 }).default('dynamic'), // 'dynamic' or 'static_traffic_light'
+  scoring_rules: jsonb("scoring_rules").default({}), // { rules: [], risk_thresholds: {} }
+  static_questions: jsonb("static_questions").default([]), // Traffic light questions array
+  custom_risk_levels: jsonb("custom_risk_levels").default([]), // [{ name, threshold, color }]
+  
+  // Review configuration
+  default_review_state: varchar("default_review_state", { length: 50 }).default('amended'), // 'amended' or 'approved'
+  
+  // Workflow configuration
+  workflow_stages: jsonb("workflow_stages").default([]), // [{ id, label, color, is_initial, order, selection_conditions }]
+  status_change_webhooks: jsonb("status_change_webhooks").default([]), // Webhook configurations
+  
+  // CRM integration config
+  crm_attachment_config: jsonb("crm_attachment_config").default({}), // { enabled, module_name, crm_lookup_field, etc. }
+  crm_logo_upload_config: jsonb("crm_logo_upload_config").default({}), // Logo upload settings
+  
+  // Field mappings for applicant info extraction
+  applicant_name_field: text("applicant_name_field"),
+  applicant_email_field: text("applicant_email_field"),
+  applicant_organization_name_field: text("applicant_organization_name_field"),
+  
+  is_active: boolean("is_active").default(true),
+  created_at: timestamp("created_at").defaultNow(),
+  updated_at: timestamp("updated_at").defaultNow(),
+});
+
+export const insertFormDueDiligenceConfigSchema = createInsertSchema(formDueDiligenceConfig).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertFormDueDiligenceConfig = z.infer<typeof insertFormDueDiligenceConfigSchema>;
+export type FormDueDiligenceConfig = typeof formDueDiligenceConfig.$inferSelect;
+
+// Form Submission Due Diligence - extends FormSubmission with review data
+export const formSubmissionDueDiligence = pgTable("form_submission_due_diligence", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  form_submission_id: varchar("form_submission_id").notNull().unique(), // References form_submission.id
+  tenant_id: varchar("tenant_id").notNull(), // Tenant isolation
+  
+  // Application tracking
+  application_uid: varchar("application_uid", { length: 255 }), // Unique application identifier
+  
+  // Review data
+  original_form_values: jsonb("original_form_values").default({}), // Unmodified original values
+  reviewed_form_values: jsonb("reviewed_form_values").default({}), // Amended values during review
+  field_review_status: jsonb("field_review_status").default({}), // { field_name: 'approved'|'amended'|'pending' }
+  field_notes: jsonb("field_notes").default({}), // Per-field review notes
+  
+  // Static question responses (traffic light scoring)
+  static_question_responses: jsonb("static_question_responses").default({}), // { question_id: 'green'|'amber'|'red' }
+  static_question_notes: jsonb("static_question_notes").default({}), // { question_id: note }
+  
+  // Workflow status
+  workflow_status: varchar("workflow_status", { length: 100 }).default('new'), // Current stage id
+  
+  // Scoring
+  due_diligence_score: integer("due_diligence_score"), // 0-100 calculated score
+  risk_level: varchar("risk_level", { length: 50 }), // 'low', 'medium', 'high', 'critical' or custom
+  
+  // DD call tracking
+  dd_call_date: timestamp("dd_call_date"),
+  
+  // Internal notes
+  notes: text("notes"), // Rich text notes from DD calls
+  
+  // Signature tracking
+  agreements_status: jsonb("agreements_status").default([]), // [{ signature_field_name, is_signed, signed_date, etc. }]
+  
+  // CRM attachment tracking
+  crm_attachments_status: jsonb("crm_attachments_status").default([]), // [{ attachment_id, file_name, is_approved, etc. }]
+  
+  // Webhook reminder tracking
+  status_webhook_reminders_status: jsonb("status_webhook_reminders_status").default([]),
+  sent_webhook_messages: jsonb("sent_webhook_messages").default([]),
+  
+  // Audit history
+  history_log: jsonb("history_log").default([]), // [{ timestamp, event_type, user_email, details }]
+  
+  // Review metadata
+  reviewed_by: varchar("reviewed_by", { length: 255 }), // Email of reviewer
+  reviewed_date: timestamp("reviewed_date"),
+  
+  created_at: timestamp("created_at").defaultNow(),
+  updated_at: timestamp("updated_at").defaultNow(),
+});
+
+export const insertFormSubmissionDueDiligenceSchema = createInsertSchema(formSubmissionDueDiligence).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertFormSubmissionDueDiligence = z.infer<typeof insertFormSubmissionDueDiligenceSchema>;
+export type FormSubmissionDueDiligence = typeof formSubmissionDueDiligence.$inferSelect;
