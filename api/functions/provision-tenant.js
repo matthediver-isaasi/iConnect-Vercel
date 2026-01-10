@@ -338,7 +338,9 @@ export default async function handler(req, res) {
       login_enabled: true,
       status: 'active'
     };
-    if (googleId) {
+    // Only set google_id if this is a NEW identity (not linking to existing)
+    // Legacy tables have unique constraints on google_id
+    if (googleId && !existingIdentity) {
       memberInsert.google_id = googleId;
     }
 
@@ -382,7 +384,9 @@ export default async function handler(req, res) {
       role: 'owner',
       status: 'active'
     };
-    if (googleId) {
+    // Only set google_id if this is a NEW identity (not linking to existing)
+    // Legacy tables have unique constraints on google_id
+    if (googleId && !existingIdentity) {
       tenantUserInsert.google_id = googleId;
     }
     if (identityId) {
