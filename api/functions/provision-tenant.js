@@ -2,11 +2,14 @@ import { supabase } from '../_lib/database.js';
 import bcrypt from 'bcryptjs';
 
 export default async function handler(req, res) {
+  console.log('[Provision Tenant] Handler invoked - version: multi-tenant-v2');
+  
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
   const { tenantName, slug, adminEmail, adminFirstName, adminLastName, password, googleId, linkExistingAccount } = req.body;
+  console.log('[Provision Tenant] Request body:', { tenantName, slug, adminEmail, googleId: !!googleId, linkExistingAccount });
 
   if (!tenantName || !slug || !adminEmail || !adminFirstName || !adminLastName) {
     return res.status(400).json({ error: 'All fields are required' });
