@@ -381,6 +381,26 @@ export const ROLE_ACCESS_MAP: Module[] = [
       {
         id: "forms.settings",
         label: "Form Settings"
+      },
+      {
+        id: "forms.due-diligence-dashboard",
+        label: "Due Diligence Dashboard",
+        features: [
+          { id: "forms.due-diligence-dashboard.view-submissions", label: "View Submissions" },
+          { id: "forms.due-diligence-dashboard.review-submissions", label: "Review Submissions" }
+        ]
+      },
+      {
+        id: "forms.due-diligence-config",
+        label: "Due Diligence Configuration",
+        features: [
+          { id: "forms.due-diligence-config.edit-scoring", label: "Edit Scoring Rules" },
+          { id: "forms.due-diligence-config.edit-workflow", label: "Edit Workflow Stages" }
+        ]
+      },
+      {
+        id: "forms.review-submission",
+        label: "Review Submission"
       }
     ]
   },
@@ -797,7 +817,13 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_AdminSetup": "system.admin-setup",
   "page_admin_AdminSetup": "system.admin-setup",
   "page_RoleAccessConfigManagement": "system.role-access-config",
-  "page_admin_RoleAccessConfigManagement": "system.role-access-config"
+  "page_admin_RoleAccessConfigManagement": "system.role-access-config",
+  "page_DueDiligenceDashboard": "forms.due-diligence-dashboard",
+  "page_DueDiligenceConfig": "forms.due-diligence-config",
+  "page_ReviewSubmission": "forms.review-submission",
+  "page_admin_DueDiligenceDashboard": "forms.due-diligence-dashboard",
+  "page_admin_DueDiligenceConfig": "forms.due-diligence-config",
+  "page_admin_ReviewSubmission": "forms.review-submission"
 };
 
 export function migrateLegacyFeatureId(legacyId: string): string {
