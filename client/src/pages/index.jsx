@@ -255,6 +255,10 @@ import SaasLanding from "./admin/SaasLanding";
 import PlatformLogin from "./platform/PlatformLogin";
 import PlatformAdmin from "./platform/PlatformAdmin";
 
+import DueDiligenceDashboard from "./DueDiligenceDashboard";
+import DueDiligenceConfig from "./DueDiligenceConfig";
+import ReviewSubmission from "./ReviewSubmission";
+
 import { useEffect, useRef } from 'react';
 import { BrowserRouter as Router, Route, Routes, useLocation } from 'react-router-dom';
 import { LayoutProvider } from '@/contexts/LayoutContext';
@@ -728,6 +732,10 @@ function PagesContent() {
                 <Route path="/FormSubmissions" element={<FormSubmissions />} />
                 
                 <Route path="/FormSettings" element={<FormSettings />} />
+                
+                <Route path="/DueDiligenceDashboard" element={<DueDiligenceDashboard />} />
+                <Route path="/DueDiligenceConfig" element={<DueDiligenceConfig />} />
+                <Route path="/ReviewSubmission" element={<ReviewSubmission />} />
                 
                 <Route path="/NewsEditor" element={<NewsEditor />} />
                 

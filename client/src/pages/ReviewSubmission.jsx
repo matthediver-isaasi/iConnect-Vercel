@@ -19,7 +19,23 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 import { cn } from "@/lib/utils";
 import { format } from 'date-fns';
-import { apiRequest } from "@/lib/queryClient";
+async function apiRequest(method, url, body = null) {
+  const options = {
+    method,
+    credentials: 'include',
+    headers: {}
+  };
+  if (body) {
+    options.headers['Content-Type'] = 'application/json';
+    options.body = JSON.stringify(body);
+  }
+  const response = await fetch(url, options);
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Request failed' }));
+    throw new Error(error.error || 'Request failed');
+  }
+  return response.json();
+}
 
 const DEFAULT_WORKFLOW_STAGES = [
   { id: "new", label: "New", color: "#f97316", is_initial: true, order: 0 },
@@ -495,7 +511,7 @@ export default function ReviewSubmissionPage() {
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-6 space-y-6">
       <div className="flex items-center justify-between gap-4 bg-white/80 backdrop-blur-sm rounded-xl p-4 shadow-lg">
         <div className="flex items-center gap-4">
-          <Button variant="outline" onClick={() => navigate('/admin/DueDiligenceDashboard')} data-testid="button-back">
+          <Button variant="outline" onClick={() => navigate('/DueDiligenceDashboard')} data-testid="button-back">
             <ArrowLeft className="w-4 h-4 mr-2" />
             Back
           </Button>

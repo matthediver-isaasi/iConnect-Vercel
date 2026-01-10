@@ -11,8 +11,25 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Search, Filter, RefreshCw, FileText, TrendingUp, AlertTriangle, CheckCircle, Clock, Loader2, Settings } from "lucide-react";
 import { format } from 'date-fns';
 import { useMemberAccess } from "@/hooks/useMemberAccess";
-import { apiRequest } from "@/lib/queryClient";
 import { base44 } from "@/api/base44Client";
+
+async function apiRequest(method, url, body = null) {
+  const options = {
+    method,
+    credentials: 'include',
+    headers: {}
+  };
+  if (body) {
+    options.headers['Content-Type'] = 'application/json';
+    options.body = JSON.stringify(body);
+  }
+  const response = await fetch(url, options);
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Request failed' }));
+    throw new Error(error.error || 'Request failed');
+  }
+  return response.json();
+}
 
 const DEFAULT_WORKFLOW_STAGES = [
   { id: "new", label: "New", color: "#f97316" },
@@ -192,7 +209,7 @@ export default function DueDiligenceDashboardPage() {
   const riskLevels = DEFAULT_RISK_LEVELS;
 
   const handleRowClick = (submissionId) => {
-    navigate(`/admin/ReviewSubmission?id=${submissionId}`);
+    navigate(`/ReviewSubmission?id=${submissionId}`);
   };
 
   if (!isAccessReady || formsLoading) {
@@ -376,7 +393,7 @@ export default function DueDiligenceDashboardPage() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          onClick={() => navigate(`/admin/DueDiligenceConfig?formId=${form.id}`)}
+                          onClick={() => navigate(`/DueDiligenceConfig?formId=${form.id}`)}
                           data-testid={`button-config-${form.id}`}
                         >
                           <Settings className="w-4 h-4" />
