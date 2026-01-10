@@ -22,10 +22,11 @@ CREATE TABLE IF NOT EXISTS tenant_identity (
 );
 
 -- Step 2: Create tenant_membership table (links identities to tenants)
+-- Note: tenant_id uses UUID to match the tenant table's id column type
 CREATE TABLE IF NOT EXISTS tenant_membership (
   id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid()::text,
   identity_id VARCHAR NOT NULL REFERENCES tenant_identity(id) ON DELETE CASCADE,
-  tenant_id VARCHAR NOT NULL REFERENCES tenant(id) ON DELETE CASCADE,
+  tenant_id UUID NOT NULL REFERENCES tenant(id) ON DELETE CASCADE,
   role VARCHAR DEFAULT 'owner',  -- owner, admin, billing, viewer
   status VARCHAR DEFAULT 'active',
   is_default BOOLEAN DEFAULT false, -- Default tenant for this user
