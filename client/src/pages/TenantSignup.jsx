@@ -28,6 +28,8 @@ export default function TenantSignup() {
   const [createdTenant, setCreatedTenant] = useState(null);
   const [slugAvailable, setSlugAvailable] = useState(null);
   const [checkingSlug, setCheckingSlug] = useState(false);
+  const [showLinkAccountOption, setShowLinkAccountOption] = useState(false);
+  const [linkingAccount, setLinkingAccount] = useState(false);
 
   useEffect(() => {
     const oauthError = searchParams.get('error');
@@ -155,6 +157,10 @@ export default function TenantSignup() {
       if (data.success) {
         setSuccess(true);
         setCreatedTenant(data.tenant);
+      } else if (response.status === 409 && data.canLinkAccount) {
+        // Existing account found - offer to link
+        setShowLinkAccountOption(true);
+        setError("");
       } else {
         setError(data.error || "Failed to create account. Please try again.");
       }
@@ -162,6 +168,49 @@ export default function TenantSignup() {
       setError("An error occurred. Please try again.");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleLinkAccount = async () => {
+    setLinkingAccount(true);
+    setError("");
+
+    try {
+      const payload = {
+        tenantName: formData.tenantName,
+        slug: formData.slug,
+        adminEmail: formData.adminEmail.toLowerCase().trim(),
+        adminFirstName: formData.adminFirstName,
+        adminLastName: formData.adminLastName,
+        linkExistingAccount: true
+      };
+
+      if (googleData) {
+        payload.googleId = googleData.googleId;
+      } else {
+        payload.password = formData.password;
+      }
+
+      const response = await fetch('/api/functions/provision-tenant', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        setSuccess(true);
+        setCreatedTenant(data.tenant);
+      } else {
+        setError(data.error || "Failed to link account. Please try again.");
+        setShowLinkAccountOption(false);
+      }
+    } catch (err) {
+      setError("An error occurred. Please try again.");
+      setShowLinkAccountOption(false);
+    } finally {
+      setLinkingAccount(false);
     }
   };
 
@@ -229,6 +278,51 @@ export default function TenantSignup() {
               <Alert variant="destructive">
                 <AlertCircle className="h-4 w-4" />
                 <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
+
+            {showLinkAccountOption && (
+              <Alert className="border-primary bg-primary/5">
+                <User className="h-4 w-4 text-primary" />
+                <AlertDescription className="space-y-3">
+                  <p>
+                    <strong>You already have an account!</strong>
+                  </p>
+                  <p className="text-muted-foreground">
+                    An account with <strong>{formData.adminEmail}</strong> already exists. 
+                    Would you like to add this new workspace to your existing account?
+                  </p>
+                  <div className="flex gap-2 pt-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={handleLinkAccount}
+                      disabled={linkingAccount}
+                      data-testid="button-link-account"
+                    >
+                      {linkingAccount ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Linking...
+                        </>
+                      ) : (
+                        "Yes, Add Workspace"
+                      )}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setShowLinkAccountOption(false);
+                        setFormData(prev => ({ ...prev, adminEmail: "" }));
+                      }}
+                      data-testid="button-use-different-email"
+                    >
+                      Use Different Email
+                    </Button>
+                  </div>
+                </AlertDescription>
               </Alert>
             )}
 
@@ -383,7 +477,7 @@ export default function TenantSignup() {
             <Button 
               type="submit" 
               className="w-full" 
-              disabled={loading || slugAvailable === false}
+              disabled={loading || slugAvailable === false || showLinkAccountOption}
               data-testid="button-create-workspace"
             >
               {loading ? (
