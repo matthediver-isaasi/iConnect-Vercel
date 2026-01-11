@@ -37,6 +37,13 @@ export default async function handler(req, res) {
     // Get identity ID from session - different sources depending on session type
     let identityId = session.identityId;
     
+    console.log('[Tenant List] Session:', { 
+      userType: session.userType, 
+      identityId: session.identityId,
+      tenantUserId: session.tenantUserId,
+      tenantId: session.tenantId 
+    });
+    
     if (!identityId && isMember && session.memberId) {
       // For member sessions, look up identity from member record
       const { data: memberData } = await supabase
@@ -51,6 +58,8 @@ export default async function handler(req, res) {
       identityId = session.tenantUserId;
     }
 
+    console.log('[Tenant List] Using identityId:', identityId);
+
     const currentTenantId = session.tenantId;
 
     const { data: memberships, error: membershipError } = await supabase
@@ -60,6 +69,12 @@ export default async function handler(req, res) {
       .eq('status', 'active')
       .order('is_default', { ascending: false })
       .order('last_accessed', { ascending: false, nullsFirst: false });
+
+    console.log('[Tenant List] Memberships query result:', { 
+      count: memberships?.length || 0, 
+      error: membershipError,
+      identityId 
+    });
 
     if (membershipError) {
       const { data: legacyUsers, error: legacyError } = await supabase
