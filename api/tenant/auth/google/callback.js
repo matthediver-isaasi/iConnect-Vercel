@@ -117,6 +117,64 @@ export default async function handler(req, res) {
 
     console.log('[Tenant Google OAuth Callback] Google user:', { googleId, email, name });
 
+    // First, look up or create tenant_identity for unified identity system
+    let identity = null;
+    
+    // Look up by google_id first (most reliable)
+    const { data: identityByGoogle } = await supabase
+      .from('tenant_identity')
+      .select('*')
+      .eq('google_id', googleId)
+      .single();
+
+    if (identityByGoogle) {
+      identity = identityByGoogle;
+    } else {
+      // Look up by email if no google_id match
+      const { data: identityByEmail } = await supabase
+        .from('tenant_identity')
+        .select('*')
+        .eq('email', email.toLowerCase())
+        .single();
+
+      if (identityByEmail) {
+        identity = identityByEmail;
+        // Link google_id to this identity
+        await supabase
+          .from('tenant_identity')
+          .update({ google_id: googleId })
+          .eq('id', identityByEmail.id);
+        console.log('[Tenant Google OAuth Callback] Linked Google ID to existing identity:', identityByEmail.id);
+      }
+    }
+
+    // If no identity exists, create one for the unified system
+    if (!identity) {
+      const nameParts = (name || '').split(' ');
+      const firstName = nameParts[0] || '';
+      const lastName = nameParts.slice(1).join(' ') || '';
+      
+      const { data: newIdentity, error: createError } = await supabase
+        .from('tenant_identity')
+        .insert({
+          email: email.toLowerCase(),
+          first_name: firstName,
+          last_name: lastName,
+          google_id: googleId
+        })
+        .select()
+        .single();
+
+      if (!createError && newIdentity) {
+        identity = newIdentity;
+        console.log('[Tenant Google OAuth Callback] Created new identity:', newIdentity.id);
+      } else {
+        console.error('[Tenant Google OAuth Callback] Failed to create identity:', createError);
+      }
+    }
+
+    console.log('[Tenant Google OAuth Callback] Identity:', { identityId: identity?.id, email });
+
     let { data: tenantUser, error: tenantUserError } = await supabase
       .from('tenant_user')
       .select('*, tenant:tenant_id(*)')
@@ -158,6 +216,15 @@ export default async function handler(req, res) {
       return res.redirect('/admin/login?error=account_inactive');
     }
 
+    // Link tenant_user to identity if not already linked
+    if (identity && !tenantUser.identity_id) {
+      await supabase
+        .from('tenant_user')
+        .update({ identity_id: identity.id })
+        .eq('id', tenantUser.id);
+      console.log('[Tenant Google OAuth Callback] Linked tenant_user to identity:', identity.id);
+    }
+
     await supabase
       .from('tenant_user_credentials')
       .update({ last_login: new Date().toISOString() })
@@ -167,11 +234,15 @@ export default async function handler(req, res) {
       tenantUserId: tenantUser.id,
       tenantUserEmail: tenantUser.email,
       tenantId: tenantUser.tenant_id,
+      identityId: identity?.id || tenantUser.identity_id,
       userType: 'tenant_user'
     });
 
+    console.log('[Tenant Google OAuth Callback] Session created with identityId:', identity?.id || tenantUser.identity_id);
+
     const redirectUrl = returnTo || '/admin/dashboard';
     
+    const identityIdForStorage = identity?.id || tenantUser.identity_id || '';
     const html = `
       <!DOCTYPE html>
       <html>
@@ -186,7 +257,9 @@ export default async function handler(req, res) {
                 last_name: '${tenantUser.last_name || ''}',
                 role: '${tenantUser.role || ''}'
               },
-              tenant: ${JSON.stringify(tenantUser.tenant)}
+              tenant: ${JSON.stringify(tenantUser.tenant)},
+              identityId: '${identityIdForStorage}',
+              hasMultipleTenants: true
             }));
             window.location.href = '${redirectUrl}';
           </script>

@@ -76,14 +76,26 @@ export default async function handler(req, res) {
       identityId 
     });
 
-    if (membershipError) {
-      const { data: legacyUsers, error: legacyError } = await supabase
-        .from('tenant_user')
-        .select('*, tenant:tenant_id(*)')
-        .eq('identity_id', identityId)
-        .eq('status', 'active');
+    // If tenant_membership has no results or errors, fall back to tenant_user table
+    if (membershipError || !memberships?.length) {
+      console.log('[Tenant List] Falling back to tenant_user table');
+      
+      // Only fall back by identity_id (secure linkage), not email
+      let legacyUsers = [];
+      if (identityId) {
+        const { data: usersByIdentity } = await supabase
+          .from('tenant_user')
+          .select('*, tenant:tenant_id(*)')
+          .eq('identity_id', identityId)
+          .eq('status', 'active');
+        if (usersByIdentity?.length) {
+          legacyUsers = usersByIdentity;
+        }
+      }
 
-      if (legacyError || !legacyUsers?.length) {
+      console.log('[Tenant List] Legacy users found by identity:', legacyUsers.length);
+
+      if (!legacyUsers?.length) {
         return res.json({
           success: true,
           tenants: [],
@@ -99,6 +111,7 @@ export default async function handler(req, res) {
           slug: u.tenant?.slug,
           logo_url: u.tenant?.logo_url,
           role: u.role,
+          membership_type: 'owner',
           is_current: u.tenant_id === currentTenantId
         })),
         currentTenantId
