@@ -10,7 +10,7 @@
  * - MEMBER: Individual people associated with organizations
  */
 
-import { getSessionMember } from './session.js';
+import { getSessionMember, getSessionTenantUser } from './session.js';
 import { supabase } from './database.js';
 
 /**
@@ -153,8 +153,6 @@ export function getEntityTenantScope(entity) {
  * @returns {Promise<{tenantId: string|null, organizationId: string|null, memberId: string|null, isAuthenticated: boolean, isSuperAdmin: boolean, tenantFromHost: object|null}>}
  */
 export async function getTenantContext(req) {
-  const member = await getSessionMember(req);
-  
   // Try hostname-based tenant resolution for public access
   let tenantFromHost = null;
   try {
@@ -163,6 +161,23 @@ export async function getTenantContext(req) {
   } catch (err) {
     // Tenant resolver may not be available in all contexts
   }
+
+  // Check for tenant_user session first (admin dashboard users)
+  const tenantUser = await getSessionTenantUser(req);
+  if (tenantUser) {
+    return {
+      tenantId: tenantUser._sessionTenantId || tenantUser.tenant_id,
+      organizationId: null, // Tenant users aren't members of organizations
+      memberId: null,
+      tenantUserId: tenantUser.id,
+      isAuthenticated: true,
+      isSuperAdmin: tenantUser.role === 'super_admin',
+      tenantFromHost,
+    };
+  }
+  
+  // Check for member session (portal users)
+  const member = await getSessionMember(req);
   
   if (!member) {
     return {

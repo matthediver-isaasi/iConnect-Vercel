@@ -193,6 +193,9 @@ export default async function handler(req, res) {
   const shouldApplyTenantFilter = tenantScope !== TENANT_SCOPE.GLOBAL;
   
   // For non-global entities, require authentication and valid tenant context
+  // Tenant users (admins) can access tenant-scoped AND organization-scoped entities via tenantId
+  const isTenantAdmin = !!tenantCtx.tenantUserId;
+  
   if (shouldApplyTenantFilter) {
     if (!tenantCtx.isAuthenticated) {
       return res.status(401).json({ error: 'Authentication required' });
@@ -203,11 +206,11 @@ export default async function handler(req, res) {
     if (tenantScope === TENANT_SCOPE.TENANT && !tenantCtx.tenantId && !tenantCtx.organizationId) {
       return res.status(403).json({ error: 'Member must belong to an organization to access this resource' });
     }
-    // For organization-scoped entities, require a valid organization_id
-    if (tenantScope === TENANT_SCOPE.ORGANIZATION && !tenantCtx.organizationId) {
+    // For organization-scoped entities, require a valid organization_id OR tenant admin with tenantId
+    if (tenantScope === TENANT_SCOPE.ORGANIZATION && !tenantCtx.organizationId && !(isTenantAdmin && tenantCtx.tenantId)) {
       return res.status(403).json({ error: 'Member must belong to an organization to access this resource' });
     }
-    // For member-scoped entities, require a valid member_id
+    // For member-scoped entities, require a valid member_id (tenant admins can't bypass this)
     if (tenantScope === TENANT_SCOPE.MEMBER && !tenantCtx.memberId) {
       return res.status(403).json({ error: 'Invalid member context' });
     }
@@ -226,7 +229,19 @@ export default async function handler(req, res) {
           query = query.eq('member_id', tenantCtx.memberId);
         } else if (tenantScope === TENANT_SCOPE.ORGANIZATION) {
           // Organization-scoped entities filter by organization_id
-          query = query.eq('organization_id', tenantCtx.organizationId);
+          // Tenant admins can access all orgs within their tenant using a join
+          if (isTenantAdmin && tenantCtx.tenantId) {
+            // Use inner join with organization table to filter by tenant_id
+            // This scales better than fetching org IDs and using IN clause
+            const selectClause = expand || '*';
+            // Rebuild query with join - add organization join for tenant filtering
+            query = supabase
+              .from(tableName)
+              .select(`${selectClause}, organization!inner(tenant_id)`)
+              .eq('organization.tenant_id', tenantCtx.tenantId);
+          } else {
+            query = query.eq('organization_id', tenantCtx.organizationId);
+          }
         } else if (entity === 'Organization') {
           // Organization entity: filter by tenant_id to show all orgs in tenant
           // Or fall back to showing only the member's own org if tenant_id not set
