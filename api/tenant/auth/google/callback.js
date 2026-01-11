@@ -175,35 +175,61 @@ export default async function handler(req, res) {
 
     console.log('[Tenant Google OAuth Callback] Identity:', { identityId: identity?.id, email });
 
+    // Update ALL tenant_user records with this email to link identity_id and google_id
+    // This ensures tenant switching works across all tenants the user owns
+    if (identity) {
+      const { data: allTenantUsers, error: updateAllError } = await supabase
+        .from('tenant_user')
+        .update({ 
+          identity_id: identity.id,
+          google_id: googleId 
+        })
+        .eq('email', email.toLowerCase())
+        .select('id');
+      
+      if (updateAllError) {
+        console.error('[Tenant Google OAuth Callback] Failed to update all tenant_users:', updateAllError);
+      } else {
+        console.log('[Tenant Google OAuth Callback] Updated identity_id and google_id for', allTenantUsers?.length || 0, 'tenant_user records');
+      }
+    }
+
+    // Find a tenant_user to log into (prefer by google_id, then by identity_id)
     let { data: tenantUser, error: tenantUserError } = await supabase
       .from('tenant_user')
       .select('*, tenant:tenant_id(*)')
       .eq('google_id', googleId)
+      .eq('status', 'active')
+      .order('created_at', { ascending: false })
+      .limit(1)
       .single();
 
+    if (!tenantUser && identity) {
+      // Try by identity_id
+      const { data: tenantUserByIdentity } = await supabase
+        .from('tenant_user')
+        .select('*, tenant:tenant_id(*)')
+        .eq('identity_id', identity.id)
+        .eq('status', 'active')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+      
+      tenantUser = tenantUserByIdentity;
+    }
+
     if (!tenantUser) {
+      // Final fallback - by email
       const { data: tenantUserByEmail } = await supabase
         .from('tenant_user')
         .select('*, tenant:tenant_id(*)')
         .eq('email', email.toLowerCase())
+        .eq('status', 'active')
+        .order('created_at', { ascending: false })
+        .limit(1)
         .single();
-
-      if (tenantUserByEmail) {
-        const { data: updatedTenantUser, error: updateError } = await supabase
-          .from('tenant_user')
-          .update({ google_id: googleId })
-          .eq('id', tenantUserByEmail.id)
-          .select('*, tenant:tenant_id(*)')
-          .single();
-
-        if (updateError) {
-          console.error('[Tenant Google OAuth Callback] Failed to link Google account:', updateError);
-          return res.redirect('/admin/login?error=link_failed');
-        }
-
-        tenantUser = updatedTenantUser;
-        console.log('[Tenant Google OAuth Callback] Linked Google account to existing tenant user:', tenantUser.id);
-      }
+      
+      tenantUser = tenantUserByEmail;
     }
 
     if (!tenantUser) {
@@ -216,14 +242,7 @@ export default async function handler(req, res) {
       return res.redirect('/admin/login?error=account_inactive');
     }
 
-    // Link tenant_user to identity if not already linked
-    if (identity && !tenantUser.identity_id) {
-      await supabase
-        .from('tenant_user')
-        .update({ identity_id: identity.id })
-        .eq('id', tenantUser.id);
-      console.log('[Tenant Google OAuth Callback] Linked tenant_user to identity:', identity.id);
-    }
+    console.log('[Tenant Google OAuth Callback] Logging into tenant:', tenantUser.tenant?.name, 'with identity_id:', identity?.id);
 
     await supabase
       .from('tenant_user_credentials')
