@@ -337,6 +337,7 @@ export default async function handler(req, res) {
       last_name: adminLastName,
       email: adminEmail.toLowerCase(),
       organization_id: organization.id,
+      tenant_id: tenant.id,
       role_id: adminRole.id,
       login_enabled: true,
       status: 'active'
@@ -346,6 +347,8 @@ export default async function handler(req, res) {
     if (googleId && !existingIdentity) {
       memberInsert.google_id = googleId;
     }
+    
+    console.log('[Provision Tenant] Creating member with tenant_id:', tenant.id);
 
     const { data: member, error: memberError } = await supabase
       .from('member')

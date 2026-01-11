@@ -271,7 +271,7 @@ export default function TenantSignup() {
           <CardDescription>
             Set up your organization on iconn.app
           </CardDescription>
-          <p className="text-xs text-muted-foreground mt-2">v2.1-multi-tenant</p>
+          <p className="text-xs text-muted-foreground mt-2">v2.2-multi-tenant</p>
         </CardHeader>
         <form onSubmit={handleSubmit}>
           <CardContent className="space-y-4">
