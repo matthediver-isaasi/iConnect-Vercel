@@ -20,9 +20,22 @@ The backend is built with Express.js and uses PostgreSQL (Neon serverless) with 
 
 The platform supports a three-tier hierarchy: TENANT, ORGANIZATION, and MEMBER. A `tenant` table stores SaaS subscribing companies, and access control enforces data isolation at GLOBAL, TENANT, ORGANIZATION, and MEMBER levels, ensuring records are scoped to the authenticated user's context.
 
-## Dual Authentication System
+## Unified Identity System
 
-The platform features two distinct authentication systems: `tenant_user` for SaaS-level platform admins (login at root domain) and `member` for organizational members (login at tenant subdomains). An SSO flow allows `tenant_user` to access the member portal. Both systems support Google OAuth for authentication, with a centralized callback pattern for member OAuth and per-tenant control over Google login availability.
+The platform uses a centralized `tenant_identity` table for ALL user authentication (owners and members). This enables:
+- A single user (by email) to own multiple tenants AND be a member in multiple organizations
+- Seamless tenant switching between owned and member tenants
+- Centralized password management across all tenant relationships
+
+The `tenant_membership` table tracks user relationships to tenants with:
+- `identity_id`: Links to the user's central identity
+- `membership_type`: Either 'owner' (admin access) or 'member' (portal access)
+- `member_id`: Optional link to a member record for portal functionality
+- Session types are determined by membership_type: `tenant_user` for owners, `member` for portal users
+
+Legacy `member_credentials` are migrated to `tenant_identity` for unified authentication. The migration script is at `scripts/migrations/unify-user-identity.sql`.
+
+Both systems support Google OAuth for authentication, with a centralized callback pattern for member OAuth and per-tenant control over Google login availability.
 
 ## Deployment Architecture
 
