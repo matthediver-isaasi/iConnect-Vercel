@@ -22,11 +22,35 @@ export default async function handler(req, res) {
   try {
     const session = await getSession(req);
     
-    if (!session || session.userType !== 'tenant_user') {
+    if (!session) {
       return res.status(401).json({ success: false, error: 'Authentication required' });
     }
 
-    const identityId = session.identityId || session.tenantUserId;
+    // Support both tenant_user sessions (admin) and member sessions (portal)
+    const isTenantUser = session.userType === 'tenant_user';
+    const isMember = session.userType === 'member' || session.memberId;
+
+    if (!isTenantUser && !isMember) {
+      return res.status(401).json({ success: false, error: 'Authentication required' });
+    }
+
+    // Get identity ID from session - different sources depending on session type
+    let identityId = session.identityId;
+    
+    if (!identityId && isMember && session.memberId) {
+      // For member sessions, look up identity from member record
+      const { data: memberData } = await supabase
+        .from('member')
+        .select('identity_id')
+        .eq('id', session.memberId)
+        .single();
+      identityId = memberData?.identity_id;
+    }
+    
+    if (!identityId && isTenantUser) {
+      identityId = session.tenantUserId;
+    }
+
     const { tenantId } = req.body;
 
     if (!tenantId) {
@@ -84,33 +108,92 @@ export default async function handler(req, res) {
       .update({ last_accessed: new Date().toISOString() })
       .eq('id', membership.id);
 
-    // Create session with all required fields for tenant isolation
-    const sessionData = {
-      identityId: membership.identity_id,
-      tenantUserId: membership.identity_id,
-      tenantUserEmail: membership.identity?.email,
-      tenantId: membership.tenant_id,  // Critical for tenant isolation
-      membershipId: membership.id,
-      membershipRole: membership.role,
-      userType: 'tenant_user'
-    };
+    // Determine session type based on membership_type
+    const isOwnerMembership = membership.membership_type === 'owner' || membership.role === 'owner';
+    
+    let sessionData;
+    let responseData;
 
-    console.log('[Tenant Switch] Creating session with tenantId:', membership.tenant_id);
+    if (isOwnerMembership) {
+      // Owner/admin - create tenant_user session
+      sessionData = {
+        identityId: membership.identity_id,
+        tenantUserId: membership.identity_id,
+        tenantUserEmail: membership.identity?.email,
+        tenantId: membership.tenant_id,
+        membershipId: membership.id,
+        membershipRole: membership.role,
+        userType: 'tenant_user'
+      };
+      
+      responseData = {
+        success: true,
+        tenantUser: {
+          id: membership.identity_id,
+          email: membership.identity?.email,
+          first_name: membership.identity?.first_name,
+          last_name: membership.identity?.last_name,
+          role: membership.role
+        },
+        tenant: membership.tenant
+      };
+    } else {
+      // Member - create member session
+      // Get the member record for this membership
+      let memberId = membership.member_id;
+      let member = null;
+      
+      if (memberId) {
+        const { data: memberData } = await supabase
+          .from('member')
+          .select('*')
+          .eq('id', memberId)
+          .single();
+        member = memberData;
+      }
+      
+      // Fall back to finding member by identity_id and tenant
+      if (!member) {
+        const { data: memberData } = await supabase
+          .from('member')
+          .select('*')
+          .eq('identity_id', membership.identity_id)
+          .eq('tenant_id', membership.tenant_id)
+          .single();
+        member = memberData;
+      }
+
+      if (!member) {
+        return res.status(404).json({ success: false, error: 'Member record not found for this tenant.' });
+      }
+
+      sessionData = {
+        memberId: member.id,
+        memberEmail: member.email,
+        tenantId: membership.tenant_id,
+        identityId: membership.identity_id,
+        membershipId: membership.id,
+        userType: 'member'
+      };
+      
+      responseData = {
+        success: true,
+        member: {
+          id: member.id,
+          email: member.email,
+          first_name: member.first_name,
+          last_name: member.last_name
+        },
+        tenant: membership.tenant
+      };
+    }
+
+    console.log('[Tenant Switch] Creating session with tenantId:', membership.tenant_id, 'type:', sessionData.userType);
     await createSession(res, sessionData);
 
     console.log('[Tenant Switch] Switched to tenant:', membership.tenant?.name);
 
-    res.json({
-      success: true,
-      tenantUser: {
-        id: membership.identity_id,
-        email: membership.identity?.email,
-        first_name: membership.identity?.first_name,
-        last_name: membership.identity?.last_name,
-        role: membership.role
-      },
-      tenant: membership.tenant
-    });
+    res.json(responseData);
   } catch (error) {
     console.error('[Tenant Switch] Error:', error);
     res.status(500).json({ success: false, error: 'Failed to switch tenant' });

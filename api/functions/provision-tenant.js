@@ -310,28 +310,7 @@ export default async function handler(req, res) {
       identityId = identity.id;
     }
 
-    // Create tenant_membership linking identity to tenant
-    if (identity) {
-      const { data: membership, error: membershipError } = await supabase
-        .from('tenant_membership')
-        .insert({
-          identity_id: identity.id,
-          tenant_id: tenant.id,
-          role: 'owner',
-          status: 'active',
-          is_default: !existingIdentity // First tenant is default
-        })
-        .select()
-        .single();
-
-      if (membershipError) {
-        console.error('[Provision Tenant] Error creating tenant membership:', membershipError);
-        // Fall through to legacy flow
-      } else {
-        membershipId = membership.id;
-      }
-    }
-
+    // Create member record first (needed for membership linking)
     const memberInsert = {
       first_name: adminFirstName,
       last_name: adminLastName,
@@ -346,6 +325,10 @@ export default async function handler(req, res) {
     // Legacy tables have unique constraints on google_id
     if (googleId && !existingIdentity) {
       memberInsert.google_id = googleId;
+    }
+    // Link to identity if available
+    if (identity) {
+      memberInsert.identity_id = identity.id;
     }
     
     console.log('[Provision Tenant] Creating member with tenant_id:', tenant.id);
@@ -363,7 +346,34 @@ export default async function handler(req, res) {
     }
     memberId = member.id;
 
-    if (passwordHash) {
+    // Create tenant_membership linking identity to tenant (with member reference)
+    if (identity) {
+      const { data: membership, error: membershipError } = await supabase
+        .from('tenant_membership')
+        .insert({
+          identity_id: identity.id,
+          tenant_id: tenant.id,
+          member_id: member.id,
+          role: 'owner',
+          membership_type: 'owner',
+          status: 'active',
+          is_default: !existingIdentity // First tenant is default
+        })
+        .select()
+        .single();
+
+      if (membershipError) {
+        console.error('[Provision Tenant] Error creating tenant membership:', membershipError);
+        // Fall through to legacy flow
+      } else {
+        membershipId = membership.id;
+      }
+    }
+
+    // Skip member_credentials when using unified identity system
+    // Password is stored in tenant_identity, not per-tenant
+    if (passwordHash && !identity) {
+      // Legacy fallback: only create member_credentials if identity system not available
       const { error: memberCredError } = await supabase
         .from('member_credentials')
         .insert({

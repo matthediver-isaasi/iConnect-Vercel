@@ -98,6 +98,117 @@ export default async function handler(req, res) {
 
     const passwordHash = await bcrypt.hash(password, 12);
 
+    // First, handle unified identity system (tenant_identity)
+    const { data: existingIdentity } = await supabase
+      .from('tenant_identity')
+      .select('*')
+      .eq('email', email.toLowerCase())
+      .single();
+
+    let identityId = existingIdentity?.id;
+
+    if (existingIdentity) {
+      // Update existing identity with new password
+      const { error: identityUpdateError } = await supabase
+        .from('tenant_identity')
+        .update({ 
+          password_hash: passwordHash,
+          is_temporary: false,
+          reset_token: null,
+          reset_token_expires: null,
+          failed_attempts: 0,
+          locked_until: null,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', existingIdentity.id);
+      
+      if (identityUpdateError) {
+        console.error('[Auth] Failed to update identity password:', identityUpdateError);
+      } else {
+        console.log('[Auth] Updated identity password for:', email);
+      }
+    } else {
+      // Create new identity
+      const { data: fullMemberData } = await supabase
+        .from('member')
+        .select('first_name, last_name, organization_id')
+        .eq('id', member.id)
+        .single();
+
+      const { data: newIdentity, error: identityInsertError } = await supabase
+        .from('tenant_identity')
+        .insert({
+          email: email.toLowerCase(),
+          first_name: fullMemberData?.first_name,
+          last_name: fullMemberData?.last_name,
+          password_hash: passwordHash,
+          is_temporary: false
+        })
+        .select()
+        .single();
+      
+      if (identityInsertError) {
+        console.error('[Auth] Failed to create identity:', identityInsertError);
+      } else {
+        identityId = newIdentity.id;
+        console.log('[Auth] Created new identity for:', email);
+      }
+    }
+
+    // Link member to identity if not already linked
+    if (identityId) {
+      const { data: memberData } = await supabase
+        .from('member')
+        .select('identity_id, organization_id, tenant_id')
+        .eq('id', member.id)
+        .single();
+
+      if (memberData && !memberData.identity_id) {
+        await supabase
+          .from('member')
+          .update({ identity_id: identityId })
+          .eq('id', member.id);
+        console.log('[Auth] Linked member to identity');
+      }
+
+      // Get tenant_id (from member directly or via organization)
+      let tenantId = memberData?.tenant_id;
+      if (!tenantId && memberData?.organization_id) {
+        const { data: org } = await supabase
+          .from('organization')
+          .select('tenant_id')
+          .eq('id', memberData.organization_id)
+          .single();
+        tenantId = org?.tenant_id;
+      }
+
+      // Create tenant_membership if doesn't exist
+      if (tenantId) {
+        const { data: existingMembership } = await supabase
+          .from('tenant_membership')
+          .select('id')
+          .eq('identity_id', identityId)
+          .eq('tenant_id', tenantId)
+          .single();
+
+        if (!existingMembership) {
+          await supabase
+            .from('tenant_membership')
+            .insert({
+              identity_id: identityId,
+              tenant_id: tenantId,
+              member_id: member.id,
+              role: 'member',
+              membership_type: 'member',
+              status: 'active',
+              is_default: true
+            });
+          console.log('[Auth] Created tenant membership for member');
+        }
+      }
+    }
+
+    // Legacy: Also update member_credentials for backwards compatibility
     const { data: existingCreds } = await supabase
       .from('member_credentials')
       .select('id')

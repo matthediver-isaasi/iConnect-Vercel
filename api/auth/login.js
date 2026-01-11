@@ -32,63 +32,190 @@ export default async function handler(req, res) {
     const requestTenant = await resolveTenantFromRequest(req);
     const requestTenantId = requestTenant?.id || null;
 
-    const { data: credentials, error: credError } = await supabase
-      .from('member_credentials')
+    // First try unified identity system (tenant_identity)
+    const { data: identity } = await supabase
+      .from('tenant_identity')
       .select('*')
       .eq('email', email.toLowerCase())
       .single();
 
-    if (credError || !credentials) {
-      console.log('[Auth Login] No credentials found for:', email);
-      return res.status(401).json({ success: false, error: 'Invalid email or password' });
-    }
+    let authenticatedViaIdentity = false;
+    let credentials = null;
 
-    if (credentials.locked_until && new Date(credentials.locked_until) > new Date()) {
-      return res.status(401).json({ success: false, error: 'Account temporarily locked. Please try again later.' });
-    }
-
-    if (!credentials.password_hash) {
-      return res.status(401).json({ 
-        success: false, 
-        error: 'Password not set', 
-        needsPasswordSetup: true,
-        memberId: credentials.member_id 
-      });
-    }
-
-    const isValid = await bcrypt.compare(password, credentials.password_hash);
-    
-    if (!isValid) {
-      const newFailedAttempts = (credentials.failed_attempts || 0) + 1;
-      const updates = { failed_attempts: newFailedAttempts };
-      
-      if (newFailedAttempts >= 5) {
-        updates.locked_until = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+    if (identity && identity.password_hash) {
+      // Check if account is locked
+      if (identity.locked_until && new Date(identity.locked_until) > new Date()) {
+        return res.status(401).json({ success: false, error: 'Account temporarily locked. Please try again later.' });
       }
+
+      const isValid = await bcrypt.compare(password, identity.password_hash);
       
+      if (isValid) {
+        authenticatedViaIdentity = true;
+        // Reset failed attempts on successful login
+        await supabase
+          .from('tenant_identity')
+          .update({ 
+            failed_attempts: 0, 
+            locked_until: null,
+            last_login: new Date().toISOString()
+          })
+          .eq('id', identity.id);
+        console.log('[Auth Login] Authenticated via unified identity for:', email);
+      } else {
+        // Update failed attempts on identity
+        const newFailedAttempts = (identity.failed_attempts || 0) + 1;
+        const updates = { failed_attempts: newFailedAttempts };
+        
+        if (newFailedAttempts >= 5) {
+          updates.locked_until = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+        }
+        
+        await supabase
+          .from('tenant_identity')
+          .update(updates)
+          .eq('id', identity.id);
+        
+        return res.status(401).json({ success: false, error: 'Invalid email or password' });
+      }
+    }
+
+    // Fall back to legacy member_credentials if not authenticated via identity
+    if (!authenticatedViaIdentity) {
+      const { data: credData, error: credError } = await supabase
+        .from('member_credentials')
+        .select('*')
+        .eq('email', email.toLowerCase())
+        .single();
+
+      credentials = credData;
+
+      if (credError || !credentials) {
+        console.log('[Auth Login] No credentials found for:', email);
+        return res.status(401).json({ success: false, error: 'Invalid email or password' });
+      }
+
+      if (credentials.locked_until && new Date(credentials.locked_until) > new Date()) {
+        return res.status(401).json({ success: false, error: 'Account temporarily locked. Please try again later.' });
+      }
+
+      if (!credentials.password_hash) {
+        return res.status(401).json({ 
+          success: false, 
+          error: 'Password not set', 
+          needsPasswordSetup: true,
+          memberId: credentials.member_id 
+        });
+      }
+
+      const isValid = await bcrypt.compare(password, credentials.password_hash);
+      
+      if (!isValid) {
+        const newFailedAttempts = (credentials.failed_attempts || 0) + 1;
+        const updates = { failed_attempts: newFailedAttempts };
+        
+        if (newFailedAttempts >= 5) {
+          updates.locked_until = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+        }
+        
+        await supabase
+          .from('member_credentials')
+          .update(updates)
+          .eq('id', credentials.id);
+        
+        return res.status(401).json({ success: false, error: 'Invalid email or password' });
+      }
+
       await supabase
         .from('member_credentials')
-        .update(updates)
+        .update({ 
+          failed_attempts: 0, 
+          locked_until: null
+        })
         .eq('id', credentials.id);
       
-      return res.status(401).json({ success: false, error: 'Invalid email or password' });
+      console.log('[Auth Login] Authenticated via legacy credentials for:', email);
     }
 
-    await supabase
-      .from('member_credentials')
-      .update({ 
-        failed_attempts: 0, 
-        locked_until: null
-      })
-      .eq('id', credentials.id);
+    // Find the member record - different approach depending on auth method
+    let member = null;
 
-    const { data: member, error: memberError } = await supabase
-      .from('member')
-      .select('*')
-      .eq('id', credentials.member_id)
-      .single();
+    if (authenticatedViaIdentity && identity) {
+      // For identity-based auth, find the member via tenant_membership for this tenant
+      // or via direct identity_id link on member table
+      if (requestTenantId) {
+        // First check tenant_membership for a member linked to this tenant
+        // Check for ANY membership type (owner or member) that has a member_id
+        const { data: membership } = await supabase
+          .from('tenant_membership')
+          .select('member_id, membership_type')
+          .eq('identity_id', identity.id)
+          .eq('tenant_id', requestTenantId)
+          .not('member_id', 'is', null)
+          .single();
 
-    if (memberError || !member) {
+        if (membership?.member_id) {
+          const { data: memberData } = await supabase
+            .from('member')
+            .select('*')
+            .eq('id', membership.member_id)
+            .single();
+          member = memberData;
+        }
+
+        // Fall back to finding member by identity_id and tenant
+        if (!member) {
+          const { data: memberData } = await supabase
+            .from('member')
+            .select('*')
+            .eq('identity_id', identity.id)
+            .eq('tenant_id', requestTenantId)
+            .single();
+          member = memberData;
+        }
+
+        // Fall back to finding by email and tenant
+        if (!member) {
+          const { data: memberData } = await supabase
+            .from('member')
+            .select('*')
+            .eq('email', email.toLowerCase())
+            .eq('tenant_id', requestTenantId)
+            .single();
+          member = memberData;
+        }
+      } else {
+        // No tenant context - find by identity_id or email
+        const { data: memberData } = await supabase
+          .from('member')
+          .select('*')
+          .eq('identity_id', identity.id)
+          .limit(1)
+          .single();
+        member = memberData;
+
+        if (!member) {
+          const { data: memberData } = await supabase
+            .from('member')
+            .select('*')
+            .eq('email', email.toLowerCase())
+            .limit(1)
+            .single();
+          member = memberData;
+        }
+      }
+    } else if (credentials?.member_id) {
+      // Legacy credentials - use member_id directly
+      const { data: memberData } = await supabase
+        .from('member')
+        .select('*')
+        .eq('id', credentials.member_id)
+        .single();
+      member = memberData;
+    }
+
+    if (!member) {
+      console.log('[Auth Login] No member found for:', email, 'tenant:', requestTenantId);
       return res.status(401).json({ success: false, error: 'Member not found' });
     }
 

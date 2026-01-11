@@ -22,11 +22,35 @@ export default async function handler(req, res) {
   try {
     const session = await getSession(req);
     
-    if (!session || session.userType !== 'tenant_user') {
+    if (!session) {
       return res.status(401).json({ success: false, error: 'Authentication required' });
     }
 
-    const identityId = session.identityId || session.tenantUserId;
+    // Support both tenant_user sessions (admin) and member sessions (portal)
+    const isTenantUser = session.userType === 'tenant_user';
+    const isMember = session.userType === 'member' || session.memberId;
+
+    if (!isTenantUser && !isMember) {
+      return res.status(401).json({ success: false, error: 'Authentication required' });
+    }
+
+    // Get identity ID from session - different sources depending on session type
+    let identityId = session.identityId;
+    
+    if (!identityId && isMember && session.memberId) {
+      // For member sessions, look up identity from member record
+      const { data: memberData } = await supabase
+        .from('member')
+        .select('identity_id')
+        .eq('id', session.memberId)
+        .single();
+      identityId = memberData?.identity_id;
+    }
+    
+    if (!identityId && isTenantUser) {
+      identityId = session.tenantUserId;
+    }
+
     const currentTenantId = session.tenantId;
 
     const { data: memberships, error: membershipError } = await supabase
@@ -74,6 +98,7 @@ export default async function handler(req, res) {
         slug: m.tenant?.slug,
         logo_url: m.tenant?.logo_url,
         role: m.role,
+        membership_type: m.membership_type || 'owner',
         is_default: m.is_default,
         is_current: m.tenant_id === currentTenantId,
         last_accessed: m.last_accessed
