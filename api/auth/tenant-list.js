@@ -22,45 +22,48 @@ export default async function handler(req, res) {
   try {
     const session = await getSession(req);
     
-    if (!session) {
+    if (!session || !session.data) {
       return res.status(401).json({ success: false, error: 'Authentication required' });
     }
 
+    // Extract session data
+    const sessionData = session.data;
+
     // Support both tenant_user sessions (admin) and member sessions (portal)
-    const isTenantUser = session.userType === 'tenant_user';
-    const isMember = session.userType === 'member' || session.memberId;
+    const isTenantUser = sessionData.userType === 'tenant_user';
+    const isMember = sessionData.userType === 'member' || sessionData.memberId;
 
     if (!isTenantUser && !isMember) {
       return res.status(401).json({ success: false, error: 'Authentication required' });
     }
 
     // Get identity ID from session - different sources depending on session type
-    let identityId = session.identityId;
+    let identityId = sessionData.identityId;
     
     console.log('[Tenant List] Session:', { 
-      userType: session.userType, 
-      identityId: session.identityId,
-      tenantUserId: session.tenantUserId,
-      tenantId: session.tenantId 
+      userType: sessionData.userType, 
+      identityId: sessionData.identityId,
+      tenantUserId: sessionData.tenantUserId,
+      tenantId: sessionData.tenantId 
     });
     
-    if (!identityId && isMember && session.memberId) {
+    if (!identityId && isMember && sessionData.memberId) {
       // For member sessions, look up identity from member record
       const { data: memberData } = await supabase
         .from('member')
         .select('identity_id')
-        .eq('id', session.memberId)
+        .eq('id', sessionData.memberId)
         .single();
       identityId = memberData?.identity_id;
     }
     
     if (!identityId && isTenantUser) {
-      identityId = session.tenantUserId;
+      identityId = sessionData.tenantUserId;
     }
 
     console.log('[Tenant List] Using identityId:', identityId);
 
-    const currentTenantId = session.tenantId;
+    const currentTenantId = sessionData.tenantId;
 
     const { data: memberships, error: membershipError } = await supabase
       .from('tenant_membership')
