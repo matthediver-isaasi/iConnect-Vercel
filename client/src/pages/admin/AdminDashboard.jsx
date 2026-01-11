@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate, Link, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useToast } from "@/components/ui/use-toast";
 import {
@@ -49,15 +50,8 @@ export default function AdminDashboard() {
             setTenantUser(data.tenantUser);
             setTenant(data.tenant);
             
-            // Check for multi-tenant info in localStorage
-            const savedAdmin = localStorage.getItem('saas_admin');
-            if (savedAdmin) {
-              const parsed = JSON.parse(savedAdmin);
-              if (parsed.hasMultipleTenants) {
-                setHasMultipleTenants(true);
-                fetchAvailableTenants();
-              }
-            }
+            // Always check for available tenants (unified identity may have multiple)
+            fetchAvailableTenants();
           } else {
             navigate('/admin/login');
           }
@@ -275,8 +269,16 @@ export default function AdminDashboard() {
                           )}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm text-white truncate">{t.name}</p>
-                          <p className="text-xs text-slate-400 capitalize">{t.role}</p>
+                          <div className="flex items-center gap-2">
+                            <p className="text-sm text-white truncate">{t.name}</p>
+                            <Badge 
+                              variant={t.membership_type === 'owner' ? 'default' : 'outline'}
+                              className="text-[10px] px-1.5 py-0"
+                            >
+                              {t.membership_type === 'owner' ? 'Owner' : 'Member'}
+                            </Badge>
+                          </div>
+                          <p className="text-xs text-slate-400">{t.slug}.iconn.app</p>
                         </div>
                         {t.id === tenant?.id && (
                           <Check className="h-4 w-4 text-primary" />
