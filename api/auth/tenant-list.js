@@ -65,6 +65,9 @@ export default async function handler(req, res) {
 
     const currentTenantId = sessionData.tenantId;
 
+    // Query both tenant_membership AND tenant_user tables, then merge results
+    // This handles the case where some tenants only exist in tenant_user (legacy)
+    
     const { data: memberships, error: membershipError } = await supabase
       .from('tenant_membership')
       .select('*, tenant:tenant_id(*)')
@@ -79,51 +82,40 @@ export default async function handler(req, res) {
       identityId 
     });
 
-    // If tenant_membership has no results or errors, fall back to tenant_user table
-    if (membershipError || !memberships?.length) {
-      console.log('[Tenant List] Falling back to tenant_user table');
-      
-      // Only fall back by identity_id (secure linkage), not email
-      let legacyUsers = [];
-      if (identityId) {
-        const { data: usersByIdentity } = await supabase
-          .from('tenant_user')
-          .select('*, tenant:tenant_id(*)')
-          .eq('identity_id', identityId)
-          .eq('status', 'active');
-        if (usersByIdentity?.length) {
-          legacyUsers = usersByIdentity;
-        }
+    // Also query tenant_user table by identity_id
+    let legacyUsers = [];
+    if (identityId) {
+      const { data: usersByIdentity } = await supabase
+        .from('tenant_user')
+        .select('*, tenant:tenant_id(*)')
+        .eq('identity_id', identityId)
+        .eq('status', 'active');
+      if (usersByIdentity?.length) {
+        legacyUsers = usersByIdentity;
       }
+    }
 
-      console.log('[Tenant List] Legacy users found by identity:', legacyUsers.length);
+    console.log('[Tenant List] Legacy users found by identity:', legacyUsers.length);
 
-      if (!legacyUsers?.length) {
-        return res.json({
-          success: true,
-          tenants: [],
-          currentTenantId
-        });
-      }
+    // Build a map of all tenants, preferring tenant_membership data over tenant_user
+    const tenantMap = new Map();
 
-      return res.json({
-        success: true,
-        tenants: legacyUsers.map(u => ({
-          id: u.tenant_id,
-          name: u.tenant?.name,
-          slug: u.tenant?.slug,
-          logo_url: u.tenant?.logo_url,
-          role: u.role,
-          membership_type: 'owner',
-          is_current: u.tenant_id === currentTenantId
-        })),
-        currentTenantId
+    // First add legacy tenant_user records
+    for (const u of legacyUsers) {
+      tenantMap.set(u.tenant_id, {
+        id: u.tenant_id,
+        name: u.tenant?.name,
+        slug: u.tenant?.slug,
+        logo_url: u.tenant?.logo_url,
+        role: u.role,
+        membership_type: 'owner',
+        is_current: u.tenant_id === currentTenantId
       });
     }
 
-    res.json({
-      success: true,
-      tenants: (memberships || []).map(m => ({
+    // Then overlay with tenant_membership records (these take precedence)
+    for (const m of (memberships || [])) {
+      tenantMap.set(m.tenant_id, {
         id: m.tenant_id,
         name: m.tenant?.name,
         slug: m.tenant?.slug,
@@ -133,7 +125,23 @@ export default async function handler(req, res) {
         is_default: m.is_default,
         is_current: m.tenant_id === currentTenantId,
         last_accessed: m.last_accessed
-      })),
+      });
+    }
+
+    const allTenants = Array.from(tenantMap.values());
+    
+    // Sort: is_default first, then by name
+    allTenants.sort((a, b) => {
+      if (a.is_default && !b.is_default) return -1;
+      if (!a.is_default && b.is_default) return 1;
+      return (a.name || '').localeCompare(b.name || '');
+    });
+
+    console.log('[Tenant List] Total tenants found:', allTenants.length);
+
+    res.json({
+      success: true,
+      tenants: allTenants,
       currentTenantId
     });
   } catch (error) {
