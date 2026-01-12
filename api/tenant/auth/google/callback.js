@@ -259,7 +259,17 @@ export default async function handler(req, res) {
 
     console.log('[Tenant Google OAuth Callback] Session created with identityId:', identity?.id || tenantUser.identity_id);
 
-    const redirectUrl = returnTo || '/admin/dashboard';
+    const isProduction = process.env.NODE_ENV === 'production';
+    const tenantSlug = tenantUser.tenant?.slug;
+    
+    // In production, always redirect to the tenant's subdomain to maintain proper context
+    let redirectUrl;
+    if (isProduction && tenantSlug) {
+      const path = returnTo || '/admin/dashboard';
+      redirectUrl = `https://${tenantSlug}.iconn.app${path}`;
+    } else {
+      redirectUrl = returnTo || '/admin/dashboard';
+    }
     
     const identityIdForStorage = identity?.id || tenantUser.identity_id || '';
     const html = `
