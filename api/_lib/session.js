@@ -251,41 +251,49 @@ async function tryPromoteMemberToTenantUser(session, req) {
   }
   
   try {
-    // Check if this identity has owner membership for the target tenant
-    const { data: membership, error: membershipError } = await supabase
-      .from('tenant_membership')
-      .select('*, tenant_user:tenant_user_id(*)')
+    // Primary approach: Look up tenant_user directly by identity_id and tenant_id
+    // This is the most reliable method as it doesn't depend on tenant_membership schema
+    let tenantUser = null;
+    
+    const { data: directTenantUser } = await supabase
+      .from('tenant_user')
+      .select('*, tenant:tenant_id(*)')
       .eq('identity_id', identityId)
       .eq('tenant_id', targetTenantId)
-      .eq('membership_type', 'owner')
       .single();
     
-    if (membershipError || !membership) {
-      console.log('[Session] Identity does not have owner membership for this tenant');
-      return null;
+    if (directTenantUser) {
+      tenantUser = directTenantUser;
+      console.log('[Session] Found tenant_user via identity_id lookup:', tenantUser.id);
     }
     
-    // Get the tenant_user record (either from membership link or by looking up)
-    let tenantUser = membership.tenant_user;
-    
-    if (!tenantUser && membership.tenant_user_id) {
-      const { data } = await supabase
-        .from('tenant_user')
-        .select('*, tenant:tenant_id(*)')
-        .eq('id', membership.tenant_user_id)
-        .single();
-      tenantUser = data;
-    }
-    
-    // Fallback: look up tenant_user by identity_id and tenant_id
+    // Fallback: Check tenant_membership table if direct lookup fails
+    // This supports the newer membership-based access model
     if (!tenantUser) {
-      const { data } = await supabase
-        .from('tenant_user')
-        .select('*, tenant:tenant_id(*)')
-        .eq('identity_id', identityId)
-        .eq('tenant_id', targetTenantId)
-        .single();
-      tenantUser = data;
+      try {
+        const { data: membership } = await supabase
+          .from('tenant_membership')
+          .select('*, tenant_user:tenant_user_id(*)')
+          .eq('identity_id', identityId)
+          .eq('tenant_id', targetTenantId)
+          .eq('membership_type', 'owner')
+          .single();
+        
+        if (membership?.tenant_user) {
+          tenantUser = membership.tenant_user;
+          console.log('[Session] Found tenant_user via membership lookup');
+        } else if (membership?.tenant_user_id) {
+          const { data } = await supabase
+            .from('tenant_user')
+            .select('*, tenant:tenant_id(*)')
+            .eq('id', membership.tenant_user_id)
+            .single();
+          tenantUser = data;
+        }
+      } catch (membershipErr) {
+        // tenant_membership table may not have required columns yet
+        console.log('[Session] Membership lookup skipped (table may need migration)');
+      }
     }
     
     if (!tenantUser) {
