@@ -37,6 +37,8 @@ const typeIconMap = {
 const DEFAULT_HEADER_LOGO = "https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/68efc20f3e0a30fafad6dde7/26710cf5a_GFIheaderlogo.png";
 
 const DEFAULT_HEADER_GRADIENT = ['#5C0085', '#BA0087', '#EE00C3', '#FF4229', '#FFB000'];
+const BUTTON_ACCENT_GRADIENT = 'linear-gradient(to top right, #5C0085, #BA0087, #EE00C3, #FF4229, #FFB000)';
+const BUTTON_ACCENT_GRADIENT_HORIZONTAL = 'linear-gradient(to right, #5C0085, #BA0087, #EE00C3, #FF4229, #FFB000)';
 
 export default function PublicHeader() {
   const { branding } = useTenantBranding() || {};
@@ -45,9 +47,8 @@ export default function PublicHeader() {
   const headerLogoHeight = branding?.headerConfig?.logoHeight;
   const headerLogoWidth = branding?.headerConfig?.logoWidth;
   const headerGradientColors = branding?.headerConfig?.gradientColors || DEFAULT_HEADER_GRADIENT;
-  const headerGradient = `linear-gradient(to top right, ${headerGradientColors.join(', ')})`;
-  const headerGradientHorizontal = `linear-gradient(to right, ${headerGradientColors.join(', ')})`;
   const topBarGradient = `linear-gradient(to right, white 0%, white 33%, ${headerGradientColors[0] || '#5C0085'} 50%)`;
+  const navIndicatorGradient = `linear-gradient(to right, ${headerGradientColors.join(', ')})`;
   
   const [searchOpen, setSearchOpen] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -372,7 +373,7 @@ export default function PublicHeader() {
           <div 
             className="mx-4 my-2 py-3 px-4 text-white font-bold flex items-center justify-center gap-2"
             style={{ 
-              background: headerGradient
+              background: BUTTON_ACCENT_GRADIENT
             }}
           >
             {Icon && <Icon className="w-4 h-4" />}
@@ -459,7 +460,7 @@ export default function PublicHeader() {
             className="text-white font-bold hover:opacity-90 transition-opacity px-6 py-5 rounded-none" 
             style={{ 
               fontFamily: 'Poppins, sans-serif',
-              background: headerGradient
+              background: BUTTON_ACCENT_GRADIENT
             }}
           >
             {Icon && <Icon className="w-4 h-4 mr-2" />}
@@ -506,7 +507,7 @@ export default function PublicHeader() {
               className="absolute left-0 right-0 h-[5px]"
               style={{
                 bottom: '-33px',
-                background: headerGradientHorizontal
+                background: navIndicatorGradient
               }}
             />
           )}
@@ -626,7 +627,7 @@ export default function PublicHeader() {
             className="absolute left-0 right-0 h-[5px]"
             style={{
               bottom: '-33px',
-              background: headerGradientHorizontal
+              background: navIndicatorGradient
             }}
           />
         )}
@@ -1009,7 +1010,7 @@ export default function PublicHeader() {
                     className="text-white font-bold hover:opacity-90 transition-opacity px-6 py-5 rounded-none" 
                     style={{ 
                       fontFamily: 'Poppins, sans-serif',
-                      background: headerGradient
+                      background: BUTTON_ACCENT_GRADIENT
                     }}
                   >
                     Events
@@ -1199,7 +1200,7 @@ export default function PublicHeader() {
               <div 
                 className="mx-4 my-2 py-3 px-4 text-white font-bold flex items-center justify-center gap-2"
                 style={{ 
-                  background: headerGradient
+                  background: BUTTON_ACCENT_GRADIENT
                 }}
               >
                 Events
