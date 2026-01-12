@@ -77,7 +77,17 @@ export async function createSession(res, sessionData, options = {}) {
   
   const sessionId = generateSessionId();
   const expire = new Date(Date.now() + SESSION_MAX_AGE);
-  const { cookieDomain } = options;
+  const { cookieDomain, replaceSessionId } = options;
+  
+  // If replacing an existing session, delete it first (database only, not cookie)
+  if (replaceSessionId) {
+    try {
+      await supabase.from('session').delete().eq('sid', replaceSessionId);
+      console.log('[Session] Deleted old session:', replaceSessionId.substring(0, 8));
+    } catch (err) {
+      console.error('[Session] Error deleting old session:', err);
+    }
+  }
   
   // Build session object in Express/connect-pg-simple compatible format
   // Spread sessionData to support both member and tenant_user sessions

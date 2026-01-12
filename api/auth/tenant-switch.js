@@ -1,4 +1,4 @@
-import { getSession, createSession, destroySession } from '../_lib/session.js';
+import { getSession, createSession } from '../_lib/session.js';
 import { supabase } from '../_lib/database.js';
 
 export default async function handler(req, res) {
@@ -95,11 +95,12 @@ export default async function handler(req, res) {
 
       console.log('[Tenant Switch] Creating tenant_user session:', tenantUser.id, 'for tenant:', tenantUser.tenant?.slug);
       
-      // Destroy old session before creating new one to avoid cookie conflicts
-      await destroySession(req, res);
-      
       const isProduction = process.env.NODE_ENV === 'production';
-      await createSession(res, sessionData, { cookieDomain: isProduction ? '.iconn.app' : undefined });
+      // Replace old session in one operation to avoid cookie conflicts
+      await createSession(res, sessionData, { 
+        cookieDomain: isProduction ? '.iconn.app' : undefined,
+        replaceSessionId: session.id
+      });
 
       return res.json({
         success: true,
