@@ -7,15 +7,13 @@
 -- ============================================
 
 -- Step 1: Drop any global unique constraint on member.google_id
--- Try both index and constraint naming patterns
-DROP INDEX IF EXISTS member_google_id_key;
-DROP INDEX IF EXISTS member_google_id_idx;
-DROP INDEX IF EXISTS member_google_id_unique;
-DROP INDEX IF EXISTS member_google_id_unique_idx;
-
--- Try to drop as constraint (PostgreSQL syntax varies)
+-- IMPORTANT: Drop the constraint FIRST, then the index will be removed automatically
 ALTER TABLE member DROP CONSTRAINT IF EXISTS member_google_id_key;
 ALTER TABLE member DROP CONSTRAINT IF EXISTS member_google_id_unique;
+
+-- Drop any standalone indexes that might exist (without backing constraints)
+DROP INDEX IF EXISTS member_google_id_idx;
+DROP INDEX IF EXISTS member_google_id_unique_idx;
 
 -- Step 2: Create new unique index scoped by tenant (partial - only when google_id is not null)
 DROP INDEX IF EXISTS member_google_id_tenant_unique_idx;
@@ -28,14 +26,13 @@ WHERE google_id IS NOT NULL;
 -- ============================================
 
 -- Step 1: Drop any global unique constraint on tenant_user.google_id
-DROP INDEX IF EXISTS tenant_user_google_id_key;
-DROP INDEX IF EXISTS tenant_user_google_id_idx;
-DROP INDEX IF EXISTS tenant_user_google_id_unique;
-DROP INDEX IF EXISTS tenant_user_google_id_unique_idx;
-
--- Try to drop as constraint
+-- IMPORTANT: Drop the constraint FIRST, then the index will be removed automatically
 ALTER TABLE tenant_user DROP CONSTRAINT IF EXISTS tenant_user_google_id_key;
 ALTER TABLE tenant_user DROP CONSTRAINT IF EXISTS tenant_user_google_id_unique;
+
+-- Drop any standalone indexes that might exist (without backing constraints)
+DROP INDEX IF EXISTS tenant_user_google_id_idx;
+DROP INDEX IF EXISTS tenant_user_google_id_unique_idx;
 
 -- Step 2: Create new unique index scoped by tenant (partial - only when google_id is not null)
 DROP INDEX IF EXISTS tenant_user_google_id_tenant_unique_idx;
