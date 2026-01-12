@@ -26,16 +26,19 @@ export default function AdminBranding() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [uploadingHeaderLogo, setUploadingHeaderLogo] = useState(false);
   const [tenantUser, setTenantUser] = useState(null);
   const [tenant, setTenant] = useState(null);
   
   const logoInputRef = useRef(null);
+  const headerLogoInputRef = useRef(null);
   
   const [formData, setFormData] = useState({
     primary_color: '#5C0085',
     secondary_color: '#BA0087',
     tagline: '',
     logo_url: '',
+    header_logo_url: '',
     header_config: {},
     footer_config: {
       ctaText: 'Become a member today',
@@ -77,6 +80,7 @@ export default function AdminBranding() {
               secondary_color: t?.secondary_color || '#BA0087',
               tagline: t?.tagline || '',
               logo_url: t?.logo_url || '',
+              header_logo_url: t?.header_logo_url || '',
               header_config: t?.header_config || {},
               footer_config: {
                 ctaText: t?.footer_config?.ctaText || 'Become a member today',
@@ -197,6 +201,61 @@ export default function AdminBranding() {
       });
     } finally {
       setUploadingLogo(false);
+    }
+  };
+
+  const handleHeaderLogoUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    setUploadingHeaderLogo(true);
+    const uploadFormData = new FormData();
+    uploadFormData.append('file', file);
+    uploadFormData.append('folder', 'branding');
+    
+    try {
+      const response = await fetch('/api/integrations/upload-file', {
+        method: 'POST',
+        credentials: 'include',
+        body: uploadFormData
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        const newLogoUrl = data.file_url;
+        setFormData(prev => ({ ...prev, header_logo_url: newLogoUrl }));
+        
+        // Auto-save the header logo to database
+        const saveResponse = await fetch('/api/admin/tenant-branding', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ header_logo_url: newLogoUrl })
+        });
+        
+        if (saveResponse.ok) {
+          toast({
+            title: "Header logo saved",
+            description: "Your header logo has been uploaded and saved."
+          });
+        } else {
+          toast({
+            title: "Logo uploaded",
+            description: "Logo uploaded but not saved. Click Save to persist changes.",
+            variant: "warning"
+          });
+        }
+      } else {
+        throw new Error('Upload failed');
+      }
+    } catch (err) {
+      toast({
+        title: "Upload failed",
+        description: "Could not upload header logo. Please try again.",
+        variant: "destructive"
+      });
+    } finally {
+      setUploadingHeaderLogo(false);
     }
   };
 
@@ -419,6 +478,83 @@ export default function AdminBranding() {
                   accept="image/*"
                   className="hidden"
                   onChange={handleLogoUpload}
+                />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-slate-800/50 border-slate-700">
+            <CardHeader>
+              <CardTitle className="text-white flex items-center gap-2">
+                <Image className="w-5 h-5" />
+                Header Logo
+              </CardTitle>
+              <CardDescription className="text-slate-400">
+                Upload a separate logo for the navigation header (typically lighter for dark backgrounds)
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="border-2 border-dashed border-slate-600 rounded-lg p-4 bg-slate-900/50">
+                {formData.header_logo_url ? (
+                  <div className="flex items-center gap-4">
+                    <div className="bg-slate-700 rounded-lg p-4">
+                      <img 
+                        src={formData.header_logo_url} 
+                        alt="Header Logo" 
+                        className="h-16 w-auto object-contain"
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => headerLogoInputRef.current?.click()}
+                        className="border-slate-600 text-slate-300"
+                        data-testid="button-change-header-logo"
+                      >
+                        <Upload className="w-4 h-4 mr-2" />
+                        Change
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        size="sm"
+                        onClick={() => setFormData({ ...formData, header_logo_url: '' })}
+                        data-testid="button-remove-header-logo"
+                      >
+                        <Trash2 className="w-4 h-4 mr-2" />
+                        Remove
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center py-6">
+                    <Image className="w-12 h-12 mx-auto text-slate-500 mb-3" />
+                    <p className="text-slate-400 mb-3">No header logo uploaded</p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => headerLogoInputRef.current?.click()}
+                      disabled={uploadingHeaderLogo}
+                      className="border-slate-600 text-slate-300"
+                      data-testid="button-upload-header-logo"
+                    >
+                      {uploadingHeaderLogo ? (
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      ) : (
+                        <Upload className="w-4 h-4 mr-2" />
+                      )}
+                      Upload Header Logo
+                    </Button>
+                  </div>
+                )}
+                <input
+                  ref={headerLogoInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleHeaderLogoUpload}
                 />
               </div>
             </CardContent>

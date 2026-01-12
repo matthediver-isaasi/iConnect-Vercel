@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { createPageUrl } from "@/utils";
 import { base44 } from "@/api/base44Client";
 import { useNavigationRealtime } from "@/hooks/useNavigationRealtime";
+import { useTenantBranding } from "@/contexts/TenantBrandingContext";
 import { Search, User, ArrowUpRight, LogOut, ChevronDown, ChevronRight, Calendar, Building, Briefcase, FileText, Users, Sparkles, Home, Mail, Phone, Menu, X, Loader2, Newspaper, BookOpen, FolderOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,7 +34,13 @@ const typeIconMap = {
   resource: FolderOpen
 };
 
+const DEFAULT_HEADER_LOGO = "https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/68efc20f3e0a30fafad6dde7/26710cf5a_GFIheaderlogo.png";
+
 export default function PublicHeader() {
+  const { branding } = useTenantBranding() || {};
+  const headerLogoUrl = branding?.headerLogoUrl || branding?.logoUrl || DEFAULT_HEADER_LOGO;
+  const tenantName = branding?.name || "Graduate Futures Institute";
+  
   const [searchOpen, setSearchOpen] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [memberLandingPage, setMemberLandingPage] = useState('Events');
@@ -729,8 +736,8 @@ export default function PublicHeader() {
           data-testid="link-header-logo"
         >
           <img
-            src="https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/68efc20f3e0a30fafad6dde7/26710cf5a_GFIheaderlogo.png"
-            alt="Graduate Futures Institute"
+            src={headerLogoUrl}
+            alt={tenantName}
             style={{
               width: 'auto',
               height: '158px'
@@ -749,8 +756,8 @@ export default function PublicHeader() {
           data-testid="link-header-logo-mobile-floating"
         >
           <img
-            src="https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/68efc20f3e0a30fafad6dde7/26710cf5a_GFIheaderlogo.png"
-            alt="Graduate Futures Institute"
+            src={headerLogoUrl}
+            alt={tenantName}
             className="h-24 w-auto"
           />
         </Link>
@@ -1037,8 +1044,8 @@ export default function PublicHeader() {
             data-testid="link-mobile-drawer-logo"
           >
             <img
-              src="https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/68efc20f3e0a30fafad6dde7/26710cf5a_GFIheaderlogo.png"
-              alt="Graduate Futures Institute"
+              src={headerLogoUrl}
+              alt={tenantName}
               className="h-10 w-auto"
             />
           </Link>
