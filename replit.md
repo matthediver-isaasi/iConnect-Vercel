@@ -61,6 +61,38 @@ An optional due diligence review capability for form submissions includes config
 
 A third authentication tier for "Platform Owners" provides super-admin capabilities across the entire SaaS platform. Platform owners manage platform-wide preferences, including default role and navigation templates for new tenant provisioning, and can perform tenant deletion with built-in safety mechanisms.
 
+## Tenant Branding System
+
+The platform supports per-tenant branding customization for public-facing pages. Key components:
+
+- **Database Schema**: The `tenant` table includes branding fields: `primary_color`, `secondary_color`, `tagline`, `logo_url`, `header_config`, `footer_config`, and `branding_config` (all stored as JSONB for flexibility)
+- **Public API**: `/api/public/tenant-branding` endpoint returns tenant branding based on subdomain detection (e.g., `gsf.iconn.app` → tenant "gsf")
+- **React Context**: `TenantBrandingContext` provides branding data throughout the app via `useTenantBranding()` hook
+- **PublicLayout Integration**: The public footer uses tenant branding for:
+  - CTA text, button text, and links
+  - Footer gradient colors (customizable array of colors)
+  - Address and contact information
+  - Tenant logo (displayed with invert filter for dark footer)
+  - Legal/charity text
+  - Terms and privacy policy URLs
+  - Newsletter signup text
+
+Footer configuration structure:
+```javascript
+{
+  ctaText: "Become a member today",
+  ctaButtonText: "Join Us", 
+  ctaLink: "Membership",
+  newsletterText: "Sign up to our newsletter",
+  gradientColors: ["#5C0085", "#BA0087", "#EE00C3", "#FF4229", "#FFB000"],
+  address: { name: "Org Name", lines: ["Line 1", "Line 2"] },
+  contact: { phone: "+44...", email: "hello@..." },
+  legalText: "Registered charity...",
+  termsAndConditionsUrl: "https://...",
+  privacyPolicyUrl: "https://..."
+}
+```
+
 # External Dependencies
 
 **Supabase:** Primary database (PostgreSQL) for application data, including CRUD and realtime subscriptions, and file storage.
