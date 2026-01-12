@@ -47,7 +47,9 @@ export default function PublicHeader() {
   const headerLogoHeight = branding?.headerConfig?.logoHeight;
   const headerLogoWidth = branding?.headerConfig?.logoWidth;
   const headerGradientColors = branding?.headerConfig?.gradientColors || DEFAULT_HEADER_GRADIENT;
-  const topBarGradient = `linear-gradient(to right, white 0%, white 33%, ${headerGradientColors[0] || '#5C0085'} 50%)`;
+  const firstColor = headerGradientColors[0] || '#5C0085';
+  const lastColor = headerGradientColors[headerGradientColors.length - 1] || '#FFB000';
+  const topBarGradient = `linear-gradient(to right, white 0%, white 30%, ${firstColor} 60%, ${lastColor} 100%)`;
   const navIndicatorGradient = `linear-gradient(to right, ${headerGradientColors.join(', ')})`;
   
   const [searchOpen, setSearchOpen] = useState(false);
