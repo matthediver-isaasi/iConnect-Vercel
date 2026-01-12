@@ -11,17 +11,26 @@ export default async function handler(req, res) {
   const referer = req.headers.referer || '';
   const host = req.headers.host || '';
   
-  const allowedOrigins = [
-    'https://iconn.app',
-    'https://www.iconn.app'
-  ];
+  // Allow requests from iconn.app and any *.iconn.app subdomain
+  const isIconnAppOrigin = (url) => {
+    if (!url) return false;
+    try {
+      const parsed = new URL(url);
+      return parsed.hostname === 'iconn.app' || 
+             parsed.hostname === 'www.iconn.app' ||
+             parsed.hostname.endsWith('.iconn.app');
+    } catch {
+      return false;
+    }
+  };
+  
+  let isAllowedOrigin = isIconnAppOrigin(origin);
+  let isAllowedReferer = !referer || isIconnAppOrigin(referer);
   
   if (process.env.NODE_ENV === 'development') {
-    allowedOrigins.push('http://localhost:5000', `http://${host}`);
+    isAllowedOrigin = isAllowedOrigin || origin.startsWith('http://localhost:5000') || origin.startsWith(`http://${host}`);
+    isAllowedReferer = isAllowedReferer || !referer || referer.startsWith('http://localhost:5000');
   }
-
-  const isAllowedOrigin = allowedOrigins.some(allowed => origin.startsWith(allowed));
-  const isAllowedReferer = !referer || allowedOrigins.some(allowed => referer.startsWith(allowed));
   
   if (!isAllowedOrigin && origin) {
     console.log('[Portal Session] CSRF blocked - invalid origin:', origin);
