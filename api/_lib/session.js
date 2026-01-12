@@ -72,12 +72,19 @@ export async function getSession(req) {
   }
 }
 
+// Production cookie domain for cross-subdomain session sharing
+const PRODUCTION_COOKIE_DOMAIN = '.iconn.app';
+
 export async function createSession(res, sessionData, options = {}) {
   if (!supabase) return null;
   
   const sessionId = generateSessionId();
   const expire = new Date(Date.now() + SESSION_MAX_AGE);
   const { cookieDomain, replaceSessionId } = options;
+  const isProduction = process.env.NODE_ENV === 'production';
+  
+  // Always use .iconn.app domain in production for cross-subdomain cookies
+  const effectiveDomain = cookieDomain || (isProduction ? PRODUCTION_COOKIE_DOMAIN : undefined);
   
   // If replacing an existing session, delete it first (database only, not cookie)
   if (replaceSessionId) {
@@ -95,11 +102,11 @@ export async function createSession(res, sessionData, options = {}) {
     cookie: {
       originalMaxAge: SESSION_MAX_AGE,
       expires: expire.toISOString(),
-      secure: process.env.NODE_ENV === 'production',
+      secure: isProduction,
       httpOnly: true,
       path: '/',
       sameSite: 'lax',
-      domain: cookieDomain || undefined
+      domain: effectiveDomain
     },
     ...sessionData
   };
@@ -115,18 +122,20 @@ export async function createSession(res, sessionData, options = {}) {
     const signedId = signSessionId(sessionId);
     const cookieOptions = {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: isProduction,
       sameSite: 'lax',
       path: '/',
       maxAge: SESSION_MAX_AGE / 1000 // maxAge in seconds for cookie
     };
     
-    if (cookieDomain) {
-      cookieOptions.domain = cookieDomain;
+    // Critical: Set domain for cross-subdomain cookie sharing in production
+    if (effectiveDomain) {
+      cookieOptions.domain = effectiveDomain;
     }
     
     const cookie = serialize(SESSION_COOKIE_NAME, signedId, cookieOptions);
     
+    console.log('[Session] Created session with domain:', effectiveDomain || 'default');
     res.setHeader('Set-Cookie', cookie);
     
     return { id: sessionId, data: sessionData };
@@ -203,7 +212,7 @@ export async function destroySession(req, res, options = {}) {
   // Clear the cookie - must use same domain as was used to set it for cross-subdomain cookies
   const { cookieDomain } = options;
   const isProduction = process.env.NODE_ENV === 'production';
-  const domain = cookieDomain || (isProduction ? '.iconn.app' : undefined);
+  const domain = cookieDomain || (isProduction ? PRODUCTION_COOKIE_DOMAIN : undefined);
   
   const cookieOptions = {
     httpOnly: true,

@@ -95,12 +95,8 @@ export default async function handler(req, res) {
 
       console.log('[Tenant Switch] Creating tenant_user session:', tenantUser.id, 'for tenant:', tenantUser.tenant?.slug);
       
-      const isProduction = process.env.NODE_ENV === 'production';
-      // Replace old session in one operation to avoid cookie conflicts
-      await createSession(res, sessionData, { 
-        cookieDomain: isProduction ? '.iconn.app' : undefined,
-        replaceSessionId: session.id
-      });
+      // Replace old session in one operation - domain is automatically set in production
+      await createSession(res, sessionData, { replaceSessionId: session.id });
 
       return res.json({
         success: true,
