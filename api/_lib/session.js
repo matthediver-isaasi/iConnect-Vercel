@@ -456,6 +456,7 @@ export async function getSessionTenantUser(req) {
     sessionId: session?.id?.substring(0, 8),
     userType: session?.data?.userType,
     tenantUserId: session?.data?.tenantUserId,
+    preservedTenantUserId: session?.data?.preservedTenantUserId,
     memberId: session?.data?.memberId,
     identityId: session?.data?.identityId,
     tenantId: session?.data?.tenantId
@@ -465,6 +466,31 @@ export async function getSessionTenantUser(req) {
   if (session?.data?.tenantUserId && session.data.userType === 'tenant_user') {
     console.log('[Session] Found tenant_user session, continuing with normal handling');
     // Continue with normal tenant_user session handling below
+  } else if (session?.data?.preservedTenantUserId && session.data.userType === 'member') {
+    // Session has preserved admin context from portal SSO - restore it
+    console.log('[Session] Found member session with preserved admin context, restoring tenant_user access');
+    
+    const restoredSessionData = {
+      ...session.data,
+      tenantUserId: session.data.preservedTenantUserId,
+      tenantUserEmail: session.data.preservedTenantUserEmail,
+      userType: 'tenant_user',
+      // Keep member context for potential return to portal
+      preservedMemberId: session.data.memberId,
+      preservedMemberEmail: session.data.memberEmail,
+      preservedMemberType: 'member'
+    };
+    
+    // Remove the preservedTenantUser fields since we're restoring
+    delete restoredSessionData.preservedTenantUserId;
+    delete restoredSessionData.preservedTenantUserEmail;
+    delete restoredSessionData.preservedTenantUserType;
+    
+    await updateSession(session.id, restoredSessionData);
+    console.log('[Session] Restored admin context from preserved session');
+    
+    // Now continue with normal tenant_user handling using the restored tenantUserId
+    session.data = restoredSessionData;
   } else if (session?.data?.identityId && session.data.userType === 'member') {
     console.log('[Session] Found member session with identityId, attempting promotion');
     // Member session - check if this identity is also a tenant owner

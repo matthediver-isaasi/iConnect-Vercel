@@ -1,4 +1,4 @@
-import { createSession } from '../_lib/session.js';
+import { getSession, createSession, updateSession } from '../_lib/session.js';
 import { supabase } from '../_lib/database.js';
 
 export default async function handler(req, res) {
@@ -61,14 +61,41 @@ export default async function handler(req, res) {
       return res.redirect('/login?error=account_disabled');
     }
 
-    await createSession(res, {
-      memberId: member.id,
-      memberEmail: member.email,
-      organizationId: member.organization_id,
-      tenantId: member.organization?.tenant_id,
-      roleId: member.role_id,
-      userType: 'member'
-    });
+    // Check if there's an existing session with admin context to preserve
+    const existingSession = await getSession(req);
+    const preserveAdminContext = existingSession?.data?.tenantUserId && existingSession?.data?.userType === 'tenant_user';
+    
+    if (preserveAdminContext) {
+      // Update existing session to add member context while preserving admin context
+      const updatedSessionData = {
+        ...existingSession.data,
+        // Add member context
+        memberId: member.id,
+        memberEmail: member.email,
+        organizationId: member.organization_id,
+        roleId: member.role_id,
+        // Switch active context to member for portal use
+        userType: 'member',
+        // Preserve admin context for return
+        preservedTenantUserId: existingSession.data.tenantUserId,
+        preservedTenantUserEmail: existingSession.data.tenantUserEmail,
+        preservedTenantUserType: 'tenant_user'
+      };
+      
+      await updateSession(existingSession.id, updatedSessionData);
+      console.log(`[Portal SSO] Updated session to add member context, preserved admin context for tenant_user ${existingSession.data.tenantUserId}`);
+    } else {
+      // No admin session to preserve, create new member-only session
+      await createSession(res, {
+        memberId: member.id,
+        memberEmail: member.email,
+        organizationId: member.organization_id,
+        tenantId: member.organization?.tenant_id,
+        roleId: member.role_id,
+        userType: 'member'
+      });
+      console.log(`[Portal SSO] Created new member session for ${member.id}`);
+    }
 
     const landingPage = member.role?.default_landing_page || 'Dashboard';
     
