@@ -41,7 +41,8 @@ export default function AdminBranding() {
     header_logo_url: '',
     header_config: {
       logoHeight: '',
-      logoWidth: ''
+      logoWidth: '',
+      gradientColors: ['#5C0085', '#BA0087', '#EE00C3', '#FF4229', '#FFB000']
     },
     footer_config: {
       ctaText: 'Become a member today',
@@ -69,6 +70,7 @@ export default function AdminBranding() {
 
   const [newAddressLine, setNewAddressLine] = useState('');
   const [newGradientColor, setNewGradientColor] = useState('#000000');
+  const [newHeaderGradientColor, setNewHeaderGradientColor] = useState('#000000');
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -89,7 +91,8 @@ export default function AdminBranding() {
               header_logo_url: t?.header_logo_url || '',
               header_config: {
                 logoHeight: t?.header_config?.logoHeight || '',
-                logoWidth: t?.header_config?.logoWidth || ''
+                logoWidth: t?.header_config?.logoWidth || '',
+                gradientColors: t?.header_config?.gradientColors || ['#5C0085', '#BA0087', '#EE00C3', '#FF4229', '#FFB000']
               },
               footer_config: {
                 ctaText: t?.footer_config?.ctaText || 'Become a member today',
@@ -649,6 +652,90 @@ export default function AdminBranding() {
                 </div>
               </div>
               <p className="text-xs text-slate-500 mt-2">Leave empty for default sizing. The logo will scale proportionally within these constraints.</p>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-slate-800/50 border-slate-700">
+            <CardHeader>
+              <CardTitle className="text-white flex items-center gap-2">
+                <Palette className="w-5 h-5" />
+                Header Gradient Colors
+              </CardTitle>
+              <CardDescription className="text-slate-400">
+                Customize the gradient colors used in the navigation header bar
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div 
+                className="h-8 rounded-lg"
+                style={{
+                  background: `linear-gradient(to right, ${(formData.header_config?.gradientColors || ['#5C0085', '#BA0087', '#EE00C3', '#FF4229', '#FFB000']).join(', ')})`
+                }}
+              />
+              <div className="flex flex-wrap gap-2">
+                {(formData.header_config?.gradientColors || []).map((color, index) => (
+                  <div key={index} className="flex items-center gap-1 bg-slate-900/50 rounded-lg p-2">
+                    <input
+                      type="color"
+                      value={color}
+                      onChange={(e) => {
+                        const newColors = [...(formData.header_config?.gradientColors || [])];
+                        newColors[index] = e.target.value;
+                        setFormData(prev => ({
+                          ...prev,
+                          header_config: { ...prev.header_config, gradientColors: newColors }
+                        }));
+                      }}
+                      className="w-8 h-8 rounded cursor-pointer"
+                    />
+                    <span className="text-slate-300 text-sm font-mono">{color}</span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 text-slate-400 hover:text-red-400"
+                      onClick={() => {
+                        const newColors = (formData.header_config?.gradientColors || []).filter((_, i) => i !== index);
+                        setFormData(prev => ({
+                          ...prev,
+                          header_config: { ...prev.header_config, gradientColors: newColors }
+                        }));
+                      }}
+                      data-testid={`button-remove-header-gradient-${index}`}
+                    >
+                      <X className="w-4 h-4" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="color"
+                  value={newHeaderGradientColor}
+                  onChange={(e) => setNewHeaderGradientColor(e.target.value)}
+                  className="w-10 h-10 rounded cursor-pointer"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setFormData(prev => ({
+                      ...prev,
+                      header_config: {
+                        ...prev.header_config,
+                        gradientColors: [...(prev.header_config?.gradientColors || []), newHeaderGradientColor]
+                      }
+                    }));
+                  }}
+                  className="border-slate-600 text-slate-300"
+                  data-testid="button-add-header-gradient-color"
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add Color
+                </Button>
+              </div>
+              <p className="text-xs text-slate-500">These colors create the gradient fade effect in the top navigation bar.</p>
             </CardContent>
           </Card>
 

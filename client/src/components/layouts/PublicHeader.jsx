@@ -36,12 +36,18 @@ const typeIconMap = {
 
 const DEFAULT_HEADER_LOGO = "https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/68efc20f3e0a30fafad6dde7/26710cf5a_GFIheaderlogo.png";
 
+const DEFAULT_HEADER_GRADIENT = ['#5C0085', '#BA0087', '#EE00C3', '#FF4229', '#FFB000'];
+
 export default function PublicHeader() {
   const { branding } = useTenantBranding() || {};
   const headerLogoUrl = branding?.headerLogoUrl || branding?.logoUrl || DEFAULT_HEADER_LOGO;
   const tenantName = branding?.name || "Graduate Futures Institute";
   const headerLogoHeight = branding?.headerConfig?.logoHeight;
   const headerLogoWidth = branding?.headerConfig?.logoWidth;
+  const headerGradientColors = branding?.headerConfig?.gradientColors || DEFAULT_HEADER_GRADIENT;
+  const headerGradient = `linear-gradient(to top right, ${headerGradientColors.join(', ')})`;
+  const headerGradientHorizontal = `linear-gradient(to right, ${headerGradientColors.join(', ')})`;
+  const topBarGradient = `linear-gradient(to right, white 0%, white 33%, ${headerGradientColors[0] || '#5C0085'} 50%)`;
   
   const [searchOpen, setSearchOpen] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -366,7 +372,7 @@ export default function PublicHeader() {
           <div 
             className="mx-4 my-2 py-3 px-4 text-white font-bold flex items-center justify-center gap-2"
             style={{ 
-              background: 'linear-gradient(to top right, #5C0085, #BA0087, #EE00C3, #FF4229, #FFB000)'
+              background: headerGradient
             }}
           >
             {Icon && <Icon className="w-4 h-4" />}
@@ -453,7 +459,7 @@ export default function PublicHeader() {
             className="text-white font-bold hover:opacity-90 transition-opacity px-6 py-5 rounded-none" 
             style={{ 
               fontFamily: 'Poppins, sans-serif',
-              background: 'linear-gradient(to top right, #5C0085, #BA0087, #EE00C3, #FF4229, #FFB000)'
+              background: headerGradient
             }}
           >
             {Icon && <Icon className="w-4 h-4 mr-2" />}
@@ -500,7 +506,7 @@ export default function PublicHeader() {
               className="absolute left-0 right-0 h-[5px]"
               style={{
                 bottom: '-33px',
-                background: 'linear-gradient(to right, #5C0085, #BA0087, #EE00C3, #FF4229, #FFB000)'
+                background: headerGradientHorizontal
               }}
             />
           )}
@@ -620,7 +626,7 @@ export default function PublicHeader() {
             className="absolute left-0 right-0 h-[5px]"
             style={{
               bottom: '-33px',
-              background: 'linear-gradient(to right, #5C0085, #BA0087, #EE00C3, #FF4229, #FFB000)'
+              background: headerGradientHorizontal
             }}
           />
         )}
@@ -776,7 +782,7 @@ export default function PublicHeader() {
         <div
           className="py-2 relative hidden lg:block"
           style={{
-            background: 'linear-gradient(to right, white 0%, white 33%, #5C0085 50%)'
+            background: topBarGradient
           }}
         >
           <div className="max-w-7xl mx-auto px-4">
@@ -1003,7 +1009,7 @@ export default function PublicHeader() {
                     className="text-white font-bold hover:opacity-90 transition-opacity px-6 py-5 rounded-none" 
                     style={{ 
                       fontFamily: 'Poppins, sans-serif',
-                      background: 'linear-gradient(to top right, #5C0085, #BA0087, #EE00C3, #FF4229, #FFB000)'
+                      background: headerGradient
                     }}
                   >
                     Events
@@ -1193,7 +1199,7 @@ export default function PublicHeader() {
               <div 
                 className="mx-4 my-2 py-3 px-4 text-white font-bold flex items-center justify-center gap-2"
                 style={{ 
-                  background: 'linear-gradient(to top right, #5C0085, #BA0087, #EE00C3, #FF4229, #FFB000)'
+                  background: headerGradient
                 }}
               >
                 Events
