@@ -474,6 +474,8 @@ export async function getSessionTenantUser(req) {
       ...session.data,
       tenantUserId: session.data.preservedTenantUserId,
       tenantUserEmail: session.data.preservedTenantUserEmail,
+      identityId: session.data.preservedIdentityId,
+      tenantId: session.data.preservedTenantId,
       userType: 'tenant_user',
       // Keep member context for potential return to portal
       preservedMemberId: session.data.memberId,
@@ -484,6 +486,8 @@ export async function getSessionTenantUser(req) {
     // Remove the preservedTenantUser fields since we're restoring
     delete restoredSessionData.preservedTenantUserId;
     delete restoredSessionData.preservedTenantUserEmail;
+    delete restoredSessionData.preservedIdentityId;
+    delete restoredSessionData.preservedTenantId;
     delete restoredSessionData.preservedTenantUserType;
     
     await updateSession(session.id, restoredSessionData);

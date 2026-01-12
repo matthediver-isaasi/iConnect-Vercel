@@ -76,9 +76,11 @@ export default async function handler(req, res) {
         roleId: member.role_id,
         // Switch active context to member for portal use
         userType: 'member',
-        // Preserve admin context for return
+        // Preserve admin context for return (including identityId and tenantId)
         preservedTenantUserId: existingSession.data.tenantUserId,
         preservedTenantUserEmail: existingSession.data.tenantUserEmail,
+        preservedIdentityId: existingSession.data.identityId,
+        preservedTenantId: existingSession.data.tenantId,
         preservedTenantUserType: 'tenant_user'
       };
       
