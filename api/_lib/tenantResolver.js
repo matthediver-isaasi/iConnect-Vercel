@@ -43,7 +43,7 @@ export async function resolveTenantFromHost(hostname) {
     if (slug) {
       const { data, error } = await supabase
         .from('tenant')
-        .select('id, name, slug, domain, status, logo_url, favicon_url, primary_color, settings')
+        .select('id, name, slug, domain, status, logo_url, header_logo_url, favicon_url, primary_color, settings')
         .eq('slug', slug)
         .eq('status', 'active')
         .single();
@@ -54,7 +54,7 @@ export async function resolveTenantFromHost(hostname) {
     } else if (customDomain) {
       const { data, error } = await supabase
         .from('tenant')
-        .select('id, name, slug, domain, status, logo_url, favicon_url, primary_color, settings')
+        .select('id, name, slug, domain, status, logo_url, header_logo_url, favicon_url, primary_color, settings')
         .eq('domain', customDomain)
         .eq('status', 'active')
         .single();

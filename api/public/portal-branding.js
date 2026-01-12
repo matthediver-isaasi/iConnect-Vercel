@@ -44,7 +44,7 @@ export default async function handler(req, res) {
         if (tenantId) {
           const { data: tenantData } = await supabase
             .from('tenant')
-            .select('id, name, slug, logo_url, favicon_url, primary_color, settings')
+            .select('id, name, slug, logo_url, header_logo_url, favicon_url, primary_color, settings')
             .eq('id', tenantId)
             .single();
           
@@ -58,7 +58,7 @@ export default async function handler(req, res) {
     if (tenant) {
       const settings = tenant.settings || {};
       return res.status(200).json({
-        logoUrl: tenant.logo_url || null,
+        logoUrl: tenant.header_logo_url || tenant.logo_url || null,
         faviconUrl: tenant.favicon_url || null,
         logoHeight: settings.logo_height || 'medium',
         logoLink: settings.logo_link || '',
