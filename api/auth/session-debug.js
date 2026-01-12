@@ -22,6 +22,38 @@ export default async function handler(req, res) {
     const cookies = parse(req.headers.cookie || '');
     const sessionCookie = cookies['iconnect.sid'];
     
+    // Manually unsign to get the session ID
+    let rawSessionId = null;
+    if (sessionCookie && sessionCookie.startsWith('s:')) {
+      const parts = sessionCookie.slice(2).split('.');
+      rawSessionId = parts[0]; // Get the session ID without signature
+    }
+    
+    // Check if this session exists in the database directly
+    let dbSessionCheck = null;
+    if (rawSessionId && supabase) {
+      const { data, error } = await supabase
+        .from('session')
+        .select('sid, expire')
+        .eq('sid', rawSessionId)
+        .single();
+      
+      dbSessionCheck = {
+        found: !!data,
+        error: error?.message || null,
+        expire: data?.expire || null
+      };
+    }
+    
+    // Also count total sessions
+    let totalSessions = null;
+    if (supabase) {
+      const { count } = await supabase
+        .from('session')
+        .select('*', { count: 'exact', head: true });
+      totalSessions = count;
+    }
+    
     const session = await getSession(req);
     const tenantFromHost = await resolveTenantFromRequest(req);
     
@@ -33,6 +65,9 @@ export default async function handler(req, res) {
       cookieNames: Object.keys(cookies),
       hasSessionCookie: !!sessionCookie,
       sessionCookiePreview: sessionCookie ? sessionCookie.substring(0, 30) + '...' : null,
+      rawSessionIdPreview: rawSessionId ? rawSessionId.substring(0, 8) + '...' : null,
+      dbSessionCheck,
+      totalSessionsInDb: totalSessions,
       tenantFromHost: tenantFromHost ? { id: tenantFromHost.id, slug: tenantFromHost.slug } : null,
       session: session ? {
         id: session.id?.substring(0, 8) + '...',
