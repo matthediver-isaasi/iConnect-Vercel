@@ -1861,17 +1861,9 @@ useEffect(() => {
                       variant="ghost"
                       className="w-full justify-start text-slate-600 hover:text-slate-900 hover:bg-slate-50"
                       onClick={() => {
-                        const hostname = window.location.hostname;
-                        let adminUrl;
-                        if (hostname === 'localhost' || hostname === '127.0.0.1') {
-                          adminUrl = '/admin';
-                        } else {
-                          // Remove first subdomain to get root domain (e.g., gfi.iconn.app -> iconn.app)
-                          const parts = hostname.split('.');
-                          const rootDomain = parts.length > 2 ? parts.slice(1).join('.') : hostname;
-                          adminUrl = `${window.location.protocol}//${rootDomain}/admin`;
-                        }
-                        window.location.href = adminUrl;
+                        // Stay on the same subdomain for admin access
+                        // This preserves the tenant context needed for session promotion
+                        window.location.href = '/admin';
                       }}
                     >
                       <ExternalLink className="w-4 h-4 mr-2" />
@@ -2152,17 +2144,9 @@ useEffect(() => {
                           className="w-full justify-start text-slate-600 hover:text-slate-900 hover:bg-slate-50"
                           onClick={() => {
                             setMobileMenuOpen(false);
-                            const hostname = window.location.hostname;
-                            let adminUrl;
-                            if (hostname === 'localhost' || hostname === '127.0.0.1') {
-                              adminUrl = '/admin';
-                            } else {
-                              // Remove first subdomain to get root domain (e.g., gfi.iconn.app -> iconn.app)
-                              const parts = hostname.split('.');
-                              const rootDomain = parts.length > 2 ? parts.slice(1).join('.') : hostname;
-                              adminUrl = `${window.location.protocol}//${rootDomain}/admin`;
-                            }
-                            window.location.href = adminUrl;
+                            // Stay on the same subdomain for admin access
+                            // This preserves the tenant context needed for session promotion
+                            window.location.href = '/admin';
                           }}
                         >
                           <ExternalLink className="w-4 h-4 mr-2" />
