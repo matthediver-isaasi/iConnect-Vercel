@@ -66,14 +66,16 @@ export default async function handler(req, res) {
     return res.redirect('/admin/login?error=csrf_error');
   }
 
+  const isProduction = process.env.NODE_ENV === 'production';
   const clearNonceCookie = serialize('tenant_google_oauth_nonce', '', {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
+    secure: isProduction,
     sameSite: 'lax',
     path: '/',
+    domain: isProduction ? '.iconn.app' : undefined,
     maxAge: 0
   });
-  res.setHeader('Set-Cookie', clearNonceCookie);
+  // Don't set cookie here - combine with session cookie later
 
   try {
     const { returnTo } = stateData;
@@ -256,6 +258,15 @@ export default async function handler(req, res) {
       identityId: identity?.id || tenantUser.identity_id,
       userType: 'tenant_user'
     });
+
+    // Combine session cookie with clearNonceCookie
+    const existingCookies = res.getHeader('Set-Cookie');
+    const allCookies = Array.isArray(existingCookies) 
+      ? [...existingCookies, clearNonceCookie]
+      : existingCookies 
+        ? [existingCookies, clearNonceCookie]
+        : [clearNonceCookie];
+    res.setHeader('Set-Cookie', allCookies);
 
     console.log('[Tenant Google OAuth Callback] Session created with identityId:', identity?.id || tenantUser.identity_id);
 

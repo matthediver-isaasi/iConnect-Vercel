@@ -31,11 +31,13 @@ export default async function handler(req, res) {
   try {
     const nonce = crypto.randomBytes(32).toString('hex');
     
+    const isProduction = process.env.NODE_ENV === 'production';
     const nonceCookie = serialize('tenant_google_oauth_nonce', nonce, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: isProduction,
       sameSite: 'lax',
       path: '/',
+      domain: isProduction ? '.iconn.app' : undefined,
       maxAge: 300
     });
     res.setHeader('Set-Cookie', nonceCookie);
