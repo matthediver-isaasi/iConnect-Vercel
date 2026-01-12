@@ -419,7 +419,13 @@ export default function PublicLayout({ children, currentPageName }) {
                   <img 
                     src={branding.logoUrl} 
                     alt={branding?.name || 'Logo'} 
-                    className="h-24 w-auto object-contain mb-8 brightness-0 invert"
+                    className="object-contain mb-8 brightness-0 invert"
+                    style={{
+                      height: branding?.brandingConfig?.footerLogoHeight ? `${branding.brandingConfig.footerLogoHeight}px` : '96px',
+                      width: branding?.brandingConfig?.footerLogoWidth ? `${branding.brandingConfig.footerLogoWidth}px` : 'auto',
+                      maxHeight: branding?.brandingConfig?.footerLogoHeight ? `${branding.brandingConfig.footerLogoHeight}px` : '96px',
+                      maxWidth: branding?.brandingConfig?.footerLogoWidth ? `${branding.brandingConfig.footerLogoWidth}px` : 'none'
+                    }}
                   />
                 ) : (
                   <div className="h-24 w-32 flex items-center justify-center mb-8">

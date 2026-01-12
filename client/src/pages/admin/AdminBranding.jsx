@@ -39,7 +39,10 @@ export default function AdminBranding() {
     tagline: '',
     logo_url: '',
     header_logo_url: '',
-    header_config: {},
+    header_config: {
+      logoHeight: '',
+      logoWidth: ''
+    },
     footer_config: {
       ctaText: 'Become a member today',
       ctaButtonText: 'Join Us',
@@ -58,7 +61,10 @@ export default function AdminBranding() {
       termsAndConditionsUrl: '',
       privacyPolicyUrl: ''
     },
-    branding_config: {}
+    branding_config: {
+      footerLogoHeight: '',
+      footerLogoWidth: ''
+    }
   });
 
   const [newAddressLine, setNewAddressLine] = useState('');
@@ -81,7 +87,10 @@ export default function AdminBranding() {
               tagline: t?.tagline || '',
               logo_url: t?.logo_url || '',
               header_logo_url: t?.header_logo_url || '',
-              header_config: t?.header_config || {},
+              header_config: {
+                logoHeight: t?.header_config?.logoHeight || '',
+                logoWidth: t?.header_config?.logoWidth || ''
+              },
               footer_config: {
                 ctaText: t?.footer_config?.ctaText || 'Become a member today',
                 ctaButtonText: t?.footer_config?.ctaButtonText || 'Join Us',
@@ -100,7 +109,10 @@ export default function AdminBranding() {
                 termsAndConditionsUrl: t?.footer_config?.termsAndConditionsUrl || '',
                 privacyPolicyUrl: t?.footer_config?.privacyPolicyUrl || ''
               },
-              branding_config: t?.branding_config || {}
+              branding_config: {
+                footerLogoHeight: t?.branding_config?.footerLogoHeight || '',
+                footerLogoWidth: t?.branding_config?.footerLogoWidth || ''
+              }
             });
           } else {
             navigate('/admin/login');
@@ -480,6 +492,46 @@ export default function AdminBranding() {
                   onChange={handleLogoUpload}
                 />
               </div>
+              
+              <div className="grid grid-cols-2 gap-4 mt-4">
+                <div className="space-y-2">
+                  <Label htmlFor="footer_logo_height" className="text-slate-200">Max Height (px)</Label>
+                  <Input
+                    id="footer_logo_height"
+                    type="number"
+                    value={formData.branding_config?.footerLogoHeight || ''}
+                    onChange={(e) => setFormData({ 
+                      ...formData, 
+                      branding_config: { 
+                        ...formData.branding_config, 
+                        footerLogoHeight: e.target.value 
+                      } 
+                    })}
+                    className="bg-slate-900/50 border-slate-600 text-white"
+                    placeholder="96"
+                    data-testid="input-footer-logo-height"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="footer_logo_width" className="text-slate-200">Max Width (px)</Label>
+                  <Input
+                    id="footer_logo_width"
+                    type="number"
+                    value={formData.branding_config?.footerLogoWidth || ''}
+                    onChange={(e) => setFormData({ 
+                      ...formData, 
+                      branding_config: { 
+                        ...formData.branding_config, 
+                        footerLogoWidth: e.target.value 
+                      } 
+                    })}
+                    className="bg-slate-900/50 border-slate-600 text-white"
+                    placeholder="auto"
+                    data-testid="input-footer-logo-width"
+                  />
+                </div>
+              </div>
+              <p className="text-xs text-slate-500 mt-2">Leave empty for default sizing. The logo will scale proportionally within these constraints.</p>
             </CardContent>
           </Card>
 
@@ -557,6 +609,46 @@ export default function AdminBranding() {
                   onChange={handleHeaderLogoUpload}
                 />
               </div>
+              
+              <div className="grid grid-cols-2 gap-4 mt-4">
+                <div className="space-y-2">
+                  <Label htmlFor="header_logo_height" className="text-slate-200">Max Height (px)</Label>
+                  <Input
+                    id="header_logo_height"
+                    type="number"
+                    value={formData.header_config?.logoHeight || ''}
+                    onChange={(e) => setFormData({ 
+                      ...formData, 
+                      header_config: { 
+                        ...formData.header_config, 
+                        logoHeight: e.target.value 
+                      } 
+                    })}
+                    className="bg-slate-900/50 border-slate-600 text-white"
+                    placeholder="158"
+                    data-testid="input-header-logo-height"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="header_logo_width" className="text-slate-200">Max Width (px)</Label>
+                  <Input
+                    id="header_logo_width"
+                    type="number"
+                    value={formData.header_config?.logoWidth || ''}
+                    onChange={(e) => setFormData({ 
+                      ...formData, 
+                      header_config: { 
+                        ...formData.header_config, 
+                        logoWidth: e.target.value 
+                      } 
+                    })}
+                    className="bg-slate-900/50 border-slate-600 text-white"
+                    placeholder="auto"
+                    data-testid="input-header-logo-width"
+                  />
+                </div>
+              </div>
+              <p className="text-xs text-slate-500 mt-2">Leave empty for default sizing. The logo will scale proportionally within these constraints.</p>
             </CardContent>
           </Card>
 

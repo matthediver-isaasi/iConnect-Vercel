@@ -40,6 +40,8 @@ export default function PublicHeader() {
   const { branding } = useTenantBranding() || {};
   const headerLogoUrl = branding?.headerLogoUrl || branding?.logoUrl || DEFAULT_HEADER_LOGO;
   const tenantName = branding?.name || "Graduate Futures Institute";
+  const headerLogoHeight = branding?.headerConfig?.logoHeight;
+  const headerLogoWidth = branding?.headerConfig?.logoWidth;
   
   const [searchOpen, setSearchOpen] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -739,8 +741,11 @@ export default function PublicHeader() {
             src={headerLogoUrl}
             alt={tenantName}
             style={{
-              width: 'auto',
-              height: '158px'
+              width: headerLogoWidth ? `${headerLogoWidth}px` : 'auto',
+              height: headerLogoHeight ? `${headerLogoHeight}px` : '158px',
+              maxWidth: headerLogoWidth ? `${headerLogoWidth}px` : 'none',
+              maxHeight: headerLogoHeight ? `${headerLogoHeight}px` : '158px',
+              objectFit: 'contain'
             }}
           />
         </Link>
@@ -758,7 +763,12 @@ export default function PublicHeader() {
           <img
             src={headerLogoUrl}
             alt={tenantName}
-            className="h-24 w-auto"
+            style={{
+              height: headerLogoHeight ? `${Math.min(parseInt(headerLogoHeight), 96)}px` : '96px',
+              width: 'auto',
+              maxWidth: headerLogoWidth ? `${headerLogoWidth}px` : 'none',
+              objectFit: 'contain'
+            }}
           />
         </Link>
 
@@ -1046,7 +1056,12 @@ export default function PublicHeader() {
             <img
               src={headerLogoUrl}
               alt={tenantName}
-              className="h-10 w-auto"
+              style={{
+                height: '40px',
+                width: 'auto',
+                maxWidth: headerLogoWidth ? `${Math.min(parseInt(headerLogoWidth), 150)}px` : '150px',
+                objectFit: 'contain'
+              }}
             />
           </Link>
           <button 
