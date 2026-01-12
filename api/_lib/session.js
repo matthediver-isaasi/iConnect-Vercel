@@ -31,19 +31,27 @@ function unsignSessionId(signedValue) {
 }
 
 export async function getSession(req) {
-  if (!supabase) return null;
+  if (!supabase) {
+    console.log('[Session] getSession: No supabase client');
+    return null;
+  }
   
   const cookies = parse(req.headers.cookie || '');
   const signedSessionId = cookies[SESSION_COOKIE_NAME];
   
-  if (!signedSessionId) return null;
+  if (!signedSessionId) {
+    console.log('[Session] getSession: No session cookie found');
+    return null;
+  }
   
   // Unsign the session ID
   const sessionId = unsignSessionId(signedSessionId);
   if (!sessionId) {
-    console.log('[Session] Invalid session signature');
+    console.log('[Session] Invalid session signature for:', signedSessionId.substring(0, 20));
     return null;
   }
+  
+  console.log('[Session] getSession: Looking up session:', sessionId.substring(0, 8));
   
   try {
     const { data, error } = await supabase
@@ -52,22 +60,33 @@ export async function getSession(req) {
       .eq('sid', sessionId)
       .single();
     
-    if (error || !data) return null;
+    if (error) {
+      console.log('[Session] getSession: Database error:', error.message);
+      return null;
+    }
+    
+    if (!data) {
+      console.log('[Session] getSession: Session not found in database');
+      return null;
+    }
     
     // Check if session expired
     if (new Date(data.expire) < new Date()) {
+      console.log('[Session] getSession: Session expired');
       await supabase.from('session').delete().eq('sid', sessionId);
       return null;
     }
     
     const sessData = typeof data.sess === 'string' ? JSON.parse(data.sess) : data.sess;
     
+    console.log('[Session] getSession: Session found, userType:', sessData?.userType);
+    
     return {
       id: sessionId,
       data: sessData
     };
   } catch (err) {
-    console.error('Error getting session:', err);
+    console.error('[Session] getSession error:', err);
     return null;
   }
 }
@@ -112,11 +131,18 @@ export async function createSession(res, sessionData, options = {}) {
   };
   
   try {
-    await supabase.from('session').insert({
+    const { error: insertError } = await supabase.from('session').insert({
       sid: sessionId,
       sess: sessObject,
       expire: expire.toISOString()
     });
+    
+    if (insertError) {
+      console.error('[Session] createSession: Database insert failed:', insertError.message);
+      return null;
+    }
+    
+    console.log('[Session] createSession: Session inserted into database:', sessionId.substring(0, 8));
     
     // Sign the cookie value like Express does
     const signedId = signSessionId(sessionId);
