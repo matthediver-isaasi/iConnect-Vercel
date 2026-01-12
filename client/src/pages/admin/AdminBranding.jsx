@@ -163,11 +163,29 @@ export default function AdminBranding() {
       
       if (response.ok) {
         const data = await response.json();
-        setFormData(prev => ({ ...prev, logo_url: data.file_url }));
-        toast({
-          title: "Logo uploaded",
-          description: "Your logo has been uploaded successfully."
+        const newLogoUrl = data.file_url;
+        setFormData(prev => ({ ...prev, logo_url: newLogoUrl }));
+        
+        // Auto-save the logo to database
+        const saveResponse = await fetch('/api/admin/tenant-branding', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ logo_url: newLogoUrl })
         });
+        
+        if (saveResponse.ok) {
+          toast({
+            title: "Logo saved",
+            description: "Your logo has been uploaded and saved."
+          });
+        } else {
+          toast({
+            title: "Logo uploaded",
+            description: "Logo uploaded but not saved. Click Save to persist changes.",
+            variant: "warning"
+          });
+        }
       } else {
         throw new Error('Upload failed');
       }
