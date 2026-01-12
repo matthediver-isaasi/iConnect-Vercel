@@ -193,12 +193,37 @@ export default async function handler(req, res) {
       sessionTenantId = orgData?.tenant_id;
     }
 
+    // Look up or resolve identity for unified authentication
+    // Check if member has an identity_id or if there's a tenant_identity with this email
+    let identityId = member.identity_id;
+    
+    if (!identityId) {
+      // Try to find existing tenant_identity by email
+      const { data: existingIdentity } = await supabase
+        .from('tenant_identity')
+        .select('id')
+        .eq('email', email.toLowerCase())
+        .single();
+      
+      if (existingIdentity) {
+        identityId = existingIdentity.id;
+        // Link the member to this identity for future lookups
+        await supabase
+          .from('member')
+          .update({ identity_id: identityId })
+          .eq('id', member.id);
+        console.log('[Google OAuth Callback] Linked member to existing identity:', identityId);
+      }
+    }
+
     const cookieDomain = isProduction ? '.iconn.app' : undefined;
     
     await createSession(res, {
+      userType: 'member',
       memberId: member.id,
       memberEmail: member.email,
-      tenantId: sessionTenantId || null
+      tenantId: sessionTenantId || null,
+      identityId: identityId || null
     }, { cookieDomain });
 
     const existingCookies = res.getHeader('Set-Cookie');
