@@ -1,0 +1,101 @@
+import { getSession } from '../_lib/session.js';
+import { supabase } from '../_lib/database.js';
+import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
+
+export default async function handler(req, res) {
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
+  if (req.method !== 'GET') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  try {
+    const session = await getSession(req);
+    const tenantFromHost = await resolveTenantFromRequest(req);
+    
+    const debug = {
+      timestamp: new Date().toISOString(),
+      host: req.headers.host || req.headers['x-forwarded-host'],
+      tenantFromHost: tenantFromHost ? { id: tenantFromHost.id, slug: tenantFromHost.slug } : null,
+      session: session ? {
+        id: session.id?.substring(0, 8) + '...',
+        userType: session.data?.userType,
+        memberId: session.data?.memberId,
+        identityId: session.data?.identityId,
+        tenantId: session.data?.tenantId,
+        tenantUserId: session.data?.tenantUserId
+      } : null
+    };
+
+    // If we have a memberId but no identityId, check why
+    if (session?.data?.memberId && !session?.data?.identityId) {
+      const { data: member } = await supabase
+        .from('member')
+        .select('id, email, identity_id, google_id')
+        .eq('id', session.data.memberId)
+        .single();
+      
+      debug.memberData = member ? {
+        id: member.id,
+        email: member.email,
+        identity_id: member.identity_id,
+        has_google_id: !!member.google_id
+      } : null;
+
+      // Check if tenant_identity exists for this email
+      if (member?.email) {
+        const { data: identity } = await supabase
+          .from('tenant_identity')
+          .select('id, email')
+          .eq('email', member.email.toLowerCase())
+          .single();
+        
+        debug.identityByEmail = identity ? { id: identity.id, email: identity.email } : null;
+      }
+    }
+
+    // If we have an identityId, check tenant_membership
+    if (session?.data?.identityId) {
+      const targetTenantId = session.data.tenantId || tenantFromHost?.id;
+      
+      if (targetTenantId) {
+        const { data: membership, error } = await supabase
+          .from('tenant_membership')
+          .select('id, membership_type, tenant_user_id, status')
+          .eq('identity_id', session.data.identityId)
+          .eq('tenant_id', targetTenantId)
+          .eq('membership_type', 'owner')
+          .single();
+        
+        debug.ownerMembership = membership || null;
+        debug.ownerMembershipError = error?.message || null;
+        
+        // Also check for tenant_user directly
+        const { data: tenantUser } = await supabase
+          .from('tenant_user')
+          .select('id, email, status, identity_id')
+          .eq('identity_id', session.data.identityId)
+          .eq('tenant_id', targetTenantId)
+          .single();
+        
+        debug.tenantUserByIdentity = tenantUser ? {
+          id: tenantUser.id,
+          email: tenantUser.email,
+          status: tenantUser.status
+        } : null;
+      }
+    }
+
+    res.json(debug);
+  } catch (error) {
+    console.error('[Session Debug] Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+}
