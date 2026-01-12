@@ -250,6 +250,7 @@ import DomainSettings from "./DomainSettings";
 import AdminLogin from "./admin/AdminLogin";
 import AdminDashboard from "./admin/AdminDashboard";
 import AdminSettings from "./admin/AdminSettings";
+import AdminBranding from "./admin/AdminBranding";
 import SaasLanding from "./admin/SaasLanding";
 
 import PlatformLogin from "./platform/PlatformLogin";
@@ -858,6 +859,7 @@ function AdminRoutes() {
             <Route path="/admin/login" element={<AdminLogin />} />
             <Route path="/admin/dashboard" element={<AdminDashboard />} />
             <Route path="/admin/settings" element={<AdminSettings />} />
+            <Route path="/admin/branding" element={<AdminBranding />} />
             <Route path="/admin" element={<AdminDashboard />} />
         </Routes>
     );
@@ -887,6 +889,7 @@ function SaasRoutes() {
             <Route path="/admin/login" element={<AdminLogin />} />
             <Route path="/admin/dashboard" element={<AdminDashboard />} />
             <Route path="/admin/settings" element={<AdminSettings />} />
+            <Route path="/admin/branding" element={<AdminBranding />} />
             <Route path="/admin" element={<AdminDashboard />} />
             <Route path="/platform/login" element={<PlatformLogin />} />
             <Route path="/platform/admin" element={<PlatformAdmin />} />
