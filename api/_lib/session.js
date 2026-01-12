@@ -173,7 +173,7 @@ export async function updateSession(sessionId, sessionData) {
   }
 }
 
-export async function destroySession(req, res) {
+export async function destroySession(req, res, options = {}) {
   if (!supabase) return;
   
   const cookies = parse(req.headers.cookie || '');
@@ -190,14 +190,24 @@ export async function destroySession(req, res) {
     }
   }
   
-  // Clear the cookie
-  const cookie = serialize(SESSION_COOKIE_NAME, '', {
+  // Clear the cookie - must use same domain as was used to set it for cross-subdomain cookies
+  const { cookieDomain } = options;
+  const isProduction = process.env.NODE_ENV === 'production';
+  const domain = cookieDomain || (isProduction ? '.iconn.app' : undefined);
+  
+  const cookieOptions = {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
+    secure: isProduction,
     sameSite: 'lax',
     path: '/',
     maxAge: 0
-  });
+  };
+  
+  if (domain) {
+    cookieOptions.domain = domain;
+  }
+  
+  const cookie = serialize(SESSION_COOKIE_NAME, '', cookieOptions);
   
   res.setHeader('Set-Cookie', cookie);
 }

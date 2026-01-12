@@ -1,4 +1,4 @@
-import { getSession, createSession } from '../_lib/session.js';
+import { getSession, createSession, destroySession } from '../_lib/session.js';
 import { supabase } from '../_lib/database.js';
 
 export default async function handler(req, res) {
@@ -50,9 +50,22 @@ export default async function handler(req, res) {
       identityId = memberData?.identity_id;
     }
     
-    if (!identityId && isTenantUser) {
-      identityId = currentSessionData.tenantUserId;
+    // For tenant_user sessions, try to get identity from the tenant_user record
+    if (!identityId && isTenantUser && currentSessionData.tenantUserId) {
+      const { data: tenantUserData } = await supabase
+        .from('tenant_user')
+        .select('identity_id')
+        .eq('id', currentSessionData.tenantUserId)
+        .single();
+      identityId = tenantUserData?.identity_id;
     }
+    
+    if (!identityId) {
+      console.log('[Tenant Switch] Unable to determine identity ID from session');
+      return res.status(401).json({ success: false, error: 'Session identity not found' });
+    }
+    
+    console.log('[Tenant Switch] Using identity:', identityId, 'for tenant switch');
 
     const { tenantId } = req.body;
 
@@ -81,6 +94,9 @@ export default async function handler(req, res) {
       };
 
       console.log('[Tenant Switch] Creating tenant_user session:', tenantUser.id, 'for tenant:', tenantUser.tenant?.slug);
+      
+      // Destroy old session before creating new one to avoid cookie conflicts
+      await destroySession(req, res);
       
       const isProduction = process.env.NODE_ENV === 'production';
       await createSession(res, sessionData, { cookieDomain: isProduction ? '.iconn.app' : undefined });
