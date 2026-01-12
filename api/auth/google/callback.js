@@ -153,6 +153,8 @@ export default async function handler(req, res) {
         .single();
 
       if (memberByEmail) {
+        // Try to link google_id, but don't fail if it conflicts (unique constraint)
+        // This can happen when the same Google account is used across multiple tenants
         const { data: updatedMember, error: updateError } = await supabase
           .from('member')
           .update({ google_id: googleId })
@@ -161,12 +163,13 @@ export default async function handler(req, res) {
           .single();
 
         if (updateError) {
-          console.error('[Google OAuth Callback] Failed to link Google account:', updateError);
-          return res.redirect(buildErrorRedirect(tenantSlug, 'link_failed', isProduction));
+          // Log but don't fail - the member can still log in
+          console.warn('[Google OAuth Callback] Could not link Google ID (may be duplicate):', updateError.message);
+          member = memberByEmail;
+        } else {
+          member = updatedMember;
+          console.log('[Google OAuth Callback] Linked Google account to existing member:', member.id);
         }
-
-        member = updatedMember;
-        console.log('[Google OAuth Callback] Linked Google account to existing member:', member.id);
       }
     }
 
