@@ -1,3 +1,4 @@
+import { parse } from 'cookie';
 import { getSession } from '../_lib/session.js';
 import { supabase } from '../_lib/database.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
@@ -17,12 +18,21 @@ export default async function handler(req, res) {
   }
 
   try {
+    // Parse cookies to see what's being sent
+    const cookies = parse(req.headers.cookie || '');
+    const sessionCookie = cookies['iconnect.sid'];
+    
     const session = await getSession(req);
     const tenantFromHost = await resolveTenantFromRequest(req);
     
     const debug = {
       timestamp: new Date().toISOString(),
       host: req.headers.host || req.headers['x-forwarded-host'],
+      nodeEnv: process.env.NODE_ENV,
+      hasCookieHeader: !!req.headers.cookie,
+      cookieNames: Object.keys(cookies),
+      hasSessionCookie: !!sessionCookie,
+      sessionCookiePreview: sessionCookie ? sessionCookie.substring(0, 30) + '...' : null,
       tenantFromHost: tenantFromHost ? { id: tenantFromHost.id, slug: tenantFromHost.slug } : null,
       session: session ? {
         id: session.id?.substring(0, 8) + '...',
