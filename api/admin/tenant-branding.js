@@ -102,6 +102,23 @@ export default async function handler(req, res) {
         updates.footer_config.gradientColors = validatedColors;
       }
 
+      if (updates.header_config?.gradientStops) {
+        const validatedStops = [];
+        for (const stop of updates.header_config.gradientStops) {
+          if (typeof stop === 'object' && stop.color && typeof stop.position === 'number') {
+            const normalized = normalizeHexColor(stop.color);
+            if (normalized) {
+              const position = Math.max(0, Math.min(100, Math.round(stop.position)));
+              validatedStops.push({ color: normalized, position });
+            }
+          }
+        }
+        if (validatedStops.length > 0) {
+          validatedStops.sort((a, b) => a.position - b.position);
+          updates.header_config.gradientStops = validatedStops;
+        }
+      }
+
       if (Object.keys(updates).length === 0) {
         return res.status(400).json({ error: 'No valid fields to update' });
       }

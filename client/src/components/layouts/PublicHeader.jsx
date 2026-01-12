@@ -36,9 +36,56 @@ const typeIconMap = {
 
 const DEFAULT_HEADER_LOGO = "https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/68efc20f3e0a30fafad6dde7/26710cf5a_GFIheaderlogo.png";
 
-const DEFAULT_HEADER_GRADIENT = ['#5C0085', '#BA0087', '#EE00C3', '#FF4229', '#FFB000'];
+const DEFAULT_GRADIENT_STOPS = [
+  { color: '#FFFFFF', position: 0 },
+  { color: '#FFFFFF', position: 30 },
+  { color: '#5C0085', position: 50 },
+  { color: '#BA0087', position: 65 },
+  { color: '#EE00C3', position: 80 },
+  { color: '#FF4229', position: 90 },
+  { color: '#FFB000', position: 100 }
+];
 const BUTTON_ACCENT_GRADIENT = 'linear-gradient(to top right, #5C0085, #BA0087, #EE00C3, #FF4229, #FFB000)';
 const BUTTON_ACCENT_GRADIENT_HORIZONTAL = 'linear-gradient(to right, #5C0085, #BA0087, #EE00C3, #FF4229, #FFB000)';
+
+const convertLegacyGradientColors = (colors) => {
+  if (!colors || colors.length === 0) return DEFAULT_GRADIENT_STOPS;
+  if (colors.length === 1) {
+    return [
+      { color: '#FFFFFF', position: 0 },
+      { color: '#FFFFFF', position: 30 },
+      { color: colors[0], position: 100 }
+    ];
+  }
+  const colorStops = colors.map((color, index) => ({
+    color,
+    position: Math.round((index / (colors.length - 1)) * 70) + 30
+  }));
+  return [
+    { color: '#FFFFFF', position: 0 },
+    { color: '#FFFFFF', position: 30 },
+    ...colorStops
+  ];
+};
+
+const getGradientStops = (headerConfig) => {
+  if (headerConfig?.gradientStops && headerConfig.gradientStops.length > 0) {
+    return headerConfig.gradientStops;
+  }
+  if (headerConfig?.gradientColors && headerConfig.gradientColors.length > 0) {
+    return convertLegacyGradientColors(headerConfig.gradientColors);
+  }
+  return DEFAULT_GRADIENT_STOPS;
+};
+
+const buildGradientFromStops = (stops) => {
+  const sortedStops = [...stops].sort((a, b) => a.position - b.position);
+  return `linear-gradient(to right, ${sortedStops.map(s => `${s.color} ${s.position}%`).join(', ')})`;
+};
+
+const getColorStopsOnly = (stops) => {
+  return stops.filter(s => s.color.toUpperCase() !== '#FFFFFF');
+};
 
 export default function PublicHeader() {
   const { branding } = useTenantBranding() || {};
@@ -46,11 +93,12 @@ export default function PublicHeader() {
   const tenantName = branding?.name || "Graduate Futures Institute";
   const headerLogoHeight = branding?.headerConfig?.logoHeight;
   const headerLogoWidth = branding?.headerConfig?.logoWidth;
-  const headerGradientColors = branding?.headerConfig?.gradientColors || DEFAULT_HEADER_GRADIENT;
-  const firstColor = headerGradientColors[0] || '#5C0085';
-  const lastColor = headerGradientColors[headerGradientColors.length - 1] || '#FFB000';
-  const topBarGradient = `linear-gradient(to right, white 0%, white 30%, ${firstColor} 60%, ${lastColor} 100%)`;
-  const navIndicatorGradient = `linear-gradient(to right, ${headerGradientColors.join(', ')})`;
+  const gradientStops = getGradientStops(branding?.headerConfig);
+  const topBarGradient = buildGradientFromStops(gradientStops);
+  const colorStops = getColorStopsOnly(gradientStops);
+  const navIndicatorGradient = colorStops.length > 0 
+    ? `linear-gradient(to right, ${colorStops.map(s => s.color).join(', ')})`
+    : BUTTON_ACCENT_GRADIENT_HORIZONTAL;
   
   const [searchOpen, setSearchOpen] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
