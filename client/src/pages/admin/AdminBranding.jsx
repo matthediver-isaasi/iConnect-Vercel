@@ -155,7 +155,7 @@ export default function AdminBranding() {
     uploadFormData.append('folder', 'branding');
     
     try {
-      const response = await fetch('/api/upload', {
+      const response = await fetch('/api/integrations/upload-file', {
         method: 'POST',
         credentials: 'include',
         body: uploadFormData
@@ -163,7 +163,7 @@ export default function AdminBranding() {
       
       if (response.ok) {
         const data = await response.json();
-        setFormData(prev => ({ ...prev, logo_url: data.url }));
+        setFormData(prev => ({ ...prev, logo_url: data.file_url }));
         toast({
           title: "Logo uploaded",
           description: "Your logo has been uploaded successfully."
