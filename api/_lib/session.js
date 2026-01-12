@@ -202,6 +202,143 @@ export async function destroySession(req, res) {
   res.setHeader('Set-Cookie', cookie);
 }
 
+/**
+ * Try to promote a member session to tenant_user access.
+ * This is called when a user logged in via portal SSO tries to access the admin dashboard.
+ * If the user's identity has owner/admin membership for the tenant, we grant access.
+ * 
+ * @param {object} session - The current session object with id and data
+ * @param {object} req - The request object (for hostname-based tenant resolution)
+ * @returns {Promise<object|null>} - The tenant_user object if promotion succeeds, null otherwise
+ */
+async function tryPromoteMemberToTenantUser(session, req) {
+  if (!supabase || !session?.data?.identityId) {
+    return null;
+  }
+  
+  const identityId = session.data.identityId;
+  
+  // Get the tenant context - try multiple sources in order of priority
+  let targetTenantId = session.data.tenantId;
+  
+  // If no tenantId in session, try to get it from the request hostname
+  if (!targetTenantId && req) {
+    try {
+      const { resolveTenantFromRequest } = await import('./tenantResolver.js');
+      const tenantFromHost = await resolveTenantFromRequest(req);
+      if (tenantFromHost) {
+        targetTenantId = tenantFromHost.id;
+      }
+    } catch (err) {
+      // Tenant resolver may not be available
+    }
+  }
+  
+  // If still no tenantId, try to get it from the member's organization
+  if (!targetTenantId && session.data.memberId) {
+    const { data: member } = await supabase
+      .from('member')
+      .select('organization:organization_id(tenant_id)')
+      .eq('id', session.data.memberId)
+      .single();
+    
+    targetTenantId = member?.organization?.tenant_id;
+  }
+  
+  if (!targetTenantId) {
+    console.log('[Session] Cannot promote member session - no tenant context');
+    return null;
+  }
+  
+  try {
+    // Check if this identity has owner membership for the target tenant
+    const { data: membership, error: membershipError } = await supabase
+      .from('tenant_membership')
+      .select('*, tenant_user:tenant_user_id(*)')
+      .eq('identity_id', identityId)
+      .eq('tenant_id', targetTenantId)
+      .eq('membership_type', 'owner')
+      .single();
+    
+    if (membershipError || !membership) {
+      console.log('[Session] Identity does not have owner membership for this tenant');
+      return null;
+    }
+    
+    // Get the tenant_user record (either from membership link or by looking up)
+    let tenantUser = membership.tenant_user;
+    
+    if (!tenantUser && membership.tenant_user_id) {
+      const { data } = await supabase
+        .from('tenant_user')
+        .select('*, tenant:tenant_id(*)')
+        .eq('id', membership.tenant_user_id)
+        .single();
+      tenantUser = data;
+    }
+    
+    // Fallback: look up tenant_user by identity_id and tenant_id
+    if (!tenantUser) {
+      const { data } = await supabase
+        .from('tenant_user')
+        .select('*, tenant:tenant_id(*)')
+        .eq('identity_id', identityId)
+        .eq('tenant_id', targetTenantId)
+        .single();
+      tenantUser = data;
+    }
+    
+    if (!tenantUser) {
+      console.log('[Session] No tenant_user record found for identity promotion');
+      return null;
+    }
+    
+    if (tenantUser.status !== 'active') {
+      console.log('[Session] Tenant user inactive, cannot promote:', tenantUser.id);
+      return null;
+    }
+    
+    // Upgrade the session to full tenant_user access
+    // Change userType so all downstream admin guards pass
+    const upgradedSessionData = {
+      ...session.data,
+      userType: 'tenant_user', // Critical: change userType so subsequent API calls pass
+      tenantUserId: tenantUser.id,
+      tenantId: targetTenantId,
+      // Preserve original member info for potential back-navigation
+      originalUserType: session.data.userType,
+      promotedFromMember: true
+    };
+    
+    await updateSession(session.id, upgradedSessionData);
+    
+    console.log('[Session] Successfully promoted member session to include tenant_user access:', {
+      identityId,
+      tenantUserId: tenantUser.id,
+      tenantId: targetTenantId
+    });
+    
+    // Attach session metadata
+    tenantUser._sessionTenantId = targetTenantId;
+    tenantUser._sessionIdentityId = identityId;
+    
+    // Fetch tenant data if not included
+    if (!tenantUser.tenant) {
+      const { data: tenant } = await supabase
+        .from('tenant')
+        .select('*')
+        .eq('id', targetTenantId)
+        .single();
+      tenantUser.tenant = tenant;
+    }
+    
+    return tenantUser;
+  } catch (err) {
+    console.error('[Session] Error promoting member session:', err);
+    return null;
+  }
+}
+
 export async function getSessionMember(req) {
   const session = await getSession(req);
   
@@ -251,7 +388,18 @@ export async function getSessionMember(req) {
 export async function getSessionTenantUser(req) {
   const session = await getSession(req);
   
-  if (!session?.data?.tenantUserId || session.data.userType !== 'tenant_user') {
+  // Standard tenant_user session check
+  if (session?.data?.tenantUserId && session.data.userType === 'tenant_user') {
+    // Continue with normal tenant_user session handling below
+  } else if (session?.data?.identityId && session.data.userType === 'member') {
+    // Member session - check if this identity is also a tenant owner
+    // and can be promoted to tenant_user access
+    const promotedUser = await tryPromoteMemberToTenantUser(session, req);
+    if (promotedUser) {
+      return promotedUser;
+    }
+    return null;
+  } else {
     return null;
   }
   
