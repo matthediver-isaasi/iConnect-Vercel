@@ -60,50 +60,61 @@ export default async function handler(req, res) {
       return res.status(400).json({ success: false, error: 'Tenant ID is required' });
     }
 
-    const { data: membership, error: membershipError } = await supabase
-      .from('tenant_membership')
-      .select('*, tenant:tenant_id(*), identity:identity_id(*)')
+    // Primary approach: Look up tenant_user directly by identity_id
+    // This is more reliable as it doesn't depend on tenant_membership schema
+    const { data: tenantUser } = await supabase
+      .from('tenant_user')
+      .select('*, tenant:tenant_id(*)')
       .eq('identity_id', identityId)
       .eq('tenant_id', tenantId)
       .eq('status', 'active')
       .single();
 
-    if (membershipError || !membership) {
-      const { data: legacyUser } = await supabase
-        .from('tenant_user')
-        .select('*, tenant:tenant_id(*)')
-        .eq('identity_id', identityId)
-        .eq('tenant_id', tenantId)
-        .eq('status', 'active')
-        .single();
-
-      if (!legacyUser) {
-        return res.status(403).json({ success: false, error: 'You do not have access to this tenant.' });
-      }
-
-      // Create session with all required fields for tenant isolation
-      const legacySessionData = {
-        identityId: legacyUser.identity_id || legacyUser.id,
-        tenantUserId: legacyUser.id,
-        tenantUserEmail: legacyUser.email,
-        tenantId: legacyUser.tenant_id,  // Critical for tenant isolation
+    if (tenantUser) {
+      // Create session with correct tenant_user.id (not identity_id)
+      const sessionData = {
+        identityId: tenantUser.identity_id || identityId,
+        tenantUserId: tenantUser.id,  // Must be the actual tenant_user.id
+        tenantUserEmail: tenantUser.email,
+        tenantId: tenantUser.tenant_id,
         userType: 'tenant_user'
       };
 
-      console.log('[Tenant Switch] Creating legacy session with tenantId:', legacyUser.tenant_id);
-      await createSession(res, legacySessionData);
+      console.log('[Tenant Switch] Creating tenant_user session:', tenantUser.id, 'for tenant:', tenantUser.tenant?.slug);
+      
+      const isProduction = process.env.NODE_ENV === 'production';
+      await createSession(res, sessionData, { cookieDomain: isProduction ? '.iconn.app' : undefined });
 
       return res.json({
         success: true,
         tenantUser: {
-          id: legacyUser.id,
-          email: legacyUser.email,
-          first_name: legacyUser.first_name,
-          last_name: legacyUser.last_name,
-          role: legacyUser.role
+          id: tenantUser.id,
+          email: tenantUser.email,
+          first_name: tenantUser.first_name,
+          last_name: tenantUser.last_name,
+          role: tenantUser.role
         },
-        tenant: legacyUser.tenant
+        tenant: tenantUser.tenant
       });
+    }
+
+    // Fallback: Try tenant_membership table (may have schema limitations)
+    let membership = null;
+    try {
+      const { data } = await supabase
+        .from('tenant_membership')
+        .select('*, tenant:tenant_id(*), identity:identity_id(*)')
+        .eq('identity_id', identityId)
+        .eq('tenant_id', tenantId)
+        .eq('status', 'active')
+        .single();
+      membership = data;
+    } catch (err) {
+      console.log('[Tenant Switch] Membership lookup failed (schema may need migration)');
+    }
+
+    if (!membership) {
+      return res.status(403).json({ success: false, error: 'You do not have access to this tenant.' });
     }
 
     await supabase

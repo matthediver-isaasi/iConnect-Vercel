@@ -102,8 +102,17 @@ export default function AdminDashboard() {
           tenant: data.tenant,
           hasMultipleTenants: true
         }));
-        // Reload to refresh all data for new tenant
-        window.location.reload();
+        // Navigate to the new tenant's subdomain to maintain proper tenant context
+        const newTenantSlug = data.tenant?.slug;
+        const hostname = window.location.hostname;
+        const isProduction = hostname.endsWith('.iconn.app') || hostname === 'iconn.app';
+        
+        if (isProduction && newTenantSlug) {
+          window.location.href = `https://${newTenantSlug}.iconn.app/admin`;
+        } else {
+          // Local development - just reload
+          window.location.reload();
+        }
       } else {
         toast({
           title: "Switch Failed",
