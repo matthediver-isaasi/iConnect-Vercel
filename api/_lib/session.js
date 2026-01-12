@@ -388,18 +388,33 @@ export async function getSessionMember(req) {
 export async function getSessionTenantUser(req) {
   const session = await getSession(req);
   
+  console.log('[Session] getSessionTenantUser called, session data:', JSON.stringify({
+    hasSession: !!session,
+    sessionId: session?.id?.substring(0, 8),
+    userType: session?.data?.userType,
+    tenantUserId: session?.data?.tenantUserId,
+    memberId: session?.data?.memberId,
+    identityId: session?.data?.identityId,
+    tenantId: session?.data?.tenantId
+  }));
+  
   // Standard tenant_user session check
   if (session?.data?.tenantUserId && session.data.userType === 'tenant_user') {
+    console.log('[Session] Found tenant_user session, continuing with normal handling');
     // Continue with normal tenant_user session handling below
   } else if (session?.data?.identityId && session.data.userType === 'member') {
+    console.log('[Session] Found member session with identityId, attempting promotion');
     // Member session - check if this identity is also a tenant owner
     // and can be promoted to tenant_user access
     const promotedUser = await tryPromoteMemberToTenantUser(session, req);
     if (promotedUser) {
+      console.log('[Session] Member session promoted successfully');
       return promotedUser;
     }
+    console.log('[Session] Member session promotion failed');
     return null;
   } else {
+    console.log('[Session] No valid session for tenant_user access, userType:', session?.data?.userType);
     return null;
   }
   
