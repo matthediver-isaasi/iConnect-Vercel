@@ -61,9 +61,10 @@ export default async function handler(req, res) {
     }
 
     // Verify the form exists and belongs to this tenant
+    // Include fields, entity_pipelines, field_mappings for post-submission processing
     const { data: form, error: formError } = await supabase
       .from('form')
-      .select('id, tenant_id, require_authentication, send_email, email_templates')
+      .select('id, tenant_id, require_authentication, send_email, email_templates, fields, entity_pipelines, field_mappings, application_level')
       .eq('id', form_id)
       .eq('tenant_id', tenantData.id)
       .eq('is_active', true)
@@ -101,24 +102,43 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Failed to save submission' });
     }
 
+    const baseUrl = `${req.headers['x-forwarded-proto'] || 'https'}://${host}`;
+
+    // Process entity pipelines if configured (members/organisations creation)
+    const hasEntityPipelines = (form.entity_pipelines?.members?.length > 0) || (form.entity_pipelines?.organisations?.length > 0);
+    if (hasEntityPipelines) {
+      try {
+        fetch(`${baseUrl}/api/forms/process-application`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            form_id: form.id,
+            form_values: submission_data || {},
+            fields: form.fields || [],
+            field_mappings: form.field_mappings || [],
+            application_level: form.application_level || 'member',
+            submission_id: submission.id,
+            prefill_organization_id: null,
+            role_id: null
+          })
+        }).catch(err => {
+          console.error('[Public Form Submission] Entity pipeline processing failed:', err);
+        });
+      } catch (err) {
+        console.error('[Public Form Submission] Entity pipeline setup error:', err);
+      }
+    }
+
     // If form has email sending enabled, trigger email sending
     if (form.send_email && form.email_templates?.length > 0) {
       try {
-        // Get form fields for email processing
-        const { data: fullForm } = await supabase
-          .from('form')
-          .select('fields')
-          .eq('id', form_id)
-          .single();
-
-        // Call email sending endpoint (fire and forget)
-        fetch(`${req.headers['x-forwarded-proto'] || 'https'}://${host}/api/forms/send-submission-email`, {
+        fetch(`${baseUrl}/api/forms/send-submission-email`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             form_id,
             form_values: submission_data || {},
-            fields: fullForm?.fields || [],
+            fields: form.fields || [],
             email_templates: form.email_templates
           })
         }).catch(err => {

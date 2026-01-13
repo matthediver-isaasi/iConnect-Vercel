@@ -194,10 +194,17 @@ export default function EmbedFormPage() {
     
     // If form has explicit pages array, use that
     if (form.pages && form.pages.length > 0) {
-      return form.pages.map(page => ({
-        ...page,
-        fields: filterVisibleFields(form.fields.filter(f => f.page_id === page.id))
-      }));
+      return form.pages.map((page, pageIndex) => {
+        // Include unassigned fields (no page_id) on the first page for backwards compatibility
+        // This matches FormView behavior
+        const pageFields = pageIndex === 0
+          ? form.fields.filter(f => f.page_id === page.id || !f.page_id)
+          : form.fields.filter(f => f.page_id === page.id);
+        return {
+          ...page,
+          fields: filterVisibleFields(pageFields)
+        };
+      });
     }
     
     // Otherwise, look for page_break fields
