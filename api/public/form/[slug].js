@@ -4,7 +4,8 @@ import { createClient } from '@supabase/supabase-js';
 const PUBLIC_FORM_FIELDS = [
   'id', 'name', 'slug', 'description', 'fields', 'is_active', 
   'layout_type', 'submit_button_text', 'success_message', 'redirect_url',
-  'send_email', 'email_templates', 'prefill_source'
+  'send_email', 'email_templates', 'prefill_source',
+  'visibility_rules', 'pages'  // Needed for conditional logic and multi-page forms
 ];
 
 export default async function handler(req, res) {
