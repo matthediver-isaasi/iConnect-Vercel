@@ -307,17 +307,21 @@ export default function EmbedFormPage() {
           )}
         </CardHeader>
         <CardContent>
-          <FormRenderer
-            fields={currentPageFields}
-            values={formValues}
-            onChange={(fieldId, value) => {
-              setFormValues(prev => ({ ...prev, [fieldId]: value }));
-              notifyParentResize();
-            }}
-            onValidityChange={handleValidityChange}
-            defaultConsentMessage={defaultConsentMessage}
-            isEmbedded={true}
-          />
+          <div className="space-y-4">
+            {currentPageFields.map(field => (
+              <FormRenderer
+                key={field.id}
+                field={field}
+                value={formValues[field.id]}
+                onChange={(value) => {
+                  setFormValues(prev => ({ ...prev, [field.id]: value }));
+                  notifyParentResize();
+                }}
+                onValidityChange={handleValidityChange}
+                disabled={false}
+              />
+            ))}
+          </div>
 
           <div className="flex justify-between mt-6">
             {isMultiPage && currentPageIndex > 0 ? (
