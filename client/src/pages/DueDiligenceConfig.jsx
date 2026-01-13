@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { AlertCircle, Plus, Trash2, Save, GripVertical, ChevronDown, ArrowLeft, Loader2, Star, ShieldCheck, Clock } from "lucide-react";
+import { AlertCircle, Plus, Trash2, Save, GripVertical, ChevronDown, ArrowLeft, Loader2, Star, ShieldCheck, Clock, FileText, Settings, ChevronRight } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -68,6 +68,23 @@ export default function DueDiligenceConfigPage() {
       }
     }
   }, [isFeatureExcluded, isAccessReady]);
+
+  const { data: ddEnabledForms = [], isLoading: formsLoading } = useQuery({
+    queryKey: ['dd-enabled-forms'],
+    queryFn: async () => {
+      const allForms = await base44.entities.Form.list();
+      return allForms.filter(f => f.due_diligence_required === true);
+    },
+    enabled: !formId && accessChecked
+  });
+
+  const { data: ddConfigs = [] } = useQuery({
+    queryKey: ['dd-configs-all'],
+    queryFn: async () => {
+      return await base44.entities.FormDueDiligenceConfig.list();
+    },
+    enabled: !formId && accessChecked
+  });
 
   const { data: form, isLoading: formLoading } = useQuery({
     queryKey: ['form-for-dd-config', formId],
@@ -239,7 +256,96 @@ export default function DueDiligenceConfigPage() {
 
   const availableFields = useMemo(() => form?.fields || [], [form]);
 
-  if (!accessChecked || formLoading || configLoading) {
+  const getConfigStatus = (fId) => {
+    const config = ddConfigs.find(c => c.form_id === fId);
+    return config ? 'Configured' : 'Not configured';
+  };
+
+  if (!accessChecked) {
+    return (
+      <div className="flex items-center justify-center min-h-screen" data-testid="loading-spinner">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (!formId) {
+    if (formsLoading) {
+      return (
+        <div className="flex items-center justify-center min-h-screen" data-testid="loading-spinner">
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        </div>
+      );
+    }
+
+    return (
+      <div className="p-6 max-w-4xl mx-auto space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold">Due Diligence Configuration</h1>
+          <p className="text-muted-foreground">Configure due diligence settings for forms that require review</p>
+        </div>
+
+        {ddEnabledForms.length === 0 ? (
+          <Card>
+            <CardContent className="py-12 text-center">
+              <FileText className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
+              <h3 className="text-lg font-semibold mb-2">No Due Diligence Forms</h3>
+              <p className="text-muted-foreground mb-4">
+                To configure due diligence, first enable "Due Diligence Required" on a form in the Form Builder.
+              </p>
+              <Button onClick={() => navigate('/admin/FormManagement')} data-testid="button-goto-forms">
+                Go to Form Management
+              </Button>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="space-y-3">
+            {ddEnabledForms.map((f) => {
+              const configStatus = getConfigStatus(f.id);
+              const isConfigured = configStatus === 'Configured';
+              return (
+                <Card 
+                  key={f.id} 
+                  className="hover-elevate cursor-pointer transition-colors"
+                  onClick={() => navigate(`/admin/DueDiligenceConfig?formId=${f.id}`)}
+                  data-testid={`card-form-${f.id}`}
+                >
+                  <CardContent className="py-4">
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 rounded-md bg-primary/10">
+                          <FileText className="w-5 h-5 text-primary" />
+                        </div>
+                        <div>
+                          <h3 className="font-semibold">{f.name}</h3>
+                          <p className="text-sm text-muted-foreground">{f.description || 'No description'}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <Badge variant={isConfigured ? "default" : "secondary"}>
+                          {isConfigured ? (
+                            <>
+                              <Settings className="w-3 h-3 mr-1" />
+                              Configured
+                            </>
+                          ) : (
+                            'Not configured'
+                          )}
+                        </Badge>
+                        <ChevronRight className="w-5 h-5 text-muted-foreground" />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (formLoading || configLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen" data-testid="loading-spinner">
         <Loader2 className="w-8 h-8 animate-spin text-primary" />
@@ -252,8 +358,12 @@ export default function DueDiligenceConfigPage() {
       <div className="p-6">
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
-          <AlertDescription>Form not found</AlertDescription>
+          <AlertDescription>Form not found. Make sure the form exists and has "Due Diligence Required" enabled.</AlertDescription>
         </Alert>
+        <Button variant="outline" className="mt-4" onClick={() => navigate('/admin/DueDiligenceConfig')} data-testid="button-back-to-list">
+          <ArrowLeft className="w-4 h-4 mr-2" />
+          Back to Forms List
+        </Button>
       </div>
     );
   }
@@ -262,7 +372,7 @@ export default function DueDiligenceConfigPage() {
     <div className="p-6 max-w-6xl mx-auto space-y-6">
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={() => navigate('/admin/FormManagement')} data-testid="button-back">
+          <Button variant="ghost" size="icon" onClick={() => navigate('/admin/DueDiligenceConfig')} data-testid="button-back">
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <div>
