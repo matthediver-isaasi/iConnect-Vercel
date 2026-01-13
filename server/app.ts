@@ -34,6 +34,14 @@ app.use(express.json({
 }));
 app.use(express.urlencoded({ extended: false }));
 
+// Allow iframe embedding for /embed/* routes (form embedding feature)
+app.use('/embed', (req, res, next) => {
+  res.setHeader('X-Frame-Options', 'ALLOWALL');
+  res.removeHeader('X-Frame-Options');
+  res.setHeader('Content-Security-Policy', "frame-ancestors *");
+  next();
+});
+
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
