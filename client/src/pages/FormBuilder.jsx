@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Loader2, Plus, Trash2, GripVertical, Save, ArrowLeft, FileText, ChevronDown, ChevronUp, Edit2, X, Eye, EyeOff, Lock, Unlock, UserCheck, UserMinus, Users, UserPlus, Mail } from "lucide-react";
+import { Loader2, Plus, Trash2, GripVertical, Save, ArrowLeft, FileText, ChevronDown, ChevronUp, Edit2, X, Eye, EyeOff, Lock, Unlock, UserCheck, UserMinus, Users, UserPlus, Mail, Copy, Code, ExternalLink } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -3279,6 +3279,76 @@ export default function FormBuilderPage() {
                 URL: /FormView?slug={formData.slug || 'your-slug'}
               </div>
             </div>
+
+            {/* Embed Code Section */}
+            {formData.slug && formData.is_active && (
+              <div className="mt-4 pt-4 border-t border-slate-100 space-y-3">
+                <div className="flex items-center gap-2">
+                  <Code className="w-4 h-4 text-slate-500" />
+                  <Label className="text-sm font-medium">Embed on External Websites</Label>
+                </div>
+                <div className="bg-slate-50 rounded-md p-3 space-y-3">
+                  <div className="space-y-2">
+                    <Label className="text-xs text-slate-600">iFrame Embed Code</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        readOnly
+                        value={`<iframe src="${window.location.origin}/embed/form/${formData.slug}" width="100%" height="600" frameborder="0" style="border: none; max-width: 100%;"></iframe>`}
+                        className="text-xs font-mono bg-white"
+                        data-testid="input-embed-code"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        onClick={() => {
+                          navigator.clipboard.writeText(`<iframe src="${window.location.origin}/embed/form/${formData.slug}" width="100%" height="600" frameborder="0" style="border: none; max-width: 100%;"></iframe>`);
+                          toast.success('Embed code copied to clipboard');
+                        }}
+                        data-testid="button-copy-embed-code"
+                      >
+                        <Copy className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        onClick={() => window.open(`/embed/form/${formData.slug}`, '_blank')}
+                        data-testid="button-preview-embed"
+                      >
+                        <ExternalLink className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="space-y-2 pt-2 border-t border-slate-200">
+                    <Label className="text-xs text-slate-600">Auto-Resize Script (Optional)</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        readOnly
+                        value={`<script>window.addEventListener('message',e=>{if(e.data.type==='iconn-form-resize'){document.querySelector('iframe[src*="${formData.slug}"]').style.height=e.data.height+'px'}});</script>`}
+                        className="text-xs font-mono bg-white"
+                        data-testid="input-resize-script"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        onClick={() => {
+                          navigator.clipboard.writeText(`<script>window.addEventListener('message',e=>{if(e.data.type==='iconn-form-resize'){document.querySelector('iframe[src*="${formData.slug}"]').style.height=e.data.height+'px'}});</script>`);
+                          toast.success('Resize script copied to clipboard');
+                        }}
+                        data-testid="button-copy-resize-script"
+                      >
+                        <Copy className="w-4 h-4" />
+                      </Button>
+                    </div>
+                    <p className="text-xs text-slate-500">
+                      Add this script to enable automatic height adjustment as the form content changes.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Pre-fill Settings */}
             <div className="mt-4 pt-4 border-t border-slate-100 space-y-4">
