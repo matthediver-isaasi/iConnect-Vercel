@@ -38,7 +38,7 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Invalid tenant context' });
     }
 
-    // Get tenant ID
+    // Get tenant ID - try slug first, then subdomain
     let tenantResult = await supabase
       .from('tenant')
       .select('id')
@@ -46,6 +46,7 @@ export default async function handler(req, res) {
       .eq('status', 'active')
       .single();
     
+    // If not found by slug, try subdomain (for backwards compatibility)
     if (tenantResult.error || !tenantResult.data) {
       tenantResult = await supabase
         .from('tenant')
@@ -57,6 +58,7 @@ export default async function handler(req, res) {
     const { data: tenantData, error: tenantError } = tenantResult;
 
     if (tenantError || !tenantData) {
+      console.error('[Public Form Submission] Tenant not found:', { tenantIdentifier, error: tenantError?.message });
       return res.status(404).json({ error: 'Tenant not found' });
     }
 
@@ -71,6 +73,12 @@ export default async function handler(req, res) {
       .single();
 
     if (formError || !form) {
+      console.error('[Public Form Submission] Form not found:', { 
+        form_id, 
+        tenant_id: tenantData.id, 
+        error: formError?.message,
+        code: formError?.code 
+      });
       return res.status(404).json({ error: 'Form not found' });
     }
 
