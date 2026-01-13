@@ -93,6 +93,25 @@ Footer configuration structure:
 }
 ```
 
+## Form Embedding System
+
+Forms can be embedded on external websites via iFrame. Key components:
+
+- **Public API**: `/api/public/form/[slug]` endpoint returns form data for rendering (tenant-scoped, no auth required)
+- **Embed Page**: `/embed/form/:slug` renders a standalone form without the application's layout/header/footer
+- **FormBuilder Integration**: When editing a form, an "Embed on External Websites" section displays:
+  - iFrame embed code with copy-to-clipboard
+  - Auto-resize script for dynamic height adjustment
+  - Preview button to test the embedded form
+
+Security measures:
+- Forms with `require_authentication=true` cannot be embedded publicly (403 response)
+- Tenant scoping prevents cross-tenant form access
+- Only public-safe fields are returned (excludes internal config like entity_pipelines)
+- Auto-resize script validates message origin before applying height changes
+
+Entities migrated to tenant_id only (no organization_id column): PortalMenu, PortalNavigationItem, NavigationItem, PageBanner, Floater, FormDueDiligenceConfig, FormSubmissionDueDiligence, Form
+
 # External Dependencies
 
 **Supabase:** Primary database (PostgreSQL) for application data, including CRUD and realtime subscriptions, and file storage.

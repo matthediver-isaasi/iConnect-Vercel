@@ -3281,7 +3281,7 @@ export default function FormBuilderPage() {
             </div>
 
             {/* Embed Code Section */}
-            {formData.slug && formData.is_active && (
+            {formData.slug && formData.is_active && !formData.require_authentication && (
               <div className="mt-4 pt-4 border-t border-slate-100 space-y-3">
                 <div className="flex items-center gap-2">
                   <Code className="w-4 h-4 text-slate-500" />
@@ -3325,7 +3325,7 @@ export default function FormBuilderPage() {
                     <div className="flex gap-2">
                       <Input
                         readOnly
-                        value={`<script>window.addEventListener('message',e=>{if(e.data.type==='iconn-form-resize'){document.querySelector('iframe[src*="${formData.slug}"]').style.height=e.data.height+'px'}});</script>`}
+                        value={`<script>window.addEventListener('message',e=>{if(e.origin==='${window.location.origin}'&&e.data.type==='iconn-form-resize'){document.querySelector('iframe[src*="${formData.slug}"]').style.height=e.data.height+'px'}});</script>`}
                         className="text-xs font-mono bg-white"
                         data-testid="input-resize-script"
                       />
@@ -3334,7 +3334,7 @@ export default function FormBuilderPage() {
                         variant="outline"
                         size="icon"
                         onClick={() => {
-                          navigator.clipboard.writeText(`<script>window.addEventListener('message',e=>{if(e.data.type==='iconn-form-resize'){document.querySelector('iframe[src*="${formData.slug}"]').style.height=e.data.height+'px'}});</script>`);
+                          navigator.clipboard.writeText(`<script>window.addEventListener('message',e=>{if(e.origin==='${window.location.origin}'&&e.data.type==='iconn-form-resize'){document.querySelector('iframe[src*="${formData.slug}"]').style.height=e.data.height+'px'}});</script>`);
                           toast.success('Resize script copied to clipboard');
                         }}
                         data-testid="button-copy-resize-script"
