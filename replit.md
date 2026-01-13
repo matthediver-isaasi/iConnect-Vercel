@@ -1,4 +1,4 @@
-# Overview
+# Overview.
 
 This project is a comprehensive membership management platform built with React (Vite) and Express.js, aiming for 100% visual and functional parity with its predecessor (Base44). It manages members, organizations, events, bookings, program tickets, resources, and blog posts, along with administrative functions. The platform's core purpose is to streamline membership operations, event management, and content delivery for organizations, integrating with various external services for CRM, payments, and accounting to provide a robust, all-in-one solution. It is designed as a multi-tenant SaaS product with ambitious market potential to serve a wide range of organizations.
 
