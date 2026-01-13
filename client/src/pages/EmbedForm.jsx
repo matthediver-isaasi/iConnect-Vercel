@@ -78,11 +78,40 @@ export default function EmbedFormPage() {
     setDefaultsInitialized(true);
   }, [form?.fields, defaultsInitialized]);
 
-  // Visibility rules evaluation - determine which fields should be hidden
-  const hiddenFieldIds = useMemo(() => {
+  // Evaluate a single condition - matches FormView exactly
+  const evaluateCondition = (triggerValue, operator, value) => {
+    switch (operator) {
+      case 'equals':
+        if (Array.isArray(triggerValue)) {
+          return triggerValue.includes(value);
+        }
+        return triggerValue === value;
+      case 'not_equals':
+        if (Array.isArray(triggerValue)) {
+          return !triggerValue.includes(value);
+        }
+        return triggerValue !== value;
+      case 'contains':
+        if (Array.isArray(triggerValue)) {
+          return triggerValue.includes(value);
+        } else if (typeof triggerValue === 'string') {
+          return triggerValue.includes(value);
+        }
+        return false;
+      case 'not_empty':
+        return triggerValue !== undefined && triggerValue !== null && triggerValue !== '' && 
+          (Array.isArray(triggerValue) ? triggerValue.length > 0 : true);
+      case 'is_empty':
+        return triggerValue === undefined || triggerValue === null || triggerValue === '' ||
+          (Array.isArray(triggerValue) && triggerValue.length === 0);
+      default:
+        return false;
+    }
+  };
+
+  // Calculate initial hidden field IDs (fields with starts_hidden = true)
+  const initialHiddenFieldIds = useMemo(() => {
     const hidden = new Set();
-    
-    // Start with fields that have starts_hidden = true
     if (form?.fields) {
       for (const field of form.fields) {
         if (field.starts_hidden === true || field.starts_hidden === 'true') {
@@ -90,60 +119,92 @@ export default function EmbedFormPage() {
         }
       }
     }
+    return hidden;
+  }, [form?.fields]);
+
+  // Visibility rules evaluation - matches FormView exactly
+  const hiddenFieldIds = useMemo(() => {
+    const hidden = new Set(initialHiddenFieldIds);
     
     if (!form?.visibility_rules || form.visibility_rules.length === 0) {
       return hidden;
     }
     
-    // Evaluate each visibility rule
+    // Track which fields should be shown/hidden based on rule evaluation
+    const fieldVisibility = {};
+    
     for (const rule of form.visibility_rules) {
-      if (!rule.conditions || !rule.actions) continue;
+      if (!rule.trigger_field_id) continue;
       
-      // Check if all conditions are met
-      const conditionsMet = rule.conditions.every(condition => {
-        const fieldValue = formValues[condition.field_id];
-        const conditionValue = condition.value;
-        
-        switch (condition.operator) {
-          case 'equals':
-            return String(fieldValue) === String(conditionValue);
-          case 'not_equals':
-            return String(fieldValue) !== String(conditionValue);
-          case 'contains':
-            return String(fieldValue || '').includes(String(conditionValue));
-          case 'not_empty':
-            return fieldValue !== undefined && fieldValue !== null && fieldValue !== '';
-          case 'is_empty':
-            return fieldValue === undefined || fieldValue === null || fieldValue === '';
-          default:
-            return false;
-        }
-      });
-      
-      // Apply actions if conditions are met
-      if (conditionsMet) {
+      const triggerValue = formValues[rule.trigger_field_id];
+      const conditionMet = evaluateCondition(triggerValue, rule.operator, rule.value);
+
+      // Handle new multi-action format
+      if (rule.actions && Array.isArray(rule.actions)) {
         for (const action of rule.actions) {
+          // Handle consolidated visibility action format
           if (action.action_type === 'visibility' && action.field_states) {
             for (const [fieldId, state] of Object.entries(action.field_states)) {
-              if (state === 'show') {
-                hidden.delete(fieldId);
-              } else if (state === 'hide') {
-                hidden.add(fieldId);
+              if (!fieldVisibility[fieldId]) {
+                fieldVisibility[fieldId] = { showRules: [], hideRules: [] };
+              }
+              // visible: true means "show when condition met" (starts hidden)
+              // visible: false means "hide when condition met" (starts visible)
+              if (state.visible === true) {
+                fieldVisibility[fieldId].showRules.push(conditionMet);
+              } else if (state.visible === false) {
+                fieldVisibility[fieldId].hideRules.push(conditionMet);
               }
             }
           }
-          // Legacy format support
-          if (action.type === 'show') {
-            hidden.delete(action.field_id);
-          } else if (action.type === 'hide') {
-            hidden.add(action.field_id);
+          // Handle legacy show/hide action format
+          else if (action.action_type === 'show' || action.action_type === 'hide') {
+            const targetIds = action.target_field_ids || [];
+            targetIds.forEach(fieldId => {
+              if (!fieldVisibility[fieldId]) {
+                fieldVisibility[fieldId] = { showRules: [], hideRules: [] };
+              }
+              if (action.action_type === 'show') {
+                fieldVisibility[fieldId].showRules.push(conditionMet);
+              } else if (action.action_type === 'hide') {
+                fieldVisibility[fieldId].hideRules.push(conditionMet);
+              }
+            });
           }
         }
+      }
+      // Handle legacy format
+      else if (rule.target_field_ids?.length) {
+        rule.target_field_ids.forEach(fieldId => {
+          if (!fieldVisibility[fieldId]) {
+            fieldVisibility[fieldId] = { showRules: [], hideRules: [] };
+          }
+          if (rule.action === 'show') {
+            fieldVisibility[fieldId].showRules.push(conditionMet);
+          } else if (rule.action === 'hide') {
+            fieldVisibility[fieldId].hideRules.push(conditionMet);
+          }
+        });
+      }
+    }
+    
+    // Update hidden set based on evaluated rules
+    for (const [fieldId, { showRules, hideRules }] of Object.entries(fieldVisibility)) {
+      // For show rules: if ANY show rule is satisfied, remove from hidden set
+      const anyShowConditionMet = showRules.some(result => result === true);
+      if (anyShowConditionMet) {
+        hidden.delete(fieldId);
+      }
+      
+      // For hide rules: if ANY hide rule is satisfied, add to hidden set
+      const anyHideConditionMet = hideRules.some(result => result === true);
+      if (anyHideConditionMet) {
+        hidden.add(fieldId);
       }
     }
     
     return hidden;
-  }, [form?.fields, form?.visibility_rules, formValues]);
+  }, [form?.visibility_rules, formValues, initialHiddenFieldIds]);
 
   // Filter visible fields
   const filterVisibleFields = (fields) => {
