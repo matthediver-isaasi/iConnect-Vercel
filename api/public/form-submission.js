@@ -66,7 +66,7 @@ export default async function handler(req, res) {
     // Include fields, entity_pipelines, field_mappings for post-submission processing
     const { data: form, error: formError } = await supabase
       .from('form')
-      .select('id, tenant_id, require_authentication, send_email, email_templates, fields, entity_pipelines, field_mappings, application_level')
+      .select('id, tenant_id, require_authentication, fields, entity_pipelines, field_mappings, application_level')
       .eq('id', form_id)
       .eq('tenant_id', tenantData.id)
       .eq('is_active', true)
@@ -135,26 +135,6 @@ export default async function handler(req, res) {
         });
       } catch (err) {
         console.error('[Public Form Submission] Entity pipeline setup error:', err);
-      }
-    }
-
-    // If form has email sending enabled, trigger email sending
-    if (form.send_email && form.email_templates?.length > 0) {
-      try {
-        fetch(`${baseUrl}/api/forms/send-submission-email`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            form_id,
-            form_values: submission_data || {},
-            fields: form.fields || [],
-            email_templates: form.email_templates
-          })
-        }).catch(err => {
-          console.error('[Public Form Submission] Email send failed:', err);
-        });
-      } catch (err) {
-        console.error('[Public Form Submission] Email setup error:', err);
       }
     }
 
