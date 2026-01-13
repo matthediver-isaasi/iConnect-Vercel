@@ -349,8 +349,15 @@ export default async function handler(req, res) {
           if (tenantCtx.tenantId) {
             sanitizedBody.tenant_id = tenantCtx.tenantId;
           }
-          // Also set organization_id during migration period for backward compatibility
-          sanitizedBody.organization_id = tenantCtx.organizationId;
+          // Only set organization_id for entities that still have that column
+          // These entities have been fully migrated to tenant_id only (no organization_id column):
+          const entitiesWithoutOrgId = [
+            'PortalMenu', 'PortalNavigationItem', 'NavigationItem', 'PageBanner', 'Floater',
+            'FormDueDiligenceConfig', 'FormSubmissionDueDiligence'
+          ];
+          if (!entitiesWithoutOrgId.includes(entity)) {
+            sanitizedBody.organization_id = tenantCtx.organizationId;
+          }
         }
       }
       
