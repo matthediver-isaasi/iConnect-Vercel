@@ -39,14 +39,32 @@ export default async function handler(req, res) {
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
   try {
-    // First, get tenant ID from subdomain or tenant parameter
-    const { data: tenant, error: tenantError } = await supabase
+    // First, get tenant ID from slug or subdomain parameter
+    // Try slug first (consistent with tenant-branding API), fallback to subdomain
+    let tenantResult = await supabase
       .from('tenant')
       .select('id')
-      .eq('subdomain', tenantIdentifier)
+      .eq('slug', tenantIdentifier)
+      .eq('status', 'active')
       .single();
+    
+    // If not found by slug, try subdomain for backwards compatibility
+    if (tenantResult.error || !tenantResult.data) {
+      tenantResult = await supabase
+        .from('tenant')
+        .select('id')
+        .eq('subdomain', tenantIdentifier)
+        .single();
+    }
+
+    const { data: tenant, error: tenantError } = tenantResult;
 
     if (tenantError || !tenant) {
+      console.error('[Public Form API] Tenant lookup failed:', { 
+        tenantIdentifier, 
+        error: tenantError?.message || 'No tenant found',
+        code: tenantError?.code 
+      });
       return res.status(404).json({ error: 'Tenant not found' });
     }
 
