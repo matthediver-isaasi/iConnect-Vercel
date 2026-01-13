@@ -87,15 +87,13 @@ export default async function handler(req, res) {
       return res.status(403).json({ error: 'This form requires authentication' });
     }
 
-    // Create the form submission
+    // Create the form submission - match FormView structure exactly
     const submissionRecord = {
       form_id,
       form_name,
-      tenant_id: tenantData.id,
-      answers: answers || [],
+      submitted_by_email: null,
+      submitted_by_name: null,
       submission_data: submission_data || {},
-      source: source || 'embed',
-      status: 'pending',
       created_date: new Date().toISOString()
     };
 

@@ -290,19 +290,11 @@ export default function EmbedFormPage() {
       return;
     }
 
-    const fieldAnswers = (form?.fields || []).map(field => ({
-      field_id: field.id,
-      field_label: field.label,
-      field_type: field.type,
-      value: formValues[field.id] ?? null
-    }));
-
+    // Match FormView submission structure exactly
     submitFormMutation.mutate({
       form_id: form.id,
       form_name: form.name,
-      answers: fieldAnswers,
-      submission_data: formValues,
-      source: 'embed'
+      submission_data: formValues
     });
   };
 
