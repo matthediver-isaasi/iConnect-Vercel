@@ -2359,6 +2359,7 @@ export default function FormBuilderPage() {
     redirect_url: "",
     require_authentication: false,
     is_active: true,
+    due_diligence_required: false,
     is_application_form: false,
     application_level: "member",
     uniqueness_checks: [],
@@ -2709,6 +2710,7 @@ export default function FormBuilderPage() {
         redirect_url: existingForm.redirect_url || "",
         require_authentication: existingForm.require_authentication || false,
         is_active: existingForm.is_active ?? true,
+        due_diligence_required: existingForm.due_diligence_required ?? false,
         is_application_form: existingForm.is_application_form || false,
         application_level: existingForm.application_level || "member",
         uniqueness_checks: existingForm.uniqueness_checks || [],
@@ -3261,6 +3263,16 @@ export default function FormBuilderPage() {
                   onCheckedChange={(checked) => setFormData({ ...formData, is_active: checked })}
                 />
                 <Label htmlFor="is_active" className="text-sm">Active</Label>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Switch
+                  id="due_diligence_required"
+                  checked={formData.due_diligence_required}
+                  onCheckedChange={(checked) => setFormData({ ...formData, due_diligence_required: checked })}
+                  data-testid="switch-due-diligence-required"
+                />
+                <Label htmlFor="due_diligence_required" className="text-sm">Due Diligence Required</Label>
               </div>
 
               <div className="text-xs text-slate-500 ml-auto">
