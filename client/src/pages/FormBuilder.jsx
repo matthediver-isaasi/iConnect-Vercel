@@ -3281,7 +3281,11 @@ export default function FormBuilderPage() {
             </div>
 
             {/* Embed Code Section */}
-            {formData.slug && formData.is_active && !formData.require_authentication && (
+            {formData.slug && formData.is_active && !formData.require_authentication && (() => {
+              // Extract tenant subdomain from current host for embed URL
+              const tenantSubdomain = window.location.hostname.split('.')[0];
+              const embedUrl = `${window.location.origin}/embed/form/${formData.slug}?tenant=${tenantSubdomain}`;
+              return (
               <div className="mt-4 pt-4 border-t border-slate-100 space-y-3">
                 <div className="flex items-center gap-2">
                   <Code className="w-4 h-4 text-slate-500" />
@@ -3293,7 +3297,7 @@ export default function FormBuilderPage() {
                     <div className="flex gap-2">
                       <Input
                         readOnly
-                        value={`<iframe src="${window.location.origin}/embed/form/${formData.slug}" width="100%" height="600" frameborder="0" style="border: none; max-width: 100%;"></iframe>`}
+                        value={`<iframe src="${embedUrl}" width="100%" height="600" frameborder="0" style="border: none; max-width: 100%;"></iframe>`}
                         className="text-xs font-mono bg-white"
                         data-testid="input-embed-code"
                       />
@@ -3302,7 +3306,7 @@ export default function FormBuilderPage() {
                         variant="outline"
                         size="icon"
                         onClick={() => {
-                          navigator.clipboard.writeText(`<iframe src="${window.location.origin}/embed/form/${formData.slug}" width="100%" height="600" frameborder="0" style="border: none; max-width: 100%;"></iframe>`);
+                          navigator.clipboard.writeText(`<iframe src="${embedUrl}" width="100%" height="600" frameborder="0" style="border: none; max-width: 100%;"></iframe>`);
                           toast.success('Embed code copied to clipboard');
                         }}
                         data-testid="button-copy-embed-code"
@@ -3313,7 +3317,7 @@ export default function FormBuilderPage() {
                         type="button"
                         variant="outline"
                         size="icon"
-                        onClick={() => window.open(`/embed/form/${formData.slug}`, '_blank')}
+                        onClick={() => window.open(`/embed/form/${formData.slug}?tenant=${tenantSubdomain}`, '_blank')}
                         data-testid="button-preview-embed"
                       >
                         <ExternalLink className="w-4 h-4" />
@@ -3348,7 +3352,8 @@ export default function FormBuilderPage() {
                   </div>
                 </div>
               </div>
-            )}
+              );
+            })()}
 
             {/* Pre-fill Settings */}
             <div className="mt-4 pt-4 border-t border-slate-100 space-y-4">

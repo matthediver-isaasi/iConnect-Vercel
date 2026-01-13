@@ -23,11 +23,15 @@ export default function EmbedFormPage() {
 
   const prefillMemberId = searchParams.get('member_id');
   const prefillOrgId = searchParams.get('organization_id');
+  const tenantParam = searchParams.get('tenant');
 
   const { data: form, isLoading, error } = useQuery({
-    queryKey: ['embed-form', slug],
+    queryKey: ['embed-form', slug, tenantParam],
     queryFn: async () => {
-      const response = await fetch(`/api/public/form/${slug}`);
+      const url = tenantParam 
+        ? `/api/public/form/${slug}?tenant=${encodeURIComponent(tenantParam)}`
+        : `/api/public/form/${slug}`;
+      const response = await fetch(url);
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.error || 'Failed to load form');

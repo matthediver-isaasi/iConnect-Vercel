@@ -12,17 +12,20 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { slug } = req.query;
+  const { slug, tenant: tenantParam } = req.query;
 
   if (!slug) {
     return res.status(400).json({ error: 'Form slug is required' });
   }
 
-  // Detect tenant from subdomain
+  // Detect tenant from subdomain OR query parameter (for embed contexts)
   const host = req.headers['x-forwarded-host'] || req.headers.host || '';
   const subdomain = host.split('.')[0];
   
-  if (!subdomain || subdomain === 'www' || subdomain === 'iconn') {
+  // Use tenant query param if provided (for embedded forms), otherwise use subdomain
+  const tenantIdentifier = tenantParam || subdomain;
+  
+  if (!tenantIdentifier || tenantIdentifier === 'www' || tenantIdentifier === 'iconn') {
     return res.status(400).json({ error: 'Invalid tenant context' });
   }
 
@@ -36,11 +39,11 @@ export default async function handler(req, res) {
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
   try {
-    // First, get tenant ID from subdomain
+    // First, get tenant ID from subdomain or tenant parameter
     const { data: tenant, error: tenantError } = await supabase
       .from('tenant')
       .select('id')
-      .eq('subdomain', subdomain)
+      .eq('subdomain', tenantIdentifier)
       .single();
 
     if (tenantError || !tenant) {
