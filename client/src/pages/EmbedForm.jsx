@@ -158,7 +158,8 @@ export default function EmbedFormPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...submissionData,
-          tenant: tenantParam
+          tenant: tenantParam,
+          prefill_organization_id: prefillOrgId || null
         })
       });
       if (!response.ok) {

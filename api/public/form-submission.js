@@ -13,7 +13,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { form_id, form_name, answers, submission_data, source, tenant } = req.body;
+  const { form_id, form_name, answers, submission_data, source, tenant, prefill_organization_id } = req.body;
 
   if (!form_id) {
     return res.status(400).json({ error: 'Form ID is required' });
@@ -118,8 +118,9 @@ export default async function handler(req, res) {
             field_mappings: form.field_mappings || [],
             application_level: form.application_level || 'member',
             submission_id: submission.id,
-            prefill_organization_id: null,
-            role_id: null
+            prefill_organization_id: prefill_organization_id || null,
+            role_id: null,
+            entity_pipelines: form.entity_pipelines  // Pass entity pipelines config
           })
         }).catch(err => {
           console.error('[Public Form Submission] Entity pipeline processing failed:', err);
