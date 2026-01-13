@@ -1460,6 +1460,7 @@ export default function FormViewPage() {
           <CardContent className="min-h-[300px]">
             {currentField && (
               <FormRenderer
+                key={currentStep}
                 field={currentField}
                 value={formValues[currentField.id]}
                 onChange={(value) => setFormValues({ ...formValues, [currentField.id]: value })}
@@ -1467,6 +1468,7 @@ export default function FormViewPage() {
                 organizationInfo={effectiveOrganizationInfo}
                 disabled={disabledFieldIds.has(currentField.id)}
                 onValidityChange={handleValidityChange}
+                autoFocus={['text', 'email', 'url', 'number', 'tel', 'textarea'].includes(currentField.type)}
               />
             )}
           </CardContent>

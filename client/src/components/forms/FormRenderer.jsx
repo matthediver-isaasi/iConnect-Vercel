@@ -102,7 +102,7 @@ function CommunicationPreferencesField({ field, value, onChange, disabled }) {
   );
 }
 
-export default function FormRenderer({ field, value, onChange, memberInfo, organizationInfo, disabled = false, onValidityChange }) {
+export default function FormRenderer({ field, value, onChange, memberInfo, organizationInfo, disabled = false, onValidityChange, autoFocus = false }) {
   const [showOtherInput, setShowOtherInput] = useState(false);
   const [otherValue, setOtherValue] = useState('');
   const [domainError, setDomainError] = useState('');
@@ -332,6 +332,7 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
             placeholder={field.placeholder}
             required={field.required}
             disabled={isFieldDisabled}
+            autoFocus={autoFocus}
             className={isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : ''}
           />
         );
@@ -347,6 +348,7 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
               placeholder={field.placeholder || 'https://example.com'}
               required={field.required}
               disabled={isFieldDisabled}
+              autoFocus={autoFocus}
               className={`${isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : ''} ${urlFormatError ? 'border-amber-500' : ''}`}
               data-testid={`input-url-${field.id}`}
             />
@@ -375,6 +377,7 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
               placeholder={field.placeholder}
               required={field.required}
               disabled={isFieldDisabled}
+              autoFocus={autoFocus}
               className={`${isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : ''} ${domainError || emailFormatError ? 'border-amber-500' : ''}`}
               data-testid={`input-email-${field.id}`}
             />
@@ -406,6 +409,7 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
             placeholder={field.placeholder}
             required={field.required}
             disabled={isFieldDisabled}
+            autoFocus={autoFocus}
             className={isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : ''}
           />
         );
@@ -418,6 +422,7 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
             placeholder={field.placeholder}
             required={field.required}
             disabled={isFieldDisabled}
+            autoFocus={autoFocus}
             className={isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : ''}
             rows={5}
           />

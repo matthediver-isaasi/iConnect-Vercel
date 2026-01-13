@@ -451,6 +451,7 @@ export default function EmbedFormPage() {
           <CardContent className="min-h-[200px]">
             {currentField && (
               <FormRenderer
+                key={currentStep}
                 field={currentField}
                 value={formValues[currentField.id]}
                 onChange={(value) => {
@@ -459,6 +460,7 @@ export default function EmbedFormPage() {
                 }}
                 onValidityChange={handleValidityChange}
                 disabled={false}
+                autoFocus={['text', 'email', 'url', 'number', 'tel', 'textarea'].includes(currentField.type)}
               />
             )}
           </CardContent>

@@ -1361,6 +1361,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
             <CardContent className="min-h-[300px] pt-8">
               {currentField && (
                 <FormRenderer
+                  key={currentStep}
                   field={currentField}
                   value={formValues[currentField.id]}
                   onChange={(value) => setFormValues({ ...formValues, [currentField.id]: value })}
@@ -1368,6 +1369,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                   organizationInfo={effectiveOrganizationInfo}
                   disabled={disabledFieldIds.has(currentField.id)}
                   onValidityChange={handleValidityChange}
+                  autoFocus={['text', 'email', 'url', 'number', 'tel', 'textarea'].includes(currentField.type)}
                 />
               )}
               {!canProceed && !isFormatValid && (
