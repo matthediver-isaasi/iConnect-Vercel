@@ -72,16 +72,34 @@ export default function PublicBooking() {
 
   const weekStartStr = format(weekStart, 'yyyy-MM-dd');
   
-  const { data: slotsData, isLoading: slotsLoading } = useQuery({
+  const { data: slotsData, isLoading: slotsLoading, error: slotsError } = useQuery({
     queryKey: ['public-booking-slots', slug, weekStartStr],
     queryFn: async () => {
+      console.log('[PublicBooking] Fetching slots for', slug, 'from', weekStartStr);
       const response = await fetch(
         `/api/public/book/${slug}/slots?date=${weekStartStr}&days=14`
       );
-      if (!response.ok) throw new Error('Failed to fetch slots');
-      return response.json();
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        console.error('[PublicBooking] Slots fetch failed:', response.status, errData);
+        throw new Error(errData.error || 'Failed to fetch slots');
+      }
+      const data = await response.json();
+      console.log('[PublicBooking] Slots data received:', data);
+      return data;
     },
     enabled: !!slug && !!pageData
+  });
+  
+  // Debug logging
+  console.log('[PublicBooking] State:', { 
+    slug, 
+    pageData: !!pageData, 
+    pageLoading,
+    slotsData: !!slotsData, 
+    slotsLoading,
+    slotsError: slotsError?.message,
+    weekStartStr 
   });
 
   const bookingMutation = useMutation({
@@ -304,7 +322,12 @@ export default function PublicBooking() {
                     {format(selectedDate, 'EEEE, MMMM d')}
                   </h3>
 
-                  {slotsLoading ? (
+                  {slotsError ? (
+                    <div className="text-center py-12 text-red-500">
+                      <AlertTriangle className="h-8 w-8 mx-auto mb-2" />
+                      <p>Error loading slots: {slotsError.message}</p>
+                    </div>
+                  ) : slotsLoading ? (
                     <div className="flex items-center justify-center py-12">
                       <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                     </div>
