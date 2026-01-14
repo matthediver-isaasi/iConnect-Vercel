@@ -110,7 +110,7 @@ Security measures:
 - Only public-safe fields are returned (excludes internal config like entity_pipelines)
 - Auto-resize script validates message origin before applying height changes
 
-Entities migrated to tenant_id only (no organization_id column): PortalMenu, PortalNavigationItem, NavigationItem, PageBanner, Floater, FormDueDiligenceConfig, FormSubmissionDueDiligence, Form, ResourceCategory
+Entities migrated to tenant_id only (no organization_id column): PortalMenu, PortalNavigationItem, NavigationItem, PageBanner, Floater, FormDueDiligenceConfig, FormSubmissionDueDiligence, Form, ResourceCategory, Resource
 
 # External Dependencies
 
