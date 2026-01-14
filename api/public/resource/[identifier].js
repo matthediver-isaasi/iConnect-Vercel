@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js';
+import { supabase } from '../../_lib/database.js';
 
 const PUBLIC_RESOURCE_COLUMNS = 'id, title, description, image_url, target_url, resource_type, is_public, published_date, created_date, author_name, tags, category_id, tenant_id';
 
@@ -13,6 +13,10 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Resource identifier is required' });
   }
 
+  if (!supabase) {
+    return res.status(503).json({ error: 'Database not configured' });
+  }
+
   const host = req.headers['x-forwarded-host'] || req.headers.host || '';
   const subdomain = host.split('.')[0];
   
@@ -22,15 +26,6 @@ export default async function handler(req, res) {
   if (!tenantIdentifier) {
     return res.status(400).json({ error: 'Tenant parameter is required for root domain requests' });
   }
-
-  const supabaseUrl = process.env.SUPABASE_URL;
-  const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
-
-  if (!supabaseUrl || !supabaseServiceKey) {
-    return res.status(503).json({ error: 'Database not configured' });
-  }
-
-  const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
   try {
     let tenantResult = await supabase
