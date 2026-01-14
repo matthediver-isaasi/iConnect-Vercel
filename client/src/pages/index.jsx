@@ -834,7 +834,7 @@ function PagesContent() {
                 <Route path="/RedirectManagement" element={<RedirectManagement />} />
                 
                 <Route path="/ProjectBoards" element={<ProjectBoards />} />
-                <Route path="/ProjectBoard" element={<ProjectBoard />} />
+                <Route path="/ProjectBoard/:id" element={<ProjectBoard />} />
                 
                 <Route path="/DomainSettings" element={<DomainSettings />} />
                 <Route path="/domain-settings" element={<DomainSettings />} />

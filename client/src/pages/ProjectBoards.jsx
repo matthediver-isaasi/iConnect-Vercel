@@ -143,7 +143,7 @@ export default function ProjectBoardsPage() {
           {boardsData.boards.map((board) => (
             <Link
               key={board.id}
-              to={createPageUrl('ProjectBoard', { id: board.id })}
+              to={`/ProjectBoard/${board.id}`}
               className="block"
               data-testid={`link-board-${board.id}`}
             >
