@@ -46,6 +46,7 @@ export default function ProjectBoardPage() {
   const [editingCardTitle, setEditingCardTitle] = useState(false);
   const [editingListId, setEditingListId] = useState(null);
   const [editingListName, setEditingListName] = useState('');
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
 
   const queryClient = useQueryClient();
 
@@ -272,7 +273,12 @@ export default function ProjectBoardPage() {
             )}
           </div>
           {canManage && (
-            <Button variant="outline" size="sm" data-testid="button-board-settings">
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={() => setShowSettingsModal(true)}
+              data-testid="button-board-settings"
+            >
               <Settings className="w-4 h-4 mr-2" />
               Settings
             </Button>
@@ -596,6 +602,15 @@ export default function ProjectBoardPage() {
         onDelete={() => deleteCardMutation.mutate(selectedCard.id)}
         getLabelById={getLabelById}
         getMemberById={getMemberById}
+      />
+
+      <BoardSettingsModal
+        boardId={boardId}
+        open={showSettingsModal}
+        onOpenChange={setShowSettingsModal}
+        members={boardData?.members || []}
+        userRole={board?.user_role}
+        onMembersChange={() => queryClient.invalidateQueries({ queryKey: ['project-board', boardId] })}
       />
     </div>
   );
@@ -977,6 +992,212 @@ function CardDetailModal({
               Save Changes
             </Button>
           )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function BoardSettingsModal({ boardId, open, onOpenChange, members, userRole, onMembersChange }) {
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedRole, setSelectedRole] = useState('member');
+  const queryClient = useQueryClient();
+
+  const { data: availableUsers = { users: [] }, isLoading: loadingUsers } = useQuery({
+    queryKey: ['available-users', boardId, searchQuery],
+    queryFn: async () => {
+      const response = await fetch(`/api/projects/boards/${boardId}/available-users?search=${encodeURIComponent(searchQuery)}`, {
+        credentials: 'include'
+      });
+      if (!response.ok) throw new Error('Failed to fetch users');
+      return response.json();
+    },
+    enabled: open && !!boardId
+  });
+
+  const addMemberMutation = useMutation({
+    mutationFn: async ({ identity_id, role }) => {
+      const response = await apiRequest('POST', `/api/projects/boards/${boardId}/members`, { identity_id, role });
+      return response;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['available-users', boardId] });
+      onMembersChange();
+      toast.success('Member added');
+    },
+    onError: (error) => {
+      toast.error(error.message || 'Failed to add member');
+    }
+  });
+
+  const updateRoleMutation = useMutation({
+    mutationFn: async ({ identity_id, role }) => {
+      const response = await apiRequest('PATCH', `/api/projects/boards/${boardId}/members`, { identity_id, role });
+      return response;
+    },
+    onSuccess: () => {
+      onMembersChange();
+      toast.success('Role updated');
+    },
+    onError: (error) => {
+      toast.error(error.message || 'Failed to update role');
+    }
+  });
+
+  const removeMemberMutation = useMutation({
+    mutationFn: async (identity_id) => {
+      const response = await apiRequest('DELETE', `/api/projects/boards/${boardId}/members`, { identity_id });
+      return response;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['available-users', boardId] });
+      onMembersChange();
+      toast.success('Member removed');
+    },
+    onError: (error) => {
+      toast.error(error.message || 'Failed to remove member');
+    }
+  });
+
+  const getRoleBadgeColor = (role) => {
+    switch (role) {
+      case 'owner': return 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200';
+      case 'admin': return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200';
+      case 'member': return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200';
+      case 'viewer': return 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200';
+      default: return '';
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Users className="w-5 h-5" />
+            Board Members
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-6">
+          <div>
+            <Label className="text-sm font-medium mb-2 block">Invite Members</Label>
+            <div className="flex gap-2">
+              <Input
+                placeholder="Search by name or email..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                data-testid="input-search-members"
+              />
+              <Select value={selectedRole} onValueChange={setSelectedRole}>
+                <SelectTrigger className="w-32">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="viewer">Viewer</SelectItem>
+                  <SelectItem value="member">Member</SelectItem>
+                  <SelectItem value="admin">Admin</SelectItem>
+                  {userRole === 'owner' && <SelectItem value="owner">Owner</SelectItem>}
+                </SelectContent>
+              </Select>
+            </div>
+            
+            {loadingUsers ? (
+              <div className="flex items-center justify-center py-4">
+                <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : availableUsers.users.length > 0 ? (
+              <div className="mt-2 border rounded-md max-h-40 overflow-y-auto">
+                {availableUsers.users.map((user) => (
+                  <div
+                    key={user.id}
+                    className="flex items-center gap-2 p-2 hover:bg-muted cursor-pointer"
+                    onClick={() => addMemberMutation.mutate({ identity_id: user.id, role: selectedRole })}
+                    data-testid={`button-add-member-${user.id}`}
+                  >
+                    <Avatar className="w-8 h-8">
+                      <AvatarImage src={user.profile_picture_url} />
+                      <AvatarFallback className="text-xs">
+                        {user.first_name?.[0]}{user.last_name?.[0]}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">
+                        {user.first_name} {user.last_name}
+                      </p>
+                      <p className="text-xs text-muted-foreground truncate">{user.email}</p>
+                    </div>
+                    <Plus className="w-4 h-4 text-muted-foreground" />
+                  </div>
+                ))}
+              </div>
+            ) : searchQuery ? (
+              <p className="text-sm text-muted-foreground mt-2">No users found matching "{searchQuery}"</p>
+            ) : null}
+          </div>
+
+          <div>
+            <Label className="text-sm font-medium mb-2 block">Current Members ({members.length})</Label>
+            <div className="border rounded-md divide-y max-h-60 overflow-y-auto">
+              {members.map((member) => (
+                <div key={member.identity_id} className="flex items-center gap-2 p-2">
+                  <Avatar className="w-8 h-8">
+                    <AvatarImage src={member.profile_picture_url} />
+                    <AvatarFallback className="text-xs">
+                      {member.first_name?.[0]}{member.last_name?.[0]}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">
+                      {member.first_name} {member.last_name}
+                    </p>
+                    <p className="text-xs text-muted-foreground truncate">{member.email}</p>
+                  </div>
+                  <Select 
+                    value={member.role} 
+                    onValueChange={(role) => updateRoleMutation.mutate({ identity_id: member.identity_id, role })}
+                    disabled={member.role === 'owner' && userRole !== 'owner'}
+                  >
+                    <SelectTrigger className="w-24 h-8">
+                      <Badge className={`text-xs ${getRoleBadgeColor(member.role)}`}>
+                        {member.role}
+                      </Badge>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="viewer">Viewer</SelectItem>
+                      <SelectItem value="member">Member</SelectItem>
+                      <SelectItem value="admin">Admin</SelectItem>
+                      {userRole === 'owner' && <SelectItem value="owner">Owner</SelectItem>}
+                    </SelectContent>
+                  </Select>
+                  {member.role !== 'owner' && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                      onClick={() => removeMemberMutation.mutate(member.identity_id)}
+                      data-testid={`button-remove-member-${member.identity_id}`}
+                    >
+                      <X className="w-4 h-4" />
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="text-xs text-muted-foreground space-y-1">
+            <p><strong>Owner:</strong> Full control, can delete board</p>
+            <p><strong>Admin:</strong> Manage lists, cards, and members</p>
+            <p><strong>Member:</strong> Create and edit cards</p>
+            <p><strong>Viewer:</strong> Read-only access</p>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Close
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

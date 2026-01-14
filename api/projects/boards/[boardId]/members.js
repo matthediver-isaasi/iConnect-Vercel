@@ -14,7 +14,7 @@ async function getBoardMembership(boardId, identityId) {
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   if (req.method === 'OPTIONS') {
@@ -121,6 +121,47 @@ export default async function handler(req, res) {
       }
 
       return res.status(201).json({ member: newMember });
+    }
+
+    if (req.method === 'PATCH') {
+      if (!['owner', 'admin'].includes(membership.role)) {
+        return res.status(403).json({ error: 'Only owners/admins can update member roles' });
+      }
+
+      const { identity_id, role } = req.body;
+
+      if (!identity_id || !role) {
+        return res.status(400).json({ error: 'Identity ID and role required' });
+      }
+
+      if (!['owner', 'admin', 'member', 'viewer'].includes(role)) {
+        return res.status(400).json({ error: 'Invalid role' });
+      }
+
+      const targetMembership = await getBoardMembership(boardId, identity_id);
+      if (!targetMembership) {
+        return res.status(404).json({ error: 'Member not found' });
+      }
+
+      if (targetMembership.role === 'owner' && membership.role !== 'owner') {
+        return res.status(403).json({ error: 'Cannot change owner role' });
+      }
+
+      if (role === 'owner' && membership.role !== 'owner') {
+        return res.status(403).json({ error: 'Only owners can assign owner role' });
+      }
+
+      const { error } = await supabase
+        .from('project_board_member')
+        .update({ role })
+        .eq('board_id', boardId)
+        .eq('identity_id', identity_id);
+
+      if (error) {
+        return res.status(500).json({ error: 'Failed to update member role' });
+      }
+
+      return res.json({ success: true });
     }
 
     if (req.method === 'DELETE') {
