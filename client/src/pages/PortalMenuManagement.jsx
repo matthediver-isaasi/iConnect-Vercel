@@ -108,6 +108,7 @@ const builtInPages = [
   { value: "MemberRoleAssignment", label: "Member Role Assignment" },
   { value: "MemberRoleReport", label: "Member Role Report" },
   { value: "members", label: "Members (CRM)" },
+  { value: "MyBookings", label: "My Bookings" },
   { value: "MyJobPostings", label: "My Job Postings" },
   { value: "MyOrganisation", label: "My Organisation" },
   { value: "MyTickets", label: "My Tickets" },
