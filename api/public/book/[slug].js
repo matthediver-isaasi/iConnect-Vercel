@@ -204,10 +204,16 @@ export default async function handler(req, res) {
           
           // Update booking with calendar event ID
           if (calendarEventId) {
-            await supabase
+            const { error: updateEventIdError } = await supabase
               .from('agent_booking')
               .update({ outlook_event_id: calendarEventId })
               .eq('id', booking.id);
+            
+            if (updateEventIdError) {
+              console.error('[Public Booking] Failed to save outlook_event_id:', updateEventIdError);
+            } else {
+              console.log('[Public Booking] Saved outlook_event_id to booking:', booking.id);
+            }
           }
         } else {
           console.log('[Public Booking] No Outlook connection for agent, skipping calendar event');

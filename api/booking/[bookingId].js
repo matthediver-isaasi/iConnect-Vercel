@@ -76,20 +76,30 @@ export default async function handler(req, res) {
       }
 
       // If booking was cancelled and has an Outlook event, delete it
-      if (status === 'cancelled' && booking.outlook_event_id) {
-        try {
-          const outlookConnection = await getOutlookConnectionForIdentity(session.identityId, session.tenantId);
-          if (outlookConnection) {
-            await deleteCalendarEvent(outlookConnection, booking.outlook_event_id);
-            console.log('[Booking Update] Deleted Outlook calendar event for cancelled booking');
+      let calendarEventDeleted = false;
+      if (status === 'cancelled') {
+        console.log('[Booking Update] Cancellation requested, outlook_event_id:', booking.outlook_event_id);
+        if (booking.outlook_event_id) {
+          try {
+            const outlookConnection = await getOutlookConnectionForIdentity(session.identityId, session.tenantId);
+            console.log('[Booking Update] Outlook connection found:', !!outlookConnection);
+            if (outlookConnection) {
+              await deleteCalendarEvent(outlookConnection, booking.outlook_event_id);
+              console.log('[Booking Update] Deleted Outlook calendar event for cancelled booking');
+              calendarEventDeleted = true;
+            } else {
+              console.log('[Booking Update] No Outlook connection found for identity:', session.identityId);
+            }
+          } catch (calendarError) {
+            console.error('[Booking Update] Failed to delete calendar event:', calendarError.message);
+            // Don't fail the cancellation if calendar deletion fails
           }
-        } catch (calendarError) {
-          console.error('[Booking Update] Failed to delete calendar event:', calendarError.message);
-          // Don't fail the cancellation if calendar deletion fails
+        } else {
+          console.log('[Booking Update] No outlook_event_id stored for this booking');
         }
       }
 
-      return res.json({ booking: updated });
+      return res.json({ booking: updated, calendarEventDeleted });
     }
 
     if (req.method === 'DELETE') {
