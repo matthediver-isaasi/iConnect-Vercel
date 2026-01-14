@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import { serialize } from 'cookie';
-import { getSession } from './_lib/session.js';
+import { getSession } from '../_lib/session.js';
 
 const MICROSOFT_CLIENT_ID = process.env.MICROSOFT_CLIENT_ID;
 const SESSION_SECRET = process.env.SESSION_SECRET || 'iconnect-session-secret-change-in-production';
