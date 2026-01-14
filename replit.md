@@ -20,6 +20,13 @@ The backend is built with Express.js and uses PostgreSQL (Neon serverless) with 
 
 The platform supports a three-tier hierarchy: TENANT, ORGANIZATION, and MEMBER. A `tenant` table stores SaaS subscribing companies, and access control enforces data isolation at GLOBAL, TENANT, ORGANIZATION, and MEMBER levels, ensuring records are scoped to the authenticated user's context.
 
+**Member Entity Scope (Updated Jan 2026):**
+- Members are now TENANT-scoped, not ORGANIZATION-scoped
+- This allows individual members to exist without belonging to an organization
+- `organization_id` on the member table is optional - null for individuals, populated for org staff
+- A database trigger auto-populates `tenant_id` from organization when `organization_id` is provided
+- Tenants like GSF can have both organizational members (company staff) and individual members
+
 ## Unified Identity System
 
 The platform uses a centralized `tenant_identity` table for ALL user authentication (owners and members). This enables:
