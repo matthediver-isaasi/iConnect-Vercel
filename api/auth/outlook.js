@@ -12,7 +12,8 @@ const MICROSOFT_SCOPES = [
   'offline_access',
   'https://graph.microsoft.com/Mail.Read',
   'https://graph.microsoft.com/Mail.Send',
-  'https://graph.microsoft.com/User.Read'
+  'https://graph.microsoft.com/User.Read',
+  'https://graph.microsoft.com/Calendars.ReadWrite'
 ].join(' ');
 
 function signState(payload) {
