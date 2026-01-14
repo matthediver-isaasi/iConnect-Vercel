@@ -73,12 +73,15 @@ export default async function handler(req, res) {
       ? 'https://iconn.app/api/auth/outlook/callback'
       : `http://${req.headers.host}/api/auth/outlook/callback`;
     
+    const originHost = req.headers.host || (isProduction ? 'iconn.app' : 'localhost:5000');
+    
     const statePayload = {
       nonce,
       tenantId: session.tenantId,
       identityId: identityId,
       userType: session.userType,
       returnTo: req.query.returnTo || '/settings',
+      originHost: originHost,
       timestamp: Date.now()
     };
 

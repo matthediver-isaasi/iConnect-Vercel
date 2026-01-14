@@ -29,9 +29,16 @@ function verifyState(signedState) {
   }
 }
 
-function buildRedirect(path, isProduction) {
+function buildRedirect(path, isProduction, originHost = null) {
   if (isProduction) {
-    return `https://iconn.app${path}`;
+    // Validate originHost to prevent open redirect attacks - must be *.iconn.app
+    let safeHost = 'iconn.app';
+    if (originHost && /^[a-zA-Z0-9-]+\.iconn\.app$/.test(originHost)) {
+      safeHost = originHost;
+    } else if (originHost === 'iconn.app') {
+      safeHost = 'iconn.app';
+    }
+    return `https://${safeHost}${path}`;
   }
   return path;
 }
@@ -86,7 +93,7 @@ export default async function handler(req, res) {
   });
 
   try {
-    const { tenantId, identityId, returnTo } = stateData;
+    const { tenantId, identityId, returnTo, originHost } = stateData;
 
     const redirectUri = isProduction 
       ? 'https://iconn.app/api/auth/outlook/callback'
@@ -107,7 +114,7 @@ export default async function handler(req, res) {
     if (!tokenResponse.ok) {
       const errorData = await tokenResponse.text();
       console.error('[Outlook OAuth Callback] Token exchange failed:', errorData);
-      return res.redirect(buildRedirect('/settings?outlook_error=token_exchange_failed', isProduction));
+      return res.redirect(buildRedirect('/settings?outlook_error=token_exchange_failed', isProduction, originHost));
     }
 
     const tokens = await tokenResponse.json();
@@ -115,7 +122,7 @@ export default async function handler(req, res) {
 
     if (!refresh_token) {
       console.error('[Outlook OAuth Callback] No refresh token received - user may need to re-consent');
-      return res.redirect(buildRedirect('/settings?outlook_error=no_refresh_token', isProduction));
+      return res.redirect(buildRedirect('/settings?outlook_error=no_refresh_token', isProduction, originHost));
     }
 
     const userInfoResponse = await fetch('https://graph.microsoft.com/v1.0/me', {
@@ -124,7 +131,7 @@ export default async function handler(req, res) {
 
     if (!userInfoResponse.ok) {
       console.error('[Outlook OAuth Callback] Failed to get user info');
-      return res.redirect(buildRedirect('/settings?outlook_error=user_info_failed', isProduction));
+      return res.redirect(buildRedirect('/settings?outlook_error=user_info_failed', isProduction, originHost));
     }
 
     const msUser = await userInfoResponse.json();
@@ -161,7 +168,7 @@ export default async function handler(req, res) {
 
       if (updateError) {
         console.error('[Outlook OAuth Callback] Failed to update connection:', updateError);
-        return res.redirect(buildRedirect('/settings?outlook_error=save_failed', isProduction));
+        return res.redirect(buildRedirect('/settings?outlook_error=save_failed', isProduction, originHost));
       }
 
       console.log('[Outlook OAuth Callback] Updated existing Outlook connection:', existingConnection.id);
@@ -185,7 +192,7 @@ export default async function handler(req, res) {
 
       if (insertError) {
         console.error('[Outlook OAuth Callback] Failed to save connection:', insertError);
-        return res.redirect(buildRedirect('/settings?outlook_error=save_failed', isProduction));
+        return res.redirect(buildRedirect('/settings?outlook_error=save_failed', isProduction, originHost));
       }
 
       console.log('[Outlook OAuth Callback] Created new Outlook connection:', newConnection.id);
@@ -194,13 +201,13 @@ export default async function handler(req, res) {
     res.setHeader('Set-Cookie', clearNonceCookie);
 
     const finalPath = returnTo || '/settings';
-    const successRedirect = buildRedirect(`${finalPath}?outlook_connected=true`, isProduction);
+    const successRedirect = buildRedirect(`${finalPath}?outlook_connected=true`, isProduction, originHost);
     
     res.redirect(successRedirect);
 
   } catch (error) {
     console.error('[Outlook OAuth Callback] Error:', error);
     res.setHeader('Set-Cookie', clearNonceCookie);
-    res.redirect(buildRedirect('/settings?outlook_error=callback_failed', isProduction));
+    res.redirect(buildRedirect('/settings?outlook_error=callback_failed', isProduction, stateData?.originHost));
   }
 }

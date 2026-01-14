@@ -6,7 +6,7 @@
 CREATE TABLE IF NOT EXISTS outlook_connection (
   id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid()::text,
   tenant_id VARCHAR NOT NULL,
-  identity_id VARCHAR NOT NULL REFERENCES tenant_identity(id) ON DELETE CASCADE,
+  identity_id VARCHAR NOT NULL,
   
   -- Microsoft account info
   microsoft_user_id VARCHAR NOT NULL,
