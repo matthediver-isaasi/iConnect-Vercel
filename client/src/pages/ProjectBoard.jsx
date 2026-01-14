@@ -134,7 +134,76 @@ export default function ProjectBoardPage() {
       const response = await apiRequest('POST', `/api/projects/cards/${cardId}/move`, { list_id, position });
       return response;
     },
-    onSuccess: () => {
+    onMutate: async ({ cardId, list_id, position }) => {
+      // Cancel any outgoing refetches to prevent overwriting optimistic update
+      await queryClient.cancelQueries({ queryKey: ['project-board', boardId] });
+
+      // Snapshot the previous value (deep clone to preserve for rollback)
+      const previousData = queryClient.getQueryData(['project-board', boardId]);
+
+      // Optimistically update the cache
+      queryClient.setQueryData(['project-board', boardId], (old) => {
+        if (!old?.cards) return old;
+
+        // Deep clone all cards to avoid mutating cached data
+        const cards = old.cards.map(c => ({ ...c }));
+        const movedCard = cards.find(c => c.id === cardId);
+        if (!movedCard) return old;
+
+        const sourceListId = movedCard.list_id;
+        const destListId = list_id;
+
+        // Get source and destination lists (excluding the moved card for now)
+        const sourceCards = cards
+          .filter(c => c.list_id === sourceListId && c.id !== cardId)
+          .sort((a, b) => a.position - b.position);
+
+        const destCards = sourceListId === destListId
+          ? sourceCards // Same list - work with the filtered source
+          : cards
+              .filter(c => c.list_id === destListId)
+              .sort((a, b) => a.position - b.position);
+
+        // Update moved card's list_id
+        movedCard.list_id = destListId;
+
+        // Insert at new position
+        if (sourceListId === destListId) {
+          // Same list: insert at new position
+          sourceCards.splice(position, 0, movedCard);
+          // Update positions
+          sourceCards.forEach((c, idx) => { c.position = idx; });
+        } else {
+          // Different lists: update source positions, insert in dest
+          sourceCards.forEach((c, idx) => { c.position = idx; });
+          destCards.splice(position, 0, movedCard);
+          destCards.forEach((c, idx) => { c.position = idx; });
+        }
+
+        // Build the new cards array from all lists
+        const otherCards = cards.filter(c => 
+          c.list_id !== sourceListId && c.list_id !== destListId
+        );
+        
+        const newCards = sourceListId === destListId
+          ? [...otherCards, ...sourceCards]
+          : [...otherCards, ...sourceCards, ...destCards];
+
+        return { ...old, cards: newCards };
+      });
+
+      // Return context with previous data for rollback
+      return { previousData };
+    },
+    onError: (err, variables, context) => {
+      // Rollback to previous data on error
+      if (context?.previousData) {
+        queryClient.setQueryData(['project-board', boardId], context.previousData);
+      }
+      toast.error('Failed to move card');
+    },
+    onSettled: () => {
+      // Refetch to ensure server and client are in sync
       queryClient.invalidateQueries({ queryKey: ['project-board', boardId] });
     }
   });
