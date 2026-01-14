@@ -1,5 +1,6 @@
 import { getSession } from '../../_lib/session.js';
 import { supabase } from '../../_lib/database.js';
+import { getAgentEmailsForTenant, isAgentOnlyEmail } from '../../_lib/agentEmails.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -47,28 +48,41 @@ export default async function handler(req, res) {
     const limit = parseInt(req.query.limit) || 50;
     const offset = parseInt(req.query.offset) || 0;
 
-    // Fetch emails from ALL agents' connections for this member (collective CRM view)
-    // This aggregates emails synced by any agent in the tenant
-    const { data: emails, error: emailsError, count } = await supabase
+    const agentEmails = await getAgentEmailsForTenant(session.tenantId);
+
+    // Fetch emails for this member with a reasonable max limit
+    // We filter agent-only emails in memory to handle JSONB recipient arrays
+    // Max 1000 emails per member to prevent memory issues
+    const MAX_EMAILS_PER_MEMBER = 1000;
+    const { data: allEmails, error: emailsError } = await supabase
       .from('member_email')
-      .select('*, synced_by_identity_id', { count: 'exact' })
+      .select('*, synced_by_identity_id')
       .eq('tenant_id', session.tenantId)
       .eq('member_id', memberId)
       .order('sent_at', { ascending: false, nullsFirst: false })
       .order('received_at', { ascending: false, nullsFirst: false })
-      .range(offset, offset + limit - 1);
+      .limit(MAX_EMAILS_PER_MEMBER);
 
     if (emailsError) {
       console.error('[Outlook Emails] Database error:', emailsError);
       return res.status(500).json({ error: 'Failed to fetch emails' });
     }
 
+    // Filter out agent-only emails
+    const filteredEmails = (allEmails || []).filter(email => {
+      const toAddresses = email.to_addresses || [];
+      const ccAddresses = email.cc_addresses || [];
+      return !isAgentOnlyEmail(email.from_address, toAddresses, ccAddresses, agentEmails);
+    });
+
+    // Apply pagination to filtered results
+    const paginatedEmails = filteredEmails.slice(offset, offset + limit);
+
     // Get agent display names for attribution
-    const identityIds = [...new Set((emails || []).map(e => e.synced_by_identity_id).filter(Boolean))];
+    const identityIds = [...new Set(paginatedEmails.map(e => e.synced_by_identity_id).filter(Boolean))];
     let agentNames = {};
     
     if (identityIds.length > 0) {
-      // Get Outlook connection display names for each identity
       const { data: connections } = await supabase
         .from('outlook_connection')
         .select('identity_id, display_name, microsoft_email')
@@ -82,15 +96,14 @@ export default async function handler(req, res) {
       }
     }
 
-    // Enrich emails with agent attribution
-    const enrichedEmails = (emails || []).map(email => ({
+    const enrichedEmails = paginatedEmails.map(email => ({
       ...email,
       synced_by_name: email.synced_by_identity_id ? agentNames[email.synced_by_identity_id] || 'Unknown Agent' : null
     }));
 
     res.status(200).json({
       emails: enrichedEmails,
-      total: count || 0,
+      total: filteredEmails.length,
       limit,
       offset,
       memberEmail: member.email

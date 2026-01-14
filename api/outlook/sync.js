@@ -1,5 +1,6 @@
 import { getSession } from '../_lib/session.js';
 import { supabase } from '../_lib/database.js';
+import { getAgentEmailsForTenant, isAgentOnlyEmail } from '../_lib/agentEmails.js';
 
 const MICROSOFT_CLIENT_ID = process.env.MICROSOFT_CLIENT_ID;
 const MICROSOFT_CLIENT_SECRET = process.env.MICROSOFT_CLIENT_SECRET;
@@ -137,7 +138,11 @@ export default async function handler(req, res) {
     }
 
     let totalSynced = 0;
+    let agentOnlySkipped = 0;
     const syncErrors = [];
+
+    const agentEmails = await getAgentEmailsForTenant(session.tenantId);
+    console.log(`[Outlook Sync] Found ${agentEmails.size} agent emails to filter`);
 
     const emailAddresses = memberId 
       ? memberEmails 
@@ -186,6 +191,11 @@ export default async function handler(req, res) {
             address: r.emailAddress?.address,
             name: r.emailAddress?.name
           })) || [];
+
+          if (isAgentOnlyEmail(fromAddress, toAddresses, ccAddresses, agentEmails)) {
+            agentOnlySkipped++;
+            continue;
+          }
 
           const direction = fromAddress === email ? 'inbound' : 'outbound';
 
@@ -244,12 +254,13 @@ export default async function handler(req, res) {
       })
       .eq('id', connection.id);
 
-    console.log(`[Outlook Sync] Synced ${totalSynced} emails for tenant ${session.tenantId}`);
+    console.log(`[Outlook Sync] Synced ${totalSynced} emails, skipped ${agentOnlySkipped} agent-only emails for tenant ${session.tenantId}`);
 
     res.status(200).json({
       synced: totalSynced,
+      agentOnlySkipped,
       errors: syncErrors.length > 0 ? syncErrors : undefined,
-      message: `Synced ${totalSynced} emails`
+      message: `Synced ${totalSynced} emails${agentOnlySkipped > 0 ? ` (${agentOnlySkipped} internal emails excluded)` : ''}`
     });
   } catch (error) {
     console.error('[Outlook Sync] Error:', error);
