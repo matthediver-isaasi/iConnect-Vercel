@@ -71,6 +71,7 @@ import {
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useDateFormat } from "@/hooks/useDateFormat";
+import MemberEmails from "@/components/MemberEmails";
 
 export default function MemberDetailView({ 
   member, 
@@ -1473,6 +1474,15 @@ export default function MemberDetailView({
                 )}
               </CardContent>
             </Card>
+
+            {/* Outlook Email History */}
+            {member.id && (
+              <MemberEmails 
+                memberId={member.id}
+                memberEmail={member.email}
+                memberName={`${member.first_name || ''} ${member.last_name || ''}`.trim() || member.email}
+              />
+            )}
           </TabsContent>
 
           <TabsContent value="roles" className="space-y-6">
