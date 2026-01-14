@@ -152,22 +152,24 @@ export default async function handler(req, res) {
       const mId = typeof memberInfo === 'string' ? memberId : memberInfo.id;
 
       try {
-        const sentFilter = `from/emailAddress/address eq '${email}' or recipients/any(r:r/emailAddress/address eq '${email}')`;
-        
+        // Use $search instead of $filter for more reliable email address matching
+        // $search works better with email addresses across from/to/cc fields
         const messagesUrl = new URL('https://graph.microsoft.com/v1.0/me/messages');
-        messagesUrl.searchParams.set('$filter', sentFilter);
-        messagesUrl.searchParams.set('$select', 'id,conversationId,internetMessageId,subject,bodyPreview,body,from,toRecipients,ccRecipients,sentDateTime,receivedDateTime,isRead,isDraft,hasAttachments,importance,attachments');
+        messagesUrl.searchParams.set('$search', `"${email}"`);
+        messagesUrl.searchParams.set('$select', 'id,conversationId,internetMessageId,subject,bodyPreview,body,from,toRecipients,ccRecipients,sentDateTime,receivedDateTime,isRead,isDraft,hasAttachments,importance');
         messagesUrl.searchParams.set('$top', '50');
-        messagesUrl.searchParams.set('$orderby', 'receivedDateTime desc');
 
         const msgResponse = await fetch(messagesUrl.toString(), {
-          headers: { Authorization: `Bearer ${accessToken}` }
+          headers: { 
+            Authorization: `Bearer ${accessToken}`,
+            'ConsistencyLevel': 'eventual'  // Required for $search
+          }
         });
 
         if (!msgResponse.ok) {
           const errText = await msgResponse.text();
           console.error(`[Outlook Sync] Failed to fetch messages for ${email}:`, errText);
-          syncErrors.push({ email, error: 'Failed to fetch messages' });
+          syncErrors.push({ email, error: `Failed to fetch messages: ${errText.substring(0, 100)}` });
           continue;
         }
 
