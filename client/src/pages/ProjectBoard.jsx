@@ -20,6 +20,7 @@ import {
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { useProjectBoardRealtime } from "@/hooks/useProjectBoardRealtime";
 import { Link, useParams } from "react-router-dom";
 import { apiRequest } from "@/lib/queryClient";
 import { format, isPast, isToday, isTomorrow } from "date-fns";
@@ -74,6 +75,8 @@ export default function ProjectBoardPage() {
     },
     enabled: accessChecked && !!boardId
   });
+
+  useProjectBoardRealtime(boardId);
 
   const createListMutation = useMutation({
     mutationFn: async (name) => {
