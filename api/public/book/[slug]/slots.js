@@ -1,7 +1,17 @@
 import { supabase } from '../../../_lib/database.js';
 import { format, parse, addMinutes, isBefore, isAfter, startOfDay, addDays } from 'date-fns';
-import { toZonedTime, fromZonedTime } from 'date-fns-tz';
+import { toZonedTime, fromZonedTime, formatInTimeZone } from 'date-fns-tz';
 import { getBusyTimes, getOutlookConnectionForIdentity } from '../../../outlook/calendar.js';
+
+// Parse calendar busy times into UTC Date objects, handling timezone correctly
+function parseBusyTimeToUTC(timeStr, timeZone) {
+  // If the time string already has a Z suffix, it's UTC
+  if (timeStr.endsWith('Z') || timeStr.includes('+') || timeStr.includes('-')) {
+    return new Date(timeStr);
+  }
+  // Otherwise, treat it as local time in the given timezone and convert to UTC
+  return fromZonedTime(new Date(timeStr), timeZone);
+}
 
 // Extract tenant slug from subdomain (e.g., gsf.iconn.app -> 'gsf')
 function getTenantSlugFromHost(host) {
@@ -71,8 +81,8 @@ function generateSlots(workingHours, agentTimezone, slotMinutes, bufferMinutes, 
 
       // Check for conflicts with calendar busy times from Outlook
       const hasCalendarConflict = calendarBusyTimes.some(busy => {
-        const busyStart = new Date(busy.start);
-        const busyEnd = new Date(busy.end);
+        const busyStart = parseBusyTimeToUTC(busy.start, busy.timeZone || agentTimezone);
+        const busyEnd = parseBusyTimeToUTC(busy.end, busy.timeZone || agentTimezone);
         return isBefore(currentSlot, busyEnd) && isAfter(slotEnd, busyStart);
       });
 

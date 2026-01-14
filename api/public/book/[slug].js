@@ -1,5 +1,6 @@
 import { supabase } from '../../_lib/database.js';
 import { createCalendarEvent, getOutlookConnectionForIdentity } from '../../outlook/calendar.js';
+import { formatInTimeZone } from 'date-fns-tz';
 
 // Extract tenant slug from subdomain (e.g., gsf.iconn.app -> 'gsf')
 function getTenantSlugFromHost(host) {
@@ -179,7 +180,11 @@ export default async function handler(req, res) {
       try {
         const outlookConnection = await getOutlookConnectionForIdentity(identity.id, tenantId);
         if (outlookConnection) {
-          const agentName = `${identity.first_name || ''} ${identity.last_name || ''}`.trim() || identity.email;
+          const agentTimezone = profile.timezone || 'UTC';
+          // Format times as local strings (without Z suffix) for Microsoft Graph when specifying timeZone
+          const startLocalStr = formatInTimeZone(startTime, agentTimezone, "yyyy-MM-dd'T'HH:mm:ss");
+          const endLocalStr = formatInTimeZone(endTime, agentTimezone, "yyyy-MM-dd'T'HH:mm:ss");
+          
           const calendarEvent = await createCalendarEvent(outlookConnection, {
             subject: `Meeting with ${attendee_name}`,
             body: `<p>Booking via ${tenant?.name || 'iconn.app'}</p>
@@ -187,9 +192,9 @@ export default async function handler(req, res) {
                    <p><strong>Email:</strong> ${attendee_email}</p>
                    ${attendee_phone ? `<p><strong>Phone:</strong> ${attendee_phone}</p>` : ''}
                    ${attendee_notes ? `<p><strong>Notes:</strong> ${attendee_notes}</p>` : ''}`,
-            startDateTime: startTime.toISOString(),
-            endDateTime: endTime.toISOString(),
-            timeZone: profile.timezone || 'UTC',
+            startDateTime: startLocalStr,
+            endDateTime: endLocalStr,
+            timeZone: agentTimezone,
             attendees: [{ email: attendee_email, name: attendee_name }],
             isOnlineMeeting: false
           });
