@@ -156,6 +156,8 @@ import FormView from "./FormView";
 
 import EmbedForm from "./EmbedForm";
 
+import EmbedResource from "./EmbedResource";
+
 import MemberDirectorySettings from "./MemberDirectorySettings";
 
 import FormSubmissions from "./FormSubmissions";
@@ -852,6 +854,7 @@ function StandaloneRoutes() {
             <Route path="/Signup" element={<TenantSignup />} />
             <Route path="/register" element={<TenantSignup />} />
             <Route path="/embed/form/:slug" element={<EmbedForm />} />
+            <Route path="/embed/resource/:identifier" element={<EmbedResource />} />
         </Routes>
     );
 }
