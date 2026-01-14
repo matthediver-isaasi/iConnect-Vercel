@@ -167,11 +167,11 @@ export default function EmbedResourcePage() {
             {resource.title}
           </CardTitle>
           
-          {(resource.release_date || resource.created_date) && (
+          {resource.release_date && (
             <div className="flex items-center gap-1 text-xs text-slate-500 py-2">
               <Calendar className="w-3 h-3" />
               <span data-testid="resource-date">
-                {format(new Date(resource.release_date || resource.created_date), 'dd MMM yyyy')}
+                {format(new Date(resource.release_date), 'dd MMM yyyy')}
               </span>
             </div>
           )}
