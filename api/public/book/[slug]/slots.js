@@ -5,26 +5,42 @@ import { toZonedTime, fromZonedTime, formatInTimeZone } from 'date-fns-tz';
 function generateSlots(workingHours, agentTimezone, slotMinutes, bufferMinutes, dateStr, existingBookings) {
   const slots = [];
   
-  const targetDate = parse(dateStr, 'yyyy-MM-dd', new Date());
-  const dayOfWeek = formatInTimeZone(targetDate, agentTimezone, 'EEEE').toLowerCase();
+  // Parse date string as explicit date components to avoid timezone issues
+  const [year, month, day] = dateStr.split('-').map(Number);
   
-  const dayHours = workingHours[dayOfWeek] || [];
-  if (dayHours.length === 0) return slots;
+  // Get day of week from the date string directly
+  const tempDate = new Date(year, month - 1, day, 12, 0, 0); // noon to avoid DST issues
+  const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+  const dayOfWeek = dayNames[tempDate.getDay()];
+  
+  console.log(`[Slots] Date: ${dateStr}, Day of week: ${dayOfWeek}, Working hours:`, workingHours?.[dayOfWeek]);
+  
+  const dayHours = workingHours?.[dayOfWeek] || [];
+  if (dayHours.length === 0) {
+    console.log(`[Slots] No hours configured for ${dayOfWeek}`);
+    return slots;
+  }
 
   const now = new Date();
   const totalSlotTime = slotMinutes + bufferMinutes;
 
   for (const period of dayHours) {
+    if (!period.start || !period.end) {
+      console.log(`[Slots] Invalid period:`, period);
+      continue;
+    }
+    
     const [startHour, startMin] = period.start.split(':').map(Number);
     const [endHour, endMin] = period.end.split(':').map(Number);
 
-    const periodStartLocal = new Date(targetDate);
-    periodStartLocal.setHours(startHour, startMin, 0, 0);
+    // Create dates in the agent's timezone
+    const periodStartLocal = new Date(year, month - 1, day, startHour, startMin, 0, 0);
     const periodStart = fromZonedTime(periodStartLocal, agentTimezone);
 
-    const periodEndLocal = new Date(targetDate);
-    periodEndLocal.setHours(endHour, endMin, 0, 0);
+    const periodEndLocal = new Date(year, month - 1, day, endHour, endMin, 0, 0);
     const periodEnd = fromZonedTime(periodEndLocal, agentTimezone);
+    
+    console.log(`[Slots] Period ${period.start}-${period.end}, UTC start: ${periodStart.toISOString()}, UTC end: ${periodEnd.toISOString()}`);
 
     let currentSlot = new Date(periodStart);
 
@@ -99,7 +115,7 @@ export default async function handler(req, res) {
 
     const tenantId = memberships[0].tenant_id;
 
-    const { data: profile } = await supabase
+    const { data: profile, error: profileError } = await supabase
       .from('agent_availability_profile')
       .select('*')
       .eq('identity_id', identity.id)
@@ -107,9 +123,13 @@ export default async function handler(req, res) {
       .eq('is_active', true)
       .single();
 
+    console.log('[Slots] Profile query result:', { profile, profileError });
+
     if (!profile) {
       return res.status(404).json({ error: 'Booking page not active' });
     }
+    
+    console.log('[Slots] Working hours from profile:', JSON.stringify(profile.working_hours, null, 2));
 
     const numDays = Math.min(parseInt(days) || 7, 30);
     
