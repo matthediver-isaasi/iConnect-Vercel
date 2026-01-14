@@ -1,6 +1,7 @@
 import { supabase } from '../../../_lib/database.js';
 import { format, parse, addMinutes, isBefore, isAfter, startOfDay, addDays } from 'date-fns';
-import { toZonedTime, fromZonedTime, formatInTimeZone } from 'date-fns-tz';
+import { toZonedTime, fromZonedTime } from 'date-fns-tz';
+import { getBusyTimes, getOutlookConnectionForIdentity } from '../../../outlook/calendar.js';
 
 // Extract tenant slug from subdomain (e.g., gsf.iconn.app -> 'gsf')
 function getTenantSlugFromHost(host) {
@@ -16,7 +17,7 @@ function getTenantSlugFromHost(host) {
   return null;
 }
 
-function generateSlots(workingHours, agentTimezone, slotMinutes, bufferMinutes, dateStr, existingBookings) {
+function generateSlots(workingHours, agentTimezone, slotMinutes, bufferMinutes, dateStr, existingBookings, calendarBusyTimes = []) {
   const slots = [];
   
   // Parse date string as explicit date components to avoid timezone issues
@@ -61,15 +62,23 @@ function generateSlots(workingHours, agentTimezone, slotMinutes, bufferMinutes, 
     while (addMinutes(currentSlot, slotMinutes) <= periodEnd) {
       const slotEnd = addMinutes(currentSlot, slotMinutes);
       
-      const hasConflict = existingBookings.some(booking => {
+      // Check for conflicts with existing bookings in the system
+      const hasBookingConflict = existingBookings.some(booking => {
         const bookingStart = new Date(booking.starts_at);
         const bookingEnd = new Date(booking.ends_at);
         return isBefore(currentSlot, bookingEnd) && isAfter(slotEnd, bookingStart);
       });
 
+      // Check for conflicts with calendar busy times from Outlook
+      const hasCalendarConflict = calendarBusyTimes.some(busy => {
+        const busyStart = new Date(busy.start);
+        const busyEnd = new Date(busy.end);
+        return isBefore(currentSlot, busyEnd) && isAfter(slotEnd, busyStart);
+      });
+
       const isPast = isBefore(currentSlot, now);
 
-      if (!hasConflict && !isPast) {
+      if (!hasBookingConflict && !hasCalendarConflict && !isPast) {
         slots.push({
           start: currentSlot.toISOString(),
           end: slotEnd.toISOString()
@@ -179,6 +188,26 @@ export default async function handler(req, res) {
       .gte('starts_at', startDateUtc.toISOString())
       .lte('starts_at', endDateUtc.toISOString());
 
+    // Fetch calendar busy times from Outlook if connected
+    let calendarBusyTimes = [];
+    let calendarConnected = false;
+    try {
+      const outlookConnection = await getOutlookConnectionForIdentity(identity.id, tenantId);
+      if (outlookConnection) {
+        calendarConnected = true;
+        calendarBusyTimes = await getBusyTimes(
+          outlookConnection,
+          startDateUtc.toISOString(),
+          endDateUtc.toISOString(),
+          agentTimezone
+        );
+        console.log(`[Slots] Found ${calendarBusyTimes.length} calendar busy times for agent`);
+      }
+    } catch (calendarError) {
+      console.error('[Slots] Failed to fetch calendar busy times:', calendarError.message);
+      // Continue without calendar data - don't fail the request
+    }
+
     const slotsByDate = {};
     let currentDate = new Date(startDate);
 
@@ -190,7 +219,8 @@ export default async function handler(req, res) {
         profile.default_slot_minutes,
         profile.buffer_minutes,
         dateStr,
-        existingBookings || []
+        existingBookings || [],
+        calendarBusyTimes
       );
       currentDate = addDays(currentDate, 1);
     }
@@ -198,7 +228,8 @@ export default async function handler(req, res) {
     return res.json({
       slots: slotsByDate,
       timezone: profile.timezone,
-      slotMinutes: profile.default_slot_minutes
+      slotMinutes: profile.default_slot_minutes,
+      calendarConnected
     });
   } catch (err) {
     console.error('[Slots] Error:', err);

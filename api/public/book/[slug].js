@@ -1,4 +1,5 @@
 import { supabase } from '../../_lib/database.js';
+import { createCalendarEvent, getOutlookConnectionForIdentity } from '../../outlook/calendar.js';
 
 // Extract tenant slug from subdomain (e.g., gsf.iconn.app -> 'gsf')
 function getTenantSlugFromHost(host) {
@@ -173,13 +174,52 @@ export default async function handler(req, res) {
         return res.status(500).json({ error: 'Failed to create booking' });
       }
 
+      // Create calendar event in agent's Outlook calendar if connected
+      let calendarEventId = null;
+      try {
+        const outlookConnection = await getOutlookConnectionForIdentity(identity.id, tenantId);
+        if (outlookConnection) {
+          const agentName = `${identity.first_name || ''} ${identity.last_name || ''}`.trim() || identity.email;
+          const calendarEvent = await createCalendarEvent(outlookConnection, {
+            subject: `Meeting with ${attendee_name}`,
+            body: `<p>Booking via ${tenant?.name || 'iconn.app'}</p>
+                   <p><strong>Attendee:</strong> ${attendee_name}</p>
+                   <p><strong>Email:</strong> ${attendee_email}</p>
+                   ${attendee_phone ? `<p><strong>Phone:</strong> ${attendee_phone}</p>` : ''}
+                   ${attendee_notes ? `<p><strong>Notes:</strong> ${attendee_notes}</p>` : ''}`,
+            startDateTime: startTime.toISOString(),
+            endDateTime: endTime.toISOString(),
+            timeZone: profile.timezone || 'UTC',
+            attendees: [{ email: attendee_email, name: attendee_name }],
+            isOnlineMeeting: false
+          });
+          
+          calendarEventId = calendarEvent?.id;
+          console.log('[Public Booking] Created Outlook calendar event:', calendarEventId);
+          
+          // Update booking with calendar event ID
+          if (calendarEventId) {
+            await supabase
+              .from('agent_booking')
+              .update({ outlook_event_id: calendarEventId })
+              .eq('id', booking.id);
+          }
+        } else {
+          console.log('[Public Booking] No Outlook connection for agent, skipping calendar event');
+        }
+      } catch (calendarError) {
+        // Don't fail the booking if calendar creation fails
+        console.error('[Public Booking] Calendar event creation failed:', calendarError);
+      }
+
       return res.status(201).json({
         success: true,
         booking: {
           id: booking.id,
           starts_at: booking.starts_at,
           ends_at: booking.ends_at,
-          status: booking.status
+          status: booking.status,
+          calendarEventCreated: !!calendarEventId
         },
         agent: {
           name: `${identity.first_name || ''} ${identity.last_name || ''}`.trim(),
