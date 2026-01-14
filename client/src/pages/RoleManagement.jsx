@@ -56,7 +56,9 @@ const MODULE_ICONS = {
   "support": HelpCircle,
   "communication": MailIcon,
   "admin": Shield,
-  "system": Cog
+  "system": Cog,
+  "projects": ClipboardList,
+  "crm": Users
 };
 
 export default function RoleManagementPage() {

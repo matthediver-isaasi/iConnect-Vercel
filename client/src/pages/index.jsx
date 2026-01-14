@@ -249,6 +249,10 @@ import DynamicDirectoryView from "./DynamicDirectoryView";
 
 import RedirectManagement from "./RedirectManagement";
 
+import ProjectBoards from "./ProjectBoards";
+
+import ProjectBoard from "./ProjectBoard";
+
 import SearchResults from "./SearchResults";
 
 import TenantSignup from "./TenantSignup";
@@ -828,6 +832,9 @@ function PagesContent() {
                 <Route path="/directory/:slug" element={<DynamicDirectoryView />} />
                 
                 <Route path="/RedirectManagement" element={<RedirectManagement />} />
+                
+                <Route path="/ProjectBoards" element={<ProjectBoards />} />
+                <Route path="/ProjectBoard" element={<ProjectBoard />} />
                 
                 <Route path="/DomainSettings" element={<DomainSettings />} />
                 <Route path="/domain-settings" element={<DomainSettings />} />

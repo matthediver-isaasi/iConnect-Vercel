@@ -502,6 +502,31 @@ export const ROLE_ACCESS_MAP: Module[] = [
     ]
   },
   {
+    id: "projects",
+    label: "Project Management",
+    icon: "Kanban",
+    pages: [
+      {
+        id: "projects.boards",
+        label: "Project Boards",
+        features: [
+          { id: "projects.boards.create", label: "Create Boards" },
+          { id: "projects.boards.manage-members", label: "Manage Board Members" }
+        ]
+      },
+      {
+        id: "projects.board-view",
+        label: "Board View",
+        features: [
+          { id: "projects.board-view.create-lists", label: "Create Lists" },
+          { id: "projects.board-view.create-cards", label: "Create Cards" },
+          { id: "projects.board-view.assign-cards", label: "Assign Cards" },
+          { id: "projects.board-view.manage-labels", label: "Manage Labels" }
+        ]
+      }
+    ]
+  },
+  {
     id: "crm",
     label: "CRM",
     icon: "Database",
@@ -829,7 +854,11 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_ReviewSubmission": "forms.review-submission",
   "page_admin_DueDiligenceDashboard": "forms.due-diligence-dashboard",
   "page_admin_DueDiligenceConfig": "forms.due-diligence-config",
-  "page_admin_ReviewSubmission": "forms.review-submission"
+  "page_admin_ReviewSubmission": "forms.review-submission",
+  "page_ProjectBoards": "projects.boards",
+  "page_ProjectBoard": "projects.board-view",
+  "page_admin_ProjectBoards": "projects.boards",
+  "page_admin_ProjectBoard": "projects.board-view"
 };
 
 export function migrateLegacyFeatureId(legacyId: string): string {

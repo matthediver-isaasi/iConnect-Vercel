@@ -114,6 +114,8 @@ const builtInPages = [
   { value: "MyTickets", label: "My Tickets" },
   { value: "NavigationManagement", label: "Navigation Items" },
   { value: "News", label: "News" },
+  { value: "ProjectBoards", label: "Project Boards" },
+  { value: "ProjectBoard", label: "Project Board (Single)" },
   { value: "NewsEditor", label: "News Editor" },
   { value: "NewsSettings", label: "News Settings" },
   { value: "NewsView", label: "News View" },

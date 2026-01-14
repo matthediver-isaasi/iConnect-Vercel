@@ -105,4 +105,6 @@ export const PAGE_NAMES = [
   "OrganisationPreferences",
   "MemberPreferences",
   "RedirectManagement",
+  "ProjectBoards",
+  "ProjectBoard",
 ];
