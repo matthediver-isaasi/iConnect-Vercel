@@ -120,7 +120,8 @@ export const entityTenantScope = {
   'FormSubmissionDueDiligence': TENANT_SCOPE.TENANT,
   
   // ORGANIZATION - Per-organization within a tenant (uses organization_id)
-  'Member': TENANT_SCOPE.ORGANIZATION,
+  // Note: Member moved to TENANT scope - members can exist with or without an organization
+  'Member': TENANT_SCOPE.TENANT,
   'OrganizationContact': TENANT_SCOPE.ORGANIZATION,
   'OrganizationPreferenceValue': TENANT_SCOPE.ORGANIZATION,
   'Booking': TENANT_SCOPE.ORGANIZATION, // Linked through member's organization
