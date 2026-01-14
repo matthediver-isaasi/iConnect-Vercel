@@ -32,7 +32,7 @@ export default async function handler(req, res) {
     // Step 2: Find membership
     const { data: memberships, error: membershipError } = await supabase
       .from('tenant_membership')
-      .select('tenant_id, status, membership_type')
+      .select('tenant_id, status')
       .eq('identity_id', identity.id);
 
     if (!memberships || memberships.length === 0) {
@@ -49,12 +49,19 @@ export default async function handler(req, res) {
       return res.json({
         step: 'active_membership',
         error: 'No active membership',
-        memberships,
+        allMemberships: memberships,
         identity
       });
     }
 
     const tenantId = activeMembership.tenant_id;
+    
+    // Also check the tenant table to verify tenant exists
+    const { data: tenant, error: tenantError } = await supabase
+      .from('tenant')
+      .select('id, name, slug')
+      .eq('id', tenantId)
+      .single();
 
     // Step 3: Find availability profile
     const { data: allProfiles, error: profilesError } = await supabase
@@ -80,6 +87,9 @@ export default async function handler(req, res) {
       },
       activeMembership,
       tenantId,
+      tenant: tenant || null,
+      tenantError,
+      allMemberships: memberships,
       allProfiles: allProfiles || [],
       activeProfile: activeProfile || null,
       activeProfileError,
