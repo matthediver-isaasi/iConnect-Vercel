@@ -158,6 +158,10 @@ import EmbedForm from "./EmbedForm";
 
 import EmbedResource from "./EmbedResource";
 
+import PublicBooking from "./PublicBooking";
+
+import MyBookings from "./MyBookings";
+
 import MemberDirectorySettings from "./MemberDirectorySettings";
 
 import FormSubmissions from "./FormSubmissions";
@@ -632,6 +636,8 @@ function PagesContent() {
                 
                 <Route path="/MyTickets" element={<MyTickets />} />
                 
+                <Route path="/MyBookings" element={<MyBookings />} />
+                
                 <Route path="/EventSettings" element={<EventSettings />} />
                 
                 <Route path="/Bookings" element={<Bookings />} />
@@ -855,6 +861,7 @@ function StandaloneRoutes() {
             <Route path="/register" element={<TenantSignup />} />
             <Route path="/embed/form/:slug" element={<EmbedForm />} />
             <Route path="/embed/resource/:identifier" element={<EmbedResource />} />
+            <Route path="/book/:slug" element={<PublicBooking />} />
         </Routes>
     );
 }
@@ -920,11 +927,12 @@ function AppRoutes() {
     );
     
     const isEmbedPage = location.pathname.toLowerCase().startsWith('/embed/');
+    const isBookingPage = location.pathname.toLowerCase().startsWith('/book/');
     
     const isAdminPage = location.pathname.toLowerCase().startsWith('/admin');
     const isPlatformPage = location.pathname.toLowerCase().startsWith('/platform');
     
-    if (isStandalonePage || isEmbedPage) {
+    if (isStandalonePage || isEmbedPage || isBookingPage) {
         return <StandaloneRoutes />;
     }
     

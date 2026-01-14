@@ -48,6 +48,7 @@ import { Switch } from "@/components/ui/switch";
 import { useLayoutContext } from "@/contexts/LayoutContext";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import OutlookConnection from "@/components/OutlookConnection";
+import BookingAvailabilitySettings from "@/components/BookingAvailabilitySettings";
 
 // --- List Field Editor Component ---
 function ListFieldEditor({ fieldId, values = [], onChange, placeholder, disabled = false }) {
@@ -763,6 +764,7 @@ export default function PreferencesPage() {
     { id: 'professional_biography', visible: true },
     { id: 'resource_interests', visible: true },
     { id: 'outlook_integration', visible: true },
+    { id: 'booking_availability', visible: true },
     { id: 'password_security', visible: true }
   ];
   
@@ -1655,6 +1657,14 @@ export default function PreferencesPage() {
         return (
           <div key="outlook_integration">
             <OutlookConnection />
+          </div>
+        );
+
+      case 'booking_availability':
+        if (isFeatureExcluded('user.about-me.booking')) return null;
+        return (
+          <div key="booking_availability">
+            <BookingAvailabilitySettings />
           </div>
         );
 
