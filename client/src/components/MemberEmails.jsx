@@ -207,6 +207,11 @@ export default function MemberEmails({ memberId, memberEmail, memberName }) {
                               <Clock className="h-3 w-3" />
                               {format(new Date(email.sent_at || email.received_at), 'MMM d, h:mm a')}
                             </p>
+                            {email.synced_by_name && (
+                              <p className="text-xs text-muted-foreground/70 mt-0.5">
+                                via {email.synced_by_name}
+                              </p>
+                            )}
                           </div>
                           {expandedEmail === email.id ? (
                             <ChevronUp className="h-4 w-4 text-muted-foreground" />

@@ -47,9 +47,11 @@ export default async function handler(req, res) {
     const limit = parseInt(req.query.limit) || 50;
     const offset = parseInt(req.query.offset) || 0;
 
+    // Fetch emails from ALL agents' connections for this member (collective CRM view)
+    // This aggregates emails synced by any agent in the tenant
     const { data: emails, error: emailsError, count } = await supabase
       .from('member_email')
-      .select('*', { count: 'exact' })
+      .select('*, synced_by_identity_id', { count: 'exact' })
       .eq('tenant_id', session.tenantId)
       .eq('member_id', memberId)
       .order('sent_at', { ascending: false, nullsFirst: false })
@@ -61,8 +63,33 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Failed to fetch emails' });
     }
 
+    // Get agent display names for attribution
+    const identityIds = [...new Set((emails || []).map(e => e.synced_by_identity_id).filter(Boolean))];
+    let agentNames = {};
+    
+    if (identityIds.length > 0) {
+      // Get Outlook connection display names for each identity
+      const { data: connections } = await supabase
+        .from('outlook_connection')
+        .select('identity_id, display_name, microsoft_email')
+        .eq('tenant_id', session.tenantId)
+        .in('identity_id', identityIds);
+      
+      if (connections) {
+        for (const conn of connections) {
+          agentNames[conn.identity_id] = conn.display_name || conn.microsoft_email || 'Unknown Agent';
+        }
+      }
+    }
+
+    // Enrich emails with agent attribution
+    const enrichedEmails = (emails || []).map(email => ({
+      ...email,
+      synced_by_name: email.synced_by_identity_id ? agentNames[email.synced_by_identity_id] || 'Unknown Agent' : null
+    }));
+
     res.status(200).json({
-      emails: emails || [],
+      emails: enrichedEmails,
       total: count || 0,
       limit,
       offset,

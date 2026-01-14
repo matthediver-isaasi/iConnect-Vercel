@@ -47,6 +47,7 @@ import { toast } from "sonner";
 import { Switch } from "@/components/ui/switch";
 import { useLayoutContext } from "@/contexts/LayoutContext";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import OutlookConnection from "@/components/OutlookConnection";
 
 // --- List Field Editor Component ---
 function ListFieldEditor({ fieldId, values = [], onChange, placeholder, disabled = false }) {
@@ -761,6 +762,7 @@ export default function PreferencesPage() {
     { id: 'awards', visible: true },
     { id: 'professional_biography', visible: true },
     { id: 'resource_interests', visible: true },
+    { id: 'outlook_integration', visible: true },
     { id: 'password_security', visible: true }
   ];
   
@@ -1646,6 +1648,14 @@ export default function PreferencesPage() {
               )}
             </CardContent>
           </Card>
+        );
+
+      case 'outlook_integration':
+        if (isFeatureExcluded('user.about-me.outlook')) return null;
+        return (
+          <div key="outlook_integration">
+            <OutlookConnection />
+          </div>
         );
 
       case 'password_security':
