@@ -5,7 +5,10 @@ import { Cookie } from 'lucide-react';
 export default function CookieConsent() {
   const { isLoaded, isPending, acceptCookies, declineCookies } = useCookieConsent();
 
-  if (!isLoaded || !isPending) {
+  // Don't show cookie banner in embedded iframes
+  const isEmbedded = typeof window !== 'undefined' && window.self !== window.top;
+
+  if (!isLoaded || !isPending || isEmbedded) {
     return null;
   }
 
