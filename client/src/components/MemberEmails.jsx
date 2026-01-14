@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useState, useEffect, useRef } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -16,7 +16,8 @@ import {
   ChevronUp,
   Paperclip,
   Clock,
-  AlertTriangle
+  AlertTriangle,
+  CheckCircle2
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { useToast } from '@/components/ui/use-toast';
@@ -24,9 +25,12 @@ import ComposeEmailModal from './ComposeEmailModal';
 
 export default function MemberEmails({ memberId, memberEmail, memberName }) {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [expandedEmail, setExpandedEmail] = useState(null);
   const [syncing, setSyncing] = useState(false);
+  const [autoSyncStatus, setAutoSyncStatus] = useState('idle');
   const [composeOpen, setComposeOpen] = useState(false);
+  const autoSyncDone = useRef(false);
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['member-emails', memberId],
@@ -42,6 +46,43 @@ export default function MemberEmails({ memberId, memberEmail, memberName }) {
     },
     enabled: !!memberId
   });
+
+  useEffect(() => {
+    if (!memberId || autoSyncDone.current) return;
+    
+    const autoSync = async () => {
+      autoSyncDone.current = true;
+      setAutoSyncStatus('syncing');
+      
+      try {
+        const response = await fetch('/api/outlook/sync', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ memberId })
+        });
+        
+        if (response.ok) {
+          const result = await response.json();
+          if (result.synced > 0) {
+            setAutoSyncStatus('synced');
+            queryClient.invalidateQueries({ queryKey: ['member-emails', memberId] });
+          } else {
+            setAutoSyncStatus('idle');
+          }
+        } else {
+          setAutoSyncStatus('idle');
+        }
+      } catch (err) {
+        console.error('Auto-sync failed:', err);
+        setAutoSyncStatus('idle');
+      }
+      
+      setTimeout(() => setAutoSyncStatus('idle'), 3000);
+    };
+    
+    autoSync();
+  }, [memberId, queryClient]);
 
   const handleSync = async () => {
     setSyncing(true);
@@ -122,6 +163,18 @@ export default function MemberEmails({ memberId, memberEmail, memberName }) {
             <CardTitle className="flex items-center gap-2">
               <Mail className="h-5 w-5" />
               Email History
+              {autoSyncStatus === 'syncing' && (
+                <Badge variant="secondary" className="text-xs font-normal">
+                  <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                  Syncing
+                </Badge>
+              )}
+              {autoSyncStatus === 'synced' && (
+                <Badge variant="secondary" className="text-xs font-normal text-green-600">
+                  <CheckCircle2 className="h-3 w-3 mr-1" />
+                  Updated
+                </Badge>
+              )}
             </CardTitle>
             <CardDescription>
               {emails.length} email{emails.length !== 1 ? 's' : ''} with {memberEmail || 'this member'}
