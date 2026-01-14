@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -30,7 +30,6 @@ export default function MemberEmails({ memberId, memberEmail, memberName }) {
   const [syncing, setSyncing] = useState(false);
   const [autoSyncStatus, setAutoSyncStatus] = useState('idle');
   const [composeOpen, setComposeOpen] = useState(false);
-  const autoSyncDone = useRef(false);
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['member-emails', memberId],
@@ -48,10 +47,12 @@ export default function MemberEmails({ memberId, memberEmail, memberName }) {
   });
 
   useEffect(() => {
-    if (!memberId || autoSyncDone.current) return;
+    if (!memberId) return;
+    
+    let cancelled = false;
+    let timeoutId = null;
     
     const autoSync = async () => {
-      autoSyncDone.current = true;
       setAutoSyncStatus('syncing');
       
       try {
@@ -62,26 +63,43 @@ export default function MemberEmails({ memberId, memberEmail, memberName }) {
           body: JSON.stringify({ memberId })
         });
         
+        if (cancelled) return;
+        
         if (response.ok) {
           const result = await response.json();
           if (result.synced > 0) {
             setAutoSyncStatus('synced');
             queryClient.invalidateQueries({ queryKey: ['member-emails', memberId] });
           } else {
-            setAutoSyncStatus('idle');
+            setAutoSyncStatus('uptodate');
           }
         } else {
-          setAutoSyncStatus('idle');
+          setAutoSyncStatus('failed');
         }
       } catch (err) {
-        console.error('Auto-sync failed:', err);
-        setAutoSyncStatus('idle');
+        if (!cancelled) {
+          console.error('Auto-sync failed:', err);
+          setAutoSyncStatus('failed');
+        }
       }
       
-      setTimeout(() => setAutoSyncStatus('idle'), 3000);
+      if (!cancelled) {
+        timeoutId = setTimeout(() => {
+          if (!cancelled) {
+            setAutoSyncStatus('idle');
+          }
+        }, 3000);
+      }
     };
     
     autoSync();
+    
+    return () => {
+      cancelled = true;
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    };
   }, [memberId, queryClient]);
 
   const handleSync = async () => {
@@ -173,6 +191,18 @@ export default function MemberEmails({ memberId, memberEmail, memberName }) {
                 <Badge variant="secondary" className="text-xs font-normal text-green-600">
                   <CheckCircle2 className="h-3 w-3 mr-1" />
                   Updated
+                </Badge>
+              )}
+              {autoSyncStatus === 'uptodate' && (
+                <Badge variant="secondary" className="text-xs font-normal text-muted-foreground">
+                  <CheckCircle2 className="h-3 w-3 mr-1" />
+                  Up to date
+                </Badge>
+              )}
+              {autoSyncStatus === 'failed' && (
+                <Badge variant="secondary" className="text-xs font-normal text-amber-600">
+                  <AlertTriangle className="h-3 w-3 mr-1" />
+                  Sync failed
                 </Badge>
               )}
             </CardTitle>
