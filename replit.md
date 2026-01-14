@@ -112,9 +112,42 @@ Security measures:
 
 Entities migrated to tenant_id only (no organization_id column): PortalMenu, PortalNavigationItem, NavigationItem, PageBanner, Floater, FormDueDiligenceConfig, FormSubmissionDueDiligence, Form, ResourceCategory, Resource
 
+## Outlook Email Integration (CRM Feature)
+
+The platform supports Microsoft Outlook integration for email tracking on member records, similar to CRM systems. Key components:
+
+- **Database Schema**: 
+  - `outlook_connection` table stores OAuth tokens per user (tenant_id, identity_id, access_token, refresh_token, etc.)
+  - `member_email` table stores synced emails linked to members (subject, body, direction, timestamps, etc.)
+  - Migration script: `scripts/migrations/add-outlook-email-integration.sql`
+
+- **OAuth Flow**:
+  - `/api/auth/outlook` initiates Microsoft OAuth with Mail.Read, Mail.Send, and offline_access scopes
+  - `/api/auth/outlook/callback` exchanges auth code for tokens and stores in database
+  - Uses multi-tenant app registration (common authority) so any Microsoft 365 user can connect
+
+- **API Endpoints**:
+  - `GET /api/outlook/status` - Check connection status
+  - `DELETE /api/outlook/status` - Disconnect Outlook
+  - `POST /api/outlook/sync` - Sync emails from Microsoft Graph matching member email addresses
+  - `POST /api/outlook/send` - Send email via Microsoft Graph and log to member record
+  - `GET /api/outlook/emails/[memberId]` - Get emails for a specific member
+
+- **UI Components**:
+  - `OutlookConnection.jsx` - Connect/disconnect Outlook in AdminSettings
+  - `MemberEmails.jsx` - Email history list on AdminMemberEdit page
+  - `ComposeEmailModal.jsx` - Send new emails from member records
+
+- **Token Management**: Automatic token refresh when expired, status updates on connection failure
+
+- **Environment Variables**:
+  - `MICROSOFT_CLIENT_ID` - Azure app registration client ID
+  - `MICROSOFT_CLIENT_SECRET` - Azure app registration client secret
+
 # External Dependencies
 
 **Supabase:** Primary database (PostgreSQL) for application data, including CRUD and realtime subscriptions, and file storage.
 **Stripe:** Payment processing.
 **Xero:** Invoice generation with multi-tenant isolation.
+**Microsoft Graph API:** Outlook email integration for CRM-style email tracking on member records.
 **Email Delivery:** For magic links and notifications.

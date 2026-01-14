@@ -398,3 +398,91 @@ export const insertFormSubmissionDueDiligenceSchema = createInsertSchema(formSub
 
 export type InsertFormSubmissionDueDiligence = z.infer<typeof insertFormSubmissionDueDiligenceSchema>;
 export type FormSubmissionDueDiligence = typeof formSubmissionDueDiligence.$inferSelect;
+
+// Outlook Connection - stores OAuth tokens for Microsoft Graph API per user
+export const outlookConnection = pgTable("outlook_connection", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenant_id: varchar("tenant_id").notNull(),
+  identity_id: varchar("identity_id").notNull(),
+  
+  // Microsoft account info
+  microsoft_user_id: varchar("microsoft_user_id").notNull(),
+  microsoft_email: varchar("microsoft_email").notNull(),
+  display_name: varchar("display_name"),
+  
+  // OAuth tokens
+  access_token: text("access_token").notNull(),
+  refresh_token: text("refresh_token").notNull(),
+  token_expires_at: timestamp("token_expires_at").notNull(),
+  scopes: text("scopes"),
+  
+  // Connection status
+  status: varchar("status", { length: 50 }).default('active'),
+  last_sync_at: timestamp("last_sync_at"),
+  sync_error: text("sync_error"),
+  
+  created_at: timestamp("created_at").defaultNow(),
+  updated_at: timestamp("updated_at").defaultNow(),
+});
+
+export const insertOutlookConnectionSchema = createInsertSchema(outlookConnection).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertOutlookConnection = z.infer<typeof insertOutlookConnectionSchema>;
+export type OutlookConnection = typeof outlookConnection.$inferSelect;
+
+// Member Email - stores synced emails linked to members
+export const memberEmail = pgTable("member_email", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenant_id: varchar("tenant_id").notNull(),
+  member_id: varchar("member_id").notNull(),
+  
+  // Microsoft message metadata
+  microsoft_message_id: varchar("microsoft_message_id").notNull(),
+  conversation_id: varchar("conversation_id"),
+  internet_message_id: varchar("internet_message_id"),
+  
+  // Email content
+  subject: text("subject"),
+  body_preview: text("body_preview"),
+  body_content: text("body_content"),
+  body_content_type: varchar("body_content_type", { length: 20 }).default('html'),
+  
+  // Sender/recipient info
+  from_address: varchar("from_address").notNull(),
+  from_name: varchar("from_name"),
+  to_addresses: jsonb("to_addresses").default([]),
+  cc_addresses: jsonb("cc_addresses").default([]),
+  
+  // Email direction and type
+  direction: varchar("direction", { length: 20 }).notNull(), // 'inbound' or 'outbound'
+  is_read: boolean("is_read").default(false),
+  is_draft: boolean("is_draft").default(false),
+  has_attachments: boolean("has_attachments").default(false),
+  importance: varchar("importance", { length: 20 }).default('normal'),
+  
+  // Attachments metadata
+  attachments: jsonb("attachments").default([]),
+  
+  // Timestamps
+  sent_at: timestamp("sent_at"),
+  received_at: timestamp("received_at"),
+  
+  // Tracking
+  synced_by_identity_id: varchar("synced_by_identity_id"),
+  synced_at: timestamp("synced_at").defaultNow(),
+  
+  created_at: timestamp("created_at").defaultNow(),
+});
+
+export const insertMemberEmailSchema = createInsertSchema(memberEmail).omit({
+  id: true,
+  created_at: true,
+  synced_at: true,
+});
+
+export type InsertMemberEmail = z.infer<typeof insertMemberEmailSchema>;
+export type MemberEmail = typeof memberEmail.$inferSelect;

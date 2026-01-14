@@ -31,6 +31,7 @@ import { useToast } from "@/components/ui/use-toast";
 import { format } from "date-fns";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
+import OutlookConnection from "@/components/OutlookConnection";
 
 const DATE_FORMAT_OPTIONS = [
   { value: 'dd/MM/yyyy', label: 'DD/MM/YYYY (31/12/2024)' },
@@ -920,6 +921,8 @@ export default function AdminSettings() {
               )}
             </CardContent>
           </Card>
+
+          <OutlookConnection />
 
           <Card className="bg-slate-800/50 border-slate-700">
             <CardHeader>

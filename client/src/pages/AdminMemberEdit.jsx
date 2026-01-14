@@ -38,6 +38,7 @@ import { Switch } from "@/components/ui/switch";
 import { useLayoutContext } from "@/contexts/LayoutContext";
 import { useServerAdminAuth } from "@/hooks/useServerAdminAuth";
 import { createPageUrl } from "@/utils";
+import MemberEmails from "@/components/MemberEmails";
 
 async function uploadImageToSupabase(file, bucket, folderPrefix = "") {
   const fileExt = file.name.split(".").pop();
@@ -1105,6 +1106,12 @@ export default function AdminMemberEdit() {
             )}
           </CardContent>
         </Card>
+
+        <MemberEmails 
+          memberId={memberRecord.id}
+          memberEmail={memberRecord.email}
+          memberName={memberFullName}
+        />
       </div>
     </div>
   );
