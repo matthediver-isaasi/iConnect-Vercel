@@ -70,11 +70,13 @@ export default function PublicBooking() {
     enabled: !!slug
   });
 
+  const weekStartStr = format(weekStart, 'yyyy-MM-dd');
+  
   const { data: slotsData, isLoading: slotsLoading } = useQuery({
-    queryKey: ['public-booking-slots', slug, weekStart.toISOString()],
+    queryKey: ['public-booking-slots', slug, weekStartStr],
     queryFn: async () => {
       const response = await fetch(
-        `/api/public/book/${slug}/slots?date=${weekStart.toISOString()}&days=14`
+        `/api/public/book/${slug}/slots?date=${weekStartStr}&days=14`
       );
       if (!response.ok) throw new Error('Failed to fetch slots');
       return response.json();
@@ -108,7 +110,7 @@ export default function PublicBooking() {
     return days;
   }, [weekStart]);
 
-  const selectedDateStr = selectedDate.toISOString().split('T')[0];
+  const selectedDateStr = format(selectedDate, 'yyyy-MM-dd');
   const availableSlots = slotsData?.slots?.[selectedDateStr] || [];
 
   const handleSubmit = (e) => {
@@ -208,9 +210,11 @@ export default function PublicBooking() {
               </Avatar>
               <div>
                 <CardTitle className="text-2xl">{pageData?.profile?.title || 'Book a Meeting'}</CardTitle>
-                <CardDescription className="mt-1">
-                  with {pageData?.agent?.name}
-                </CardDescription>
+                {pageData?.agent?.name && (
+                  <CardDescription className="mt-1">
+                    with {pageData.agent.name}
+                  </CardDescription>
+                )}
                 {pageData?.profile?.description && (
                   <p className="text-sm text-muted-foreground mt-2 max-w-md">
                     {pageData.profile.description}
@@ -262,7 +266,7 @@ export default function PublicBooking() {
                       <div key={day} className="text-muted-foreground py-2">{day}</div>
                     ))}
                     {weekDays.map((day, index) => {
-                      const dateStr = day.toISOString().split('T')[0];
+                      const dateStr = format(day, 'yyyy-MM-dd');
                       const hasSlots = (slotsData?.slots?.[dateStr]?.length || 0) > 0;
                       const isPast = day < new Date(new Date().setHours(0,0,0,0));
                       const isSelected = isSameDay(day, selectedDate);
