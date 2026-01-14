@@ -28,18 +28,20 @@ export default async function handler(req, res) {
   }
 
   try {
+    // Look up tenant by slug (primary identifier)
     let tenantResult = await supabase
       .from('tenant')
-      .select('id, subdomain, slug, custom_domain')
+      .select('id, slug, domain')
       .eq('slug', tenantIdentifier)
       .eq('status', 'active')
       .single();
     
+    // Fallback: try without status filter in case tenant is in different state
     if (tenantResult.error || !tenantResult.data) {
       tenantResult = await supabase
         .from('tenant')
-        .select('id, subdomain, slug, custom_domain')
-        .eq('subdomain', tenantIdentifier)
+        .select('id, slug, domain')
+        .eq('slug', tenantIdentifier)
         .single();
     }
 
@@ -96,7 +98,7 @@ export default async function handler(req, res) {
       is_locked: !resource.is_public
     };
 
-    const tenantDomain = tenant.custom_domain || `${tenant.slug || tenant.subdomain}.iconn.app`;
+    const tenantDomain = tenant.domain || `${tenant.slug}.iconn.app`;
     publicResource.login_redirect_url = `https://${tenantDomain}/login?returnTo=/resources&resourceId=${resource.id}`;
 
     if (resource.is_public && resource.target_url) {
