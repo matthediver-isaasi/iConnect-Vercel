@@ -1,10 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 
-const PUBLIC_RESOURCE_FIELDS = [
-  'id', 'title', 'description', 'image_url', 'target_url', 
-  'resource_type', 'is_public', 'published_date', 'created_date',
-  'author_name', 'tags', 'category_id'
-];
+const PUBLIC_RESOURCE_COLUMNS = 'id, title, description, image_url, target_url, resource_type, is_public, published_date, created_date, author_name, tags, category_id, tenant_id';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -19,10 +15,12 @@ export default async function handler(req, res) {
 
   const host = req.headers['x-forwarded-host'] || req.headers.host || '';
   const subdomain = host.split('.')[0];
-  const tenantIdentifier = tenantParam || subdomain;
   
-  if (!tenantIdentifier || tenantIdentifier === 'www' || tenantIdentifier === 'iconn') {
-    return res.status(400).json({ error: 'Invalid tenant context' });
+  const isRootDomain = !subdomain || subdomain === 'www' || subdomain === 'iconn';
+  const tenantIdentifier = tenantParam || (!isRootDomain ? subdomain : null);
+  
+  if (!tenantIdentifier) {
+    return res.status(400).json({ error: 'Tenant parameter is required for root domain requests' });
   }
 
   const supabaseUrl = process.env.SUPABASE_URL;
@@ -37,7 +35,7 @@ export default async function handler(req, res) {
   try {
     let tenantResult = await supabase
       .from('tenant')
-      .select('id, subdomain, slug')
+      .select('id, subdomain, slug, custom_domain')
       .eq('slug', tenantIdentifier)
       .eq('status', 'active')
       .single();
@@ -45,7 +43,7 @@ export default async function handler(req, res) {
     if (tenantResult.error || !tenantResult.data) {
       tenantResult = await supabase
         .from('tenant')
-        .select('id, subdomain, slug')
+        .select('id, subdomain, slug, custom_domain')
         .eq('subdomain', tenantIdentifier)
         .single();
     }
@@ -64,7 +62,7 @@ export default async function handler(req, res) {
     
     let resourceQuery = supabase
       .from('resource')
-      .select('*')
+      .select(PUBLIC_RESOURCE_COLUMNS)
       .eq('tenant_id', tenant.id)
       .eq('is_active', true);
     
@@ -88,20 +86,26 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Resource not found' });
     }
 
-    const publicResource = {};
-    for (const field of PUBLIC_RESOURCE_FIELDS) {
-      if (resource[field] !== undefined) {
-        publicResource[field] = resource[field];
-      }
-    }
+    const publicResource = {
+      id: resource.id,
+      title: resource.title,
+      description: resource.description,
+      image_url: resource.image_url,
+      resource_type: resource.resource_type,
+      is_public: resource.is_public,
+      published_date: resource.published_date,
+      created_date: resource.created_date,
+      author_name: resource.author_name,
+      tags: resource.tags,
+      category_id: resource.category_id,
+      is_locked: !resource.is_public
+    };
 
-    publicResource.is_locked = !resource.is_public;
-    
-    const tenantSlug = tenant.slug || tenant.subdomain;
-    publicResource.login_redirect_url = `https://${tenantSlug}.iconn.app/login?returnTo=/resources&resourceId=${resource.id}`;
+    const tenantDomain = tenant.custom_domain || `${tenant.slug || tenant.subdomain}.iconn.app`;
+    publicResource.login_redirect_url = `https://${tenantDomain}/login?returnTo=/resources&resourceId=${resource.id}`;
 
-    if (!resource.is_public) {
-      delete publicResource.target_url;
+    if (resource.is_public && resource.target_url) {
+      publicResource.target_url = resource.target_url;
     }
 
     return res.json(publicResource);

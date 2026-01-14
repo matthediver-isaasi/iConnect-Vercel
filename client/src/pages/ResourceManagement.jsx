@@ -10,7 +10,7 @@ import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Pencil, Trash2, FileText, Search, X, Image as ImageIcon, Shield, Folder, FolderOpen, FolderPlus, MoveHorizontal, ChevronRight, Home, GripVertical, ChevronLeft, Calendar, Clock, Link2, Check } from "lucide-react";
+import { Plus, Pencil, Trash2, FileText, Search, X, Image as ImageIcon, Shield, Folder, FolderOpen, FolderPlus, MoveHorizontal, ChevronRight, Home, GripVertical, ChevronLeft, Calendar, Clock, Link2, Check, Copy, Code, ExternalLink } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { format } from "date-fns";
@@ -143,6 +143,16 @@ export default function ResourceManagementPage() {
     queryFn: () => base44.entities.ResourceFolder.list('display_order'),
     staleTime: 0,
     refetchOnMount: true,
+  });
+
+  const { data: currentTenant } = useQuery({
+    queryKey: ['current-tenant'],
+    queryFn: async () => {
+      const response = await fetch('/api/functions/get-current-tenant');
+      const data = await response.json();
+      return data.tenant;
+    },
+    staleTime: 60000,
   });
 
   // Get available authors based on selected roles in settings
@@ -2323,6 +2333,74 @@ export default function ResourceManagementPage() {
                           </Label>
                         </div>
                       ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Embed on External Websites */}
+                {editingResource?.id && currentTenant?.slug && (
+                  <div className="p-4 bg-slate-50 rounded-lg border border-slate-200 space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Code className="w-4 h-4 text-slate-600" />
+                      <Label className="font-medium text-slate-900">Embed on External Websites</Label>
+                    </div>
+                    <p className="text-xs text-slate-600">
+                      Use this embed code to display this resource on your website. {!editingResource.is_public && (
+                        <span className="text-orange-600">
+                          Note: Private resources will show a login button.
+                        </span>
+                      )}
+                    </p>
+                    <div className="space-y-2">
+                      <Label className="text-xs text-slate-500">iFrame Embed Code</Label>
+                      {(() => {
+                        const tenantSlug = currentTenant.slug;
+                        const embedUrl = `https://${tenantSlug}.iconn.app/embed/resource/${editingResource.id}?tenant=${tenantSlug}`;
+                        const embedCode = `<iframe src="${embedUrl}" style="width: 100%; min-height: 400px; border: none;" loading="lazy"></iframe>
+<script>
+  window.addEventListener('message', function(e) {
+    if (e.data.type === 'iconn-resource-resize') {
+      var iframe = document.querySelector('iframe[src*="${editingResource.id}"]');
+      if (iframe) iframe.style.height = e.data.height + 'px';
+    }
+  });
+</script>`;
+                        return (
+                          <>
+                            <div className="relative">
+                              <textarea
+                                readOnly
+                                value={embedCode}
+                                className="w-full p-3 pr-10 bg-slate-100 border border-slate-300 rounded-lg text-xs font-mono resize-none"
+                                rows={6}
+                                data-testid="input-resource-embed-code"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  navigator.clipboard.writeText(embedCode);
+                                  toast.success("Embed code copied to clipboard");
+                                }}
+                                className="absolute top-2 right-2 p-1.5 bg-white hover:bg-slate-100 rounded border border-slate-300"
+                                title="Copy embed code"
+                                data-testid="button-copy-embed-code"
+                              >
+                                <Copy className="w-4 h-4 text-slate-600" />
+                              </button>
+                            </div>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => window.open(`https://${tenantSlug}.iconn.app/embed/resource/${editingResource.id}?tenant=${tenantSlug}`, '_blank')}
+                              data-testid="button-preview-embed"
+                            >
+                              <ExternalLink className="w-4 h-4 mr-2" />
+                              Preview Embedded Resource
+                            </Button>
+                          </>
+                        );
+                      })()}
                     </div>
                   </div>
                 )}
