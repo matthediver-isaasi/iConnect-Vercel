@@ -109,6 +109,8 @@ export default async function handler(req, res) {
 
       if (memberError) {
         console.error('[Boards] Error adding board owner:', memberError);
+        await supabase.from('project_board').delete().eq('id', board.id);
+        return res.status(500).json({ error: 'Failed to create board - could not add owner. Please ensure database migrations have been run.' });
       }
 
       const defaultLabels = [
