@@ -131,6 +131,31 @@ export async function getBusyTimes(connection, startDateTime, endDateTime, timeZ
   return busyTimes;
 }
 
+export async function deleteCalendarEvent(connection, eventId) {
+  if (!eventId) {
+    console.log('[Outlook Calendar] No event ID provided, skipping deletion');
+    return false;
+  }
+
+  const accessToken = await getValidAccessToken(connection);
+  
+  const response = await fetch(`https://graph.microsoft.com/v1.0/me/events/${eventId}`, {
+    method: 'DELETE',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`
+    }
+  });
+
+  if (!response.ok && response.status !== 404) {
+    const errorText = await response.text();
+    console.error('[Outlook Calendar] Failed to delete event:', errorText);
+    throw new Error('Failed to delete calendar event');
+  }
+
+  console.log('[Outlook Calendar] Deleted event:', eventId);
+  return true;
+}
+
 export async function getOutlookConnectionForIdentity(identityId, tenantId) {
   const { data: connection, error } = await supabase
     .from('outlook_connection')

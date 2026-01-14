@@ -1,5 +1,6 @@
 import { supabase } from '../_lib/database.js';
 import { getSession } from '../_lib/session.js';
+import { deleteCalendarEvent, getOutlookConnectionForIdentity } from '../outlook/calendar.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -74,10 +75,38 @@ export default async function handler(req, res) {
         return res.status(500).json({ error: 'Failed to update booking' });
       }
 
+      // If booking was cancelled and has an Outlook event, delete it
+      if (status === 'cancelled' && booking.outlook_event_id) {
+        try {
+          const outlookConnection = await getOutlookConnectionForIdentity(session.identityId, session.tenantId);
+          if (outlookConnection) {
+            await deleteCalendarEvent(outlookConnection, booking.outlook_event_id);
+            console.log('[Booking Update] Deleted Outlook calendar event for cancelled booking');
+          }
+        } catch (calendarError) {
+          console.error('[Booking Update] Failed to delete calendar event:', calendarError.message);
+          // Don't fail the cancellation if calendar deletion fails
+        }
+      }
+
       return res.json({ booking: updated });
     }
 
     if (req.method === 'DELETE') {
+      // Delete associated Outlook calendar event first
+      if (booking.outlook_event_id) {
+        try {
+          const outlookConnection = await getOutlookConnectionForIdentity(session.identityId, session.tenantId);
+          if (outlookConnection) {
+            await deleteCalendarEvent(outlookConnection, booking.outlook_event_id);
+            console.log('[Booking Delete] Deleted Outlook calendar event');
+          }
+        } catch (calendarError) {
+          console.error('[Booking Delete] Failed to delete calendar event:', calendarError.message);
+          // Don't fail the deletion if calendar deletion fails
+        }
+      }
+
       const { error: deleteError } = await supabase
         .from('agent_booking')
         .delete()
