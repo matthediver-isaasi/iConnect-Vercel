@@ -29,11 +29,18 @@ export default async function handler(req, res) {
       });
     }
 
-    // Step 2: Find membership
+    // Step 2: Find ALL memberships (not just active) to understand the situation
     const { data: memberships, error: membershipError } = await supabase
       .from('tenant_membership')
       .select('tenant_id, status')
       .eq('identity_id', identity.id);
+    
+    // Also get tenant names for each membership
+    const membershipDetails = [];
+    for (const m of (memberships || [])) {
+      const { data: t } = await supabase.from('tenant').select('name, slug').eq('id', m.tenant_id).single();
+      membershipDetails.push({ ...m, tenantName: t?.name, tenantSlug: t?.slug });
+    }
 
     if (!memberships || memberships.length === 0) {
       return res.json({ 
@@ -89,7 +96,7 @@ export default async function handler(req, res) {
       tenantId,
       tenant: tenant || null,
       tenantError,
-      allMemberships: memberships,
+      allMemberships: membershipDetails,
       allProfiles: allProfiles || [],
       activeProfile: activeProfile || null,
       activeProfileError,

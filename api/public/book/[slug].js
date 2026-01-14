@@ -29,30 +29,21 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Booking page not found' });
     }
 
-    const { data: memberships } = await supabase
-      .from('tenant_membership')
-      .select('tenant_id, status')
-      .eq('identity_id', identity.id)
-      .eq('status', 'active')
-      .limit(1);
-
-    if (!memberships || memberships.length === 0) {
-      return res.status(404).json({ error: 'Booking page not available' });
-    }
-
-    const tenantId = memberships[0].tenant_id;
-
+    // Find any active availability profile for this identity (across any tenant they belong to)
     const { data: profile, error: profileError } = await supabase
       .from('agent_availability_profile')
       .select('*')
       .eq('identity_id', identity.id)
-      .eq('tenant_id', tenantId)
       .eq('is_active', true)
+      .limit(1)
       .single();
 
     if (profileError || !profile) {
       return res.status(404).json({ error: 'Booking page not active' });
     }
+
+    // Use the tenant from the profile
+    const tenantId = profile.tenant_id;
 
     const { data: tenant } = await supabase
       .from('tenant')
