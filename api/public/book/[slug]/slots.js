@@ -2,6 +2,20 @@ import { supabase } from '../../../_lib/database.js';
 import { format, parse, addMinutes, isBefore, isAfter, startOfDay, addDays } from 'date-fns';
 import { toZonedTime, fromZonedTime, formatInTimeZone } from 'date-fns-tz';
 
+// Extract tenant slug from subdomain (e.g., gsf.iconn.app -> 'gsf')
+function getTenantSlugFromHost(host) {
+  if (!host) return null;
+  const hostname = host.split(':')[0];
+  const parts = hostname.split('.');
+  if (parts.length >= 2) {
+    const potentialSlug = parts[0];
+    if (!['www', 'api', 'localhost', '127'].includes(potentialSlug)) {
+      return potentialSlug;
+    }
+  }
+  return null;
+}
+
 function generateSlots(workingHours, agentTimezone, slotMinutes, bufferMinutes, dateStr, existingBookings) {
   const slots = [];
   
@@ -92,6 +106,31 @@ export default async function handler(req, res) {
   }
 
   try {
+    // Extract tenant from subdomain
+    const host = req.headers.host || req.headers['x-forwarded-host'];
+    const tenantSlug = getTenantSlugFromHost(host);
+    
+    console.log('[Slots] Host:', host, 'Tenant slug:', tenantSlug);
+
+    // Find tenant by subdomain
+    let tenantId = null;
+    
+    if (tenantSlug) {
+      const { data: tenantData } = await supabase
+        .from('tenant')
+        .select('id')
+        .eq('slug', tenantSlug)
+        .single();
+      
+      if (tenantData) {
+        tenantId = tenantData.id;
+      }
+    }
+
+    if (!tenantId) {
+      return res.status(404).json({ error: 'Tenant not found' });
+    }
+
     const { data: identity } = await supabase
       .from('tenant_identity')
       .select('id')
@@ -102,23 +141,20 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Booking page not found' });
     }
 
-    // Find any active availability profile for this identity (across any tenant they belong to)
+    // Find availability profile for this identity AND this specific tenant
     const { data: profile, error: profileError } = await supabase
       .from('agent_availability_profile')
       .select('*')
       .eq('identity_id', identity.id)
+      .eq('tenant_id', tenantId)
       .eq('is_active', true)
-      .limit(1)
       .single();
 
     console.log('[Slots] Profile query result:', { profile, profileError });
 
     if (!profile) {
-      return res.status(404).json({ error: 'Booking page not active' });
+      return res.status(404).json({ error: 'Booking page not active for this organization' });
     }
-    
-    // Use the tenant from the profile
-    const tenantId = profile.tenant_id;
     
     console.log('[Slots] Working hours from profile:', JSON.stringify(profile.working_hours, null, 2));
 

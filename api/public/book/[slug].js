@@ -1,5 +1,23 @@
 import { supabase } from '../../_lib/database.js';
 
+// Extract tenant slug from subdomain (e.g., gsf.iconn.app -> 'gsf')
+function getTenantSlugFromHost(host) {
+  if (!host) return null;
+  // Remove port if present
+  const hostname = host.split(':')[0];
+  // Check for subdomain pattern: {tenant}.iconn.app or {tenant}.{domain}
+  const parts = hostname.split('.');
+  if (parts.length >= 2) {
+    // First part is the tenant slug (e.g., 'gsf' from 'gsf.iconn.app')
+    const potentialSlug = parts[0];
+    // Exclude common non-tenant prefixes
+    if (!['www', 'api', 'localhost', '127'].includes(potentialSlug)) {
+      return potentialSlug;
+    }
+  }
+  return null;
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -19,6 +37,34 @@ export default async function handler(req, res) {
   }
 
   try {
+    // Extract tenant from subdomain
+    const host = req.headers.host || req.headers['x-forwarded-host'];
+    const tenantSlug = getTenantSlugFromHost(host);
+    
+    console.log('[Booking] Host:', host, 'Tenant slug:', tenantSlug);
+
+    // Find tenant by subdomain
+    let tenantId = null;
+    let tenant = null;
+    
+    if (tenantSlug) {
+      const { data: tenantData } = await supabase
+        .from('tenant')
+        .select('id, name, slug, logo_url, primary_color')
+        .eq('slug', tenantSlug)
+        .single();
+      
+      if (tenantData) {
+        tenantId = tenantData.id;
+        tenant = tenantData;
+      }
+    }
+
+    if (!tenantId) {
+      return res.status(404).json({ error: 'Tenant not found' });
+    }
+
+    // Find identity by booking slug
     const { data: identity, error: identityError } = await supabase
       .from('tenant_identity')
       .select('id, first_name, last_name, email, avatar_url, booking_slug')
@@ -29,27 +75,18 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Booking page not found' });
     }
 
-    // Find any active availability profile for this identity (across any tenant they belong to)
+    // Find availability profile for this identity AND this specific tenant
     const { data: profile, error: profileError } = await supabase
       .from('agent_availability_profile')
       .select('*')
       .eq('identity_id', identity.id)
+      .eq('tenant_id', tenantId)
       .eq('is_active', true)
-      .limit(1)
       .single();
 
     if (profileError || !profile) {
-      return res.status(404).json({ error: 'Booking page not active' });
+      return res.status(404).json({ error: 'Booking page not active for this organization' });
     }
-
-    // Use the tenant from the profile
-    const tenantId = profile.tenant_id;
-
-    const { data: tenant } = await supabase
-      .from('tenant')
-      .select('name, slug, logo_url, primary_color')
-      .eq('id', tenantId)
-      .single();
 
     if (req.method === 'GET') {
       return res.json({
