@@ -4,7 +4,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Loader2, Mail, RefreshCw, CheckCircle2, AlertTriangle, ExternalLink, Unlink } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
-import { SiMicrosoftoutlook } from 'react-icons/si';
 
 export default function OutlookConnection() {
   const { toast } = useToast();
@@ -135,7 +134,7 @@ export default function OutlookConnection() {
     <Card>
       <CardHeader>
         <div className="flex items-center gap-2">
-          <SiMicrosoftoutlook className="h-5 w-5 text-blue-600" />
+          <Mail className="h-5 w-5 text-blue-600" />
           <CardTitle>Outlook Integration</CardTitle>
         </div>
         <CardDescription>
@@ -220,7 +219,7 @@ export default function OutlookConnection() {
               className="gap-2"
               data-testid="button-connect-outlook"
             >
-              <SiMicrosoftoutlook className="h-4 w-4" />
+              <Mail className="h-4 w-4" />
               Connect Outlook
               <ExternalLink className="h-3 w-3" />
             </Button>
