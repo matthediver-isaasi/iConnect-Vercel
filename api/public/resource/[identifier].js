@@ -61,7 +61,7 @@ export default async function handler(req, res) {
       .from('resource')
       .select(PUBLIC_RESOURCE_COLUMNS)
       .eq('tenant_id', tenant.id)
-      .eq('is_active', true);
+      .eq('status', 'active');
     
     if (isUUID) {
       resourceQuery = resourceQuery.eq('id', identifier);
