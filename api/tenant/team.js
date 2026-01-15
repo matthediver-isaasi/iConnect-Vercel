@@ -46,7 +46,6 @@ export default async function handler(req, res) {
             email,
             first_name,
             last_name,
-            profile_picture_url,
             last_login
           )
         `)
@@ -68,7 +67,6 @@ export default async function handler(req, res) {
         email: m.tenant_identity?.email,
         first_name: m.tenant_identity?.first_name,
         last_name: m.tenant_identity?.last_name,
-        profile_picture_url: m.tenant_identity?.profile_picture_url,
         last_login: m.tenant_identity?.last_login,
         is_current_user: m.identity_id === tenantUser._sessionIdentityId
       }));
