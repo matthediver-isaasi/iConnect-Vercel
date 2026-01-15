@@ -161,8 +161,9 @@ export default async function handler(req, res) {
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
     // For unified identity users, tenantUser.id is the identity_id, not tenant_user_id
-    // We need to find the actual tenant_user_id for the foreign key constraint
-    let tenantUserIdForToken = tenantUser.id;
+    // We need to find the actual tenant_user_id for the foreign key constraint (if available)
+    // tenant_user_id is now optional - unified identity users may not have a legacy tenant_user record
+    let tenantUserIdForToken = null;
     
     if (tenantUser._isUnifiedIdentity && identityId) {
       // Look up the tenant_user record linked to this identity
@@ -190,15 +191,20 @@ export default async function handler(req, res) {
         if (tenantUserByEmail?.id) {
           tenantUserIdForToken = tenantUserByEmail.id;
           console.log('[Portal Session] Found tenant_user_id by email:', tenantUserIdForToken);
+        } else {
+          console.log('[Portal Session] No tenant_user record found - proceeding with null tenant_user_id (unified identity user)');
         }
       }
+    } else {
+      // Legacy tenant_user session - use the id directly
+      tenantUserIdForToken = tenantUser.id;
     }
 
     const { error: tokenError } = await supabase
       .from('portal_sso_token')
       .insert({
         token: ssoToken,
-        tenant_user_id: tenantUserIdForToken,
+        tenant_user_id: tenantUserIdForToken, // Can be null for unified identity users
         member_id: member.id,
         tenant_id: tenantUser.tenant_id,
         expires_at: expiresAt.toISOString()
