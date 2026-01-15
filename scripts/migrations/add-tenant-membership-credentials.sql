@@ -4,8 +4,8 @@
 
 -- Create tenant_membership_credentials table for per-tenant password storage
 CREATE TABLE IF NOT EXISTS tenant_membership_credentials (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    identity_id UUID NOT NULL REFERENCES tenant_identity(id) ON DELETE CASCADE,
+    id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid()::text,
+    identity_id VARCHAR NOT NULL REFERENCES tenant_identity(id) ON DELETE CASCADE,
     tenant_id UUID NOT NULL REFERENCES tenant(id) ON DELETE CASCADE,
     password_hash TEXT,
     reset_token TEXT,
