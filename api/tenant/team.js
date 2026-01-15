@@ -18,13 +18,12 @@ export default async function handler(req, res) {
     return res.status(503).json({ error: 'Database not configured' });
   }
 
-  const sessionResult = await getSessionTenantUser(req);
-  if (!sessionResult?.data) {
+  const tenantUser = await getSessionTenantUser(req);
+  if (!tenantUser) {
     return res.status(401).json({ error: 'Not authenticated' });
   }
 
-  const session = sessionResult.data;
-  const tenantId = session.tenantId;
+  const tenantId = tenantUser._sessionTenantId || tenantUser.tenant_id;
 
   if (!tenantId) {
     return res.status(400).json({ error: 'No tenant context' });
@@ -71,7 +70,7 @@ export default async function handler(req, res) {
         last_name: m.tenant_identity?.last_name,
         profile_picture_url: m.tenant_identity?.profile_picture_url,
         last_login: m.tenant_identity?.last_login,
-        is_current_user: m.identity_id === session.identityId
+        is_current_user: m.identity_id === tenantUser._sessionIdentityId
       }));
 
       return res.json({ members: teamMembers });
@@ -188,9 +187,9 @@ export default async function handler(req, res) {
       const adminHost = tenant?.admin_domain || (tenantSlug ? `${tenantSlug}.iconn.app` : host);
       const setPasswordUrl = `${protocol}://${adminHost}/admin/login?setup=${identity.reset_token}&email=${encodeURIComponent(normalizedEmail)}`;
 
-      const inviterName = session.firstName && session.lastName 
-        ? `${session.firstName} ${session.lastName}` 
-        : session.email;
+      const inviterName = tenantUser.first_name && tenantUser.last_name 
+        ? `${tenantUser.first_name} ${tenantUser.last_name}` 
+        : tenantUser.email;
 
       const roleLabel = role === 'owner' ? 'Owner' : role === 'admin' ? 'Admin' : role === 'billing' ? 'Billing Manager' : 'Viewer';
 
@@ -276,7 +275,7 @@ export default async function handler(req, res) {
         return res.status(404).json({ error: 'Team member not found' });
       }
 
-      if (membership.identity_id === session.identityId && role && role !== membership.role) {
+      if (membership.identity_id === tenantUser._sessionIdentityId && role && role !== membership.role) {
         return res.status(400).json({ error: 'You cannot change your own role' });
       }
 
@@ -329,7 +328,7 @@ export default async function handler(req, res) {
         return res.status(404).json({ error: 'Team member not found' });
       }
 
-      if (membership.identity_id === session.identityId) {
+      if (membership.identity_id === tenantUser._sessionIdentityId) {
         return res.status(400).json({ error: 'You cannot remove yourself from the team' });
       }
 
