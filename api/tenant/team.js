@@ -31,13 +31,15 @@ export default async function handler(req, res) {
 
   try {
     if (req.method === 'GET') {
+      // Note: membership_type column may not exist in all deployments
+      // The column was added in unify-user-identity.sql migration
+      // We query all memberships for this tenant and filter in code if needed
       const { data: memberships, error } = await supabase
         .from('tenant_membership')
         .select(`
           id,
           identity_id,
           role,
-          membership_type,
           status,
           created_at,
           updated_at,
@@ -50,7 +52,6 @@ export default async function handler(req, res) {
           )
         `)
         .eq('tenant_id', tenantId)
-        .eq('membership_type', 'owner')
         .order('created_at', { ascending: true });
 
       if (error) {
