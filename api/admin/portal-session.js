@@ -96,6 +96,31 @@ export default async function handler(req, res) {
         console.log('[Portal Session] Found member_id via tenant_user_member_link:', memberId);
       }
     }
+    
+    // Final fallback: try to find a member by email match
+    if (!memberId && tenantUser.email) {
+      const { data: memberByEmail, error: memberByEmailError } = await supabase
+        .from('member')
+        .select('id, login_enabled, status')
+        .eq('email', tenantUser.email.toLowerCase())
+        .eq('tenant_id', tenantUser.tenant_id)
+        .single();
+      
+      if (memberByEmail?.id && memberByEmail.login_enabled && memberByEmail.status === 'active') {
+        memberId = memberByEmail.id;
+        console.log('[Portal Session] Found member_id via email match:', memberId);
+        
+        // Auto-link for future lookups if we have an identityId
+        if (identityId) {
+          await supabase
+            .from('tenant_membership')
+            .update({ member_id: memberId })
+            .eq('identity_id', identityId)
+            .eq('tenant_id', tenantUser.tenant_id);
+          console.log('[Portal Session] Auto-linked member_id to tenant_membership');
+        }
+      }
+    }
 
     if (!memberId) {
       return res.status(404).json({ 
