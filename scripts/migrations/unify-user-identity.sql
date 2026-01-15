@@ -44,7 +44,7 @@ SELECT
   mc.is_temporary,
   mc.reset_token,
   mc.reset_token_expires,
-  COALESCE(m.created_at, NOW()),
+  COALESCE(mc.created_at, NOW()),
   NOW()
 FROM member_credentials mc
 JOIN member m ON m.id = mc.member_id
@@ -61,7 +61,7 @@ SELECT
   m.first_name,
   m.last_name,
   m.google_id,
-  COALESCE(m.created_at, NOW()),
+  NOW(),
   NOW()
 FROM member m
 WHERE m.google_id IS NOT NULL
@@ -98,7 +98,7 @@ SELECT
   'member',
   m.status,
   false, -- Not default (their default tenant might be one they own)
-  m.created_at,
+  NOW(),
   NOW()
 FROM member m
 JOIN organization o ON o.id = m.organization_id
