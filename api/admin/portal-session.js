@@ -55,12 +55,24 @@ export default async function handler(req, res) {
   try {
     let memberId = null;
     
-    // First, check if user is from unified identity system with member_id in tenant_membership
-    if (tenantUser._isUnifiedIdentity) {
+    // Get identity_id from either unified identity system or session metadata
+    const identityId = tenantUser._isUnifiedIdentity 
+      ? tenantUser.id 
+      : (tenantUser._sessionIdentityId || tenantUser.identity_id);
+    
+    console.log('[Portal Session] Checking portal access for tenantUser:', {
+      id: tenantUser.id,
+      isUnifiedIdentity: !!tenantUser._isUnifiedIdentity,
+      identityId: identityId,
+      tenantId: tenantUser.tenant_id
+    });
+    
+    // Check tenant_membership table if we have an identity_id
+    if (identityId) {
       const { data: membership, error: membershipError } = await supabase
         .from('tenant_membership')
         .select('member_id')
-        .eq('identity_id', tenantUser.id)
+        .eq('identity_id', identityId)
         .eq('tenant_id', tenantUser.tenant_id)
         .single();
       
