@@ -418,6 +418,24 @@ export default async function handler(req, res) {
 
       if (error) {
         console.error(`Error inserting into ${tableName}:`, error);
+        
+        // Handle unique constraint violations with user-friendly messages
+        if (error.code === '23505') {
+          // Check if it's the member email uniqueness constraint
+          if (error.message?.includes('member_email_tenant_unique') || 
+              (tableName === 'member' && error.message?.includes('email'))) {
+            return res.status(409).json({ 
+              error: 'A member with this email already exists in this tenant',
+              code: 'DUPLICATE_EMAIL'
+            });
+          }
+          // Generic unique constraint violation
+          return res.status(409).json({ 
+            error: 'A record with these values already exists',
+            code: 'DUPLICATE_RECORD'
+          });
+        }
+        
         return res.status(500).json({ error: error.message, details: error.details, hint: error.hint, code: error.code });
       }
 
