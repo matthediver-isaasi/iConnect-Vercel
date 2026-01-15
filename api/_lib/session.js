@@ -463,7 +463,11 @@ export async function getSessionTenantUser(req) {
   }));
   
   // Standard tenant_user session check
-  if (session?.data?.tenantUserId && session.data.userType === 'tenant_user') {
+  // Also handle legacy sessions where userType may be undefined but tenantUserId exists
+  const isTenantUserSession = session?.data?.tenantUserId && 
+    (session.data.userType === 'tenant_user' || session.data.userType === undefined);
+  
+  if (isTenantUserSession) {
     console.log('[Session] Found tenant_user session, continuing with normal handling');
     // Continue with normal tenant_user session handling below
   } else if (session?.data?.preservedTenantUserId && session.data.userType === 'member') {
