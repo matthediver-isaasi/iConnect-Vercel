@@ -12,6 +12,7 @@ export default function AdminLogin() {
   const [searchParams] = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -19,6 +20,8 @@ export default function AdminLogin() {
   const [showTenantSelection, setShowTenantSelection] = useState(false);
   const [availableTenants, setAvailableTenants] = useState([]);
   const [identity, setIdentity] = useState(null);
+  const [setupMode, setSetupMode] = useState(false);
+  const [setupToken, setSetupToken] = useState("");
 
   useEffect(() => {
     const oauthError = searchParams.get('error');
@@ -36,9 +39,20 @@ export default function AdminLogin() {
       setError(errorMessages[oauthError] || 'Sign-in failed. Please try again.');
       window.history.replaceState({}, '', '/admin/login');
     }
+
+    const setup = searchParams.get('setup');
+    const setupEmail = searchParams.get('email');
+    if (setup && setupEmail) {
+      setSetupMode(true);
+      setSetupToken(setup);
+      setEmail(decodeURIComponent(setupEmail));
+      setCheckingAuth(false);
+    }
   }, [searchParams]);
 
   useEffect(() => {
+    if (setupMode) return;
+    
     const checkAuth = async () => {
       try {
         const response = await fetch('/api/auth/tenant-user-me', { credentials: 'include' });
@@ -55,7 +69,7 @@ export default function AdminLogin() {
       }
     };
     checkAuth();
-  }, [navigate]);
+  }, [navigate, setupMode]);
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -144,10 +158,164 @@ export default function AdminLogin() {
     }
   };
 
+  const handleSetPassword = async (e) => {
+    e.preventDefault();
+    setError("");
+
+    if (password.length < 8) {
+      setError("Password must be at least 8 characters");
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      setError("Passwords do not match");
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const response = await fetch('/api/auth/set-admin-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ 
+          token: setupToken,
+          email: email.toLowerCase().trim(), 
+          password 
+        })
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        if (data.authenticated) {
+          localStorage.setItem('saas_admin', JSON.stringify({
+            tenantUser: data.tenantUser,
+            tenant: data.tenant
+          }));
+          navigate('/admin/dashboard');
+        } else {
+          setSetupMode(false);
+          setPassword("");
+          setConfirmPassword("");
+          window.history.replaceState({}, '', '/admin/login');
+        }
+      } else {
+        setError(data.error || "Failed to set password");
+      }
+    } catch (err) {
+      setError("An error occurred. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   if (checkingAuth) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  // Setup password screen for invited users
+  if (setupMode) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-4">
+        <Card className="w-full max-w-md shadow-2xl border-slate-700 bg-slate-800/50 backdrop-blur">
+          <CardHeader className="text-center space-y-4">
+            <div className="mx-auto w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center">
+              <Lock className="h-8 w-8 text-primary" />
+            </div>
+            <div>
+              <CardTitle className="text-2xl font-bold text-white" data-testid="text-setup-title">
+                Set Your Password
+              </CardTitle>
+              <CardDescription className="text-slate-400" data-testid="text-setup-description">
+                Create a password to complete your account setup
+              </CardDescription>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleSetPassword} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="setup-email" className="text-slate-200">Email</Label>
+                <Input
+                  id="setup-email"
+                  type="email"
+                  value={email}
+                  disabled
+                  className="bg-slate-900/50 border-slate-600 text-slate-400"
+                  data-testid="input-setup-email"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="setup-password" className="text-slate-200">Password</Label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
+                  <Input
+                    id="setup-password"
+                    type={showPassword ? "text" : "password"}
+                    placeholder="At least 8 characters"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    className="pl-10 pr-10 bg-slate-900/50 border-slate-600 text-white placeholder:text-slate-500"
+                    data-testid="input-setup-password"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="confirm-password" className="text-slate-200">Confirm Password</Label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
+                  <Input
+                    id="confirm-password"
+                    type={showPassword ? "text" : "password"}
+                    placeholder="Re-enter your password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    required
+                    className="pl-10 bg-slate-900/50 border-slate-600 text-white placeholder:text-slate-500"
+                    data-testid="input-confirm-password"
+                  />
+                </div>
+              </div>
+
+              {error && (
+                <div className="p-3 rounded-md bg-destructive/10 border border-destructive/20 text-destructive text-sm" data-testid="text-setup-error">
+                  {error}
+                </div>
+              )}
+
+              <Button
+                type="submit"
+                className="w-full"
+                disabled={loading}
+                data-testid="button-set-password"
+              >
+                {loading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Setting up...
+                  </>
+                ) : (
+                  "Set Password & Continue"
+                )}
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
       </div>
     );
   }
