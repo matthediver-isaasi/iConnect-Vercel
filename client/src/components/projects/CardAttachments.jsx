@@ -77,7 +77,7 @@ export function CardAttachments({
         throw new Error(error.error || 'Failed to get upload URL');
       }
 
-      const { signedUrl, storagePath, publicUrl, token, originalName } = await getUploadUrlResponse.json();
+      const { signedUrl, uploadToken } = await getUploadUrlResponse.json();
       setUploadProgress(30);
 
       const uploadResponse = await fetch(signedUrl, {
@@ -98,11 +98,7 @@ export function CardAttachments({
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          storagePath,
-          publicUrl,
-          fileName: originalName || file.name,
-          fileSize: file.size,
-          mimeType: file.type
+          uploadToken
         })
       });
 

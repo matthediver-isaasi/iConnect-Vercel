@@ -1,5 +1,8 @@
 import { supabase } from '../../../../_lib/database.js';
 import { getSession } from '../../../../_lib/session.js';
+import crypto from 'crypto';
+
+const TOKEN_SECRET = process.env.SESSION_SECRET || 'fallback-secret-for-dev-only';
 
 async function getBoardMembershipForCard(cardId, identityId) {
   const { data: card } = await supabase
@@ -45,13 +48,44 @@ export default async function handler(req, res) {
 
   const session = sessionResult.data;
   const { cardId } = req.query;
-  const { storagePath, publicUrl, fileName, fileSize, mimeType, setAsCover } = req.body;
+  const { uploadToken, setAsCover } = req.body;
 
-  if (!cardId || !storagePath || !publicUrl || !fileName) {
-    return res.status(400).json({ error: 'Missing required fields' });
+  if (!cardId || !uploadToken) {
+    return res.status(400).json({ error: 'Missing required fields: cardId and uploadToken' });
   }
 
   try {
+    const tokenParts = uploadToken.split('.');
+    if (tokenParts.length !== 2) {
+      return res.status(400).json({ error: 'Invalid upload token format' });
+    }
+
+    const [payloadBase64, providedSignature] = tokenParts;
+    
+    const expectedSignature = crypto.createHmac('sha256', TOKEN_SECRET).update(payloadBase64).digest('base64');
+    if (providedSignature !== expectedSignature) {
+      return res.status(400).json({ error: 'Invalid upload token signature' });
+    }
+
+    let tokenData;
+    try {
+      tokenData = JSON.parse(Buffer.from(payloadBase64, 'base64').toString('utf-8'));
+    } catch (e) {
+      return res.status(400).json({ error: 'Invalid upload token payload' });
+    }
+
+    if (tokenData.cardId !== cardId) {
+      return res.status(400).json({ error: 'Token card ID mismatch' });
+    }
+
+    if (tokenData.identityId !== session.identityId) {
+      return res.status(403).json({ error: 'Token identity mismatch' });
+    }
+
+    if (tokenData.expiresAt < Date.now()) {
+      return res.status(400).json({ error: 'Upload token expired' });
+    }
+
     const access = await getBoardMembershipForCard(cardId, session.identityId);
     if (!access?.membership) {
       return res.status(403).json({ error: 'Not a member of this board' });
@@ -61,6 +95,8 @@ export default async function handler(req, res) {
       return res.status(403).json({ error: 'Viewers cannot add attachments' });
     }
 
+    const { storagePath, publicUrl, fileName, fileSize, mimeType } = tokenData;
+
     const { data: attachment, error: insertError } = await supabase
       .from('project_card_attachment')
       .insert({
@@ -68,8 +104,8 @@ export default async function handler(req, res) {
         name: fileName,
         url: publicUrl,
         storage_path: storagePath,
-        file_type: mimeType || 'application/octet-stream',
-        file_size: fileSize || 0,
+        file_type: mimeType,
+        file_size: fileSize,
         uploaded_by: session.identityId
       })
       .select()

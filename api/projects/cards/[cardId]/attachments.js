@@ -1,7 +1,9 @@
 import { supabase } from '../../../_lib/database.js';
 import { getSession } from '../../../_lib/session.js';
+import crypto from 'crypto';
 
 const STORAGE_BUCKET = 'file-repository';
+const TOKEN_SECRET = process.env.SESSION_SECRET || 'fallback-secret-for-dev-only';
 const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
 const ALLOWED_TYPES = [
   'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml',
@@ -140,16 +142,30 @@ export default async function handler(req, res) {
         .from(STORAGE_BUCKET)
         .getPublicUrl(storagePath);
 
-      return res.json({
-        signedUrl: signedData.signedUrl,
-        token: signedData.token,
+      const tokenPayload = {
         storagePath,
         publicUrl: publicUrlData.publicUrl,
         cardId,
+        tenantId: access.board.tenant_id,
+        boardId: access.card.board_id,
         fileName: sanitizedName,
         originalName: fileName,
         fileSize,
         mimeType: mimeType || 'application/octet-stream',
+        identityId: session.identityId,
+        expiresAt: Date.now() + 3600000
+      };
+      
+      const payloadBase64 = Buffer.from(JSON.stringify(tokenPayload)).toString('base64');
+      const signature = crypto.createHmac('sha256', TOKEN_SECRET).update(payloadBase64).digest('base64');
+      const uploadToken = `${payloadBase64}.${signature}`;
+
+      return res.json({
+        signedUrl: signedData.signedUrl,
+        uploadToken,
+        cardId,
+        fileName: sanitizedName,
+        originalName: fileName,
         expiresIn: 3600
       });
     }
