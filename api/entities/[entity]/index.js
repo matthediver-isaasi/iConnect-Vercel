@@ -392,7 +392,14 @@ export default async function handler(req, res) {
             'FileRepository', 'FileRepositoryFolder'
           ];
           if (!entitiesWithoutOrgId.includes(entity)) {
-            sanitizedBody.organization_id = tenantCtx.organizationId;
+            // For Member entity, preserve the organization_id from request body if provided
+            // This allows tenant admins to create members for specific organizations
+            if (entity === 'Member' && sanitizedBody.organization_id) {
+              // Keep the organization_id from the request - don't overwrite it
+              console.log(`[Entity POST] Preserving organization_id ${sanitizedBody.organization_id} from request for Member creation`);
+            } else if (tenantCtx.organizationId) {
+              sanitizedBody.organization_id = tenantCtx.organizationId;
+            }
           }
         }
       }
