@@ -646,18 +646,8 @@ export default function MemberDetailView({
         }
       }
 
-      // Check email uniqueness
-      try {
-        const existingMembers = await base44.entities.Member.filter({ email: email });
-        if (existingMembers && existingMembers.length > 0) {
-          toast.error('A member with this email already exists');
-          return;
-        }
-      } catch (err) {
-        console.error('Failed to check email uniqueness:', err);
-        toast.error('Failed to validate email. Please try again.');
-        return;
-      }
+      // Email uniqueness is enforced by database constraint (per-tenant)
+      // The create mutation will return an error if the email already exists in this tenant
       
       createMutation.mutate({
         ...formData,
