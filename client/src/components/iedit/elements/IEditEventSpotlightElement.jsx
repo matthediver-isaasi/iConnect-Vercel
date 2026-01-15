@@ -101,18 +101,26 @@ export default function IEditEventSpotlightElement({ content, variant, settings 
   const needsSpeakers = !!event_id && !!event && show_speakers && eventSpeakerIds.length > 0;
 
   const { data: roles = [] } = useQuery({
-    queryKey: ['/api/entities/Role', { forEvent: event_id }],
-    queryFn: () => base44.entities.Role.list(),
+    queryKey: ['/api/public/roles', { forEvent: event_id }],
+    queryFn: async () => {
+      const response = await fetch('/api/public/roles');
+      if (!response.ok) return [];
+      return response.json();
+    },
     enabled: needsRoles,
     staleTime: 5 * 60 * 1000
   });
 
   const { data: speakers = [] } = useQuery({
-    queryKey: ['/api/entities/Speaker', { forEvent: event_id, speakerIds: eventSpeakerIds }],
-    queryFn: () => base44.entities.Speaker.list(),
+    queryKey: ['/api/public/speakers', { forEvent: event_id, speakerIds: eventSpeakerIds }],
+    queryFn: async () => {
+      if (!eventSpeakerIds.length) return [];
+      const response = await fetch(`/api/public/speakers?ids=${eventSpeakerIds.join(',')}`);
+      if (!response.ok) return [];
+      return response.json();
+    },
     enabled: needsSpeakers,
-    staleTime: 5 * 60 * 1000,
-    select: (data) => data.filter(s => eventSpeakerIds.includes(s.id))
+    staleTime: 5 * 60 * 1000
   });
 
   const getBackgroundStyle = () => {

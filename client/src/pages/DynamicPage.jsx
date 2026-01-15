@@ -63,28 +63,41 @@ export default function DynamicPage() {
     return null;
   }, [articleDisplayName, urlSlug, viewSlug, editorSlug, mySlug, publicSlug, isCustomSlug, articleUrlLoading, slug]);
 
-  const { data: page, isLoading: pageLoading, error: pageError } = useQuery({
+  // Fetch page and elements together using public endpoint first, fall back to authenticated
+  const { data: pageData, isLoading: pageLoading, error: pageError } = useQuery({
     queryKey: ['iedit-dynamic-page', slug],
     queryFn: async () => {
+      // Try public endpoint first (works for unauthenticated users on public pages)
+      try {
+        const publicResponse = await fetch(`/api/public/page?slug=${encodeURIComponent(slug)}`);
+        if (publicResponse.ok) {
+          const data = await publicResponse.json();
+          return { page: data.page, elements: data.elements };
+        }
+      } catch (e) {
+        // Fall through to authenticated endpoint
+      }
+      
+      // Fall back to authenticated endpoints for protected pages or logged-in users
       const pages = await base44.entities.IEditPage.list({ 
         filter: { slug: slug }
       });
-      return pages[0] || null;
+      const page = pages[0] || null;
+      if (!page) return { page: null, elements: [] };
+      
+      const elements = await base44.entities.IEditPageElement.list({ 
+        filter: { page_id: page.id },
+        sort: { display_order: 'asc' }
+      });
+      return { page, elements };
     },
     enabled: !!slug && !dynamicArticleRoute,
     staleTime: 0
   });
 
-  // Fetch page elements when page is loaded
-  const { data: elements = [], isLoading: elementsLoading } = useQuery({
-    queryKey: ['iedit-dynamic-elements', page?.id],
-    queryFn: () => base44.entities.IEditPageElement.list({ 
-      filter: { page_id: page.id },
-      sort: { display_order: 'asc' }
-    }),
-    enabled: !!page?.id,
-    staleTime: 0
-  });
+  const page = pageData?.page;
+  const elements = pageData?.elements || [];
+  const elementsLoading = pageLoading;
 
   // Set page title and meta description
   useEffect(() => {
