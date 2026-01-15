@@ -27,20 +27,97 @@ export default async function handler(req, res) {
       return res.status(400).json({ success: false, error: 'Email is required' });
     }
 
+    const normalizedEmail = email.toLowerCase().trim();
+    console.log('[Password Reset] Request for:', normalizedEmail);
+
+    // First check if member exists
     const { data: member, error: memberError } = await supabase
       .from('member')
-      .select('id, email, first_name')
-      .eq('email', email.toLowerCase())
+      .select('id, email, first_name, tenant_id')
+      .eq('email', normalizedEmail)
       .single();
 
     if (memberError || !member) {
-      console.log('[Password Reset] No member found for:', email);
+      console.log('[Password Reset] No member found for:', normalizedEmail);
       return res.json({ success: true, message: 'If an account exists, a reset link will be sent.' });
     }
 
-    const resetToken = crypto.randomUUID();
-    const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
+    // Get tenant for branding
+    let tenantName = 'Graduate Futures';
+    let tenantSlug = null;
+    if (member.tenant_id) {
+      const { data: tenant } = await supabase
+        .from('tenant')
+        .select('name, slug')
+        .eq('id', member.tenant_id)
+        .single();
+      if (tenant) {
+        tenantName = tenant.name;
+        tenantSlug = tenant.slug;
+      }
+    }
 
+    // Check for tenant_identity record (unified auth system)
+    let identity = null;
+    const { data: existingIdentity } = await supabase
+      .from('tenant_identity')
+      .select('id, email')
+      .eq('email', normalizedEmail)
+      .single();
+
+    if (existingIdentity) {
+      identity = existingIdentity;
+    } else {
+      // Create tenant_identity if it doesn't exist
+      console.log('[Password Reset] Creating tenant_identity for:', normalizedEmail);
+      const { data: newIdentity, error: createError } = await supabase
+        .from('tenant_identity')
+        .insert({
+          email: normalizedEmail,
+          is_temporary: true
+        })
+        .select()
+        .single();
+
+      if (createError) {
+        console.error('[Password Reset] Failed to create identity:', createError);
+        return res.status(500).json({ success: false, error: 'Failed to process request' });
+      }
+      identity = newIdentity;
+
+      // Create tenant_membership for this member
+      if (member.tenant_id) {
+        await supabase
+          .from('tenant_membership')
+          .insert({
+            identity_id: identity.id,
+            tenant_id: member.tenant_id,
+            membership_type: 'member',
+            member_id: member.id,
+            status: 'active'
+          });
+      }
+    }
+
+    // Generate reset token
+    const resetToken = crypto.randomUUID();
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+
+    // Update tenant_identity with reset token
+    const { error: updateError } = await supabase
+      .from('tenant_identity')
+      .update({ 
+        reset_token: resetToken,
+        reset_token_expires: expiresAt.toISOString()
+      })
+      .eq('id', identity.id);
+
+    if (updateError) {
+      console.error('[Password Reset] Failed to set reset token:', updateError);
+      return res.status(500).json({ success: false, error: 'Failed to process request' });
+    }
+
+    // Also update member_credentials for backwards compatibility
     const { data: existingCreds } = await supabase
       .from('member_credentials')
       .select('id')
@@ -60,22 +137,30 @@ export default async function handler(req, res) {
         .from('member_credentials')
         .insert({
           member_id: member.id,
-          email: email.toLowerCase(),
+          email: normalizedEmail,
           reset_token: resetToken,
           reset_token_expires: expiresAt.toISOString()
         });
     }
 
-    const host = req.headers.host || 'auth.iconn.app';
+    // Build reset URL
+    const host = req.headers.host || 'iconn.app';
     const protocol = host.includes('localhost') ? 'http' : 'https';
-    const resetUrl = `${protocol}://${host}/reset-password?token=${resetToken}&email=${encodeURIComponent(email)}`;
-    console.log(`[Password Reset] Link for ${email}: ${resetUrl}`);
+    
+    // Use tenant slug subdomain if available
+    let resetHost = host;
+    if (tenantSlug && !host.includes('localhost')) {
+      resetHost = `${tenantSlug}.iconn.app`;
+    }
+    
+    const resetUrl = `${protocol}://${resetHost}/Login?mode=set-password&token=${resetToken}&email=${encodeURIComponent(normalizedEmail)}`;
+    console.log(`[Password Reset] Link for ${normalizedEmail}: ${resetUrl}`);
 
-    // Send password reset email using the shared email service (includes footer)
+    // Send password reset email
     try {
       const emailHtml = `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; line-height: 1.6;">
-          <p>Hi,</p>
+          <p>Hi${member.first_name ? ` ${member.first_name}` : ''},</p>
           <p>We received a request to reset your password. No worries - we've got you covered! Just click the button below to create a new password:</p>
           <p style="margin: 30px 0; text-align: center;">
             <a href="${resetUrl}" style="background-color: #4f46e5; color: white; padding: 14px 28px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 500;">
@@ -84,19 +169,18 @@ export default async function handler(req, res) {
           </p>
           <p>This link will expire in 1 hour, so be sure to update your password soon.</p>
           <p>If you didn't request this reset, you can safely ignore this email.</p>
-          <p>Need help or have questions? Feel free to reach out to us at <a href="mailto:hello@graduatefutures.org" style="color: #4f46e5;">hello@graduatefutures.org</a></p>
-          <p style="margin-top: 30px;">The Graduate Futures Team</p>
+          <p style="margin-top: 30px;">The ${tenantName} Team</p>
         </div>
       `;
 
       const emailResult = await sendEmail({
-        to: email,
-        subject: 'Graduate Futures Password Reset Request',
+        to: normalizedEmail,
+        subject: `${tenantName} Password Reset Request`,
         html: emailHtml
       });
 
       if (emailResult.success) {
-        console.log(`[Password Reset] Email sent to ${email}`);
+        console.log(`[Password Reset] Email sent to ${normalizedEmail}`);
       } else {
         console.error(`[Password Reset] Failed to send email: ${emailResult.error}`);
       }
