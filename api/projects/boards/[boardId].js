@@ -62,17 +62,42 @@ export default async function handler(req, res) {
         .eq('is_archived', false)
         .order('position', { ascending: true });
 
-      const { data: cards } = await supabase
+      const { data: cards, error: cardsError } = await supabase
         .from('project_card')
         .select(`
           *,
           project_card_label(label_id),
-          project_card_assignee(identity_id),
-          project_card_attachment(id, name, url, file_type, file_size, created_at)
+          project_card_assignee(identity_id)
         `)
         .eq('board_id', boardId)
         .eq('is_archived', false)
         .order('position', { ascending: true });
+
+      if (cardsError) {
+        console.error('[Board] Cards query error:', cardsError);
+      }
+
+      // Fetch attachments separately and merge with cards
+      const cardIds = cards?.map(c => c.id) || [];
+      let attachmentsByCard = {};
+      if (cardIds.length > 0) {
+        const { data: attachments } = await supabase
+          .from('project_card_attachment')
+          .select('id, card_id, name, url, file_type, file_size, created_at')
+          .in('card_id', cardIds)
+          .order('created_at', { ascending: false });
+
+        attachmentsByCard = (attachments || []).reduce((acc, att) => {
+          if (!acc[att.card_id]) acc[att.card_id] = [];
+          acc[att.card_id].push(att);
+          return acc;
+        }, {});
+      }
+
+      const cardsWithAttachments = (cards || []).map(card => ({
+        ...card,
+        project_card_attachment: attachmentsByCard[card.id] || []
+      }));
 
       const { data: labels } = await supabase
         .from('project_label')
@@ -108,7 +133,7 @@ export default async function handler(req, res) {
       return res.json({
         board: { ...board, user_role: membership.role },
         lists: lists || [],
-        cards: cards || [],
+        cards: cardsWithAttachments,
         labels: labels || [],
         members: enrichedMembers
       });
