@@ -443,7 +443,7 @@ export default async function handler(req, res) {
     res.json({ 
       success: true, 
       member,
-      isTemporaryPassword: credentials.is_temp_password 
+      isTemporaryPassword: credentials?.is_temp_password || false 
     });
   } catch (error) {
     console.error('Login error:', error);
