@@ -524,7 +524,53 @@ export async function getSessionTenantUser(req) {
   if (!supabase) return null;
   
   try {
-    // Verify the user belongs to the tenant in their session (double-check isolation)
+    // First, try unified identity system (tenant_identity + tenant_membership)
+    // Check if the tenantUserId is an identity ID by looking it up in tenant_identity
+    if (session.data.identityId || session.data.membershipId) {
+      const identityId = session.data.identityId || session.data.tenantUserId;
+      
+      const { data: identity, error: identityError } = await supabase
+        .from('tenant_identity')
+        .select('*')
+        .eq('id', identityId)
+        .single();
+      
+      if (identity) {
+        // Found in unified identity system - verify membership
+        const { data: membership, error: membershipError } = await supabase
+          .from('tenant_membership')
+          .select('*, tenant:tenant_id(*)')
+          .eq('identity_id', identity.id)
+          .eq('tenant_id', session.data.tenantId)
+          .eq('status', 'active')
+          .single();
+        
+        if (membership && !membershipError) {
+          console.log('[Session] Verified via unified identity system:', identity.email);
+          
+          // Return a tenant user-like object for API compatibility
+          const unifiedUser = {
+            id: identity.id,
+            email: identity.email,
+            first_name: identity.first_name,
+            last_name: identity.last_name,
+            role: membership.role || 'owner',
+            status: 'active',
+            tenant_id: session.data.tenantId,
+            tenant: membership.tenant,
+            _sessionTenantId: session.data.tenantId,
+            _sessionIdentityId: identity.id,
+            _isUnifiedIdentity: true
+          };
+          
+          return unifiedUser;
+        } else {
+          console.log('[Session] Unified identity membership not found or inactive for tenant:', session.data.tenantId);
+        }
+      }
+    }
+    
+    // Fallback: Verify the user in legacy tenant_user table
     const { data: tenantUser, error } = await supabase
       .from('tenant_user')
       .select('*, tenant:tenant_id(*)')
