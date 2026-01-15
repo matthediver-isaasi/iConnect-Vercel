@@ -83,10 +83,12 @@ export default function IEditEventSpotlightElement({ content, variant, settings 
   } = content || {};
 
   const { data: event } = useQuery({
-    queryKey: ['/api/entities/Event', event_id],
+    queryKey: ['/api/public/event', event_id],
     queryFn: async () => {
       if (!event_id) return null;
-      return base44.entities.Event.get(event_id);
+      const response = await fetch(`/api/public/event?id=${event_id}`);
+      if (!response.ok) return null;
+      return response.json();
     },
     enabled: !!event_id
   });
