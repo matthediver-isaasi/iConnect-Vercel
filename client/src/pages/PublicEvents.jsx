@@ -1,5 +1,4 @@
 import React from "react";
-import { base44 } from "@/api/base44Client";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -72,14 +71,16 @@ const hasPublicTickets = (event) => {
 export default function PublicEventsPage() {
   const { data: allEvents = [], isLoading } = useQuery({
     queryKey: ['public-events'],
-    queryFn: () => base44.entities.Event.list({ 
-      sort: { start_date: 'desc' },
-      limit: 100 
-    }),
+    queryFn: async () => {
+      const response = await fetch('/api/public/events');
+      if (!response.ok) {
+        throw new Error('Failed to fetch events');
+      }
+      return response.json();
+    },
     staleTime: 0
   });
 
-  // Filter to only show events with at least one public ticket class
   const events = allEvents.filter(hasPublicTickets);
 
   return (

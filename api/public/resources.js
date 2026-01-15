@@ -51,21 +51,32 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Tenant not found' });
     }
 
-    const { data, error } = await supabase
-      .from('resource_category')
-      .select('id, name, description, subcategories, applies_to_content_types, display_order')
+    const { data: resources, error } = await supabase
+      .from('resource')
+      .select(`
+        id,
+        title,
+        description,
+        image_url,
+        resource_type,
+        release_date,
+        subcategories,
+        tags,
+        is_featured
+      `)
       .eq('tenant_id', tenant.id)
-      .or('is_active.eq.true,is_active.is.null')
-      .order('display_order', { ascending: true });
+      .eq('is_public', true)
+      .eq('status', 'active')
+      .order('release_date', { ascending: false });
 
     if (error) {
-      console.error('Error fetching resource categories:', error);
-      return res.status(500).json({ error: error.message });
+      console.error('[Public Resources] Query error:', error);
+      return res.status(500).json({ error: 'Failed to fetch resources' });
     }
 
-    return res.json(data || []);
+    res.json(resources || []);
   } catch (error) {
-    console.error('Public resource categories fetch error:', error);
-    return res.status(500).json({ error: 'Failed to fetch resource categories' });
+    console.error('[Public Resources] Error:', error);
+    res.status(500).json({ error: 'Failed to fetch resources' });
   }
 }

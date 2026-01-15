@@ -15,33 +15,33 @@ export default function PublicNewsPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(12);
 
-  // Fetch published news
   const { data: news = [], isLoading: newsLoading } = useQuery({
     queryKey: ['public-news'],
     queryFn: async () => {
-      const allNews = await base44.entities.NewsPost.list('-published_date');
-      const now = new Date();
-      return allNews.filter(n => 
-        n.status === 'published' && 
-        (!n.published_date || new Date(n.published_date) <= now)
-      );
+      const response = await fetch('/api/public/news');
+      if (!response.ok) {
+        throw new Error('Failed to fetch news');
+      }
+      return response.json();
     },
-    staleTime: 0, // Always fetch fresh content for news feed
+    staleTime: 0,
   });
 
-  // Fetch categories
   const { data: categories = [], isLoading: categoriesLoading } = useQuery({
     queryKey: ['resourceCategories'],
     queryFn: async () => {
-      const cats = await base44.entities.ResourceCategory.list();
+      const response = await fetch('/api/public/resource-categories');
+      if (!response.ok) {
+        throw new Error('Failed to fetch categories');
+      }
+      const cats = await response.json();
       return cats
-        .filter(c => c.is_active && c.applies_to_content_types?.includes("News"))
+        .filter(c => c.applies_to_content_types?.includes("News"))
         .sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
     },
     refetchOnWindowFocus: true
   });
 
-  // Fetch button styles
   const { data: buttonStyles = [] } = useQuery({
     queryKey: ['article-button-styles'],
     queryFn: async () => {

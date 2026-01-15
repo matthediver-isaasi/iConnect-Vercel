@@ -19,7 +19,6 @@ export default function PublicResourcesPage() {
 
   useResourceRealtime(['public-resources']);
 
-  // Check if user is logged in
   const isLoggedIn = useMemo(() => {
     const storedMember = localStorage.getItem('agcas_member');
     if (!storedMember) return false;
@@ -31,64 +30,28 @@ export default function PublicResourcesPage() {
     return true;
   }, []);
 
-  // Fetch resources - for public view, only show resources marked as public (is_public=true)
   const { data: resources = [], isLoading: resourcesLoading } = useQuery({
-    queryKey: ['public-resources', isLoggedIn],
+    queryKey: ['public-resources'],
     queryFn: async () => {
-      console.log('[PublicResources] ========== FETCH START ==========');
-      console.log('[PublicResources] Fetching at:', new Date().toISOString());
-      console.log('[PublicResources] User logged in:', isLoggedIn);
-      
-      const allResources = await base44.entities.Resource.list('-release_date');
-      console.log('[PublicResources] Total resources from API:', allResources.length);
-      
-      // Debug: Show first few resources with their is_public status
-      if (allResources.length > 0) {
-        console.log('[PublicResources] Sample resources:');
-        allResources.slice(0, 5).forEach((r, i) => {
-          console.log(`  [${i}] "${r.title}" - is_public: ${r.is_public}, status: ${r.status}`);
-        });
+      const response = await fetch('/api/public/resources');
+      if (!response.ok) {
+        throw new Error('Failed to fetch resources');
       }
-      
-      // Count resources by is_public value
-      const publicCount = allResources.filter(r => r.is_public === true).length;
-      const nonPublicCount = allResources.filter(r => r.is_public === false).length;
-      const undefinedCount = allResources.filter(r => r.is_public === undefined || r.is_public === null).length;
-      console.log('[PublicResources] is_public breakdown - true:', publicCount, 'false:', nonPublicCount, 'undefined/null:', undefinedCount);
-      
-      // Filter logic:
-      // 1. Always exclude drafts
-      // 2. For non-logged-in users: only show resources where is_public === true
-      // 3. For logged-in users: show all non-draft resources (they'll see role-filtered view on portal)
-      const filtered = allResources.filter(r => {
-        // Always exclude drafts
-        if (r.status === 'draft') {
-          return false;
-        }
-        
-        // For public view (not logged in), only show public resources
-        if (!isLoggedIn) {
-          return r.is_public === true;
-        }
-        
-        // For logged-in users, show all non-draft resources
-        return true;
-      });
-      
-      console.log('[PublicResources] After filtering:', filtered.length, 'resources');
-      console.log('[PublicResources] ========== FETCH END ==========');
-      return filtered;
+      return response.json();
     },
-    staleTime: 0, // Always fetch fresh content for resources feed
+    staleTime: 0,
     refetchOnMount: true,
   });
 
   const { data: categories = [], isLoading: categoriesLoading } = useQuery({
     queryKey: ['resourceCategories-public'],
     queryFn: async () => {
-      const cats = await base44.entities.ResourceCategory.list();
+      const response = await fetch('/api/public/resource-categories');
+      if (!response.ok) {
+        throw new Error('Failed to fetch categories');
+      }
+      const cats = await response.json();
       const resourceCategories = cats.filter(c =>
-        c.is_active &&
         c.applies_to_content_types &&
         c.applies_to_content_types.includes("Resources")
       );
@@ -97,7 +60,6 @@ export default function PublicResourcesPage() {
     refetchOnWindowFocus: true
   });
 
-  // Fetch button styles once at page level
   const { data: buttonStyles = [] } = useQuery({
     queryKey: ['buttonStyles-resources'],
     queryFn: async () => {

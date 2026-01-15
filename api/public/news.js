@@ -51,21 +51,34 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Tenant not found' });
     }
 
-    const { data, error } = await supabase
-      .from('resource_category')
-      .select('id, name, description, subcategories, applies_to_content_types, display_order')
+    const now = new Date().toISOString();
+
+    const { data: news, error } = await supabase
+      .from('news_post')
+      .select(`
+        id,
+        title,
+        slug,
+        summary,
+        feature_image_url,
+        published_date,
+        status,
+        subcategories,
+        tags
+      `)
       .eq('tenant_id', tenant.id)
-      .or('is_active.eq.true,is_active.is.null')
-      .order('display_order', { ascending: true });
+      .eq('status', 'published')
+      .lte('published_date', now)
+      .order('published_date', { ascending: false });
 
     if (error) {
-      console.error('Error fetching resource categories:', error);
-      return res.status(500).json({ error: error.message });
+      console.error('[Public News] Query error:', error);
+      return res.status(500).json({ error: 'Failed to fetch news' });
     }
 
-    return res.json(data || []);
+    res.json(news || []);
   } catch (error) {
-    console.error('Public resource categories fetch error:', error);
-    return res.status(500).json({ error: 'Failed to fetch resource categories' });
+    console.error('[Public News] Error:', error);
+    res.status(500).json({ error: 'Failed to fetch news' });
   }
 }
