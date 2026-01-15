@@ -160,11 +160,45 @@ export default async function handler(req, res) {
     const ssoToken = crypto.randomBytes(32).toString('hex');
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
+    // For unified identity users, tenantUser.id is the identity_id, not tenant_user_id
+    // We need to find the actual tenant_user_id for the foreign key constraint
+    let tenantUserIdForToken = tenantUser.id;
+    
+    if (tenantUser._isUnifiedIdentity && identityId) {
+      // Look up the tenant_user record linked to this identity
+      const { data: linkedTenantUser } = await supabase
+        .from('tenant_user')
+        .select('id')
+        .eq('identity_id', identityId)
+        .eq('tenant_id', tenantUser.tenant_id)
+        .limit(1)
+        .single();
+      
+      if (linkedTenantUser?.id) {
+        tenantUserIdForToken = linkedTenantUser.id;
+        console.log('[Portal Session] Found linked tenant_user_id:', tenantUserIdForToken);
+      } else {
+        // No tenant_user record - try by email
+        const { data: tenantUserByEmail } = await supabase
+          .from('tenant_user')
+          .select('id')
+          .eq('email', tenantUser.email?.toLowerCase())
+          .eq('tenant_id', tenantUser.tenant_id)
+          .limit(1)
+          .single();
+        
+        if (tenantUserByEmail?.id) {
+          tenantUserIdForToken = tenantUserByEmail.id;
+          console.log('[Portal Session] Found tenant_user_id by email:', tenantUserIdForToken);
+        }
+      }
+    }
+
     const { error: tokenError } = await supabase
       .from('portal_sso_token')
       .insert({
         token: ssoToken,
-        tenant_user_id: tenantUser.id,
+        tenant_user_id: tenantUserIdForToken,
         member_id: member.id,
         tenant_id: tenantUser.tenant_id,
         expires_at: expiresAt.toISOString()
