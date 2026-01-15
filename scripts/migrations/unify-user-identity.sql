@@ -32,7 +32,9 @@ ALTER TABLE member ADD COLUMN IF NOT EXISTS identity_id VARCHAR;
 -- ============================================================================
 
 -- Create identities for members who have credentials but no identity yet
-INSERT INTO tenant_identity (id, email, first_name, last_name, password_hash, is_temporary, reset_token, reset_token_expires, last_login, failed_attempts, locked_until, created_at, updated_at)
+-- Note: Some installations may not have last_login, failed_attempts, locked_until columns
+-- in member_credentials - use NULL defaults for those fields
+INSERT INTO tenant_identity (id, email, first_name, last_name, password_hash, is_temporary, reset_token, reset_token_expires, created_at, updated_at)
 SELECT 
   gen_random_uuid()::text,
   mc.email,
@@ -42,9 +44,6 @@ SELECT
   mc.is_temporary,
   mc.reset_token,
   mc.reset_token_expires,
-  mc.last_login,
-  mc.failed_attempts,
-  mc.locked_until,
   COALESCE(m.created_at, NOW()),
   NOW()
 FROM member_credentials mc
