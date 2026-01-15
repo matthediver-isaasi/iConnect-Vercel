@@ -52,7 +52,8 @@ import {
   Edit,
   Crown,
   Eye,
-  CreditCard
+  CreditCard,
+  Send
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
@@ -160,6 +161,27 @@ export default function AdminTeam() {
       setShowDeleteDialog(false);
       setSelectedMember(null);
       toast.success('Team member removed');
+    },
+    onError: (error) => {
+      toast.error(error.message);
+    }
+  });
+
+  const resendInviteMutation = useMutation({
+    mutationFn: async (membership_id) => {
+      const response = await fetch(`/api/tenant/team/${membership_id}/resend-invite`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include'
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to resend invite');
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      toast.success('Invitation email sent');
     },
     onError: (error) => {
       toast.error(error.message);
@@ -287,6 +309,14 @@ export default function AdminTeam() {
                             >
                               <Edit className="w-4 h-4 mr-2" />
                               Change Role
+                            </DropdownMenuItem>
+                            <DropdownMenuItem 
+                              onClick={() => resendInviteMutation.mutate(member.id)}
+                              disabled={resendInviteMutation.isPending}
+                              data-testid={`menu-item-resend-invite-${member.id}`}
+                            >
+                              <Send className="w-4 h-4 mr-2" />
+                              {resendInviteMutation.isPending ? 'Sending...' : 'Resend Invite'}
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem 

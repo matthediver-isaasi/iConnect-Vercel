@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
-import { Loader2, Lock, Eye, EyeOff, Building2, ChevronRight, Check } from "lucide-react";
+import { Loader2, Lock, Eye, EyeOff, Building2, ChevronRight, Check, ArrowLeft, Mail } from "lucide-react";
 import { SiGoogle } from "react-icons/si";
 
 export default function AdminLogin() {
@@ -16,12 +16,14 @@ export default function AdminLogin() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [successMessage, setSuccessMessage] = useState("");
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [showTenantSelection, setShowTenantSelection] = useState(false);
   const [availableTenants, setAvailableTenants] = useState([]);
   const [identity, setIdentity] = useState(null);
   const [setupMode, setSetupMode] = useState(false);
   const [setupToken, setSetupToken] = useState("");
+  const [forgotPasswordMode, setForgotPasswordMode] = useState(false);
 
   useEffect(() => {
     const oauthError = searchParams.get('error');
@@ -203,6 +205,40 @@ export default function AdminLogin() {
         }
       } else {
         setError(data.error || "Failed to set password");
+      }
+    } catch (err) {
+      setError("An error occurred. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleForgotPassword = async (e) => {
+    e.preventDefault();
+    setError("");
+    setSuccessMessage("");
+
+    if (!email) {
+      setError("Please enter your email address");
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const response = await fetch('/api/auth/request-admin-password-reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.toLowerCase().trim() })
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        setSuccessMessage("If an account exists with this email, you'll receive a password reset link shortly.");
+        setEmail("");
+      } else {
+        setError(data.error || "Failed to send reset link");
       }
     } catch (err) {
       setError("An error occurred. Please try again.");
@@ -394,6 +430,88 @@ export default function AdminLogin() {
     );
   }
 
+  if (forgotPasswordMode) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-4">
+        <Card className="w-full max-w-md shadow-2xl border-slate-700 bg-slate-800/50 backdrop-blur">
+          <CardHeader className="text-center space-y-4">
+            <div className="mx-auto w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center">
+              <Mail className="h-8 w-8 text-primary" />
+            </div>
+            <div>
+              <CardTitle className="text-2xl font-bold text-white" data-testid="text-forgot-password-title">
+                Reset Password
+              </CardTitle>
+              <CardDescription className="text-slate-400" data-testid="text-forgot-password-description">
+                Enter your email to receive a password reset link
+              </CardDescription>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleForgotPassword} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="reset-email" className="text-slate-200">Email</Label>
+                <Input
+                  id="reset-email"
+                  type="email"
+                  placeholder="admin@company.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  className="bg-slate-900/50 border-slate-600 text-white placeholder:text-slate-500"
+                  data-testid="input-reset-email"
+                />
+              </div>
+
+              {error && (
+                <div className="p-3 rounded-md bg-destructive/10 border border-destructive/20 text-destructive text-sm" data-testid="text-error">
+                  {error}
+                </div>
+              )}
+
+              {successMessage && (
+                <div className="p-3 rounded-md bg-green-500/10 border border-green-500/20 text-green-400 text-sm" data-testid="text-success">
+                  {successMessage}
+                </div>
+              )}
+
+              <Button
+                type="submit"
+                className="w-full"
+                disabled={loading}
+                data-testid="button-send-reset"
+              >
+                {loading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Sending...
+                  </>
+                ) : (
+                  "Send Reset Link"
+                )}
+              </Button>
+
+              <Button
+                type="button"
+                variant="ghost"
+                className="w-full text-slate-400 hover:text-slate-200"
+                onClick={() => {
+                  setForgotPasswordMode(false);
+                  setError("");
+                  setSuccessMessage("");
+                }}
+                data-testid="button-back-to-login"
+              >
+                <ArrowLeft className="mr-2 h-4 w-4" />
+                Back to sign in
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-4">
       <Card className="w-full max-w-md shadow-2xl border-slate-700 bg-slate-800/50 backdrop-blur">
@@ -447,6 +565,20 @@ export default function AdminLogin() {
                   data-testid="button-toggle-password"
                 >
                   {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setForgotPasswordMode(true);
+                    setError("");
+                    setPassword("");
+                  }}
+                  className="text-sm text-primary hover:text-primary/80 transition-colors"
+                  data-testid="link-forgot-password"
+                >
+                  Forgot password?
                 </button>
               </div>
             </div>
