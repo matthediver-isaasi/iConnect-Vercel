@@ -260,7 +260,8 @@ export default async function handler(req, res) {
             // Only for tables that still have organization_id column
             const entitiesWithoutOrgId = [
               'PortalMenu', 'PortalNavigationItem', 'NavigationItem', 'PageBanner', 'Floater',
-              'FormDueDiligenceConfig', 'FormSubmissionDueDiligence', 'Form', 'ResourceCategory', 'Resource'
+              'FormDueDiligenceConfig', 'FormSubmissionDueDiligence', 'Form', 'ResourceCategory', 'Resource',
+              'FileRepository', 'FileRepositoryFolder'
             ];
             if (!entitiesWithoutOrgId.includes(entity)) {
               query = query.eq('organization_id', tenantCtx.organizationId);
@@ -382,7 +383,8 @@ export default async function handler(req, res) {
           // These entities have been fully migrated to tenant_id only (no organization_id column):
           const entitiesWithoutOrgId = [
             'PortalMenu', 'PortalNavigationItem', 'NavigationItem', 'PageBanner', 'Floater',
-            'FormDueDiligenceConfig', 'FormSubmissionDueDiligence', 'Form', 'ResourceCategory', 'Resource'
+            'FormDueDiligenceConfig', 'FormSubmissionDueDiligence', 'Form', 'ResourceCategory', 'Resource',
+            'FileRepository', 'FileRepositoryFolder'
           ];
           if (!entitiesWithoutOrgId.includes(entity)) {
             sanitizedBody.organization_id = tenantCtx.organizationId;
