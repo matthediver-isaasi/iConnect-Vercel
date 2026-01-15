@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
+import { publicClient } from "@/api/publicClient";
 import DOMPurify from 'dompurify';
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
@@ -84,12 +85,7 @@ export default function IEditEventSpotlightElement({ content, variant, settings 
 
   const { data: event } = useQuery({
     queryKey: ['/api/public/event', event_id],
-    queryFn: async () => {
-      if (!event_id) return null;
-      const response = await fetch(`/api/public/event?id=${event_id}`);
-      if (!response.ok) return null;
-      return response.json();
-    },
+    queryFn: () => publicClient.getEvent(event_id),
     enabled: !!event_id
   });
 
@@ -102,23 +98,14 @@ export default function IEditEventSpotlightElement({ content, variant, settings 
 
   const { data: roles = [] } = useQuery({
     queryKey: ['/api/public/roles', { forEvent: event_id }],
-    queryFn: async () => {
-      const response = await fetch('/api/public/roles');
-      if (!response.ok) return [];
-      return response.json();
-    },
+    queryFn: () => publicClient.listRoles(),
     enabled: needsRoles,
     staleTime: 5 * 60 * 1000
   });
 
   const { data: speakers = [] } = useQuery({
     queryKey: ['/api/public/speakers', { forEvent: event_id, speakerIds: eventSpeakerIds }],
-    queryFn: async () => {
-      if (!eventSpeakerIds.length) return [];
-      const response = await fetch(`/api/public/speakers?ids=${eventSpeakerIds.join(',')}`);
-      if (!response.ok) return [];
-      return response.json();
-    },
+    queryFn: () => publicClient.listSpeakers(eventSpeakerIds),
     enabled: needsSpeakers,
     staleTime: 5 * 60 * 1000
   });

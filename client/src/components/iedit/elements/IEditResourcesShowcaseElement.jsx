@@ -1,5 +1,6 @@
 import React from "react";
 import { base44 } from "@/api/base44Client";
+import { publicClient } from "@/api/publicClient";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -924,10 +925,10 @@ export function IEditResourcesShowcaseElementRenderer({ element, settings }) {
 
   const fullWidth = settings?.fullWidth;
 
-  // Fetch selected resources
+  // Fetch selected resources using public endpoint
   const { data: allResources = [] } = useQuery({
-    queryKey: ['resources-showcase'],
-    queryFn: () => base44.entities.Resource.list('-release_date'),
+    queryKey: ['public-resources-showcase'],
+    queryFn: () => publicClient.listResources(),
     enabled: Array.isArray(content.resourceIds) && content.resourceIds.some(id => id)
   });
 

@@ -4,6 +4,7 @@ import 'react-quill/dist/quill.snow.css';
 import DOMPurify from 'dompurify';
 import FormRenderer from "../../forms/FormRenderer";
 import { base44 } from "@/api/base44Client";
+import { publicClient } from "@/api/publicClient";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Loader2, AlertCircle, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Upload, X, Image as ImageIcon, FolderOpen, Folder, Home, Search, FileText, CheckCircle2 } from "lucide-react";
@@ -78,9 +79,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   const { data: defaultConsentMessage } = useQuery({
     queryKey: ['formDefaultConsentMessage'],
     queryFn: async () => {
-      const response = await fetch('/api/public/form-consent-message');
-      if (!response.ok) return '';
-      const data = await response.json();
+      const data = await publicClient.getFormConsentMessage();
       return data.message || '';
     },
     staleTime: 5 * 60 * 1000 // Cache for 5 minutes
@@ -255,12 +254,12 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   const { data: roleCapacity, isLoading: isCheckingCapacity } = useQuery({
     queryKey: ['role-capacity-check-embed', primaryMemberRoleId],
     queryFn: async () => {
-      const response = await fetch(`/api/public/role/${primaryMemberRoleId}/capacity`);
-      if (!response.ok) {
+      try {
+        return await publicClient.getRoleCapacity(primaryMemberRoleId);
+      } catch (error) {
         console.error('[IEditFormElement] Failed to check role capacity');
         return { hasCapacity: true }; // Allow form on error (fail open)
       }
-      return response.json();
     },
     enabled: !!primaryMemberRoleId,
     staleTime: 30 * 1000 // Re-check every 30 seconds
@@ -329,13 +328,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   // Fetch the selected organization for domain validation (uses public endpoint for unauthenticated access)
   const { data: selectedOrg } = useQuery({
     queryKey: ['selected-org-for-validation', selectedOrgId],
-    queryFn: async () => {
-      const response = await fetch(`/api/public/organisation/${selectedOrgId}/domains`);
-      if (!response.ok) {
-        throw new Error('Failed to fetch organisation domains');
-      }
-      return response.json();
-    },
+    queryFn: () => publicClient.getOrganizationDomains(selectedOrgId),
     enabled: !!selectedOrgId,
     staleTime: 5 * 60 * 1000
   });

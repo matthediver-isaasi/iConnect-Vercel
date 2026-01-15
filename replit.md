@@ -135,6 +135,37 @@ Security measures:
 
 Entities migrated to tenant_id only (no organization_id column): PortalMenu, PortalNavigationItem, NavigationItem, PageBanner, Floater, FormDueDiligenceConfig, FormSubmissionDueDiligence, Form, ResourceCategory, Resource
 
+## Public API Client (Updated Jan 2026)
+
+All public-facing pages use a centralized `publicClient` (`client/src/api/publicClient.js`) for tenant-aware API requests. This ensures proper multi-tenant data isolation for unauthenticated users.
+
+**Tenant Detection Hierarchy:**
+1. URL query parameter: `?tenant=gsf`
+2. localStorage: `localStorage.setItem('tenant_slug', 'gsf')`
+3. Subdomain extraction: `gsf.iconn.app` → "gsf"
+4. Environment variable: `VITE_DEFAULT_TENANT`
+
+**Key Features:**
+- Automatically injects `tenant` query parameter into all `/api/public/*` requests
+- Form submissions include tenant in request body for backend compatibility
+- Respects caller-provided tenant values for cross-tenant embedding
+- Provides typed methods for all public endpoints (events, articles, forms, booking, etc.)
+
+**Usage:**
+```javascript
+import { publicClient } from '@/api/publicClient';
+
+// All methods automatically include tenant parameter
+const events = await publicClient.listEvents();
+const form = await publicClient.getForm('membership-application');
+await publicClient.submitForm({ form_id: 'xyz', values: {...} });
+```
+
+**Development Workflow:**
+- Set tenant via query param: `http://localhost:5000?tenant=gsf`
+- Or localStorage: `localStorage.setItem('tenant_slug', 'gsf')`
+- Or environment variable: Set `VITE_DEFAULT_TENANT=gsf` in Replit secrets
+
 ## Outlook Email Integration (CRM Feature)
 
 The platform supports Microsoft Outlook integration for email tracking on member records, similar to CRM systems. Key components:

@@ -1,9 +1,9 @@
 import React, { useState, useMemo } from "react";
-import { base44 } from "@/api/base44Client";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { FileQuestion, ChevronLeft, ChevronRight, SlidersHorizontal } from "lucide-react";
+import { publicClient } from "@/api/publicClient";
 import ArticleFilter from "../components/blog/ArticleFilter";
 import ArticleCard from "../components/blog/ArticleCard";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -17,24 +17,14 @@ export default function PublicNewsPage() {
 
   const { data: news = [], isLoading: newsLoading } = useQuery({
     queryKey: ['public-news'],
-    queryFn: async () => {
-      const response = await fetch('/api/public/news');
-      if (!response.ok) {
-        throw new Error('Failed to fetch news');
-      }
-      return response.json();
-    },
+    queryFn: () => publicClient.listNews(),
     staleTime: 0,
   });
 
   const { data: categories = [], isLoading: categoriesLoading } = useQuery({
     queryKey: ['resourceCategories'],
     queryFn: async () => {
-      const response = await fetch('/api/public/resource-categories');
-      if (!response.ok) {
-        throw new Error('Failed to fetch categories');
-      }
-      const cats = await response.json();
+      const cats = await publicClient.listResourceCategories();
       return cats
         .filter(c => c.applies_to_content_types?.includes("News"))
         .sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
@@ -43,9 +33,9 @@ export default function PublicNewsPage() {
   });
 
   const { data: buttonStyles = [] } = useQuery({
-    queryKey: ['article-button-styles'],
+    queryKey: ['public-article-button-styles'],
     queryFn: async () => {
-      const allStyles = await base44.entities.ButtonStyle.list();
+      const allStyles = await publicClient.listButtonStyles();
       return allStyles.filter(s => s.is_active && s.card_type === 'article');
     },
     refetchOnWindowFocus: true

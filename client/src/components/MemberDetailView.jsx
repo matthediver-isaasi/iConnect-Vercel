@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
+import { publicClient } from "@/api/publicClient";
 import { supabase } from "@/api/supabaseClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -301,9 +302,7 @@ export default function MemberDetailView({
     enabled: !!memberOrgId,
     queryFn: async () => {
       try {
-        const response = await fetch(`/api/public/organisation/${memberOrgId}/domains`);
-        if (!response.ok) return { verified_domains: [] };
-        return response.json();
+        return await publicClient.getOrganizationDomains(memberOrgId);
       } catch {
         return { verified_domains: [] };
       }

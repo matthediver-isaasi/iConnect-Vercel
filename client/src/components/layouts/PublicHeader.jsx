@@ -4,6 +4,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { createPageUrl } from "@/utils";
 import { base44 } from "@/api/base44Client";
+import { publicClient } from "@/api/publicClient";
 import { useNavigationRealtime } from "@/hooks/useNavigationRealtime";
 import { useTenantBranding } from "@/contexts/TenantBrandingContext";
 import { Search, User, ArrowUpRight, LogOut, ChevronDown, ChevronRight, Calendar, Building, Briefcase, FileText, Users, Sparkles, Home, Mail, Phone, Menu, X, Loader2, Newspaper, BookOpen, FolderOpen } from "lucide-react";
@@ -106,10 +107,9 @@ export default function PublicHeader() {
 
   // Fetch article display name setting
   const { data: articleDisplayName } = useQuery({
-    queryKey: ['article-display-name-setting'],
+    queryKey: ['public-article-display-name-setting'],
     queryFn: async () => {
-      const allSettings = await base44.entities.SystemSettings.list();
-      const setting = allSettings.find(s => s.setting_key === 'article_display_name');
+      const setting = await publicClient.getSystemSetting('article_display_name');
       return setting?.setting_value || 'Article';
     },
     staleTime: 5 * 60 * 1000
@@ -195,11 +195,7 @@ export default function PublicHeader() {
   const fetchNavItems = useCallback(async () => {
     try {
       // Use public endpoint that doesn't require authentication
-      const response = await fetch('/api/public/navigation-items');
-      if (!response.ok) {
-        throw new Error('Failed to fetch navigation items');
-      }
-      const items = await response.json();
+      const items = await publicClient.listNavigationItems();
       
       // Build hierarchy
       const buildTree = (parentId, location) => {
@@ -242,9 +238,7 @@ export default function PublicHeader() {
   useEffect(() => {
     const fetchSocialConfig = async () => {
       try {
-        const allSettings = await base44.entities.SystemSettings.list();
-        const setting = allSettings.find(s => s.setting_key === 'social_icons_config');
-        
+        const setting = await publicClient.getSystemSetting('social_icons_config');
         if (setting?.setting_value) {
           try {
             setSocialIcons(JSON.parse(setting.setting_value));
@@ -293,11 +287,8 @@ export default function PublicHeader() {
     
     searchTimeoutRef.current = setTimeout(async () => {
       try {
-        const response = await fetch(`/api/public/search?q=${encodeURIComponent(query.trim())}&limit=8`);
-        if (response.ok) {
-          const data = await response.json();
-          setSearchResults(data.results || []);
-        }
+        const data = await publicClient.search(query.trim());
+        setSearchResults(data.results || []);
       } catch (error) {
         console.error('Search error:', error);
         setSearchResults([]);
@@ -325,11 +316,8 @@ export default function PublicHeader() {
     
     mobileSearchTimeoutRef.current = setTimeout(async () => {
       try {
-        const response = await fetch(`/api/public/search?q=${encodeURIComponent(query.trim())}&limit=8`);
-        if (response.ok) {
-          const data = await response.json();
-          setMobileSearchResults(data.results || []);
-        }
+        const data = await publicClient.search(query.trim());
+        setMobileSearchResults(data.results || []);
       } catch (error) {
         console.error('Mobile search error:', error);
         setMobileSearchResults([]);

@@ -6,6 +6,7 @@ import { Calendar, User, CreditCard, LogOut, Ticket, Wallet, Shield, Users, Sett
 import { useLayoutContext } from "@/contexts/LayoutContext";
 import { useArticleUrl } from "@/contexts/ArticleUrlContext";
 import { isResourceExcluded } from "@/lib/roleVisibility";
+import { publicClient } from "@/api/publicClient";
 import {
   Sidebar,
   SidebarContent,
@@ -477,13 +478,7 @@ const { data: portalLogoSettings } = useQuery({
   queryKey: ['portal-logo-settings'],
   queryFn: async () => {
     try {
-      const response = await fetch('/api/public/portal-branding', {
-        credentials: 'include'
-      });
-      if (!response.ok) {
-        throw new Error('Failed to fetch portal branding');
-      }
-      const data = await response.json();
+      const data = await publicClient.getPortalBranding();
       return { 
         logoUrl: data.logoUrl || '', 
         logoHeight: data.logoHeight || 'medium', 

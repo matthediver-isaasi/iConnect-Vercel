@@ -1,9 +1,9 @@
 import React, { useState, useMemo } from "react";
-import { base44 } from "@/api/base44Client";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button"; 
 import { FileQuestion, ChevronLeft, ChevronRight, SlidersHorizontal } from "lucide-react";
+import { publicClient } from "@/api/publicClient";
 import ResourceFilter from "../components/resources/ResourceFilter";
 import ResourceCard from "../components/resources/ResourceCard";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -32,13 +32,7 @@ export default function PublicResourcesPage() {
 
   const { data: resources = [], isLoading: resourcesLoading } = useQuery({
     queryKey: ['public-resources'],
-    queryFn: async () => {
-      const response = await fetch('/api/public/resources');
-      if (!response.ok) {
-        throw new Error('Failed to fetch resources');
-      }
-      return response.json();
-    },
+    queryFn: () => publicClient.listResources(),
     staleTime: 0,
     refetchOnMount: true,
   });
@@ -46,11 +40,7 @@ export default function PublicResourcesPage() {
   const { data: categories = [], isLoading: categoriesLoading } = useQuery({
     queryKey: ['resourceCategories-public'],
     queryFn: async () => {
-      const response = await fetch('/api/public/resource-categories');
-      if (!response.ok) {
-        throw new Error('Failed to fetch categories');
-      }
-      const cats = await response.json();
+      const cats = await publicClient.listResourceCategories();
       const resourceCategories = cats.filter(c =>
         c.applies_to_content_types &&
         c.applies_to_content_types.includes("Resources")
@@ -61,9 +51,9 @@ export default function PublicResourcesPage() {
   });
 
   const { data: buttonStyles = [] } = useQuery({
-    queryKey: ['buttonStyles-resources'],
+    queryKey: ['public-buttonStyles-resources'],
     queryFn: async () => {
-      const styles = await base44.entities.ButtonStyle.list();
+      const styles = await publicClient.listButtonStyles();
       return styles.filter(s => s.card_type === 'resource' && s.is_active);
     },
     refetchOnWindowFocus: true

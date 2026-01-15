@@ -1,27 +1,10 @@
 import { createContext, useContext, useState, useEffect } from 'react';
+import { publicClient } from '@/api/publicClient';
 
 const TenantBrandingContext = createContext(null);
 
 export function useTenantBranding() {
   return useContext(TenantBrandingContext);
-}
-
-function getTenantSlugFromHostname() {
-  const hostname = window.location.hostname;
-  
-  if (hostname.endsWith('.iconn.app')) {
-    const slug = hostname.replace('.iconn.app', '');
-    if (slug && slug !== 'www' && slug !== 'app') {
-      return slug;
-    }
-  }
-  
-  if (hostname === 'localhost' || hostname.includes('replit')) {
-    const stored = localStorage.getItem('dev_tenant_slug');
-    if (stored) return stored;
-  }
-  
-  return null;
 }
 
 export function TenantBrandingProvider({ children }) {
@@ -31,7 +14,8 @@ export function TenantBrandingProvider({ children }) {
 
   useEffect(() => {
     const fetchBranding = async () => {
-      const slug = getTenantSlugFromHostname();
+      // Get tenant slug from publicClient's detection logic
+      const slug = publicClient.getTenantSlug();
       
       if (!slug) {
         setLoading(false);
@@ -39,23 +23,20 @@ export function TenantBrandingProvider({ children }) {
       }
 
       try {
-        const response = await fetch(`/api/public/tenant-branding?slug=${slug}`);
-        if (response.ok) {
-          const data = await response.json();
-          if (data.success && data.branding) {
-            setBranding(data.branding);
-            
-            if (data.branding.faviconUrl) {
-              const link = document.querySelector("link[rel*='icon']") || document.createElement('link');
-              link.type = 'image/x-icon';
-              link.rel = 'shortcut icon';
-              link.href = data.branding.faviconUrl;
-              document.getElementsByTagName('head')[0].appendChild(link);
-            }
-            
-            if (data.branding.name) {
-              document.title = data.branding.name;
-            }
+        const data = await publicClient.getTenantBranding();
+        if (data.success && data.branding) {
+          setBranding(data.branding);
+          
+          if (data.branding.faviconUrl) {
+            const link = document.querySelector("link[rel*='icon']") || document.createElement('link');
+            link.type = 'image/x-icon';
+            link.rel = 'shortcut icon';
+            link.href = data.branding.faviconUrl;
+            document.getElementsByTagName('head')[0].appendChild(link);
+          }
+          
+          if (data.branding.name) {
+            document.title = data.branding.name;
           }
         }
       } catch (err) {
@@ -73,7 +54,7 @@ export function TenantBrandingProvider({ children }) {
     branding,
     loading,
     error,
-    tenantSlug: getTenantSlugFromHostname(),
+    tenantSlug: publicClient.getTenantSlug(),
     hasBranding: !!branding
   };
 

@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
+import { publicClient } from "@/api/publicClient";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -2442,11 +2443,7 @@ export default function FormBuilderPage() {
   // Fetch resource categories for category_multiselect field configuration (search categories)
   const { data: categories = [] } = useQuery({
     queryKey: ['resource-categories-for-forms'],
-    queryFn: async () => {
-      const response = await fetch('/api/public/resource-categories');
-      if (!response.ok) throw new Error('Failed to fetch resource categories');
-      return response.json();
-    }
+    queryFn: () => publicClient.listResourceCategories()
   });
 
   // Fetch custom fields (PreferenceField) for CRM mapping

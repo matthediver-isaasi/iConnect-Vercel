@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
+import { publicClient } from "@/api/publicClient";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -128,12 +129,7 @@ export default function TeamPage({ hasBanner }) {
   // Fetch organization's verified domains from preference_field/organization_preference_value
   const { data: orgDomainsData } = useQuery({
     queryKey: ['org-verified-domains', memberInfo?.organization_id],
-    queryFn: async () => {
-      if (!memberInfo?.organization_id) return { verified_domains: [] };
-      const response = await fetch(`/api/public/organisation/${memberInfo.organization_id}/domains`);
-      if (!response.ok) return { verified_domains: [] };
-      return response.json();
-    },
+    queryFn: () => publicClient.getOrganizationDomains(memberInfo?.organization_id),
     enabled: !!memberInfo?.organization_id
   });
 

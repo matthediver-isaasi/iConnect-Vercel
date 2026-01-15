@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { base44 } from "@/api/base44Client";
+import { publicClient } from "@/api/publicClient";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 
 const typeIconMap = {
@@ -39,10 +39,9 @@ export default function SearchResults() {
 
   // Fetch article display name setting
   const { data: articleDisplayName } = useQuery({
-    queryKey: ['article-display-name-setting'],
+    queryKey: ['public-article-display-name-setting'],
     queryFn: async () => {
-      const allSettings = await base44.entities.SystemSettings.list();
-      const setting = allSettings.find(s => s.setting_key === 'article_display_name');
+      const setting = await publicClient.getSystemSetting('article_display_name');
       return setting?.setting_value || 'Article';
     },
     staleTime: 5 * 60 * 1000
@@ -96,11 +95,8 @@ export default function SearchResults() {
     setHasSearched(true);
 
     try {
-      const response = await fetch(`/api/public/search?q=${encodeURIComponent(searchTerm.trim())}&limit=20`);
-      if (response.ok) {
-        const data = await response.json();
-        setResults(data.results || []);
-      }
+      const data = await publicClient.search(searchTerm.trim());
+      setResults(data.results || []);
     } catch (error) {
       console.error('Search error:', error);
       setResults([]);

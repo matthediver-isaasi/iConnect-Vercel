@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Loader2, ChevronLeft, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/api/supabaseClient";
+import { publicClient } from "@/api/publicClient";
 
 export default function FloaterDisplay({ location = "portal", memberInfo, organizationInfo }) {
   const queryClient = useQueryClient();
@@ -38,9 +39,7 @@ export default function FloaterDisplay({ location = "portal", memberInfo, organi
   const { data: defaultConsentMessage } = useQuery({
     queryKey: ['formDefaultConsentMessage'],
     queryFn: async () => {
-      const response = await fetch('/api/public/form-consent-message');
-      if (!response.ok) return '';
-      const data = await response.json();
+      const data = await publicClient.getFormConsentMessage();
       return data.message || '';
     },
     staleTime: 5 * 60 * 1000 // Cache for 5 minutes

@@ -15,17 +15,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { publicClient } from "@/api/publicClient";
 
 function CommunicationPreferencesField({ field, value, onChange, disabled }) {
   const { data: categories = [], isLoading } = useQuery({
     queryKey: ['public-communication-categories'],
-    queryFn: async () => {
-      const response = await fetch('/api/public/communication-categories');
-      if (!response.ok) {
-        throw new Error('Failed to fetch communication categories');
-      }
-      return response.json();
-    },
+    queryFn: () => publicClient.listCommunicationCategories(),
     staleTime: 5 * 60 * 1000
   });
 
@@ -204,13 +199,7 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
   // Fetch organisations for organisation_dropdown field type (uses public endpoint)
   const { data: organisations = [], isLoading: orgsLoading } = useQuery({
     queryKey: ['public-organisations-for-form'],
-    queryFn: async () => {
-      const response = await fetch('/api/public/organisations');
-      if (!response.ok) {
-        throw new Error('Failed to fetch organisations');
-      }
-      return response.json();
-    },
+    queryFn: () => publicClient.listOrganizations(),
     enabled: field.type === 'organisation_dropdown',
     staleTime: 5 * 60 * 1000 // Cache for 5 minutes
   });
@@ -218,13 +207,7 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
   // Fetch resource categories for category_multiselect and category_dropdown field types (uses public endpoint)
   const { data: categories = [], isLoading: categoriesLoading } = useQuery({
     queryKey: ['public-resource-categories-for-form'],
-    queryFn: async () => {
-      const response = await fetch('/api/public/resource-categories');
-      if (!response.ok) {
-        throw new Error('Failed to fetch resource categories');
-      }
-      return response.json();
-    },
+    queryFn: () => publicClient.listResourceCategories(),
     enabled: field.type === 'category_multiselect' || field.type === 'category_dropdown',
     staleTime: 5 * 60 * 1000 // Cache for 5 minutes
   });
@@ -232,13 +215,7 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
   // Fetch custom field definition for custom_field type (uses public endpoint)
   const { data: customFieldDef, isLoading: customFieldLoading } = useQuery({
     queryKey: ['public-custom-field', field.custom_field_id],
-    queryFn: async () => {
-      const response = await fetch(`/api/public/custom-field/${field.custom_field_id}`);
-      if (!response.ok) {
-        throw new Error('Failed to fetch custom field');
-      }
-      return response.json();
-    },
+    queryFn: () => publicClient.getCustomField(field.custom_field_id),
     enabled: field.type === 'custom_field' && !!field.custom_field_id,
     staleTime: 5 * 60 * 1000 // Cache for 5 minutes
   });

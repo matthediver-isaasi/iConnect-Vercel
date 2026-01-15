@@ -24,6 +24,7 @@ import {
   Globe
 } from 'lucide-react';
 import { format, addDays, startOfWeek, isSameDay } from 'date-fns';
+import { publicClient } from '@/api/publicClient';
 
 function getVisitorTimezone() {
   try {
@@ -59,14 +60,7 @@ export default function PublicBooking() {
 
   const { data: pageData, isLoading: pageLoading, error: pageError } = useQuery({
     queryKey: ['public-booking', slug],
-    queryFn: async () => {
-      const response = await fetch(`/api/public/book/${slug}`);
-      if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err.error || 'Booking page not found');
-      }
-      return response.json();
-    },
+    queryFn: () => publicClient.getBookingInfo(slug),
     enabled: !!slug
   });
 
@@ -76,15 +70,7 @@ export default function PublicBooking() {
     queryKey: ['public-booking-slots', slug, weekStartStr],
     queryFn: async () => {
       console.log('[PublicBooking] Fetching slots for', slug, 'from', weekStartStr);
-      const response = await fetch(
-        `/api/public/book/${slug}/slots?date=${weekStartStr}&days=14`
-      );
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        console.error('[PublicBooking] Slots fetch failed:', response.status, errData);
-        throw new Error(errData.error || 'Failed to fetch slots');
-      }
-      const data = await response.json();
+      const data = await publicClient.getBookingSlots(slug, { date: weekStartStr, days: 14 });
       console.log('[PublicBooking] Slots data received:', data);
       return data;
     },
@@ -103,20 +89,12 @@ export default function PublicBooking() {
   });
 
   const bookingMutation = useMutation({
-    mutationFn: async (bookingData) => {
-      const response = await fetch(`/api/public/book/${slug}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(bookingData)
-      });
-      if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err.error || 'Failed to create booking');
-      }
-      return response.json();
-    },
+    mutationFn: (bookingData) => publicClient.submitBooking(slug, bookingData),
     onSuccess: () => {
       setStep('confirmed');
+    },
+    onError: (error) => {
+      console.error('[PublicBooking] Booking failed:', error);
     }
   });
 

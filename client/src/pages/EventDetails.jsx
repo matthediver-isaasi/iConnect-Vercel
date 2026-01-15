@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
+import { publicClient } from "@/api/publicClient";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -188,12 +189,7 @@ export default function EventDetailsPage() {
 
   const { data: event, isLoading } = useQuery({
     queryKey: ['event', eventId],
-    queryFn: async () => {
-      // Use public endpoint to avoid 401 errors for unauthenticated users
-      const response = await fetch(`/api/public/event?id=${eventId}`);
-      if (!response.ok) return null;
-      return response.json();
-    },
+    queryFn: () => publicClient.getEvent(eventId),
     enabled: !!eventId,
     // Fallback polling every 15s when realtime is not connected
     refetchInterval: realtimeConnected ? false : 15000
@@ -202,13 +198,7 @@ export default function EventDetailsPage() {
   // Query for speakers assigned to this event
   const { data: eventSpeakers = [] } = useQuery({
     queryKey: ['event-speakers', event?.speaker_ids],
-    queryFn: async () => {
-      if (!event?.speaker_ids || event.speaker_ids.length === 0) return [];
-      // Use public endpoint to avoid 401 errors for unauthenticated users
-      const response = await fetch(`/api/public/speakers?ids=${event.speaker_ids.join(',')}`);
-      if (!response.ok) return [];
-      return response.json();
-    },
+    queryFn: () => publicClient.listSpeakers(event.speaker_ids),
     enabled: !!event?.speaker_ids && event.speaker_ids.length > 0
   });
 

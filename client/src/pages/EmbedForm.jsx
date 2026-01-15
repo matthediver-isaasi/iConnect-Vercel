@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Loader2, ChevronLeft, ChevronRight, CheckCircle2 } from "lucide-react";
 import FormRenderer from "../components/forms/FormRenderer";
 import { toast, Toaster } from "sonner";
+import { publicClient } from "@/api/publicClient";
 
 export default function EmbedFormPage() {
   const { slug } = useParams();
@@ -26,17 +27,7 @@ export default function EmbedFormPage() {
 
   const { data: form, isLoading, error } = useQuery({
     queryKey: ['embed-form', slug, tenantParam],
-    queryFn: async () => {
-      const url = tenantParam 
-        ? `/api/public/form/${slug}?tenant=${encodeURIComponent(tenantParam)}`
-        : `/api/public/form/${slug}`;
-      const response = await fetch(url);
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to load form');
-      }
-      return response.json();
-    },
+    queryFn: () => publicClient.getForm(slug),
     enabled: !!slug
   });
 
@@ -213,22 +204,10 @@ export default function EmbedFormPage() {
   };
 
   const submitFormMutation = useMutation({
-    mutationFn: async (submissionData) => {
-      const response = await fetch('/api/public/form-submission', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...submissionData,
-          tenant: tenantParam,
-          prefill_organization_id: prefillOrgId || null
-        })
-      });
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to submit form');
-      }
-      return response.json();
-    },
+    mutationFn: (submissionData) => publicClient.submitForm({
+      ...submissionData,
+      prefill_organization_id: prefillOrgId || null
+    }),
     onSuccess: async () => {
       setSubmitted(true);
       notifyParentResize();

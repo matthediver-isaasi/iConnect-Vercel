@@ -4,6 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { FileQuestion, ChevronLeft, ChevronRight, SlidersHorizontal } from "lucide-react";
 import { createPageUrl } from "@/utils";
+import { publicClient } from "@/api/publicClient";
 import ArticleFilter from "../components/blog/ArticleFilter";
 import ArticleCard from "../components/blog/ArticleCard";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -19,13 +20,7 @@ export default function PublicArticlesPage() {
 
   const { data: articlesData = { articles: [], authors: {}, guestWriters: {} }, isLoading: articlesLoading } = useQuery({
     queryKey: ['public-articles'],
-    queryFn: async () => {
-      const response = await fetch('/api/public/articles');
-      if (!response.ok) {
-        throw new Error('Failed to fetch articles');
-      }
-      return response.json();
-    },
+    queryFn: () => publicClient.listArticles(),
     staleTime: 0,
   });
 
@@ -34,11 +29,7 @@ export default function PublicArticlesPage() {
   const { data: categories = [], isLoading: categoriesLoading } = useQuery({
     queryKey: ['resourceCategories-articles'],
     queryFn: async () => {
-      const response = await fetch('/api/public/resource-categories');
-      if (!response.ok) {
-        throw new Error('Failed to fetch categories');
-      }
-      const cats = await response.json();
+      const cats = await publicClient.listResourceCategories();
       const articleCategories = cats.filter(c =>
         c.applies_to_content_types &&
         c.applies_to_content_types.includes("Articles")

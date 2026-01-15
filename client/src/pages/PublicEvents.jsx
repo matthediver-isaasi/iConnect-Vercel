@@ -7,6 +7,7 @@ import { Calendar, MapPin, Clock, Users } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { formatInTimeZone, toZonedTime } from "date-fns-tz";
 import { createPageUrl } from "@/utils";
+import { publicClient } from "@/api/publicClient";
 
 const DEFAULT_TIMEZONE = "Europe/London";
 
@@ -71,13 +72,7 @@ const hasPublicTickets = (event) => {
 export default function PublicEventsPage() {
   const { data: allEvents = [], isLoading } = useQuery({
     queryKey: ['public-events'],
-    queryFn: async () => {
-      const response = await fetch('/api/public/events');
-      if (!response.ok) {
-        throw new Error('Failed to fetch events');
-      }
-      return response.json();
-    },
+    queryFn: () => publicClient.listEvents(),
     staleTime: 0
   });
 

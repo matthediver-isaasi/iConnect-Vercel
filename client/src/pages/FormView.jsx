@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { base44 } from "@/api/base44Client";
+import { publicClient } from "@/api/publicClient";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -53,9 +54,7 @@ export default function FormViewPage() {
   const { data: defaultConsentMessage } = useQuery({
     queryKey: ['formDefaultConsentMessage'],
     queryFn: async () => {
-      const response = await fetch('/api/public/form-consent-message');
-      if (!response.ok) return '';
-      const data = await response.json();
+      const data = await publicClient.getFormConsentMessage();
       return data.message || '';
     },
     staleTime: 5 * 60 * 1000 // Cache for 5 minutes
@@ -239,13 +238,7 @@ export default function FormViewPage() {
   // Fetch the selected organization for domain validation (uses public endpoint for unauthenticated access)
   const { data: selectedOrg } = useQuery({
     queryKey: ['selected-org-for-validation', selectedOrgId],
-    queryFn: async () => {
-      const response = await fetch(`/api/public/organisation/${selectedOrgId}/domains`);
-      if (!response.ok) {
-        throw new Error('Failed to fetch organisation domains');
-      }
-      return response.json();
-    },
+    queryFn: () => publicClient.getOrganizationDomains(selectedOrgId),
     enabled: !!selectedOrgId,
     staleTime: 5 * 60 * 1000 // Cache for 5 minutes
   });

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useLocation, useNavigate } from "react-router-dom";
 import { base44 } from "@/api/base44Client";
+import { publicClient } from "@/api/publicClient";
 import { useQuery } from "@tanstack/react-query";
 import IEditElementRenderer from "../components/iedit/IEditElementRenderer";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -69,9 +70,8 @@ export default function DynamicPage() {
     queryFn: async () => {
       // Try public endpoint first (works for unauthenticated users on public pages)
       try {
-        const publicResponse = await fetch(`/api/public/page?slug=${encodeURIComponent(slug)}`);
-        if (publicResponse.ok) {
-          const data = await publicResponse.json();
+        const data = await publicClient.getPage(slug);
+        if (data) {
           return { page: data.page, elements: data.elements };
         }
       } catch (e) {

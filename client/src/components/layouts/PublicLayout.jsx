@@ -2,6 +2,7 @@ import React, { useEffect, useState, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { base44 } from "@/api/base44Client";
+import { publicClient } from "@/api/publicClient";
 import { Mail, MapPin, Phone, ArrowUpRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
@@ -77,7 +78,7 @@ export default function PublicLayout({ children, currentPageName }) {
   useEffect(() => {
     const fetchConfigs = async () => {
       try {
-        const allSettings = await base44.entities.SystemSettings.list();
+        const allSettings = await publicClient.listSystemSettings();
         
         const socialSetting = allSettings.find(s => s.setting_key === 'social_icons_config');
         if (socialSetting?.setting_value) {
@@ -99,9 +100,9 @@ export default function PublicLayout({ children, currentPageName }) {
 
         const newsletterSetting = allSettings.find(s => s.setting_key === 'newsletter_signup_form_id');
         if (newsletterSetting?.setting_value && newsletterSetting.setting_value !== 'none') {
-          // Fetch the form to get its slug
+          // Fetch the form to get its slug using public endpoint
           try {
-            const form = await base44.entities.Form.get(newsletterSetting.setting_value);
+            const form = await publicClient.getForm(newsletterSetting.setting_value);
             if (form?.is_active && form?.slug) {
               setNewsletterFormSlug(form.slug);
             } else {
@@ -172,11 +173,7 @@ export default function PublicLayout({ children, currentPageName }) {
 
       try {
         // Use public API endpoint that doesn't require authentication
-        const response = await fetch('/api/public/banners');
-        if (!response.ok) {
-          throw new Error('Failed to fetch banners');
-        }
-        const allBanners = await response.json();
+        const allBanners = await publicClient.listBanners();
         
         // Get the portal page identifier for this page (handles dynamic article slugs)
         const portalPageId = resolvePortalPageId(currentPageName);

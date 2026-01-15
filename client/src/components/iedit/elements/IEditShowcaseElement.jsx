@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { base44 } from "@/api/base44Client";
+import { publicClient } from "@/api/publicClient";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -1102,47 +1103,37 @@ export function IEditShowcaseElementRenderer({ element, settings }) {
 
   const fullWidth = settings?.fullWidth;
 
-  // Fetch article display name setting
+  // Fetch article display name setting using public endpoint
   const { data: articleDisplayName = 'Articles' } = useQuery({
-    queryKey: ['article-display-name'],
+    queryKey: ['public-article-display-name-showcase'],
     queryFn: async () => {
-      const allSettings = await base44.entities.SystemSettings.list();
-      const setting = allSettings.find(s => s.setting_key === 'article_display_name');
+      const setting = await publicClient.getSystemSetting('article_display_name');
       return setting?.setting_value || 'Articles';
     }
   });
 
-  // Fetch all items for selected cards
+  // Fetch all items for selected cards using public endpoints
   const { data: allNews = [] } = useQuery({
-    queryKey: ['showcase-news'],
-    queryFn: async () => {
-      const news = await base44.entities.NewsPost.list();
-      return news.filter(n => n.status === 'published');
-    },
+    queryKey: ['public-showcase-news'],
+    queryFn: () => publicClient.listNews(),
     enabled: content.cards?.some(c => c.contentType === 'news' && c.itemId)
   });
 
   const { data: allResources = [] } = useQuery({
-    queryKey: ['showcase-resources'],
-    queryFn: () => base44.entities.Resource.list('-release_date'),
+    queryKey: ['public-showcase-resources'],
+    queryFn: () => publicClient.listResources(),
     enabled: content.cards?.some(c => c.contentType === 'resources' && c.itemId)
   });
 
   const { data: allArticles = [] } = useQuery({
-    queryKey: ['showcase-articles'],
-    queryFn: async () => {
-      const articles = await base44.entities.BlogPost.list();
-      return articles.filter(a => a.status === 'published');
-    },
+    queryKey: ['public-showcase-articles'],
+    queryFn: () => publicClient.listArticles(),
     enabled: content.cards?.some(c => c.contentType === 'articles' && c.itemId)
   });
 
   const { data: allJobs = [] } = useQuery({
-    queryKey: ['showcase-jobs'],
-    queryFn: async () => {
-      const jobs = await base44.entities.JobPosting.list();
-      return jobs.filter(j => j.status === 'active');
-    },
+    queryKey: ['public-showcase-jobs'],
+    queryFn: () => publicClient.listJobPostings(),
     enabled: content.cards?.some(c => c.contentType === 'jobs' && c.itemId)
   });
 

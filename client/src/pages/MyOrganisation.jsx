@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { base44 } from "@/api/base44Client";
+import { publicClient } from "@/api/publicClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -236,11 +237,7 @@ export default function MyOrganisationPage() {
     queryFn: async () => {
       if (!memberInfo?.organization_id) return { verified_domains: [] };
       try {
-        const response = await fetch(`/api/public/organisation/${memberInfo.organization_id}/domains`, {
-          credentials: 'include'
-        });
-        if (!response.ok) return { verified_domains: [] };
-        return response.json();
+        return await publicClient.getOrganizationDomains(memberInfo.organization_id);
       } catch {
         return { verified_domains: [] };
       }
