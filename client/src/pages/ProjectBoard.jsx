@@ -15,8 +15,9 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { 
   Plus, MoreHorizontal, Loader2, ArrowLeft, Calendar, Users, 
   MessageSquare, CheckSquare, Tag, Trash2, Archive, Settings, Clock,
-  AlertCircle, X, Check, User
+  AlertCircle, X, Check, User, Paperclip
 } from "lucide-react";
+import { CardAttachments } from "@/components/projects/CardAttachments";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -459,11 +460,19 @@ export default function ProjectBoardPage() {
                                 className={`mb-2 ${snapshot.isDragging ? 'opacity-75' : ''}`}
                               >
                                 <Card 
-                                  className="cursor-pointer hover-elevate"
+                                  className="cursor-pointer hover-elevate overflow-hidden"
                                   onClick={() => openCardDetail(card)}
                                   data-testid={`card-${card.id}`}
                                 >
-                                  {card.cover_color && (
+                                  {card.cover_image ? (
+                                    <div className="relative h-32 w-full">
+                                      <img 
+                                        src={card.cover_image} 
+                                        alt=""
+                                        className="absolute inset-0 w-full h-full object-cover"
+                                      />
+                                    </div>
+                                  ) : card.cover_color && (
                                     <div 
                                       className="h-8 rounded-t-md"
                                       style={{ backgroundColor: card.cover_color }}
@@ -783,30 +792,40 @@ function CardDetailModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="flex items-start gap-3">
-            <input
-              type="checkbox"
-              checked={editedCard.is_complete}
-              onChange={(e) => setEditedCard({ ...editedCard, is_complete: e.target.checked })}
-              className="mt-1 w-5 h-5"
-              disabled={!canEdit}
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto p-0">
+        {card.cover_image && (
+          <div className="relative w-full h-40 bg-muted">
+            <img 
+              src={card.cover_image} 
+              alt=""
+              className="w-full h-full object-cover"
             />
-            {canEdit ? (
-              <Input
-                value={editedCard.title}
-                onChange={(e) => setEditedCard({ ...editedCard, title: e.target.value })}
-                className="text-lg font-semibold"
-                data-testid="input-card-title"
+          </div>
+        )}
+        <div className="p-6">
+          <DialogHeader>
+            <DialogTitle className="flex items-start gap-3">
+              <input
+                type="checkbox"
+                checked={editedCard.is_complete}
+                onChange={(e) => setEditedCard({ ...editedCard, is_complete: e.target.checked })}
+                className="mt-1 w-5 h-5"
+                disabled={!canEdit}
               />
-            ) : (
-              <span className={editedCard.is_complete ? 'line-through text-muted-foreground' : ''}>
-                {card.title}
-              </span>
-            )}
-          </DialogTitle>
-        </DialogHeader>
+              {canEdit ? (
+                <Input
+                  value={editedCard.title}
+                  onChange={(e) => setEditedCard({ ...editedCard, title: e.target.value })}
+                  className="text-lg font-semibold"
+                  data-testid="input-card-title"
+                />
+              ) : (
+                <span className={editedCard.is_complete ? 'line-through text-muted-foreground' : ''}>
+                  {card.title}
+                </span>
+              )}
+            </DialogTitle>
+          </DialogHeader>
 
         <div className="grid grid-cols-3 gap-6 mt-4">
           <div className="col-span-2 space-y-4">
@@ -827,6 +846,16 @@ function CardDetailModal({
                 </p>
               )}
             </div>
+
+            <CardAttachments
+              cardId={card.id}
+              attachments={cardDetails?.attachments || []}
+              coverImage={card.cover_image}
+              canEdit={canEdit}
+              onCoverChange={(newCover) => {
+                onUpdate({ cover_image: newCover });
+              }}
+            />
 
             <div>
               <Label className="flex items-center gap-2">
@@ -1065,6 +1094,7 @@ function CardDetailModal({
             </Button>
           )}
         </DialogFooter>
+        </div>
       </DialogContent>
     </Dialog>
   );
