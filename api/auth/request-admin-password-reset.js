@@ -48,14 +48,15 @@ export default async function handler(req, res) {
 
     const { data: memberships } = await supabase
       .from('tenant_membership')
-      .select('id, tenant_id, tenant:tenant_id(name, slug, admin_domain)')
+      .select('id, tenant_id, membership_type, tenant:tenant_id(name, slug, admin_domain)')
       .eq('identity_id', identity.id)
       .eq('membership_type', 'owner')
       .eq('status', 'active')
+      .order('is_default', { ascending: false })
       .limit(1);
 
     if (!memberships || memberships.length === 0) {
-      console.log('[Admin Password Reset] No owner memberships for:', normalizedEmail);
+      console.log('[Admin Password Reset] No admin (owner type) memberships for:', normalizedEmail);
       return res.json({ 
         success: true, 
         message: 'If an account exists, a reset link will be sent.' 
