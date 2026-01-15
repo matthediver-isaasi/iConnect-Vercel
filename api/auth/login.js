@@ -41,42 +41,82 @@ export default async function handler(req, res) {
 
     let authenticatedViaIdentity = false;
     let credentials = null;
+    let usedTenantSpecificCreds = false;
 
-    if (identity && identity.password_hash) {
-      // Check if account is locked
-      if (identity.locked_until && new Date(identity.locked_until) > new Date()) {
-        return res.status(401).json({ success: false, error: 'Account temporarily locked. Please try again later.' });
+    if (identity) {
+      // Check for tenant-specific credentials first (per-tenant password isolation)
+      let tenantCreds = null;
+      if (requestTenantId) {
+        const { data: tenantCredsData } = await supabase
+          .from('tenant_membership_credentials')
+          .select('*')
+          .eq('identity_id', identity.id)
+          .eq('tenant_id', requestTenantId)
+          .single();
+        tenantCreds = tenantCredsData;
       }
 
-      const isValid = await bcrypt.compare(password, identity.password_hash);
-      
-      if (isValid) {
-        authenticatedViaIdentity = true;
-        // Reset failed attempts on successful login
-        await supabase
-          .from('tenant_identity')
-          .update({ 
-            failed_attempts: 0, 
-            locked_until: null,
-            last_login: new Date().toISOString()
-          })
-          .eq('id', identity.id);
-        console.log('[Auth Login] Authenticated via unified identity for:', email);
-      } else {
-        // Update failed attempts on identity
-        const newFailedAttempts = (identity.failed_attempts || 0) + 1;
-        const updates = { failed_attempts: newFailedAttempts };
-        
-        if (newFailedAttempts >= 5) {
-          updates.locked_until = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+      // Determine which password_hash to use
+      const passwordHash = tenantCreds?.password_hash || identity.password_hash;
+      const credSource = tenantCreds?.password_hash ? tenantCreds : identity;
+      usedTenantSpecificCreds = !!tenantCreds?.password_hash;
+
+      if (passwordHash) {
+        // Check if account is locked (check both tenant-specific and shared)
+        if (credSource.locked_until && new Date(credSource.locked_until) > new Date()) {
+          return res.status(401).json({ success: false, error: 'Account temporarily locked. Please try again later.' });
         }
+
+        const isValid = await bcrypt.compare(password, passwordHash);
         
-        await supabase
-          .from('tenant_identity')
-          .update(updates)
-          .eq('id', identity.id);
-        
-        return res.status(401).json({ success: false, error: 'Invalid email or password' });
+        if (isValid) {
+          authenticatedViaIdentity = true;
+          
+          // Reset failed attempts on successful login
+          if (usedTenantSpecificCreds && tenantCreds) {
+            await supabase
+              .from('tenant_membership_credentials')
+              .update({ 
+                failed_attempts: 0, 
+                locked_until: null,
+                last_login: new Date().toISOString()
+              })
+              .eq('id', tenantCreds.id);
+            console.log('[Auth Login] Authenticated via tenant-specific credentials for:', email, 'tenant:', requestTenantId);
+          } else {
+            await supabase
+              .from('tenant_identity')
+              .update({ 
+                failed_attempts: 0, 
+                locked_until: null,
+                last_login: new Date().toISOString()
+              })
+              .eq('id', identity.id);
+            console.log('[Auth Login] Authenticated via shared identity for:', email);
+          }
+        } else {
+          // Update failed attempts
+          const newFailedAttempts = (credSource.failed_attempts || 0) + 1;
+          const updates = { failed_attempts: newFailedAttempts };
+          
+          if (newFailedAttempts >= 5) {
+            updates.locked_until = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+          }
+          
+          if (usedTenantSpecificCreds && tenantCreds) {
+            await supabase
+              .from('tenant_membership_credentials')
+              .update(updates)
+              .eq('id', tenantCreds.id);
+          } else {
+            await supabase
+              .from('tenant_identity')
+              .update(updates)
+              .eq('id', identity.id);
+          }
+          
+          return res.status(401).json({ success: false, error: 'Invalid email or password' });
+        }
       }
     }
 
