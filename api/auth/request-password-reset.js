@@ -31,16 +31,24 @@ export default async function handler(req, res) {
     console.log('[Password Reset] Request for:', normalizedEmail);
 
     // First check if member exists
-    const { data: member, error: memberError } = await supabase
+    const { data: members, error: memberError } = await supabase
       .from('member')
       .select('id, email, first_name, tenant_id')
       .eq('email', normalizedEmail)
-      .single();
+      .limit(1);
 
-    if (memberError || !member) {
+    if (memberError) {
+      console.error('[Password Reset] Error looking up member:', memberError);
+      return res.json({ success: true, message: 'If an account exists, a reset link will be sent.' });
+    }
+
+    if (!members || members.length === 0) {
       console.log('[Password Reset] No member found for:', normalizedEmail);
       return res.json({ success: true, message: 'If an account exists, a reset link will be sent.' });
     }
+
+    const member = members[0];
+    console.log('[Password Reset] Found member:', member.id, 'tenant:', member.tenant_id);
 
     // Get tenant for branding
     let tenantName = 'Graduate Futures';
@@ -118,29 +126,42 @@ export default async function handler(req, res) {
     }
 
     // Also update member_credentials for backwards compatibility
-    const { data: existingCreds } = await supabase
-      .from('member_credentials')
-      .select('id')
-      .eq('member_id', member.id)
-      .single();
+    try {
+      const { data: existingCreds } = await supabase
+        .from('member_credentials')
+        .select('id')
+        .eq('member_id', member.id)
+        .limit(1);
 
-    if (existingCreds) {
-      await supabase
-        .from('member_credentials')
-        .update({ 
-          reset_token: resetToken,
-          reset_token_expires: expiresAt.toISOString()
-        })
-        .eq('id', existingCreds.id);
-    } else {
-      await supabase
-        .from('member_credentials')
-        .insert({
-          member_id: member.id,
-          email: normalizedEmail,
-          reset_token: resetToken,
-          reset_token_expires: expiresAt.toISOString()
-        });
+      if (existingCreds && existingCreds.length > 0) {
+        const { error: credUpdateError } = await supabase
+          .from('member_credentials')
+          .update({ 
+            reset_token: resetToken,
+            reset_token_expires: expiresAt.toISOString()
+          })
+          .eq('id', existingCreds[0].id);
+        
+        if (credUpdateError) {
+          console.error('[Password Reset] Failed to update member_credentials:', credUpdateError);
+        }
+      } else {
+        const { error: credInsertError } = await supabase
+          .from('member_credentials')
+          .insert({
+            member_id: member.id,
+            email: normalizedEmail,
+            reset_token: resetToken,
+            reset_token_expires: expiresAt.toISOString()
+          });
+        
+        if (credInsertError) {
+          console.error('[Password Reset] Failed to insert member_credentials:', credInsertError);
+        }
+      }
+    } catch (credError) {
+      console.error('[Password Reset] member_credentials operation failed:', credError);
+      // Continue anyway - we have the token in tenant_identity
     }
 
     // Build reset URL
@@ -157,6 +178,8 @@ export default async function handler(req, res) {
     console.log(`[Password Reset] Link for ${normalizedEmail}: ${resetUrl}`);
 
     // Send password reset email
+    console.log('[Password Reset] Preparing to send email to:', normalizedEmail, 'with subject:', `${tenantName} Password Reset Request`);
+    
     try {
       const emailHtml = `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; line-height: 1.6;">
@@ -173,19 +196,22 @@ export default async function handler(req, res) {
         </div>
       `;
 
+      console.log('[Password Reset] Calling sendEmail...');
       const emailResult = await sendEmail({
         to: normalizedEmail,
         subject: `${tenantName} Password Reset Request`,
         html: emailHtml
       });
 
+      console.log('[Password Reset] sendEmail result:', JSON.stringify(emailResult));
+      
       if (emailResult.success) {
-        console.log(`[Password Reset] Email sent to ${normalizedEmail}`);
+        console.log(`[Password Reset] Email successfully sent to ${normalizedEmail}`);
       } else {
         console.error(`[Password Reset] Failed to send email: ${emailResult.error}`);
       }
     } catch (mailError) {
-      console.error('[Password Reset] Failed to send email:', mailError);
+      console.error('[Password Reset] Exception sending email:', mailError.message || mailError);
     }
 
     res.json({ 
