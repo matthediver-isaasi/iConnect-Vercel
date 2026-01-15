@@ -84,7 +84,9 @@ export default async function handler(req, res) {
           name: tc.name,
           description: tc.description,
           price: tc.price,
-          currency: tc.currency
+          currency: tc.currency,
+          visibility_mode: tc.visibility_mode,
+          is_public: tc.is_public
         }));
 
       return {
