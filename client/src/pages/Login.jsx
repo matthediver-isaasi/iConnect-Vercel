@@ -20,12 +20,29 @@ export default function LoginPage() {
   const [emailSent, setEmailSent] = useState(false);
   const [confirmPassword, setConfirmPassword] = useState("");
   const [googleLoginEnabled, setGoogleLoginEnabled] = useState(null); // null = loading, true/false = loaded
+  const [resetToken, setResetToken] = useState("");
   
-  // Get returnTo and resourceId parameters from URL
+  // Get URL parameters
   const urlParams = new URLSearchParams(window.location.search);
   const returnTo = urlParams.get('returnTo');
   const resourceId = urlParams.get('resourceId');
   const oauthError = urlParams.get('error');
+  const urlMode = urlParams.get('mode');
+  const urlToken = urlParams.get('token');
+  const urlEmail = urlParams.get('email');
+
+  // Handle password reset link parameters
+  useEffect(() => {
+    if (urlMode === 'set-password' && urlToken) {
+      setMode('set-password');
+      setResetToken(urlToken);
+      if (urlEmail) {
+        setEmail(decodeURIComponent(urlEmail));
+      }
+      // Clean up URL after reading params
+      window.history.replaceState({}, '', '/Login');
+    }
+  }, [urlMode, urlToken, urlEmail]);
 
   // Handle OAuth error messages
   useEffect(() => {
@@ -184,14 +201,21 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
+      const payload = { 
+        email: email.toLowerCase().trim(), 
+        password 
+      };
+      
+      // Include reset token if we have one (from password reset link)
+      if (resetToken) {
+        payload.token = resetToken;
+      }
+      
       const response = await fetch('/api/auth/set-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ 
-          email: email.toLowerCase().trim(), 
-          password 
-        })
+        body: JSON.stringify(payload)
       });
 
       const data = await response.json();
