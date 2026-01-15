@@ -189,8 +189,10 @@ export default function EventDetailsPage() {
   const { data: event, isLoading } = useQuery({
     queryKey: ['event', eventId],
     queryFn: async () => {
-      const events = await base44.entities.Event.list();
-      return events.find((e) => e.id === eventId);
+      // Use public endpoint to avoid 401 errors for unauthenticated users
+      const response = await fetch(`/api/public/event?id=${eventId}`);
+      if (!response.ok) return null;
+      return response.json();
     },
     enabled: !!eventId,
     // Fallback polling every 15s when realtime is not connected
@@ -202,8 +204,10 @@ export default function EventDetailsPage() {
     queryKey: ['event-speakers', event?.speaker_ids],
     queryFn: async () => {
       if (!event?.speaker_ids || event.speaker_ids.length === 0) return [];
-      const allSpeakers = await base44.entities.Speaker.list();
-      return allSpeakers.filter(s => event.speaker_ids.includes(s.id));
+      // Use public endpoint to avoid 401 errors for unauthenticated users
+      const response = await fetch(`/api/public/speakers?ids=${event.speaker_ids.join(',')}`);
+      if (!response.ok) return [];
+      return response.json();
     },
     enabled: !!event?.speaker_ids && event.speaker_ids.length > 0
   });
