@@ -30,12 +30,42 @@ export default async function handler(req, res) {
     const normalizedEmail = email.toLowerCase().trim();
     console.log('[Password Reset] Request for:', normalizedEmail);
 
-    // First check if member exists
-    const { data: members, error: memberError } = await supabase
+    // Extract tenant context from request host (subdomain)
+    const host = req.headers['x-forwarded-host'] || req.headers.host || '';
+    let tenantSlugFromHost = null;
+    let tenantFromHost = null;
+    
+    // Parse subdomain from host (e.g., bnms.iconn.app -> bnms)
+    const hostParts = host.split('.');
+    if (hostParts.length >= 3 && hostParts[1] === 'iconn' && hostParts[2] === 'app') {
+      tenantSlugFromHost = hostParts[0];
+      console.log('[Password Reset] Detected tenant slug from host:', tenantSlugFromHost);
+      
+      // Look up tenant by slug
+      const { data: tenant } = await supabase
+        .from('tenant')
+        .select('id, name, slug')
+        .eq('slug', tenantSlugFromHost)
+        .single();
+      
+      if (tenant) {
+        tenantFromHost = tenant;
+        console.log('[Password Reset] Resolved tenant:', tenant.id, tenant.name);
+      }
+    }
+
+    // Build member query - if we have a tenant context, filter by it
+    let memberQuery = supabase
       .from('member')
       .select('id, email, first_name, tenant_id')
-      .eq('email', normalizedEmail)
-      .limit(1);
+      .eq('email', normalizedEmail);
+    
+    if (tenantFromHost) {
+      // Filter to the specific tenant from subdomain
+      memberQuery = memberQuery.eq('tenant_id', tenantFromHost.id);
+    }
+    
+    const { data: members, error: memberError } = await memberQuery.limit(1);
 
     if (memberError) {
       console.error('[Password Reset] Error looking up member:', memberError);
@@ -43,17 +73,18 @@ export default async function handler(req, res) {
     }
 
     if (!members || members.length === 0) {
-      console.log('[Password Reset] No member found for:', normalizedEmail);
+      console.log('[Password Reset] No member found for:', normalizedEmail, 'in tenant:', tenantFromHost?.slug || 'any');
       return res.json({ success: true, message: 'If an account exists, a reset link will be sent.' });
     }
 
     const member = members[0];
     console.log('[Password Reset] Found member:', member.id, 'tenant:', member.tenant_id);
 
-    // Get tenant for branding
-    let tenantName = 'Graduate Futures';
-    let tenantSlug = null;
-    if (member.tenant_id) {
+    // Get tenant for branding (use host tenant if available, otherwise look up from member)
+    let tenantName = tenantFromHost?.name || 'Graduate Futures';
+    let tenantSlug = tenantFromHost?.slug || null;
+    
+    if (!tenantFromHost && member.tenant_id) {
       const { data: tenant } = await supabase
         .from('tenant')
         .select('name, slug')
@@ -164,8 +195,7 @@ export default async function handler(req, res) {
       // Continue anyway - we have the token in tenant_identity
     }
 
-    // Build reset URL
-    const host = req.headers.host || 'iconn.app';
+    // Build reset URL (reuse host from earlier)
     const protocol = host.includes('localhost') ? 'http' : 'https';
     
     // Use tenant slug subdomain if available
