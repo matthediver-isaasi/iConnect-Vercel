@@ -253,8 +253,13 @@ export default async function handler(req, res) {
           }
         } else if (tenantScope === TENANT_SCOPE.TENANT) {
           // Tenant-scoped entities filter by tenant_id (or organization_id during migration)
+          console.log(`[Entity GET] Tenant-scoped entity ${entity}, tenantCtx.tenantId:`, tenantCtx.tenantId, 'isTenantAdmin:', isTenantAdmin);
           if (tenantCtx.tenantId) {
             query = query.eq('tenant_id', tenantCtx.tenantId);
+          } else if (isTenantAdmin) {
+            // SECURITY: Tenant admins MUST have tenantId set - reject query if missing
+            console.error(`[Entity GET] SECURITY: Tenant admin missing tenantId for ${entity}, blocking query`);
+            return res.status(403).json({ error: 'Invalid tenant context - please log out and log in again' });
           } else if (tenantCtx.organizationId) {
             // Fallback: use organization_id during migration period
             // Only for tables that still have organization_id column
