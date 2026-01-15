@@ -358,9 +358,26 @@ export default async function handler(req, res) {
           }
         } else if (tenantScope === TENANT_SCOPE.TENANT) {
           // Tenant-scoped entities: force tenant_id from session
-          if (tenantCtx.tenantId) {
-            sanitizedBody.tenant_id = tenantCtx.tenantId;
+          let resolvedTenantId = tenantCtx.tenantId;
+          
+          // For Member entity, if no tenant_id but organization_id is provided,
+          // resolve tenant_id from the organization to ensure proper tenant scoping
+          if (!resolvedTenantId && entity === 'Member' && sanitizedBody.organization_id) {
+            const { data: org } = await supabase
+              .from('organization')
+              .select('tenant_id')
+              .eq('id', sanitizedBody.organization_id)
+              .single();
+            if (org?.tenant_id) {
+              resolvedTenantId = org.tenant_id;
+              console.log(`[Entity POST] Resolved tenant_id ${resolvedTenantId} from organization ${sanitizedBody.organization_id}`);
+            }
           }
+          
+          if (resolvedTenantId) {
+            sanitizedBody.tenant_id = resolvedTenantId;
+          }
+          
           // Only set organization_id for entities that still have that column
           // These entities have been fully migrated to tenant_id only (no organization_id column):
           const entitiesWithoutOrgId = [
