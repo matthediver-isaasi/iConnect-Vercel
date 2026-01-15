@@ -481,3 +481,184 @@ export function CardCoverImage({ coverImage, coverColor, onRemove, canEdit }) {
     </div>
   );
 }
+
+export function CardCoverSection({ 
+  cardId, 
+  coverImage, 
+  attachments = [], 
+  canEdit = false,
+  onCoverChange 
+}) {
+  const [showCoverPicker, setShowCoverPicker] = useState(false);
+  const queryClient = useQueryClient();
+  
+  const imageAttachments = attachments.filter(a => a.file_type?.startsWith('image/'));
+  
+  const setCoverMutation = useMutation({
+    mutationFn: async ({ attachmentId, setAsCover, clearCover }) => {
+      const response = await apiRequest('PATCH', `/api/projects/cards/${cardId}/attachments/${attachmentId}`, {
+        setAsCover,
+        clearCover
+      });
+      return response;
+    },
+    onSuccess: (data) => {
+      if (data.coverImage) {
+        toast.success('Cover image set');
+      } else {
+        toast.success('Cover image removed');
+      }
+      queryClient.invalidateQueries({ queryKey: ['card-detail', cardId] });
+      queryClient.invalidateQueries({ queryKey: ['project-board'] });
+      if (onCoverChange) {
+        onCoverChange(data.coverImage);
+      }
+      setShowCoverPicker(false);
+    },
+    onError: (error) => {
+      toast.error(error.message || 'Failed to update cover');
+    }
+  });
+
+  const removeCoverMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest('PATCH', `/api/projects/cards/${cardId}`, {
+        cover_image: null
+      });
+      return response;
+    },
+    onSuccess: () => {
+      toast.success('Cover removed');
+      queryClient.invalidateQueries({ queryKey: ['card-detail', cardId] });
+      queryClient.invalidateQueries({ queryKey: ['project-board'] });
+      if (onCoverChange) {
+        onCoverChange(null);
+      }
+      setShowCoverPicker(false);
+    },
+    onError: (error) => {
+      toast.error(error.message || 'Failed to remove cover');
+    }
+  });
+
+  if (!canEdit && !coverImage) return null;
+
+  return (
+    <div className="mb-4">
+      <Label className="flex items-center gap-2 mb-2">
+        <ImagePlus className="w-4 h-4" />
+        Cover
+      </Label>
+      
+      {coverImage ? (
+        <div className="relative group">
+          <div className="h-24 rounded-lg overflow-hidden bg-muted">
+            <img 
+              src={coverImage} 
+              alt="Card cover"
+              className="w-full h-full object-cover"
+            />
+          </div>
+          {canEdit && (
+            <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setShowCoverPicker(true)}
+                data-testid="button-change-cover"
+              >
+                Change
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => removeCoverMutation.mutate()}
+                disabled={removeCoverMutation.isPending}
+                data-testid="button-remove-cover"
+              >
+                {removeCoverMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Remove'}
+              </Button>
+            </div>
+          )}
+        </div>
+      ) : canEdit ? (
+        <Button
+          variant="outline"
+          className="w-full h-20 border-dashed"
+          onClick={() => setShowCoverPicker(true)}
+          data-testid="button-add-cover"
+        >
+          <ImagePlus className="w-5 h-5 mr-2" />
+          Add cover image
+        </Button>
+      ) : null}
+
+      <Dialog open={showCoverPicker} onOpenChange={setShowCoverPicker}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Choose cover image</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            {imageAttachments.length > 0 ? (
+              <div>
+                <p className="text-sm text-muted-foreground mb-2">Select from attachments:</p>
+                <div className="grid grid-cols-3 gap-2">
+                  {imageAttachments.map((attachment) => (
+                    <div
+                      key={attachment.id}
+                      className={`relative cursor-pointer rounded-lg overflow-hidden h-20 border-2 transition-colors ${
+                        coverImage === attachment.url 
+                          ? 'border-primary' 
+                          : 'border-transparent hover:border-muted-foreground/50'
+                      }`}
+                      onClick={() => setCoverMutation.mutate({ 
+                        attachmentId: attachment.id, 
+                        setAsCover: true 
+                      })}
+                      data-testid={`cover-option-${attachment.id}`}
+                    >
+                      <img 
+                        src={attachment.url} 
+                        alt={attachment.name}
+                        className="w-full h-full object-cover"
+                      />
+                      {coverImage === attachment.url && (
+                        <div className="absolute inset-0 bg-primary/20 flex items-center justify-center">
+                          <div className="w-5 h-5 rounded-full bg-primary text-primary-foreground flex items-center justify-center">
+                            ✓
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="text-center py-6 text-muted-foreground">
+                <Image className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                <p>No image attachments yet.</p>
+                <p className="text-sm">Upload an image in the Attachments section below to use as a cover.</p>
+              </div>
+            )}
+            
+            {coverImage && (
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={() => removeCoverMutation.mutate()}
+                disabled={removeCoverMutation.isPending}
+              >
+                {removeCoverMutation.isPending ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <X className="w-4 h-4 mr-2" />
+                )}
+                Remove cover
+              </Button>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

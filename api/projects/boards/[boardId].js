@@ -67,7 +67,8 @@ export default async function handler(req, res) {
         .select(`
           *,
           project_card_label(label_id),
-          project_card_assignee(identity_id)
+          project_card_assignee(identity_id),
+          project_card_attachment(id, name, url, file_type, file_size, created_at)
         `)
         .eq('board_id', boardId)
         .eq('is_archived', false)

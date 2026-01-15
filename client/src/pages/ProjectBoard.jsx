@@ -17,7 +17,7 @@ import {
   MessageSquare, CheckSquare, Tag, Trash2, Archive, Settings, Clock,
   AlertCircle, X, Check, User, Paperclip
 } from "lucide-react";
-import { CardAttachments } from "@/components/projects/CardAttachments";
+import { CardAttachments, CardCoverSection } from "@/components/projects/CardAttachments";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -518,24 +518,41 @@ export default function ProjectBoardPage() {
                                         </Badge>
                                       )}
                                     </div>
-                                    {card.project_card_assignee?.length > 0 && (
-                                      <div className="flex -space-x-1 mt-2">
-                                        {card.project_card_assignee.slice(0, 3).map((a) => {
-                                          const member = getMemberById(a.identity_id);
-                                          return (
-                                            <Avatar key={a.identity_id} className="w-6 h-6 border border-background">
-                                              <AvatarImage src={member?.profile_picture_url} />
-                                              <AvatarFallback className="text-[10px]">
-                                                {member?.first_name?.[0]}{member?.last_name?.[0]}
-                                              </AvatarFallback>
-                                            </Avatar>
-                                          );
-                                        })}
-                                        {card.project_card_assignee.length > 3 && (
-                                          <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center text-[10px]">
-                                            +{card.project_card_assignee.length - 3}
-                                          </div>
-                                        )}
+                                    <div className="flex items-center justify-between mt-2">
+                                      {card.project_card_assignee?.length > 0 && (
+                                        <div className="flex -space-x-1">
+                                          {card.project_card_assignee.slice(0, 3).map((a) => {
+                                            const member = getMemberById(a.identity_id);
+                                            return (
+                                              <Avatar key={a.identity_id} className="w-6 h-6 border border-background">
+                                                <AvatarImage src={member?.profile_picture_url} />
+                                                <AvatarFallback className="text-[10px]">
+                                                  {member?.first_name?.[0]}{member?.last_name?.[0]}
+                                                </AvatarFallback>
+                                              </Avatar>
+                                            );
+                                          })}
+                                          {card.project_card_assignee.length > 3 && (
+                                            <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center text-[10px]">
+                                              +{card.project_card_assignee.length - 3}
+                                            </div>
+                                          )}
+                                        </div>
+                                      )}
+                                      {card.project_card_attachment?.length > 0 && (
+                                        <div className="flex items-center gap-1 text-muted-foreground">
+                                          <Paperclip className="w-3 h-3" />
+                                          <span className="text-xs">{card.project_card_attachment.length}</span>
+                                        </div>
+                                      )}
+                                    </div>
+                                    {!card.cover_image && card.project_card_attachment?.some(a => a.file_type?.startsWith('image/')) && (
+                                      <div className="mt-2 h-16 rounded overflow-hidden bg-muted">
+                                        <img 
+                                          src={card.project_card_attachment.find(a => a.file_type?.startsWith('image/'))?.url}
+                                          alt=""
+                                          className="w-full h-full object-cover"
+                                        />
                                       </div>
                                     )}
                                   </CardContent>
@@ -829,6 +846,16 @@ function CardDetailModal({
 
         <div className="grid grid-cols-3 gap-6 mt-4">
           <div className="col-span-2 space-y-4">
+            <CardCoverSection
+              cardId={card.id}
+              coverImage={card.cover_image}
+              attachments={cardDetails?.attachments || []}
+              canEdit={canEdit}
+              onCoverChange={(newCover) => {
+                onUpdate({ cover_image: newCover });
+              }}
+            />
+
             <div>
               <Label>Description</Label>
               {canEdit ? (
