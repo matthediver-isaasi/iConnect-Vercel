@@ -53,14 +53,39 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { data: link, error: linkError } = await supabase
-      .from('tenant_user_member_link')
-      .select('member_id')
-      .eq('tenant_user_id', tenantUser.id)
-      .eq('tenant_id', tenantUser.tenant_id)
-      .single();
+    let memberId = null;
+    
+    // First, check if user is from unified identity system with member_id in tenant_membership
+    if (tenantUser._isUnifiedIdentity) {
+      const { data: membership, error: membershipError } = await supabase
+        .from('tenant_membership')
+        .select('member_id')
+        .eq('identity_id', tenantUser.id)
+        .eq('tenant_id', tenantUser.tenant_id)
+        .single();
+      
+      if (membership?.member_id) {
+        memberId = membership.member_id;
+        console.log('[Portal Session] Found member_id via tenant_membership:', memberId);
+      }
+    }
+    
+    // Fallback: check legacy tenant_user_member_link table
+    if (!memberId) {
+      const { data: link, error: linkError } = await supabase
+        .from('tenant_user_member_link')
+        .select('member_id')
+        .eq('tenant_user_id', tenantUser.id)
+        .eq('tenant_id', tenantUser.tenant_id)
+        .single();
+      
+      if (link?.member_id) {
+        memberId = link.member_id;
+        console.log('[Portal Session] Found member_id via tenant_user_member_link:', memberId);
+      }
+    }
 
-    if (linkError || !link) {
+    if (!memberId) {
       return res.status(404).json({ 
         error: 'No portal access configured',
         message: 'Your SaaS account is not linked to a portal member account'
@@ -70,7 +95,7 @@ export default async function handler(req, res) {
     const { data: member, error: memberError } = await supabase
       .from('member')
       .select('id, email, first_name, last_name, login_enabled, status')
-      .eq('id', link.member_id)
+      .eq('id', memberId)
       .single();
 
     if (memberError || !member) {
