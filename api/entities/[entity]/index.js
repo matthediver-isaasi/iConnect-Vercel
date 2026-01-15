@@ -389,7 +389,7 @@ export default async function handler(req, res) {
           const entitiesWithoutOrgId = [
             'PortalMenu', 'PortalNavigationItem', 'NavigationItem', 'PageBanner', 'Floater',
             'FormDueDiligenceConfig', 'FormSubmissionDueDiligence', 'Form', 'ResourceCategory', 'Resource',
-            'FileRepository', 'FileRepositoryFolder'
+            'FileRepository', 'FileRepositoryFolder', 'Event'
           ];
           if (!entitiesWithoutOrgId.includes(entity)) {
             // For Member entity, preserve the organization_id from request body if provided
