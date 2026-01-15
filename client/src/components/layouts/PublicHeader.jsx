@@ -194,9 +194,12 @@ export default function PublicHeader() {
   // Function to fetch navigation items
   const fetchNavItems = useCallback(async () => {
     try {
-      // Fetch all items and filter client-side to bypass any SDK caching
-      const allItems = await base44.entities.NavigationItem.list('display_order');
-      const items = allItems.filter(item => item.is_active);
+      // Use public endpoint that doesn't require authentication
+      const response = await fetch('/api/public/navigation-items');
+      if (!response.ok) {
+        throw new Error('Failed to fetch navigation items');
+      }
+      const items = await response.json();
       
       // Build hierarchy
       const buildTree = (parentId, location) => {
