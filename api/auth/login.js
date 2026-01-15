@@ -93,6 +93,25 @@ export default async function handler(req, res) {
               })
               .eq('id', identity.id);
             console.log('[Auth Login] Authenticated via shared identity for:', email);
+            
+            // On-demand migration: Create tenant-specific credential from successful shared login
+            // This ensures future logins use isolated credentials
+            if (requestTenantId) {
+              try {
+                await supabase
+                  .from('tenant_membership_credentials')
+                  .insert({
+                    identity_id: identity.id,
+                    tenant_id: requestTenantId,
+                    password_hash: identity.password_hash,
+                    last_login: new Date().toISOString()
+                  });
+                console.log('[Auth Login] Created tenant-specific credential via on-demand migration');
+              } catch (migrationError) {
+                // Ignore duplicate key errors - credential may already exist
+                console.log('[Auth Login] On-demand migration skipped (may already exist)');
+              }
+            }
           }
         } else {
           // Update failed attempts

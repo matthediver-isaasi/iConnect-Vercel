@@ -1,6 +1,7 @@
 import bcrypt from 'bcryptjs';
 import { createSession } from '../_lib/session.js';
 import { supabase } from '../_lib/database.js';
+import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -21,10 +22,21 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { email, password, tenantId } = req.body;
+    const { email, password, tenantId: explicitTenantId } = req.body;
 
     if (!email || !password) {
       return res.status(400).json({ success: false, error: 'Email and password are required' });
+    }
+
+    // Resolve tenant from subdomain if not explicitly provided
+    // This enables per-tenant password isolation for admin logins on tenant subdomains
+    let tenantId = explicitTenantId;
+    if (!tenantId) {
+      const requestTenant = await resolveTenantFromRequest(req);
+      if (requestTenant?.id) {
+        tenantId = requestTenant.id;
+        console.log('[Tenant Identity] Resolved tenant from subdomain:', requestTenant.slug);
+      }
     }
 
     const { data: identity, error: identityError } = await supabase
@@ -49,11 +61,31 @@ export default async function handler(req, res) {
       return res.status(401).json({ success: false, error: 'Invalid email or password' });
     }
 
-    if (identity.locked_until && new Date(identity.locked_until) > new Date()) {
+    // Check for tenant-specific credentials if tenantId is provided
+    // This enables per-tenant password isolation for owners/admins
+    let tenantCreds = null;
+    let usedTenantSpecificCreds = false;
+    
+    if (tenantId) {
+      const { data: tenantCredsData } = await supabase
+        .from('tenant_membership_credentials')
+        .select('*')
+        .eq('identity_id', identity.id)
+        .eq('tenant_id', tenantId)
+        .single();
+      tenantCreds = tenantCredsData;
+    }
+
+    // Determine which password_hash to use (tenant-specific first, then shared)
+    const passwordHash = tenantCreds?.password_hash || identity.password_hash;
+    const credSource = tenantCreds?.password_hash ? tenantCreds : identity;
+    usedTenantSpecificCreds = !!tenantCreds?.password_hash;
+
+    if (credSource.locked_until && new Date(credSource.locked_until) > new Date()) {
       return res.status(401).json({ success: false, error: 'Account temporarily locked. Please try again later.' });
     }
 
-    if (!identity.password_hash) {
+    if (!passwordHash) {
       return res.status(401).json({ 
         success: false, 
         error: 'Password not set', 
@@ -61,32 +93,72 @@ export default async function handler(req, res) {
       });
     }
 
-    const isValid = await bcrypt.compare(password, identity.password_hash);
+    const isValid = await bcrypt.compare(password, passwordHash);
     
     if (!isValid) {
-      const newFailedAttempts = (identity.failed_attempts || 0) + 1;
+      const newFailedAttempts = (credSource.failed_attempts || 0) + 1;
       const updates = { failed_attempts: newFailedAttempts };
       
       if (newFailedAttempts >= 5) {
         updates.locked_until = new Date(Date.now() + 15 * 60 * 1000).toISOString();
       }
       
-      await supabase
-        .from('tenant_identity')
-        .update(updates)
-        .eq('id', identity.id);
+      if (usedTenantSpecificCreds && tenantCreds) {
+        await supabase
+          .from('tenant_membership_credentials')
+          .update(updates)
+          .eq('id', tenantCreds.id);
+      } else {
+        await supabase
+          .from('tenant_identity')
+          .update(updates)
+          .eq('id', identity.id);
+      }
       
       return res.status(401).json({ success: false, error: 'Invalid email or password' });
     }
 
-    await supabase
-      .from('tenant_identity')
-      .update({ 
-        failed_attempts: 0, 
-        locked_until: null,
-        last_login: new Date().toISOString()
-      })
-      .eq('id', identity.id);
+    // Reset failed attempts on successful login
+    if (usedTenantSpecificCreds && tenantCreds) {
+      await supabase
+        .from('tenant_membership_credentials')
+        .update({ 
+          failed_attempts: 0, 
+          locked_until: null,
+          last_login: new Date().toISOString()
+        })
+        .eq('id', tenantCreds.id);
+      console.log('[Tenant Identity] Authenticated via tenant-specific credentials for:', email);
+    } else {
+      await supabase
+        .from('tenant_identity')
+        .update({ 
+          failed_attempts: 0, 
+          locked_until: null,
+          last_login: new Date().toISOString()
+        })
+        .eq('id', identity.id);
+      console.log('[Tenant Identity] Authenticated via shared credentials for:', email);
+      
+      // On-demand migration: Create tenant-specific credential from successful shared login
+      // This ensures future logins use isolated credentials
+      if (tenantId && identity.password_hash) {
+        try {
+          await supabase
+            .from('tenant_membership_credentials')
+            .insert({
+              identity_id: identity.id,
+              tenant_id: tenantId,
+              password_hash: identity.password_hash,
+              last_login: new Date().toISOString()
+            });
+          console.log('[Tenant Identity] Created tenant-specific credential via on-demand migration');
+        } catch (migrationError) {
+          // Ignore duplicate key errors - credential may already exist
+          console.log('[Tenant Identity] On-demand migration skipped (may already exist)');
+        }
+      }
+    }
 
     const { data: memberships, error: membershipError } = await supabase
       .from('tenant_membership')

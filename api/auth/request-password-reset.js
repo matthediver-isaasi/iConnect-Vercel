@@ -142,22 +142,67 @@ export default async function handler(req, res) {
     const resetToken = crypto.randomUUID();
     const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
 
-    // Update tenant_identity with reset token
-    const { error: updateError } = await supabase
-      .from('tenant_identity')
-      .update({ 
-        reset_token: resetToken,
-        reset_token_expires: expiresAt.toISOString()
-      })
-      .eq('id', identity.id);
-
-    if (updateError) {
-      console.error('[Password Reset] Failed to set reset token:', updateError);
+    // Get tenant_id from host or member
+    const tenantId = tenantFromHost?.id || member.tenant_id;
+    
+    if (!tenantId) {
+      console.error('[Password Reset] No tenant context available');
       return res.status(500).json({ success: false, error: 'Failed to process request' });
     }
 
-    // Also update member_credentials for backwards compatibility
+    // Store reset token in tenant_membership_credentials (per-tenant password isolation)
+    // This ensures the password reset only affects this tenant's credentials
+    const { data: existingTenantCreds } = await supabase
+      .from('tenant_membership_credentials')
+      .select('id')
+      .eq('identity_id', identity.id)
+      .eq('tenant_id', tenantId)
+      .single();
+
+    if (existingTenantCreds) {
+      const { error: updateError } = await supabase
+        .from('tenant_membership_credentials')
+        .update({ 
+          reset_token: resetToken,
+          reset_token_expires: expiresAt.toISOString()
+        })
+        .eq('id', existingTenantCreds.id);
+
+      if (updateError) {
+        console.error('[Password Reset] Failed to update tenant credentials:', updateError);
+        return res.status(500).json({ success: false, error: 'Failed to process request' });
+      }
+      console.log('[Password Reset] Updated reset token in tenant_membership_credentials');
+    } else {
+      // Create new tenant-specific credentials record
+      const { error: insertError } = await supabase
+        .from('tenant_membership_credentials')
+        .insert({
+          identity_id: identity.id,
+          tenant_id: tenantId,
+          reset_token: resetToken,
+          reset_token_expires: expiresAt.toISOString()
+        });
+
+      if (insertError) {
+        console.error('[Password Reset] Failed to create tenant credentials:', insertError);
+        return res.status(500).json({ success: false, error: 'Failed to process request' });
+      }
+      console.log('[Password Reset] Created tenant_membership_credentials with reset token');
+    }
+
+    // Also update legacy tables for backwards compatibility during migration
     try {
+      // Update tenant_identity (for old code paths)
+      await supabase
+        .from('tenant_identity')
+        .update({ 
+          reset_token: resetToken,
+          reset_token_expires: expiresAt.toISOString()
+        })
+        .eq('id', identity.id);
+
+      // Update member_credentials
       const { data: existingCreds } = await supabase
         .from('member_credentials')
         .select('id')
@@ -165,34 +210,17 @@ export default async function handler(req, res) {
         .limit(1);
 
       if (existingCreds && existingCreds.length > 0) {
-        const { error: credUpdateError } = await supabase
+        await supabase
           .from('member_credentials')
           .update({ 
             reset_token: resetToken,
             reset_token_expires: expiresAt.toISOString()
           })
           .eq('id', existingCreds[0].id);
-        
-        if (credUpdateError) {
-          console.error('[Password Reset] Failed to update member_credentials:', credUpdateError);
-        }
-      } else {
-        const { error: credInsertError } = await supabase
-          .from('member_credentials')
-          .insert({
-            member_id: member.id,
-            email: normalizedEmail,
-            reset_token: resetToken,
-            reset_token_expires: expiresAt.toISOString()
-          });
-        
-        if (credInsertError) {
-          console.error('[Password Reset] Failed to insert member_credentials:', credInsertError);
-        }
       }
-    } catch (credError) {
-      console.error('[Password Reset] member_credentials operation failed:', credError);
-      // Continue anyway - we have the token in tenant_identity
+    } catch (legacyError) {
+      console.error('[Password Reset] Legacy table update failed (non-critical):', legacyError);
+      // Continue anyway - we have the token in tenant_membership_credentials
     }
 
     // Build reset URL (reuse host from earlier)

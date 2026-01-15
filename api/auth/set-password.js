@@ -1,6 +1,7 @@
 import bcrypt from 'bcryptjs';
 import { createSession } from '../_lib/session.js';
 import { supabase } from '../_lib/database.js';
+import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -31,15 +32,43 @@ export default async function handler(req, res) {
       return res.status(400).json({ success: false, error: 'Password must be at least 8 characters' });
     }
 
-    const { data: member, error: memberError } = await supabase
+    // Resolve tenant from request for tenant-specific password storage
+    const requestTenant = await resolveTenantFromRequest(req);
+    const requestTenantId = requestTenant?.id || null;
+    console.log('[Auth SetPassword] Tenant context:', requestTenantId, requestTenant?.slug);
+
+    // Find member - filter by tenant if available
+    let memberQuery = supabase
       .from('member')
-      .select('id, email')
+      .select('id, email, tenant_id, organization_id')
+      .eq('email', email.toLowerCase());
+    
+    if (requestTenantId) {
+      memberQuery = memberQuery.eq('tenant_id', requestTenantId);
+    }
+    
+    const { data: member, error: memberError } = await memberQuery.single();
+
+    if (memberError || !member) {
+      console.log('[Auth SetPassword] Member not found for:', email, 'tenant:', requestTenantId);
+      return res.status(404).json({ success: false, error: 'Member not found' });
+    }
+
+    // Determine the tenant to use for credentials
+    const tenantId = requestTenantId || member.tenant_id;
+    if (!tenantId) {
+      console.error('[Auth SetPassword] No tenant context available');
+      return res.status(400).json({ success: false, error: 'Unable to determine tenant context' });
+    }
+
+    // Get identity for this email
+    const { data: identity } = await supabase
+      .from('tenant_identity')
+      .select('id')
       .eq('email', email.toLowerCase())
       .single();
 
-    if (memberError || !member) {
-      return res.status(404).json({ success: false, error: 'Member not found' });
-    }
+    let tenantCredsRecord = null;
 
     if (token) {
       console.log(`[Auth] Validating token for member ${member.id}, token prefix: ${token.substring(0, 8)}...`);
@@ -47,20 +76,42 @@ export default async function handler(req, res) {
       let tokenValid = false;
       let tokenExpiry = null;
       
-      // First check tenant_identity (unified auth system)
-      const { data: identity } = await supabase
-        .from('tenant_identity')
-        .select('id, reset_token, reset_token_expires')
-        .eq('email', email.toLowerCase())
-        .eq('reset_token', token)
-        .single();
-      
+      // First check tenant_membership_credentials (new per-tenant system)
       if (identity) {
-        console.log('[Auth] Found token in tenant_identity');
-        tokenValid = true;
-        tokenExpiry = identity.reset_token_expires;
-      } else {
-        // Fall back to member_credentials for backwards compatibility
+        const { data: tenantCreds } = await supabase
+          .from('tenant_membership_credentials')
+          .select('id, reset_token, reset_token_expires')
+          .eq('identity_id', identity.id)
+          .eq('tenant_id', tenantId)
+          .eq('reset_token', token)
+          .single();
+        
+        if (tenantCreds) {
+          console.log('[Auth] Found token in tenant_membership_credentials');
+          tokenValid = true;
+          tokenExpiry = tenantCreds.reset_token_expires;
+          tenantCredsRecord = tenantCreds;
+        }
+      }
+      
+      // Fall back to tenant_identity for backwards compatibility
+      if (!tokenValid && identity) {
+        const { data: identityWithToken } = await supabase
+          .from('tenant_identity')
+          .select('id, reset_token, reset_token_expires')
+          .eq('id', identity.id)
+          .eq('reset_token', token)
+          .single();
+        
+        if (identityWithToken) {
+          console.log('[Auth] Found token in tenant_identity (legacy)');
+          tokenValid = true;
+          tokenExpiry = identityWithToken.reset_token_expires;
+        }
+      }
+      
+      // Fall back to member_credentials for backwards compatibility
+      if (!tokenValid) {
         const { data: credentials } = await supabase
           .from('member_credentials')
           .select('id, reset_token, reset_token_expires')
@@ -69,14 +120,14 @@ export default async function handler(req, res) {
           .single();
         
         if (credentials) {
-          console.log('[Auth] Found token in member_credentials');
+          console.log('[Auth] Found token in member_credentials (legacy)');
           tokenValid = true;
           tokenExpiry = credentials.reset_token_expires;
         }
       }
       
       if (!tokenValid) {
-        console.error('[Auth] Token validation failed - token not found in either table');
+        console.error('[Auth] Token validation failed - token not found');
         return res.status(401).json({ success: false, error: 'Invalid or expired reset token. Please request a new password reset.' });
       }
 
@@ -90,36 +141,10 @@ export default async function handler(req, res) {
 
     const passwordHash = await bcrypt.hash(password, 12);
 
-    // First, handle unified identity system (tenant_identity)
-    const { data: existingIdentity } = await supabase
-      .from('tenant_identity')
-      .select('*')
-      .eq('email', email.toLowerCase())
-      .single();
+    // Handle identity - create if doesn't exist
+    let identityId = identity?.id;
 
-    let identityId = existingIdentity?.id;
-
-    if (existingIdentity) {
-      // Update existing identity with new password
-      const { error: identityUpdateError } = await supabase
-        .from('tenant_identity')
-        .update({ 
-          password_hash: passwordHash,
-          is_temporary: false,
-          reset_token: null,
-          reset_token_expires: null,
-          failed_attempts: 0,
-          locked_until: null,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', existingIdentity.id);
-      
-      if (identityUpdateError) {
-        console.error('[Auth] Failed to update identity password:', identityUpdateError);
-      } else {
-        console.log('[Auth] Updated identity password for:', email);
-      }
-    } else {
+    if (!identity) {
       // Create new identity
       const { data: fullMemberData } = await supabase
         .from('member')
@@ -133,7 +158,6 @@ export default async function handler(req, res) {
           email: email.toLowerCase(),
           first_name: fullMemberData?.first_name,
           last_name: fullMemberData?.last_name,
-          password_hash: passwordHash,
           is_temporary: false
         })
         .select()
@@ -141,63 +165,122 @@ export default async function handler(req, res) {
       
       if (identityInsertError) {
         console.error('[Auth] Failed to create identity:', identityInsertError);
-      } else {
-        identityId = newIdentity.id;
-        console.log('[Auth] Created new identity for:', email);
+        return res.status(500).json({ success: false, error: 'Failed to create account' });
       }
+      identityId = newIdentity.id;
+      console.log('[Auth] Created new identity for:', email);
     }
 
+    // Save password to tenant_membership_credentials (per-tenant password isolation)
+    // This is the primary password storage - each tenant has its own password
+    const { data: existingTenantCreds } = await supabase
+      .from('tenant_membership_credentials')
+      .select('id')
+      .eq('identity_id', identityId)
+      .eq('tenant_id', tenantId)
+      .single();
+
+    if (existingTenantCreds) {
+      const { error: updateError } = await supabase
+        .from('tenant_membership_credentials')
+        .update({ 
+          password_hash: passwordHash,
+          reset_token: null,
+          reset_token_expires: null,
+          failed_attempts: 0,
+          locked_until: null
+        })
+        .eq('id', existingTenantCreds.id);
+      
+      if (updateError) {
+        console.error('[Auth] Failed to update tenant credentials:', updateError);
+        return res.status(500).json({ success: false, error: 'Failed to save password' });
+      }
+      console.log('[Auth] Updated tenant-specific password for:', email, 'tenant:', tenantId);
+    } else {
+      const { error: insertError } = await supabase
+        .from('tenant_membership_credentials')
+        .insert({
+          identity_id: identityId,
+          tenant_id: tenantId,
+          password_hash: passwordHash
+        });
+      
+      if (insertError) {
+        console.error('[Auth] Failed to create tenant credentials:', insertError);
+        return res.status(500).json({ success: false, error: 'Failed to save password' });
+      }
+      console.log('[Auth] Created tenant-specific password for:', email, 'tenant:', tenantId);
+    }
+
+    // Clear reset tokens on tenant_identity (but DO NOT update password_hash - that would break tenant isolation)
+    // Only update shared password if this user has NO tenant-specific credentials anywhere
+    const { data: anyTenantCreds } = await supabase
+      .from('tenant_membership_credentials')
+      .select('id')
+      .eq('identity_id', identityId)
+      .limit(1);
+    
+    const hasAnyTenantSpecificCreds = anyTenantCreds && anyTenantCreds.length > 0;
+    
+    const identityUpdate = { 
+      is_temporary: false,
+      reset_token: null,
+      reset_token_expires: null,
+      updated_at: new Date().toISOString()
+    };
+    
+    // Only update shared password if user has NO tenant-specific credentials (first-time legacy migration)
+    if (!hasAnyTenantSpecificCreds) {
+      identityUpdate.password_hash = passwordHash;
+      identityUpdate.failed_attempts = 0;
+      identityUpdate.locked_until = null;
+      console.log('[Auth] Updated shared identity password (no tenant-specific creds exist yet)');
+    } else {
+      console.log('[Auth] NOT updating shared identity password (tenant-specific creds exist for isolation)');
+    }
+    
+    await supabase
+      .from('tenant_identity')
+      .update(identityUpdate)
+      .eq('id', identityId);
+
     // Link member to identity if not already linked
-    if (identityId) {
-      const { data: memberData } = await supabase
+    const { data: memberData } = await supabase
+      .from('member')
+      .select('identity_id, organization_id, tenant_id')
+      .eq('id', member.id)
+      .single();
+
+    if (memberData && !memberData.identity_id) {
+      await supabase
         .from('member')
-        .select('identity_id, organization_id, tenant_id')
-        .eq('id', member.id)
-        .single();
+        .update({ identity_id: identityId })
+        .eq('id', member.id);
+      console.log('[Auth] Linked member to identity');
+    }
 
-      if (memberData && !memberData.identity_id) {
-        await supabase
-          .from('member')
-          .update({ identity_id: identityId })
-          .eq('id', member.id);
-        console.log('[Auth] Linked member to identity');
-      }
+    // Create tenant_membership if doesn't exist
+    const { data: existingMembership } = await supabase
+      .from('tenant_membership')
+      .select('id')
+      .eq('identity_id', identityId)
+      .eq('tenant_id', tenantId)
+      .single();
 
-      // Get tenant_id (from member directly or via organization)
-      let tenantId = memberData?.tenant_id;
-      if (!tenantId && memberData?.organization_id) {
-        const { data: org } = await supabase
-          .from('organization')
-          .select('tenant_id')
-          .eq('id', memberData.organization_id)
-          .single();
-        tenantId = org?.tenant_id;
-      }
-
-      // Create tenant_membership if doesn't exist
-      if (tenantId) {
-        const { data: existingMembership } = await supabase
-          .from('tenant_membership')
-          .select('id')
-          .eq('identity_id', identityId)
-          .eq('tenant_id', tenantId)
-          .single();
-
-        if (!existingMembership) {
-          await supabase
-            .from('tenant_membership')
-            .insert({
-              identity_id: identityId,
-              tenant_id: tenantId,
-              member_id: member.id,
-              role: 'member',
-              membership_type: 'member',
-              status: 'active',
-              is_default: true
-            });
-          console.log('[Auth] Created tenant membership for member');
-        }
-      }
+    if (!existingMembership) {
+      await supabase
+        .from('tenant_membership')
+        .insert({
+          identity_id: identityId,
+          tenant_id: tenantId,
+          member_id: member.id,
+          role: 'member',
+          membership_type: 'member',
+          status: 'active',
+          is_default: true
+        });
+      console.log('[Auth] Created tenant membership for member');
     }
 
     // Legacy: Also update member_credentials for backwards compatibility

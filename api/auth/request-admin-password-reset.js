@@ -66,6 +66,63 @@ export default async function handler(req, res) {
     const resetToken = crypto.randomUUID();
     const resetExpires = new Date(Date.now() + 60 * 60 * 1000);
 
+    // Get tenant_id from the owner membership for tenant-specific credentials
+    const tenantId = memberships[0]?.tenant_id;
+    
+    if (!tenantId) {
+      console.error('[Admin Password Reset] No tenant_id found for owner membership');
+      return res.status(500).json({ 
+        success: false, 
+        error: 'Failed to process request' 
+      });
+    }
+
+    // Store reset token in tenant_membership_credentials for per-tenant password isolation
+    const { data: existingTenantCreds } = await supabase
+      .from('tenant_membership_credentials')
+      .select('id')
+      .eq('identity_id', identity.id)
+      .eq('tenant_id', tenantId)
+      .single();
+
+    if (existingTenantCreds) {
+      const { error: tenantCredError } = await supabase
+        .from('tenant_membership_credentials')
+        .update({
+          reset_token: resetToken,
+          reset_token_expires: resetExpires.toISOString()
+        })
+        .eq('id', existingTenantCreds.id);
+
+      if (tenantCredError) {
+        console.error('[Admin Password Reset] Tenant creds update error:', tenantCredError);
+        return res.status(500).json({ 
+          success: false, 
+          error: 'Failed to process request' 
+        });
+      }
+      console.log('[Admin Password Reset] Updated reset token in tenant_membership_credentials');
+    } else {
+      const { error: insertError } = await supabase
+        .from('tenant_membership_credentials')
+        .insert({
+          identity_id: identity.id,
+          tenant_id: tenantId,
+          reset_token: resetToken,
+          reset_token_expires: resetExpires.toISOString()
+        });
+
+      if (insertError) {
+        console.error('[Admin Password Reset] Tenant creds insert error:', insertError);
+        return res.status(500).json({ 
+          success: false, 
+          error: 'Failed to process request' 
+        });
+      }
+      console.log('[Admin Password Reset] Created tenant_membership_credentials with reset token');
+    }
+
+    // Also update tenant_identity for backwards compatibility
     const { error: updateError } = await supabase
       .from('tenant_identity')
       .update({
@@ -76,11 +133,7 @@ export default async function handler(req, res) {
       .eq('id', identity.id);
 
     if (updateError) {
-      console.error('[Admin Password Reset] Update error:', updateError);
-      return res.status(500).json({ 
-        success: false, 
-        error: 'Failed to process request' 
-      });
+      console.error('[Admin Password Reset] Identity update error (non-critical):', updateError);
     }
 
     const tenant = memberships[0]?.tenant;

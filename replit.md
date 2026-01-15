@@ -32,13 +32,29 @@ The platform supports a three-tier hierarchy: TENANT, ORGANIZATION, and MEMBER. 
 The platform uses a centralized `tenant_identity` table for ALL user authentication (owners and members). This enables:
 - A single user (by email) to own multiple tenants AND be a member in multiple organizations
 - Seamless tenant switching between owned and member tenants
-- Centralized password management across all tenant relationships
+- Per-tenant password isolation (passwords can be different for each tenant)
 
 The `tenant_membership` table tracks user relationships to tenants with:
 - `identity_id`: Links to the user's central identity
 - `membership_type`: Either 'owner' (admin access) or 'member' (portal access)
 - `member_id`: Optional link to a member record for portal functionality
 - Session types are determined by membership_type: `tenant_user` for owners, `member` for portal users
+
+**Per-Tenant Password Isolation (Updated Jan 2026):**
+- The `tenant_membership_credentials` table stores passwords per identity+tenant combination
+- Users can have DIFFERENT passwords for different tenants they belong to
+- Resetting password in tenant A does NOT affect password in tenant B
+- Login flow: Check tenant-specific credentials first, fall back to shared password for backwards compatibility
+- Password reset tokens are stored in tenant_membership_credentials for isolation
+- Migration script: `scripts/migrations/add-tenant-membership-credentials.sql`
+
+Schema for tenant_membership_credentials:
+- `identity_id`: Links to tenant_identity
+- `tenant_id`: Links to tenant
+- `password_hash`: Bcrypt hash of tenant-specific password
+- `reset_token`, `reset_token_expires`: For password reset flow
+- `failed_attempts`, `locked_until`: For account lockout
+- `last_login`: Timestamp of last login using this credential
 
 Legacy `member_credentials` are migrated to `tenant_identity` for unified authentication. The migration script is at `scripts/migrations/unify-user-identity.sql`.
 
