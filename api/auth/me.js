@@ -60,6 +60,11 @@ export default async function handler(req, res) {
     // First check if session has preserved admin context (from portal SSO flow)
     if (member._sessionPreservedTenantUserId || member._sessionPreservedIdentityId) {
       hasTenantUserLink = true;
+      console.log('[Auth Me] Detected preserved admin context:', {
+        memberId: member.id,
+        preservedTenantUserId: member._sessionPreservedTenantUserId,
+        preservedIdentityId: member._sessionPreservedIdentityId
+      });
     }
     
     // Fallback to database lookup

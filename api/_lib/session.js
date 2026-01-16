@@ -448,9 +448,17 @@ export async function getSessionMember(req) {
     // Attach preserved admin context if present (for hasTenantUserLink detection)
     if (session.data.preservedTenantUserId) {
       member._sessionPreservedTenantUserId = session.data.preservedTenantUserId;
+      console.log('[Session] Attaching preserved admin context to member:', {
+        memberId: member.id,
+        preservedTenantUserId: session.data.preservedTenantUserId
+      });
     }
     if (session.data.preservedIdentityId) {
       member._sessionPreservedIdentityId = session.data.preservedIdentityId;
+      console.log('[Session] Attaching preserved identity to member:', {
+        memberId: member.id,
+        preservedIdentityId: session.data.preservedIdentityId
+      });
     }
     
     return member;

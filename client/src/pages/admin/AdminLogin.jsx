@@ -78,6 +78,20 @@ export default function AdminLogin() {
   useEffect(() => {
     if (setupMode) return;
     
+    // Skip auth check if we're in SSO tenant selection mode
+    // The sso_select_tenant param means user needs to pick a tenant first
+    const ssoSelectTenant = searchParams.get('sso_select_tenant');
+    if (ssoSelectTenant === 'true') {
+      setCheckingAuth(false);
+      return;
+    }
+    
+    // Also skip if tenant selection is already showing
+    if (showTenantSelection) {
+      setCheckingAuth(false);
+      return;
+    }
+    
     const checkAuth = async () => {
       try {
         const response = await fetch('/api/auth/tenant-user-me', { credentials: 'include' });
@@ -94,7 +108,7 @@ export default function AdminLogin() {
       }
     };
     checkAuth();
-  }, [navigate, setupMode]);
+  }, [navigate, setupMode, searchParams, showTenantSelection]);
 
   const handleLogin = async (e) => {
     e.preventDefault();

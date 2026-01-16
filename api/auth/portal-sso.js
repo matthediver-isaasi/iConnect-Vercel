@@ -84,19 +84,56 @@ export default async function handler(req, res) {
         preservedTenantUserType: 'tenant_user'
       };
       
+      console.log(`[Portal SSO] Preserving admin context:`, {
+        sessionId: existingSession.id?.substring(0, 8),
+        originalTenantUserId: existingSession.data.tenantUserId,
+        originalIdentityId: existingSession.data.identityId,
+        newMemberId: member.id,
+        preservedTenantUserId: updatedSessionData.preservedTenantUserId,
+        preservedIdentityId: updatedSessionData.preservedIdentityId
+      });
+      
       await updateSession(existingSession.id, updatedSessionData);
       console.log(`[Portal SSO] Updated session to add member context, preserved admin context for tenant_user ${existingSession.data.tenantUserId}`);
     } else {
-      // No admin session to preserve, create new member-only session
-      await createSession(res, {
+      // No admin session found via cookie (may be on custom domain where iconn.app cookies aren't sent)
+      // Check if SSO token has tenant_user_id - this indicates the session was initiated from admin area
+      let sessionData = {
         memberId: member.id,
         memberEmail: member.email,
         organizationId: member.organization_id,
         tenantId: member.organization?.tenant_id,
         roleId: member.role_id,
         userType: 'member'
-      });
-      console.log(`[Portal SSO] Created new member session for ${member.id}`);
+      };
+      
+      // If SSO token has tenant_user_id, derive preserved admin context from it
+      if (ssoToken.tenant_user_id) {
+        console.log(`[Portal SSO] SSO token has tenant_user_id, fetching admin context for Admin Dashboard link`);
+        
+        const { data: tenantUser } = await supabase
+          .from('tenant_user')
+          .select('id, email, identity_id, tenant_id')
+          .eq('id', ssoToken.tenant_user_id)
+          .single();
+        
+        if (tenantUser) {
+          sessionData.preservedTenantUserId = tenantUser.id;
+          sessionData.preservedTenantUserEmail = tenantUser.email;
+          sessionData.preservedIdentityId = tenantUser.identity_id;
+          sessionData.preservedTenantId = tenantUser.tenant_id;
+          sessionData.preservedTenantUserType = 'tenant_user';
+          
+          console.log(`[Portal SSO] Derived admin context from SSO token:`, {
+            preservedTenantUserId: tenantUser.id,
+            preservedIdentityId: tenantUser.identity_id
+          });
+        }
+      }
+      
+      await createSession(res, sessionData, { req });
+      console.log(`[Portal SSO] Created member session for ${member.id}`, 
+        sessionData.preservedTenantUserId ? `with preserved admin context for tenant_user ${sessionData.preservedTenantUserId}` : '(no admin context)');
     }
 
     const landingPage = member.role?.default_landing_page || 'Dashboard';
