@@ -43,7 +43,7 @@ export default async function handler(req, res) {
     const { data: member, error: memberError } = await supabase
       .from('member')
       .select(`
-        id, email, first_name, last_name, login_enabled, status,
+        id, email, first_name, last_name, login_enabled, status, handle, tenant_id,
         role_id, organization_id,
         role:role_id(id, name, excluded_features, default_landing_page),
         organization:organization_id(id, name, tenant_id)
@@ -59,6 +59,112 @@ export default async function handler(req, res) {
     if (!member.login_enabled || member.status !== 'active') {
       console.log('[Portal SSO] Member account disabled');
       return res.redirect('/login?error=account_disabled');
+    }
+
+    // Auto-generate handle if member doesn't have one (tenant-scoped uniqueness)
+    if (!member.handle && (member.first_name || member.last_name || member.email)) {
+      console.log('[Portal SSO] Member has no handle, generating one...');
+      
+      try {
+        const generateSlug = (text) => {
+          return text
+            .toLowerCase()
+            .trim()
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-+|-+$/g, '');
+        };
+
+        // Get tenant_id for scoped uniqueness check (prefer direct tenant_id, fall back to organization)
+        const tenantId = member.tenant_id || member.organization?.tenant_id;
+        
+        if (!tenantId) {
+          console.log('[Portal SSO] Cannot generate handle: no tenant_id available');
+        } else {
+          // Fetch all organization IDs belonging to this tenant for legacy member lookup
+          const { data: tenantOrgs, error: orgError } = await supabase
+            .from('organization')
+            .select('id')
+            .eq('tenant_id', tenantId);
+          
+          if (orgError) {
+            console.error('[Portal SSO] Error fetching tenant organizations:', orgError.message);
+            throw new Error('Failed to fetch tenant organizations for handle generation');
+          }
+          
+          const orgIds = (tenantOrgs || []).map((o) => o.id);
+          
+          // Helper function to check if a handle exists in the tenant (fully deterministic)
+          const handleExistsInTenant = async (candidateHandle) => {
+            // Check direct tenant_id match
+            const { count: directCount, error: directError } = await supabase
+              .from('member')
+              .select('id', { count: 'exact', head: true })
+              .eq('tenant_id', tenantId)
+              .eq('handle', candidateHandle);
+            
+            if (directError) throw directError;
+            if (directCount > 0) return true;
+            
+            // Check legacy org-based members if tenant has orgs
+            if (orgIds.length > 0) {
+              const { count: orgCount, error: orgError } = await supabase
+                .from('member')
+                .select('id', { count: 'exact', head: true })
+                .in('organization_id', orgIds)
+                .is('tenant_id', null)
+                .eq('handle', candidateHandle);
+              
+              if (orgError) throw orgError;
+              if (orgCount > 0) return true;
+            }
+            
+            return false;
+          };
+
+          let baseHandle = '';
+          if (member.first_name && member.last_name) {
+            baseHandle = `${generateSlug(member.first_name)}-${generateSlug(member.last_name)}`;
+          } else if (member.first_name) {
+            baseHandle = generateSlug(member.first_name);
+          } else if (member.last_name) {
+            baseHandle = generateSlug(member.last_name);
+          } else if (member.email) {
+            baseHandle = generateSlug(member.email.split('@')[0]);
+          }
+          
+          if (baseHandle.length < 3) baseHandle = 'member';
+          if (baseHandle.length > 30) baseHandle = baseHandle.substring(0, 30);
+
+          let handle = baseHandle;
+          let counter = 1;
+          const maxAttempts = 100;
+          
+          while (await handleExistsInTenant(handle) && counter < maxAttempts) {
+            const suffix = `-${counter}`;
+            handle = baseHandle.substring(0, 30 - suffix.length) + suffix;
+            counter++;
+          }
+          
+          if (counter >= maxAttempts) {
+            console.error('[Portal SSO] Could not generate unique handle after', maxAttempts, 'attempts');
+            throw new Error('Could not generate unique handle');
+          }
+
+          const { error: updateError } = await supabase
+            .from('member')
+            .update({ handle })
+            .eq('id', member.id);
+
+          if (!updateError) {
+            member.handle = handle;
+            console.log('[Portal SSO] Generated and saved handle:', handle, 'for tenant:', tenantId);
+          } else {
+            console.error('[Portal SSO] Error saving handle:', updateError.message);
+          }
+        }
+      } catch (handleError) {
+        console.error('[Portal SSO] Error generating handle:', handleError.message);
+      }
     }
 
     // Check if there's an existing session with admin context to preserve
