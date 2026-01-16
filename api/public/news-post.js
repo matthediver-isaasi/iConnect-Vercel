@@ -99,7 +99,8 @@ export default async function handler(req, res) {
     }
 
     // Production query with proper security filters
-    // Select only columns that exist in the news_post table
+    // Select only columns that exist in the news_post table (verified from schema)
+    // Note: share_password is intentionally excluded from public API for security
     let query = supabase
       .from('news_post')
       .select(`
@@ -113,12 +114,8 @@ export default async function handler(req, res) {
         status,
         tags,
         published_date,
-        created_at,
-        updated_at,
-        is_featured,
-        views_count,
         subcategories,
-        featured_image_url,
+        feature_image_url,
         seo_title,
         seo_description,
         tenant_id
