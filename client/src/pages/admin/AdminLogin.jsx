@@ -86,8 +86,9 @@ export default function AdminLogin() {
       return;
     }
     
-    // Also skip if tenant selection is already showing
-    if (showTenantSelection) {
+    // Also skip if tenant selection is already showing or we're in SSO selection flow
+    // isSsoTenantSelection is a stable flag set when SSO redirects with multi-tenant
+    if (showTenantSelection || isSsoTenantSelection) {
       setCheckingAuth(false);
       return;
     }
@@ -108,7 +109,7 @@ export default function AdminLogin() {
       }
     };
     checkAuth();
-  }, [navigate, setupMode, searchParams, showTenantSelection]);
+  }, [navigate, setupMode, searchParams, showTenantSelection, isSsoTenantSelection]);
 
   const handleLogin = async (e) => {
     e.preventDefault();
