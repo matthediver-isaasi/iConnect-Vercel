@@ -247,41 +247,27 @@ export default async function handler(req, res) {
       return res.redirect('/admin/login?error=no_account&email=' + encodeURIComponent(email));
     }
 
-    // Check if user has multiple tenants - if so, create session with first tenant and redirect to selection
+    // Check if user has multiple tenants - redirect to selection WITHOUT creating session
+    // Session will be created after user picks a tenant to prevent auto-redirect to dashboard
     if (allTenantUsersForIdentity.length > 1) {
-      console.log('[Tenant Google OAuth Callback] User has', allTenantUsersForIdentity.length, 'tenants, redirecting to selection');
+      console.log('[Tenant Google OAuth Callback] User has', allTenantUsersForIdentity.length, 'tenants, redirecting to selection (no session created)');
       
-      // Create session with the first tenant (user can switch later)
-      const firstTenantUser = allTenantUsersForIdentity[0];
-      
-      await createSession(res, {
-        tenantUserId: firstTenantUser.id,
-        tenantUserEmail: firstTenantUser.email,
-        tenantId: firstTenantUser.tenant_id,
-        identityId: identity?.id || firstTenantUser.identity_id,
-        userType: 'tenant_user'
-      }, { req });
-      
-      // Combine session cookie with clearNonceCookie
-      const existingCookies = res.getHeader('Set-Cookie');
-      const allCookies = Array.isArray(existingCookies) 
-        ? [...existingCookies, clearNonceCookie]
-        : existingCookies 
-          ? [existingCookies, clearNonceCookie]
-          : [clearNonceCookie];
-      res.setHeader('Set-Cookie', allCookies);
-      
-      // Build tenant list for the selection page
+      // Build tenant list with tenant_user IDs for the selection page
       const tenantList = allTenantUsersForIdentity.map(tu => ({
         id: tu.tenant_id,
+        tenantUserId: tu.id, // Include tenant_user.id for session creation
         name: tu.tenant?.name,
         slug: tu.tenant?.slug,
         logo_url: tu.tenant?.logo_url
       }));
       
-      const identityIdForStorage = identity?.id || firstTenantUser.identity_id || '';
+      const identityIdForStorage = identity?.id || allTenantUsersForIdentity[0].identity_id || '';
+      
+      // Clear the nonce cookie
+      res.setHeader('Set-Cookie', clearNonceCookie);
       
       // Redirect to login page with tenant selection data in localStorage
+      // NO SESSION IS CREATED - this prevents auto-redirect to dashboard
       const html = `
         <!DOCTYPE html>
         <html>
@@ -296,7 +282,7 @@ export default async function handler(req, res) {
                   last_name: '${lastName || ''}'
                 },
                 tenants: ${JSON.stringify(tenantList)},
-                currentTenantId: '${firstTenantUser.tenant_id}'
+                googleId: '${googleId}'
               }));
               window.location.href = '/admin/login?sso_select_tenant=true';
             </script>

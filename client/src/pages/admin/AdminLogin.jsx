@@ -178,12 +178,24 @@ export default function AdminLogin() {
       let data;
       
       if (isSsoTenantSelection) {
-        // For SSO, we already have a session - use tenant-switch to change tenants
-        response = await fetch('/api/auth/tenant-switch', {
+        // For SSO, we need to create a NEW session (no session exists yet)
+        // Find the selected tenant from availableTenants to get the tenantUserId
+        const selectedTenant = availableTenants.find(t => t.id === tenantId);
+        if (!selectedTenant || !selectedTenant.tenantUserId) {
+          setError("Invalid tenant selection");
+          setLoading(false);
+          return;
+        }
+        
+        response = await fetch('/api/auth/sso-create-session', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
-          body: JSON.stringify({ tenantId })
+          body: JSON.stringify({ 
+            identityId: identity?.id,
+            tenantId: tenantId,
+            tenantUserId: selectedTenant.tenantUserId
+          })
         });
         data = await response.json();
       } else {
