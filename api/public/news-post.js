@@ -118,7 +118,6 @@ export default async function handler(req, res) {
         is_featured,
         views_count,
         subcategories,
-        feature_image_url,
         featured_image_url,
         seo_title,
         seo_description
