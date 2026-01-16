@@ -143,9 +143,21 @@ export default async function handler(req, res) {
 
     if (isOwnerMembership) {
       // Owner/admin - create tenant_user session
+      // Fetch the actual tenant_user record for this identity+tenant combination
+      // This is needed for portal SSO to properly derive preserved admin context
+      const { data: tenantUserRecord } = await supabase
+        .from('tenant_user')
+        .select('id, email')
+        .eq('identity_id', membership.identity_id)
+        .eq('tenant_id', membership.tenant_id)
+        .single();
+      
+      // Use the actual tenant_user.id if found, otherwise fall back to identity_id
+      const effectiveTenantUserId = tenantUserRecord?.id || membership.identity_id;
+      
       sessionData = {
         identityId: membership.identity_id,
-        tenantUserId: membership.identity_id,
+        tenantUserId: effectiveTenantUserId, // Use actual tenant_user.id for portal SSO compatibility
         tenantUserEmail: membership.identity?.email,
         tenantId: membership.tenant_id,
         membershipId: membership.id,
@@ -156,7 +168,7 @@ export default async function handler(req, res) {
       responseData = {
         success: true,
         tenantUser: {
-          id: membership.identity_id,
+          id: effectiveTenantUserId,
           email: membership.identity?.email,
           first_name: membership.identity?.first_name,
           last_name: membership.identity?.last_name,

@@ -207,9 +207,21 @@ export default async function handler(req, res) {
       .update({ last_accessed: new Date().toISOString() })
       .eq('id', selectedMembership.id);
 
+    // Fetch the actual tenant_user record for this identity+tenant combination
+    // This is needed for portal SSO to properly derive preserved admin context
+    const { data: tenantUser } = await supabase
+      .from('tenant_user')
+      .select('id, email')
+      .eq('identity_id', identity.id)
+      .eq('tenant_id', selectedMembership.tenant_id)
+      .single();
+    
+    // Use the actual tenant_user.id if found, otherwise fall back to identity.id
+    const effectiveTenantUserId = tenantUser?.id || identity.id;
+    
     await createSession(res, {
       identityId: identity.id,
-      tenantUserId: identity.id, // For backwards compatibility
+      tenantUserId: effectiveTenantUserId, // Use actual tenant_user.id for portal SSO compatibility
       tenantUserEmail: identity.email,
       tenantId: selectedMembership.tenant_id,
       membershipId: selectedMembership.id,
@@ -217,12 +229,13 @@ export default async function handler(req, res) {
       userType: 'tenant_user'
     }, { req });
 
-    console.log('[Tenant Identity] Login success for:', email, 'tenant:', selectedMembership.tenant?.name);
+    console.log('[Tenant Identity] Login success for:', email, 'tenant:', selectedMembership.tenant?.name, 
+      tenantUser ? `tenant_user: ${tenantUser.id}` : '(no tenant_user record, using identity.id)');
     
     res.json({ 
       success: true, 
       tenantUser: {
-        id: identity.id,
+        id: effectiveTenantUserId,
         email: identity.email,
         first_name: identity.first_name,
         last_name: identity.last_name,
