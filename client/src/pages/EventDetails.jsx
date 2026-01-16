@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
 import { publicClient } from "@/api/publicClient";
 import { useQuery } from "@tanstack/react-query";
+import { useEventData } from "@/hooks/useEventsData";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -187,13 +188,8 @@ export default function EventDetailsPage() {
     }
   });
 
-  const { data: event, isLoading } = useQuery({
-    queryKey: ['event', eventId],
-    queryFn: () => publicClient.getEvent(eventId),
-    enabled: !!eventId,
-    // Fallback polling every 15s when realtime is not connected
-    refetchInterval: realtimeConnected ? false : 15000
-  });
+  // Use hybrid hook (authenticated: base44, public: publicClient)
+  const { data: event, isLoading } = useEventData(eventId);
 
   // Query for speakers assigned to this event
   const { data: eventSpeakers = [] } = useQuery({

@@ -13,9 +13,9 @@ import EventCard from "../components/events/EventCard";
 import PageTour from "../components/tour/PageTour";
 import TourButton from "../components/tour/TourButton";
 import { base44 } from "@/api/base44Client";
-import { publicClient } from "@/api/publicClient";
 import { useLayoutContext } from "@/contexts/LayoutContext";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { useEventsData } from "@/hooks/useEventsData";
 import { createPageUrl } from "@/utils";
 import { useEventTypes } from "@/hooks/useEventTypes";
 import { 
@@ -85,25 +85,12 @@ export default function EventsPage({
     }
   }, [shouldShowTours, hasSeenTour, memberInfo]);
 
-  // Load events using public API (no auth required)
+  // Load events using hybrid hook (authenticated: base44, public: publicClient)
   const {
     data: events = [],
     isLoading,
     error: eventsError,
-  } = useQuery({
-    queryKey: ["public-events"],
-    queryFn: async () => {
-      try {
-        const data = await publicClient.listEvents();
-        return data || [];
-      } catch (error) {
-        console.error("[Events] Error loading events:", error);
-        throw error;
-      }
-    },
-    staleTime: 0,
-    refetchOnMount: true,
-  });
+  } = useEventsData();
 
   // Query for all system settings
   const { data: systemSettings = [] } = useQuery({

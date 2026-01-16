@@ -1,6 +1,6 @@
-# Overview.
+# Overview
 
-This project is a comprehensive membership management platform built with React (Vite) and Express.js, aiming for 100% visual and functional parity with its predecessor (Base44). It manages members, organizations, events, bookings, program tickets, resources, and blog posts, along with administrative functions. The platform's core purpose is to streamline membership operations, event management, and content delivery for organizations, integrating with various external services for CRM, payments, and accounting to provide a robust, all-in-one solution. It is designed as a multi-tenant SaaS product with ambitious market potential to serve a wide range of organizations.
+This project is a comprehensive membership management platform built with React (Vite) and Express.js. It aims to streamline membership operations, event management, and content delivery for organizations. Key capabilities include managing members, organizations, events, bookings, program tickets, resources, and blog posts, alongside administrative functions. It integrates with various external services for CRM, payments, and accounting, providing a robust, all-in-one solution designed as a multi-tenant SaaS product.
 
 # User Preferences
 
@@ -8,206 +8,65 @@ Preferred communication style: Simple, everyday language.
 
 # System Architecture
 
-## Frontend Architecture
+## Frontend
 
-The frontend uses React 18 with TypeScript/JSX, Vite, TanStack Query, shadcn/ui (Radix UI), and Tailwind CSS. It implements client-side routing and a customized "new-york" shadcn/ui design system for visual consistency.
+The frontend uses React 18 with TypeScript/JSX, Vite, TanStack Query, shadcn/ui (Radix UI), and Tailwind CSS. It features client-side routing and a customized "new-york" shadcn/ui design system.
 
-## Backend Architecture
+## Backend
 
-The backend is built with Express.js and uses PostgreSQL (Neon serverless) with Drizzle ORM. It follows a generic entity CRUD API pattern, with password-based authentication and server-side session management. An admin security model implements role-based access control, and server-side functions handle specific operations like magic links, Stripe payments, bookings, and event synchronization. All API endpoints are implemented as Vercel serverless functions.
+The backend is built with Express.js, using PostgreSQL (Neon serverless) with Drizzle ORM. It follows a generic entity CRUD API pattern, incorporating password-based authentication and server-side session management. An admin security model implements role-based access control. All API endpoints are implemented as Vercel serverless functions.
 
 ## Multi-Tenant SaaS Architecture
 
-The platform supports a three-tier hierarchy: TENANT, ORGANIZATION, and MEMBER. A `tenant` table stores SaaS subscribing companies, and access control enforces data isolation at GLOBAL, TENANT, ORGANIZATION, and MEMBER levels, ensuring records are scoped to the authenticated user's context.
-
-**Member Entity Scope (Updated Jan 2026):**
-- Members are now TENANT-scoped, not ORGANIZATION-scoped
-- This allows individual members to exist without belonging to an organization
-- `organization_id` on the member table is optional - null for individuals, populated for org staff
-- A database trigger auto-populates `tenant_id` from organization when `organization_id` is provided
-- Tenants like GSF can have both organizational members (company staff) and individual members
+The platform supports a three-tier hierarchy: TENANT, ORGANIZATION, and MEMBER. A `tenant` table stores SaaS subscribing companies, and access control enforces data isolation at GLOBAL, TENANT, ORGANIZATION, and MEMBER levels. Members are TENANT-scoped, allowing individuals to exist without belonging to an organization.
 
 ## Unified Identity System
 
-The platform uses a centralized `tenant_identity` table for ALL user authentication (owners and members). This enables:
-- A single user (by email) to own multiple tenants AND be a member in multiple organizations
-- Seamless tenant switching between owned and member tenants
-- Per-tenant password isolation (passwords can be different for each tenant)
+A centralized `tenant_identity` table handles all user authentication for owners and members. This allows a single user to own multiple tenants and be a member in multiple organizations, facilitating seamless tenant switching. Per-tenant password isolation is implemented via `tenant_membership_credentials`, allowing different passwords for each tenant an identity belongs to. Both systems support Google OAuth.
 
-The `tenant_membership` table tracks user relationships to tenants with:
-- `identity_id`: Links to the user's central identity
-- `membership_type`: Either 'owner' (admin access) or 'member' (portal access)
-- `member_id`: Optional link to a member record for portal functionality
-- Session types are determined by membership_type: `tenant_user` for owners, `member` for portal users
+## Deployment
 
-**Per-Tenant Password Isolation (Updated Jan 2026):**
-- The `tenant_membership_credentials` table stores passwords per identity+tenant combination
-- Users can have DIFFERENT passwords for different tenants they belong to
-- Resetting password in tenant A does NOT affect password in tenant B
-- Login flow: Check tenant-specific credentials first, fall back to shared password for backwards compatibility
-- Password reset tokens are stored in tenant_membership_credentials for isolation
-- Migration script: `scripts/migrations/add-tenant-membership-credentials.sql`
-
-Schema for tenant_membership_credentials:
-- `identity_id`: Links to tenant_identity
-- `tenant_id`: Links to tenant
-- `password_hash`: Bcrypt hash of tenant-specific password
-- `reset_token`, `reset_token_expires`: For password reset flow
-- `failed_attempts`, `locked_until`: For account lockout
-- `last_login`: Timestamp of last login using this credential
-
-Legacy `member_credentials` are migrated to `tenant_identity` for unified authentication. The migration script is at `scripts/migrations/unify-user-identity.sql`.
-
-Both systems support Google OAuth for authentication, with a centralized callback pattern for member OAuth and per-tenant control over Google login availability.
-
-## Deployment Architecture
-
-**Preview Deployment Workflow:**
-- All code changes deploy to Vercel preview branches directly
-- There is NO separate development environment or database
-- The Replit workspace connects to the same Supabase production database
-- All `api/public/*` endpoints use `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` (never DEV_* variables)
-- Do NOT use DEV_SUPABASE_* fallbacks in API endpoints - these point to an outdated sandbox
-
-**Environment Variables:**
-- Use `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` for all database connections
-- The `DEV_SUPABASE_*` secrets are legacy and should not be used
-
-Development uses Express.js with Vite middleware. Production deploys to Vercel serverless functions for API and static assets. Data freshness is maintained using TanStack Query and Supabase Realtime Subscriptions. Immediate session invalidation is enforced based on member status changes.
+Development utilizes Express.js with Vite middleware. Production deploys to Vercel serverless functions for API and static assets. All code changes deploy to Vercel preview branches, with no separate development environment or database. The Replit workspace connects to the same Supabase production database.
 
 ## Data Model & Features
 
-The data model encompasses core entities like Member, Organization, Role, TeamMember, supporting role segmentation, event/booking management, content management (BlogPost, Resource), and a dynamic page builder. Additional features include a custom forms system with conditional logic and entity pipelines, workflows for automation, Speaker profiles, Card Deck content, navigation/settings configuration, communication preferences, custom fields, training funds, voucher codes, and an internal notes system for organizations and members.
+The data model includes core entities like Member, Organization, Role, TeamMember, supporting role segmentation, event/booking management, content management (BlogPost, Resource), and a dynamic page builder. Additional features encompass a custom forms system with conditional logic, workflows, Speaker profiles, Card Deck content, navigation/settings configuration, communication preferences, custom fields, training funds, voucher codes, and an internal notes system.
 
 ## Role Management System
 
-A feature-based role management system controls UI visibility and backend access. System roles are protected from modification or deletion via database triggers, API guards, and UI controls. Role-based field access control for member profile fields is also implemented.
+A feature-based role management system controls UI visibility and backend access, with protected system roles and role-based field access control for member profiles.
 
 ## Email Template Placeholder System
 
-The platform supports dynamic email templates with placeholder substitution for form submissions, allowing for multiple emails per submission with system and custom placeholders.
+The platform supports dynamic email templates with placeholder substitution for form submissions, allowing multiple emails per submission with system and custom placeholders.
 
 ## Form Due Diligence Extension System
 
-An optional due diligence review capability for form submissions includes configurable workflows, scoring, risk assessment, and audit trails. It supports both dynamic and static traffic light scoring approaches with configurable workflow stages and status webhooks.
+An optional due diligence review capability for form submissions includes configurable workflows, scoring, risk assessment, and audit trails.
 
 ## Platform Owner Configuration System
 
-A third authentication tier for "Platform Owners" provides super-admin capabilities across the entire SaaS platform. Platform owners manage platform-wide preferences, including default role and navigation templates for new tenant provisioning, and can perform tenant deletion with built-in safety mechanisms.
+A third authentication tier for "Platform Owners" provides super-admin capabilities, managing platform-wide preferences and performing tenant deletion.
 
 ## Tenant Branding System
 
-The platform supports per-tenant branding customization for public-facing pages. Key components:
-
-- **Database Schema**: The `tenant` table includes branding fields: `primary_color`, `secondary_color`, `tagline`, `logo_url`, `header_config`, `footer_config`, and `branding_config` (all stored as JSONB for flexibility)
-- **Public API**: `/api/public/tenant-branding` endpoint returns tenant branding based on subdomain detection (e.g., `gsf.iconn.app` → tenant "gsf")
-- **React Context**: `TenantBrandingContext` provides branding data throughout the app via `useTenantBranding()` hook
-- **PublicLayout Integration**: The public footer uses tenant branding for:
-  - CTA text, button text, and links
-  - Footer gradient colors (customizable array of colors)
-  - Address and contact information
-  - Tenant logo (displayed with invert filter for dark footer)
-  - Legal/charity text
-  - Terms and privacy policy URLs
-  - Newsletter signup text
-
-Footer configuration structure:
-```javascript
-{
-  ctaText: "Become a member today",
-  ctaButtonText: "Join Us", 
-  ctaLink: "Membership",
-  newsletterText: "Sign up to our newsletter",
-  gradientColors: ["#5C0085", "#BA0087", "#EE00C3", "#FF4229", "#FFB000"],
-  address: { name: "Org Name", lines: ["Line 1", "Line 2"] },
-  contact: { phone: "+44...", email: "hello@..." },
-  legalText: "Registered charity...",
-  termsAndConditionsUrl: "https://...",
-  privacyPolicyUrl: "https://..."
-}
-```
+The platform supports per-tenant branding customization for public-facing pages, including `primary_color`, `secondary_color`, `tagline`, `logo_url`, `header_config`, and `footer_config` stored as JSONB. A public API endpoint (`/api/public/tenant-branding`) returns branding based on subdomain detection, integrated via `TenantBrandingContext` in the frontend.
 
 ## Form Embedding System
 
-Forms can be embedded on external websites via iFrame. Key components:
+Forms can be embedded on external websites via iFrame. A public API endpoint (`/api/public/form/[slug]`) provides form data, and an embed page (`/embed/form/:slug`) renders standalone forms. Security measures include tenant scoping, public-safe field returns, and disallowing embedding for forms requiring authentication.
 
-- **Public API**: `/api/public/form/[slug]` endpoint returns form data for rendering (tenant-scoped, no auth required)
-- **Embed Page**: `/embed/form/:slug` renders a standalone form without the application's layout/header/footer
-- **FormBuilder Integration**: When editing a form, an "Embed on External Websites" section displays:
-  - iFrame embed code with copy-to-clipboard
-  - Auto-resize script for dynamic height adjustment
-  - Preview button to test the embedded form
+## Public API Client
 
-Security measures:
-- Forms with `require_authentication=true` cannot be embedded publicly (403 response)
-- Tenant scoping prevents cross-tenant form access
-- Only public-safe fields are returned (excludes internal config like entity_pipelines)
-- Auto-resize script validates message origin before applying height changes
+All public-facing pages use a centralized `publicClient` for tenant-aware API requests, ensuring multi-tenant data isolation for unauthenticated users. Tenant detection prioritizes URL query parameters, then localStorage, subdomain extraction, and finally an environment variable.
 
-Entities migrated to tenant_id only (no organization_id column): PortalMenu, PortalNavigationItem, NavigationItem, PageBanner, Floater, FormDueDiligenceConfig, FormSubmissionDueDiligence, Form, ResourceCategory, Resource
+## Session Validation Security Pattern
 
-## Public API Client (Updated Jan 2026)
+Hybrid pages use a `sessionValidated` flag in `LayoutContext` to prevent leaking member-only data to unauthenticated users with stale localStorage. This flag is set to `true` only after successful `/api/auth/me` validation, ensuring authenticated API calls are made only when a valid session is confirmed.
 
-All public-facing pages use a centralized `publicClient` (`client/src/api/publicClient.js`) for tenant-aware API requests. This ensures proper multi-tenant data isolation for unauthenticated users.
+## Outlook Email Integration
 
-**Tenant Detection Hierarchy:**
-1. URL query parameter: `?tenant=gsf`
-2. localStorage: `localStorage.setItem('tenant_slug', 'gsf')`
-3. Subdomain extraction: `gsf.iconn.app` → "gsf"
-4. Environment variable: `VITE_DEFAULT_TENANT`
-
-**Key Features:**
-- Automatically injects `tenant` query parameter into all `/api/public/*` requests
-- Form submissions include tenant in request body for backend compatibility
-- Respects caller-provided tenant values for cross-tenant embedding
-- Provides typed methods for all public endpoints (events, articles, forms, booking, etc.)
-
-**Usage:**
-```javascript
-import { publicClient } from '@/api/publicClient';
-
-// All methods automatically include tenant parameter
-const events = await publicClient.listEvents();
-const form = await publicClient.getForm('membership-application');
-await publicClient.submitForm({ form_id: 'xyz', values: {...} });
-```
-
-**Development Workflow:**
-- Set tenant via query param: `http://localhost:5000?tenant=gsf`
-- Or localStorage: `localStorage.setItem('tenant_slug', 'gsf')`
-- Or environment variable: Set `VITE_DEFAULT_TENANT=gsf` in Replit secrets
-
-## Outlook Email Integration (CRM Feature)
-
-The platform supports Microsoft Outlook integration for email tracking on member records, similar to CRM systems. Key components:
-
-- **Database Schema**: 
-  - `outlook_connection` table stores OAuth tokens per user (tenant_id, identity_id, access_token, refresh_token, etc.)
-  - `member_email` table stores synced emails linked to members (subject, body, direction, timestamps, etc.)
-  - Migration script: `scripts/migrations/add-outlook-email-integration.sql`
-
-- **OAuth Flow**:
-  - `/api/auth/outlook` initiates Microsoft OAuth with Mail.Read, Mail.Send, and offline_access scopes
-  - `/api/auth/outlook/callback` exchanges auth code for tokens and stores in database
-  - Uses multi-tenant app registration (common authority) so any Microsoft 365 user can connect
-
-- **API Endpoints**:
-  - `GET /api/outlook/status` - Check connection status
-  - `DELETE /api/outlook/status` - Disconnect Outlook
-  - `POST /api/outlook/sync` - Sync emails from Microsoft Graph matching member email addresses
-  - `POST /api/outlook/send` - Send email via Microsoft Graph and log to member record
-  - `GET /api/outlook/emails/[memberId]` - Get emails for a specific member
-
-- **UI Components**:
-  - `OutlookConnection.jsx` - Connect/disconnect Outlook in AdminSettings
-  - `MemberEmails.jsx` - Email history list on AdminMemberEdit page
-  - `ComposeEmailModal.jsx` - Send new emails from member records
-
-- **Token Management**: Automatic token refresh when expired, status updates on connection failure
-
-- **Environment Variables**:
-  - `MICROSOFT_CLIENT_ID` - Azure app registration client ID
-  - `MICROSOFT_CLIENT_SECRET` - Azure app registration client secret
+The platform supports Microsoft Outlook integration for email tracking on member records. This involves `outlook_connection` and `member_email` tables for OAuth tokens and synced emails, respectively. It includes OAuth flow, API endpoints for connection status, syncing, sending emails, and UI components for management.
 
 # External Dependencies
 

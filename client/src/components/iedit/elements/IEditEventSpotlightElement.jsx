@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import { publicClient } from "@/api/publicClient";
+import { useEventsData } from "@/hooks/useEventsData";
 import DOMPurify from 'dompurify';
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
@@ -437,12 +438,8 @@ export function IEditEventSpotlightElementEditor({ element, onChange }) {
   });
   const [buttonStyles, setButtonStyles] = useState([]);
 
-  const { data: events = [], isLoading: eventsLoading, error: eventsError } = useQuery({
-    queryKey: ['public-events'],
-    queryFn: () => publicClient.listEvents(),
-    staleTime: 30 * 1000,
-    retry: 2
-  });
+  // Use hybrid hook - editors are always authenticated, so this will use base44
+  const { data: events = [], isLoading: eventsLoading, error: eventsError } = useEventsData();
 
   useEffect(() => {
     const fetchStyles = async () => {

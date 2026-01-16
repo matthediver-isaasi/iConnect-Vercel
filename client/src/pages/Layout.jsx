@@ -747,6 +747,7 @@ const {
   setIsFeatureExcluded: setContextIsFeatureExcluded,
   setRefreshOrganizationInfo: setContextRefreshOrganizationInfo,
   setReloadMemberInfo: setContextReloadMemberInfo,
+  setSessionValidated,
 } = useLayoutContext();
 
 // Update the context whenever the portal banner changes
@@ -1012,6 +1013,8 @@ useEffect(() => {
             const memberData = { ...member, sessionExpiry };
             localStorage.setItem('agcas_member', JSON.stringify(memberData));
             setMemberInfo(memberData);
+            // SECURITY: Mark session as validated - this enables authenticated API access
+            setSessionValidated(true);
             
             // Fetch organization info for regular members
             if (member.organization_id && !member.is_team_member) {
@@ -1059,6 +1062,8 @@ useEffect(() => {
           localStorage.removeItem('agcas_organization');
           setMemberInfo(null);
           setOrganizationInfo(null);
+          // SECURITY: Clear validation flag when session is invalidated
+          setSessionValidated(false);
           
           // For non-public pages, redirect to login
           if (visibility !== 'hybrid') {

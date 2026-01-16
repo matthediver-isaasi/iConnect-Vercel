@@ -20,6 +20,10 @@ const LayoutContext = createContext({
   setRefreshOrganizationInfo: () => {},
   reloadMemberInfo: () => {},
   setReloadMemberInfo: () => {},
+  // SECURITY: Session validation flag - true only after /api/auth/me succeeds
+  // Hooks should require BOTH memberInfo AND sessionValidated to treat user as authenticated
+  sessionValidated: false,
+  setSessionValidated: () => {},
 });
 
 export function LayoutProvider({ children }) {
@@ -33,6 +37,8 @@ export function LayoutProvider({ children }) {
   const [isFeatureExcludedFn, setIsFeatureExcludedFn] = useState(() => () => false);
   const [refreshOrganizationInfoFn, setRefreshOrganizationInfoFn] = useState(() => () => {});
   const [reloadMemberInfoFn, setReloadMemberInfoFn] = useState(() => () => {});
+  // SECURITY: Session validation flag - starts false, set true only after /api/auth/me succeeds
+  const [sessionValidated, setSessionValidatedState] = useState(false);
   
   const setLayout = useCallback((value) => {
     setForcePublicLayout(value);
@@ -72,6 +78,10 @@ export function LayoutProvider({ children }) {
     setReloadMemberInfoFn(() => fn);
   }, []);
 
+  const setSessionValidated = useCallback((value) => {
+    setSessionValidatedState(value);
+  }, []);
+
   return (
     <LayoutContext.Provider value={{ 
       forcePublicLayout, 
@@ -93,6 +103,9 @@ export function LayoutProvider({ children }) {
       setRefreshOrganizationInfo,
       reloadMemberInfo: reloadMemberInfoFn,
       setReloadMemberInfo,
+      // SECURITY: Session validation flag
+      sessionValidated,
+      setSessionValidated,
     }}>
       {children}
     </LayoutContext.Provider>
