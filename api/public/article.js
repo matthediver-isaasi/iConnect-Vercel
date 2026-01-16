@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 
+// Public API endpoint for fetching a single article by slug and author handle
 function getTenantSlugFromHost(host) {
   if (!host) return null;
   const hostname = host.split(':')[0];
