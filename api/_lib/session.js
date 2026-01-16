@@ -174,17 +174,33 @@ export async function createSession(res, sessionData, options = {}) {
 }
 
 export async function updateSession(sessionId, sessionData) {
-  if (!supabase || !sessionId) return false;
+  if (!supabase || !sessionId) {
+    console.log('[Session] updateSession: Missing supabase or sessionId');
+    return false;
+  }
+  
+  console.log('[Session] updateSession called:', {
+    sessionId: sessionId.substring(0, 8),
+    userType: sessionData?.userType,
+    memberId: sessionData?.memberId,
+    preservedTenantUserId: sessionData?.preservedTenantUserId,
+    preservedIdentityId: sessionData?.preservedIdentityId
+  });
   
   try {
     const expire = new Date(Date.now() + SESSION_MAX_AGE);
     
     // Get existing session to preserve cookie metadata
-    const { data: existing } = await supabase
+    const { data: existing, error: fetchError } = await supabase
       .from('session')
       .select('sess')
       .eq('sid', sessionId)
       .single();
+    
+    if (fetchError) {
+      console.error('[Session] updateSession: Failed to fetch existing session:', fetchError.message);
+      return false;
+    }
     
     const existingSess = existing?.sess ? 
       (typeof existing.sess === 'string' ? JSON.parse(existing.sess) : existing.sess) : 
@@ -205,7 +221,14 @@ export async function updateSession(sessionId, sessionData) {
     // Update cookie expiry
     sessObject.cookie.expires = expire.toISOString();
     
-    await supabase
+    console.log('[Session] updateSession: Writing to DB:', {
+      sessionId: sessionId.substring(0, 8),
+      newUserType: sessObject.userType,
+      newMemberId: sessObject.memberId,
+      newPreservedTenantUserId: sessObject.preservedTenantUserId
+    });
+    
+    const { error: updateError, count } = await supabase
       .from('session')
       .update({
         sess: sessObject,
@@ -213,9 +236,50 @@ export async function updateSession(sessionId, sessionData) {
       })
       .eq('sid', sessionId);
     
+    if (updateError) {
+      console.error('[Session] updateSession: DB update failed:', updateError.message);
+      return false;
+    }
+    
+    // Verify the update by reading back
+    const { data: verification, error: verifyError } = await supabase
+      .from('session')
+      .select('sess')
+      .eq('sid', sessionId)
+      .single();
+    
+    if (verifyError) {
+      console.error('[Session] updateSession: Verification read failed:', verifyError.message);
+      return false;
+    }
+    
+    const verifiedSess = verification?.sess ? 
+      (typeof verification.sess === 'string' ? JSON.parse(verification.sess) : verification.sess) : 
+      null;
+    
+    // Check if critical fields were persisted
+    const userTypePersisted = verifiedSess?.userType === sessionData?.userType;
+    const preservedIdPersisted = !sessionData?.preservedTenantUserId || 
+      verifiedSess?.preservedTenantUserId === sessionData?.preservedTenantUserId;
+    const updateSuccessful = userTypePersisted && preservedIdPersisted;
+    
+    console.log('[Session] updateSession: Verification read:', {
+      sessionId: sessionId.substring(0, 8),
+      verifiedUserType: verifiedSess?.userType,
+      expectedUserType: sessionData?.userType,
+      verifiedPreservedTenantUserId: verifiedSess?.preservedTenantUserId,
+      expectedPreservedTenantUserId: sessionData?.preservedTenantUserId,
+      updateSuccessful
+    });
+    
+    if (!updateSuccessful) {
+      console.error('[Session] updateSession: VERIFICATION FAILED - session did not persist correctly');
+      return false;
+    }
+    
     return true;
   } catch (err) {
-    console.error('Error updating session:', err);
+    console.error('[Session] updateSession: Exception:', err);
     return false;
   }
 }

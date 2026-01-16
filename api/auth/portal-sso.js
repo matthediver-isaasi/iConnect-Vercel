@@ -102,8 +102,15 @@ export default async function handler(req, res) {
         preservedIdentityId: updatedSessionData.preservedIdentityId
       });
       
-      await updateSession(existingSession.id, updatedSessionData);
-      console.log(`[Portal SSO] Updated session to add member context, preserved admin context for tenant_user ${existingSession.data.tenantUserId}`);
+      const updateSuccess = await updateSession(existingSession.id, updatedSessionData);
+      if (!updateSuccess) {
+        console.error(`[Portal SSO] FAILED to update session with member context for tenant_user ${existingSession.data.tenantUserId}`);
+        // Fall back to creating a new session with preserved context
+        console.log(`[Portal SSO] Falling back to createSession with preserved context`);
+        await createSession(res, updatedSessionData, { req, replaceSessionId: existingSession.id });
+      } else {
+        console.log(`[Portal SSO] Successfully updated session with member context, preserved admin context for tenant_user ${existingSession.data.tenantUserId}`);
+      }
     } else {
       // No admin session found via cookie (may be on custom domain where iconn.app cookies aren't sent)
       // Check if SSO token has tenant_user_id - this indicates the session was initiated from admin area
