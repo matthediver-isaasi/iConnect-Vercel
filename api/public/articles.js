@@ -64,9 +64,7 @@ export default async function handler(req, res) {
         guest_writer_id,
         status,
         subcategories,
-        tags,
-        read_time_minutes,
-        is_featured
+        tags
       `)
       .eq('tenant_id', tenant.id)
       .eq('status', 'published')
