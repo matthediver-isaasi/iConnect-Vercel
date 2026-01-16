@@ -60,7 +60,6 @@ export default async function handler(req, res) {
         start_date,
         end_date,
         location,
-        location_type,
         image_url,
         pricing_config,
         is_archived,
@@ -95,7 +94,6 @@ export default async function handler(req, res) {
         start_date: event.start_date,
         end_date: event.end_date,
         location: event.location,
-        location_type: event.location_type,
         image_url: event.image_url,
         registration_open: event.registration_open,
         pricing_config: publicTicketClasses.length > 0 ? { ticket_classes: publicTicketClasses } : null
