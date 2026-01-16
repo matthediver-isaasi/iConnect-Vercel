@@ -82,24 +82,32 @@ export default async function handler(req, res) {
     let guestWriterData = {};
 
     if (authorIds.length > 0) {
+      console.log('[Public Articles] Looking up authors:', authorIds, 'for tenant:', tenant.id);
+      
+      // Query only essential fields to avoid column name issues
       const { data: members, error: membersError } = await supabase
         .from('member')
-        .select('id, first_name, last_name, handle, profile_image_url')
+        .select('id, first_name, last_name, handle')
         .eq('tenant_id', tenant.id)
         .in('id', authorIds);
+
+      console.log('[Public Articles] Members result:', { count: members?.length, error: membersError?.message });
 
       if (membersError) {
         console.error('[Public Articles] Members query error:', membersError);
       }
 
-      if (members) {
+      if (members && members.length > 0) {
         members.forEach(m => {
+          console.log('[Public Articles] Found member:', m.id, 'handle:', m.handle);
           authorData[m.id] = {
             name: `${m.first_name || ''} ${m.last_name || ''}`.trim(),
             handle: m.handle,
-            profilePicture: m.profile_image_url
+            profilePicture: null
           };
         });
+      } else {
+        console.log('[Public Articles] No members found for author IDs');
       }
     }
 
