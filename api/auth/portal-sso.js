@@ -65,6 +65,15 @@ export default async function handler(req, res) {
     const existingSession = await getSession(req);
     const preserveAdminContext = existingSession?.data?.tenantUserId && existingSession?.data?.userType === 'tenant_user';
     
+    console.log('[Portal SSO] Session check for admin context:', {
+      hasExistingSession: !!existingSession,
+      sessionId: existingSession?.id?.substring(0, 8),
+      tenantUserId: existingSession?.data?.tenantUserId,
+      userType: existingSession?.data?.userType,
+      identityId: existingSession?.data?.identityId,
+      preserveAdminContext
+    });
+    
     if (preserveAdminContext) {
       // Update existing session to add member context while preserving admin context
       const updatedSessionData = {
@@ -98,6 +107,11 @@ export default async function handler(req, res) {
     } else {
       // No admin session found via cookie (may be on custom domain where iconn.app cookies aren't sent)
       // Check if SSO token has tenant_user_id - this indicates the session was initiated from admin area
+      console.log('[Portal SSO] No admin context to preserve, creating new member session', {
+        ssoTokenHasTenantUserId: !!ssoToken.tenant_user_id,
+        tenantUserId: ssoToken.tenant_user_id
+      });
+      
       let sessionData = {
         memberId: member.id,
         memberEmail: member.email,
@@ -108,6 +122,7 @@ export default async function handler(req, res) {
       };
       
       // If SSO token has tenant_user_id, derive preserved admin context from it
+      // SECURITY: Only derive admin context from verified tenant_user_id in the token
       if (ssoToken.tenant_user_id) {
         console.log(`[Portal SSO] SSO token has tenant_user_id, fetching admin context for Admin Dashboard link`);
         
@@ -129,6 +144,8 @@ export default async function handler(req, res) {
             preservedIdentityId: tenantUser.identity_id
           });
         }
+      } else {
+        console.log(`[Portal SSO] No tenant_user_id in token, admin context not available`);
       }
       
       await createSession(res, sessionData, { req });

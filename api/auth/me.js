@@ -76,7 +76,12 @@ export default async function handler(req, res) {
         .maybeSingle();
       
       hasTenantUserLink = !!link;
+      if (hasTenantUserLink) {
+        console.log('[Auth Me] hasTenantUserLink=true via database lookup for member:', member.id);
+      }
     }
+    
+    console.log('[Auth Me] Final hasTenantUserLink:', hasTenantUserLink, 'for member:', member.id);
 
     // Return member with permission flags
     return res.json({ ...member, isAdmin, canEditMembers, canManageCommunications, hasTenantUserLink });
