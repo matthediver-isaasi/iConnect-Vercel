@@ -18,10 +18,11 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { slug, domain } = req.query;
+    // Support both 'slug' and 'tenant' query params for backward compatibility
+    const { slug, tenant: tenantParam, domain } = req.query;
     const hostname = req.headers.host || req.headers['x-forwarded-host'];
     
-    let tenantSlug = slug;
+    let tenantSlug = slug || tenantParam;
     
     if (!tenantSlug && hostname) {
       if (hostname.endsWith('.iconn.app')) {
@@ -41,7 +42,7 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Tenant slug required' });
     }
 
-    const { data: tenant, error } = await supabase
+    const { data: tenantData, error } = await supabase
       .from('tenant')
       .select(`
         id,
@@ -61,7 +62,7 @@ export default async function handler(req, res) {
       .eq('status', 'active')
       .single();
 
-    if (error || !tenant) {
+    if (error || !tenantData) {
       console.log('[Tenant Branding] Tenant not found:', tenantSlug, error);
       return res.status(404).json({ error: 'Tenant not found' });
     }
@@ -69,18 +70,18 @@ export default async function handler(req, res) {
     res.json({
       success: true,
       branding: {
-        id: tenant.id,
-        name: tenant.name,
-        slug: tenant.slug,
-        logoUrl: tenant.logo_url,
-        headerLogoUrl: tenant.header_logo_url,
-        faviconUrl: tenant.favicon_url,
-        primaryColor: tenant.primary_color || '#5C0085',
-        secondaryColor: tenant.secondary_color,
-        tagline: tenant.tagline,
-        headerConfig: tenant.header_config || {},
-        footerConfig: tenant.footer_config || {},
-        brandingConfig: tenant.branding_config || {}
+        id: tenantData.id,
+        name: tenantData.name,
+        slug: tenantData.slug,
+        logoUrl: tenantData.logo_url,
+        headerLogoUrl: tenantData.header_logo_url,
+        faviconUrl: tenantData.favicon_url,
+        primaryColor: tenantData.primary_color || '#5C0085',
+        secondaryColor: tenantData.secondary_color,
+        tagline: tenantData.tagline,
+        headerConfig: tenantData.header_config || {},
+        footerConfig: tenantData.footer_config || {},
+        brandingConfig: tenantData.branding_config || {}
       }
     });
   } catch (error) {

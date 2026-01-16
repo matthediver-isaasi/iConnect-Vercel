@@ -47,11 +47,12 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Tenant not found' });
     }
 
+    // Note: navigation_item uses 'title' not 'label' column
     const { data: items, error } = await supabase
       .from('navigation_item')
       .select(`
         id,
-        label,
+        title,
         url,
         location,
         display_order,
@@ -69,7 +70,13 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Failed to fetch navigation items' });
     }
 
-    return res.status(200).json(items || []);
+    // Transform to match expected frontend shape (label instead of title)
+    const transformedItems = (items || []).map(item => ({
+      ...item,
+      label: item.title
+    }));
+
+    return res.status(200).json(transformedItems);
   } catch (error) {
     console.error('[Public Navigation] Error:', error);
     return res.status(500).json({ error: 'Internal server error' });

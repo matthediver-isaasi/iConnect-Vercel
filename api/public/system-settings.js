@@ -74,10 +74,11 @@ export default async function handler(req, res) {
 
     const { key } = req.query;
 
+    // Note: system_settings table is global (no tenant_id column)
+    // Filter by whitelist to only expose safe settings publicly
     let query = supabase
       .from('system_settings')
-      .select('id, setting_key, setting_value')
-      .eq('tenant_id', tenant.id);
+      .select('id, setting_key, setting_value');
 
     if (key) {
       if (!PUBLIC_SETTINGS_WHITELIST.includes(key)) {
