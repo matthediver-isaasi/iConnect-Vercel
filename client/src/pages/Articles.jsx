@@ -198,11 +198,15 @@ export default function ArticlesPage() {
   const publicAuthorData = React.useMemo(() => {
     if (isAuthenticated) return null; // Will use authenticated query instead
     
+    console.log('[Articles] Building publicAuthorData from publicAuthors:', publicAuthors);
+    console.log('[Articles] publicGuestWriters:', publicGuestWriters);
+    
     const handles = {};
     const names = {};
     
     // Build handles and names from public API response
     Object.entries(publicAuthors).forEach(([id, data]) => {
+      console.log('[Articles] Processing author', id, '- data:', data);
       if (data.handle) handles[String(id)] = data.handle;
       if (data.name) names[String(id)] = data.name;
     });
@@ -211,7 +215,7 @@ export default function ArticlesPage() {
       if (data.name) names[`guest_${id}`] = data.name;
     });
     
-    console.log('[Articles] Public author data with', Object.keys(handles).length, 'handles and', Object.keys(names).length, 'names');
+    console.log('[Articles] Public author data BUILT - handles:', handles, 'names:', names);
     return { handles, names };
   }, [isAuthenticated, publicAuthors, publicGuestWriters]);
   
