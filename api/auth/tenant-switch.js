@@ -95,8 +95,8 @@ export default async function handler(req, res) {
 
       console.log('[Tenant Switch] Creating tenant_user session:', tenantUser.id, 'for tenant:', tenantUser.tenant?.slug);
       
-      // Replace old session in one operation - domain is automatically set in production
-      await createSession(res, sessionData, { replaceSessionId: session.id });
+      // Replace old session in one operation - domain uses host-based detection
+      await createSession(res, sessionData, { replaceSessionId: session.id, req });
 
       return res.json({
         success: true,
@@ -216,7 +216,7 @@ export default async function handler(req, res) {
     }
 
     console.log('[Tenant Switch] Creating session with tenantId:', membership.tenant_id, 'type:', sessionData.userType);
-    await createSession(res, sessionData);
+    await createSession(res, sessionData, { req });
 
     console.log('[Tenant Switch] Switched to tenant:', membership.tenant?.name);
 
