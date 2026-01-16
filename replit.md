@@ -26,7 +26,14 @@ A centralized `tenant_identity` table handles all user authentication for owners
 
 ## Deployment
 
-Development utilizes Express.js with Vite middleware. Production deploys to Vercel serverless functions for API and static assets. All code changes deploy to Vercel preview branches, with no separate development environment or database. The Replit workspace connects to the same Supabase production database.
+**CRITICAL: IGNORE the local Express dev server entirely.** All development, testing, and debugging happens on Vercel preview branches. The Replit workspace is used only for code editing - never for running or testing the application locally.
+
+- All code changes automatically deploy to Vercel preview branches
+- There is NO separate development environment or database
+- The Replit workspace connects to the same Supabase production database as Vercel
+- API endpoints are Vercel serverless functions in the `/api/` directory
+- Test all changes on the Vercel preview URL, not locally
+- Debug using Vercel logs, not local Express logs
 
 ## Data Model & Features
 
