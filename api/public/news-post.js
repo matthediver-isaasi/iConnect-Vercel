@@ -134,13 +134,16 @@ export default async function handler(req, res) {
     const { data: newsPost, error } = await query.single();
 
     if (error || !newsPost) {
-      // Log detailed info server-side for debugging (not exposed to client)
-      if (debugPost) {
-        console.log('[Public NewsPost] Post exists but filtered out:', {
-          status: debugPost.status,
-          reason: 'Status not published'
-        });
-      }
+      // Log detailed info server-side for debugging
+      console.log('[Public NewsPost] Query failed:', {
+        error: error?.message || 'No error message',
+        errorCode: error?.code,
+        errorDetails: error?.details,
+        errorHint: error?.hint,
+        hasData: !!newsPost,
+        debugPostExists: !!debugPost,
+        debugStatus: debugPost?.status
+      });
       return res.status(404).json({ error: 'News post not found' });
     }
     
