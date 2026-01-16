@@ -14,6 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { createPageUrl } from "@/utils";
 import { toast } from "sonner";
 import { useLayoutContext } from "@/contexts/LayoutContext";
+import { useNewsPostsData } from "@/hooks/useNewsPostData";
 
 export default function NewsPage() {
   const { hasBanner } = useLayoutContext();
@@ -67,19 +68,17 @@ export default function NewsPage() {
   const showImage = displaySettings?.showImage ?? true;
   const showAuthor = displaySettings?.showAuthor ?? true;
 
-  // Fetch published news (for general view)
-  const { data: publishedNews = [], isLoading: publishedNewsLoading } = useQuery({
-    queryKey: ['published-news'],
-    queryFn: async () => {
-      const allNews = await base44.entities.NewsPost.list('-published_date');
-      const now = new Date();
-      return allNews.filter(n => 
-        n.status === 'published' && 
-        (!n.published_date || new Date(n.published_date) <= now)
-      );
-    },
-    staleTime: 0,
-  });
+  // Fetch published news (for general view) - uses hybrid hook for public/authenticated routing
+  const { data: rawPublishedNews = [], isLoading: publishedNewsLoading } = useNewsPostsData();
+  
+  // Filter to published news with valid dates (public API already filters, but authenticated may return all)
+  const publishedNews = useMemo(() => {
+    const now = new Date();
+    return rawPublishedNews.filter(n => 
+      n.status === 'published' && 
+      (!n.published_date || new Date(n.published_date) <= now)
+    );
+  }, [rawPublishedNews]);
 
   // Fetch user's own news (including drafts) for "My News" view
   const { data: myNews = [], isLoading: myNewsLoading } = useQuery({
