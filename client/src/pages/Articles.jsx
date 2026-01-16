@@ -192,32 +192,33 @@ export default function ArticlesPage() {
     refetchOnWindowFocus: true
   });
 
-  // Fetch member data (handles and names) for article authors
-  // For unauthenticated users, use data from public API response
-  // For authenticated users, fetch via authenticated API
-  const { data: authorData = { handles: {}, names: {} } } = useQuery({
-    queryKey: ['author-data-for-articles', isAuthenticated, articles?.map(a => a.author_id).filter(Boolean).join(',')],
+  // Build author data for article URL construction and author names
+  // For unauthenticated users, derive directly from public API response (synchronous)
+  // For authenticated users, fetch via separate API calls
+  const publicAuthorData = React.useMemo(() => {
+    if (isAuthenticated) return null; // Will use authenticated query instead
+    
+    const handles = {};
+    const names = {};
+    
+    // Build handles and names from public API response
+    Object.entries(publicAuthors).forEach(([id, data]) => {
+      if (data.handle) handles[String(id)] = data.handle;
+      if (data.name) names[String(id)] = data.name;
+    });
+    
+    Object.entries(publicGuestWriters).forEach(([id, data]) => {
+      if (data.name) names[`guest_${id}`] = data.name;
+    });
+    
+    console.log('[Articles] Public author data with', Object.keys(handles).length, 'handles and', Object.keys(names).length, 'names');
+    return { handles, names };
+  }, [isAuthenticated, publicAuthors, publicGuestWriters]);
+  
+  // For authenticated users, fetch author data via API
+  const { data: authenticatedAuthorData = { handles: {}, names: {} } } = useQuery({
+    queryKey: ['author-data-for-articles-authenticated', articles?.map(a => a.author_id).filter(Boolean).join(',')],
     queryFn: async () => {
-      // For unauthenticated users, use the data from publicClient response
-      if (!isAuthenticated) {
-        const handles = {};
-        const names = {};
-        
-        // Build handles and names from public API response
-        Object.entries(publicAuthors).forEach(([id, data]) => {
-          if (data.handle) handles[String(id)] = data.handle;
-          if (data.name) names[String(id)] = data.name;
-        });
-        
-        Object.entries(publicGuestWriters).forEach(([id, data]) => {
-          if (data.name) names[`guest_${id}`] = data.name;
-        });
-        
-        console.log('[Articles] Using public author data with', Object.keys(handles).length, 'handles and', Object.keys(names).length, 'names');
-        return { handles, names };
-      }
-      
-      // For authenticated users, fetch via API
       const uniqueAuthorIds = [...new Set(articles.filter(a => a.author_id).map(a => a.author_id))];
       console.log('[Articles] Fetching author data for', uniqueAuthorIds.length, 'unique authors');
       
@@ -256,9 +257,12 @@ export default function ArticlesPage() {
       console.log('[Articles] authorData built with', Object.keys(handles).length, 'handles and', Object.keys(names).length, 'names');
       return { handles, names };
     },
-    enabled: !!articles?.length,
+    enabled: isAuthenticated && !!articles?.length,
     staleTime: 60000 // Cache for 1 minute
   });
+  
+  // Use the appropriate author data based on auth state
+  const authorData = isAuthenticated ? authenticatedAuthorData : (publicAuthorData || { handles: {}, names: {} });
   
   // Backwards compatibility
   const authorHandles = authorData.handles;
