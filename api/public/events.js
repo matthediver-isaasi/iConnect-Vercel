@@ -62,11 +62,10 @@ export default async function handler(req, res) {
         location,
         image_url,
         pricing_config,
-        is_archived,
-        registration_open
+        status
       `)
       .eq('tenant_id', tenant.id)
-      .eq('is_archived', false)
+      .eq('status', 'published')
       .order('start_date', { ascending: true });
 
     const events = (rawEvents || []).map(event => {
@@ -95,7 +94,7 @@ export default async function handler(req, res) {
         end_date: event.end_date,
         location: event.location,
         image_url: event.image_url,
-        registration_open: event.registration_open,
+        status: event.status,
         pricing_config: publicTicketClasses.length > 0 ? { ticket_classes: publicTicketClasses } : null
       };
     });

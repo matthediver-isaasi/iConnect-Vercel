@@ -57,21 +57,21 @@ export default async function handler(req, res) {
       .select(`
         id,
         title,
-        slug,
         description,
         start_date,
         end_date,
-        timezone,
         location,
         image_url,
         pricing_config,
         speaker_ids,
-        is_archived,
-        registration_open
+        status,
+        summary,
+        event_type,
+        is_online
       `)
       .eq('id', eventId)
       .eq('tenant_id', tenant.id)
-      .eq('is_archived', false)
+      .eq('status', 'published')
       .single();
 
     if (error || !event) {
@@ -98,15 +98,16 @@ export default async function handler(req, res) {
     const publicEvent = {
       id: event.id,
       title: event.title,
-      slug: event.slug,
       description: event.description,
       start_date: event.start_date,
       end_date: event.end_date,
-      timezone: event.timezone,
       location: event.location,
       image_url: event.image_url,
       speaker_ids: event.speaker_ids,
-      registration_open: event.registration_open,
+      status: event.status,
+      summary: event.summary,
+      event_type: event.event_type,
+      is_online: event.is_online,
       pricing_config: publicTicketClasses.length > 0 ? { ticket_classes: publicTicketClasses } : null
     };
 
