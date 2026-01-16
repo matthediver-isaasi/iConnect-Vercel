@@ -84,12 +84,16 @@ export default function ArticlesPage() {
   const { data: publishedArticlesData = { articles: [], authors: {}, guestWriters: {} }, isLoading: publishedLoading } = useQuery({
     queryKey: ['published-articles', isAuthenticated],
     queryFn: async () => {
+      console.log('[Articles] Fetching articles, isAuthenticated:', isAuthenticated);
       if (isAuthenticated) {
         const allArticles = await base44.entities.BlogPost.list('-published_date');
         const filtered = allArticles.filter(article => article.status === 'published');
         return { articles: filtered, authors: {}, guestWriters: {} };
       } else {
+        console.log('[Articles] Calling publicClient.listArticles()');
         const result = await publicClient.listArticles();
+        console.log('[Articles] publicClient.listArticles() returned:', result);
+        console.log('[Articles] Authors from API:', result?.authors);
         return result;
       }
     },
