@@ -199,53 +199,118 @@ export default async function handler(req, res) {
       }
     }
 
-    // Find a tenant_user to log into (prefer by google_id, then by identity_id)
-    let { data: tenantUser, error: tenantUserError } = await supabase
+    // Find ALL tenant_users for this identity to check if user has multiple tenants
+    let allTenantUsersForIdentity = [];
+    
+    // Query by google_id first
+    const { data: tenantUsersByGoogle } = await supabase
       .from('tenant_user')
       .select('*, tenant:tenant_id(*)')
       .eq('google_id', googleId)
       .eq('status', 'active')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .single();
-
-    if (!tenantUser && identity) {
-      // Try by identity_id
-      const { data: tenantUserByIdentity } = await supabase
+      .order('created_at', { ascending: false });
+    
+    if (tenantUsersByGoogle?.length > 0) {
+      allTenantUsersForIdentity = tenantUsersByGoogle;
+    }
+    
+    // If no results by google_id, try by identity_id
+    if (allTenantUsersForIdentity.length === 0 && identity) {
+      const { data: tenantUsersByIdentity } = await supabase
         .from('tenant_user')
         .select('*, tenant:tenant_id(*)')
         .eq('identity_id', identity.id)
         .eq('status', 'active')
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .single();
+        .order('created_at', { ascending: false });
       
-      tenantUser = tenantUserByIdentity;
+      if (tenantUsersByIdentity?.length > 0) {
+        allTenantUsersForIdentity = tenantUsersByIdentity;
+      }
     }
-
-    if (!tenantUser) {
-      // Final fallback - by email
-      const { data: tenantUserByEmail } = await supabase
+    
+    // Final fallback - by email
+    if (allTenantUsersForIdentity.length === 0) {
+      const { data: tenantUsersByEmail } = await supabase
         .from('tenant_user')
         .select('*, tenant:tenant_id(*)')
         .eq('email', email.toLowerCase())
         .eq('status', 'active')
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .single();
+        .order('created_at', { ascending: false });
       
-      tenantUser = tenantUserByEmail;
+      if (tenantUsersByEmail?.length > 0) {
+        allTenantUsersForIdentity = tenantUsersByEmail;
+      }
     }
 
-    if (!tenantUser) {
+    if (allTenantUsersForIdentity.length === 0) {
       console.log('[Tenant Google OAuth Callback] No tenant user found for Google account');
       return res.redirect('/admin/login?error=no_account&email=' + encodeURIComponent(email));
     }
 
-    if (tenantUser.status !== 'active') {
-      console.log('[Tenant Google OAuth Callback] Tenant user inactive:', tenantUser.id);
-      return res.redirect('/admin/login?error=account_inactive');
+    // Check if user has multiple tenants - if so, create session with first tenant and redirect to selection
+    if (allTenantUsersForIdentity.length > 1) {
+      console.log('[Tenant Google OAuth Callback] User has', allTenantUsersForIdentity.length, 'tenants, redirecting to selection');
+      
+      // Create session with the first tenant (user can switch later)
+      const firstTenantUser = allTenantUsersForIdentity[0];
+      
+      await createSession(res, {
+        tenantUserId: firstTenantUser.id,
+        tenantUserEmail: firstTenantUser.email,
+        tenantId: firstTenantUser.tenant_id,
+        identityId: identity?.id || firstTenantUser.identity_id,
+        userType: 'tenant_user'
+      }, { req });
+      
+      // Combine session cookie with clearNonceCookie
+      const existingCookies = res.getHeader('Set-Cookie');
+      const allCookies = Array.isArray(existingCookies) 
+        ? [...existingCookies, clearNonceCookie]
+        : existingCookies 
+          ? [existingCookies, clearNonceCookie]
+          : [clearNonceCookie];
+      res.setHeader('Set-Cookie', allCookies);
+      
+      // Build tenant list for the selection page
+      const tenantList = allTenantUsersForIdentity.map(tu => ({
+        id: tu.tenant_id,
+        name: tu.tenant?.name,
+        slug: tu.tenant?.slug,
+        logo_url: tu.tenant?.logo_url
+      }));
+      
+      const identityIdForStorage = identity?.id || firstTenantUser.identity_id || '';
+      
+      // Redirect to login page with tenant selection data in localStorage
+      const html = `
+        <!DOCTYPE html>
+        <html>
+          <head><title>Select Workspace...</title></head>
+          <body>
+            <script>
+              localStorage.setItem('sso_tenant_selection', JSON.stringify({
+                identity: {
+                  id: '${identityIdForStorage}',
+                  email: '${email}',
+                  first_name: '${firstName || ''}',
+                  last_name: '${lastName || ''}'
+                },
+                tenants: ${JSON.stringify(tenantList)},
+                currentTenantId: '${firstTenantUser.tenant_id}'
+              }));
+              window.location.href = '/admin/login?sso_select_tenant=true';
+            </script>
+            <p>Loading workspaces...</p>
+          </body>
+        </html>
+      `;
+      
+      res.setHeader('Content-Type', 'text/html');
+      return res.send(html);
     }
+
+    // Single tenant - log in directly
+    const tenantUser = allTenantUsersForIdentity[0];
 
     console.log('[Tenant Google OAuth Callback] Logging into tenant:', tenantUser.tenant?.name, 'with identity_id:', identity?.id);
 
@@ -295,7 +360,7 @@ export default async function handler(req, res) {
               },
               tenant: ${JSON.stringify(tenantUser.tenant)},
               identityId: '${identityIdForStorage}',
-              hasMultipleTenants: true
+              hasMultipleTenants: false
             }));
             window.location.href = '${redirectUrl}';
           </script>

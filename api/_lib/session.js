@@ -445,6 +445,14 @@ export async function getSessionMember(req) {
       return null;
     }
     
+    // Attach preserved admin context if present (for hasTenantUserLink detection)
+    if (session.data.preservedTenantUserId) {
+      member._sessionPreservedTenantUserId = session.data.preservedTenantUserId;
+    }
+    if (session.data.preservedIdentityId) {
+      member._sessionPreservedIdentityId = session.data.preservedIdentityId;
+    }
+    
     return member;
   } catch (err) {
     console.error('Error getting session member:', err);

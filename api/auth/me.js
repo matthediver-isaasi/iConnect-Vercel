@@ -53,8 +53,17 @@ export default async function handler(req, res) {
     }
 
     // Check if member has a linked tenant_user account (for SaaS admin access)
+    // This can be either via the tenant_user_member_link table OR if the session
+    // has preserved admin context (meaning they came from the admin area via SSO)
     let hasTenantUserLink = false;
-    if (supabase) {
+    
+    // First check if session has preserved admin context (from portal SSO flow)
+    if (member._sessionPreservedTenantUserId || member._sessionPreservedIdentityId) {
+      hasTenantUserLink = true;
+    }
+    
+    // Fallback to database lookup
+    if (!hasTenantUserLink && supabase) {
       const { data: link } = await supabase
         .from('tenant_user_member_link')
         .select('id')

@@ -24,6 +24,7 @@ export default function AdminLogin() {
   const [setupMode, setSetupMode] = useState(false);
   const [setupToken, setSetupToken] = useState("");
   const [forgotPasswordMode, setForgotPasswordMode] = useState(false);
+  const [isSsoTenantSelection, setIsSsoTenantSelection] = useState(false);
 
   useEffect(() => {
     const oauthError = searchParams.get('error');
@@ -40,6 +41,28 @@ export default function AdminLogin() {
       };
       setError(errorMessages[oauthError] || 'Sign-in failed. Please try again.');
       window.history.replaceState({}, '', '/admin/login');
+    }
+
+    // Handle SSO tenant selection (redirected from Google OAuth callback)
+    const ssoSelectTenant = searchParams.get('sso_select_tenant');
+    if (ssoSelectTenant === 'true') {
+      try {
+        const ssoData = localStorage.getItem('sso_tenant_selection');
+        if (ssoData) {
+          const { identity: ssoIdentity, tenants } = JSON.parse(ssoData);
+          setIdentity(ssoIdentity);
+          setAvailableTenants(tenants);
+          setShowTenantSelection(true);
+          setIsSsoTenantSelection(true);
+          setCheckingAuth(false);
+          // Clean up localStorage and URL
+          localStorage.removeItem('sso_tenant_selection');
+          window.history.replaceState({}, '', '/admin/login');
+          return;
+        }
+      } catch (err) {
+        console.log('Failed to parse SSO tenant selection data');
+      }
     }
 
     const setup = searchParams.get('setup');
@@ -130,18 +153,32 @@ export default function AdminLogin() {
     setError("");
 
     try {
-      const response = await fetch('/api/auth/tenant-identity-login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ 
-          email: email.toLowerCase().trim(), 
-          password,
-          tenantId 
-        })
-      });
-
-      const data = await response.json();
+      let response;
+      let data;
+      
+      if (isSsoTenantSelection) {
+        // For SSO, we already have a session - use tenant-switch to change tenants
+        response = await fetch('/api/auth/tenant-switch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ tenantId })
+        });
+        data = await response.json();
+      } else {
+        // For email/password login, use tenant-identity-login with the selected tenant
+        response = await fetch('/api/auth/tenant-identity-login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ 
+            email: email.toLowerCase().trim(), 
+            password,
+            tenantId 
+          })
+        });
+        data = await response.json();
+      }
 
       if (data.success) {
         localStorage.setItem('saas_admin', JSON.stringify({
