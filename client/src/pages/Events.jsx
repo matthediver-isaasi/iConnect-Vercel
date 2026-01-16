@@ -13,6 +13,7 @@ import EventCard from "../components/events/EventCard";
 import PageTour from "../components/tour/PageTour";
 import TourButton from "../components/tour/TourButton";
 import { base44 } from "@/api/base44Client";
+import { publicClient } from "@/api/publicClient";
 import { useLayoutContext } from "@/contexts/LayoutContext";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
@@ -84,16 +85,16 @@ export default function EventsPage({
     }
   }, [shouldShowTours, hasSeenTour, memberInfo]);
 
-  // Load events using base44 client proxy
+  // Load events using public API (no auth required)
   const {
     data: events = [],
     isLoading,
     error: eventsError,
   } = useQuery({
-    queryKey: ["events"],
+    queryKey: ["public-events"],
     queryFn: async () => {
       try {
-        const data = await base44.entities.Event.list({ sort: { start_date: 'asc' } });
+        const data = await publicClient.listEvents();
         return data || [];
       } catch (error) {
         console.error("[Events] Error loading events:", error);

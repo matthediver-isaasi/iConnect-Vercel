@@ -438,8 +438,8 @@ export function IEditEventSpotlightElementEditor({ element, onChange }) {
   const [buttonStyles, setButtonStyles] = useState([]);
 
   const { data: events = [], isLoading: eventsLoading, error: eventsError } = useQuery({
-    queryKey: ['/api/entities/Event'],
-    queryFn: () => base44.entities.Event.list({ sort: { start_date: 'desc' } }),
+    queryKey: ['public-events'],
+    queryFn: () => publicClient.listEvents(),
     staleTime: 30 * 1000,
     retry: 2
   });

@@ -23,8 +23,8 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const supabaseUrl = process.env.SUPABASE_URL;
-  const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
+  const supabaseUrl = process.env.DEV_SUPABASE_URL || process.env.SUPABASE_URL;
+  const supabaseServiceKey = process.env.DEV_SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_KEY;
 
   if (!supabaseUrl || !supabaseServiceKey) {
     return res.status(503).json({ error: 'Supabase not configured' });
@@ -59,7 +59,6 @@ export default async function handler(req, res) {
         description,
         start_date,
         end_date,
-        timezone,
         location,
         location_type,
         image_url,
@@ -95,7 +94,6 @@ export default async function handler(req, res) {
         description: event.description,
         start_date: event.start_date,
         end_date: event.end_date,
-        timezone: event.timezone,
         location: event.location,
         location_type: event.location_type,
         image_url: event.image_url,
