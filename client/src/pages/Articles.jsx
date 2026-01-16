@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
+import { publicClient } from "@/api/publicClient";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -18,8 +19,10 @@ import { useLayoutContext } from "@/contexts/LayoutContext";
 
 export default function ArticlesPage() {
   useBlogPostRealtime(['published-articles']);
-  const { hasBanner } = useLayoutContext();
+  const { hasBanner, sessionValidated } = useLayoutContext();
   const { memberInfo, isFeatureExcluded } = useMemberAccess();
+  
+  const isAuthenticated = sessionValidated && !!memberInfo;
   const { getArticleEditorUrl } = useArticleUrl();
   const { authorHandle } = useParams();
   const navigate = useNavigate();
@@ -77,15 +80,25 @@ export default function ArticlesPage() {
   // This ensures consistency with how articles are created (using memberInfo.id as author_id)
   const currentMemberId = memberInfo?.id;
 
-  // Fetch published articles for public view
-  const { data: publishedArticles = [], isLoading: publishedLoading } = useQuery({
-    queryKey: ['published-articles'],
+  // Fetch published articles - use public API for unauthenticated, authenticated API for logged in users
+  const { data: publishedArticlesData = { articles: [], authors: {}, guestWriters: {} }, isLoading: publishedLoading } = useQuery({
+    queryKey: ['published-articles', isAuthenticated],
     queryFn: async () => {
-      const allArticles = await base44.entities.BlogPost.list('-published_date');
-      return allArticles.filter(article => article.status === 'published');
+      if (isAuthenticated) {
+        const allArticles = await base44.entities.BlogPost.list('-published_date');
+        const filtered = allArticles.filter(article => article.status === 'published');
+        return { articles: filtered, authors: {}, guestWriters: {} };
+      } else {
+        const result = await publicClient.listArticles();
+        return result;
+      }
     },
     staleTime: 0,
   });
+  
+  const publishedArticles = publishedArticlesData.articles || [];
+  const publicAuthors = publishedArticlesData.authors || {};
+  const publicGuestWriters = publishedArticlesData.guestWriters || {};
 
   // Fetch user's own articles (including drafts) when "My Blogs" is active
   const { data: myArticles = [], isLoading: myArticlesLoading } = useQuery({
@@ -128,10 +141,14 @@ export default function ArticlesPage() {
     : (showMyArticlesOnly ? myArticlesLoading : publishedLoading);
 
   const { data: categories = [], isLoading: categoriesLoading } = useQuery({
-    queryKey: ['resourceCategories-articles'], // Updated queryKey
+    queryKey: ['resourceCategories-articles', isAuthenticated],
     queryFn: async () => {
-      const cats = await base44.entities.ResourceCategory.list();
-      // Filter to only show categories that apply to Articles
+      let cats;
+      if (isAuthenticated) {
+        cats = await base44.entities.ResourceCategory.list();
+      } else {
+        cats = await publicClient.listResourceCategories();
+      }
       const articleCategories = cats.filter(c =>
         c.is_active &&
         c.applies_to_content_types &&
@@ -142,43 +159,70 @@ export default function ArticlesPage() {
     refetchOnWindowFocus: true
   });
 
-  // Fetch all views for sorting
+  // Fetch all views for sorting - only for authenticated users
   const { data: allViews = [] } = useQuery({
     queryKey: ['all-article-views'],
     queryFn: async () => {
       return await base44.entities.ArticleView.list();
-    }
+    },
+    enabled: isAuthenticated
   });
 
-  // Fetch all reactions for sorting
+  // Fetch all reactions for sorting - only for authenticated users
   const { data: allReactions = [] } = useQuery({
     queryKey: ['all-article-reactions'],
     queryFn: async () => {
       return await base44.entities.ArticleReaction.list();
-    }
+    },
+    enabled: isAuthenticated
   });
 
   // Fetch button styles once at page level
   const { data: buttonStyles = [] } = useQuery({
-    queryKey: ['buttonStyles-articles'],
+    queryKey: ['buttonStyles-articles', isAuthenticated],
     queryFn: async () => {
-      const styles = await base44.entities.ButtonStyle.list();
+      let styles;
+      if (isAuthenticated) {
+        styles = await base44.entities.ButtonStyle.list();
+      } else {
+        styles = await publicClient.listButtonStyles();
+      }
       return styles.filter(s => s.card_type === 'article' && s.is_active);
     },
     refetchOnWindowFocus: true
   });
 
   // Fetch member data (handles and names) for article authors
+  // For unauthenticated users, use data from public API response
+  // For authenticated users, fetch via authenticated API
   const { data: authorData = { handles: {}, names: {} } } = useQuery({
-    queryKey: ['author-data-for-articles', articles?.map(a => a.author_id).filter(Boolean).join(',')],
+    queryKey: ['author-data-for-articles', isAuthenticated, articles?.map(a => a.author_id).filter(Boolean).join(',')],
     queryFn: async () => {
-      // Get unique author IDs from articles
+      // For unauthenticated users, use the data from publicClient response
+      if (!isAuthenticated) {
+        const handles = {};
+        const names = {};
+        
+        // Build handles and names from public API response
+        Object.entries(publicAuthors).forEach(([id, data]) => {
+          if (data.handle) handles[String(id)] = data.handle;
+          if (data.name) names[String(id)] = data.name;
+        });
+        
+        Object.entries(publicGuestWriters).forEach(([id, data]) => {
+          if (data.name) names[`guest_${id}`] = data.name;
+        });
+        
+        console.log('[Articles] Using public author data with', Object.keys(handles).length, 'handles and', Object.keys(names).length, 'names');
+        return { handles, names };
+      }
+      
+      // For authenticated users, fetch via API
       const uniqueAuthorIds = [...new Set(articles.filter(a => a.author_id).map(a => a.author_id))];
       console.log('[Articles] Fetching author data for', uniqueAuthorIds.length, 'unique authors');
       
       const handles = {};
       const names = {};
-      // Fetch each author individually (much smaller than 5000 members)
       await Promise.all(uniqueAuthorIds.map(async (authorId) => {
         try {
           const member = await base44.entities.Member.get(authorId);
@@ -221,11 +265,16 @@ export default function ArticlesPage() {
   const authorNames = authorData.names;
 
   const { data: articleDisplayName, isLoading: displayNameLoading } = useQuery({
-    queryKey: ['article-display-name'],
+    queryKey: ['article-display-name', isAuthenticated],
     queryFn: async () => {
-      const allSettings = await base44.entities.SystemSettings.list();
-      const setting = allSettings.find(s => s.setting_key === 'article_display_name');
-      return setting?.setting_value || 'Articles';
+      if (isAuthenticated) {
+        const allSettings = await base44.entities.SystemSettings.list();
+        const setting = allSettings.find(s => s.setting_key === 'article_display_name');
+        return setting?.setting_value || 'Articles';
+      } else {
+        const setting = await publicClient.getSystemSetting('article_display_name');
+        return setting?.setting_value || 'Articles';
+      }
     }
   });
 
@@ -381,6 +430,13 @@ export default function ArticlesPage() {
   React.useEffect(() => {
     setCurrentPage(1);
   }, [selectedSubcategories, searchQuery, sortBy, itemsPerPage, showMyArticlesOnly]);
+
+  // Reset sortBy to valid option if user becomes unauthenticated
+  React.useEffect(() => {
+    if (!isAuthenticated && (sortBy === 'most-viewed' || sortBy === 'most-liked')) {
+      setSortBy('newest');
+    }
+  }, [isAuthenticated, sortBy]);
 
   const handleSubcategoryToggle = (subcategory) => {
     setSelectedSubcategories(prev => {
@@ -611,8 +667,12 @@ export default function ArticlesPage() {
                   <SelectContent>
                     <SelectItem value="newest">Newest First</SelectItem>
                     <SelectItem value="oldest">Oldest First</SelectItem>
-                    <SelectItem value="most-viewed">Most Viewed</SelectItem>
-                    <SelectItem value="most-liked">Most Liked</SelectItem>
+                    {isAuthenticated && (
+                      <>
+                        <SelectItem value="most-viewed">Most Viewed</SelectItem>
+                        <SelectItem value="most-liked">Most Liked</SelectItem>
+                      </>
+                    )}
                     <SelectItem value="title-asc">Title A-Z</SelectItem>
                     <SelectItem value="title-desc">Title Z-A</SelectItem>
                   </SelectContent>

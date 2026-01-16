@@ -53,7 +53,7 @@ export default async function handler(req, res) {
 
     const { data, error } = await supabase
       .from('resource_category')
-      .select('id, name, description, subcategories, applies_to_content_types, display_order')
+      .select('id, name, description, subcategories, applies_to_content_types, display_order, is_active')
       .eq('tenant_id', tenant.id)
       .or('is_active.eq.true,is_active.is.null')
       .order('display_order', { ascending: true });
