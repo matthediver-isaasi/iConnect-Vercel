@@ -153,7 +153,7 @@ export default function NewsPage() {
       await base44.entities.NewsPost.delete(newsId);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['published-news'] });
+      queryClient.invalidateQueries({ queryKey: ['news-posts'], exact: false });
       queryClient.invalidateQueries({ queryKey: ['my-news'] });
       setDeleteDialogOpen(false);
       setNewsToDelete(null);

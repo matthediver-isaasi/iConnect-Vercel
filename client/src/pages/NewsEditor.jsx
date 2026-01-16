@@ -180,6 +180,7 @@ export default function NewsEditorPage() {
     },
     onSuccess: (data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['news'] });
+      queryClient.invalidateQueries({ queryKey: ['news-posts'], exact: false });
       toast.success(variables.publishNow ? 'News published successfully!' : 'News saved successfully!');
       setLastSaved(new Date());
       
@@ -196,6 +197,7 @@ export default function NewsEditorPage() {
     mutationFn: () => base44.entities.NewsPost.delete(newsId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['news'] });
+      queryClient.invalidateQueries({ queryKey: ['news-posts'], exact: false });
       toast.success('News deleted successfully');
       window.location.href = createPageUrl('News');
     },
@@ -216,6 +218,7 @@ export default function NewsEditorPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['news'] });
+      queryClient.invalidateQueries({ queryKey: ['news-posts'], exact: false });
       toast.success('Share link generated!');
     },
     onError: () => {

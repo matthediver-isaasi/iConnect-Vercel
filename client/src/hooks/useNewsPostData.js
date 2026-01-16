@@ -28,8 +28,12 @@ export function useNewsPostsData({ forcePublic = false } = {}) {
     queryFn: async () => {
       try {
         if (isAuthenticated) {
-          const data = await base44.entities.NewsPost.list({ sort: { published_at: 'desc' } });
-          return data || [];
+          const data = await base44.entities.NewsPost.list('-published_date');
+          const now = new Date();
+          return (data || []).filter(n => 
+            n.status === 'published' && 
+            (!n.published_date || new Date(n.published_date) <= now)
+          );
         } else {
           const data = await publicClient.listNews();
           return data || [];
@@ -77,7 +81,13 @@ export function useNewsPostBySlug(slug, { forcePublic = false } = {}) {
       try {
         if (isAuthenticated) {
           const allNews = await base44.entities.NewsPost.list();
-          return allNews.find(n => n.slug === slug) || null;
+          const post = allNews.find(n => n.slug === slug);
+          if (!post) return null;
+          const now = new Date();
+          if (post.status !== 'published' || (post.published_date && new Date(post.published_date) > now)) {
+            return null;
+          }
+          return post;
         } else {
           const data = await publicClient.getNewsPostBySlug(slug);
           return data;
@@ -122,8 +132,13 @@ export function useNewsPostData(newsId, { forcePublic = false } = {}) {
     queryFn: async () => {
       try {
         if (isAuthenticated) {
-          const data = await base44.entities.NewsPost.get(newsId);
-          return data;
+          const post = await base44.entities.NewsPost.get(newsId);
+          if (!post) return null;
+          const now = new Date();
+          if (post.status !== 'published' || (post.published_date && new Date(post.published_date) > now)) {
+            return null;
+          }
+          return post;
         } else {
           const data = await publicClient.getNewsPost(newsId);
           return data;

@@ -73,7 +73,6 @@ export default async function handler(req, res) {
         author_name,
         summary,
         content,
-        featured_image_url,
         status,
         category,
         tags,
@@ -84,6 +83,7 @@ export default async function handler(req, res) {
         views_count,
         subcategories,
         feature_image_url,
+        featured_image_url,
         seo_title,
         seo_description
       `)
