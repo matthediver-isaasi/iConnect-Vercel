@@ -61,8 +61,24 @@ export default async function handler(req, res) {
       return res.redirect('/login?error=account_disabled');
     }
 
+    // Log member data for debugging handle generation
+    console.log('[Portal SSO] Member data for handle check:', {
+      memberId: member.id,
+      email: member.email,
+      firstName: member.first_name,
+      lastName: member.last_name,
+      existingHandle: member.handle,
+      tenantId: member.tenant_id,
+      organizationId: member.organization_id,
+      organizationTenantId: member.organization?.tenant_id
+    });
+
     // Auto-generate handle if member doesn't have one (tenant-scoped uniqueness)
-    if (!member.handle && (member.first_name || member.last_name || member.email)) {
+    if (member.handle) {
+      console.log('[Portal SSO] Member already has handle:', member.handle);
+    } else if (!member.first_name && !member.last_name && !member.email) {
+      console.log('[Portal SSO] Cannot generate handle: no name or email data available');
+    } else {
       console.log('[Portal SSO] Member has no handle, generating one...');
       
       try {
