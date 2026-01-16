@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,6 +25,12 @@ export default function AdminLogin() {
   const [setupToken, setSetupToken] = useState("");
   const [forgotPasswordMode, setForgotPasswordMode] = useState(false);
   const [isSsoTenantSelection, setIsSsoTenantSelection] = useState(false);
+  
+  // Capture SSO tenant selection flag synchronously on initial render
+  // This ref persists even after URL is cleaned up, preventing race conditions
+  const initialSsoSelectTenantRef = useRef(
+    new URLSearchParams(window.location.search).get('sso_select_tenant') === 'true'
+  );
 
   useEffect(() => {
     const oauthError = searchParams.get('error');
@@ -79,15 +85,15 @@ export default function AdminLogin() {
     if (setupMode) return;
     
     // Skip auth check if we're in SSO tenant selection mode
-    // The sso_select_tenant param means user needs to pick a tenant first
-    const ssoSelectTenant = searchParams.get('sso_select_tenant');
-    if (ssoSelectTenant === 'true') {
+    // Use the ref which was captured synchronously on initial render
+    // This prevents race conditions where URL is cleaned up before this effect runs
+    if (initialSsoSelectTenantRef.current) {
+      console.log('[AdminLogin] Skipping auth check - SSO tenant selection in progress');
       setCheckingAuth(false);
       return;
     }
     
     // Also skip if tenant selection is already showing or we're in SSO selection flow
-    // isSsoTenantSelection is a stable flag set when SSO redirects with multi-tenant
     if (showTenantSelection || isSsoTenantSelection) {
       setCheckingAuth(false);
       return;
@@ -109,7 +115,7 @@ export default function AdminLogin() {
       }
     };
     checkAuth();
-  }, [navigate, setupMode, searchParams, showTenantSelection, isSsoTenantSelection]);
+  }, [navigate, setupMode, showTenantSelection, isSsoTenantSelection]);
 
   const handleLogin = async (e) => {
     e.preventDefault();
