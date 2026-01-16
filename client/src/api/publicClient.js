@@ -182,6 +182,15 @@ class PublicClient {
     return this._fetch('/api/public/articles');
   }
   
+  async getArticle(slug, authorHandle = null) {
+    if (!slug) return null;
+    let url = `/api/public/article?slug=${encodeURIComponent(slug)}`;
+    if (authorHandle) {
+      url += `&authorHandle=${encodeURIComponent(authorHandle)}`;
+    }
+    return this._fetch(url);
+  }
+  
   // News
   async listNews() {
     return this._fetch('/api/public/news');

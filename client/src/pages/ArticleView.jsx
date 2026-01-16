@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { base44 } from "@/api/base44Client";
+import { publicClient } from "@/api/publicClient";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -12,11 +13,16 @@ import ArticleReactions from "../components/blog/ArticleReactions";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useArticleUrl } from "@/contexts/ArticleUrlContext";
+import { useLayout } from "@/contexts/LayoutContext";
 
 export default function ArticleViewPage() {
   const queryClient = useQueryClient();
   const { memberInfo, isAdmin, isFeatureExcluded } = useMemberAccess();
   const { getArticleListUrl, getArticleEditorUrl, getPublicArticlesUrl } = useArticleUrl();
+  const { sessionValidated } = useLayout();
+  
+  // Determine authentication state using session validation pattern
+  const isAuthenticated = sessionValidated && !!memberInfo;
   
   // Get route params for new folder-based URLs: /articles/:authorHandle/:articleSlug
   const { authorHandle: routeAuthorHandle, articleSlug: routeArticleSlug } = useParams();
@@ -24,6 +30,7 @@ export default function ArticleViewPage() {
   console.log('[ArticleView] Component initialized');
   console.log('[ArticleView] Route params - authorHandle:', routeAuthorHandle, 'articleSlug:', routeArticleSlug);
   console.log('[ArticleView] window.location.pathname:', window.location.pathname);
+  console.log('[ArticleView] isAuthenticated:', isAuthenticated);
   
   // Legacy query params support
   const urlParams = new URLSearchParams(window.location.search);
@@ -41,10 +48,26 @@ export default function ArticleViewPage() {
   const [viewRecorded, setViewRecorded] = useState(false);
   const [bioExpanded, setBioExpanded] = useState(false);
 
-  // Fetch article settings
-  const { data: articleSettings } = useQuery({
-    queryKey: ['article-settings'],
+  // Default settings for public users (reasonable public-friendly defaults)
+  const defaultPublicSettings = {
+    showViewCount: false, // Don't show view count for public
+    showAuthorBio: true,
+    showAwardsLabel: false, // Awards are member-only feature
+    showAboutAuthorLabel: true,
+    showAuthorOrganization: true,
+    showAuthorEmail: false, // Don't expose email publicly
+    showAuthorPhoto: true,
+    showThumbsUp: false, // Reactions are member-only
+    showThumbsDown: false
+  };
+
+  // Fetch article settings - only for authenticated users
+  const { data: articleSettings = defaultPublicSettings } = useQuery({
+    queryKey: ['article-settings', isAuthenticated],
     queryFn: async () => {
+      if (!isAuthenticated) {
+        return defaultPublicSettings;
+      }
       const allSettings = await base44.entities.SystemSettings.list();
       console.log('[ArticleView] All settings fetched:', allSettings.length);
       const viewCountSetting = allSettings.find(s => s.setting_key === 'article_show_view_count');
@@ -75,13 +98,18 @@ export default function ArticleViewPage() {
     refetchOnMount: true,
   });
 
-  // Fetch article display name
+  // Fetch article display name - use public API for unauthenticated
   const { data: articleDisplayName = 'Articles' } = useQuery({
-    queryKey: ['article-display-name'],
+    queryKey: ['article-display-name', isAuthenticated],
     queryFn: async () => {
-      const allSettings = await base44.entities.SystemSettings.list();
-      const setting = allSettings.find(s => s.setting_key === 'article_display_name');
-      return setting?.setting_value || 'Articles';
+      if (isAuthenticated) {
+        const allSettings = await base44.entities.SystemSettings.list();
+        const setting = allSettings.find(s => s.setting_key === 'article_display_name');
+        return setting?.setting_value || 'Articles';
+      } else {
+        const setting = await publicClient.getSystemSetting('article_display_name');
+        return setting?.setting_value || 'Articles';
+      }
     }
   });
 
@@ -102,10 +130,27 @@ export default function ArticleViewPage() {
     }
   }, [memberInfo]);
 
-  const { data: article, isLoading } = useQuery({
-    queryKey: ['article-by-slug', authorHandle, slug],
+  // Fetch article with hybrid loading - public API for unauthenticated, authenticated API for logged in
+  const { data: articleData = { article: null, author: null, guestWriter: null }, isLoading } = useQuery({
+    queryKey: ['article-by-slug', authorHandle, slug, isAuthenticated],
     queryFn: async () => {
-      console.log('[ArticleView] Fetching article for authorHandle:', authorHandle, 'slug:', slug);
+      console.log('[ArticleView] Fetching article for authorHandle:', authorHandle, 'slug:', slug, 'isAuthenticated:', isAuthenticated);
+      
+      // For unauthenticated users, use public API
+      if (!isAuthenticated) {
+        console.log('[ArticleView] Using public API for article fetch');
+        try {
+          const result = await publicClient.getArticle(slug, authorHandle);
+          console.log('[ArticleView] Public API result:', result);
+          return result;
+        } catch (e) {
+          console.log('[ArticleView] Public API error:', e);
+          return { article: null, author: null, guestWriter: null };
+        }
+      }
+      
+      // For authenticated users, use the existing authenticated API
+      console.log('[ArticleView] Using authenticated API for article fetch');
       const articles = await base44.entities.BlogPost.list();
       
       let found = null;
@@ -132,13 +177,13 @@ export default function ArticleViewPage() {
         } else {
           // Member articles - find by matching handle OR blog_handle
           // First try to find the article directly by checking all articles with member lookup
-          for (const article of articles) {
-            if (!slugMatches(article.slug, slug) || !article.author_id) continue;
+          for (const a of articles) {
+            if (!slugMatches(a.slug, slug) || !a.author_id) continue;
             // Fetch just this one member to check their handle
             try {
-              const member = await base44.entities.Member.get(article.author_id);
+              const member = await base44.entities.Member.get(a.author_id);
               if (member && (member.handle === authorHandle || member.blog_handle === authorHandle)) {
-                found = article;
+                found = a;
                 break;
               }
             } catch (e) {
@@ -153,23 +198,29 @@ export default function ArticleViewPage() {
       
       console.log('[ArticleView] Article found:', !!found);
       console.log('[ArticleView] Article author_id:', found?.author_id);
-      return found;
+      return { article: found, author: null, guestWriter: null };
     },
     enabled: !!slug,
   });
+  
+  // Extract article from response (handles both public and authenticated formats)
+  const article = articleData?.article || null;
+  const publicAuthorData = articleData?.author || null;
+  const publicGuestWriterData = articleData?.guestWriter || null;
 
-  // Fetch view count
+  // Fetch view count - only for authenticated users
   const { data: viewCount = 0 } = useQuery({
     queryKey: ['article-view-count', article?.id],
     queryFn: async () => {
       const views = await base44.entities.ArticleView.list();
       return views.filter(v => v.article_id === article.id).length;
     },
-    enabled: !!article?.id,
+    enabled: isAuthenticated && !!article?.id,
     staleTime: 10 * 1000,
   });
 
-  // Fetch author details (either member or guest writer) - fetch single member by ID
+  // Fetch author details (either member or guest writer) - only for authenticated users
+  // For unauthenticated users, use publicAuthorData from the article fetch
   const { data: authorMember } = useQuery({
     queryKey: ['author-member', article?.author_id],
     queryFn: async () => {
@@ -184,10 +235,11 @@ export default function ArticleViewPage() {
         return null;
       }
     },
-    enabled: !!article?.author_id,
+    enabled: isAuthenticated && !!article?.author_id && !publicAuthorData,
   });
 
-  // Fetch guest writer details if applicable
+  // Fetch guest writer details if applicable - only for authenticated users
+  // For unauthenticated users, use publicGuestWriterData from the article fetch
   const { data: guestWriter } = useQuery({
     queryKey: ['guest-writer', article?.guest_writer_id],
     queryFn: async () => {
@@ -195,14 +247,16 @@ export default function ArticleViewPage() {
       const writers = await base44.entities.GuestWriter.list();
       return writers.find(w => w.id === article.guest_writer_id);
     },
-    enabled: !!article?.guest_writer_id,
+    enabled: isAuthenticated && !!article?.guest_writer_id && !publicGuestWriterData,
   });
 
-  // Determine which author to use
-  const author = guestWriter || authorMember;
-  const isGuestWriter = !!guestWriter;
+  // Determine which author to use - prefer public data for unauthenticated, then authenticated data
+  const effectiveAuthorMember = publicAuthorData || authorMember;
+  const effectiveGuestWriter = publicGuestWriterData || guestWriter;
+  const author = effectiveGuestWriter || effectiveAuthorMember;
+  const isGuestWriter = !!effectiveGuestWriter;
 
-  // Fetch author organization (only for members)
+  // Fetch author organization (only for authenticated members)
   const { data: authorOrganization, isLoading: orgLoading, isError: orgError } = useQuery({
     queryKey: ['author-organization', authorMember?.organization_id],
     queryFn: async () => {
@@ -213,7 +267,7 @@ export default function ArticleViewPage() {
       const found = orgs.find(o => o.id === authorMember.organization_id);
       return found;
     },
-    enabled: !!authorMember?.organization_id && !isGuestWriter,
+    enabled: isAuthenticated && !!authorMember?.organization_id && !isGuestWriter,
     staleTime: Infinity,
     refetchOnWindowFocus: false,
     refetchOnMount: false,
@@ -222,9 +276,9 @@ export default function ArticleViewPage() {
   console.log('[ArticleView] Query state - orgLoading:', orgLoading, 'orgError:', orgError, 'authorOrganization:', authorOrganization);
 
   // Get organization name (from member's org or guest writer's organization field)
-  const organizationName = isGuestWriter ? guestWriter?.organization : authorOrganization?.name;
+  const organizationName = isGuestWriter ? effectiveGuestWriter?.organization : authorOrganization?.name;
 
-  // Fetch author engagement stats (only for members)
+  // Fetch author engagement stats (only for authenticated members)
   const { data: authorStats } = useQuery({
     queryKey: ['author-stats', authorMember?.id],
     queryFn: async () => {
@@ -242,19 +296,20 @@ export default function ArticleViewPage() {
 
       return { eventsAttended, articlesWritten, jobsPosted };
     },
-    enabled: !!authorMember?.id && !isGuestWriter,
+    enabled: isAuthenticated && !!authorMember?.id && !isGuestWriter,
   });
 
-  // Fetch online awards
+  // Fetch online awards - only for authenticated users
   const { data: awards = [] } = useQuery({
     queryKey: ['awards'],
     queryFn: async () => {
       const allAwards = await base44.entities.Award.list();
       return allAwards.filter(a => a.is_active).sort((a, b) => (a.level || 0) - (b.level || 0));
     },
+    enabled: isAuthenticated,
   });
 
-  // Fetch offline award assignments for author
+  // Fetch offline award assignments for author - only for authenticated users
   const { data: authorOfflineAssignments = [] } = useQuery({
     queryKey: ['author-offline-assignments', authorMember?.id],
     queryFn: async () => {
@@ -262,16 +317,17 @@ export default function ArticleViewPage() {
       const allAssignments = await base44.entities.OfflineAwardAssignment.list();
       return allAssignments.filter(a => a.member_id === authorMember.id);
     },
-    enabled: !!authorMember?.id,
+    enabled: isAuthenticated && !!authorMember?.id,
   });
 
-  // Fetch offline awards
+  // Fetch offline awards - only for authenticated users
   const { data: offlineAwards = [] } = useQuery({
     queryKey: ['offlineAwards'],
     queryFn: async () => {
       const allAwards = await base44.entities.OfflineAward.list();
       return allAwards.filter(a => a.is_active);
     },
+    enabled: isAuthenticated,
   });
 
   // Calculate author's earned online awards
