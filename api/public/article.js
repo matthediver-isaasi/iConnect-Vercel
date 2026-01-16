@@ -65,7 +65,7 @@ export default async function handler(req, res) {
         .from('member')
         .select('id')
         .eq('tenant_id', tenant.id)
-        .or(`handle.eq.${authorHandle},blog_handle.eq.${authorHandle}`)
+        .eq('handle', authorHandle)
         .single();
 
       if (member) {
@@ -158,7 +158,7 @@ export default async function handler(req, res) {
     if (article.author_id) {
       const { data: member } = await supabase
         .from('member')
-        .select('id, first_name, last_name, handle, blog_handle, profile_picture_url, job_title, short_bio, linkedin_profile_url, email')
+        .select('id, first_name, last_name, handle, profile_image_url, job_title, short_bio, linkedin_profile_url, email')
         .eq('id', article.author_id)
         .single();
 
@@ -166,8 +166,8 @@ export default async function handler(req, res) {
         author = {
           id: member.id,
           name: `${member.first_name || ''} ${member.last_name || ''}`.trim(),
-          handle: member.handle || member.blog_handle,
-          profilePicture: member.profile_picture_url,
+          handle: member.handle,
+          profilePicture: member.profile_image_url,
           jobTitle: member.job_title,
           shortBio: member.short_bio,
           linkedinUrl: member.linkedin_profile_url,
