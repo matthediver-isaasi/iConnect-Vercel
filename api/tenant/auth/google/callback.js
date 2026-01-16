@@ -119,6 +119,11 @@ export default async function handler(req, res) {
 
     const googleUser = await userInfoResponse.json();
     const { id: googleId, email, name, picture } = googleUser;
+    
+    // Parse name into first/last for use throughout the callback
+    const nameParts = (name || '').split(' ');
+    const firstName = nameParts[0] || '';
+    const lastName = nameParts.slice(1).join(' ') || '';
 
     console.log('[Tenant Google OAuth Callback] Google user:', { googleId, email, name });
 
@@ -155,10 +160,6 @@ export default async function handler(req, res) {
 
     // If no identity exists, create one for the unified system
     if (!identity) {
-      const nameParts = (name || '').split(' ');
-      const firstName = nameParts[0] || '';
-      const lastName = nameParts.slice(1).join(' ') || '';
-      
       const { data: newIdentity, error: createError } = await supabase
         .from('tenant_identity')
         .insert({
