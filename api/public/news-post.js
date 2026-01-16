@@ -63,6 +63,42 @@ export default async function handler(req, res) {
 
     const now = new Date().toISOString();
 
+    console.log('[Public NewsPost] Query params:', {
+      tenantId: tenant.id,
+      tenantSlug,
+      newsId,
+      newsSlug,
+      now
+    });
+
+    // Debug: Check if post exists without filters (server-side logging only)
+    let debugQuery = supabase
+      .from('news_post')
+      .select('id, slug, status, published_date')
+      .eq('tenant_id', tenant.id);
+    
+    if (newsId) {
+      debugQuery = debugQuery.eq('id', newsId);
+    } else if (newsSlug) {
+      debugQuery = debugQuery.eq('slug', newsSlug);
+    }
+    
+    const { data: debugPost } = await debugQuery.maybeSingle();
+    
+    if (debugPost) {
+      console.log('[Public NewsPost] Post found in DB (pre-filter):', {
+        id: debugPost.id,
+        slug: debugPost.slug,
+        status: debugPost.status,
+        published_date: debugPost.published_date,
+        statusMatch: debugPost.status === 'published',
+        dateMatch: !debugPost.published_date || debugPost.published_date <= now
+      });
+    } else {
+      console.log('[Public NewsPost] Post not found in DB for tenant/slug');
+    }
+
+    // Production query with proper security filters
     let query = supabase
       .from('news_post')
       .select(`
@@ -88,8 +124,11 @@ export default async function handler(req, res) {
         seo_description
       `)
       .eq('tenant_id', tenant.id)
-      .eq('status', 'published')
-      .lte('published_date', now);
+      .eq('status', 'published');
+    
+    // Only filter by published_date if the field is not null
+    // Some posts may have null published_date which means "publish immediately"
+    query = query.or(`published_date.is.null,published_date.lte.${now}`);
 
     if (newsId) {
       query = query.eq('id', newsId);
@@ -100,6 +139,16 @@ export default async function handler(req, res) {
     const { data: newsPost, error } = await query.single();
 
     if (error || !newsPost) {
+      // Log detailed info server-side for debugging (not exposed to client)
+      if (debugPost) {
+        console.log('[Public NewsPost] Post exists but filtered out:', {
+          status: debugPost.status,
+          published_date: debugPost.published_date,
+          reason: debugPost.status !== 'published' 
+            ? 'Status not published' 
+            : 'Published date in future or other filter issue'
+        });
+      }
       return res.status(404).json({ error: 'News post not found' });
     }
 
