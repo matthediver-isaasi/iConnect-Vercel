@@ -82,26 +82,20 @@ export default async function handler(req, res) {
     let guestWriterData = {};
 
     if (authorIds.length > 0) {
-      console.log('[Public Articles] Fetching members for author IDs:', authorIds);
-      const { data: members, error: membersError } = await supabase
+      const { data: members } = await supabase
         .from('member')
-        .select('id, first_name, last_name, handle, blog_handle, profile_picture_url')
+        .select('id, first_name, last_name, handle, profile_picture_url')
         .in('id', authorIds);
 
-      console.log('[Public Articles] Members query result:', { members, error: membersError });
-      
       if (members) {
         members.forEach(m => {
-          const resolvedHandle = m.handle || m.blog_handle;
-          console.log('[Public Articles] Member', m.id, '- handle:', m.handle, 'blog_handle:', m.blog_handle, 'resolved:', resolvedHandle);
           authorData[m.id] = {
             name: `${m.first_name || ''} ${m.last_name || ''}`.trim(),
-            handle: resolvedHandle,
+            handle: m.handle,
             profilePicture: m.profile_picture_url
           };
         });
       }
-      console.log('[Public Articles] Final authorData:', authorData);
     }
 
     if (guestWriterIds.length > 0) {
