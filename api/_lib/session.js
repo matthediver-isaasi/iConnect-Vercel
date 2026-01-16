@@ -578,14 +578,9 @@ export async function getSessionTenantUser(req) {
       preservedMemberId: session.data.memberId,
       preservedMemberEmail: session.data.memberEmail,
       preservedMemberType: 'member'
+      // NOTE: Keep preservedTenantUserId, preservedIdentityId etc. intact
+      // so user can switch between admin and portal without losing context
     };
-    
-    // Remove the preservedTenantUser fields since we're restoring
-    delete restoredSessionData.preservedTenantUserId;
-    delete restoredSessionData.preservedTenantUserEmail;
-    delete restoredSessionData.preservedIdentityId;
-    delete restoredSessionData.preservedTenantId;
-    delete restoredSessionData.preservedTenantUserType;
     
     await updateSession(session.id, restoredSessionData);
     console.log('[Session] Restored admin context from preserved session');
