@@ -409,6 +409,15 @@ async function tryPromoteMemberToTenantUser(session, req) {
 export async function getSessionMember(req) {
   const session = await getSession(req);
   
+  console.log('[Session] getSessionMember called, session data:', JSON.stringify({
+    hasSession: !!session,
+    sessionId: session?.id?.substring(0, 8),
+    userType: session?.data?.userType,
+    memberId: session?.data?.memberId,
+    preservedTenantUserId: session?.data?.preservedTenantUserId,
+    preservedIdentityId: session?.data?.preservedIdentityId
+  }));
+  
   if (!session?.data?.memberId) {
     return null;
   }

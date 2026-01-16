@@ -165,32 +165,60 @@ export default async function handler(req, res) {
     // tenant_user_id is now optional - unified identity users may not have a legacy tenant_user record
     let tenantUserIdForToken = null;
     
+    console.log('[Portal Session] Determining tenant_user_id for token:', {
+      isUnifiedIdentity: !!tenantUser._isUnifiedIdentity,
+      identityId,
+      tenantUserEmail: tenantUser.email,
+      tenantId: tenantUser.tenant_id
+    });
+    
     if (tenantUser._isUnifiedIdentity && identityId) {
       // Look up the tenant_user record linked to this identity
-      const { data: linkedTenantUser } = await supabase
+      const { data: linkedTenantUser, error: linkError } = await supabase
         .from('tenant_user')
-        .select('id')
+        .select('id, identity_id, email')
         .eq('identity_id', identityId)
         .eq('tenant_id', tenantUser.tenant_id)
         .limit(1)
-        .single();
+        .maybeSingle();
+      
+      console.log('[Portal Session] Lookup by identity_id:', { 
+        linkedTenantUser, 
+        linkError: linkError?.message 
+      });
       
       if (linkedTenantUser?.id) {
         tenantUserIdForToken = linkedTenantUser.id;
         console.log('[Portal Session] Found linked tenant_user_id:', tenantUserIdForToken);
       } else {
-        // No tenant_user record - try by email
-        const { data: tenantUserByEmail } = await supabase
+        // No tenant_user record linked by identity_id - try by email
+        console.log('[Portal Session] No tenant_user by identity_id, trying email:', tenantUser.email?.toLowerCase());
+        
+        const { data: tenantUserByEmail, error: emailError } = await supabase
           .from('tenant_user')
-          .select('id')
+          .select('id, identity_id, email')
           .eq('email', tenantUser.email?.toLowerCase())
           .eq('tenant_id', tenantUser.tenant_id)
           .limit(1)
-          .single();
+          .maybeSingle();
+        
+        console.log('[Portal Session] Lookup by email:', { 
+          tenantUserByEmail, 
+          emailError: emailError?.message 
+        });
         
         if (tenantUserByEmail?.id) {
           tenantUserIdForToken = tenantUserByEmail.id;
           console.log('[Portal Session] Found tenant_user_id by email:', tenantUserIdForToken);
+          
+          // Auto-link identity_id for future lookups if not already set
+          if (!tenantUserByEmail.identity_id && identityId) {
+            await supabase
+              .from('tenant_user')
+              .update({ identity_id: identityId })
+              .eq('id', tenantUserByEmail.id);
+            console.log('[Portal Session] Auto-linked identity_id to tenant_user:', tenantUserByEmail.id);
+          }
         } else {
           console.log('[Portal Session] No tenant_user record found - proceeding with null tenant_user_id (unified identity user)');
         }
@@ -198,6 +226,7 @@ export default async function handler(req, res) {
     } else {
       // Legacy tenant_user session - use the id directly
       tenantUserIdForToken = tenantUser.id;
+      console.log('[Portal Session] Using legacy tenant_user.id:', tenantUserIdForToken);
     }
 
     const { error: tokenError } = await supabase
