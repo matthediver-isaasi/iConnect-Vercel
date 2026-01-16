@@ -66,13 +66,16 @@ export default async function handler(req, res) {
     return res.redirect('/admin/login?error=csrf_error');
   }
 
-  const isProduction = process.env.NODE_ENV === 'production';
+  // Use host-based detection for cookie domain
+  // Only use .iconn.app domain when actually on iconn.app (not Vercel preview URLs)
+  const host = req.headers.host || '';
+  const isOnIconnDomain = host.endsWith('.iconn.app') || host === 'iconn.app';
   const clearNonceCookie = serialize('tenant_google_oauth_nonce', '', {
     httpOnly: true,
-    secure: isProduction,
+    secure: true,
     sameSite: 'lax',
     path: '/',
-    domain: isProduction ? '.iconn.app' : undefined,
+    domain: isOnIconnDomain ? '.iconn.app' : undefined,
     maxAge: 0
   });
   // Don't set cookie here - combine with session cookie later
@@ -257,7 +260,7 @@ export default async function handler(req, res) {
       tenantId: tenantUser.tenant_id,
       identityId: identity?.id || tenantUser.identity_id,
       userType: 'tenant_user'
-    });
+    }, { req });
 
     // Combine session cookie with clearNonceCookie
     const existingCookies = res.getHeader('Set-Cookie');

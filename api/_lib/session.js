@@ -99,11 +99,13 @@ export async function createSession(res, sessionData, options = {}) {
   
   const sessionId = generateSessionId();
   const expire = new Date(Date.now() + SESSION_MAX_AGE);
-  const { cookieDomain, replaceSessionId } = options;
-  const isProduction = process.env.NODE_ENV === 'production';
+  const { cookieDomain, replaceSessionId, req } = options;
   
-  // Always use .iconn.app domain in production for cross-subdomain cookies
-  const effectiveDomain = cookieDomain || (isProduction ? PRODUCTION_COOKIE_DOMAIN : undefined);
+  // Use host-based detection for cookie domain
+  // Only use .iconn.app domain when actually on iconn.app (not Vercel preview URLs)
+  const host = req?.headers?.host || '';
+  const isOnIconnDomain = host.endsWith('.iconn.app') || host === 'iconn.app';
+  const effectiveDomain = cookieDomain || (isOnIconnDomain ? PRODUCTION_COOKIE_DOMAIN : undefined);
   
   // If replacing an existing session, delete it first (database only, not cookie)
   if (replaceSessionId) {
@@ -121,7 +123,7 @@ export async function createSession(res, sessionData, options = {}) {
     cookie: {
       originalMaxAge: SESSION_MAX_AGE,
       expires: expire.toISOString(),
-      secure: isProduction,
+      secure: true,
       httpOnly: true,
       path: '/',
       sameSite: 'lax',
@@ -148,7 +150,7 @@ export async function createSession(res, sessionData, options = {}) {
     const signedId = signSessionId(sessionId);
     const cookieOptions = {
       httpOnly: true,
-      secure: isProduction,
+      secure: true,
       sameSite: 'lax',
       path: '/',
       maxAge: SESSION_MAX_AGE / 1000 // maxAge in seconds for cookie
@@ -236,13 +238,15 @@ export async function destroySession(req, res, options = {}) {
   }
   
   // Clear the cookie - must use same domain as was used to set it for cross-subdomain cookies
+  // Use host-based detection for cookie domain
   const { cookieDomain } = options;
-  const isProduction = process.env.NODE_ENV === 'production';
-  const domain = cookieDomain || (isProduction ? PRODUCTION_COOKIE_DOMAIN : undefined);
+  const host = req?.headers?.host || '';
+  const isOnIconnDomain = host.endsWith('.iconn.app') || host === 'iconn.app';
+  const domain = cookieDomain || (isOnIconnDomain ? PRODUCTION_COOKIE_DOMAIN : undefined);
   
   const cookieOptions = {
     httpOnly: true,
-    secure: isProduction,
+    secure: true,
     sameSite: 'lax',
     path: '/',
     maxAge: 0

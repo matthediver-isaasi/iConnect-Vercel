@@ -215,7 +215,7 @@ export default async function handler(req, res) {
       membershipId: selectedMembership.id,
       membershipRole: selectedMembership.role,
       userType: 'tenant_user'
-    });
+    }, { req });
 
     console.log('[Tenant Identity] Login success for:', email, 'tenant:', selectedMembership.tenant?.name);
     
@@ -312,7 +312,7 @@ async function handleLegacyLogin(req, res, email, password) {
     };
 
     console.log('[Tenant Legacy] Creating session with tenantId:', tenantUser.tenant_id);
-    await createSession(res, sessionData);
+    await createSession(res, sessionData, { req });
     
     res.json({ 
       success: true, 

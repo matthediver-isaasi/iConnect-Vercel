@@ -31,20 +31,22 @@ export default async function handler(req, res) {
   try {
     const nonce = crypto.randomBytes(32).toString('hex');
     
-    const isProduction = process.env.NODE_ENV === 'production';
+    // Use host-based detection for cookie domain
+    // Only use .iconn.app domain when actually on iconn.app (not Vercel preview URLs)
+    const host = req.headers.host || '';
+    const isOnIconnDomain = host.endsWith('.iconn.app') || host === 'iconn.app';
     const nonceCookie = serialize('tenant_google_oauth_nonce', nonce, {
       httpOnly: true,
-      secure: isProduction,
+      secure: true,
       sameSite: 'lax',
       path: '/',
-      domain: isProduction ? '.iconn.app' : undefined,
+      domain: isOnIconnDomain ? '.iconn.app' : undefined,
       maxAge: 300
     });
     res.setHeader('Set-Cookie', nonceCookie);
 
-    const host = req.headers.host || 'iconn.app';
-    const protocol = req.headers['x-forwarded-proto'] || (process.env.NODE_ENV === 'production' ? 'https' : 'http');
-    const redirectUri = `${protocol}://${host}/api/tenant/auth/google/callback`;
+    const protocol = req.headers['x-forwarded-proto'] || 'https';
+    const redirectUri = `${protocol}://${host || 'iconn.app'}/api/tenant/auth/google/callback`;
     
     const statePayload = {
       nonce,
