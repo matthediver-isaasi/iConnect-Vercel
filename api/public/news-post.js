@@ -99,6 +99,7 @@ export default async function handler(req, res) {
     }
 
     // Production query with proper security filters
+    // Select only columns that exist in the news_post table
     let query = supabase
       .from('news_post')
       .select(`
@@ -110,17 +111,16 @@ export default async function handler(req, res) {
         summary,
         content,
         status,
-        category,
         tags,
         published_date,
         created_at,
         updated_at,
         is_featured,
         views_count,
-        subcategories,
         featured_image_url,
         seo_title,
-        seo_description
+        seo_description,
+        tenant_id
       `)
       .eq('tenant_id', tenant.id)
       .eq('status', 'published');
