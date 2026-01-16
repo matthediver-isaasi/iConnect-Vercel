@@ -47,6 +47,12 @@ Preview and production environments work **identically** - the only difference i
 
 There is NO functional code difference between preview and production - do NOT add environment-specific logic.
 
+**IMPORTANT: Environment Variables**
+- There is NO concept of DEV_* prefixed environment variables (e.g., no DEV_SUPABASE_URL)
+- All code uses standard environment variable names (SUPABASE_URL, SUPABASE_SERVICE_KEY, DATABASE_URL)
+- Vercel manages different values for these variables per branch/deployment
+- Never add NODE_ENV-based logic to switch between dev/prod configurations
+
 ### Development Workflow
 
 - All code changes automatically deploy to Vercel preview branches
