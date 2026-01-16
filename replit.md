@@ -62,6 +62,17 @@ Both systems support Google OAuth for authentication, with a centralized callbac
 
 ## Deployment Architecture
 
+**Preview Deployment Workflow:**
+- All code changes deploy to Vercel preview branches directly
+- There is NO separate development environment or database
+- The Replit workspace connects to the same Supabase production database
+- All `api/public/*` endpoints use `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` (never DEV_* variables)
+- Do NOT use DEV_SUPABASE_* fallbacks in API endpoints - these point to an outdated sandbox
+
+**Environment Variables:**
+- Use `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` for all database connections
+- The `DEV_SUPABASE_*` secrets are legacy and should not be used
+
 Development uses Express.js with Vite middleware. Production deploys to Vercel serverless functions for API and static assets. Data freshness is maintained using TanStack Query and Supabase Realtime Subscriptions. Immediate session invalidation is enforced based on member status changes.
 
 ## Data Model & Features

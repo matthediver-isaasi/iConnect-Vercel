@@ -18,8 +18,8 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const supabaseUrl = process.env.DEV_SUPABASE_URL || process.env.SUPABASE_URL;
-  const supabaseServiceKey = process.env.DEV_SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_KEY;
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
 
   if (!supabaseUrl || !supabaseServiceKey) {
     console.error('[Public Page] Missing Supabase credentials');
