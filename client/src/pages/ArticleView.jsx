@@ -13,13 +13,13 @@ import ArticleReactions from "../components/blog/ArticleReactions";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useArticleUrl } from "@/contexts/ArticleUrlContext";
-import { useLayout } from "@/contexts/LayoutContext";
+import { useLayoutContext } from "@/contexts/LayoutContext";
 
 export default function ArticleViewPage() {
   const queryClient = useQueryClient();
   const { memberInfo, isAdmin, isFeatureExcluded } = useMemberAccess();
   const { getArticleListUrl, getArticleEditorUrl, getPublicArticlesUrl } = useArticleUrl();
-  const { sessionValidated } = useLayout();
+  const { sessionValidated } = useLayoutContext();
   
   // Determine authentication state using session validation pattern
   const isAuthenticated = sessionValidated && !!memberInfo;
