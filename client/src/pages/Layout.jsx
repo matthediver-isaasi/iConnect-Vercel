@@ -1861,9 +1861,9 @@ useEffect(() => {
                       variant="ghost"
                       className="w-full justify-start text-slate-600 hover:text-slate-900 hover:bg-slate-50"
                       onClick={() => {
-                        // Stay on the same subdomain for admin access
-                        // This preserves the tenant context needed for session promotion
-                        window.location.href = '/admin';
+                        // Tenant owners manage all tenants from iconn.app root domain
+                        // Portal subdomains are for members only
+                        window.location.href = 'https://iconn.app/admin/dashboard';
                       }}
                     >
                       <ExternalLink className="w-4 h-4 mr-2" />
@@ -2144,9 +2144,9 @@ useEffect(() => {
                           className="w-full justify-start text-slate-600 hover:text-slate-900 hover:bg-slate-50"
                           onClick={() => {
                             setMobileMenuOpen(false);
-                            // Stay on the same subdomain for admin access
-                            // This preserves the tenant context needed for session promotion
-                            window.location.href = '/admin';
+                            // Tenant owners manage all tenants from iconn.app root domain
+                            // Portal subdomains are for members only
+                            window.location.href = 'https://iconn.app/admin/dashboard';
                           }}
                         >
                           <ExternalLink className="w-4 h-4 mr-2" />

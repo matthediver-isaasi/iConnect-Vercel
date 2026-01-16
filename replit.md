@@ -24,13 +24,32 @@ The platform supports a three-tier hierarchy: TENANT, ORGANIZATION, and MEMBER. 
 
 A centralized `tenant_identity` table handles all user authentication for owners and members. This allows a single user to own multiple tenants and be a member in multiple organizations, facilitating seamless tenant switching. Per-tenant password isolation is implemented via `tenant_membership_credentials`, allowing different passwords for each tenant an identity belongs to. Both systems support Google OAuth.
 
-## Deployment
+## Deployment & Domain Architecture
 
-**CRITICAL: IGNORE the local Express dev server entirely.** All development, testing, and debugging happens on Vercel preview branches. The Replit workspace is used only for code editing - never for running or testing the application locally.
+**CRITICAL: IGNORE the local Express dev server entirely.** All development, testing, and debugging happens on Vercel. The Replit workspace is used only for code editing - never for running or testing the application locally.
+
+### Domain Structure
+
+- **`iconn.app`** (root domain) - Tenant owner area for provisioning, login, setup, and multi-tenant management. One person can own multiple tenants.
+- **`{tenant}.iconn.app`** (subdomains) - Member portals for each specific tenant. Members access their tenant's portal here.
+
+### Navigation Rules
+
+- Tenant owners login and manage tenants on `iconn.app`. They access tenant portals via "Open Portal" button.
+- The "Admin Dashboard" link in portal navigation always redirects to `https://iconn.app/admin/dashboard`.
+- Session cookies use `.iconn.app` domain for cross-subdomain sharing.
+
+### Preview vs Production
+
+Preview and production environments work **identically** - the only difference is which Vercel branch is deployed:
+- **Preview branches**: Deploy automatically for testing; have their own Vercel environment variables
+- **Production branch**: Merged after preview testing is confirmed; has its own Vercel environment variables
+
+There is NO functional code difference between preview and production - do NOT add environment-specific logic.
+
+### Development Workflow
 
 - All code changes automatically deploy to Vercel preview branches
-- There is NO separate development environment or database
-- The Replit workspace connects to the same Supabase production database as Vercel
 - API endpoints are Vercel serverless functions in the `/api/` directory
 - Test all changes on the Vercel preview URL, not locally
 - Debug using Vercel logs, not local Express logs
