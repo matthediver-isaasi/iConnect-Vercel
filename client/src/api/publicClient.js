@@ -187,6 +187,16 @@ class PublicClient {
     return this._fetch('/api/public/news');
   }
   
+  async getNewsPost(id) {
+    if (!id) return null;
+    return this._fetch(`/api/public/news-post?id=${id}`);
+  }
+  
+  async getNewsPostBySlug(slug) {
+    if (!slug) return null;
+    return this._fetch(`/api/public/news-post?slug=${encodeURIComponent(slug)}`);
+  }
+  
   // Resources
   async listResources() {
     return this._fetch('/api/public/resources');

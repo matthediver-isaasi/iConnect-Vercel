@@ -1,6 +1,4 @@
-import React, { useEffect, useState } from "react";
-import { base44 } from "@/api/base44Client";
-import { useQuery } from "@tanstack/react-query";
+import React, { useEffect } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -9,20 +7,14 @@ import { format } from "date-fns";
 import { createPageUrl } from "@/utils";
 import { Link } from "react-router-dom";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { useNewsPostBySlug } from "@/hooks/useNewsPostData";
 
 export default function NewsViewPage() {
   const { memberInfo, isAdmin } = useMemberAccess();
   const urlParams = new URLSearchParams(window.location.search);
   const slug = urlParams.get('slug');
 
-  const { data: news, isLoading } = useQuery({
-    queryKey: ['news-by-slug', slug],
-    queryFn: async () => {
-      const allNews = await base44.entities.NewsPost.list();
-      return allNews.find(n => n.slug === slug);
-    },
-    enabled: !!slug,
-  });
+  const { data: news, isLoading } = useNewsPostBySlug(slug);
 
   useEffect(() => {
     if (news) {
