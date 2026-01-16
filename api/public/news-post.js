@@ -125,10 +125,6 @@ export default async function handler(req, res) {
       `)
       .eq('tenant_id', tenant.id)
       .eq('status', 'published');
-    
-    // Only filter by published_date if the field is not null
-    // Some posts may have null published_date which means "publish immediately"
-    query = query.or(`published_date.is.null,published_date.lte.${now}`);
 
     if (newsId) {
       query = query.eq('id', newsId);
@@ -143,12 +139,19 @@ export default async function handler(req, res) {
       if (debugPost) {
         console.log('[Public NewsPost] Post exists but filtered out:', {
           status: debugPost.status,
-          published_date: debugPost.published_date,
-          reason: debugPost.status !== 'published' 
-            ? 'Status not published' 
-            : 'Published date in future or other filter issue'
+          reason: 'Status not published'
         });
       }
+      return res.status(404).json({ error: 'News post not found' });
+    }
+    
+    // Check published_date in JavaScript to avoid Supabase query encoding issues
+    // Post is accessible if: no published_date set OR published_date is in the past
+    if (newsPost.published_date && new Date(newsPost.published_date) > new Date(now)) {
+      console.log('[Public NewsPost] Post has future published_date, blocking access:', {
+        published_date: newsPost.published_date,
+        now
+      });
       return res.status(404).json({ error: 'News post not found' });
     }
 
