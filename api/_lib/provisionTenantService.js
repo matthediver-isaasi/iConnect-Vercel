@@ -1,6 +1,7 @@
 import { supabase } from './database.js';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
+import { provisionEmailDomain } from './emailDomainService.js';
 
 const RESERVED_SLUGS = ['www', 'api', 'app', 'admin', 'mail', 'ftp', 'cdn', 'static', 'assets', 'images', 'login', 'signup', 'register'];
 
@@ -324,30 +325,6 @@ async function seedNavigationTemplates(tenantId) {
   }
 }
 
-async function configureEmailDomain(tenantId, slug, tenantName, settings) {
-  const mailDomain = getMailDomain(slug);
-  const emailDomainSettings = {
-    domain: mailDomain,
-    status: 'pending_setup',
-    created_at: new Date().toISOString(),
-    from_email: `noreply@${mailDomain}`,
-    from_name: tenantName || 'ICONN',
-  };
-  
-  await supabase
-    .from('tenant')
-    .update({ 
-      settings: { 
-        ...settings, 
-        email_domain: emailDomainSettings 
-      } 
-    })
-    .eq('id', tenantId);
-
-  console.log(`[Provision Tenant] Email domain placeholder created: ${mailDomain}`);
-  return 'pending_setup';
-}
-
 export async function provisionTenant({
   tenantName,
   slug,
@@ -596,19 +573,18 @@ export async function provisionTenant({
 
     await seedNavigationTemplates(tenant.id);
 
-    let emailDomainStatus = null;
-    const VERCEL_API_TOKEN = process.env.VERCEL_API_TOKEN;
-    const MAILGUN_API_KEY = process.env.MAILGUN_API_KEY;
-    
-    if (VERCEL_API_TOKEN && MAILGUN_API_KEY) {
-      try {
-        emailDomainStatus = await configureEmailDomain(tenant.id, slug, tenantName, tenant.settings);
-      } catch (emailErr) {
-        console.error('[Provision Tenant] Non-critical: Failed to initialize email domain:', emailErr.message);
-        emailDomainStatus = 'error';
+    let emailDomainResult = null;
+    try {
+      console.log('[Provision Tenant] Starting automatic email domain provisioning...');
+      emailDomainResult = await provisionEmailDomain(tenant.id, slug, tenantName, tenant.settings);
+      if (emailDomainResult.success) {
+        console.log(`[Provision Tenant] Email domain provisioned: ${emailDomainResult.domain} (${emailDomainResult.status})`);
+      } else {
+        console.log(`[Provision Tenant] Email domain provisioning skipped or failed: ${emailDomainResult.error}`);
       }
-    } else {
-      console.log('[Provision Tenant] Email domain provisioning skipped - missing VERCEL_API_TOKEN or MAILGUN_API_KEY');
+    } catch (emailErr) {
+      console.error('[Provision Tenant] Non-critical: Failed to provision email domain:', emailErr.message);
+      emailDomainResult = { success: false, error: emailErr.message };
     }
 
     console.log(`[Provision Tenant] Successfully created tenant: ${tenant.name} (${tenant.slug})`);
@@ -632,9 +608,10 @@ export async function provisionTenant({
       },
       identity: identity ? { id: identity.id } : null,
       setupToken: generateSetupToken ? setupToken : null,
-      emailDomain: emailDomainStatus ? {
-        domain: getMailDomain(slug),
-        status: emailDomainStatus
+      emailDomain: emailDomainResult?.success ? {
+        domain: emailDomainResult.domain,
+        status: emailDomainResult.status,
+        dns_records_created: emailDomainResult.dns_records_created
       } : null
     };
 
