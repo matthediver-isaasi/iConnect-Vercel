@@ -268,6 +268,7 @@ import SaasLanding from "./admin/SaasLanding";
 
 import PlatformLogin from "./platform/PlatformLogin";
 import PlatformAdmin from "./platform/PlatformAdmin";
+import PlatformSetup from "./platform/PlatformSetup";
 
 import DueDiligenceDashboard from "./DueDiligenceDashboard";
 import DueDiligenceConfig from "./DueDiligenceConfig";
@@ -890,6 +891,7 @@ function AdminRoutes() {
 function PlatformRoutes() {
     return (
         <Routes>
+            <Route path="/platform/setup" element={<PlatformSetup />} />
             <Route path="/platform/login" element={<PlatformLogin />} />
             <Route path="/platform/admin" element={<PlatformAdmin />} />
             <Route path="/platform" element={<PlatformAdmin />} />
@@ -914,6 +916,7 @@ function SaasRoutes() {
             <Route path="/admin/branding" element={<AdminBranding />} />
             <Route path="/admin/team" element={<AdminTeam />} />
             <Route path="/admin" element={<AdminDashboard />} />
+            <Route path="/platform/setup" element={<PlatformSetup />} />
             <Route path="/platform/login" element={<PlatformLogin />} />
             <Route path="/platform/admin" element={<PlatformAdmin />} />
             <Route path="/platform" element={<PlatformAdmin />} />
