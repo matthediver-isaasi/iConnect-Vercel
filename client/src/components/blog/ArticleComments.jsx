@@ -62,18 +62,8 @@ export default function ArticleComments({ articleId, memberInfo, showThumbsUp = 
         return allComments.filter(comment => comment.article_id === articleId);
       } else {
         const result = await publicClient.getArticleComments(articleId);
-        // Normalize public API response to match internal comment structure
-        return (result.comments || []).map(c => ({
-          id: c.id,
-          article_id: c.article_id,
-          content: c.comment_text,
-          author_name: c.commenter_name,
-          author_member_id: null,
-          is_member: false,
-          thumbs_up_count: c.thumbs_up_count || 0,
-          thumbs_down_count: c.thumbs_down_count || 0,
-          created_at: c.created_at
-        }));
+        // Public API now returns correct column names (content, author_name)
+        return result.comments || [];
       }
     },
     enabled: !!articleId,
@@ -97,8 +87,8 @@ export default function ArticleComments({ articleId, memberInfo, showThumbsUp = 
         return await base44.entities.ArticleComment.create(commentData);
       } else {
         const result = await publicClient.postArticleComment(articleId, {
-          comment_text: commentData.comment_text,
-          commenter_name: commentData.commenter_name,
+          content: commentData.content,
+          author_name: commentData.author_name,
           user_identifier: commentData.user_identifier
         });
         return result.comment;
@@ -257,10 +247,10 @@ Respond with a JSON object containing exactly two fields:
           thumbs_down_count: 0
         };
       } else {
-        // Public users use public API schema
+        // Public users use public API schema (same field names as DB)
         commentData = {
-          comment_text: newComment.trim(),
-          commenter_name: publicUserName.trim(),
+          content: newComment.trim(),
+          author_name: publicUserName.trim(),
           user_identifier: userIdentifier
         };
       }

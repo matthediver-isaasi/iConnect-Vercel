@@ -67,10 +67,10 @@ export default async function handler(req, res) {
     }
 
     if (req.method === 'GET') {
+      // Use actual column names: content, author_name (not comment_text, commenter_name)
       const { data: comments, error } = await supabase
         .from('article_comment')
-        .select('id, article_id, comment_text, commenter_name, created_at, thumbs_up_count, thumbs_down_count')
-        .eq('tenant_id', tenant.id)
+        .select('id, article_id, content, author_name, is_member, created_at, thumbs_up_count, thumbs_down_count')
         .eq('article_id', articleId)
         .order('created_at', { ascending: false });
 
@@ -83,24 +83,24 @@ export default async function handler(req, res) {
     }
 
     if (req.method === 'POST') {
-      const { comment_text, commenter_name, user_identifier } = req.body;
+      const { content, author_name, user_identifier } = req.body;
 
-      if (!comment_text || !comment_text.trim()) {
+      if (!content || !content.trim()) {
         return res.status(400).json({ error: 'Comment text is required' });
       }
 
-      if (!commenter_name || !commenter_name.trim()) {
+      if (!author_name || !author_name.trim()) {
         return res.status(400).json({ error: 'Name is required' });
       }
 
       const { data: newComment, error } = await supabase
         .from('article_comment')
         .insert({
-          tenant_id: tenant.id,
           article_id: articleId,
-          comment_text: comment_text.trim(),
-          commenter_name: commenter_name.trim(),
+          content: content.trim(),
+          author_name: author_name.trim(),
           user_identifier: user_identifier || null,
+          is_member: false,
           thumbs_up_count: 0,
           thumbs_down_count: 0
         })
