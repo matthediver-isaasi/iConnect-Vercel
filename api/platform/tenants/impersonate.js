@@ -56,7 +56,7 @@ export default async function handler(req, res) {
         .select('id, email, first_name, last_name, role')
         .eq('identity_id', owner.identity_id)
         .eq('tenant_id', tenantId)
-        .eq('is_active', true)
+        .eq('status', 'active')
         .single();
       
       tenantUser = existingTenantUser;
@@ -84,7 +84,7 @@ export default async function handler(req, res) {
             first_name: owner.first_name || 'Platform',
             last_name: owner.last_name || 'Owner',
             role: 'owner',
-            is_active: true
+            status: 'active'
           })
           .select('id, email, first_name, last_name, role')
           .single();
