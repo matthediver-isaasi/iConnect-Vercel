@@ -23,17 +23,17 @@ async function createVercelDnsRecord(mailgunRecord, tenantSlug) {
     value = mailgunRecord.hostname;
   }
 
-  if (recordType === 'MX') {
-    console.log('[Email Domain] Skipping MX record (not needed for sending only)');
-    return null;
-  }
-
   const body = {
     name: name,
     type: recordType,
     value: value,
     ttl: 300,
   };
+
+  // MX records require a priority field
+  if (recordType === 'MX') {
+    body.mxPriority = mailgunRecord.priority || 10;
+  }
 
   console.log(`[Email Domain] Creating Vercel DNS record:`, body);
 
@@ -105,8 +105,12 @@ export async function provisionEmailDomain(tenantId, tenantSlug, tenantName, cur
       }
     }
 
-    const dnsRecords = mailgunDomainData.sending_dns_records || mailgunDomainData.receiving_dns_records || [];
-    console.log('[Email Domain] DNS records needed:', JSON.stringify(dnsRecords, null, 2));
+    // Collect both sending (SPF, DKIM) and receiving (MX) DNS records
+    const sendingRecords = mailgunDomainData.sending_dns_records || [];
+    const receivingRecords = mailgunDomainData.receiving_dns_records || [];
+    const dnsRecords = [...sendingRecords, ...receivingRecords];
+    console.log('[Email Domain] Sending DNS records:', JSON.stringify(sendingRecords, null, 2));
+    console.log('[Email Domain] Receiving DNS records (MX):', JSON.stringify(receivingRecords, null, 2));
 
     const createdDnsRecords = [];
     for (const record of dnsRecords) {
@@ -251,11 +255,20 @@ export async function verifyEmailDomain(tenantId) {
     const isVerified = domainInfo.state === 'active' || verificationResult?.state === 'active';
     const status = isVerified ? 'verified' : 'pending';
 
-    const dnsStatus = domainInfo.sending_dns_records?.map(r => ({
+    // Include both sending and receiving DNS record status
+    const sendingDnsStatus = (domainInfo.sending_dns_records || []).map(r => ({
       name: r.name,
       type: r.record_type,
       valid: r.valid,
-    })) || [];
+      purpose: 'sending'
+    }));
+    const receivingDnsStatus = (domainInfo.receiving_dns_records || []).map(r => ({
+      name: r.name,
+      type: r.record_type,
+      valid: r.valid,
+      purpose: 'receiving'
+    }));
+    const dnsStatus = [...sendingDnsStatus, ...receivingDnsStatus];
 
     const updatedSettings = {
       ...tenant.settings,
