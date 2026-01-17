@@ -72,7 +72,7 @@ export async function provisionEmailDomain(tenantId, tenantSlug, tenantName, cur
   }
 
   const rootDomain = getRootDomain();
-  const mailgunDomain = `mail.${tenantSlug}.${rootDomain}`;
+  const mailgunDomain = `${tenantSlug}.${rootDomain}`;
 
   console.log(`[Email Domain] Provisioning domain ${mailgunDomain} for tenant ${tenantSlug}`);
 
@@ -125,7 +125,7 @@ export async function provisionEmailDomain(tenantId, tenantSlug, tenantName, cur
       try {
         await createVercelDnsRecord({
           record_type: 'TXT',
-          name: `mail.${tenantSlug}`,
+          name: tenantSlug,
           value: 'v=spf1 include:mailgun.org ~all'
         }, tenantSlug);
       } catch (spfError) {

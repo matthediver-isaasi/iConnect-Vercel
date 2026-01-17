@@ -14,7 +14,7 @@ export function getTenantPortalUrl(slug) {
 }
 
 export function getMailDomain(slug) {
-  return `mail.${slug}.${getBaseDomain()}`;
+  return `${slug}.${getBaseDomain()}`;
 }
 
 export async function validateProvisionInput({ tenantName, slug, adminEmail, adminFirstName, adminLastName, password, googleId, linkExistingAccount, isPlatformProvision }) {
