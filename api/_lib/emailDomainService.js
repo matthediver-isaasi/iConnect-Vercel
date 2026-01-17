@@ -238,6 +238,24 @@ export async function provisionEmailDomain(tenantId, tenantSlug, tenantName, cur
       }
     }
 
+    // Add CNAME record for web traffic - this is critical!
+    // When we add explicit DNS records for the tenant subdomain (TXT, MX),
+    // it breaks the wildcard *.iconn.app resolution. We must add a CNAME
+    // pointing to Vercel so web traffic still works.
+    try {
+      const vercelCnameRecord = await createVercelDnsRecord({
+        record_type: 'CNAME',
+        name: tenantSlug,
+        value: 'cname.vercel-dns.com'
+      }, tenantSlug);
+      if (vercelCnameRecord) {
+        createdDnsRecords.push(vercelCnameRecord);
+        console.log(`[Email Domain] Created CNAME record for web traffic: ${tenantSlug} -> cname.vercel-dns.com`);
+      }
+    } catch (cnameError) {
+      console.log('[Email Domain] CNAME record may already exist or conflict:', cnameError.message);
+    }
+
     let verificationResult = null;
     try {
       await new Promise(resolve => setTimeout(resolve, 2000));
