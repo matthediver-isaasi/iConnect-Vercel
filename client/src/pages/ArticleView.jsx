@@ -384,7 +384,8 @@ export default function ArticleViewPage() {
       if (!response.ok) return { following: false, followId: null };
       return response.json();
     },
-    enabled: !!memberInfo && (!!authorId || !!guestWriterId),
+    // Only check follow status for authenticated users
+    enabled: isAuthenticated && (!!authorId || !!guestWriterId),
   });
 
   // Follow author mutation
@@ -484,10 +485,11 @@ export default function ArticleViewPage() {
     }
   }, [followStatus.following, followStatus.followId, article?.id, isPreviewMode, markedAsRead]);
 
-  // Record view mutation
+  // Record view mutation - only for authenticated users
   const recordViewMutation = useMutation({
     mutationFn: async () => {
-      if (!article || !userIdentifier || viewRecorded) return;
+      // Guard: only record views for authenticated users
+      if (!isAuthenticated || !article || !userIdentifier || viewRecorded) return;
 
       // Check if this user has already viewed this article
       const existingViews = await base44.entities.ArticleView.list();
