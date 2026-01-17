@@ -508,10 +508,11 @@ export default function ArticleViewPage() {
 
   // Record view when article and user identifier are available (skip in preview mode)
   useEffect(() => {
-    if (article && userIdentifier && !viewRecorded && !isPreviewMode) {
+    // Only record views for authenticated users (view tracking uses authenticated API)
+    if (isAuthenticated && article && userIdentifier && !viewRecorded && !isPreviewMode) {
       recordViewMutation.mutate();
     }
-  }, [article, userIdentifier, viewRecorded, isPreviewMode]);
+  }, [isAuthenticated, article, userIdentifier, viewRecorded, isPreviewMode]);
 
   // Set SEO meta tags when article loads
   useEffect(() => {
