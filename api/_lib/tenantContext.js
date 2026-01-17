@@ -46,7 +46,8 @@ export const TENANT_SCOPE = {
 export const entityTenantScope = {
   // GLOBAL - System-wide, shared across all tenants
   'Tenant': TENANT_SCOPE.GLOBAL, // Tenants themselves are global (accessed by slug/domain)
-  'SystemSettings': TENANT_SCOPE.GLOBAL,
+  // SystemSettings is TENANT-scoped for proper multi-tenant isolation
+  'SystemSettings': TENANT_SCOPE.TENANT,
   'PreferenceField': TENANT_SCOPE.GLOBAL,
   'TypographyStyle': TENANT_SCOPE.GLOBAL,
   'IEditElementTemplate': TENANT_SCOPE.GLOBAL,
