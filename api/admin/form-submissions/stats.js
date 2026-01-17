@@ -32,12 +32,19 @@ export default async function handler(req, res) {
   }
 
   try {
+    // SECURITY: Extract tenant context first
+    const tenantId = sessionMember.tenant_id;
+    if (!tenantId) {
+      return res.status(403).json({ error: 'Tenant context required' });
+    }
+
     const roleId = sessionMember.role_id;
     
     if (!roleId) {
       return res.status(403).json({ error: 'No role assigned' });
     }
 
+    // Role query uses the member's assigned role_id (already tenant-scoped via member)
     const { data: role, error: roleError } = await supabase
       .from('role')
       .select('excluded_features')
@@ -53,11 +60,12 @@ export default async function handler(req, res) {
       return res.status(403).json({ error: 'Access to form submissions required' });
     }
 
-    // Get allowed roles setting
+    // Get allowed roles setting - scoped to tenant
     const { data: allowedRolesSetting } = await supabase
       .from('system_settings')
       .select('setting_value')
       .eq('setting_key', 'submission_stats_allowed_roles')
+      .eq('tenant_id', tenantId)
       .single();
     
     let allowedRoles = [];
@@ -71,7 +79,8 @@ export default async function handler(req, res) {
 
     const { count: totalCount, error: totalError } = await supabase
       .from('form_submission')
-      .select('id', { count: 'exact', head: true });
+      .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', tenantId);
 
     if (totalError) {
       console.error('[FormSubmissionStats] Error getting total count:', totalError);
@@ -81,6 +90,7 @@ export default async function handler(req, res) {
     const { count: newCount, error: newError } = await supabase
       .from('form_submission')
       .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', tenantId)
       .or('status.eq.new,status.is.null');
 
     if (newError) {
