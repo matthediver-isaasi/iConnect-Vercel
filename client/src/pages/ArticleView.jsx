@@ -70,13 +70,16 @@ export default function ArticleViewPage() {
         // Fetch public article settings for unauthenticated users
         try {
           const publicSettings = await publicClient.getArticleSettings();
-          return {
+          console.log('[ArticleView] Public settings response:', publicSettings);
+          const result = {
             ...defaultPublicSettings,
             showAuthorBio: publicSettings.showAuthorBio ?? true,
             showAboutAuthorLabel: publicSettings.showAboutAuthorLabel ?? true,
             showAuthorPhoto: publicSettings.showAuthorPhoto ?? true,
             allowPublicComments: publicSettings.allowPublicComments ?? false
           };
+          console.log('[ArticleView] Resolved public settings:', result);
+          return result;
         } catch (error) {
           console.error('[ArticleView] Failed to fetch public article settings:', error);
           return defaultPublicSettings;
@@ -942,6 +945,12 @@ export default function ArticleViewPage() {
         </Card>
 
         {/* Comments Section - shown if authenticated OR public comments are allowed */}
+        {console.log('[ArticleView] Comments render check:', {
+          isAuthenticated,
+          allowPublicComments: articleSettings?.allowPublicComments,
+          isCommentsExcluded: isFeatureExcluded('content.articles.comments'),
+          shouldShow: (isAuthenticated || articleSettings?.allowPublicComments) && !isFeatureExcluded('content.articles.comments')
+        })}
         {(isAuthenticated || articleSettings?.allowPublicComments) && !isFeatureExcluded('content.articles.comments') && (
           <ArticleComments 
             articleId={article.id} 
