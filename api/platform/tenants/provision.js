@@ -1,5 +1,5 @@
 import { supabase } from '../../_lib/database.js';
-import { verifyPlatformOwnerSession } from '../../_lib/platformSession.js';
+import { getSessionPlatformOwner } from '../../_lib/platformSession.js';
 import {
   validateProvisionInput,
   checkSlugAvailability,
@@ -16,7 +16,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const platformOwner = await verifyPlatformOwnerSession(req);
+  const platformOwner = await getSessionPlatformOwner(req);
   if (!platformOwner) {
     return res.status(401).json({ error: 'Unauthorized - Platform owner access required' });
   }
