@@ -86,10 +86,24 @@ async function createVercelDnsRecord(mailgunRecord, tenantSlug) {
   let name = mailgunRecord.name || '';
   let value = mailgunRecord.value || '';
 
+  // Strip the root domain suffix from the name
   name = name.replace(`.${rootDomain}`, '');
   
   if (recordType === 'CNAME' && mailgunRecord.hostname) {
     value = mailgunRecord.hostname;
+  }
+
+  // For MX records, ensure we have the correct value format
+  if (recordType === 'MX') {
+    // Mailgun MX records might have the value in different formats
+    // Ensure we're using the mail server address
+    if (!value && mailgunRecord.hostname) {
+      value = mailgunRecord.hostname;
+    }
+    // Ensure the MX value ends with a dot for proper DNS format
+    if (value && !value.endsWith('.')) {
+      value = value + '.';
+    }
   }
 
   const body = {
@@ -99,9 +113,10 @@ async function createVercelDnsRecord(mailgunRecord, tenantSlug) {
     ttl: 300,
   };
 
-  // MX records require a priority field
+  // MX records require a priority field (must be a number)
   if (recordType === 'MX') {
-    body.mxPriority = mailgunRecord.priority || 10;
+    const priority = parseInt(mailgunRecord.priority, 10);
+    body.mxPriority = isNaN(priority) ? 10 : priority;
   }
 
   console.log(`[Email Domain] Creating Vercel DNS record:`, body);
@@ -178,8 +193,20 @@ export async function provisionEmailDomain(tenantId, tenantSlug, tenantName, cur
     const sendingRecords = mailgunDomainData.sending_dns_records || [];
     const receivingRecords = mailgunDomainData.receiving_dns_records || [];
     const dnsRecords = [...sendingRecords, ...receivingRecords];
-    console.log('[Email Domain] Sending DNS records:', JSON.stringify(sendingRecords, null, 2));
-    console.log('[Email Domain] Receiving DNS records (MX):', JSON.stringify(receivingRecords, null, 2));
+    console.log('[Email Domain] Sending DNS records count:', sendingRecords.length);
+    console.log('[Email Domain] Receiving DNS records (MX) count:', receivingRecords.length);
+    console.log('[Email Domain] Receiving DNS records details:', JSON.stringify(receivingRecords, null, 2));
+    
+    // Log each MX record for debugging
+    receivingRecords.forEach((r, i) => {
+      console.log(`[Email Domain] MX Record ${i}:`, {
+        record_type: r.record_type,
+        name: r.name,
+        value: r.value,
+        priority: r.priority,
+        hostname: r.hostname
+      });
+    });
 
     const createdDnsRecords = [];
     for (const record of dnsRecords) {
