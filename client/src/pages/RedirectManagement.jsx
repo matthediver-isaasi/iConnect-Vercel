@@ -67,7 +67,7 @@ const STATUS_CODE_OPTIONS = [
 ];
 
 export default function RedirectManagement() {
-  const { isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady, authResolved, sessionValidated } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const [showDialog, setShowDialog] = useState(false);
   const [editingRedirect, setEditingRedirect] = useState(null);
@@ -77,6 +77,9 @@ export default function RedirectManagement() {
   const [regexError, setRegexError] = useState("");
 
   const queryClient = useQueryClient();
+
+  // SECURITY: Only consider authenticated when auth check complete AND session validated
+  const isAuthenticated = authResolved && sessionValidated;
 
   useEffect(() => {
     if (isAccessReady) {
@@ -88,11 +91,13 @@ export default function RedirectManagement() {
     }
   }, [isFeatureExcluded, isAccessReady]);
 
+  // SECURITY: Gate query on auth to prevent fetching before tenant context is ready
   const { data: redirects = [], isLoading } = useQuery({
     queryKey: ['redirect-mappings'],
     queryFn: () => base44.entities.RedirectMapping.list('priority'),
     staleTime: 0,
     refetchOnMount: true,
+    enabled: isAuthenticated,
   });
 
   const createMutation = useMutation({
