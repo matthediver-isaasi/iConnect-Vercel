@@ -89,6 +89,11 @@ async function createVercelDnsRecord(mailgunRecord, tenantSlug) {
   // Strip the root domain suffix from the name
   name = name.replace(`.${rootDomain}`, '');
   
+  // If name is empty after stripping (common for MX records), default to tenant slug
+  if (!name || name === rootDomain) {
+    name = tenantSlug;
+  }
+  
   if (recordType === 'CNAME' && mailgunRecord.hostname) {
     value = mailgunRecord.hostname;
   }
