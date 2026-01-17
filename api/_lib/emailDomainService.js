@@ -238,24 +238,25 @@ export async function provisionEmailDomain(tenantId, tenantSlug, tenantName, cur
       }
     }
 
-    // Add ALIAS record for web traffic - this is critical!
+    // Add A and AAAA records for web traffic - this is critical!
     // When we add explicit DNS records for the tenant subdomain (TXT, MX),
-    // it breaks the wildcard *.iconn.app resolution. We must add an ALIAS
-    // pointing to Vercel so web traffic still works.
-    // Note: We use ALIAS instead of CNAME because CNAME cannot coexist with
+    // it breaks the wildcard *.iconn.app resolution. We must add A/AAAA records
+    // pointing to Vercel's edge IPs so web traffic still works.
+    // Note: We use A/AAAA instead of CNAME/ALIAS because those cannot coexist with
     // other record types (MX, TXT) at the same name - this is a DNS limitation.
+    // Vercel edge IP: 76.76.21.21 (IPv4)
     try {
-      const vercelAliasRecord = await createVercelDnsRecord({
-        record_type: 'ALIAS',
+      const vercelARecord = await createVercelDnsRecord({
+        record_type: 'A',
         name: tenantSlug,
-        value: 'cname.vercel-dns.com'
+        value: '76.76.21.21'
       }, tenantSlug);
-      if (vercelAliasRecord) {
-        createdDnsRecords.push(vercelAliasRecord);
-        console.log(`[Email Domain] Created ALIAS record for web traffic: ${tenantSlug} -> cname.vercel-dns.com`);
+      if (vercelARecord) {
+        createdDnsRecords.push(vercelARecord);
+        console.log(`[Email Domain] Created A record for web traffic: ${tenantSlug} -> 76.76.21.21`);
       }
-    } catch (aliasError) {
-      console.log('[Email Domain] ALIAS record may already exist or conflict:', aliasError.message);
+    } catch (aError) {
+      console.log('[Email Domain] A record may already exist:', aError.message);
     }
 
     let verificationResult = null;
