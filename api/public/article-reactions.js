@@ -56,7 +56,7 @@ export default async function handler(req, res) {
     if (req.method === 'GET') {
       const { data: reactions, error } = await supabase
         .from('article_reaction')
-        .select('id, article_id, reaction_type, user_identifier, is_member, created_at')
+        .select('id, article_id, reaction_type, user_identifier, is_member')
         .eq('article_id', articleId);
 
       if (error) {
