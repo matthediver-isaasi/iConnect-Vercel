@@ -1613,7 +1613,7 @@ useEffect(() => {
 
       <SidebarProvider key="main-sidebar-provider">
         <div className="flex h-screen w-full overflow-hidden">
-        <Sidebar className="border-r border-slate-200 bg-white flex-shrink-0">
+        <Sidebar collapsible="icon" className="border-r border-slate-200 bg-white flex-shrink-0">
             <SidebarHeader className="border-b border-slate-200 p-4">
               {portalLogoSettings?.logoUrl ? (
                 // Custom portal logo
@@ -1939,6 +1939,11 @@ useEffect(() => {
               >
                 <Menu className="w-6 h-6" />
               </Button>
+            </header>
+
+            {/* Desktop Sidebar Toggle - only visible on larger screens */}
+            <header className="hidden md:flex items-center gap-2 px-4 py-2 border-b border-slate-200 bg-white">
+              <SidebarTrigger data-testid="button-sidebar-toggle" className="text-slate-600 hover:text-slate-900" />
             </header>
 
             {/* Mobile Navigation Sheet */}
