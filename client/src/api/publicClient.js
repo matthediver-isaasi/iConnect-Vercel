@@ -300,6 +300,20 @@ class PublicClient {
       body: JSON.stringify(data)
     });
   }
+
+  // Article Reactions (for public users)
+  async getArticleReactions(articleId) {
+    if (!articleId) return { reactions: [] };
+    return this._fetch(`/api/public/article-reactions?articleId=${encodeURIComponent(articleId)}`);
+  }
+
+  async postArticleReaction(articleId, data) {
+    if (!articleId) throw new Error('Article ID is required');
+    return this._fetch(`/api/public/article-reactions?articleId=${encodeURIComponent(articleId)}`, {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  }
   
   // Tenant Branding
   async getTenantBranding() {
