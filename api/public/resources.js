@@ -61,8 +61,7 @@ export default async function handler(req, res) {
         resource_type,
         release_date,
         subcategories,
-        tags,
-        is_featured
+        tags
       `)
       .eq('tenant_id', tenant.id)
       .eq('is_public', true)
