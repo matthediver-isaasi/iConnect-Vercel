@@ -62,9 +62,8 @@ export default async function handler(req, res) {
     
     if (existingIdentity) {
       // Send notification email to existing user about their new tenant access
-      // IMPORTANT: Link to root domain login with redirect parameter for SSO compatibility
-      // Google OAuth only supports root domain, not wildcard subdomains
-      const loginWithRedirectUrl = `https://${baseDomain}/admin/login?tenant=${slug}&redirect=${encodeURIComponent('/admin/dashboard')}`;
+      // IMPORTANT: Link to root domain login for SSO compatibility (Google OAuth only supports root domain)
+      const loginUrl = `https://${baseDomain}/admin/login`;
       
       try {
         await sendTenantEmail({
@@ -77,16 +76,16 @@ export default async function handler(req, res) {
               <p>You've been added as an owner of <strong>${tenantName}</strong>.</p>
               <p>Since you already have an account, you can access this workspace immediately using your existing login credentials.</p>
               <p style="text-align: center; margin: 30px 0;">
-                <a href="${loginWithRedirectUrl}" style="background-color: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
-                  Go to ${tenantName}
+                <a href="${loginUrl}" style="background-color: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
+                  Login to Access ${tenantName}
                 </a>
               </p>
               <p style="color: #666; font-size: 14px;">
-                You can also access this workspace from your tenant switcher when logged in.
+                After logging in, use the tenant switcher to access your new workspace.
               </p>
             </div>
           `,
-          text: `You have access to a new workspace!\n\nYou've been added as an owner of ${tenantName}. Login at: ${loginWithRedirectUrl}`
+          text: `You have access to a new workspace!\n\nYou've been added as an owner of ${tenantName}. Login at: ${loginUrl} and use the tenant switcher to access your new workspace.`
         });
         console.log(`[Platform Provision] New tenant notification email sent to ${adminEmail}`);
       } catch (emailErr) {
