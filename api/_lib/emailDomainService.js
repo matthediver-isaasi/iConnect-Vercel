@@ -238,6 +238,27 @@ export async function provisionEmailDomain(tenantId, tenantSlug, tenantName, cur
       }
     }
 
+    // Add DMARC record for email authentication
+    // This is critical for deliverability - helps prevent emails from being marked as spam
+    // DMARC policy: p=none (monitor only), with reporting to Mailgun
+    try {
+      const dmarcRecordName = `_dmarc.${tenantSlug}`;
+      const dmarcValue = 'v=DMARC1; p=none; pct=100; fo=1; ri=3600; rua=mailto:fd56106c@dmarc.mailgun.org,mailto:980db2c4@inbox.ondmarc.com; ruf=mailto:fd56106c@dmarc.mailgun.org,mailto:980db2c4@inbox.ondmarc.com;';
+      
+      const dmarcRecord = await createVercelDnsRecord({
+        record_type: 'TXT',
+        name: dmarcRecordName,
+        value: dmarcValue
+      }, tenantSlug);
+      
+      if (dmarcRecord) {
+        createdDnsRecords.push(dmarcRecord);
+        console.log(`[Email Domain] Created DMARC record for ${tenantSlug}`);
+      }
+    } catch (dmarcError) {
+      console.log('[Email Domain] DMARC record may already exist:', dmarcError.message);
+    }
+
     // Add A and AAAA records for web traffic - this is critical!
     // When we add explicit DNS records for the tenant subdomain (TXT, MX),
     // it breaks the wildcard *.iconn.app resolution. We must add A/AAAA records
