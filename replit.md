@@ -24,6 +24,17 @@ The platform supports a three-tier hierarchy: TENANT, ORGANIZATION, and MEMBER. 
 
 A centralized `tenant_identity` table handles all user authentication for owners and members. This allows a single user to own multiple tenants and be a member in multiple organizations, facilitating seamless tenant switching. Per-tenant password isolation is implemented via `tenant_membership_credentials`, allowing different passwords for each tenant an identity belongs to. Both systems support Google OAuth.
 
+### Multi-Tenant Provisioning Flow
+
+When a new tenant is provisioned via platform owner, the system:
+1. **Checks for existing identity** by email in `tenant_identity` table
+2. **For NEW users**: Creates `tenant_identity` with `reset_token` (7-day expiry), sends welcome email with setup link
+3. **For EXISTING users**: Reuses existing identity, sets `tenant_user.status` to 'active', sends notification email about new access
+4. **Always creates**: `member`, `tenant_membership`, `tenant_user`, and `tenant_user_member_link` records - all linked to identity_id
+5. **is_default flag**: Set to `true` only for new identities; existing users keep their current default tenant
+
+The tenant switcher (`/api/auth/tenant-list`) queries both `tenant_membership` and `tenant_user` tables by identity_id, merging results to show all accessible tenants.
+
 ## Deployment & Domain Architecture
 
 **CRITICAL: IGNORE the local Express dev server entirely.** All development, testing, and debugging happens on Vercel. The Replit workspace is used only for code editing - never for running or testing the application locally.
