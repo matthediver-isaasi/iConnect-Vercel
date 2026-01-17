@@ -424,8 +424,8 @@ export async function provisionTenant({
         identityInsert.google_id = googleId;
       }
       if (setupToken) {
-        identityInsert.setup_token = setupToken;
-        identityInsert.setup_token_expires = setupExpires.toISOString();
+        identityInsert.reset_token = setupToken;
+        identityInsert.reset_token_expires = setupExpires.toISOString();
       }
 
       const { data: newIdentity, error: identityError } = await supabase
@@ -514,13 +514,18 @@ export async function provisionTenant({
       }
     }
 
+    // For platform provisioning: 'active' if reusing existing identity, 'pending_setup' for new identity
+    const tenantUserStatus = isPlatformProvision 
+      ? (existingIdentity ? 'active' : 'pending_setup') 
+      : 'active';
+    
     const tenantUserInsert = {
       tenant_id: tenant.id,
       email: adminEmail.toLowerCase(),
       first_name: adminFirstName,
       last_name: adminLastName,
       role: 'owner',
-      status: isPlatformProvision ? 'pending_setup' : 'active'
+      status: tenantUserStatus
     };
     if (googleId && !existingIdentity) {
       tenantUserInsert.google_id = googleId;

@@ -8,6 +8,7 @@ import {
   getBaseDomain,
   getTenantPortalUrl
 } from '../../_lib/provisionTenantService.js';
+import { sendTenantEmail } from '../../_lib/tenantEmailService.js';
 
 export default async function handler(req, res) {
   console.log('[Platform Provision] Handler invoked');
@@ -60,6 +61,34 @@ export default async function handler(req, res) {
     const portalUrl = getTenantPortalUrl(slug);
     
     if (existingIdentity) {
+      // Send notification email to existing user about their new tenant access
+      try {
+        await sendTenantEmail({
+          tenantId: null,
+          to: adminEmail,
+          subject: `You now have access to ${tenantName}`,
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+              <h2 style="color: #333;">You have access to a new workspace!</h2>
+              <p>You've been added as an owner of <strong>${tenantName}</strong>.</p>
+              <p>Since you already have an account, you can access this workspace immediately using your existing login credentials.</p>
+              <p style="text-align: center; margin: 30px 0;">
+                <a href="${portalUrl}/admin/dashboard" style="background-color: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
+                  Go to ${tenantName}
+                </a>
+              </p>
+              <p style="color: #666; font-size: 14px;">
+                You can also access this workspace from your tenant switcher when logged in.
+              </p>
+            </div>
+          `,
+          text: `You have access to a new workspace!\n\nYou've been added as an owner of ${tenantName}. Access it at: ${portalUrl}/admin/dashboard`
+        });
+        console.log(`[Platform Provision] New tenant notification email sent to ${adminEmail}`);
+      } catch (emailErr) {
+        console.error(`[Platform Provision] Failed to send notification email:`, emailErr.message);
+      }
+
       return res.status(201).json({
         success: true,
         tenant: {
@@ -72,11 +101,46 @@ export default async function handler(req, res) {
           email: adminEmail,
           existingAccount: true
         },
-        message: `Tenant created successfully. The admin already has an account and can access this tenant immediately.`
+        message: `Tenant created successfully. A notification email has been sent to ${adminEmail}.`
       });
     }
 
-    const setupUrl = `https://${baseDomain}/admin/login?setup=${result.setupToken}&email=${encodeURIComponent(adminEmail)}`;
+    const setupUrl = `https://${baseDomain}/admin/setup-password?token=${result.setupToken}&email=${encodeURIComponent(adminEmail)}`;
+
+    // Send welcome email with setup link
+    try {
+      await sendTenantEmail({
+        tenantId: null, // Use platform default email domain
+        to: adminEmail,
+        subject: `Welcome to ${tenantName} - Complete Your Account Setup`,
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2 style="color: #333;">Welcome to ${tenantName}!</h2>
+            <p>Your workspace has been created and is ready for you to get started.</p>
+            <p>Click the button below to set your password and complete your account setup:</p>
+            <p style="text-align: center; margin: 30px 0;">
+              <a href="${setupUrl}" style="background-color: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
+                Complete Account Setup
+              </a>
+            </p>
+            <p style="color: #666; font-size: 14px;">
+              Or copy and paste this link into your browser:<br/>
+              <a href="${setupUrl}" style="color: #2563eb;">${setupUrl}</a>
+            </p>
+            <p style="color: #666; font-size: 14px;">This link will expire in 7 days.</p>
+            <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;" />
+            <p style="color: #999; font-size: 12px;">
+              If you didn't request this account, you can safely ignore this email.
+            </p>
+          </div>
+        `,
+        text: `Welcome to ${tenantName}!\n\nYour workspace has been created. Complete your account setup by visiting:\n${setupUrl}\n\nThis link will expire in 7 days.`
+      });
+      console.log(`[Platform Provision] Welcome email sent to ${adminEmail}`);
+    } catch (emailErr) {
+      console.error(`[Platform Provision] Failed to send welcome email:`, emailErr.message);
+      // Don't fail the whole provisioning if email fails
+    }
 
     return res.status(201).json({
       success: true,
@@ -90,7 +154,7 @@ export default async function handler(req, res) {
         email: adminEmail,
         setupUrl: setupUrl
       },
-      message: `Tenant created successfully. Send the setup URL to the admin to complete their account setup.`
+      message: `Tenant created successfully. A setup email has been sent to ${adminEmail}.`
     });
 
   } catch (error) {

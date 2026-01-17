@@ -879,6 +879,7 @@ function AdminRoutes() {
     return (
         <Routes>
             <Route path="/admin/login" element={<AdminLogin />} />
+            <Route path="/admin/setup-password" element={<AdminLogin />} />
             <Route path="/admin/dashboard" element={<AdminDashboard />} />
             <Route path="/admin/settings" element={<AdminSettings />} />
             <Route path="/admin/branding" element={<AdminBranding />} />
@@ -911,6 +912,7 @@ function SaasRoutes() {
         <Routes>
             <Route path="/" element={<SaasLanding />} />
             <Route path="/admin/login" element={<AdminLogin />} />
+            <Route path="/admin/setup-password" element={<AdminLogin />} />
             <Route path="/admin/dashboard" element={<AdminDashboard />} />
             <Route path="/admin/settings" element={<AdminSettings />} />
             <Route path="/admin/branding" element={<AdminBranding />} />

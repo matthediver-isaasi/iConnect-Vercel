@@ -71,7 +71,8 @@ export default function AdminLogin() {
       }
     }
 
-    const setup = searchParams.get('setup');
+    // Handle setup mode - supports both ?setup=TOKEN and ?token=TOKEN for password setup
+    const setup = searchParams.get('setup') || searchParams.get('token');
     const setupEmail = searchParams.get('email');
     if (setup && setupEmail) {
       setSetupMode(true);
