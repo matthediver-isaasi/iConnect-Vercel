@@ -1,10 +1,12 @@
 import React, { useEffect } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery } from "@tanstack/react-query";
+import { useTenantBranding } from "@/contexts/TenantBrandingContext";
 import PublicLayout from "../components/layouts/PublicLayout";
 import IEditElementRenderer from "../components/iedit/IEditElementRenderer";
 
 export default function ViewPage() {
+  const { branding } = useTenantBranding();
   const urlParams = new URLSearchParams(window.location.search);
   const pageSlug = urlParams.get('slug');
 
@@ -30,7 +32,7 @@ export default function ViewPage() {
 
   useEffect(() => {
     if (page) {
-      document.title = page.meta_title || page.title || 'AGCAS';
+      document.title = page.meta_title || page.title || branding?.name || 'Portal';
       
       if (page.meta_description) {
         let metaDesc = document.querySelector('meta[name="description"]');

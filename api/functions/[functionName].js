@@ -852,6 +852,15 @@ const functionHandlers = {
       return { valid: false, error: 'Missing required parameters' };
     }
 
+    // Get the organization and tenant for dynamic messaging
+    const { data: targetOrg } = await supabase
+      .from('organization')
+      .select('*, tenant:tenant_id(name)')
+      .eq('id', organizationId)
+      .single();
+    
+    const tenantName = targetOrg?.tenant?.name || 'We';
+
     // Check if colleague already exists as a member in the local database
     const { data: existingMember } = await supabase
       .from('member')
@@ -865,7 +874,7 @@ const functionHandlers = {
         return {
           valid: false,
           status: 'wrong_organization',
-          error: 'A ticket will be sent shortly. This email address cannot be verified, AGCAS will be in touch.'
+          error: `A ticket will be sent shortly. This email address cannot be verified, ${tenantName} will be in touch.`
         };
       }
 
@@ -884,12 +893,6 @@ const functionHandlers = {
       return { valid: false, status: 'invalid_email', error: 'Invalid email format' };
     }
 
-    const { data: targetOrg } = await supabase
-      .from('organization')
-      .select('*')
-      .eq('id', organizationId)
-      .single();
-
     if (targetOrg?.email_domains) {
       const orgDomains = targetOrg.email_domains.map(d => d.toLowerCase());
       if (orgDomains.includes(emailDomain)) {
@@ -904,7 +907,7 @@ const functionHandlers = {
     return {
       valid: true,
       status: 'external',
-      message: 'A ticket will be sent shortly. This email address cannot be verified, AGCAS will be in touch.'
+      message: `A ticket will be sent shortly. This email address cannot be verified, ${tenantName} will be in touch.`
     };
   },
 
@@ -3522,6 +3525,19 @@ const functionHandlers = {
         jobPosting = jobPostings?.[0];
       }
 
+      // Get the tenant name for email branding
+      let tenantName = 'The Team';
+      if (jobPosting?.tenant_id) {
+        const { data: tenantData } = await supabase
+          .from('tenant')
+          .select('name')
+          .eq('id', jobPosting.tenant_id)
+          .single();
+        if (tenantData?.name) {
+          tenantName = `${tenantData.name} Team`;
+        }
+      }
+
       if (jobPosting) {
         // Update job posting status to pending_approval (not active - needs admin review)
         await supabase.from('job_posting').update({ 
@@ -3562,7 +3578,7 @@ const functionHandlers = {
                   <li>Location: ${jobPosting.location}</li>
                   <li>Type: ${jobPosting.job_type}</li>
                 </ul>
-                <p>Best regards,<br>AGCAS Team</p>
+                <p>Best regards,<br>${tenantName}</p>
               `
             });
             

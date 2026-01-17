@@ -7,10 +7,12 @@ import { format } from "date-fns";
 import { createPageUrl } from "@/utils";
 import { Link } from "react-router-dom";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { useTenantBranding } from "@/contexts/TenantBrandingContext";
 import { useNewsPostBySlug } from "@/hooks/useNewsPostData";
 
 export default function NewsViewPage() {
   const { memberInfo, isAdmin } = useMemberAccess();
+  const { branding } = useTenantBranding();
   const urlParams = new URLSearchParams(window.location.search);
   const slug = urlParams.get('slug');
 
@@ -64,9 +66,9 @@ export default function NewsViewPage() {
     }
 
     return () => {
-      document.title = 'AGCAS';
+      document.title = branding?.name || 'Portal';
     };
-  }, [news]);
+  }, [news, branding?.name]);
 
   const handleLinkedInShare = () => {
     const newsUrl = encodeURIComponent(window.location.href);

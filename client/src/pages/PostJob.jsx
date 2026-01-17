@@ -17,6 +17,7 @@ import { toast } from "sonner";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { useTenantBranding } from "@/contexts/TenantBrandingContext";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
@@ -115,6 +116,7 @@ function StripePaymentForm({ clientSecret, onSuccess, onCancel, amount }) {
 
 export default function PostJobPage() {
   const { memberInfo, organizationInfo, isFeatureExcluded } = useMemberAccess();
+  const { branding } = useTenantBranding();
 
   const [step, setStep] = useState('email'); // 'email', 'form', 'submitting'
   const [email, setEmail] = useState('');
@@ -690,7 +692,7 @@ export default function PostJobPage() {
             </div>
             <CardTitle>Post a Job</CardTitle>
             <CardDescription>
-              Enter your email to get started. AGCAS members can post for free!
+              Enter your email to get started. {branding?.name ? `${branding.name} members` : 'Members'} can post for free!
             </CardDescription>
           </CardHeader>
           <CardContent>

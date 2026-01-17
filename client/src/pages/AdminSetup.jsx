@@ -480,7 +480,7 @@ export default function AdminSetupPage() {
               Portal Logo
             </CardTitle>
             <CardDescription>
-              Upload a custom logo to display in the portal navigation. This replaces the default AGCAS Events branding.
+              Upload a custom logo to display in the portal navigation. This replaces the default branding.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
@@ -517,7 +517,7 @@ export default function AdminSetupPage() {
                   <div className="text-center py-4">
                     <Image className="w-12 h-12 text-slate-300 mx-auto mb-2" />
                     <p className="text-sm text-slate-500">No logo uploaded</p>
-                    <p className="text-xs text-slate-400">The default AGCAS Events branding will be shown</p>
+                    <p className="text-xs text-slate-400">The default portal branding will be shown</p>
                   </div>
                 )}
               </div>

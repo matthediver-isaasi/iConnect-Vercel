@@ -12,12 +12,14 @@ import ArticleComments from "../components/blog/ArticleComments";
 import ArticleReactions from "../components/blog/ArticleReactions";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { useTenantBranding } from "@/contexts/TenantBrandingContext";
 import { useArticleUrl } from "@/contexts/ArticleUrlContext";
 import { useLayoutContext } from "@/contexts/LayoutContext";
 
 export default function ArticleViewPage() {
   const queryClient = useQueryClient();
   const { memberInfo, isAdmin, isFeatureExcluded } = useMemberAccess();
+  const { branding } = useTenantBranding();
   const { getArticleListUrl, getArticleEditorUrl, getPublicArticlesUrl } = useArticleUrl();
   const { sessionValidated } = useLayoutContext();
   
@@ -567,9 +569,9 @@ export default function ArticleViewPage() {
     }
 
     return () => {
-      document.title = 'AGCAS';
+      document.title = branding?.name || 'Portal';
     };
-  }, [article]);
+  }, [article, branding?.name]);
 
   // Share handlers
   const handleLinkedInShare = () => {

@@ -427,7 +427,7 @@ export function IEditCtaButtonElementEditor({ element, onChange }) {
                       Gradient hover effect
                     </label>
                     <p className="text-xs text-slate-500">
-                      Show gradient background on hover (like the default AGCAS style)
+                      Show gradient background on hover
                     </p>
                   </div>
                 </div>

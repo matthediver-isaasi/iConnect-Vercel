@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import IEditElementRenderer from "../components/iedit/IEditElementRenderer";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useLayoutContext } from "@/contexts/LayoutContext";
+import { useTenantBranding } from "@/contexts/TenantBrandingContext";
 import { useArticleUrl } from "@/contexts/ArticleUrlContext";
 import { useBelowFirstElementBanners } from "@/contexts/BannerContext";
 import PortalHeroBanner from "@/components/banners/PortalHeroBanner";
@@ -21,6 +22,7 @@ export default function DynamicPage() {
   const navigate = useNavigate();
   const { memberInfo, memberRole, isAccessReady } = useMemberAccess();
   const { setForcePublicLayout } = useLayoutContext();
+  const { branding } = useTenantBranding();
   
   // Get banners that should appear below the first element
   // Must be called unconditionally at the top to follow React's Rules of Hooks
@@ -102,7 +104,7 @@ export default function DynamicPage() {
   // Set page title and meta description
   useEffect(() => {
     if (page) {
-      document.title = page.meta_title || page.title || 'AGCAS';
+      document.title = page.meta_title || page.title || branding?.name || 'Portal';
       
       if (page.meta_description) {
         let metaDesc = document.querySelector('meta[name="description"]');

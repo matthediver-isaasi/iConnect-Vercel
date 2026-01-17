@@ -181,11 +181,11 @@ export default function MyTicketsPage({ hasBanner }) {
     const icsContent = [
       'BEGIN:VCALENDAR',
       'VERSION:2.0',
-      'PRODID:-//AGCAS Events//iConnect//EN',
+      'PRODID:-//iconn.app//Events//EN',
       'CALSCALE:GREGORIAN',
       'METHOD:PUBLISH',
       'BEGIN:VEVENT',
-      `UID:${ticket.id}@agcas-events.com`,
+      `UID:${ticket.id}@iconn.app`,
       `DTSTAMP:${formatDateForICS(new Date())}`,
       `DTSTART:${formatDateForICS(startDate)}`,
       `DTEND:${formatDateForICS(eventEndDate)}`,

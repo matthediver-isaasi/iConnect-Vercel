@@ -6,9 +6,12 @@ import { Calendar, CreditCard, Ticket, Wallet, ArrowRight, CheckCircle2 } from "
 import { createPageUrl } from "@/utils";
 import { Link } from "react-router-dom";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { useTenantBranding } from "@/contexts/TenantBrandingContext";
 
 export default function DashboardPage() {
   const { memberInfo, organizationInfo } = useMemberAccess();
+  const { branding } = useTenantBranding();
+  const tenantName = branding?.name;
 
   if (!memberInfo || !organizationInfo) {
     return (
@@ -26,7 +29,9 @@ export default function DashboardPage() {
     {
       icon: Calendar,
       title: "Browse Events",
-      description: "Explore our comprehensive calendar of professional development events, training sessions, and networking opportunities tailored for AGCAS members.",
+      description: tenantName 
+        ? `Explore our comprehensive calendar of professional development events, training sessions, and networking opportunities tailored for ${tenantName} members.`
+        : 'Explore our comprehensive calendar of professional development events, training sessions, and networking opportunities.',
       link: createPageUrl('Events'),
       linkText: "View Events",
       color: "blue"
@@ -81,7 +86,7 @@ export default function DashboardPage() {
               Welcome back, {memberInfo.first_name}!
             </h1>
             <p className="text-xl text-blue-100 mb-8">
-              Your professional development journey starts here. Book training events, manage your tickets, and stay connected with the AGCAS community.
+              Your professional development journey starts here. Book training events, manage your tickets, and stay connected with {tenantName ? `the ${tenantName} community` : 'our community'}.
             </p>
             <div className="flex flex-wrap gap-4">
               <Link to={createPageUrl('Events')}>
@@ -153,7 +158,7 @@ export default function DashboardPage() {
           <CardHeader className="border-b border-slate-200">
             <CardTitle className="text-2xl">How to Use This Portal</CardTitle>
             <CardDescription className="text-base mt-2">
-              Follow these simple steps to make the most of your AGCAS membership
+              Follow these simple steps to make the most of your {tenantName ? `${tenantName} membership` : 'membership'}
             </CardDescription>
           </CardHeader>
           <CardContent className="pt-6">
@@ -213,7 +218,7 @@ export default function DashboardPage() {
             <h3 className="text-2xl font-bold text-slate-900 mb-3">Need Help?</h3>
             <p className="text-slate-600 mb-6 max-w-2xl mx-auto">
               If you have any questions about using the portal, booking events, or managing your account, 
-              please don't hesitate to contact your AGCAS membership administrator.
+              please don't hesitate to contact your {tenantName ? `${tenantName} membership` : 'membership'} administrator.
             </p>
             <div className="flex flex-wrap justify-center gap-4">
               <CheckCircle2 className="w-5 h-5 text-green-600" />

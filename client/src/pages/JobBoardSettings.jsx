@@ -351,7 +351,7 @@ export default function JobBoardSettingsPage() {
                   />
                 </div>
                 <p className="text-sm text-slate-500">
-                  AGCAS members can always post jobs for free
+                  Members can always post jobs for free
                 </p>
               </div>
 

@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
 import { base44 } from "@/api/base44Client";
 import { useQuery } from "@tanstack/react-query";
+import { useTenantBranding } from "@/contexts/TenantBrandingContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,6 +14,7 @@ import DOMPurify from "dompurify";
 
 export default function NewsPreview() {
   const { id } = useParams();
+  const { branding } = useTenantBranding();
   const [enteredPassword, setEnteredPassword] = useState("");
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authError, setAuthError] = useState("");
@@ -74,9 +76,9 @@ export default function NewsPreview() {
     }
 
     return () => {
-      document.title = 'AGCAS';
+      document.title = branding?.name || 'Portal';
     };
-  }, [news]);
+  }, [news, branding?.name]);
 
   const handlePasswordSubmit = (e) => {
     e.preventDefault();
