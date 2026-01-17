@@ -4,8 +4,10 @@ import { supabase } from './database.js';
 
 const MAILGUN_API_KEY = process.env.MAILGUN_API_KEY;
 const MAILGUN_REGION = process.env.MAILGUN_REGION || 'eu';
-const DEFAULT_DOMAIN = process.env.MAILGUN_DOMAIN || 'mail.iconn.app';
-const DEFAULT_FROM = process.env.MAILGUN_FROM_EMAIL || 'ICONN <noreply@mail.iconn.app>';
+const APP_DOMAIN = process.env.APP_DOMAIN || 'iconn.app';
+const MAILGUN_FALLBACK_DOMAIN = process.env.MAILGUN_DOMAIN || APP_DOMAIN;
+const DEFAULT_DOMAIN = MAILGUN_FALLBACK_DOMAIN;
+const DEFAULT_FROM = process.env.MAILGUN_FROM_EMAIL || `ICONN <noreply@${MAILGUN_FALLBACK_DOMAIN}>`;
 
 let mailgunClient = null;
 const tenantEmailConfigCache = new Map();

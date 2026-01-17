@@ -61,6 +61,8 @@ export default function AdminSettings() {
       date_display_format: 'dd MMM yyyy',
       welcome_email_from_address: '',
       welcome_email_from_name: '',
+      email_from_name: '',
+      email_from_address: '',
       member_google_login_enabled: true
     }
   });
@@ -99,6 +101,7 @@ export default function AdminSettings() {
             setTenantUser(data.tenantUser);
             setTenant(data.tenant);
             const settings = data.tenant?.settings || {};
+            const emailDomain = settings.email_domain || {};
             setFormData({
               name: data.tenant?.name || '',
               billing_email: data.tenant?.billing_email || '',
@@ -110,6 +113,8 @@ export default function AdminSettings() {
                 date_display_format: settings.date_display_format || 'dd MMM yyyy',
                 welcome_email_from_address: settings.welcome_email_from_address || '',
                 welcome_email_from_name: settings.welcome_email_from_name || '',
+                email_from_name: emailDomain.from_name || settings.welcome_email_from_name || '',
+                email_from_address: emailDomain.from_email || settings.welcome_email_from_address || '',
                 member_google_login_enabled: settings.member_google_login_enabled !== false
               }
             });
@@ -219,6 +224,20 @@ export default function AdminSettings() {
       });
 
       if (response.ok) {
+        const data = await response.json();
+        if (data.tenant) {
+          setTenant(data.tenant);
+          const settings = data.tenant.settings || {};
+          const emailDomain = settings.email_domain || {};
+          setFormData(prev => ({
+            ...prev,
+            settings: {
+              ...prev.settings,
+              email_from_name: emailDomain.from_name || prev.settings.email_from_name,
+              email_from_address: emailDomain.from_email || prev.settings.email_from_address
+            }
+          }));
+        }
         toast({
           title: "Settings saved",
           description: "Your tenant settings have been updated."
@@ -726,38 +745,85 @@ export default function AdminSettings() {
                 Email Settings
               </CardTitle>
               <CardDescription className="text-slate-400">
-                Configure outgoing email sender details
+                Configure your outgoing email domain and sender details
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-6">
+              {tenant?.settings?.email_domain && (
+                <div className="space-y-4 p-4 bg-slate-900/50 rounded-lg border border-slate-600">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-sm font-medium text-slate-200">Email Sending Domain</h4>
+                    {tenant.settings.email_domain.status === 'verified' ? (
+                      <span className="flex items-center gap-1 text-xs text-green-400">
+                        <CheckCircle2 className="w-3 h-3" />
+                        Verified
+                      </span>
+                    ) : tenant.settings.email_domain.status === 'pending' ? (
+                      <span className="flex items-center gap-1 text-xs text-amber-400">
+                        <AlertTriangle className="w-3 h-3" />
+                        Pending Verification
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-1 text-xs text-slate-400">
+                        <AlertTriangle className="w-3 h-3" />
+                        {tenant.settings.email_domain.status || 'Not configured'}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-sm text-slate-300 font-mono">
+                    {tenant.settings.email_domain.domain}
+                  </p>
+                  {tenant.settings.email_domain.status === 'pending' && (
+                    <p className="text-xs text-amber-300">
+                      DNS records have been created. Verification can take up to 48 hours.
+                    </p>
+                  )}
+                </div>
+              )}
+
               <div className="space-y-2">
-                <Label htmlFor="email-from-name" className="text-slate-200">Welcome Email From Name</Label>
+                <Label htmlFor="email-from-name" className="text-slate-200">Sender Name</Label>
                 <Input
                   id="email-from-name"
-                  value={formData.settings.welcome_email_from_name}
+                  value={formData.settings.email_from_name || ''}
                   onChange={(e) => setFormData({
                     ...formData,
-                    settings: { ...formData.settings, welcome_email_from_name: e.target.value }
+                    settings: { 
+                      ...formData.settings, 
+                      email_from_name: e.target.value
+                    }
                   })}
-                  placeholder="Your Organization"
+                  placeholder={tenant?.name || "Your Organization"}
                   className="bg-slate-900/50 border-slate-600 text-white placeholder:text-slate-500"
                   data-testid="input-email-from-name"
                 />
+                <p className="text-xs text-slate-400">
+                  This name will appear in the "From" field of all emails sent from your portal.
+                </p>
               </div>
+
               <div className="space-y-2">
-                <Label htmlFor="email-from-address" className="text-slate-200">Welcome Email From Address</Label>
+                <Label htmlFor="email-from-address" className="text-slate-200">Sender Email Address</Label>
                 <Input
                   id="email-from-address"
                   type="email"
-                  value={formData.settings.welcome_email_from_address}
+                  value={formData.settings.email_from_address || ''}
                   onChange={(e) => setFormData({
                     ...formData,
-                    settings: { ...formData.settings, welcome_email_from_address: e.target.value }
+                    settings: { 
+                      ...formData.settings, 
+                      email_from_address: e.target.value
+                    }
                   })}
-                  placeholder="noreply@yourdomain.com"
+                  placeholder={tenant?.settings?.email_domain?.domain ? `noreply@${tenant.settings.email_domain.domain}` : "noreply@yourdomain.com"}
                   className="bg-slate-900/50 border-slate-600 text-white placeholder:text-slate-500"
                   data-testid="input-email-from-address"
                 />
+                <p className="text-xs text-slate-400">
+                  {tenant?.settings?.email_domain?.domain 
+                    ? `Leave blank to use the default: noreply@${tenant.settings.email_domain.domain}`
+                    : "The email address that will appear in the 'From' field of outgoing emails."}
+                </p>
               </div>
             </CardContent>
           </Card>

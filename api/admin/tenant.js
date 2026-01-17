@@ -1,6 +1,7 @@
 import { getSessionTenantUser } from '../_lib/session.js';
 import { supabase } from '../_lib/database.js';
 import { clearTenantCache } from '../_lib/tenantResolver.js';
+import { clearTenantEmailCache } from '../_lib/emailService.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -63,6 +64,36 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'No valid fields to update' });
       }
 
+      if (updates.settings) {
+        const { data: currentTenant } = await supabase
+          .from('tenant')
+          .select('settings')
+          .eq('id', tenantId)
+          .single();
+        
+        const currentSettings = currentTenant?.settings || {};
+        const incomingSettings = updates.settings;
+        
+        if (incomingSettings.email_from_name || incomingSettings.email_from_address) {
+          const currentEmailDomain = currentSettings.email_domain || {};
+          updates.settings = {
+            ...currentSettings,
+            ...incomingSettings,
+            email_domain: {
+              ...currentEmailDomain,
+              from_name: incomingSettings.email_from_name || currentEmailDomain.from_name,
+              from_email: incomingSettings.email_from_address || currentEmailDomain.from_email
+            }
+          };
+        } else {
+          updates.settings = {
+            ...currentSettings,
+            ...incomingSettings,
+            email_domain: currentSettings.email_domain
+          };
+        }
+      }
+
       updates.updated_at = new Date().toISOString();
 
       const { data: tenant, error } = await supabase
@@ -84,6 +115,9 @@ export default async function handler(req, res) {
       if (tenant.domain) {
         clearTenantCache(tenant.domain);
       }
+      
+      // Clear email config cache if email settings were updated
+      clearTenantEmailCache(tenantId);
 
       console.log('[Admin] Tenant updated:', tenantId);
       res.json({ success: true, tenant });

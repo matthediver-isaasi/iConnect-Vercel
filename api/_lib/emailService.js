@@ -3,14 +3,73 @@ import formData from 'form-data';
 import { supabase } from './database.js';
 
 const MAILGUN_API_KEY = process.env.MAILGUN_API_KEY;
-const MAILGUN_DOMAIN = process.env.MAILGUN_DOMAIN || 'mail.iconn.app';
-const DEFAULT_FROM = process.env.MAILGUN_FROM_EMAIL || 'ICONN <noreply@mail.iconn.app>';
+const APP_DOMAIN = process.env.APP_DOMAIN || 'iconn.app';
+const MAILGUN_FALLBACK_DOMAIN = process.env.MAILGUN_DOMAIN || APP_DOMAIN;
+const DEFAULT_DOMAIN = MAILGUN_FALLBACK_DOMAIN;
+const DEFAULT_FROM = process.env.MAILGUN_FROM_EMAIL || `ICONN <noreply@${MAILGUN_FALLBACK_DOMAIN}>`;
 const MAILGUN_REGION = process.env.MAILGUN_REGION || 'eu';
 
 let mailgunClient = null;
 let cachedEmailFooter = null;
 let footerLastFetched = 0;
 const FOOTER_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+const tenantEmailConfigCache = new Map();
+const TENANT_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+async function getTenantEmailConfig(tenantId) {
+  if (!tenantId) {
+    return null;
+  }
+
+  const cacheKey = tenantId;
+  const cached = tenantEmailConfigCache.get(cacheKey);
+  if (cached && (Date.now() - cached.timestamp) < TENANT_CACHE_TTL) {
+    return cached.config;
+  }
+
+  try {
+    const { data: tenant, error } = await supabase
+      .from('tenant')
+      .select('id, name, slug, settings')
+      .eq('id', tenantId)
+      .single();
+
+    if (error || !tenant) {
+      console.log(`[Email Service] No tenant found for ${tenantId}`);
+      return null;
+    }
+
+    const emailDomainConfig = tenant.settings?.email_domain;
+    
+    if (emailDomainConfig && emailDomainConfig.status === 'verified') {
+      const config = {
+        domain: emailDomainConfig.domain,
+        fromEmail: emailDomainConfig.from_email || `noreply@${emailDomainConfig.domain}`,
+        fromName: emailDomainConfig.from_name || tenant.name || 'ICONN',
+      };
+      tenantEmailConfigCache.set(cacheKey, { config, timestamp: Date.now() });
+      return config;
+    }
+
+    if (tenant.slug) {
+      const config = {
+        domain: `${tenant.slug}.${APP_DOMAIN}`,
+        fromEmail: `noreply@${tenant.slug}.${APP_DOMAIN}`,
+        fromName: tenant.name || 'ICONN',
+      };
+      tenantEmailConfigCache.set(cacheKey, { config, timestamp: Date.now() });
+      return config;
+    }
+
+    tenantEmailConfigCache.set(cacheKey, { config: null, timestamp: Date.now() });
+    return null;
+
+  } catch (err) {
+    console.error('[Email Service] Error fetching tenant email config:', err);
+    return null;
+  }
+}
 
 async function getEmailFooter() {
   const now = Date.now();
@@ -103,9 +162,7 @@ function getMailgunClient() {
   return mailgunClient;
 }
 
-export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bcc, skipFooter = false }) {
-  const fromAddress = from || DEFAULT_FROM;
-  
+export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bcc, skipFooter = false, tenantId = null }) {
   if (!MAILGUN_API_KEY) {
     console.error('[Email Service] MAILGUN_API_KEY not configured');
     return {
@@ -122,8 +179,22 @@ export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bc
     };
   }
 
+  const tenantConfig = await getTenantEmailConfig(tenantId);
+  
+  let domain = DEFAULT_DOMAIN;
+  let fromAddress = from || DEFAULT_FROM;
+  
+  if (tenantConfig) {
+    domain = tenantConfig.domain;
+    if (!from) {
+      fromAddress = `${tenantConfig.fromName} <${tenantConfig.fromEmail}>`;
+    }
+    console.log(`[Email Service] Using tenant domain: ${domain}`);
+  } else {
+    console.log(`[Email Service] Using default domain: ${domain}`);
+  }
+
   try {
-    // Append email footer if configured
     let finalHtml = html || '';
     if (!skipFooter) {
       const footer = await getEmailFooter();
@@ -134,14 +205,14 @@ export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bc
       }
     }
 
-    console.log(`[Email Service] Sending email to: ${to}`);
+    console.log(`[Email Service] Sending email to: ${to}, domain: ${domain}`);
     if (cc) console.log(`[Email Service] CC: ${cc}`);
     if (bcc) console.log(`[Email Service] BCC: ${bcc}`);
     console.log(`[Email Service] Subject: ${subject}`);
 
     const messageData = {
       from: fromAddress,
-      to: [to],
+      to: Array.isArray(to) ? to : [to],
       subject,
       html: finalHtml,
       text: text || finalHtml.replace(/<[^>]*>/g, ''),
@@ -152,20 +223,21 @@ export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bc
     }
     
     if (cc) {
-      messageData.cc = [cc];
+      messageData.cc = Array.isArray(cc) ? cc : [cc];
     }
     
     if (bcc) {
-      messageData.bcc = [bcc];
+      messageData.bcc = Array.isArray(bcc) ? bcc : [bcc];
     }
 
-    const response = await client.messages.create(MAILGUN_DOMAIN, messageData);
+    const response = await client.messages.create(domain, messageData);
 
     console.log(`[Email Service] Email sent successfully. Message ID: ${response.id}`);
 
     return {
       success: true,
       messageId: response.id,
+      domain: domain,
     };
   } catch (error) {
     console.error('[Email Service] Failed to send email:', error.message || error);
@@ -173,6 +245,14 @@ export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bc
       success: false,
       error: error.message || 'Unknown error sending email',
     };
+  }
+}
+
+export function clearTenantEmailCache(tenantId) {
+  if (tenantId) {
+    tenantEmailConfigCache.delete(tenantId);
+  } else {
+    tenantEmailConfigCache.clear();
   }
 }
 
