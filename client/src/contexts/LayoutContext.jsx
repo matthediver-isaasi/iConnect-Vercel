@@ -24,6 +24,10 @@ const LayoutContext = createContext({
   // Hooks should require BOTH memberInfo AND sessionValidated to treat user as authenticated
   sessionValidated: false,
   setSessionValidated: () => {},
+  // SECURITY: Auth resolution flag - true once /api/auth/me completes (success OR failure)
+  // This tells hooks that auth check is complete and they can safely gate queries
+  authResolved: false,
+  setAuthResolved: () => {},
 });
 
 export function LayoutProvider({ children }) {
@@ -39,6 +43,8 @@ export function LayoutProvider({ children }) {
   const [reloadMemberInfoFn, setReloadMemberInfoFn] = useState(() => () => {});
   // SECURITY: Session validation flag - starts false, set true only after /api/auth/me succeeds
   const [sessionValidated, setSessionValidatedState] = useState(false);
+  // SECURITY: Auth resolution flag - true once /api/auth/me completes (success OR failure)
+  const [authResolved, setAuthResolvedState] = useState(false);
   
   const setLayout = useCallback((value) => {
     setForcePublicLayout(value);
@@ -82,6 +88,10 @@ export function LayoutProvider({ children }) {
     setSessionValidatedState(value);
   }, []);
 
+  const setAuthResolved = useCallback((value) => {
+    setAuthResolvedState(value);
+  }, []);
+
   return (
     <LayoutContext.Provider value={{ 
       forcePublicLayout, 
@@ -106,6 +116,9 @@ export function LayoutProvider({ children }) {
       // SECURITY: Session validation flag
       sessionValidated,
       setSessionValidated,
+      // SECURITY: Auth resolution flag
+      authResolved,
+      setAuthResolved,
     }}>
       {children}
     </LayoutContext.Provider>

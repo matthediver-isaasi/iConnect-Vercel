@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
+import { publicClient } from "@/api/publicClient";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -14,7 +15,13 @@ import { useLayoutContext } from "@/contexts/LayoutContext";
 
 export default function ResourcesPage() {
   const { memberInfo, memberRole, isAdmin } = useMemberAccess();
-  const { hasBanner } = useLayoutContext();
+  const { hasBanner, sessionValidated, authResolved } = useLayoutContext();
+  
+  // SECURITY: Only consider user authenticated when all conditions are true:
+  // 1. authResolved is true (server completed the auth check)
+  // 2. sessionValidated is true (server confirmed the session via /api/auth/me)
+  // 3. memberInfo.id exists (user data is valid)
+  const isAuthenticated = authResolved && sessionValidated && !!memberInfo?.id;
   
   // Get resourceId from URL query params (used when redirecting back from login)
   const urlParams = new URLSearchParams(window.location.search);
@@ -37,25 +44,7 @@ export default function ResourcesPage() {
     window.history.replaceState({}, '', '/resources');
   };
   
-  // Check authentication status - derive from memberInfo (from useMemberAccess hook) 
-  // with sessionStorage fallback for initial render before hook resolves
-  const isAuthenticated = useMemo(() => {
-    // If memberInfo is available from the hook, use it as the source of truth
-    if (memberInfo) return true;
-    
-    // Fallback to sessionStorage check for initial render
-    const storedMember = localStorage.getItem('agcas_member');
-    if (!storedMember) return false;
-    try {
-      const member = JSON.parse(storedMember);
-      if (member.sessionExpiry && new Date(member.sessionExpiry) < new Date()) {
-        return false;
-      }
-      return true;
-    } catch {
-      return false;
-    }
-  }, [memberInfo]);
+  
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedSubcategories, setSelectedSubcategories] = useState([]);
   const [currentPage, setCurrentPage] = useState(1);
@@ -65,16 +54,40 @@ export default function ResourcesPage() {
 
   const queryClient = useQueryClient();
   
-  useResourceRealtime(['resources']);
+  // SECURITY: Once auth is resolved as NOT authenticated, remove any registered authenticated query keys
+  // This prevents realtime invalidations from triggering base44 fetches for guests
+  useEffect(() => {
+    // Only clean up after auth has resolved (not during initial loading)
+    if (authResolved && !isAuthenticated) {
+      // Cancel and remove any authenticated queries that might have been registered
+      queryClient.cancelQueries({ queryKey: ['authenticated-resources'] });
+      queryClient.removeQueries({ queryKey: ['authenticated-resources'] });
+      queryClient.cancelQueries({ queryKey: ['authenticated-resource-categories'] });
+      queryClient.removeQueries({ queryKey: ['authenticated-resource-categories'] });
+      queryClient.cancelQueries({ queryKey: ['buttonStyles-resources'] });
+      queryClient.removeQueries({ queryKey: ['buttonStyles-resources'] });
+      queryClient.cancelQueries({ queryKey: ['resourceAuthorSettings'] });
+      queryClient.removeQueries({ queryKey: ['resourceAuthorSettings'] });
+      queryClient.cancelQueries({ queryKey: ['member-resource-categories'] });
+      queryClient.removeQueries({ queryKey: ['member-resource-categories'] });
+      queryClient.cancelQueries({ queryKey: ['current-user'] });
+      queryClient.removeQueries({ queryKey: ['current-user'] });
+    }
+  }, [authResolved, isAuthenticated, queryClient]);
+  
+  // Only subscribe to realtime updates after auth is resolved
+  // This prevents invalidating authenticated query keys for guests
+  // Uses isAuthenticated (authResolved && sessionValidated && memberInfo?.id) to ensure server confirmed the session
+  useResourceRealtime(authResolved ? (isAuthenticated ? ['authenticated-resources'] : ['public-resources']) : []);
 
-  // Fetch current user's preferences
+  // Fetch current user's preferences (authenticated only)
   const { data: currentUser } = useQuery({
     queryKey: ['current-user', memberInfo?.email],
     queryFn: async () => {
       const user = await base44.auth.me();
       return user;
     },
-    enabled: !!memberInfo
+    enabled: isAuthenticated
   });
 
   // Fetch member's saved category preferences from database (member_resource_category table)
@@ -89,48 +102,41 @@ export default function ResourcesPage() {
       }
       return response.json();
     },
-    enabled: !!memberInfo?.id
+    enabled: isAuthenticated
   });
 
-  // Unified resource fetching - handles both authenticated and unauthenticated users
-  const { data: resources = [], isLoading: resourcesLoading } = useQuery({
-    queryKey: ['resources', isAuthenticated, memberRole?.id, isAdmin],
+  // Public resources query - only runs for unauthenticated users AFTER auth check completes
+  // Must wait for authResolved to prevent race conditions
+  const { data: publicResources = [], isLoading: publicResourcesLoading } = useQuery({
+    queryKey: ['public-resources'],
     queryFn: async () => {
-      console.log('[Resources] ========== FETCH START ==========');
-      console.log('[Resources] Fetching at:', new Date().toISOString());
-      console.log('[Resources] isAuthenticated:', isAuthenticated);
+      console.log('[Resources] Fetching public resources via public API');
+      const resources = await publicClient.listResources();
+      console.log('[Resources] Public resources loaded:', resources.length);
+      return resources;
+    },
+    enabled: authResolved && !isAuthenticated,
+    staleTime: 0,
+    refetchOnMount: true,
+  });
+
+  // Authenticated resources query - only runs for authenticated users
+  // Uses isAuthenticated which requires both sessionValidated AND memberInfo.id
+  const { data: authenticatedResources = [], isLoading: authResourcesLoading } = useQuery({
+    queryKey: ['authenticated-resources', memberRole?.id, isAdmin],
+    queryFn: async () => {
+      console.log('[Resources] ========== AUTHENTICATED FETCH START ==========');
       console.log('[Resources] memberRole:', memberRole?.id || 'none');
       console.log('[Resources] isAdmin:', isAdmin);
       
       const allResources = await base44.entities.Resource.list('-release_date');
       console.log('[Resources] Total resources from API:', allResources.length);
       
-      // Debug: Show first few resources with their visibility status
-      if (allResources.length > 0) {
-        console.log('[Resources] Sample resources:');
-        allResources.slice(0, 5).forEach((r, i) => {
-          console.log(`  [${i}] "${r.title}" - is_public: ${r.is_public}, status: ${r.status}, allowed_roles: ${r.allowed_role_ids?.length || 0}`);
-        });
-      }
-      
-      // Count resources by is_public value
-      const publicCount = allResources.filter(r => r.is_public === true).length;
-      const nonPublicCount = allResources.filter(r => r.is_public === false).length;
-      const draftCount = allResources.filter(r => r.status === 'draft').length;
-      console.log('[Resources] is_public breakdown - true:', publicCount, 'false:', nonPublicCount, 'drafts:', draftCount);
-      
-      // Filter by status and permissions based on authentication state
+      // Filter by status and permissions for authenticated users
       const filtered = allResources.filter(resource => {
         // Always filter out draft resources
         if (resource.status === 'draft') return false;
         
-        // For unauthenticated users: show ALL non-draft resources
-        // (ResourceCard will handle showing "Member login required" for non-public ones)
-        if (!isAuthenticated) {
-          return true;
-        }
-        
-        // For authenticated users:
         // Admins can see everything (except drafts)
         if (isAdmin) return true;
         
@@ -153,48 +159,73 @@ export default function ResourcesPage() {
       });
       
       console.log('[Resources] After filtering:', filtered.length, 'resources');
-      console.log('[Resources] ========== FETCH END ==========');
+      console.log('[Resources] ========== AUTHENTICATED FETCH END ==========');
       return filtered;
     },
-    staleTime: 0, // Always fetch fresh content for resources feed
+    enabled: isAuthenticated,
+    staleTime: 0,
     refetchOnMount: true,
   });
 
-  const { data: categories = [], isLoading: categoriesLoading } = useQuery({
-    queryKey: ['resourceCategories-resources'], // Changed queryKey
+  // Combine resources based on auth state
+  const resources = isAuthenticated ? authenticatedResources : publicResources;
+  const resourcesLoading = isAuthenticated ? authResourcesLoading : publicResourcesLoading;
+
+  // Public categories query - only runs for unauthenticated users AFTER auth check completes
+  const { data: publicCategories = [], isLoading: publicCategoriesLoading } = useQuery({
+    queryKey: ['public-resource-categories'],
     queryFn: async () => {
-      const cats = await base44.entities.ResourceCategory.list();
-      console.log('[Resources Debug] Raw categories from DB:', cats.length, cats[0]);
-      // Filter to only show categories that apply to Resources
+      const cats = await publicClient.listResourceCategories();
       const resourceCategories = cats.filter(c => 
         c.is_active && 
         c.applies_to_content_types && 
         c.applies_to_content_types.includes("Resources")
       );
-      const sortedCats = resourceCategories.sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
-      console.log('[Resources Debug] Active sorted resource categories:', sortedCats.length, sortedCats); // Updated log message
-      return sortedCats;
+      return resourceCategories.sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
     },
+    enabled: authResolved && !isAuthenticated,
     refetchOnWindowFocus: true
   });
 
-  // Fetch button styles once at page level
+  // Authenticated categories query - only runs for authenticated users
+  const { data: authCategories = [], isLoading: authCategoriesLoading } = useQuery({
+    queryKey: ['authenticated-resource-categories'],
+    queryFn: async () => {
+      const cats = await base44.entities.ResourceCategory.list();
+      const resourceCategories = cats.filter(c => 
+        c.is_active && 
+        c.applies_to_content_types && 
+        c.applies_to_content_types.includes("Resources")
+      );
+      return resourceCategories.sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
+    },
+    enabled: isAuthenticated,
+    refetchOnWindowFocus: true
+  });
+
+  // Combine categories based on auth state
+  const categories = isAuthenticated ? authCategories : publicCategories;
+  const categoriesLoading = isAuthenticated ? authCategoriesLoading : publicCategoriesLoading;
+
+  // Fetch button styles once at page level (authenticated only - display config)
   const { data: buttonStyles = [] } = useQuery({
     queryKey: ['buttonStyles-resources'],
     queryFn: async () => {
       const styles = await base44.entities.ButtonStyle.list();
       return styles.filter(s => s.card_type === 'resource' && s.is_active);
     },
+    enabled: isAuthenticated,
     refetchOnWindowFocus: true
   });
 
-  // Fetch resource author settings for social icons configuration
+  // Fetch resource author settings for social icons configuration (authenticated only)
   const { data: resourceSettings } = useQuery({
     queryKey: ['resourceAuthorSettings'],
     queryFn: async () => {
       const settings = await base44.entities.ResourceAuthorSettings.list();
       return settings[0] || null;
     },
+    enabled: isAuthenticated,
     staleTime: 5 * 60 * 1000,
   });
 
@@ -305,18 +336,29 @@ export default function ResourcesPage() {
 
   const sortedResources = useMemo(() => {
     const sorted = [...filteredResources];
+    // Helper to get a valid timestamp from a resource (supports both authenticated and public payloads)
+    // For sorting: missing dates go to the end (use Infinity for newest-first, -Infinity for oldest-first)
+    const getTimestamp = (r, defaultValue = 0) => {
+      const dateStr = r.published_date || r.release_date || r.created_date;
+      if (!dateStr) return defaultValue;
+      const parsed = Date.parse(dateStr);
+      return isNaN(parsed) ? defaultValue : parsed;
+    };
+    
     switch (sortBy) {
       case 'newest':
-        sorted.sort((a, b) => new Date(b.published_date || b.created_date) - new Date(a.published_date || a.created_date));
+        // Items without dates go to end (use -Infinity so they sort last when descending)
+        sorted.sort((a, b) => getTimestamp(b, -Infinity) - getTimestamp(a, -Infinity));
         break;
       case 'oldest':
-        sorted.sort((a, b) => new Date(a.published_date || a.created_date) - new Date(b.published_date || a.created_date));
+        // Items without dates go to end (use Infinity so they sort last when ascending)
+        sorted.sort((a, b) => getTimestamp(a, Infinity) - getTimestamp(b, Infinity));
         break;
       case 'title-asc':
-        sorted.sort((a, b) => a.title.localeCompare(b.title));
+        sorted.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
         break;
       case 'title-desc':
-        sorted.sort((a, b) => b.title.localeCompare(a.title));
+        sorted.sort((a, b) => (b.title || '').localeCompare(a.title || ''));
         break;
       default:
         break;
@@ -434,7 +476,14 @@ export default function ResourcesPage() {
               </div>
               <Button
                 onClick={() => {
-                  queryClient.invalidateQueries({ queryKey: ['resources'] });
+                  // Only invalidate the query that's currently active based on authentication state
+                  if (isAuthenticated) {
+                    queryClient.invalidateQueries({ queryKey: ['authenticated-resources'] });
+                    queryClient.invalidateQueries({ queryKey: ['authenticated-resource-categories'] });
+                  } else {
+                    queryClient.invalidateQueries({ queryKey: ['public-resources'] });
+                    queryClient.invalidateQueries({ queryKey: ['public-resource-categories'] });
+                  }
                   toast.success('Refreshing resources...');
                 }}
                 variant="outline"

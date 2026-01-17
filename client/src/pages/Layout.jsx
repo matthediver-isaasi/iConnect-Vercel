@@ -743,6 +743,7 @@ const {
   setRefreshOrganizationInfo: setContextRefreshOrganizationInfo,
   setReloadMemberInfo: setContextReloadMemberInfo,
   setSessionValidated,
+  setAuthResolved,
 } = useLayoutContext();
 
 // Update the context whenever the portal banner changes
@@ -1023,7 +1024,13 @@ useEffect(() => {
             return { valid: false, serverResponded: true };
           }
         }
-        return { valid: false, serverResponded: false }; // Server error
+        // SECURITY: 401/403 means server said session is invalid - treat as serverResponded: true
+        // This ensures stale localStorage data gets cleared for unauthorized sessions
+        if (response.status === 401 || response.status === 403) {
+          console.log('[Layout] Server returned', response.status, '- session is invalid');
+          return { valid: false, serverResponded: true };
+        }
+        return { valid: false, serverResponded: false }; // Other server errors (500, network issues)
       } catch (error) {
         console.log('[Layout] Server session check failed, falling back to sessionStorage');
         return { valid: false, serverResponded: false };
@@ -1041,6 +1048,8 @@ useEffect(() => {
       
       // Handle truly public pages - no auth required
       if (visibility === 'public') {
+        // SECURITY: Mark auth as resolved for public pages (no auth needed)
+        setAuthResolved(true);
         return;
       }
 
@@ -1059,6 +1068,8 @@ useEffect(() => {
           setOrganizationInfo(null);
           // SECURITY: Clear validation flag when session is invalidated
           setSessionValidated(false);
+          // SECURITY: Mark auth resolution complete (session is now known to be invalid)
+          setAuthResolved(true);
           
           // For non-public pages, redirect to login
           if (visibility !== 'hybrid') {
@@ -1066,9 +1077,13 @@ useEffect(() => {
           }
           return;
         }
+        // No stored member but server says session invalid - still mark auth as resolved
+        setAuthResolved(true);
       }
       
       if (sessionResult.valid) {
+        // SECURITY: Mark auth as resolved (session is valid)
+        setAuthResolved(true);
         return; // Already authenticated via server session
       }
 
@@ -1077,6 +1092,8 @@ useEffect(() => {
         const storedMember = localStorage.getItem('agcas_member');
         if (!storedMember) {
           // No member logged in, treat as public
+          // SECURITY: Mark auth as resolved (confirmed guest)
+          setAuthResolved(true);
           return;
         }
         // Member is logged in via sessionStorage, continue to validate
@@ -1107,6 +1124,11 @@ useEffect(() => {
         if (member.organization_id && !member.is_team_member) {
           fetchOrganizationInfo(member.organization_id);
         }
+        
+        // SECURITY: Mark auth as resolved even in fallback mode
+        // While we can't fully validate the session, auth check is complete
+        // This allows the UI to proceed (queries will use localStorage data)
+        setAuthResolved(true);
       }
     };
 
