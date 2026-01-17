@@ -53,9 +53,11 @@ export const entityTenantScope = {
   'IEditElementTemplate': TENANT_SCOPE.GLOBAL,
   'RoleAccessItem': TENANT_SCOPE.GLOBAL,
   'ButtonStyle': TENANT_SCOPE.GLOBAL,
-  'TourGroup': TENANT_SCOPE.GLOBAL,
-  'TourStep': TENANT_SCOPE.GLOBAL,
   'MagicLink': TENANT_SCOPE.GLOBAL, // Magic links are looked up by token, not tenant
+  
+  // TENANT - Tour configuration is per-tenant
+  'TourGroup': TENANT_SCOPE.TENANT,
+  'TourStep': TENANT_SCOPE.TENANT,
   
   // TENANT - Per-tenant data (filtered by tenant_id)
   'RedirectMapping': TENANT_SCOPE.TENANT,
