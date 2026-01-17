@@ -1,6 +1,6 @@
 import { createContext, useContext, useMemo, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
+import { publicClient } from '@/api/publicClient';
 import { createPageUrl } from '@/utils';
 
 function slugify(text) {
@@ -65,16 +65,15 @@ export function ArticleUrlProvider({ children }) {
     queryKey: ['article-url-settings'],
     queryFn: async () => {
       try {
-        const allSettings = await base44.entities.SystemSettings.list();
-        const setting = allSettings.find(s => s.setting_key === 'article_display_name');
+        const setting = await publicClient.getSystemSetting('article_display_name');
         return setting?.setting_value || 'Articles';
       } catch (error) {
         console.error('Error loading article display name:', error);
         return 'Articles';
       }
     },
-    staleTime: 5000, // Short stale time to pick up settings changes quickly
-    refetchOnWindowFocus: true // Refetch when user returns to tab
+    staleTime: 5000,
+    refetchOnWindowFocus: true
   });
 
   const value = useMemo(() => {

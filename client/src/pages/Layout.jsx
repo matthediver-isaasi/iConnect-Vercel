@@ -452,22 +452,20 @@ export default function Layout({ children, currentPageName }) {
   
   console.log('[Layout] hasPendingPOs:', hasPendingPOs, 'count:', pendingPOCount, 'isLoading:', pendingPOsLoading);
 
-  // Fetch global border radius setting
+  // Fetch global border radius setting - use public API for all users (it's public-safe)
   const DEFAULT_BORDER_RADIUS = '8px';
 
 const { data: borderRadiusSetting = DEFAULT_BORDER_RADIUS } = useQuery({
   queryKey: ['borderRadiusSetting'],
   queryFn: async () => {
     try {
-      const data = await base44.entities.SystemSettings.list({ 
-        filter: { setting_key: 'global_border_radius' } 
-      });
-      if (data && data.length > 0 && data[0].setting_value) {
-        return String(data[0].setting_value);
+      const setting = await publicClient.getSystemSetting('global_border_radius');
+      if (setting && setting.setting_value) {
+        return String(setting.setting_value);
       }
       return DEFAULT_BORDER_RADIUS;
     } catch (error) {
-      console.error('Error loading SystemSettings:', error);
+      console.error('Error loading border radius setting:', error);
       return DEFAULT_BORDER_RADIUS;
     }
   }
@@ -571,10 +569,12 @@ const { data: memberRole } = useQuery({
   },
 });
 
-// Fetch dynamic navigation items from database
+// Fetch dynamic navigation items from database - only for authenticated users
+// Unauthenticated users use public navigation items instead
 const { data: dynamicNavItems = [] } = useQuery({
-  queryKey: ['portal-menu'],
+  queryKey: ['portal-menu', !!memberInfo],
   refetchOnMount: false,
+  enabled: !!memberInfo,
   queryFn: async () => {
     try {
       const data = await base44.entities.PortalMenu.list({ 
@@ -588,20 +588,17 @@ const { data: dynamicNavItems = [] } = useQuery({
   },
 });
 
-// Fetch page visibility settings from system_settings
+// Fetch page visibility settings from public system_settings API
 const { data: pageVisibilitySettings = {}, isFetched: visibilitySettingsFetched } = useQuery({
   queryKey: ['page-visibility-settings'],
   refetchOnMount: false,
   staleTime: 60000,
   queryFn: async () => {
     try {
-      const data = await base44.entities.SystemSettings.list({
-        filter: { setting_key: 'page_visibility_settings' }
-      });
-      if (data?.[0]?.setting_value) {
+      const setting = await publicClient.getSystemSetting('page_visibility_settings');
+      if (setting?.setting_value) {
         try {
-          const parsed = JSON.parse(data[0].setting_value);
-          // Validate it's an object with valid visibility values
+          const parsed = JSON.parse(setting.setting_value);
           if (typeof parsed === 'object' && parsed !== null) {
             return parsed;
           }
@@ -684,20 +681,19 @@ const currentPortalPageId = getPortalPageId();
 // Debug logging for banner matching
 console.log('[Layout] currentPageName:', currentPageName, 'currentPortalPageId:', currentPortalPageId);
 
-// Fetch ALL portal banners for the current page (not just the first one)
+// Fetch ALL portal banners for the current page (authenticated users only)
+// PublicLayout handles banners for unauthenticated users via publicClient.listBanners()
 const { data: portalBanners = [] } = useQuery({
-  queryKey: ['portal-banners', currentPortalPageId],
-  enabled: !!currentPortalPageId,
+  queryKey: ['portal-banners', currentPortalPageId, !!memberInfo],
+  enabled: !!currentPortalPageId && !!memberInfo,
   refetchOnMount: false,
   queryFn: async () => {
     try {
-      // Fetch all active banners sorted by display_order
       const banners = await base44.entities.PageBanner.list({
         filter: { is_active: true },
         sort: { display_order: 'asc' }
       });
       
-      // Debug: log all banners for troubleshooting
       if (currentPageName === 'MyOrganisation' || currentPageName === 'JobBoard') {
         console.log('[Layout] DEBUG - looking for:', currentPortalPageId);
         console.log('[Layout] All banners:', banners?.length);
@@ -706,7 +702,6 @@ const { data: portalBanners = [] } = useQuery({
         });
       }
       
-      // Find ALL banners that include this portal page in their associated_pages array
       const matchingBanners = banners?.filter(banner => 
         banner.associated_pages && 
         Array.isArray(banner.associated_pages) && 

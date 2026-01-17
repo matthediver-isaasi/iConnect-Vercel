@@ -12,6 +12,7 @@ function getTenantSlugFromHost(host) {
 
 const PUBLIC_SETTINGS_WHITELIST = [
   'page_visibility',
+  'page_visibility_settings',
   'articles_slug',
   'articles_public_slug',
   'articles_view_slug',
@@ -19,6 +20,7 @@ const PUBLIC_SETTINGS_WHITELIST = [
   'articles_editor_slug',
   'button_styles_enabled',
   'border_radius',
+  'global_border_radius',
   'portal_logo',
   'search_enabled',
   'event_booking_terms',
@@ -74,11 +76,12 @@ export default async function handler(req, res) {
 
     const { key } = req.query;
 
-    // Note: system_settings table is global (no tenant_id column)
-    // Filter by whitelist to only expose safe settings publicly
+    // system_settings table is tenant-scoped with tenant_id column
+    // Filter by tenant and whitelist to only expose safe settings publicly
     let query = supabase
       .from('system_settings')
-      .select('id, setting_key, setting_value');
+      .select('id, setting_key, setting_value')
+      .eq('tenant_id', tenant.id);
 
     if (key) {
       if (!PUBLIC_SETTINGS_WHITELIST.includes(key)) {
