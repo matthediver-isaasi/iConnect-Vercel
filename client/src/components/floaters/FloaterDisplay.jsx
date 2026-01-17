@@ -6,9 +6,48 @@ import { Button } from "@/components/ui/button";
 import { Loader2, ChevronLeft, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/api/supabaseClient";
-import { publicClient } from "@/api/publicClient";
+import { publicClient, getTenantSlugFromLocation } from "@/api/publicClient";
 
 export default function FloaterDisplay({ location = "portal", memberInfo, organizationInfo }) {
+  // Get tenant_id for filtering - from memberInfo if authenticated, otherwise resolve from tenant slug
+  const [tenantId, setTenantId] = useState(memberInfo?.tenant_id || null);
+  
+  // Resolve tenant_id from slug if not available from memberInfo (for public pages)
+  useEffect(() => {
+    if (memberInfo?.tenant_id) {
+      setTenantId(memberInfo.tenant_id);
+      return;
+    }
+    
+    // Try to get tenant_id from localStorage
+    const storedMember = localStorage.getItem('agcas_member');
+    if (storedMember) {
+      try {
+        const parsed = JSON.parse(storedMember);
+        if (parsed?.tenant_id) {
+          setTenantId(parsed.tenant_id);
+          return;
+        }
+      } catch (e) {
+        // Ignore parse errors
+      }
+    }
+    
+    // For public pages, resolve tenant from slug
+    const tenantSlug = getTenantSlugFromLocation();
+    if (tenantSlug) {
+      supabase
+        .from('tenant')
+        .select('id')
+        .eq('slug', tenantSlug)
+        .maybeSingle()
+        .then(({ data }) => {
+          if (data?.id) {
+            setTenantId(data.id);
+          }
+        });
+    }
+  }, [memberInfo?.tenant_id]);
   const queryClient = useQueryClient();
   const [selectedForm, setSelectedForm] = useState(null);
   const [formValues, setFormValues] = useState({});
@@ -66,12 +105,19 @@ export default function FloaterDisplay({ location = "portal", memberInfo, organi
   });
 
   // Fetch floaters (was base44.entities.Floater.list)
+  // SECURITY: Filter by tenant_id to ensure proper tenant isolation
   const { data: floaters = [] } = useQuery({
-    queryKey: ["floaters", location],
+    queryKey: ["floaters", location, tenantId],
     queryFn: async () => {
+      if (!tenantId) {
+        console.warn("[FloaterDisplay] No tenant_id available, skipping floater fetch");
+        return [];
+      }
+      
       const { data, error } = await supabase
         .from("floater")
         .select("*")
+        .eq("tenant_id", tenantId)
         .eq("is_active", true)
         .or(
           `display_location.eq.${location},display_location.eq.both`
@@ -85,15 +131,20 @@ export default function FloaterDisplay({ location = "portal", memberInfo, organi
 
       return data || [];
     },
+    enabled: !!tenantId, // Only fetch when tenant_id is available
   });
 
   // Fetch forms (was base44.entities.Form.list)
+  // SECURITY: Filter by tenant_id for proper tenant isolation
   const { data: forms = [] } = useQuery({
-    queryKey: ["forms"],
+    queryKey: ["forms", tenantId],
     queryFn: async () => {
+      if (!tenantId) return [];
+      
       const { data, error } = await supabase
         .from("form")
-        .select("*");
+        .select("*")
+        .eq("tenant_id", tenantId);
 
       if (error) {
         console.error("Error loading forms:", error);
@@ -102,6 +153,7 @@ export default function FloaterDisplay({ location = "portal", memberInfo, organi
 
       return data || [];
     },
+    enabled: !!tenantId,
   });
 
   // Increment Floater click count (was base44.entities.Floater.update)

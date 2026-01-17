@@ -40,7 +40,7 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 
 export default function FloaterManagementPage() {
-  const { isAdmin, isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const { isAdmin, isFeatureExcluded, isAccessReady, authResolved, sessionValidated } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -72,6 +72,10 @@ export default function FloaterManagementPage() {
 
   const queryClient = useQueryClient();
 
+  // SECURITY: Only consider authenticated when auth check complete AND session validated
+  const isAuthenticated = authResolved && sessionValidated;
+
+  // SECURITY: Gate query on auth to prevent fetching before tenant context is ready
   const { data: floaters = [], isLoading } = useQuery({
     queryKey: ['floaters'],
     queryFn: async () => {
@@ -79,13 +83,16 @@ export default function FloaterManagementPage() {
       return allFloaters.sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
     },
     staleTime: 0, // Admin views need instant freshness after edits
+    enabled: isAuthenticated,
   });
 
+  // SECURITY: Gate on auth to prevent cross-tenant data leakage
   const { data: forms = [] } = useQuery({
     queryKey: ['forms'],
     queryFn: async () => {
       return await base44.entities.Form.list();
-    }
+    },
+    enabled: isAuthenticated,
   });
 
   const createFloaterMutation = useMutation({
