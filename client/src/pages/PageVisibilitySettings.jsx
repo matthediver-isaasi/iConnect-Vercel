@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -8,12 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Loader2, Save, Search, Eye, Lock, Globe, Users } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import { useLayoutContext } from "@/contexts/LayoutContext";
-import { createClient } from "@supabase/supabase-js";
-
-const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_ANON_KEY
-);
+import { base44 } from "@/api/base44Client";
 
 // Define all configurable built-in pages with their display names and categories
 const CONFIGURABLE_PAGES = [
@@ -76,75 +71,66 @@ const DEFAULT_VISIBILITY = {
 export default function PageVisibilitySettings() {
   const { hasBanner } = useLayoutContext();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState("");
   const [settings, setSettings] = useState({});
   const [hasChanges, setHasChanges] = useState(false);
+  const [existingSettingId, setExistingSettingId] = useState(null);
 
-  // Load current settings
-  const { data: savedSettings, isLoading, refetch } = useQuery({
+  // Load current settings using authenticated API (tenant_id is automatically handled server-side)
+  // Query is always enabled - the API will return 401 if not authenticated
+  // This works for both portal members and tenant admins who SSO into the portal
+  const { data: settingRecord, isLoading, error: queryError, refetch } = useQuery({
     queryKey: ["page-visibility-settings"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("system_settings")
-        .select("setting_value")
-        .eq("setting_key", "page_visibility_settings")
-        .limit(1);
-      
-      if (error) throw error;
-      
-      if (data?.[0]?.setting_value) {
-        try {
-          return JSON.parse(data[0].setting_value);
-        } catch {
-          return {};
-        }
-      }
-      return {};
+      const allSettings = await base44.entities.SystemSettings.list();
+      const setting = allSettings.find(s => s.setting_key === "page_visibility_settings");
+      return setting || null;
     },
+    retry: false,
   });
+
+  // Handle authentication errors
+  const hasAuthError = queryError?.message?.includes('401') || queryError?.message?.includes('Authentication');
 
   // Initialize settings from saved data
   useEffect(() => {
-    if (savedSettings) {
-      setSettings(savedSettings);
+    if (settingRecord) {
+      setExistingSettingId(settingRecord.id);
+      try {
+        const parsed = settingRecord.setting_value ? JSON.parse(settingRecord.setting_value) : {};
+        setSettings(parsed);
+      } catch {
+        setSettings({});
+      }
     }
-  }, [savedSettings]);
+  }, [settingRecord]);
 
-  // Save mutation
+  // Save mutation using authenticated API (tenant_id automatically added on create)
   const saveMutation = useMutation({
     mutationFn: async (newSettings) => {
-      // Check if setting exists
-      const { data: existing } = await supabase
-        .from("system_settings")
-        .select("id")
-        .eq("setting_key", "page_visibility_settings")
-        .limit(1);
-
-      if (existing && existing.length > 0) {
-        // Update existing
-        const { error } = await supabase
-          .from("system_settings")
-          .update({ setting_value: JSON.stringify(newSettings) })
-          .eq("setting_key", "page_visibility_settings");
-        if (error) throw error;
+      if (existingSettingId) {
+        return await base44.entities.SystemSettings.update(existingSettingId, {
+          setting_value: JSON.stringify(newSettings)
+        });
       } else {
-        // Insert new
-        const { error } = await supabase
-          .from("system_settings")
-          .insert({
-            setting_key: "page_visibility_settings",
-            setting_value: JSON.stringify(newSettings),
-          });
-        if (error) throw error;
+        return await base44.entities.SystemSettings.create({
+          setting_key: "page_visibility_settings",
+          setting_value: JSON.stringify(newSettings),
+          description: "Page visibility settings for hybrid/public/portal page access"
+        });
       }
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
+      if (result?.id) {
+        setExistingSettingId(result.id);
+      }
+      queryClient.invalidateQueries({ queryKey: ["page-visibility-settings"] });
       toast({
         title: "Settings Saved",
         description: "Page visibility settings have been updated. Changes will take effect on page reload.",
       });
       setHasChanges(false);
-      refetch();
     },
     onError: (error) => {
       toast({
@@ -209,6 +195,21 @@ export default function PageVisibilitySettings() {
     return (
       <div className={`flex items-center justify-center min-h-[400px] ${hasBanner ? "" : "pt-6"}`}>
         <Loader2 className="w-8 h-8 animate-spin text-slate-400" />
+      </div>
+    );
+  }
+
+  if (hasAuthError) {
+    return (
+      <div className={`container max-w-5xl mx-auto py-6 px-4 ${hasBanner ? "" : "pt-6"}`}>
+        <Card className="bg-red-50 border-red-200">
+          <CardContent className="py-6">
+            <h2 className="text-lg font-semibold text-red-800 mb-2">Authentication Required</h2>
+            <p className="text-red-700">
+              You must be logged in to access this page. Please log in and try again.
+            </p>
+          </CardContent>
+        </Card>
       </div>
     );
   }
