@@ -7,6 +7,7 @@ import { useToast } from '@/components/ui/use-toast';
 import { Loader2, LogOut, Shield, Settings, Users, Building2 } from 'lucide-react';
 import RoleTemplatesEditor from './RoleTemplatesEditor';
 import TenantManagement from './TenantManagement';
+import TenantProvisioning from './TenantProvisioning';
 
 export default function PlatformAdmin() {
   const navigate = useNavigate();
@@ -119,19 +120,7 @@ export default function PlatformAdmin() {
           </TabsContent>
 
           <TabsContent value="settings">
-            <Card>
-              <CardHeader>
-                <CardTitle>Tenant Provisioning Settings</CardTitle>
-                <CardDescription>
-                  Configure default settings for new tenant creation.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <p className="text-muted-foreground">
-                  Provisioning settings will be added here in a future update.
-                </p>
-              </CardContent>
-            </Card>
+            <TenantProvisioning />
           </TabsContent>
         </Tabs>
       </main>
