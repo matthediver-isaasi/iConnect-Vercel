@@ -1,3 +1,4 @@
+
 -- Migration: Add tenant_id to tour_group and tour_step tables
 -- This enables multi-tenant isolation for tour configurations
 -- 
