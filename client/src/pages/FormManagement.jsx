@@ -21,12 +21,15 @@ import { Link } from "react-router-dom";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 
 export default function FormManagementPage() {
-  const { isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady, authResolved, sessionValidated } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deletingForm, setDeletingForm] = useState(null);
 
   const queryClient = useQueryClient();
+
+  // SECURITY: Only consider authenticated when auth check complete AND session validated
+  const isAuthenticated = authResolved && sessionValidated;
 
   useEffect(() => {
     if (isAccessReady) {
@@ -38,21 +41,25 @@ export default function FormManagementPage() {
     }
   }, [isFeatureExcluded, isAccessReady]);
 
+  // SECURITY: Gate query on auth to prevent fetching before tenant context is ready
   const { data: forms = [], isLoading } = useQuery({
     queryKey: ['forms'],
     queryFn: async () => {
       return await base44.entities.Form.list();
     },
     staleTime: 0, // Admin views need instant freshness after edits
+    enabled: isAuthenticated,
   });
 
   // Fetch actual submission counts from FormSubmission table (use listAll for pagination)
+  // SECURITY: Gate on auth to prevent cross-tenant data leakage
   const { data: submissions = [] } = useQuery({
     queryKey: ['form-submissions-all'],
     queryFn: async () => {
       return await base44.entities.FormSubmission.listAll();
     },
     staleTime: 0,
+    enabled: isAuthenticated,
   });
 
   // Create a map of form_id to actual submission count
