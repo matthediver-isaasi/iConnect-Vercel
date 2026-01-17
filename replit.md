@@ -100,6 +100,38 @@ Hybrid pages use a `sessionValidated` flag in `LayoutContext` to prevent leaking
 
 The platform supports Microsoft Outlook integration for email tracking on member records. This involves `outlook_connection` and `member_email` tables for OAuth tokens and synced emails, respectively. It includes OAuth flow, API endpoints for connection status, syncing, sending emails, and UI components for management.
 
+## Tenant Email Domain Provisioning System
+
+The platform supports automated Mailgun domain provisioning for each tenant, enabling tenant-specific email sending domains (`mail.{tenant-slug}.iconn.app`).
+
+**Key Components:**
+- `api/functions/provision-mailgun-domain.js` - Creates Mailgun sending domain and Vercel DNS records
+- `api/functions/verify-mailgun-domain.js` - Checks domain verification status
+- `api/_lib/tenantEmailService.js` - Tenant-aware email sending with fallback to default domain
+
+**Flow:**
+1. On tenant provisioning, email domain placeholder is created in tenant.settings.email_domain
+2. Admin calls `/api/functions/provision-mailgun-domain` to create actual Mailgun domain
+3. Vercel DNS records (TXT for SPF/DKIM) are created automatically via Vercel API
+4. Admin calls `/api/functions/verify-mailgun-domain` to check verification status
+5. Once verified, `sendTenantEmail()` uses the tenant-specific domain; falls back to default if pending
+
+**Required Secrets:**
+- `VERCEL_API_TOKEN` - For programmatic DNS record creation
+- `MAILGUN_API_KEY` - For Mailgun API operations
+
+**Configuration Stored in tenant.settings:**
+```json
+{
+  "email_domain": {
+    "domain": "mail.{slug}.iconn.app",
+    "status": "verified|pending|pending_setup",
+    "from_email": "noreply@mail.{slug}.iconn.app",
+    "from_name": "Tenant Name"
+  }
+}
+```
+
 # External Dependencies
 
 **Supabase:** Primary database (PostgreSQL) for application data, including CRUD and realtime subscriptions, and file storage.

@@ -590,6 +590,47 @@ export default async function handler(req, res) {
 
     console.log(`[Provision Tenant] Successfully created tenant: ${tenant.name} (${tenant.slug})`);
 
+    // Attempt to provision email domain asynchronously (non-blocking)
+    let emailDomainStatus = null;
+    const VERCEL_API_TOKEN = process.env.VERCEL_API_TOKEN;
+    const MAILGUN_API_KEY = process.env.MAILGUN_API_KEY;
+    
+    if (VERCEL_API_TOKEN && MAILGUN_API_KEY) {
+      try {
+        console.log(`[Provision Tenant] Initiating email domain provisioning for ${tenant.slug}`);
+        // We'll provision the email domain in the background
+        // The actual provisioning will be done by calling the endpoint or in the background
+        const mailgunDomain = `mail.${tenant.slug}.iconn.app`;
+        const emailDomainSettings = {
+          domain: mailgunDomain,
+          status: 'pending_setup',
+          created_at: new Date().toISOString(),
+          from_email: `noreply@${mailgunDomain}`,
+          from_name: tenant.name || 'ICONN',
+        };
+        
+        // Update tenant settings with initial email config
+        const currentSettings = tenant.settings || {};
+        await supabase
+          .from('tenant')
+          .update({ 
+            settings: { 
+              ...currentSettings, 
+              email_domain: emailDomainSettings 
+            } 
+          })
+          .eq('id', tenant.id);
+        
+        emailDomainStatus = 'pending_setup';
+        console.log(`[Provision Tenant] Email domain placeholder created: ${mailgunDomain}`);
+      } catch (emailErr) {
+        console.error('[Provision Tenant] Non-critical: Failed to initialize email domain:', emailErr.message);
+        emailDomainStatus = 'error';
+      }
+    } else {
+      console.log('[Provision Tenant] Email domain provisioning skipped - missing VERCEL_API_TOKEN or MAILGUN_API_KEY');
+    }
+
     return res.status(200).json({
       success: true,
       tenant: {
@@ -606,6 +647,10 @@ export default async function handler(req, res) {
         id: member.id,
         email: member.email
       },
+      emailDomain: emailDomainStatus ? {
+        domain: `mail.${tenant.slug}.iconn.app`,
+        status: emailDomainStatus
+      } : null,
       message: 'Workspace created successfully'
     });
 
