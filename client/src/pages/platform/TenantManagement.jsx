@@ -30,7 +30,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/components/ui/use-toast';
-import { Loader2, Trash2, Building2, AlertTriangle, RefreshCw, Navigation } from 'lucide-react';
+import { Loader2, Trash2, Building2, AlertTriangle, RefreshCw, Navigation, LogIn } from 'lucide-react';
 import { format } from 'date-fns';
 
 export default function TenantManagement() {
@@ -45,6 +45,7 @@ export default function TenantManagement() {
   const [deleteResults, setDeleteResults] = useState(null);
   const [seedingNav, setSeedingNav] = useState(false);
   const [navTemplateStats, setNavTemplateStats] = useState(null);
+  const [impersonating, setImpersonating] = useState(null);
 
   useEffect(() => {
     fetchTenants();
@@ -127,6 +128,42 @@ export default function TenantManagement() {
       });
     } finally {
       setSeedingNav(false);
+    }
+  };
+
+  const handleEnterAdmin = async (tenant) => {
+    setImpersonating(tenant.id);
+    try {
+      const response = await fetch('/api/platform/tenants/impersonate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ tenantId: tenant.id })
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.redirectUrl) {
+        toast({
+          title: 'Entering Admin',
+          description: `Redirecting to ${tenant.name} admin...`
+        });
+        window.location.href = data.redirectUrl;
+      } else {
+        toast({
+          title: 'Error',
+          description: data.error || 'Failed to create admin session',
+          variant: 'destructive'
+        });
+        setImpersonating(null);
+      }
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to enter admin',
+        variant: 'destructive'
+      });
+      setImpersonating(null);
     }
   };
 
@@ -269,15 +306,33 @@ export default function TenantManagement() {
                       </span>
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleDeleteClick(tenant)}
-                        disabled={deleting}
-                        data-testid={`button-delete-tenant-${tenant.id}`}
-                      >
-                        <Trash2 className="w-4 h-4 text-destructive" />
-                      </Button>
+                      <div className="flex items-center justify-end gap-1">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleEnterAdmin(tenant)}
+                          disabled={impersonating === tenant.id || deleting}
+                          data-testid={`button-enter-admin-${tenant.id}`}
+                        >
+                          {impersonating === tenant.id ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <>
+                              <LogIn className="w-4 h-4 mr-1" />
+                              Enter Admin
+                            </>
+                          )}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleDeleteClick(tenant)}
+                          disabled={deleting || impersonating === tenant.id}
+                          data-testid={`button-delete-tenant-${tenant.id}`}
+                        >
+                          <Trash2 className="w-4 h-4 text-destructive" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
