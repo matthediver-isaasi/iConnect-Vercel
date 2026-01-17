@@ -75,6 +75,8 @@ export default function ArticleViewPage() {
             showAuthorBio: publicSettings.showAuthorBio ?? true,
             showAboutAuthorLabel: publicSettings.showAboutAuthorLabel ?? true,
             showAuthorPhoto: publicSettings.showAuthorPhoto ?? true,
+            showThumbsUp: publicSettings.showThumbsUp ?? false,
+            showThumbsDown: publicSettings.showThumbsDown ?? false,
             allowPublicComments: publicSettings.allowPublicComments ?? false
           };
         } catch (error) {

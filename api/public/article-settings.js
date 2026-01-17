@@ -60,6 +60,8 @@ export default async function handler(req, res) {
         'article_show_author_bio',
         'article_show_about_author_label',
         'article_show_author_photo',
+        'article_show_thumbs_up',
+        'article_show_thumbs_down',
         'article_display_name'
       ]);
 
@@ -75,6 +77,8 @@ export default async function handler(req, res) {
       showAuthorBio: settingsMap['article_show_author_bio'] !== 'false',
       showAboutAuthorLabel: settingsMap['article_show_about_author_label'] !== 'false',
       showAuthorPhoto: settingsMap['article_show_author_photo'] !== 'false',
+      showThumbsUp: settingsMap['article_show_thumbs_up'] !== 'false',
+      showThumbsDown: settingsMap['article_show_thumbs_down'] !== 'false',
       displayName: settingsMap['article_display_name'] || 'Articles'
     });
   } catch (error) {
