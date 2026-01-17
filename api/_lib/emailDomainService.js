@@ -7,6 +7,75 @@ const MAILGUN_API_KEY = process.env.MAILGUN_API_KEY;
 const MAILGUN_REGION = process.env.MAILGUN_REGION || 'eu';
 const VERCEL_API_TOKEN = process.env.VERCEL_API_TOKEN;
 
+/**
+ * Delete a Vercel DNS record by ID
+ */
+async function deleteVercelDnsRecord(recordId) {
+  const rootDomain = getRootDomain();
+  
+  const response = await fetch(`https://api.vercel.com/v4/domains/${rootDomain}/records/${recordId}`, {
+    method: 'DELETE',
+    headers: {
+      'Authorization': `Bearer ${VERCEL_API_TOKEN}`,
+    },
+  });
+
+  if (!response.ok) {
+    const data = await response.json();
+    throw new Error(`Vercel DNS delete error: ${JSON.stringify(data)}`);
+  }
+
+  console.log(`[Email Domain] Deleted Vercel DNS record: ${recordId}`);
+  return { success: true, recordId };
+}
+
+/**
+ * Find and delete all Vercel DNS records for a tenant subdomain
+ */
+async function deleteVercelDnsRecordsForTenant(tenantSlug) {
+  const rootDomain = getRootDomain();
+  
+  // Fetch all DNS records for the domain
+  const response = await fetch(`https://api.vercel.com/v4/domains/${rootDomain}/records`, {
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${VERCEL_API_TOKEN}`,
+    },
+  });
+
+  if (!response.ok) {
+    const data = await response.json();
+    throw new Error(`Failed to fetch DNS records: ${JSON.stringify(data)}`);
+  }
+
+  const data = await response.json();
+  const records = data.records || [];
+  
+  // Find records that match tenant subdomain patterns
+  const tenantRecords = records.filter(r => {
+    const name = r.name || '';
+    // Match tenant slug directly or any subdomain of it (e.g., pic._domainkey.tenant)
+    return name === tenantSlug || 
+           name.endsWith(`.${tenantSlug}`) ||
+           name.startsWith(`${tenantSlug}.`);
+  });
+
+  console.log(`[Email Domain] Found ${tenantRecords.length} DNS records to delete for tenant ${tenantSlug}`);
+  
+  const results = [];
+  for (const record of tenantRecords) {
+    try {
+      await deleteVercelDnsRecord(record.id);
+      results.push({ id: record.id, name: record.name, type: record.type, status: 'deleted' });
+    } catch (err) {
+      console.error(`[Email Domain] Failed to delete DNS record ${record.id}:`, err.message);
+      results.push({ id: record.id, name: record.name, type: record.type, status: 'error', error: err.message });
+    }
+  }
+  
+  return results;
+}
+
 function getRootDomain() {
   return getBaseDomain();
 }
@@ -305,4 +374,71 @@ export async function verifyEmailDomain(tenantId) {
       error: error.message
     };
   }
+}
+
+/**
+ * Clean up email domain resources when a tenant is deleted
+ * Removes Mailgun domain and Vercel DNS records
+ */
+export async function cleanupEmailDomain(tenantSlug, emailDomainConfig = null) {
+  const results = {
+    mailgun: { success: false },
+    vercelDns: { success: false, records: [] }
+  };
+
+  const rootDomain = getRootDomain();
+  const mailgunDomain = emailDomainConfig?.domain || `${tenantSlug}.${rootDomain}`;
+
+  console.log(`[Email Domain Cleanup] Starting cleanup for tenant ${tenantSlug}, domain ${mailgunDomain}`);
+
+  // 1. Delete Mailgun domain
+  if (MAILGUN_API_KEY) {
+    try {
+      const mailgun = new Mailgun(formData);
+      const mailgunConfig = {
+        username: 'api',
+        key: MAILGUN_API_KEY,
+      };
+      if (MAILGUN_REGION === 'eu') {
+        mailgunConfig.url = 'https://api.eu.mailgun.net';
+      }
+      const mg = mailgun.client(mailgunConfig);
+
+      await mg.domains.destroy(mailgunDomain);
+      console.log(`[Email Domain Cleanup] Deleted Mailgun domain: ${mailgunDomain}`);
+      results.mailgun = { success: true, domain: mailgunDomain };
+    } catch (mgError) {
+      if (mgError.status === 404 || mgError.message?.includes('not found')) {
+        console.log(`[Email Domain Cleanup] Mailgun domain not found (already deleted): ${mailgunDomain}`);
+        results.mailgun = { success: true, domain: mailgunDomain, note: 'already deleted' };
+      } else {
+        console.error(`[Email Domain Cleanup] Failed to delete Mailgun domain:`, mgError.message);
+        results.mailgun = { success: false, error: mgError.message };
+      }
+    }
+  } else {
+    console.log('[Email Domain Cleanup] MAILGUN_API_KEY not configured, skipping Mailgun cleanup');
+    results.mailgun = { success: true, note: 'skipped - no API key' };
+  }
+
+  // 2. Delete Vercel DNS records
+  if (VERCEL_API_TOKEN) {
+    try {
+      const dnsResults = await deleteVercelDnsRecordsForTenant(tenantSlug);
+      results.vercelDns = { 
+        success: true, 
+        records: dnsResults,
+        deleted: dnsResults.filter(r => r.status === 'deleted').length
+      };
+      console.log(`[Email Domain Cleanup] Deleted ${results.vercelDns.deleted} Vercel DNS records`);
+    } catch (dnsError) {
+      console.error(`[Email Domain Cleanup] Failed to delete Vercel DNS records:`, dnsError.message);
+      results.vercelDns = { success: false, error: dnsError.message };
+    }
+  } else {
+    console.log('[Email Domain Cleanup] VERCEL_API_TOKEN not configured, skipping Vercel DNS cleanup');
+    results.vercelDns = { success: true, note: 'skipped - no API token' };
+  }
+
+  return results;
 }

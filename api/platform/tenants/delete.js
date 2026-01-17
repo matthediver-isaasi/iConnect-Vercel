@@ -1,5 +1,6 @@
 import { supabase } from '../../_lib/database.js';
 import { getSessionPlatformOwner } from '../../_lib/platformSession.js';
+import { cleanupEmailDomain } from '../../_lib/emailDomainService.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -28,7 +29,7 @@ export default async function handler(req, res) {
 
     const { data: tenant, error: tenantError } = await supabase
       .from('tenant')
-      .select('id, name, slug')
+      .select('id, name, slug, settings')
       .eq('id', tenantId)
       .single();
 
@@ -260,6 +261,19 @@ export default async function handler(req, res) {
       } catch (err) {
         console.error('[Platform Delete Tenant] Trigger re-enable exception:', err.message);
       }
+    }
+
+    // Clean up email domain (Mailgun and Vercel DNS records)
+    try {
+      console.log('[Platform Delete Tenant] Cleaning up email domain resources...');
+      const emailDomainConfig = tenant.settings?.email_domain;
+      const emailCleanupResults = await cleanupEmailDomain(tenant.slug, emailDomainConfig);
+      results.emailDomainCleanup = emailCleanupResults;
+      console.log('[Platform Delete Tenant] Email domain cleanup completed:', emailCleanupResults);
+    } catch (emailErr) {
+      console.error('[Platform Delete Tenant] Email domain cleanup error:', emailErr.message);
+      results.emailDomainCleanup = { error: emailErr.message };
+      results.errors.push({ resource: 'emailDomain', error: emailErr.message });
     }
 
     // Finally delete the tenant
