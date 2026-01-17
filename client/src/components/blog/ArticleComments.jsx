@@ -69,15 +69,20 @@ export default function ArticleComments({ articleId, memberInfo, showThumbsUp = 
     enabled: !!articleId,
   });
 
-  // Fetch user's reactions - only for authenticated users (public users don't have reactions)
+  // Fetch user's reactions - use public API for unauthenticated users
   const { data: userReactions = [] } = useQuery({
-    queryKey: ['user-reactions', userIdentifier],
+    queryKey: ['user-reactions', userIdentifier, isAuthenticated],
     queryFn: async () => {
-      if (!userIdentifier || !isAuthenticated) return [];
-      const allReactions = await base44.entities.CommentReaction.list();
-      return allReactions.filter(reaction => reaction.user_identifier === userIdentifier);
+      if (!userIdentifier) return [];
+      if (isAuthenticated) {
+        const allReactions = await base44.entities.CommentReaction.list();
+        return allReactions.filter(reaction => reaction.user_identifier === userIdentifier);
+      } else {
+        const result = await publicClient.getCommentReactionsByUser(userIdentifier);
+        return result.reactions || [];
+      }
     },
-    enabled: !!userIdentifier && isAuthenticated,
+    enabled: !!userIdentifier,
   });
 
   // Add comment mutation - use public API for unauthenticated users
@@ -105,61 +110,61 @@ export default function ArticleComments({ articleId, memberInfo, showThumbsUp = 
     },
   });
 
-  // Add/remove reaction mutation
+  // Add/remove reaction mutation - use public API for unauthenticated users
   const reactionMutation = useMutation({
     mutationFn: async ({ commentId, reactionType, currentReaction }) => {
-      const comment = comments.find(c => c.id === commentId);
-      if (!comment) throw new Error('Comment not found');
+      if (isAuthenticated) {
+        // Use base44 API for authenticated users
+        const comment = comments.find(c => c.id === commentId);
+        if (!comment) throw new Error('Comment not found');
 
-      // If user already has this reaction, remove it
-      if (currentReaction && currentReaction.reaction_type === reactionType) {
-        await base44.entities.CommentReaction.delete(currentReaction.id);
-        
-        // Decrement count
-        const updateData = reactionType === 'up' 
-          ? { thumbs_up_count: Math.max(0, (comment.thumbs_up_count || 0) - 1) }
-          : { thumbs_down_count: Math.max(0, (comment.thumbs_down_count || 0) - 1) };
-        await base44.entities.ArticleComment.update(commentId, updateData);
-        
-        return { action: 'removed', reactionType };
-      }
+        if (currentReaction && currentReaction.reaction_type === reactionType) {
+          await base44.entities.CommentReaction.delete(currentReaction.id);
+          const updateData = reactionType === 'up' 
+            ? { thumbs_up_count: Math.max(0, (comment.thumbs_up_count || 0) - 1) }
+            : { thumbs_down_count: Math.max(0, (comment.thumbs_down_count || 0) - 1) };
+          await base44.entities.ArticleComment.update(commentId, updateData);
+          return { action: 'removed', reactionType };
+        }
 
-      // If user has opposite reaction, switch it
-      if (currentReaction && currentReaction.reaction_type !== reactionType) {
-        await base44.entities.CommentReaction.update(currentReaction.id, {
-          reaction_type: reactionType
+        if (currentReaction && currentReaction.reaction_type !== reactionType) {
+          await base44.entities.CommentReaction.update(currentReaction.id, {
+            reaction_type: reactionType
+          });
+          const updateData = reactionType === 'up'
+            ? {
+                thumbs_up_count: (comment.thumbs_up_count || 0) + 1,
+                thumbs_down_count: Math.max(0, (comment.thumbs_down_count || 0) - 1)
+              }
+            : {
+                thumbs_down_count: (comment.thumbs_down_count || 0) + 1,
+                thumbs_up_count: Math.max(0, (comment.thumbs_up_count || 0) - 1)
+              };
+          await base44.entities.ArticleComment.update(commentId, updateData);
+          return { action: 'switched', reactionType };
+        }
+
+        await base44.entities.CommentReaction.create({
+          comment_id: commentId,
+          reaction_type: reactionType,
+          user_identifier: userIdentifier,
+          is_member: true
         });
-        
-        // Update counts (decrement old, increment new)
         const updateData = reactionType === 'up'
-          ? {
-              thumbs_up_count: (comment.thumbs_up_count || 0) + 1,
-              thumbs_down_count: Math.max(0, (comment.thumbs_down_count || 0) - 1)
-            }
-          : {
-              thumbs_down_count: (comment.thumbs_down_count || 0) + 1,
-              thumbs_up_count: Math.max(0, (comment.thumbs_up_count || 0) - 1)
-            };
+          ? { thumbs_up_count: (comment.thumbs_up_count || 0) + 1 }
+          : { thumbs_down_count: (comment.thumbs_down_count || 0) + 1 };
         await base44.entities.ArticleComment.update(commentId, updateData);
-        
-        return { action: 'switched', reactionType };
+        return { action: 'added', reactionType };
+      } else {
+        // Use public API for unauthenticated users
+        const result = await publicClient.postCommentReaction({
+          comment_id: commentId,
+          reaction_type: reactionType,
+          user_identifier: userIdentifier,
+          is_member: false
+        });
+        return result;
       }
-
-      // Add new reaction
-      await base44.entities.CommentReaction.create({
-        comment_id: commentId,
-        reaction_type: reactionType,
-        user_identifier: userIdentifier,
-        is_member: !!memberInfo
-      });
-
-      // Increment count
-      const updateData = reactionType === 'up'
-        ? { thumbs_up_count: (comment.thumbs_up_count || 0) + 1 }
-        : { thumbs_down_count: (comment.thumbs_down_count || 0) + 1 };
-      await base44.entities.ArticleComment.update(commentId, updateData);
-
-      return { action: 'added', reactionType };
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['article-comments', articleId] });
@@ -266,8 +271,6 @@ Respond with a JSON object containing exactly two fields:
   };
 
   const handleReaction = (commentId, reactionType) => {
-    // Guard: reactions are only available for authenticated users
-    if (!isAuthenticated) return;
     const currentReaction = userReactions.find(r => r.comment_id === commentId);
     reactionMutation.mutate({ commentId, reactionType, currentReaction });
   };
@@ -409,8 +412,8 @@ Respond with a JSON object containing exactly two fields:
                         {comment.content}
                       </p>
 
-                      {/* Reactions only shown for authenticated users */}
-                      {isAuthenticated && (showThumbsUp || showThumbsDown) && (
+                      {/* Reactions shown for all users */}
+                      {(showThumbsUp || showThumbsDown) && (
                         <div className="flex items-center gap-4">
                           {showThumbsUp && (
                             <Button

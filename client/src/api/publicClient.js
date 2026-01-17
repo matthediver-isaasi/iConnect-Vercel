@@ -314,6 +314,20 @@ class PublicClient {
       body: JSON.stringify(data)
     });
   }
+
+  // Comment Reactions (for public users)
+  async getCommentReactionsByUser(userIdentifier) {
+    if (!userIdentifier) return { reactions: [] };
+    return this._fetch(`/api/public/comment-reactions?userIdentifier=${encodeURIComponent(userIdentifier)}`);
+  }
+
+  async postCommentReaction(data) {
+    if (!data.comment_id) throw new Error('Comment ID is required');
+    return this._fetch('/api/public/comment-reactions', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  }
   
   // Tenant Branding
   async getTenantBranding() {
