@@ -44,13 +44,6 @@ export default async function handler(req, res) {
     }
 
     const existingIdentity = await checkExistingIdentity(adminEmail.toLowerCase());
-    if (existingIdentity) {
-      return res.status(409).json({ 
-        error: 'An account with this email already exists',
-        existingAccount: true,
-        message: 'This email is already associated with an account. The user needs to create the tenant from their own account, or use a different email address.'
-      });
-    }
 
     const result = await provisionTenant({
       tenantName,
@@ -59,10 +52,30 @@ export default async function handler(req, res) {
       adminFirstName,
       adminLastName,
       isPlatformProvision: true,
-      generateSetupToken: true
+      generateSetupToken: !existingIdentity,
+      existingIdentity: existingIdentity || null
     });
 
     const baseDomain = getBaseDomain();
+    const portalUrl = getTenantPortalUrl(slug);
+    
+    if (existingIdentity) {
+      return res.status(201).json({
+        success: true,
+        tenant: {
+          id: result.tenant.id,
+          name: result.tenant.name,
+          slug: result.tenant.slug,
+          portalUrl: portalUrl
+        },
+        admin: {
+          email: adminEmail,
+          existingAccount: true
+        },
+        message: `Tenant created successfully. The admin already has an account and can access this tenant immediately.`
+      });
+    }
+
     const setupUrl = `https://${baseDomain}/admin/login?setup=${result.setupToken}&email=${encodeURIComponent(adminEmail)}`;
 
     return res.status(201).json({
@@ -71,7 +84,7 @@ export default async function handler(req, res) {
         id: result.tenant.id,
         name: result.tenant.name,
         slug: result.tenant.slug,
-        portalUrl: result.tenant.portalUrl
+        portalUrl: portalUrl
       },
       admin: {
         email: adminEmail,
