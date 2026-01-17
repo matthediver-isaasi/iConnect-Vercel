@@ -31,6 +31,28 @@ export default function AdminLogin() {
   const initialSsoSelectTenantRef = useRef(
     new URLSearchParams(window.location.search).get('sso_select_tenant') === 'true'
   );
+  
+  // Capture tenant redirect parameters from email links
+  // These allow SSO-compatible deep links: iconn.app/admin/login?tenant=slug&redirect=/path
+  const initialTenantRedirectRef = useRef((() => {
+    const params = new URLSearchParams(window.location.search);
+    const tenant = params.get('tenant');
+    const redirect = params.get('redirect');
+    if (tenant) {
+      return { tenant, redirect: redirect || '/admin/dashboard' };
+    }
+    return null;
+  })());
+  const [pendingTenantRedirect] = useState(initialTenantRedirectRef.current);
+
+  // Helper function to redirect to tenant portal after successful login
+  const redirectToTenant = (tenantSlug, path = '/admin/dashboard') => {
+    const protocol = window.location.protocol;
+    const baseDomain = window.location.hostname.split('.').slice(-2).join('.');
+    const targetUrl = `${protocol}//${tenantSlug}.${baseDomain}${path}`;
+    console.log(`[AdminLogin] Redirecting to tenant portal: ${targetUrl}`);
+    window.location.href = targetUrl;
+  };
 
   useEffect(() => {
     const oauthError = searchParams.get('error');

@@ -62,6 +62,10 @@ export default async function handler(req, res) {
     
     if (existingIdentity) {
       // Send notification email to existing user about their new tenant access
+      // IMPORTANT: Link to root domain login with redirect parameter for SSO compatibility
+      // Google OAuth only supports root domain, not wildcard subdomains
+      const loginWithRedirectUrl = `https://${baseDomain}/admin/login?tenant=${slug}&redirect=${encodeURIComponent('/admin/dashboard')}`;
+      
       try {
         await sendTenantEmail({
           tenantId: null,
@@ -73,7 +77,7 @@ export default async function handler(req, res) {
               <p>You've been added as an owner of <strong>${tenantName}</strong>.</p>
               <p>Since you already have an account, you can access this workspace immediately using your existing login credentials.</p>
               <p style="text-align: center; margin: 30px 0;">
-                <a href="${portalUrl}/admin/dashboard" style="background-color: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
+                <a href="${loginWithRedirectUrl}" style="background-color: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
                   Go to ${tenantName}
                 </a>
               </p>
@@ -82,7 +86,7 @@ export default async function handler(req, res) {
               </p>
             </div>
           `,
-          text: `You have access to a new workspace!\n\nYou've been added as an owner of ${tenantName}. Access it at: ${portalUrl}/admin/dashboard`
+          text: `You have access to a new workspace!\n\nYou've been added as an owner of ${tenantName}. Login at: ${loginWithRedirectUrl}`
         });
         console.log(`[Platform Provision] New tenant notification email sent to ${adminEmail}`);
       } catch (emailErr) {
