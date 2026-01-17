@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
+import { publicClient } from "@/api/publicClient";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -47,11 +48,16 @@ export default function NewsPage() {
     enabled: !!memberInfo?.email
   });
 
-  // Fetch news display settings
+  // Fetch news display settings - use authenticated API for members, public API for visitors
   const { data: displaySettings } = useQuery({
-    queryKey: ['news-display-settings'],
+    queryKey: ['news-display-settings', !!memberInfo],
     queryFn: async () => {
-      const allSettings = await base44.entities.SystemSettings.list();
+      let allSettings;
+      if (memberInfo) {
+        allSettings = await base44.entities.SystemSettings.list();
+      } else {
+        allSettings = await publicClient.getSystemSettings();
+      }
       const cardsPerRowSetting = allSettings.find(s => s.setting_key === 'news_cards_per_row');
       const showImageSetting = allSettings.find(s => s.setting_key === 'news_show_image');
       const showAuthorSetting = allSettings.find(s => s.setting_key === 'news_show_author');
@@ -61,7 +67,7 @@ export default function NewsPage() {
         showImage: showImageSetting?.setting_value !== 'false',
         showAuthor: showAuthorSetting?.setting_value !== 'false'
       };
-    }
+    },
   });
 
   const cardsPerRow = displaySettings?.cardsPerRow || 3;
@@ -95,11 +101,16 @@ export default function NewsPage() {
   const news = showMyNewsOnly ? myNews : publishedNews;
   const newsLoading = showMyNewsOnly ? myNewsLoading : publishedNewsLoading;
 
-  // Fetch categories
+  // Fetch categories - use authenticated API for members, public API for visitors
   const { data: categories = [], isLoading: categoriesLoading } = useQuery({
-    queryKey: ['resourceCategories'],
+    queryKey: ['resourceCategories', !!memberInfo],
     queryFn: async () => {
-      const cats = await base44.entities.ResourceCategory.list();
+      let cats;
+      if (memberInfo) {
+        cats = await base44.entities.ResourceCategory.list();
+      } else {
+        cats = await publicClient.getResourceCategories();
+      }
       return cats
         .filter(c => c.is_active && c.applies_to_content_types?.includes("News"))
         .sort((a, b) => (a.display_order || 0) - (b.display_order || 0));

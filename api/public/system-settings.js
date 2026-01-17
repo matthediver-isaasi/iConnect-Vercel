@@ -30,7 +30,10 @@ const PUBLIC_SETTINGS_WHITELIST = [
   'article_display_name',
   'social_icons_config',
   'footer_config',
-  'newsletter_signup_form_id'
+  'newsletter_signup_form_id',
+  'news_cards_per_row',
+  'news_show_image',
+  'news_show_author',
 ];
 
 export default async function handler(req, res) {
