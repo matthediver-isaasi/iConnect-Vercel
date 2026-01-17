@@ -169,10 +169,22 @@ export async function getTenantContext(req) {
   // Check for tenant_user session first (admin dashboard users)
   const tenantUser = await getSessionTenantUser(req);
   if (tenantUser) {
+    // Tenant users may also have an associated member identity (for portal access)
+    // Check if there's a memberId in the session for MEMBER-scoped entity access
+    let associatedMemberId = null;
+    let associatedOrganizationId = null;
+    
+    // Try to get member from session if available (tenant owner accessing portal)
+    const member = await getSessionMember(req);
+    if (member) {
+      associatedMemberId = member.id;
+      associatedOrganizationId = member.organization_id;
+    }
+    
     return {
       tenantId: tenantUser._sessionTenantId || tenantUser.tenant_id,
-      organizationId: null, // Tenant users aren't members of organizations
-      memberId: null,
+      organizationId: associatedOrganizationId, // Include if tenant user has member association
+      memberId: associatedMemberId, // Include if tenant user has member association
       tenantUserId: tenantUser.id,
       isAuthenticated: true,
       isSuperAdmin: tenantUser.role === 'super_admin',
