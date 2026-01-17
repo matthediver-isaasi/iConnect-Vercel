@@ -922,8 +922,8 @@ export default function ArticleViewPage() {
           </CardContent>
         </Card>
 
-        {/* Comments Section - only shown if feature not excluded */}
-        {!isFeatureExcluded('content.articles.comments') && (
+        {/* Comments Section - only shown if authenticated and feature not excluded */}
+        {isAuthenticated && !isFeatureExcluded('content.articles.comments') && (
           <ArticleComments 
             articleId={article.id} 
             memberInfo={memberInfo}

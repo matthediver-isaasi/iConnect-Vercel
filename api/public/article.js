@@ -156,11 +156,15 @@ export default async function handler(req, res) {
     let guestWriter = null;
 
     if (article.author_id) {
-      const { data: member } = await supabase
+      console.log('[Public Article] Looking up author with id:', article.author_id);
+      
+      const { data: member, error: memberError } = await supabase
         .from('member')
         .select('id, first_name, last_name, handle, profile_image_url, job_title, short_bio, linkedin_profile_url, email')
         .eq('id', article.author_id)
         .single();
+
+      console.log('[Public Article] Member lookup result:', { found: !!member, error: memberError?.message });
 
       if (member) {
         author = {
