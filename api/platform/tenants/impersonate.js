@@ -84,8 +84,7 @@ export default async function handler(req, res) {
             first_name: owner.first_name || 'Platform',
             last_name: owner.last_name || 'Owner',
             role: 'owner',
-            is_active: true,
-            created_via: 'platform_impersonation'
+            is_active: true
           })
           .select('id, email, first_name, last_name, role')
           .single();
