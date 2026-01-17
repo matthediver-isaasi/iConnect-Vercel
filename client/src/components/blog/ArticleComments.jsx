@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
+import { publicClient } from "@/api/publicClient";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -31,9 +32,11 @@ export default function ArticleComments({ articleId, memberInfo, showThumbsUp = 
   const [isCheckingContent, setIsCheckingContent] = useState(false);
   
   const queryClient = useQueryClient();
+  const isAuthenticated = !!memberInfo;
   
-  useArticleCommentRealtime(articleId);
-  useCommentReactionRealtime(articleId, userIdentifier);
+  // Only use realtime subscriptions for authenticated users
+  useArticleCommentRealtime(isAuthenticated ? articleId : null);
+  useCommentReactionRealtime(isAuthenticated ? articleId : null, isAuthenticated ? userIdentifier : null);
 
   // Generate or retrieve user identifier for public users
   useEffect(() => {
@@ -50,31 +53,56 @@ export default function ArticleComments({ articleId, memberInfo, showThumbsUp = 
     }
   }, [memberInfo]);
 
-  // Fetch comments for this article
+  // Fetch comments for this article - use public API for unauthenticated users
   const { data: comments = [], isLoading } = useQuery({
-    queryKey: ['article-comments', articleId],
+    queryKey: ['article-comments', articleId, isAuthenticated],
     queryFn: async () => {
-      const allComments = await base44.entities.ArticleComment.list('-created_at');
-      return allComments.filter(comment => comment.article_id === articleId);
+      if (isAuthenticated) {
+        const allComments = await base44.entities.ArticleComment.list('-created_at');
+        return allComments.filter(comment => comment.article_id === articleId);
+      } else {
+        const result = await publicClient.getArticleComments(articleId);
+        // Normalize public API response to match internal comment structure
+        return (result.comments || []).map(c => ({
+          id: c.id,
+          article_id: c.article_id,
+          content: c.comment_text,
+          author_name: c.commenter_name,
+          author_member_id: null,
+          is_member: false,
+          thumbs_up_count: c.thumbs_up_count || 0,
+          thumbs_down_count: c.thumbs_down_count || 0,
+          created_at: c.created_at
+        }));
+      }
     },
     enabled: !!articleId,
   });
 
-  // Fetch user's reactions
+  // Fetch user's reactions - only for authenticated users (public users don't have reactions)
   const { data: userReactions = [] } = useQuery({
     queryKey: ['user-reactions', userIdentifier],
     queryFn: async () => {
-      if (!userIdentifier) return [];
+      if (!userIdentifier || !isAuthenticated) return [];
       const allReactions = await base44.entities.CommentReaction.list();
       return allReactions.filter(reaction => reaction.user_identifier === userIdentifier);
     },
-    enabled: !!userIdentifier,
+    enabled: !!userIdentifier && isAuthenticated,
   });
 
-  // Add comment mutation
+  // Add comment mutation - use public API for unauthenticated users
   const addCommentMutation = useMutation({
     mutationFn: async (commentData) => {
-      return await base44.entities.ArticleComment.create(commentData);
+      if (isAuthenticated) {
+        return await base44.entities.ArticleComment.create(commentData);
+      } else {
+        const result = await publicClient.postArticleComment(articleId, {
+          comment_text: commentData.comment_text,
+          commenter_name: commentData.commenter_name,
+          user_identifier: commentData.user_identifier
+        });
+        return result.comment;
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['article-comments', articleId] });
@@ -165,66 +193,77 @@ export default function ArticleComments({ articleId, memberInfo, showThumbsUp = 
       return;
     }
 
-    // Step 1: Check content with LLM before saving
     setIsCheckingContent(true);
     
     try {
-      const moderationResult = await base44.integrations.Core.InvokeLLM({
-        prompt: `You are a content moderation system. Analyze the following comment for inappropriate content including profanity, hate speech, sexually explicit material, threats, or harassment.
+      // Content moderation only for authenticated users (public users skip this for now)
+      if (isAuthenticated) {
+        const moderationResult = await base44.integrations.Core.InvokeLLM({
+          prompt: `You are a content moderation system. Analyze the following comment for inappropriate content including profanity, hate speech, sexually explicit material, threats, or harassment.
 
 Comment to analyze: "${newComment.trim()}"
 
 Respond with a JSON object containing exactly two fields:
 - "is_safe": true if the content is appropriate for posting, false if it contains inappropriate content
 - "reason": a brief explanation if flagged, or empty string if safe`,
-        response_json_schema: {
-          type: "object",
-          properties: {
-            is_safe: {
-              type: "boolean",
-              description: "true if content is appropriate, false if it contains inappropriate content"
-            },
-            reason: {
-              type: "string",
-              description: "Brief explanation of why content was flagged (empty if safe)"
+          response_json_schema: {
+            type: "object",
+            properties: {
+              is_safe: {
+                type: "boolean",
+                description: "true if content is appropriate, false if it contains inappropriate content"
+              },
+              reason: {
+                type: "string",
+                description: "Brief explanation of why content was flagged (empty if safe)"
+              }
             }
           }
-        }
-      });
+        });
 
-      // Step 2: Check if content is safe
-      // Handle nested response structure if LLM returns unexpected format
-      const isSafe = typeof moderationResult.is_safe === 'boolean' 
-        ? moderationResult.is_safe 
-        : moderationResult.analysis?.is_safe ?? true;
-      
-      if (!isSafe) {
-        setIsCheckingContent(false);
-        toast.error(
-          <>
-            <div className="flex items-start gap-2">
-              <ShieldAlert className="w-5 h-5 flex-shrink-0 mt-0.5" />
-              <div>
-                <p className="font-semibold">Comment blocked</p>
-                <p className="text-sm">Your comment contains inappropriate content and cannot be posted. Please revise and try again.</p>
+        const isSafe = typeof moderationResult.is_safe === 'boolean' 
+          ? moderationResult.is_safe 
+          : moderationResult.analysis?.is_safe ?? true;
+        
+        if (!isSafe) {
+          setIsCheckingContent(false);
+          toast.error(
+            <>
+              <div className="flex items-start gap-2">
+                <ShieldAlert className="w-5 h-5 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-semibold">Comment blocked</p>
+                  <p className="text-sm">Your comment contains inappropriate content and cannot be posted. Please revise and try again.</p>
+                </div>
               </div>
-            </div>
-          </>,
-          { duration: 5000 }
-        );
-        return;
+            </>,
+            { duration: 5000 }
+          );
+          return;
+        }
       }
 
-      // Step 3: Content is safe, proceed with posting
-      const commentData = {
-        article_id: articleId,
-        content: newComment.trim(),
-        author_name: memberInfo ? `${memberInfo.first_name} ${memberInfo.last_name}` : publicUserName.trim(),
-        author_member_id: memberInfo?.id || null,
-        is_member: !!memberInfo,
-        thumbs_up_count: 0,
-        thumbs_down_count: 0
-      };
+      // Build comment data based on authentication state
+      let commentData;
+      if (isAuthenticated) {
+        // Authenticated users use base44 schema
+        commentData = {
+          article_id: articleId,
+          content: newComment.trim(),
+          author_name: `${memberInfo.first_name} ${memberInfo.last_name}`,
+          author_member_id: memberInfo.id,
+          is_member: true,
+          thumbs_up_count: 0,
+          thumbs_down_count: 0
+        };
+      } else {
+        // Public users use public API schema
+        commentData = {
+          comment_text: newComment.trim(),
+          commenter_name: publicUserName.trim(),
+          user_identifier: userIdentifier
+        };
+      }
 
       addCommentMutation.mutate(commentData);
       
@@ -237,6 +276,8 @@ Respond with a JSON object containing exactly two fields:
   };
 
   const handleReaction = (commentId, reactionType) => {
+    // Guard: reactions are only available for authenticated users
+    if (!isAuthenticated) return;
     const currentReaction = userReactions.find(r => r.comment_id === commentId);
     reactionMutation.mutate({ commentId, reactionType, currentReaction });
   };
@@ -355,7 +396,7 @@ Respond with a JSON object containing exactly two fields:
                       {comment.is_member ? (
                         <User className="w-5 h-5" />
                       ) : (
-                        comment.author_name.charAt(0).toUpperCase()
+                        (comment.author_name || 'A').charAt(0).toUpperCase()
                       )}
                     </div>
 
@@ -378,7 +419,8 @@ Respond with a JSON object containing exactly two fields:
                         {comment.content}
                       </p>
 
-                      {(showThumbsUp || showThumbsDown) && (
+                      {/* Reactions only shown for authenticated users */}
+                      {isAuthenticated && (showThumbsUp || showThumbsDown) && (
                         <div className="flex items-center gap-4">
                           {showThumbsUp && (
                             <Button

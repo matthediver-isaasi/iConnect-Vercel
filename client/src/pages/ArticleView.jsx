@@ -58,15 +58,29 @@ export default function ArticleViewPage() {
     showAuthorEmail: false, // Don't expose email publicly
     showAuthorPhoto: true,
     showThumbsUp: false, // Reactions are member-only
-    showThumbsDown: false
+    showThumbsDown: false,
+    allowPublicComments: false // Will be fetched from public API
   };
 
-  // Fetch article settings - only for authenticated users
+  // Fetch article settings - use public API for unauthenticated users
   const { data: articleSettings = defaultPublicSettings } = useQuery({
     queryKey: ['article-settings', isAuthenticated],
     queryFn: async () => {
       if (!isAuthenticated) {
-        return defaultPublicSettings;
+        // Fetch public article settings for unauthenticated users
+        try {
+          const publicSettings = await publicClient.getArticleSettings();
+          return {
+            ...defaultPublicSettings,
+            showAuthorBio: publicSettings.showAuthorBio ?? true,
+            showAboutAuthorLabel: publicSettings.showAboutAuthorLabel ?? true,
+            showAuthorPhoto: publicSettings.showAuthorPhoto ?? true,
+            allowPublicComments: publicSettings.allowPublicComments ?? false
+          };
+        } catch (error) {
+          console.error('[ArticleView] Failed to fetch public article settings:', error);
+          return defaultPublicSettings;
+        }
       }
       const allSettings = await base44.entities.SystemSettings.list();
       console.log('[ArticleView] All settings fetched:', allSettings.length);
@@ -79,6 +93,7 @@ export default function ArticleViewPage() {
       const authorPhotoSetting = allSettings.find(s => s.setting_key === 'article_show_author_photo');
       const thumbsUpSetting = allSettings.find(s => s.setting_key === 'article_show_thumbs_up');
       const thumbsDownSetting = allSettings.find(s => s.setting_key === 'article_show_thumbs_down');
+      const allowPublicCommentsSetting = allSettings.find(s => s.setting_key === 'article_allow_public_comments');
       console.log('[ArticleView] Photo setting found:', authorPhotoSetting);
       const settings = {
         showViewCount: viewCountSetting?.setting_value !== 'false',
@@ -89,7 +104,8 @@ export default function ArticleViewPage() {
         showAuthorEmail: authorEmailSetting?.setting_value !== 'false',
         showAuthorPhoto: authorPhotoSetting?.setting_value !== 'false',
         showThumbsUp: thumbsUpSetting?.setting_value !== 'false',
-        showThumbsDown: thumbsDownSetting?.setting_value !== 'false'
+        showThumbsDown: thumbsDownSetting?.setting_value !== 'false',
+        allowPublicComments: allowPublicCommentsSetting?.setting_value === 'true'
       };
       console.log('[ArticleView] Parsed settings:', settings);
       return settings;
@@ -922,8 +938,8 @@ export default function ArticleViewPage() {
           </CardContent>
         </Card>
 
-        {/* Comments Section - only shown if authenticated and feature not excluded */}
-        {isAuthenticated && !isFeatureExcluded('content.articles.comments') && (
+        {/* Comments Section - shown if authenticated OR public comments are allowed */}
+        {(isAuthenticated || articleSettings?.allowPublicComments) && !isFeatureExcluded('content.articles.comments') && (
           <ArticleComments 
             articleId={article.id} 
             memberInfo={memberInfo}

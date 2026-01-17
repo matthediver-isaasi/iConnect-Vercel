@@ -281,6 +281,25 @@ class PublicClient {
     const settings = await this._fetch(`/api/public/system-settings?key=${encodeURIComponent(key)}`);
     return settings.length > 0 ? settings[0] : null;
   }
+
+  // Article Settings (public-safe article display settings)
+  async getArticleSettings() {
+    return this._fetch('/api/public/article-settings');
+  }
+
+  // Article Comments (when public comments are enabled)
+  async getArticleComments(articleId) {
+    if (!articleId) return { comments: [] };
+    return this._fetch(`/api/public/article-comments?articleId=${encodeURIComponent(articleId)}`);
+  }
+
+  async postArticleComment(articleId, data) {
+    if (!articleId) throw new Error('Article ID is required');
+    return this._fetch(`/api/public/article-comments?articleId=${encodeURIComponent(articleId)}`, {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  }
   
   // Tenant Branding
   async getTenantBranding() {

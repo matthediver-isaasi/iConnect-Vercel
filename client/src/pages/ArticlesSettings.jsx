@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Settings, Loader2, ThumbsUp, ThumbsDown, MessageSquare, User } from "lucide-react";
+import { Settings, Loader2, ThumbsUp, ThumbsDown, MessageSquare, User, Globe } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
@@ -19,6 +19,7 @@ export default function ArticlesSettingsPage() {
   const [showThumbsDown, setShowThumbsDown] = useState(true);
   const [showAuthorBio, setShowAuthorBio] = useState(true);
   const [showAuthorLabel, setShowAuthorLabel] = useState(true);
+  const [allowPublicComments, setAllowPublicComments] = useState(false);
   const queryClient = useQueryClient();
 
   useEffect(() => {
@@ -50,11 +51,13 @@ export default function ArticlesSettingsPage() {
       const thumbsDownSetting = allSettings.find(s => s.setting_key === 'article_show_thumbs_down');
       const authorBioSetting = allSettings.find(s => s.setting_key === 'article_show_author_bio');
       const authorLabelSetting = allSettings.find(s => s.setting_key === 'article_show_about_author_label');
+      const publicCommentsSetting = allSettings.find(s => s.setting_key === 'article_allow_public_comments');
       return {
         thumbsUp: thumbsUpSetting,
         thumbsDown: thumbsDownSetting,
         authorBio: authorBioSetting,
-        authorLabel: authorLabelSetting
+        authorLabel: authorLabelSetting,
+        publicComments: publicCommentsSetting
       };
     },
     staleTime: 0
@@ -75,6 +78,7 @@ export default function ArticlesSettingsPage() {
       setShowThumbsDown(reactionSettings.thumbsDown?.setting_value !== 'false');
       setShowAuthorBio(reactionSettings.authorBio?.setting_value !== 'false');
       setShowAuthorLabel(reactionSettings.authorLabel?.setting_value !== 'false');
+      setAllowPublicComments(reactionSettings.publicComments?.setting_value === 'true');
     }
   }, [reactionSettings]);
 
@@ -171,6 +175,15 @@ export default function ArticlesSettingsPage() {
       key: 'article_show_about_author_label',
       value: checked,
       existingSetting: reactionSettings?.authorLabel
+    });
+  };
+
+  const handlePublicCommentsToggle = (checked) => {
+    setAllowPublicComments(checked);
+    updateReactionSettingMutation.mutate({
+      key: 'article_allow_public_comments',
+      value: checked,
+      existingSetting: reactionSettings?.publicComments
     });
   };
 
@@ -357,6 +370,43 @@ export default function ArticlesSettingsPage() {
                       onCheckedChange={handleAuthorBioToggle}
                       disabled={updateReactionSettingMutation.isPending}
                       data-testid="switch-author-bio"
+                    />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Globe className="w-5 h-5" />
+                  Public Access
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
+                  <p className="text-sm text-blue-900">
+                    Control what features are available to public (non-logged-in) visitors viewing articles.
+                  </p>
+                </div>
+
+                <div className="space-y-4">
+                  <div 
+                    className="flex items-center justify-between p-4 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors cursor-pointer"
+                    onClick={() => handlePublicCommentsToggle(!allowPublicComments)}
+                  >
+                    <div className="flex items-center gap-3">
+                      <MessageSquare className="w-5 h-5 text-green-600" />
+                      <div>
+                        <Label className="font-medium text-slate-900 cursor-pointer">Allow Public Comments</Label>
+                        <p className="text-sm text-slate-500">Allow non-logged-in visitors to view and post comments on articles</p>
+                      </div>
+                    </div>
+                    <Switch
+                      checked={allowPublicComments}
+                      onCheckedChange={handlePublicCommentsToggle}
+                      disabled={updateReactionSettingMutation.isPending}
+                      data-testid="switch-public-comments"
                     />
                   </div>
                 </div>
