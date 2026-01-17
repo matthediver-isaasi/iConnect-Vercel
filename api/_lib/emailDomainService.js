@@ -238,22 +238,24 @@ export async function provisionEmailDomain(tenantId, tenantSlug, tenantName, cur
       }
     }
 
-    // Add CNAME record for web traffic - this is critical!
+    // Add ALIAS record for web traffic - this is critical!
     // When we add explicit DNS records for the tenant subdomain (TXT, MX),
-    // it breaks the wildcard *.iconn.app resolution. We must add a CNAME
+    // it breaks the wildcard *.iconn.app resolution. We must add an ALIAS
     // pointing to Vercel so web traffic still works.
+    // Note: We use ALIAS instead of CNAME because CNAME cannot coexist with
+    // other record types (MX, TXT) at the same name - this is a DNS limitation.
     try {
-      const vercelCnameRecord = await createVercelDnsRecord({
-        record_type: 'CNAME',
+      const vercelAliasRecord = await createVercelDnsRecord({
+        record_type: 'ALIAS',
         name: tenantSlug,
         value: 'cname.vercel-dns.com'
       }, tenantSlug);
-      if (vercelCnameRecord) {
-        createdDnsRecords.push(vercelCnameRecord);
-        console.log(`[Email Domain] Created CNAME record for web traffic: ${tenantSlug} -> cname.vercel-dns.com`);
+      if (vercelAliasRecord) {
+        createdDnsRecords.push(vercelAliasRecord);
+        console.log(`[Email Domain] Created ALIAS record for web traffic: ${tenantSlug} -> cname.vercel-dns.com`);
       }
-    } catch (cnameError) {
-      console.log('[Email Domain] CNAME record may already exist or conflict:', cnameError.message);
+    } catch (aliasError) {
+      console.log('[Email Domain] ALIAS record may already exist or conflict:', aliasError.message);
     }
 
     let verificationResult = null;
