@@ -67,6 +67,7 @@ export default function AdminBranding() {
       gradientStops: DEFAULT_GRADIENT_STOPS
     },
     footer_config: {
+      columns: 4,
       ctaText: 'Become a member today',
       ctaButtonText: 'Join Us',
       ctaLink: 'Membership',
@@ -160,6 +161,7 @@ export default function AdminBranding() {
                 gradientStops: getGradientStops(t?.header_config)
               },
               footer_config: {
+                columns: t?.footer_config?.columns || 4,
                 ctaText: t?.footer_config?.ctaText || 'Become a member today',
                 ctaButtonText: t?.footer_config?.ctaButtonText || 'Join Us',
                 ctaLink: t?.footer_config?.ctaLink || 'Membership',
@@ -1178,6 +1180,30 @@ export default function AdminBranding() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
+              <div className="space-y-2">
+                <Label className="text-slate-200">Number of Footer Columns</Label>
+                <p className="text-slate-400 text-sm">How many navigation columns to display in the footer (configured in Portal Navigation Management)</p>
+                <Select
+                  value={String(formData.footer_config.columns || 4)}
+                  onValueChange={(value) => setFormData(prev => ({
+                    ...prev,
+                    footer_config: { ...prev.footer_config, columns: parseInt(value, 10) }
+                  }))}
+                >
+                  <SelectTrigger className="bg-slate-900/50 border-slate-600 text-white w-32" data-testid="select-footer-columns">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1">1 Column</SelectItem>
+                    <SelectItem value="2">2 Columns</SelectItem>
+                    <SelectItem value="3">3 Columns</SelectItem>
+                    <SelectItem value="4">4 Columns</SelectItem>
+                    <SelectItem value="5">5 Columns</SelectItem>
+                    <SelectItem value="6">6 Columns</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
               <div className="grid md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label className="text-slate-200">CTA Heading</Label>

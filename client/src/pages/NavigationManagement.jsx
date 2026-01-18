@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Navigation, Plus, Pencil, Trash2, ChevronRight, ChevronDown, Menu, Sparkles, Calendar, Building, Briefcase, FileText, Users, Home, Mail, Phone, X, Newspaper, PenLine, Globe, Folder, Image, MessageSquare, Bell, Star, Heart, Eye, Link, ExternalLink, Tag, Award, Bookmark, Clock, Search, MapPin, Video, Music, Camera, Mic, Headphones, Tv, Radio, Rss, Share2, Gift, Zap, Target, Flag, Layers, Grid, List, Layout, Monitor, Smartphone, Tablet, Laptop, Server, Database, Cloud, Lock, Key, UserCheck, UserPlus, UserMinus, Users2, MessageCircle, Send, Inbox, Archive, CreditCard, Ticket, Wallet, ShoppingCart, History, Settings, BookOpen, HelpCircle, Shield, BarChart3, FileEdit, AtSign, FolderTree, Trophy, MousePointer2, Download } from "lucide-react";
 import SocialIconsConfig from "../components/navigation/SocialIconsConfig";
 import FooterConfig from "../components/navigation/FooterConfig";
@@ -201,6 +202,8 @@ export default function NavigationManagementPage() {
   const [filterLocation, setFilterLocation] = useState("all");
   const [showIconSelector, setShowIconSelector] = useState(false);
   const [expandedItems, setExpandedItems] = useState({});
+  const [activeTab, setActiveTab] = useState("header");
+  const [footerFilterColumn, setFooterFilterColumn] = useState("all");
 
   const queryClient = useQueryClient();
 
@@ -251,6 +254,26 @@ export default function NavigationManagementPage() {
     },
     staleTime: 60 * 1000,
   });
+
+  // Fetch tenant branding for footer columns setting
+  const { data: tenantBranding } = useQuery({
+    queryKey: ['tenant-branding-for-nav'],
+    queryFn: async () => {
+      try {
+        // Try authenticated admin endpoint first
+        let res = await fetch('/api/admin/tenant-branding', { credentials: 'include' });
+        if (res.ok) return res.json();
+        // Fall back to public endpoint (member portal context)
+        res = await fetch('/api/tenant-branding', { credentials: 'include' });
+        if (res.ok) return res.json();
+        return null;
+      } catch {
+        return null;
+      }
+    },
+    staleTime: 60 * 1000,
+  });
+  const footerColumns = tenantBranding?.footer_config?.columns || 4;
 
   // Combine hardcoded, dynamic CMS pages, and dynamic directories
   const availablePages = useMemo(() => {
@@ -308,7 +331,7 @@ export default function NavigationManagementPage() {
   const navHierarchy = useMemo(() => {
     const buildTree = (parentId) => {
       return navItems
-        .filter(item => item.parent_id === parentId && item.is_active)
+        .filter(item => item.parent_id === parentId && item.is_active && item.location !== 'footer')
         .sort((a, b) => (a.display_order || 0) - (b.display_order || 0))
         .map(item => ({
           ...item,
@@ -317,6 +340,25 @@ export default function NavigationManagementPage() {
     };
     return buildTree(null);
   }, [navItems]);
+
+  // Footer navigation items (flat, grouped by column)
+  const footerItems = useMemo(() => {
+    return navItems
+      .filter(item => item.location === 'footer')
+      .sort((a, b) => {
+        // Sort by column first, then by display_order
+        const colA = a.footer_column || 1;
+        const colB = b.footer_column || 1;
+        if (colA !== colB) return colA - colB;
+        return (a.display_order || 0) - (b.display_order || 0);
+      });
+  }, [navItems]);
+
+  // Filter footer items by column
+  const filteredFooterItems = useMemo(() => {
+    if (footerFilterColumn === "all") return footerItems;
+    return footerItems.filter(item => String(item.footer_column || 1) === footerFilterColumn);
+  }, [footerItems, footerFilterColumn]);
 
   // Filter by location
   const filteredItems = useMemo(() => {
@@ -338,6 +380,25 @@ export default function NavigationManagementPage() {
       description: "",
       display_type: "link",
       button_style: null
+    });
+    setShowDialog(true);
+  };
+
+  const handleCreateFooter = (column = 1) => {
+    setEditingItem({
+      title: "",
+      url: "",
+      link_type: "internal",
+      location: "footer",
+      parent_id: null,
+      display_order: navItems.filter(i => i.location === 'footer' && i.footer_column === column).length,
+      is_active: true,
+      open_in_new_tab: false,
+      icon: "",
+      description: "",
+      display_type: "link",
+      button_style: null,
+      footer_column: column
     });
     setShowDialog(true);
   };
@@ -543,89 +604,243 @@ export default function NavigationManagementPage() {
               Navigation Management
             </h1>
             <p className="text-slate-600">
-              Manage public header navigation items and create mega-menus
+              Manage header and footer navigation for your public website
             </p>
           </div>
         </div>
 
-        {/* Info Banner */}
-        <Card className="border-blue-200 bg-blue-50 mb-6">
-          <CardContent className="p-4">
-            <div className="flex items-start gap-3">
-              <Sparkles className="w-5 h-5 text-blue-600 mt-0.5" />
-              <div className="flex-1">
-                <h3 className="font-semibold text-blue-900 mb-1">Dynamic Navigation</h3>
-                <p className="text-sm text-blue-700">
-                  Create custom navigation items for the public header. Static items (Login/Logout, Member Area, Join Us button) are managed separately and will always appear in their designated positions.
-                </p>
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+          <TabsList className="grid w-full grid-cols-2 max-w-md">
+            <TabsTrigger value="header" data-testid="tab-header-nav">Header Navigation</TabsTrigger>
+            <TabsTrigger value="footer" data-testid="tab-footer-nav">Footer Navigation</TabsTrigger>
+          </TabsList>
+
+          {/* Header Navigation Tab */}
+          <TabsContent value="header" className="space-y-6">
+            {/* Info Banner */}
+            <Card className="border-blue-200 bg-blue-50">
+              <CardContent className="p-4">
+                <div className="flex items-start gap-3">
+                  <Sparkles className="w-5 h-5 text-blue-600 mt-0.5" />
+                  <div className="flex-1">
+                    <h3 className="font-semibold text-blue-900 mb-1">Dynamic Navigation</h3>
+                    <p className="text-sm text-blue-700">
+                      Create custom navigation items for the public header. Static items (Login/Logout, Member Area, Join Us button) are managed separately and will always appear in their designated positions.
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Social Icons Configuration */}
+            <SocialIconsConfig />
+
+            {/* Footer Configuration */}
+            <FooterConfig />
+
+            {/* Filters and Actions */}
+            <div className="flex gap-4">
+              <Select value={filterLocation} onValueChange={setFilterLocation}>
+                <SelectTrigger className="w-48">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Locations</SelectItem>
+                  <SelectItem value="top_nav">Top Navigation Bar</SelectItem>
+                  <SelectItem value="main_nav">Main Navigation Bar</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <div className="flex gap-2 ml-auto">
+                <Button onClick={() => handleCreate('top_nav')} variant="outline">
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add Top Nav Item
+                </Button>
+                <Button onClick={() => handleCreate('main_nav')} className="bg-blue-600 hover:bg-blue-700">
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add Main Nav Item
+                </Button>
               </div>
             </div>
-          </CardContent>
-        </Card>
 
-        {/* Social Icons Configuration */}
-        <SocialIconsConfig />
+            {/* Navigation Items List */}
+            {isLoading ? (
+              <Card>
+                <CardContent className="p-12 text-center">
+                  <p className="text-slate-600">Loading navigation items...</p>
+                </CardContent>
+              </Card>
+            ) : filteredItems.length === 0 ? (
+              <Card>
+                <CardContent className="p-12 text-center">
+                  <Navigation className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+                  <h3 className="text-xl font-semibold text-slate-900 mb-2">No Navigation Items</h3>
+                  <p className="text-slate-600 mb-6">
+                    {filterLocation === "all" 
+                      ? "Create your first navigation item to get started"
+                      : `No items in ${filterLocation === 'top_nav' ? 'Top Navigation' : 'Main Navigation'}`}
+                  </p>
+                  <Button onClick={() => handleCreate('main_nav')} className="bg-blue-600 hover:bg-blue-700">
+                    <Plus className="w-4 h-4 mr-2" />
+                    Create First Item
+                  </Button>
+                </CardContent>
+              </Card>
+            ) : (
+              <Card>
+                <CardContent className="p-6">
+                  <div className="space-y-3">
+                    {renderItemTree(filteredItems)}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </TabsContent>
 
-        {/* Footer Configuration */}
-        <FooterConfig />
+          {/* Footer Navigation Tab */}
+          <TabsContent value="footer" className="space-y-6">
+            {/* Info Banner */}
+            <Card className="border-green-200 bg-green-50">
+              <CardContent className="p-4">
+                <div className="flex items-start gap-3">
+                  <Layers className="w-5 h-5 text-green-600 mt-0.5" />
+                  <div className="flex-1">
+                    <h3 className="font-semibold text-green-900 mb-1">Footer Navigation</h3>
+                    <p className="text-sm text-green-700">
+                      Add links to display in the footer columns. You have <strong>{footerColumns} columns</strong> configured.
+                      Change the number of columns in <a href="/admin/branding" className="underline font-medium">Admin Branding</a> &gt; Footer Configuration.
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
 
-        {/* Filters and Actions */}
-        <div className="flex gap-4 mb-6">
-          <Select value={filterLocation} onValueChange={setFilterLocation}>
-            <SelectTrigger className="w-48">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Locations</SelectItem>
-              <SelectItem value="top_nav">Top Navigation Bar</SelectItem>
-              <SelectItem value="main_nav">Main Navigation Bar</SelectItem>
-            </SelectContent>
-          </Select>
+            {/* Footer Filters and Actions */}
+            <div className="flex gap-4">
+              <Select value={footerFilterColumn} onValueChange={setFooterFilterColumn}>
+                <SelectTrigger className="w-48" data-testid="select-filter-footer-column">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Columns</SelectItem>
+                  {Array.from({ length: footerColumns }, (_, i) => (
+                    <SelectItem key={i + 1} value={String(i + 1)}>Column {i + 1}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
 
-          <div className="flex gap-2 ml-auto">
-            <Button onClick={() => handleCreate('top_nav')} variant="outline">
-              <Plus className="w-4 h-4 mr-2" />
-              Add Top Nav Item
-            </Button>
-            <Button onClick={() => handleCreate('main_nav')} className="bg-blue-600 hover:bg-blue-700">
-              <Plus className="w-4 h-4 mr-2" />
-              Add Main Nav Item
-            </Button>
-          </div>
-        </div>
-
-        {/* Navigation Items List */}
-        {isLoading ? (
-          <Card>
-            <CardContent className="p-12 text-center">
-              <p className="text-slate-600">Loading navigation items...</p>
-            </CardContent>
-          </Card>
-        ) : filteredItems.length === 0 ? (
-          <Card>
-            <CardContent className="p-12 text-center">
-              <Navigation className="w-16 h-16 text-slate-300 mx-auto mb-4" />
-              <h3 className="text-xl font-semibold text-slate-900 mb-2">No Navigation Items</h3>
-              <p className="text-slate-600 mb-6">
-                {filterLocation === "all" 
-                  ? "Create your first navigation item to get started"
-                  : `No items in ${filterLocation === 'top_nav' ? 'Top Navigation' : 'Main Navigation'}`}
-              </p>
-              <Button onClick={() => handleCreate('main_nav')} className="bg-blue-600 hover:bg-blue-700">
-                <Plus className="w-4 h-4 mr-2" />
-                Create First Item
-              </Button>
-            </CardContent>
-          </Card>
-        ) : (
-          <Card>
-            <CardContent className="p-6">
-              <div className="space-y-3">
-                {renderItemTree(filteredItems)}
+              <div className="flex gap-2 ml-auto flex-wrap">
+                {Array.from({ length: footerColumns }, (_, i) => (
+                  <Button 
+                    key={i + 1}
+                    onClick={() => handleCreateFooter(i + 1)} 
+                    variant="outline"
+                    data-testid={`button-add-footer-col-${i + 1}`}
+                  >
+                    <Plus className="w-4 h-4 mr-2" />
+                    Add to Column {i + 1}
+                  </Button>
+                ))}
               </div>
-            </CardContent>
-          </Card>
-        )}
+            </div>
+
+            {/* Footer Navigation Items List */}
+            {isLoading ? (
+              <Card>
+                <CardContent className="p-12 text-center">
+                  <p className="text-slate-600">Loading footer navigation items...</p>
+                </CardContent>
+              </Card>
+            ) : filteredFooterItems.length === 0 ? (
+              <Card>
+                <CardContent className="p-12 text-center">
+                  <Layers className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+                  <h3 className="text-xl font-semibold text-slate-900 mb-2">No Footer Navigation Items</h3>
+                  <p className="text-slate-600 mb-6">
+                    Add links to your footer columns to help visitors navigate your site.
+                  </p>
+                  <Button onClick={() => handleCreateFooter(1)} className="bg-green-600 hover:bg-green-700">
+                    <Plus className="w-4 h-4 mr-2" />
+                    Add First Footer Link
+                  </Button>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="grid gap-4" style={{ 
+                gridTemplateColumns: footerFilterColumn === 'all' 
+                  ? `repeat(${footerColumns}, 1fr)` 
+                  : '1fr' 
+              }}>
+                {(footerFilterColumn === 'all' 
+                  ? Array.from({ length: footerColumns }, (_, i) => i + 1)
+                  : [parseInt(footerFilterColumn, 10)]
+                ).map(colNum => {
+                  const colItems = footerItems.filter(item => (item.footer_column || 1) === colNum);
+                  return (
+                    <Card key={colNum}>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm font-medium text-slate-600">
+                          Column {colNum}
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-2">
+                        {colItems.length === 0 ? (
+                          <p className="text-sm text-slate-400 italic">No items</p>
+                        ) : (
+                          colItems.map(item => {
+                            const IconComponent = availableIcons.find(i => i.name === item.icon)?.component;
+                            return (
+                              <div 
+                                key={item.id} 
+                                className="flex items-center gap-2 p-2 bg-slate-50 rounded-lg hover:bg-slate-100 transition-colors"
+                              >
+                                {IconComponent && <IconComponent className="w-4 h-4 text-slate-500" />}
+                                <div className="flex-1 min-w-0">
+                                  <span className="text-sm font-medium text-slate-800 truncate block">{item.title}</span>
+                                  <span className="text-xs text-slate-500 truncate block">{item.url}</span>
+                                </div>
+                                <div className="flex items-center gap-1">
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => handleEdit(item)}
+                                    className="h-7 w-7 p-0"
+                                    data-testid={`button-edit-footer-${item.id}`}
+                                  >
+                                    <Pencil className="w-3 h-3" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => handleDelete(item)}
+                                    className="h-7 w-7 p-0 text-red-600"
+                                    data-testid={`button-delete-footer-${item.id}`}
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                  </Button>
+                                </div>
+                              </div>
+                            );
+                          })
+                        )}
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          className="w-full text-slate-500"
+                          onClick={() => handleCreateFooter(colNum)}
+                          data-testid={`button-add-footer-inline-${colNum}`}
+                        >
+                          <Plus className="w-3 h-3 mr-1" />
+                          Add Link
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            )}
+          </TabsContent>
+        </Tabs>
 
         {/* Edit/Create Dialog */}
         <Dialog open={showDialog} onOpenChange={setShowDialog}>
@@ -666,10 +881,10 @@ export default function NavigationManagementPage() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="location">Navigation Bar</Label>
+                    <Label htmlFor="location">Navigation Area</Label>
                     <Select
                       value={editingItem.location}
-                      onValueChange={(value) => setEditingItem({ ...editingItem, location: value })}
+                      onValueChange={(value) => setEditingItem({ ...editingItem, location: value, footer_column: value === 'footer' ? 1 : null })}
                     >
                       <SelectTrigger>
                         <SelectValue />
@@ -677,10 +892,34 @@ export default function NavigationManagementPage() {
                       <SelectContent>
                         <SelectItem value="top_nav">Top Navigation Bar</SelectItem>
                         <SelectItem value="main_nav">Main Navigation Bar</SelectItem>
+                        <SelectItem value="footer">Footer</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
                 </div>
+
+                {/* Footer Column Selector - only show when location is footer */}
+                {editingItem.location === 'footer' && (
+                  <div className="space-y-2">
+                    <Label htmlFor="footer_column">Footer Column</Label>
+                    <Select
+                      value={String(editingItem.footer_column || 1)}
+                      onValueChange={(value) => setEditingItem({ ...editingItem, footer_column: parseInt(value, 10) })}
+                    >
+                      <SelectTrigger data-testid="select-footer-column">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Array.from({ length: footerColumns }, (_, i) => (
+                          <SelectItem key={i + 1} value={String(i + 1)}>Column {i + 1}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-slate-500">
+                      Which footer column this link should appear in
+                    </p>
+                  </div>
+                )}
 
                 <div className="space-y-2">
                   <Label htmlFor="url">
