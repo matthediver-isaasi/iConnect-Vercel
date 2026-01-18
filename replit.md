@@ -143,6 +143,43 @@ The platform supports automated Mailgun domain provisioning for each tenant, ena
 }
 ```
 
+## Collapsible Sidebar Implementation
+
+The authenticated portal uses Shadcn's sidebar component (`@/components/ui/sidebar`) with these patterns:
+
+**Key Files:**
+- `client/src/pages/Layout.jsx` - Main layout with sidebar implementation
+
+**Sidebar Features:**
+- Collapsible to icon-only mode via circular toggle button on sidebar edge
+- Toggle positioned in `SidebarHeader` with absolute positioning
+- Tooltips appear on hover when collapsed (using `tooltip` prop on `SidebarMenuButton`)
+- Footer adapts: shows only icons when collapsed, full user info when expanded
+
+**Ref-Forwarding Link Pattern:**
+A `SidebarNavLink` component wraps react-router `Link` with `React.forwardRef` to enable:
+- Proper tooltip attachment with Shadcn's `asChild` pattern
+- Maintained SPA navigation (no full page reloads)
+- Collapsed-state utility classes to work properly
+
+**Collapsed-State CSS Classes:**
+- `group-data-[collapsible=icon]:hidden` - Hide labels/chevrons when collapsed
+- `shrink-0` on icons - Prevent icon resizing
+- These classes go on child elements inside `SidebarMenuButton`
+
+**Navigation Structure:**
+- Main navigation items (blue hover)
+- Admin navigation items (amber hover) - only shown to users with admin access
+- Collapsible groups for items with sub-menus
+- `SidebarFooterContent` component handles collapsed/expanded user info display
+
+# Recent Changes
+
+- **Jan 2026**: Fixed sidebar toggle positioning - moved inside `SidebarHeader` for proper Shadcn structure
+- **Jan 2026**: Implemented icon centering and tooltips for collapsed sidebar mode
+- **Jan 2026**: Created `SidebarNavLink` ref-forwarding wrapper for proper tooltip integration
+- **Jan 2026**: Platform provisioning emails now use root domain (mail.iconn.app) for immediate sending
+
 # External Dependencies
 
 **Supabase:** Primary database (PostgreSQL) for application data, including CRUD and realtime subscriptions, and file storage.
