@@ -289,32 +289,13 @@ export default function PublicLayout({ children, currentPageName }) {
           <div className="max-w-7xl mx-auto px-4 py-16">
             <div className="grid md:grid-cols-3 gap-12">
               
-              {/* Left Column - Become a Member & Newsletter */}
+              {/* Left Column - Newsletter */}
               <div className="flex flex-col justify-start">
-                <h2 
-                  className="text-3xl text-white mb-8"
-                  style={{ fontFamily: "'Degular Medium', sans-serif" }}
-                >
-                  {tenantFooterConfig.ctaText || 'Become a member today'}
-                </h2>
-                <Link to={createPageUrl(tenantFooterConfig.ctaLink || 'Membership')}>
-                  <Button 
-                    className="text-white font-bold hover:opacity-90 transition-opacity px-6 py-5 rounded-none" 
-                    style={{ 
-                      fontFamily: 'Poppins, sans-serif',
-                      background: getButtonGradientStyle()
-                    }}
-                  >
-                    {tenantFooterConfig.ctaButtonText || 'Join Us'}
-                    <ArrowUpRight className="ml-0.5 w-5 h-5" strokeWidth={2.5} />
-                  </Button>
-                </Link>
-
                 {/* Newsletter Signup - only show if a form is configured */}
                 {newsletterFormSlug && (
                   <>
                     <h2 
-                      className="text-3xl text-white mb-8 mt-12"
+                      className="text-3xl text-white mb-8"
                       style={{ fontFamily: "'Degular Medium', sans-serif" }}
                     >{tenantFooterConfig.newsletterText || 'Sign up to our newsletter'}</h2>
                     <div>

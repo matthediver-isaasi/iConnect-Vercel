@@ -1204,62 +1204,18 @@ export default function AdminBranding() {
                 </Select>
               </div>
 
-              <div className="grid md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label className="text-slate-200">CTA Heading</Label>
-                  <Input
-                    value={formData.footer_config.ctaText}
-                    onChange={(e) => setFormData(prev => ({
-                      ...prev,
-                      footer_config: { ...prev.footer_config, ctaText: e.target.value }
-                    }))}
-                    className="bg-slate-900/50 border-slate-600 text-white"
-                    placeholder="Become a member today"
-                    data-testid="input-cta-text"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-slate-200">CTA Button Text</Label>
-                  <Input
-                    value={formData.footer_config.ctaButtonText}
-                    onChange={(e) => setFormData(prev => ({
-                      ...prev,
-                      footer_config: { ...prev.footer_config, ctaButtonText: e.target.value }
-                    }))}
-                    className="bg-slate-900/50 border-slate-600 text-white"
-                    placeholder="Join Us"
-                    data-testid="input-cta-button-text"
-                  />
-                </div>
-              </div>
-
-              <div className="grid md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label className="text-slate-200">CTA Link (Page Name)</Label>
-                  <Input
-                    value={formData.footer_config.ctaLink}
-                    onChange={(e) => setFormData(prev => ({
-                      ...prev,
-                      footer_config: { ...prev.footer_config, ctaLink: e.target.value }
-                    }))}
-                    className="bg-slate-900/50 border-slate-600 text-white"
-                    placeholder="Membership"
-                    data-testid="input-cta-link"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-slate-200">Newsletter Heading</Label>
-                  <Input
-                    value={formData.footer_config.newsletterText}
-                    onChange={(e) => setFormData(prev => ({
-                      ...prev,
-                      footer_config: { ...prev.footer_config, newsletterText: e.target.value }
-                    }))}
-                    className="bg-slate-900/50 border-slate-600 text-white"
-                    placeholder="Sign up to our newsletter"
-                    data-testid="input-newsletter-text"
-                  />
-                </div>
+              <div className="space-y-2">
+                <Label className="text-slate-200">Newsletter Heading</Label>
+                <Input
+                  value={formData.footer_config.newsletterText}
+                  onChange={(e) => setFormData(prev => ({
+                    ...prev,
+                    footer_config: { ...prev.footer_config, newsletterText: e.target.value }
+                  }))}
+                  className="bg-slate-900/50 border-slate-600 text-white"
+                  placeholder="Sign up to our newsletter"
+                  data-testid="input-newsletter-text"
+                />
               </div>
 
               <div className="space-y-3">
