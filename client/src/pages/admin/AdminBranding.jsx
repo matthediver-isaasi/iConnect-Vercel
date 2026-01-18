@@ -1484,12 +1484,7 @@ export default function AdminBranding() {
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="flex items-center justify-between p-4 bg-slate-900/50 rounded-lg border border-slate-600">
-                <div className="space-y-1">
-                  <Label className="text-white font-medium">Show Platform Branding</Label>
-                  <p className="text-sm text-slate-400">
-                    Display the "Designed and delivered by isaasi" section in the footer
-                  </p>
-                </div>
+                <Label className="text-white font-medium">Show Platform Branding</Label>
                 <Switch
                   checked={formData.platform_branding.showPlatformBranding}
                   onCheckedChange={(checked) => setFormData(prev => ({
