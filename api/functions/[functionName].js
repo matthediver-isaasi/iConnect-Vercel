@@ -2659,7 +2659,7 @@ const functionHandlers = {
     const settingKey = 'public_home_page_slug';
     
     // Get tenant context for proper multi-tenant isolation
-    const { getTenantContext } = await import('./_lib/tenantContext.js');
+    const { getTenantContext } = await import('../_lib/tenantContext.js');
     const tenantContext = await getTenantContext(req);
     const tenantId = tenantContext.tenantId;
     
