@@ -491,21 +491,28 @@ export default function PublicLayout({ children, currentPageName }) {
               }
               
               return (
-                <div className="grid gap-12" style={{ gridTemplateColumns: `repeat(${Math.min(footerColumns, 6) + 1}, 1fr)` }}>
-                  {/* Dynamic navigation columns */}
-                  {Array.from({ length: footerColumns }, (_, i) => i + 1).map(colNum => {
-                    const colItems = itemsByColumn[colNum] || [];
-                    if (colItems.length === 0) return null;
-                    
-                    return (
-                      <div key={colNum} className="space-y-4">
-                        {colItems.map(item => renderNavItem(item))}
-                      </div>
-                    );
-                  })}
+                <div className="flex flex-col md:flex-row gap-12">
+                  {/* Navigation columns - equal width division */}
+                  <div 
+                    className="flex-1 grid gap-8 grid-cols-1 sm:grid-cols-2"
+                    style={{ 
+                      gridTemplateColumns: `repeat(${Math.min(footerColumns, 6)}, minmax(0, 1fr))` 
+                    }}
+                  >
+                    {Array.from({ length: footerColumns }, (_, i) => i + 1).map(colNum => {
+                      const colItems = itemsByColumn[colNum] || [];
+                      if (colItems.length === 0) return <div key={colNum} />;
+                      
+                      return (
+                        <div key={colNum} className="space-y-4">
+                          {colItems.map(item => renderNavItem(item))}
+                        </div>
+                      );
+                    })}
+                  </div>
                   
-                  {/* Logo & Social Column - always last */}
-                  <div className="flex flex-col items-center md:items-end">
+                  {/* Logo & Social Column - fixed width on right */}
+                  <div className="flex flex-col items-center md:items-end md:w-48 shrink-0">
                 {/* Logo - Use tenant logo if available */}
                 {branding?.logoUrl ? (
                   <img 
