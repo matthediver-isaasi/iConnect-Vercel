@@ -434,8 +434,7 @@ function SidebarEdgeToggle() {
   return (
     <button
       onClick={toggleSidebar}
-      className="absolute top-1/2 -right-3 z-50 w-6 h-6 bg-white border border-slate-200 rounded-full shadow-sm flex items-center justify-center hover:bg-slate-50 transition-colors cursor-pointer"
-      style={{ transform: 'translateY(-50%)' }}
+      className="w-6 h-6 bg-white border border-slate-200 rounded-full shadow-sm flex items-center justify-center hover:bg-slate-50 transition-colors cursor-pointer"
       title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
       data-testid="button-sidebar-toggle"
     >
@@ -1721,9 +1720,12 @@ useEffect(() => {
 
       <SidebarProvider key="main-sidebar-provider">
         <div className="flex h-screen w-full overflow-hidden">
-        <Sidebar collapsible="icon" className="relative border-r border-slate-200 bg-white flex-shrink-0">
-            <SidebarEdgeToggle />
-            <SidebarHeader className="border-b border-slate-200 p-4">
+        <Sidebar collapsible="icon" className="border-r border-slate-200 bg-white flex-shrink-0">
+            <SidebarHeader className="relative border-b border-slate-200 p-4">
+              {/* Edge toggle positioned at sidebar boundary */}
+              <div className="absolute top-1/2 -right-3 z-50" style={{ transform: 'translateY(-50%)' }}>
+                <SidebarEdgeToggle />
+              </div>
               {portalLogoSettings?.logoUrl ? (
                 // Custom portal logo
                 <a 
