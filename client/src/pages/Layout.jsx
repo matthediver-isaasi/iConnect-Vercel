@@ -45,6 +45,16 @@ import { SiGoogle } from "react-icons/si";
 import { useQuery } from '@tanstack/react-query';
 import { base44 } from "@/api/base44Client";
 
+// Ref-forwarding Link component for Shadcn sidebar integration
+const SidebarNavLink = React.forwardRef(({ to, children, className, ...props }, ref) => {
+  return (
+    <Link ref={ref} to={to} className={className} {...props}>
+      {children}
+    </Link>
+  );
+});
+SidebarNavLink.displayName = 'SidebarNavLink';
+
 
 
 
@@ -1816,13 +1826,15 @@ useEffect(() => {
                             <SidebarMenuItem>
                                 <CollapsibleTrigger asChild>
                                   <SidebarMenuButton 
-                                    className={`hover:bg-blue-50 hover:text-blue-700 transition-colors rounded-lg mb-1 flex items-center gap-3 px-3 py-2.5 group ${
+                                    tooltip={item.title}
+                                    isActive={isActive}
+                                    className={`hover:bg-blue-50 hover:text-blue-700 transition-colors rounded-lg mb-1 ${
                                       isActive ? 'bg-blue-50 text-blue-700 font-medium' : ''
                                     }`}
                                   >
-                                    <Icon className="w-4 h-4" />
-                                    <span className="flex-1">{item.title}</span>
-                                    <ChevronRight className="w-4 h-4 transition-transform group-data-[state=open]:rotate-90" />
+                                    <Icon className="w-4 h-4 shrink-0" />
+                                    <span className="group-data-[collapsible=icon]:hidden">{item.title}</span>
+                                    <ChevronRight className="ml-auto w-4 h-4 transition-transform group-data-[state=open]/collapsible:rotate-90 group-data-[collapsible=icon]:hidden" />
                                   </SidebarMenuButton>
                                 </CollapsibleTrigger>
                             </SidebarMenuItem>
@@ -1863,18 +1875,20 @@ useEffect(() => {
                             id={item.title === "Buy Tickets" ? "buy-tickets-menu-item" : undefined}
                           >
                             <SidebarMenuButton 
-                              asChild 
+                              asChild
+                              tooltip={item.title}
+                              isActive={isActive}
                               className={`hover:bg-blue-50 hover:text-blue-700 transition-colors rounded-lg mb-1 ${
                                 isActive ? 'bg-blue-50 text-blue-700 font-medium' : ''
                               }`}
                             >
-                              <Link to={item.url} className="flex items-center gap-3 px-3 py-2.5">
-                                <Icon className="w-4 h-4" />
-                                <span className="flex-1">{item.title}</span>
+                              <SidebarNavLink to={item.url}>
+                                <Icon className="w-4 h-4 shrink-0" />
+                                <span className="group-data-[collapsible=icon]:hidden">{item.title}</span>
                                 {showPendingPOWarning && (
-                                  <Bell className="w-4 h-4 text-amber-500 animate-pulse" data-testid="pending-po-warning-bell" />
+                                  <Bell className="w-4 h-4 text-amber-500 animate-pulse group-data-[collapsible=icon]:hidden" data-testid="pending-po-warning-bell" />
                                 )}
-                              </Link>
+                              </SidebarNavLink>
                             </SidebarMenuButton>
                           </SidebarMenuItem>
                         );
@@ -1904,13 +1918,15 @@ useEffect(() => {
                               <SidebarMenuItem>
                                 <CollapsibleTrigger asChild>
                                   <SidebarMenuButton 
-                                    className={`hover:bg-amber-50 hover:text-amber-700 transition-colors rounded-lg mb-1 flex items-center gap-3 px-3 py-2.5 group ${
+                                    tooltip={item.title}
+                                    isActive={isActive}
+                                    className={`hover:bg-amber-50 hover:text-amber-700 transition-colors rounded-lg mb-1 ${
                                       isActive ? 'bg-amber-50 text-amber-700 font-medium' : ''
                                     }`}
                                   >
-                                    <Icon className="w-4 h-4" />
-                                    <span className="flex-1">{item.title}</span>
-                                    <ChevronRight className="w-4 h-4 transition-transform group-data-[state=open]:rotate-90" />
+                                    <Icon className="w-4 h-4 shrink-0" />
+                                    <span className="group-data-[collapsible=icon]:hidden">{item.title}</span>
+                                    <ChevronRight className="ml-auto w-4 h-4 transition-transform group-data-[state=open]/collapsible:rotate-90 group-data-[collapsible=icon]:hidden" />
                                   </SidebarMenuButton>
                                 </CollapsibleTrigger>
                               </SidebarMenuItem>
@@ -1939,15 +1955,17 @@ useEffect(() => {
                           return (
                             <SidebarMenuItem key={item.title}>
                                 <SidebarMenuButton 
-                                  asChild 
+                                  asChild
+                                  tooltip={item.title}
+                                  isActive={isActive}
                                   className={`hover:bg-amber-50 hover:text-amber-700 transition-colors rounded-lg mb-1 ${
                                     isActive ? 'bg-amber-50 text-amber-700 font-medium' : ''
                                   }`}
                                 >
-                                  <Link to={item.url} className="flex items-center gap-3 px-3 py-2.5">
-                                  <Icon className="w-4 h-4" />
-                                  <span>{item.title}</span>
-                                </Link>
+                                  <SidebarNavLink to={item.url}>
+                                    <Icon className="w-4 h-4 shrink-0" />
+                                    <span className="group-data-[collapsible=icon]:hidden">{item.title}</span>
+                                  </SidebarNavLink>
                               </SidebarMenuButton>
                             </SidebarMenuItem>
                           );
