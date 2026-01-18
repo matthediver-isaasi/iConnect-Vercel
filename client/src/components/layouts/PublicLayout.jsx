@@ -383,7 +383,11 @@ export default function PublicLayout({ children, currentPageName }) {
                           {item.title || 'Get Started'}
                         </h2>
                         {item.url && (
-                          <Link to={item.link_type === 'internal' ? createPageUrl(item.url) : item.url}>
+                          <Link 
+                            to={item.link_type === 'internal' ? createPageUrl(item.url) : item.url}
+                            target={item.open_in_new_tab ? '_blank' : undefined}
+                            rel={item.open_in_new_tab ? 'noopener noreferrer' : undefined}
+                          >
                             <Button 
                               className="text-white font-bold hover:opacity-90 transition-opacity px-6 py-4"
                               style={{ 
@@ -471,7 +475,7 @@ export default function PublicLayout({ children, currentPageName }) {
               }
               
               return (
-                <div className="grid gap-12" style={{ gridTemplateColumns: `repeat(${Math.min(footerColumns + 1, 6)}, 1fr)` }}>
+                <div className="grid gap-12" style={{ gridTemplateColumns: `repeat(${Math.min(footerColumns, 6) + 1}, 1fr)` }}>
                   {/* Dynamic navigation columns */}
                   {Array.from({ length: footerColumns }, (_, i) => i + 1).map(colNum => {
                     const colItems = itemsByColumn[colNum] || [];
