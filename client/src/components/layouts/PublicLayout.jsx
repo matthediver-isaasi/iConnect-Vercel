@@ -650,7 +650,7 @@ export default function PublicLayout({ children, currentPageName }) {
               {/* Platform Branding */}
               {(branding?.platformBranding?.showPlatformBranding !== false) && (
                 <div 
-                  className="text-center mt-8 py-4 -mx-4 sm:-mx-8 md:-mx-16 px-4 sm:px-8 md:px-16"
+                  className="text-center mt-8 py-4 -mx-4 sm:-mx-8 md:-mx-16 -mb-8 sm:-mb-12 md:-mb-16 px-4 sm:px-8 md:px-16"
                   style={{ backgroundColor: branding?.platformBranding?.backgroundColor || '#000000' }}
                 >
                   <a
