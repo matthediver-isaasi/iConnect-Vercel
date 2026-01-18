@@ -76,6 +76,7 @@ export default function AdminBranding() {
       newsletterText: 'Sign up to our newsletter',
       gradientColors: ['#5C0085', '#BA0087', '#EE00C3', '#FF4229', '#FFB000'],
       backgroundColor: '#000000',
+      textColor: '#FFFFFF',
       address: {
         name: '',
         lines: []
@@ -181,6 +182,7 @@ export default function AdminBranding() {
                 newsletterText: t?.footer_config?.newsletterText || 'Sign up to our newsletter',
                 gradientColors: t?.footer_config?.gradientColors || ['#5C0085', '#BA0087', '#EE00C3', '#FF4229', '#FFB000'],
                 backgroundColor: t?.footer_config?.backgroundColor || '#000000',
+                textColor: t?.footer_config?.textColor || '#FFFFFF',
                 address: {
                   name: t?.footer_config?.address?.name || '',
                   lines: t?.footer_config?.address?.lines || []
@@ -1303,30 +1305,58 @@ export default function AdminBranding() {
                 )}
               </div>
 
-              <div className="space-y-2">
-                <Label className="text-slate-200">Background Color</Label>
-                <p className="text-slate-400 text-sm">The background color for the entire footer section</p>
-                <div className="flex items-center gap-3">
-                  <input
-                    type="color"
-                    value={formData.footer_config.backgroundColor || '#000000'}
-                    onChange={(e) => setFormData(prev => ({
-                      ...prev,
-                      footer_config: { ...prev.footer_config, backgroundColor: e.target.value }
-                    }))}
-                    className="w-12 h-10 rounded cursor-pointer"
-                    data-testid="input-footer-background-color"
-                  />
-                  <Input
-                    value={formData.footer_config.backgroundColor || '#000000'}
-                    onChange={(e) => setFormData(prev => ({
-                      ...prev,
-                      footer_config: { ...prev.footer_config, backgroundColor: e.target.value }
-                    }))}
-                    className="bg-slate-900/50 border-slate-600 text-white flex-1"
-                    placeholder="#000000"
-                    data-testid="input-footer-background-color-text"
-                  />
+              <div className="grid md:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <Label className="text-slate-200">Background Color</Label>
+                  <p className="text-slate-400 text-sm">The background color for the footer section</p>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="color"
+                      value={formData.footer_config.backgroundColor || '#000000'}
+                      onChange={(e) => setFormData(prev => ({
+                        ...prev,
+                        footer_config: { ...prev.footer_config, backgroundColor: e.target.value }
+                      }))}
+                      className="w-12 h-10 rounded cursor-pointer"
+                      data-testid="input-footer-background-color"
+                    />
+                    <Input
+                      value={formData.footer_config.backgroundColor || '#000000'}
+                      onChange={(e) => setFormData(prev => ({
+                        ...prev,
+                        footer_config: { ...prev.footer_config, backgroundColor: e.target.value }
+                      }))}
+                      className="bg-slate-900/50 border-slate-600 text-white flex-1"
+                      placeholder="#000000"
+                      data-testid="input-footer-background-color-text"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-slate-200">Text Color</Label>
+                  <p className="text-slate-400 text-sm">The text color for footer content</p>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="color"
+                      value={formData.footer_config.textColor || '#FFFFFF'}
+                      onChange={(e) => setFormData(prev => ({
+                        ...prev,
+                        footer_config: { ...prev.footer_config, textColor: e.target.value }
+                      }))}
+                      className="w-12 h-10 rounded cursor-pointer"
+                      data-testid="input-footer-text-color"
+                    />
+                    <Input
+                      value={formData.footer_config.textColor || '#FFFFFF'}
+                      onChange={(e) => setFormData(prev => ({
+                        ...prev,
+                        footer_config: { ...prev.footer_config, textColor: e.target.value }
+                      }))}
+                      className="bg-slate-900/50 border-slate-600 text-white flex-1"
+                      placeholder="#FFFFFF"
+                      data-testid="input-footer-text-color-text"
+                    />
+                  </div>
                 </div>
               </div>
 

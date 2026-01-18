@@ -63,6 +63,30 @@ export default function PublicLayout({ children, currentPageName }) {
 
   const tenantFooterConfig = branding?.footerConfig || {};
   const tenantPrimaryColor = branding?.primaryColor || '#5C0085';
+  const footerTextColor = tenantFooterConfig.textColor || '#FFFFFF';
+  
+  // Helper to adjust color opacity - with validation
+  const adjustColorOpacity = (hex, opacity) => {
+    if (!hex || typeof hex !== 'string' || !hex.startsWith('#')) {
+      return `rgba(255, 255, 255, ${opacity})`;
+    }
+    try {
+      const cleanHex = hex.length === 4 
+        ? `#${hex[1]}${hex[1]}${hex[2]}${hex[2]}${hex[3]}${hex[3]}`
+        : hex;
+      const r = parseInt(cleanHex.slice(1, 3), 16);
+      const g = parseInt(cleanHex.slice(3, 5), 16);
+      const b = parseInt(cleanHex.slice(5, 7), 16);
+      if (isNaN(r) || isNaN(g) || isNaN(b)) {
+        return `rgba(255, 255, 255, ${opacity})`;
+      }
+      return `rgba(${r}, ${g}, ${b}, ${opacity})`;
+    } catch {
+      return `rgba(255, 255, 255, ${opacity})`;
+    }
+  };
+  
+  const footerSecondaryTextColor = tenantFooterConfig.textColor ? adjustColorOpacity(tenantFooterConfig.textColor, 0.7) : 'rgb(203, 213, 225)';
   
   const getGradientStyle = () => {
     if (tenantFooterConfig.gradientColors?.length > 0) {
@@ -293,8 +317,10 @@ export default function PublicLayout({ children, currentPageName }) {
 
         {/* Public Footer */}
         <footer 
-          className="text-white"
-          style={{ backgroundColor: tenantFooterConfig.backgroundColor || '#000000' }}
+          style={{ 
+            backgroundColor: tenantFooterConfig.backgroundColor || '#000000',
+            color: footerTextColor
+          }}
         >
           {/* Gradient Bar */}
           <div 
@@ -332,16 +358,17 @@ export default function PublicLayout({ children, currentPageName }) {
                     return (
                       <div key={item.id}>
                         <h4 
-                          className="text-white text-sm mb-3" 
+                          className="text-sm mb-3" 
                           style={{ 
                             fontFamily: 'Poppins, sans-serif', 
                             textTransform: 'uppercase', 
-                            letterSpacing: '5px' 
+                            letterSpacing: '5px',
+                            color: footerTextColor
                           }}
                         >
                           {item.title || 'Section'}
                         </h4>
-                        <div className="mb-4" style={{ width: '36px', height: '2px', backgroundColor: 'rgba(255,255,255,0.5)' }} />
+                        <div className="mb-4" style={{ width: '36px', height: '2px', backgroundColor: adjustColorOpacity(footerTextColor, 0.5) }} />
                       </div>
                     );
                   case 'logo':
@@ -360,7 +387,7 @@ export default function PublicLayout({ children, currentPageName }) {
                             }}
                           />
                         ) : (
-                          <span className="text-white text-2xl font-bold">{branding?.name || ''}</span>
+                          <span className="text-2xl font-bold" style={{ color: footerTextColor }}>{branding?.name || ''}</span>
                         )}
                       </div>
                     );
@@ -370,10 +397,10 @@ export default function PublicLayout({ children, currentPageName }) {
                       <div key={item.id}>
                         {item.title && (
                           <>
-                            <h4 className="text-white text-sm mb-3" style={{ fontFamily: 'Poppins, sans-serif', textTransform: 'uppercase', letterSpacing: '5px' }}>
+                            <h4 className="text-sm mb-3" style={{ fontFamily: 'Poppins, sans-serif', textTransform: 'uppercase', letterSpacing: '5px', color: footerTextColor }}>
                               {item.title}
                             </h4>
-                            <div className="mb-4" style={{ width: '36px', height: '2px', backgroundColor: 'rgba(255,255,255,0.5)' }} />
+                            <div className="mb-4" style={{ width: '36px', height: '2px', backgroundColor: adjustColorOpacity(footerTextColor, 0.5) }} />
                           </>
                         )}
                         <div className="flex gap-4 flex-wrap">
@@ -408,11 +435,11 @@ export default function PublicLayout({ children, currentPageName }) {
                   case 'address':
                     return (
                       <div key={item.id}>
-                        <h4 className="text-white text-sm mb-3" style={{ fontFamily: 'Poppins, sans-serif', textTransform: 'uppercase', letterSpacing: '5px' }}>
+                        <h4 className="text-sm mb-3" style={{ fontFamily: 'Poppins, sans-serif', textTransform: 'uppercase', letterSpacing: '5px', color: footerTextColor }}>
                           ADDRESS
                         </h4>
-                        <div className="mb-4" style={{ width: '36px', height: '2px', backgroundColor: 'rgba(255,255,255,0.5)' }} />
-                        <div className="text-slate-300 text-sm leading-relaxed" style={{ fontFamily: 'Poppins, sans-serif' }}>
+                        <div className="mb-4" style={{ width: '36px', height: '2px', backgroundColor: adjustColorOpacity(footerTextColor, 0.5) }} />
+                        <div className="text-sm leading-relaxed" style={{ fontFamily: 'Poppins, sans-serif', color: footerSecondaryTextColor }}>
                           {tenantFooterConfig.address?.name && <p>{tenantFooterConfig.address.name}</p>}
                           {tenantFooterConfig.address?.lines?.map((line, i) => <p key={i}>{line}</p>)}
                         </div>
@@ -421,11 +448,11 @@ export default function PublicLayout({ children, currentPageName }) {
                   case 'contact':
                     return (
                       <div key={item.id}>
-                        <h4 className="text-white text-sm mb-3" style={{ fontFamily: 'Poppins, sans-serif', textTransform: 'uppercase', letterSpacing: '5px' }}>
+                        <h4 className="text-sm mb-3" style={{ fontFamily: 'Poppins, sans-serif', textTransform: 'uppercase', letterSpacing: '5px', color: footerTextColor }}>
                           CONTACT US
                         </h4>
-                        <div className="mb-4" style={{ width: '36px', height: '2px', backgroundColor: 'rgba(255,255,255,0.5)' }} />
-                        <ul className="space-y-3 text-sm text-slate-300" style={{ fontFamily: 'Poppins, sans-serif' }}>
+                        <div className="mb-4" style={{ width: '36px', height: '2px', backgroundColor: adjustColorOpacity(footerTextColor, 0.5) }} />
+                        <ul className="space-y-3 text-sm" style={{ fontFamily: 'Poppins, sans-serif', color: footerSecondaryTextColor }}>
                           {tenantFooterConfig.contact?.phone && (
                             <li className="flex items-center gap-3">
                               <Phone className="w-4 h-4 shrink-0" />
@@ -444,7 +471,7 @@ export default function PublicLayout({ children, currentPageName }) {
                   case 'newsletter':
                     return newsletterFormSlug ? (
                       <div key={item.id}>
-                        <h2 className="text-2xl text-white mb-6" style={{ fontFamily: "'Degular Medium', sans-serif" }}>
+                        <h2 className="text-2xl mb-6" style={{ fontFamily: "'Degular Medium', sans-serif", color: footerTextColor }}>
                           {tenantFooterConfig.newsletterText || 'Sign up to our newsletter'}
                         </h2>
                         <Button 
@@ -464,7 +491,7 @@ export default function PublicLayout({ children, currentPageName }) {
                   case 'cta':
                     return (
                       <div key={item.id}>
-                        <h2 className="text-2xl text-white mb-6" style={{ fontFamily: "'Degular Medium', sans-serif" }}>
+                        <h2 className="text-2xl mb-6" style={{ fontFamily: "'Degular Medium', sans-serif", color: footerTextColor }}>
                           {item.title || 'Get Started'}
                         </h2>
                         {item.url && (
@@ -489,16 +516,16 @@ export default function PublicLayout({ children, currentPageName }) {
                     );
                   case 'legal':
                     return (
-                      <div key={item.id} className="text-sm text-slate-300" style={{ fontFamily: 'Poppins, sans-serif' }}>
+                      <div key={item.id} className="text-sm" style={{ fontFamily: 'Poppins, sans-serif', color: footerSecondaryTextColor }}>
                         {tenantFooterConfig.legalText && <p className="mb-3">{tenantFooterConfig.legalText}</p>}
                         <div className="flex flex-col gap-2">
                           {tenantFooterConfig.termsAndConditionsUrl && (
-                            <a href={tenantFooterConfig.termsAndConditionsUrl} target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">
+                            <a href={tenantFooterConfig.termsAndConditionsUrl} target="_blank" rel="noopener noreferrer" className="hover:opacity-80 transition-opacity" style={{ color: footerTextColor }}>
                               Terms and Conditions
                             </a>
                           )}
                           {tenantFooterConfig.privacyPolicyUrl && (
-                            <a href={tenantFooterConfig.privacyPolicyUrl} target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">
+                            <a href={tenantFooterConfig.privacyPolicyUrl} target="_blank" rel="noopener noreferrer" className="hover:opacity-80 transition-opacity" style={{ color: footerTextColor }}>
                               Privacy Policy
                             </a>
                           )}
@@ -543,8 +570,8 @@ export default function PublicLayout({ children, currentPageName }) {
                     key={item.id}
                     to={linkUrl}
                     target={item.open_in_new_tab ? '_blank' : undefined}
-                    className="block text-slate-300 hover:text-white text-sm transition-colors mb-2"
-                    style={{ fontFamily: 'Poppins, sans-serif' }}
+                    className="block text-sm transition-opacity mb-2 hover:opacity-80"
+                    style={{ fontFamily: 'Poppins, sans-serif', color: footerSecondaryTextColor }}
                   >
                     {item.title}
                   </Link>
@@ -582,12 +609,12 @@ export default function PublicLayout({ children, currentPageName }) {
 
             {/* Bottom Bar */}
             <div className="mt-12">
-              {/* White horizontal line */}
+              {/* Horizontal line */}
               <div 
                 className="w-full mb-6"
                 style={{ 
                   height: '1px', 
-                  backgroundColor: 'rgba(255,255,255,0.3)' 
+                  backgroundColor: adjustColorOpacity(footerTextColor, 0.3) 
                 }}
               />
               
@@ -597,8 +624,8 @@ export default function PublicLayout({ children, currentPageName }) {
                 <div className="md:col-span-7">
                   {(tenantFooterConfig.legalText || !hasBranding) && (
                     <p 
-                      className="text-white text-sm leading-relaxed"
-                      style={{ fontFamily: 'Poppins, sans-serif' }}
+                      className="text-sm leading-relaxed"
+                      style={{ fontFamily: 'Poppins, sans-serif', color: footerTextColor }}
                     >
                       {tenantFooterConfig.legalText || `© ${new Date().getFullYear()} ${branding?.name || 'All rights reserved'}`}
                     </p>
@@ -612,16 +639,16 @@ export default function PublicLayout({ children, currentPageName }) {
                       href={tenantFooterConfig.termsAndConditionsUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-white text-sm hover:opacity-80 transition-opacity"
-                      style={{ fontFamily: 'Poppins, sans-serif' }}
+                      className="text-sm hover:opacity-80 transition-opacity"
+                      style={{ fontFamily: 'Poppins, sans-serif', color: footerTextColor }}
                       data-testid="link-terms-conditions"
                     >
                       Terms and conditions
                     </a>
                   ) : (
                     <span 
-                      className="text-white text-sm opacity-60"
-                      style={{ fontFamily: 'Poppins, sans-serif' }}
+                      className="text-sm opacity-60"
+                      style={{ fontFamily: 'Poppins, sans-serif', color: footerTextColor }}
                     >
                       Terms and conditions
                     </span>
@@ -631,16 +658,16 @@ export default function PublicLayout({ children, currentPageName }) {
                       href={tenantFooterConfig.privacyPolicyUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-white text-sm hover:opacity-80 transition-opacity"
-                      style={{ fontFamily: 'Poppins, sans-serif' }}
+                      className="text-sm hover:opacity-80 transition-opacity"
+                      style={{ fontFamily: 'Poppins, sans-serif', color: footerTextColor }}
                       data-testid="link-privacy-policy"
                     >
                       Privacy policy
                     </a>
                   ) : (
                     <span 
-                      className="text-white text-sm opacity-60"
-                      style={{ fontFamily: 'Poppins, sans-serif' }}
+                      className="text-sm opacity-60"
+                      style={{ fontFamily: 'Poppins, sans-serif', color: footerTextColor }}
                     >
                       Privacy policy
                     </span>
