@@ -59,7 +59,10 @@ export default async function handler(req, res) {
         is_active,
         parent_id,
         open_in_new_tab,
-        icon
+        icon,
+        link_type,
+        display_type,
+        highlight_style
       `)
       .eq('tenant_id', tenant.id)
       .eq('is_active', true)
