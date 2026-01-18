@@ -549,6 +549,7 @@ function SidebarFooterContent({ memberInfo, memberRole, handleLogout }) {
 function CollapsibleNavItem({ item, location, variant = 'user', hasPendingPOs = false }) {
   const { state } = useSidebar();
   const isCollapsed = state === 'collapsed';
+  const [popoverOpen, setPopoverOpen] = useState(false);
   const Icon = item.icon;
   const isActive = item.url === location.pathname || 
                    (item.subItems && item.subItems.some(sub => sub.url === location.pathname));
@@ -562,7 +563,7 @@ function CollapsibleNavItem({ item, location, variant = 'user', hasPendingPOs = 
   if (isCollapsed) {
     return (
       <SidebarMenuItem>
-        <Popover>
+        <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
           <PopoverTrigger asChild>
             <SidebarMenuButton 
               tooltip={item.title}
@@ -594,6 +595,7 @@ function CollapsibleNavItem({ item, location, variant = 'user', hasPendingPOs = 
                   <Link
                     key={subItem.title}
                     to={subItem.url}
+                    onClick={() => setPopoverOpen(false)}
                     className={`flex items-center gap-2 px-2 py-1.5 rounded-md text-sm ${
                       isSubItemActive ? `${colors.active} font-medium` : `${colors.hover}`
                     }`}
