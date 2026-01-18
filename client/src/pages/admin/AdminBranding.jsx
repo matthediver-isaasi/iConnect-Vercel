@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { 
   ArrowLeft, 
   Loader2,
@@ -52,6 +53,12 @@ export default function AdminBranding() {
     header_config: {
       logoHeight: '',
       logoWidth: '',
+      logoBackground: '',
+      logoBorderRadius: '',
+      logoBorderWidth: '',
+      logoBorderColor: '',
+      logoShadow: 'none',
+      logoPadding: '',
       gradientStops: DEFAULT_GRADIENT_STOPS
     },
     footer_config: {
@@ -134,6 +141,12 @@ export default function AdminBranding() {
               header_config: {
                 logoHeight: t?.header_config?.logoHeight || '',
                 logoWidth: t?.header_config?.logoWidth || '',
+                logoBackground: t?.header_config?.logoBackground || '',
+                logoBorderRadius: t?.header_config?.logoBorderRadius || '',
+                logoBorderWidth: t?.header_config?.logoBorderWidth || '',
+                logoBorderColor: t?.header_config?.logoBorderColor || '',
+                logoShadow: t?.header_config?.logoShadow || 'none',
+                logoPadding: t?.header_config?.logoPadding || '',
                 gradientStops: getGradientStops(t?.header_config)
               },
               footer_config: {
@@ -695,6 +708,196 @@ export default function AdminBranding() {
                 </div>
               </div>
               <p className="text-xs text-slate-500 mt-2">Leave empty for default sizing. The logo will scale proportionally within these constraints.</p>
+
+              <div className="border-t border-slate-700 pt-4 mt-4">
+                <h4 className="text-white font-medium mb-4">Logo Container Styling</h4>
+                
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="header_logo_background" className="text-slate-200">Background Color</Label>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="color"
+                        id="header_logo_background_picker"
+                        value={formData.header_config?.logoBackground || '#ffffff'}
+                        onChange={(e) => setFormData({ 
+                          ...formData, 
+                          header_config: { 
+                            ...formData.header_config, 
+                            logoBackground: e.target.value 
+                          } 
+                        })}
+                        className="w-12 h-10 rounded cursor-pointer"
+                        data-testid="input-header-logo-background-picker"
+                      />
+                      <Input
+                        id="header_logo_background"
+                        value={formData.header_config?.logoBackground || ''}
+                        onChange={(e) => setFormData({ 
+                          ...formData, 
+                          header_config: { 
+                            ...formData.header_config, 
+                            logoBackground: e.target.value 
+                          } 
+                        })}
+                        className="bg-slate-900/50 border-slate-600 text-white flex-1"
+                        placeholder="transparent"
+                        data-testid="input-header-logo-background"
+                      />
+                    </div>
+                    <p className="text-xs text-slate-500">Leave empty for transparent background</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="header_logo_padding" className="text-slate-200">Padding (px)</Label>
+                    <Input
+                      id="header_logo_padding"
+                      type="number"
+                      value={formData.header_config?.logoPadding || ''}
+                      onChange={(e) => setFormData({ 
+                        ...formData, 
+                        header_config: { 
+                          ...formData.header_config, 
+                          logoPadding: e.target.value 
+                        } 
+                      })}
+                      className="bg-slate-900/50 border-slate-600 text-white"
+                      placeholder="0"
+                      data-testid="input-header-logo-padding"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4 mt-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="header_logo_border_radius" className="text-slate-200">Border Radius (px)</Label>
+                    <Input
+                      id="header_logo_border_radius"
+                      type="number"
+                      value={formData.header_config?.logoBorderRadius || ''}
+                      onChange={(e) => setFormData({ 
+                        ...formData, 
+                        header_config: { 
+                          ...formData.header_config, 
+                          logoBorderRadius: e.target.value 
+                        } 
+                      })}
+                      className="bg-slate-900/50 border-slate-600 text-white"
+                      placeholder="0"
+                      data-testid="input-header-logo-border-radius"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="header_logo_shadow" className="text-slate-200">Shadow Effect</Label>
+                    <Select
+                      value={formData.header_config?.logoShadow || 'none'}
+                      onValueChange={(value) => setFormData({ 
+                        ...formData, 
+                        header_config: { 
+                          ...formData.header_config, 
+                          logoShadow: value 
+                        } 
+                      })}
+                    >
+                      <SelectTrigger className="bg-slate-900/50 border-slate-600 text-white" data-testid="select-header-logo-shadow">
+                        <SelectValue placeholder="Select shadow" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">None</SelectItem>
+                        <SelectItem value="sm">Small</SelectItem>
+                        <SelectItem value="md">Medium</SelectItem>
+                        <SelectItem value="lg">Large</SelectItem>
+                        <SelectItem value="xl">Extra Large</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4 mt-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="header_logo_border_width" className="text-slate-200">Border Width (px)</Label>
+                    <Input
+                      id="header_logo_border_width"
+                      type="number"
+                      value={formData.header_config?.logoBorderWidth || ''}
+                      onChange={(e) => setFormData({ 
+                        ...formData, 
+                        header_config: { 
+                          ...formData.header_config, 
+                          logoBorderWidth: e.target.value 
+                        } 
+                      })}
+                      className="bg-slate-900/50 border-slate-600 text-white"
+                      placeholder="0"
+                      data-testid="input-header-logo-border-width"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="header_logo_border_color" className="text-slate-200">Border Color</Label>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="color"
+                        id="header_logo_border_color_picker"
+                        value={formData.header_config?.logoBorderColor || '#000000'}
+                        onChange={(e) => setFormData({ 
+                          ...formData, 
+                          header_config: { 
+                            ...formData.header_config, 
+                            logoBorderColor: e.target.value 
+                          } 
+                        })}
+                        className="w-12 h-10 rounded cursor-pointer"
+                        data-testid="input-header-logo-border-color-picker"
+                      />
+                      <Input
+                        id="header_logo_border_color"
+                        value={formData.header_config?.logoBorderColor || ''}
+                        onChange={(e) => setFormData({ 
+                          ...formData, 
+                          header_config: { 
+                            ...formData.header_config, 
+                            logoBorderColor: e.target.value 
+                          } 
+                        })}
+                        className="bg-slate-900/50 border-slate-600 text-white flex-1"
+                        placeholder="#000000"
+                        data-testid="input-header-logo-border-color"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {(formData.header_config?.logoBackground || formData.header_config?.logoBorderRadius || formData.header_config?.logoBorderWidth || formData.header_config?.logoShadow !== 'none' || formData.header_config?.logoPadding) && formData.header_logo_url && (
+                  <div className="mt-4 p-4 bg-slate-900/50 rounded-lg">
+                    <Label className="text-slate-200 mb-2 block">Preview</Label>
+                    <div className="flex justify-center">
+                      <div
+                        style={{
+                          backgroundColor: formData.header_config?.logoBackground || 'transparent',
+                          borderRadius: formData.header_config?.logoBorderRadius ? `${formData.header_config.logoBorderRadius}px` : '0',
+                          borderWidth: formData.header_config?.logoBorderWidth ? `${formData.header_config.logoBorderWidth}px` : '0',
+                          borderStyle: formData.header_config?.logoBorderWidth ? 'solid' : 'none',
+                          borderColor: formData.header_config?.logoBorderColor || '#000000',
+                          padding: formData.header_config?.logoPadding ? `${formData.header_config.logoPadding}px` : '0',
+                          boxShadow: formData.header_config?.logoShadow === 'sm' ? '0 1px 2px 0 rgb(0 0 0 / 0.05)' :
+                                     formData.header_config?.logoShadow === 'md' ? '0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)' :
+                                     formData.header_config?.logoShadow === 'lg' ? '0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)' :
+                                     formData.header_config?.logoShadow === 'xl' ? '0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)' : 'none'
+                        }}
+                      >
+                        <img 
+                          src={formData.header_logo_url} 
+                          alt="Logo Preview" 
+                          style={{
+                            height: formData.header_config?.logoHeight ? `${Math.min(parseInt(formData.header_config.logoHeight), 80)}px` : '80px',
+                            width: 'auto',
+                            objectFit: 'contain'
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
             </CardContent>
           </Card>
 

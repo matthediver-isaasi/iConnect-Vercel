@@ -94,7 +94,35 @@ export default function PublicHeader() {
   const tenantName = branding?.name || "Graduate Futures Institute";
   const headerLogoHeight = branding?.headerConfig?.logoHeight;
   const headerLogoWidth = branding?.headerConfig?.logoWidth;
+  const logoBackground = branding?.headerConfig?.logoBackground;
+  const logoBorderRadius = branding?.headerConfig?.logoBorderRadius;
+  const logoBorderWidth = branding?.headerConfig?.logoBorderWidth;
+  const logoBorderColor = branding?.headerConfig?.logoBorderColor;
+  const logoShadow = branding?.headerConfig?.logoShadow || 'none';
+  const logoPadding = branding?.headerConfig?.logoPadding;
   const gradientStops = getGradientStops(branding?.headerConfig);
+  
+  const getShadowStyle = (shadowType) => {
+    switch (shadowType) {
+      case 'sm': return '0 1px 2px 0 rgb(0 0 0 / 0.05)';
+      case 'md': return '0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)';
+      case 'lg': return '0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)';
+      case 'xl': return '0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)';
+      default: return 'none';
+    }
+  };
+  
+  const hasLogoContainerStyles = logoBackground || logoBorderRadius || logoBorderWidth || logoShadow !== 'none' || logoPadding;
+  
+  const logoContainerStyle = {
+    backgroundColor: logoBackground || 'transparent',
+    borderRadius: logoBorderRadius ? `${logoBorderRadius}px` : '0',
+    borderWidth: logoBorderWidth ? `${logoBorderWidth}px` : '0',
+    borderStyle: logoBorderWidth ? 'solid' : 'none',
+    borderColor: logoBorderColor || '#000000',
+    padding: logoPadding ? `${logoPadding}px` : '0',
+    boxShadow: getShadowStyle(logoShadow)
+  };
   const topBarGradient = buildGradientFromStops(gradientStops);
   const colorStops = getColorStopsOnly(gradientStops);
   const navIndicatorGradient = colorStops.length > 0 
@@ -785,26 +813,35 @@ export default function PublicHeader() {
           }}
           data-testid="link-header-logo"
         >
-          <img
-            src={headerLogoUrl}
-            alt={tenantName}
-            style={{
-              width: headerLogoWidth ? `${headerLogoWidth}px` : 'auto',
-              height: headerLogoHeight ? `${headerLogoHeight}px` : '158px',
-              maxWidth: headerLogoWidth ? `${headerLogoWidth}px` : 'none',
-              maxHeight: headerLogoHeight ? `${headerLogoHeight}px` : '158px',
-              objectFit: 'contain'
-            }}
-          />
+          <div style={hasLogoContainerStyles ? logoContainerStyle : {}}>
+            <img
+              src={headerLogoUrl}
+              alt={tenantName}
+              style={{
+                width: headerLogoWidth ? `${headerLogoWidth}px` : 'auto',
+                height: headerLogoHeight ? `${headerLogoHeight}px` : '158px',
+                maxWidth: headerLogoWidth ? `${headerLogoWidth}px` : 'none',
+                maxHeight: headerLogoHeight ? `${headerLogoHeight}px` : '158px',
+                objectFit: 'contain',
+                display: 'block'
+              }}
+            />
+          </div>
         </Link>
 
         {/* Mobile: Floating Logo in white box with shadow */}
         <Link 
           to="/"
-          className="absolute z-50 lg:hidden bg-white rounded shadow-md p-2"
+          className="absolute z-50 lg:hidden"
           style={{
             top: '8px',
-            left: '12px'
+            left: '12px',
+            ...(hasLogoContainerStyles ? logoContainerStyle : { 
+              backgroundColor: 'white', 
+              borderRadius: '4px', 
+              padding: '8px',
+              boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)'
+            })
           }}
           data-testid="link-header-logo-mobile-floating"
         >
@@ -815,7 +852,8 @@ export default function PublicHeader() {
               height: headerLogoHeight ? `${Math.min(parseInt(headerLogoHeight), 96)}px` : '96px',
               width: 'auto',
               maxWidth: headerLogoWidth ? `${headerLogoWidth}px` : 'none',
-              objectFit: 'contain'
+              objectFit: 'contain',
+              display: 'block'
             }}
           />
         </Link>
@@ -1101,16 +1139,22 @@ export default function PublicHeader() {
             onClick={() => setMobileMenuOpen(false)}
             data-testid="link-mobile-drawer-logo"
           >
-            <img
-              src={headerLogoUrl}
-              alt={tenantName}
-              style={{
-                height: '40px',
-                width: 'auto',
-                maxWidth: headerLogoWidth ? `${Math.min(parseInt(headerLogoWidth), 150)}px` : '150px',
-                objectFit: 'contain'
-              }}
-            />
+            <div style={hasLogoContainerStyles ? {
+              ...logoContainerStyle,
+              padding: logoPadding ? `${Math.min(parseInt(logoPadding), 8)}px` : '0'
+            } : {}}>
+              <img
+                src={headerLogoUrl}
+                alt={tenantName}
+                style={{
+                  height: '40px',
+                  width: 'auto',
+                  maxWidth: headerLogoWidth ? `${Math.min(parseInt(headerLogoWidth), 150)}px` : '150px',
+                  objectFit: 'contain',
+                  display: 'block'
+                }}
+              />
+            </div>
           </Link>
           <button 
             onClick={() => setMobileMenuOpen(false)}
