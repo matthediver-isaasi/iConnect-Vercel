@@ -23,6 +23,7 @@ import {
   SidebarFooter,
   SidebarProvider,
   SidebarTrigger,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -425,7 +426,92 @@ const adminNavigationItems = [
   },
   ];
 
-
+// Separate component for sidebar footer content to use useSidebar hook
+function SidebarFooterContent({ memberInfo, memberRole, handleLogout }) {
+  const { state } = useSidebar();
+  const isCollapsed = state === 'collapsed';
+  
+  if (!memberInfo) return null;
+  
+  if (isCollapsed) {
+    // Show only icons when collapsed
+    return (
+      <div className="flex flex-col items-center gap-2 py-2">
+        {memberInfo.google_id ? (
+          <SiGoogle className="w-5 h-5 text-[#4285F4]" />
+        ) : (
+          <User className="w-5 h-5 text-slate-500" />
+        )}
+        {memberInfo.hasTenantUserLink && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => {
+              window.location.href = 'https://iconn.app/admin/dashboard';
+            }}
+            title="Admin Dashboard"
+          >
+            <ExternalLink className="w-4 h-4" />
+          </Button>
+        )}
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={handleLogout}
+          title="Sign Out"
+        >
+          <LogOut className="w-4 h-4" />
+        </Button>
+      </div>
+    );
+  }
+  
+  // Full content when expanded
+  return (
+    <div className="space-y-3">
+      <div className="px-3 py-2 bg-slate-50 rounded-lg">
+        <div className="flex items-center gap-2 mb-1">
+          {memberInfo.google_id ? (
+            <SiGoogle className="w-4 h-4 text-[#4285F4]" />
+          ) : (
+            <User className="w-4 h-4 text-slate-500" />
+          )}
+          <span className="text-sm font-medium text-slate-900">
+            {memberInfo.first_name} {memberInfo.last_name}
+          </span>
+        </div>
+        <p className="text-xs text-slate-500 pl-6">{memberInfo.email}</p>
+        {memberRole && (
+          <div className="pl-6 mt-2">
+            <Badge className="bg-purple-100 text-purple-700 text-xs">
+              {memberRole.name}
+            </Badge>
+          </div>
+        )}
+      </div>
+      {memberInfo.hasTenantUserLink && (
+        <Button
+          variant="ghost"
+          className="w-full justify-start text-slate-600 hover:text-slate-900 hover:bg-slate-50"
+          onClick={() => {
+            window.location.href = 'https://iconn.app/admin/dashboard';
+          }}
+        >
+          <ExternalLink className="w-4 h-4 mr-2" />
+          Admin Dashboard
+        </Button>
+      )}
+      <Button
+        variant="ghost"
+        className="w-full justify-start text-slate-600 hover:text-slate-900 hover:bg-slate-50"
+        onClick={handleLogout}
+      >
+        <LogOut className="w-4 h-4 mr-2" />
+        Sign Out
+      </Button>
+    </div>
+  );
+}
 
 export default function Layout({ children, currentPageName }) {
   const location = useLocation();
@@ -1851,52 +1937,11 @@ useEffect(() => {
             </SidebarContent>
 
             <SidebarFooter className="border-t border-slate-200 p-4">
-              {memberInfo && (
-                <div className="space-y-3">
-                  <div className="px-3 py-2 bg-slate-50 rounded-lg">
-                    <div className="flex items-center gap-2 mb-1">
-                      {memberInfo.google_id ? (
-                        <SiGoogle className="w-4 h-4 text-[#4285F4]" />
-                      ) : (
-                        <User className="w-4 h-4 text-slate-500" />
-                      )}
-                      <span className="text-sm font-medium text-slate-900">
-                        {memberInfo.first_name} {memberInfo.last_name}
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-500 pl-6">{memberInfo.email}</p>
-                    {memberRole && (
-                      <div className="pl-6 mt-2">
-                        <Badge className="bg-purple-100 text-purple-700 text-xs">
-                          {memberRole.name}
-                        </Badge>
-                      </div>
-                    )}
-                  </div>
-                  {memberInfo.hasTenantUserLink && (
-                    <Button
-                      variant="ghost"
-                      className="w-full justify-start text-slate-600 hover:text-slate-900 hover:bg-slate-50"
-                      onClick={() => {
-                        // Tenant owners manage all tenants from iconn.app root domain
-                        // Portal subdomains are for members only
-                        window.location.href = 'https://iconn.app/admin/dashboard';
-                      }}
-                    >
-                      <ExternalLink className="w-4 h-4 mr-2" />
-                      Admin Dashboard
-                    </Button>
-                  )}
-                  <Button
-                    variant="ghost"
-                    className="w-full justify-start text-slate-600 hover:text-slate-900 hover:bg-slate-50"
-                    onClick={handleLogout}
-                  >
-                    <LogOut className="w-4 h-4 mr-2" />
-                    Sign Out
-                  </Button>
-                </div>
-              )}
+              <SidebarFooterContent 
+                memberInfo={memberInfo} 
+                memberRole={memberRole} 
+                handleLogout={handleLogout} 
+              />
             </SidebarFooter>
           </Sidebar>
 
