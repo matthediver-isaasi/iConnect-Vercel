@@ -179,7 +179,7 @@ export default function NextEventCountdown({ memberEmail }) {
   const isOnlineEvent = nextEvent.location?.toLowerCase().includes('online') || effectiveJoinUrl;
 
   return (
-    <div className="px-3 py-2">
+    <div className="px-3 py-2 group-data-[collapsible=icon]:hidden">
       <div className={`rounded-lg p-3 border ${
         eventStatus === 'live' 
           ? 'bg-gradient-to-br from-green-50 to-emerald-50 border-green-200' 

@@ -1767,7 +1767,7 @@ useEffect(() => {
               )}
             </SidebarHeader>
             
-            <SidebarContent ref={sidebarContentRef} className="p-3">
+            <SidebarContent ref={sidebarContentRef} className="p-3 group-data-[collapsible=icon]:px-1">
               {/* Form Submission Stats Bar - shows for users with FormSubmissions access */}
               <SubmissionStatsBar />
               
@@ -1785,7 +1785,7 @@ useEffect(() => {
                     Your Account
                   </SidebarGroupLabel>
                   <SidebarGroupContent>
-                    <div className="px-3 py-2 space-y-3">
+                    <div className="px-3 py-2 space-y-3 group-data-[collapsible=icon]:hidden">
                       {organizationInfo.name && (
                         <div className="text-sm">
                           <span className="text-slate-600 block mb-1">Organisation</span>

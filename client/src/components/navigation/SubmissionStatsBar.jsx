@@ -46,7 +46,7 @@ export default function SubmissionStatsBar() {
   };
 
   return (
-    <div className="px-3 py-2">
+    <div className="px-3 py-2 group-data-[collapsible=icon]:hidden">
       <div 
         onClick={handleClick}
         className="flex items-center gap-2 px-3 py-2 rounded-md bg-slate-50 hover:bg-slate-100 transition-colors border border-slate-200 cursor-pointer"
