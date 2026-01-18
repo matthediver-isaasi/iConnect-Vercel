@@ -148,9 +148,15 @@ export default async function handler(req, res) {
           }
         } else if (tenantScope === TENANT_SCOPE.TENANT) {
           // Tenant-scoped entities: filter by tenant_id or fall back to organization_id
+          // These entities have been fully migrated to tenant_id only (no organization_id column):
+          const entitiesWithoutOrgId = [
+            'PortalMenu', 'PortalNavigationItem', 'NavigationItem', 'PageBanner', 'Floater',
+            'FormDueDiligenceConfig', 'FormSubmissionDueDiligence', 'Form', 'ResourceCategory', 'Resource',
+            'FileRepository', 'FileRepositoryFolder', 'Event', 'NewsPost', 'SystemSettings'
+          ];
           if (tenantCtx.tenantId) {
             query = query.eq('tenant_id', tenantCtx.tenantId);
-          } else {
+          } else if (!entitiesWithoutOrgId.includes(entity) && tenantCtx.organizationId) {
             query = query.eq('organization_id', tenantCtx.organizationId);
           }
         }
@@ -198,9 +204,14 @@ export default async function handler(req, res) {
                 beforeQuery = beforeQuery.eq('id', tenantCtx.organizationId);
               }
             } else if (tenantScope === TENANT_SCOPE.TENANT) {
+              const entitiesWithoutOrgId = [
+                'PortalMenu', 'PortalNavigationItem', 'NavigationItem', 'PageBanner', 'Floater',
+                'FormDueDiligenceConfig', 'FormSubmissionDueDiligence', 'Form', 'ResourceCategory', 'Resource',
+                'FileRepository', 'FileRepositoryFolder', 'Event', 'NewsPost', 'SystemSettings'
+              ];
               if (tenantCtx.tenantId) {
                 beforeQuery = beforeQuery.eq('tenant_id', tenantCtx.tenantId);
-              } else {
+              } else if (!entitiesWithoutOrgId.includes(entity) && tenantCtx.organizationId) {
                 beforeQuery = beforeQuery.eq('organization_id', tenantCtx.organizationId);
               }
             }
@@ -275,9 +286,14 @@ export default async function handler(req, res) {
             patchQuery = patchQuery.eq('id', tenantCtx.organizationId);
           }
         } else if (tenantScope === TENANT_SCOPE.TENANT) {
+          const entitiesWithoutOrgId = [
+            'PortalMenu', 'PortalNavigationItem', 'NavigationItem', 'PageBanner', 'Floater',
+            'FormDueDiligenceConfig', 'FormSubmissionDueDiligence', 'Form', 'ResourceCategory', 'Resource',
+            'FileRepository', 'FileRepositoryFolder', 'Event', 'NewsPost', 'SystemSettings'
+          ];
           if (tenantCtx.tenantId) {
             patchQuery = patchQuery.eq('tenant_id', tenantCtx.tenantId);
-          } else {
+          } else if (!entitiesWithoutOrgId.includes(entity) && tenantCtx.organizationId) {
             patchQuery = patchQuery.eq('organization_id', tenantCtx.organizationId);
           }
         }
@@ -368,9 +384,14 @@ export default async function handler(req, res) {
             verifyQuery = verifyQuery.eq('id', tenantCtx.organizationId);
           }
         } else if (tenantScope === TENANT_SCOPE.TENANT) {
+          const entitiesWithoutOrgId = [
+            'PortalMenu', 'PortalNavigationItem', 'NavigationItem', 'PageBanner', 'Floater',
+            'FormDueDiligenceConfig', 'FormSubmissionDueDiligence', 'Form', 'ResourceCategory', 'Resource',
+            'FileRepository', 'FileRepositoryFolder', 'Event', 'NewsPost', 'SystemSettings'
+          ];
           if (tenantCtx.tenantId) {
             verifyQuery = verifyQuery.eq('tenant_id', tenantCtx.tenantId);
-          } else {
+          } else if (!entitiesWithoutOrgId.includes(entity) && tenantCtx.organizationId) {
             verifyQuery = verifyQuery.eq('organization_id', tenantCtx.organizationId);
           }
         }
