@@ -581,7 +581,8 @@ function PagesContent() {
                 
                 <Route path="/Events" element={<Events />} />
                 
-                <Route path="/Home" element={<Home />} />
+                <Route path="/Home" element={<HomePageRedirect />} />
+                <Route path="/home" element={<HomePageRedirect />} />
                 
                 <Route path="/AdminSetup" element={<AdminSetup />} />
                 
