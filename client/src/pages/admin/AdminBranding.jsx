@@ -54,11 +54,16 @@ export default function AdminBranding() {
       logoHeight: '',
       logoWidth: '',
       logoBackground: '',
-      logoBorderRadius: '',
+      logoBorderRadiusTopLeft: '',
+      logoBorderRadiusTopRight: '',
+      logoBorderRadiusBottomLeft: '',
+      logoBorderRadiusBottomRight: '',
       logoBorderWidth: '',
       logoBorderColor: '',
       logoShadow: 'none',
       logoPadding: '',
+      logoMarginTop: '',
+      logoMarginLeft: '',
       gradientStops: DEFAULT_GRADIENT_STOPS
     },
     footer_config: {
@@ -142,11 +147,16 @@ export default function AdminBranding() {
                 logoHeight: t?.header_config?.logoHeight || '',
                 logoWidth: t?.header_config?.logoWidth || '',
                 logoBackground: t?.header_config?.logoBackground || '',
-                logoBorderRadius: t?.header_config?.logoBorderRadius || '',
+                logoBorderRadiusTopLeft: t?.header_config?.logoBorderRadiusTopLeft || t?.header_config?.logoBorderRadius || '',
+                logoBorderRadiusTopRight: t?.header_config?.logoBorderRadiusTopRight || t?.header_config?.logoBorderRadius || '',
+                logoBorderRadiusBottomLeft: t?.header_config?.logoBorderRadiusBottomLeft || t?.header_config?.logoBorderRadius || '',
+                logoBorderRadiusBottomRight: t?.header_config?.logoBorderRadiusBottomRight || t?.header_config?.logoBorderRadius || '',
                 logoBorderWidth: t?.header_config?.logoBorderWidth || '',
                 logoBorderColor: t?.header_config?.logoBorderColor || '',
                 logoShadow: t?.header_config?.logoShadow || 'none',
                 logoPadding: t?.header_config?.logoPadding || '',
+                logoMarginTop: t?.header_config?.logoMarginTop || '',
+                logoMarginLeft: t?.header_config?.logoMarginLeft || '',
                 gradientStops: getGradientStops(t?.header_config)
               },
               footer_config: {
@@ -767,25 +777,85 @@ export default function AdminBranding() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4 mt-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="header_logo_border_radius" className="text-slate-200">Border Radius (px)</Label>
-                    <Input
-                      id="header_logo_border_radius"
-                      type="number"
-                      value={formData.header_config?.logoBorderRadius || ''}
-                      onChange={(e) => setFormData({ 
-                        ...formData, 
-                        header_config: { 
-                          ...formData.header_config, 
-                          logoBorderRadius: e.target.value 
-                        } 
-                      })}
-                      className="bg-slate-900/50 border-slate-600 text-white"
-                      placeholder="0"
-                      data-testid="input-header-logo-border-radius"
-                    />
+                <div className="mt-4">
+                  <Label className="text-slate-200 mb-2 block">Border Radius (px per corner)</Label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label htmlFor="header_logo_border_radius_tl" className="text-slate-400 text-xs">Top Left</Label>
+                      <Input
+                        id="header_logo_border_radius_tl"
+                        type="number"
+                        value={formData.header_config?.logoBorderRadiusTopLeft || ''}
+                        onChange={(e) => setFormData({ 
+                          ...formData, 
+                          header_config: { 
+                            ...formData.header_config, 
+                            logoBorderRadiusTopLeft: e.target.value 
+                          } 
+                        })}
+                        className="bg-slate-900/50 border-slate-600 text-white"
+                        placeholder="0"
+                        data-testid="input-header-logo-border-radius-tl"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="header_logo_border_radius_tr" className="text-slate-400 text-xs">Top Right</Label>
+                      <Input
+                        id="header_logo_border_radius_tr"
+                        type="number"
+                        value={formData.header_config?.logoBorderRadiusTopRight || ''}
+                        onChange={(e) => setFormData({ 
+                          ...formData, 
+                          header_config: { 
+                            ...formData.header_config, 
+                            logoBorderRadiusTopRight: e.target.value 
+                          } 
+                        })}
+                        className="bg-slate-900/50 border-slate-600 text-white"
+                        placeholder="0"
+                        data-testid="input-header-logo-border-radius-tr"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="header_logo_border_radius_bl" className="text-slate-400 text-xs">Bottom Left</Label>
+                      <Input
+                        id="header_logo_border_radius_bl"
+                        type="number"
+                        value={formData.header_config?.logoBorderRadiusBottomLeft || ''}
+                        onChange={(e) => setFormData({ 
+                          ...formData, 
+                          header_config: { 
+                            ...formData.header_config, 
+                            logoBorderRadiusBottomLeft: e.target.value 
+                          } 
+                        })}
+                        className="bg-slate-900/50 border-slate-600 text-white"
+                        placeholder="0"
+                        data-testid="input-header-logo-border-radius-bl"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="header_logo_border_radius_br" className="text-slate-400 text-xs">Bottom Right</Label>
+                      <Input
+                        id="header_logo_border_radius_br"
+                        type="number"
+                        value={formData.header_config?.logoBorderRadiusBottomRight || ''}
+                        onChange={(e) => setFormData({ 
+                          ...formData, 
+                          header_config: { 
+                            ...formData.header_config, 
+                            logoBorderRadiusBottomRight: e.target.value 
+                          } 
+                        })}
+                        className="bg-slate-900/50 border-slate-600 text-white"
+                        placeholder="0"
+                        data-testid="input-header-logo-border-radius-br"
+                      />
+                    </div>
                   </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4 mt-4">
                   <div className="space-y-2">
                     <Label htmlFor="header_logo_shadow" className="text-slate-200">Shadow Effect</Label>
                     <Select
@@ -809,6 +879,49 @@ export default function AdminBranding() {
                         <SelectItem value="xl">Extra Large</SelectItem>
                       </SelectContent>
                     </Select>
+                  </div>
+                </div>
+
+                <div className="border-t border-slate-700 pt-4 mt-4">
+                  <h4 className="text-white font-medium mb-4">Logo Position</h4>
+                  <p className="text-xs text-slate-500 mb-4">Adjust the logo position from the top-left corner. By default the logo sits flush with the top of the page.</p>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="header_logo_margin_top" className="text-slate-200">Margin Top (px)</Label>
+                      <Input
+                        id="header_logo_margin_top"
+                        type="number"
+                        value={formData.header_config?.logoMarginTop || ''}
+                        onChange={(e) => setFormData({ 
+                          ...formData, 
+                          header_config: { 
+                            ...formData.header_config, 
+                            logoMarginTop: e.target.value 
+                          } 
+                        })}
+                        className="bg-slate-900/50 border-slate-600 text-white"
+                        placeholder="0"
+                        data-testid="input-header-logo-margin-top"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="header_logo_margin_left" className="text-slate-200">Margin Left (px)</Label>
+                      <Input
+                        id="header_logo_margin_left"
+                        type="number"
+                        value={formData.header_config?.logoMarginLeft || ''}
+                        onChange={(e) => setFormData({ 
+                          ...formData, 
+                          header_config: { 
+                            ...formData.header_config, 
+                            logoMarginLeft: e.target.value 
+                          } 
+                        })}
+                        className="bg-slate-900/50 border-slate-600 text-white"
+                        placeholder="0"
+                        data-testid="input-header-logo-margin-left"
+                      />
+                    </div>
                   </div>
                 </div>
 
@@ -866,18 +979,23 @@ export default function AdminBranding() {
                   </div>
                 </div>
 
-                {(formData.header_config?.logoBackground || formData.header_config?.logoBorderRadius || formData.header_config?.logoBorderWidth || formData.header_config?.logoShadow !== 'none' || formData.header_config?.logoPadding) && formData.header_logo_url && (
+                {(formData.header_config?.logoBackground || formData.header_config?.logoBorderRadiusTopLeft || formData.header_config?.logoBorderRadiusTopRight || formData.header_config?.logoBorderRadiusBottomLeft || formData.header_config?.logoBorderRadiusBottomRight || formData.header_config?.logoBorderWidth || formData.header_config?.logoShadow !== 'none' || formData.header_config?.logoPadding || formData.header_config?.logoMarginTop || formData.header_config?.logoMarginLeft) && formData.header_logo_url && (
                   <div className="mt-4 p-4 bg-slate-900/50 rounded-lg">
                     <Label className="text-slate-200 mb-2 block">Preview</Label>
                     <div className="flex justify-center">
                       <div
                         style={{
                           backgroundColor: formData.header_config?.logoBackground || 'transparent',
-                          borderRadius: formData.header_config?.logoBorderRadius ? `${formData.header_config.logoBorderRadius}px` : '0',
+                          borderTopLeftRadius: formData.header_config?.logoBorderRadiusTopLeft ? `${formData.header_config.logoBorderRadiusTopLeft}px` : '0',
+                          borderTopRightRadius: formData.header_config?.logoBorderRadiusTopRight ? `${formData.header_config.logoBorderRadiusTopRight}px` : '0',
+                          borderBottomLeftRadius: formData.header_config?.logoBorderRadiusBottomLeft ? `${formData.header_config.logoBorderRadiusBottomLeft}px` : '0',
+                          borderBottomRightRadius: formData.header_config?.logoBorderRadiusBottomRight ? `${formData.header_config.logoBorderRadiusBottomRight}px` : '0',
                           borderWidth: formData.header_config?.logoBorderWidth ? `${formData.header_config.logoBorderWidth}px` : '0',
                           borderStyle: formData.header_config?.logoBorderWidth ? 'solid' : 'none',
                           borderColor: formData.header_config?.logoBorderColor || '#000000',
                           padding: formData.header_config?.logoPadding ? `${formData.header_config.logoPadding}px` : '0',
+                          marginTop: formData.header_config?.logoMarginTop ? `${formData.header_config.logoMarginTop}px` : '0',
+                          marginLeft: formData.header_config?.logoMarginLeft ? `${formData.header_config.logoMarginLeft}px` : '0',
                           boxShadow: formData.header_config?.logoShadow === 'sm' ? '0 1px 2px 0 rgb(0 0 0 / 0.05)' :
                                      formData.header_config?.logoShadow === 'md' ? '0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)' :
                                      formData.header_config?.logoShadow === 'lg' ? '0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)' :

@@ -95,11 +95,16 @@ export default function PublicHeader() {
   const headerLogoHeight = branding?.headerConfig?.logoHeight;
   const headerLogoWidth = branding?.headerConfig?.logoWidth;
   const logoBackground = branding?.headerConfig?.logoBackground;
-  const logoBorderRadius = branding?.headerConfig?.logoBorderRadius;
+  const logoBorderRadiusTopLeft = branding?.headerConfig?.logoBorderRadiusTopLeft || branding?.headerConfig?.logoBorderRadius;
+  const logoBorderRadiusTopRight = branding?.headerConfig?.logoBorderRadiusTopRight || branding?.headerConfig?.logoBorderRadius;
+  const logoBorderRadiusBottomLeft = branding?.headerConfig?.logoBorderRadiusBottomLeft || branding?.headerConfig?.logoBorderRadius;
+  const logoBorderRadiusBottomRight = branding?.headerConfig?.logoBorderRadiusBottomRight || branding?.headerConfig?.logoBorderRadius;
   const logoBorderWidth = branding?.headerConfig?.logoBorderWidth;
   const logoBorderColor = branding?.headerConfig?.logoBorderColor;
   const logoShadow = branding?.headerConfig?.logoShadow || 'none';
   const logoPadding = branding?.headerConfig?.logoPadding;
+  const logoMarginTop = branding?.headerConfig?.logoMarginTop;
+  const logoMarginLeft = branding?.headerConfig?.logoMarginLeft;
   const gradientStops = getGradientStops(branding?.headerConfig);
   
   const getShadowStyle = (shadowType) => {
@@ -112,11 +117,14 @@ export default function PublicHeader() {
     }
   };
   
-  const hasLogoContainerStyles = logoBackground || logoBorderRadius || logoBorderWidth || logoShadow !== 'none' || logoPadding;
+  const hasLogoContainerStyles = logoBackground || logoBorderRadiusTopLeft || logoBorderRadiusTopRight || logoBorderRadiusBottomLeft || logoBorderRadiusBottomRight || logoBorderWidth || logoShadow !== 'none' || logoPadding;
   
   const logoContainerStyle = {
     backgroundColor: logoBackground || 'transparent',
-    borderRadius: logoBorderRadius ? `${logoBorderRadius}px` : '0',
+    borderTopLeftRadius: logoBorderRadiusTopLeft ? `${logoBorderRadiusTopLeft}px` : '0',
+    borderTopRightRadius: logoBorderRadiusTopRight ? `${logoBorderRadiusTopRight}px` : '0',
+    borderBottomLeftRadius: logoBorderRadiusBottomLeft ? `${logoBorderRadiusBottomLeft}px` : '0',
+    borderBottomRightRadius: logoBorderRadiusBottomRight ? `${logoBorderRadiusBottomRight}px` : '0',
     borderWidth: logoBorderWidth ? `${logoBorderWidth}px` : '0',
     borderStyle: logoBorderWidth ? 'solid' : 'none',
     borderColor: logoBorderColor || '#000000',
@@ -805,11 +813,10 @@ export default function PublicHeader() {
         {/* Desktop: Overlapping Logo */}
         <Link 
           to="/"
-          className="mt-4 absolute z-50 hidden lg:block"
+          className="absolute z-50 hidden lg:block"
           style={{
-            top: '0',
-            left: 'max(1rem, calc((100vw - 80rem) / 2))',
-            transform: 'translateY(-10px)'
+            top: logoMarginTop ? `${logoMarginTop}px` : '0',
+            left: logoMarginLeft ? `calc(max(1rem, calc((100vw - 80rem) / 2)) + ${logoMarginLeft}px)` : 'max(1rem, calc((100vw - 80rem) / 2))'
           }}
           data-testid="link-header-logo"
         >
@@ -834,8 +841,8 @@ export default function PublicHeader() {
           to="/"
           className="absolute z-50 lg:hidden"
           style={{
-            top: '8px',
-            left: '12px',
+            top: logoMarginTop ? `${logoMarginTop}px` : '8px',
+            left: logoMarginLeft ? `${parseInt(logoMarginLeft) + 12}px` : '12px',
             ...(hasLogoContainerStyles ? logoContainerStyle : { 
               backgroundColor: 'white', 
               borderRadius: '4px', 
