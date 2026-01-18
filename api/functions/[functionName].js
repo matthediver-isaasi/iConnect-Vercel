@@ -2671,26 +2671,24 @@ const functionHandlers = {
     console.log(`[setPublicHomePage] Setting home page to: ${slug || '(none)'} for tenant: ${tenantId}`);
 
     // First try to find existing setting for this tenant
-    const { data: existingSettings, error: fetchError } = await supabase
+    const { data: tenantSettings, error: tenantFetchError } = await supabase
       .from('system_settings')
       .select('*')
       .eq('setting_key', settingKey)
       .eq('tenant_id', tenantId);
 
-    if (fetchError) {
-      console.error('[setPublicHomePage] Error fetching settings:', fetchError);
-      throw new Error(fetchError.message);
+    if (tenantFetchError) {
+      console.error('[setPublicHomePage] Error fetching tenant settings:', tenantFetchError);
+      throw new Error(tenantFetchError.message);
     }
 
-    const existingSetting = existingSettings?.[0];
-
-    if (existingSetting) {
-      // Update existing setting
+    // If we have a setting for this tenant, update it
+    if (tenantSettings && tenantSettings.length > 0) {
+      const existingSetting = tenantSettings[0];
       const { data, error } = await supabase
         .from('system_settings')
         .update({ setting_value: slug || '' })
         .eq('id', existingSetting.id)
-        .eq('tenant_id', tenantId)
         .select()
         .single();
 
@@ -2699,28 +2697,65 @@ const functionHandlers = {
         throw new Error(error.message);
       }
 
-      console.log('[setPublicHomePage] Updated existing setting:', data);
+      console.log('[setPublicHomePage] Updated existing tenant setting:', data);
       return { success: true, data };
-    } else {
-      // Create new setting with tenant_id
+    }
+
+    // Check if there's an existing setting without tenant_id (legacy data)
+    const { data: legacySettings, error: legacyFetchError } = await supabase
+      .from('system_settings')
+      .select('*')
+      .eq('setting_key', settingKey)
+      .is('tenant_id', null);
+
+    if (legacyFetchError) {
+      console.error('[setPublicHomePage] Error fetching legacy settings:', legacyFetchError);
+    }
+
+    // If there's a legacy setting without tenant_id, update it with tenant_id
+    if (legacySettings && legacySettings.length > 0) {
+      const legacySetting = legacySettings[0];
       const { data, error } = await supabase
         .from('system_settings')
-        .insert({
-          setting_key: settingKey,
+        .update({ 
           setting_value: slug || '',
           tenant_id: tenantId
         })
+        .eq('id', legacySetting.id)
         .select()
         .single();
 
       if (error) {
-        console.error('[setPublicHomePage] Error creating setting:', error);
+        console.error('[setPublicHomePage] Error updating legacy setting:', error);
         throw new Error(error.message);
       }
 
-      console.log('[setPublicHomePage] Created new setting:', data);
+      console.log('[setPublicHomePage] Updated legacy setting with tenant_id:', data);
       return { success: true, data };
     }
+
+    // No existing setting found, try to create new one
+    // Use upsert to handle race conditions and constraint violations
+    const { data, error } = await supabase
+      .from('system_settings')
+      .upsert({
+        setting_key: settingKey,
+        setting_value: slug || '',
+        tenant_id: tenantId
+      }, {
+        onConflict: 'setting_key',
+        ignoreDuplicates: false
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('[setPublicHomePage] Error upserting setting:', error);
+      throw new Error(error.message);
+    }
+
+    console.log('[setPublicHomePage] Upserted setting:', data);
+    return { success: true, data };
   },
 
   async createJobPostingMember(params, req) {
