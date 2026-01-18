@@ -64,7 +64,8 @@ export default async function handler(req, res) {
         display_type,
         button_style,
         highlight_style,
-        footer_column
+        footer_column,
+        content_block_type
       `)
       .eq('tenant_id', tenant.id)
       .eq('is_active', true)

@@ -18,6 +18,15 @@ import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 
+// Footer content block types that reference branding configuration sections
+const footerContentBlocks = [
+  { type: 'address', label: 'Address', icon: MapPin, description: 'Display address from branding settings' },
+  { type: 'contact', label: 'Contact', icon: Phone, description: 'Display phone & email from branding settings' },
+  { type: 'cta', label: 'Call to Action', icon: Zap, description: 'Display CTA button from branding settings' },
+  { type: 'newsletter', label: 'Newsletter', icon: Mail, description: 'Display newsletter signup from branding settings' },
+  { type: 'legal', label: 'Legal', icon: FileText, description: 'Display legal text, terms & privacy links' }
+];
+
 // Available Lucide icons for navigation
 const availableIcons = [
   { name: "Calendar", component: Calendar },
@@ -384,22 +393,43 @@ export default function NavigationManagementPage() {
     setShowDialog(true);
   };
 
-  const handleCreateFooter = (column = 1) => {
-    setEditingItem({
-      title: "",
-      url: "",
-      link_type: "internal",
-      location: "footer",
-      parent_id: null,
-      display_order: navItems.filter(i => i.location === 'footer' && i.footer_column === column).length,
-      is_active: true,
-      open_in_new_tab: false,
-      icon: "",
-      description: "",
-      display_type: "link",
-      button_style: null,
-      footer_column: column
-    });
+  const handleCreateFooter = (column = 1, contentBlockType = null) => {
+    if (contentBlockType) {
+      // Creating a content block
+      const blockDef = footerContentBlocks.find(b => b.type === contentBlockType);
+      setEditingItem({
+        title: blockDef?.label || contentBlockType,
+        url: "",
+        link_type: "content_block",
+        content_block_type: contentBlockType,
+        location: "footer",
+        footer_column: column,
+        display_order: footerItems.length + 1,
+        is_active: true,
+        open_in_new_tab: false,
+        icon: null,
+        parent_id: null,
+        display_type: 'link',
+        button_style: 'primary'
+      });
+    } else {
+      // Creating a regular link
+      setEditingItem({
+        title: "",
+        url: "",
+        link_type: "internal",
+        location: "footer",
+        parent_id: null,
+        display_order: navItems.filter(i => i.location === 'footer' && i.footer_column === column).length,
+        is_active: true,
+        open_in_new_tab: false,
+        icon: "",
+        description: "",
+        display_type: "link",
+        button_style: null,
+        footer_column: column
+      });
+    }
     setShowDialog(true);
   };
 
@@ -409,8 +439,13 @@ export default function NavigationManagementPage() {
   };
 
   const handleSave = () => {
-    if (!editingItem.title || !editingItem.url) {
-      toast.error('Title and URL are required');
+    // Content blocks don't require a URL
+    if (!editingItem.title) {
+      toast.error('Title is required');
+      return;
+    }
+    if (editingItem.link_type !== 'content_block' && !editingItem.url) {
+      toast.error('URL is required');
       return;
     }
 
@@ -716,32 +751,69 @@ export default function NavigationManagementPage() {
             </Card>
 
             {/* Footer Filters and Actions */}
-            <div className="flex gap-4">
-              <Select value={footerFilterColumn} onValueChange={setFooterFilterColumn}>
-                <SelectTrigger className="w-48" data-testid="select-filter-footer-column">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Columns</SelectItem>
-                  {Array.from({ length: footerColumns }, (_, i) => (
-                    <SelectItem key={i + 1} value={String(i + 1)}>Column {i + 1}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <div className="flex flex-col gap-4">
+              <div className="flex gap-4 items-center">
+                <Select value={footerFilterColumn} onValueChange={setFooterFilterColumn}>
+                  <SelectTrigger className="w-48" data-testid="select-filter-footer-column">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Columns</SelectItem>
+                    {Array.from({ length: footerColumns }, (_, i) => (
+                      <SelectItem key={i + 1} value={String(i + 1)}>Column {i + 1}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
 
-              <div className="flex gap-2 ml-auto flex-wrap">
-                {Array.from({ length: footerColumns }, (_, i) => (
-                  <Button 
-                    key={i + 1}
-                    onClick={() => handleCreateFooter(i + 1)} 
-                    variant="outline"
-                    data-testid={`button-add-footer-col-${i + 1}`}
-                  >
-                    <Plus className="w-4 h-4 mr-2" />
-                    Add to Column {i + 1}
-                  </Button>
-                ))}
+                <div className="flex gap-2 ml-auto flex-wrap">
+                  {Array.from({ length: footerColumns }, (_, i) => (
+                    <Button 
+                      key={i + 1}
+                      onClick={() => handleCreateFooter(i + 1)} 
+                      variant="outline"
+                      data-testid={`button-add-footer-col-${i + 1}`}
+                    >
+                      <Plus className="w-4 h-4 mr-2" />
+                      Add Link to Col {i + 1}
+                    </Button>
+                  ))}
+                </div>
               </div>
+              
+              {/* Content Blocks Section */}
+              <Card className="border-slate-200 bg-slate-50">
+                <CardContent className="p-4">
+                  <div className="flex flex-col gap-3">
+                    <h4 className="text-sm font-medium text-slate-700">Add Content Blocks</h4>
+                    <p className="text-xs text-slate-500">
+                      Content blocks display information from your branding settings (address, contact info, etc.)
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {footerContentBlocks.map(block => {
+                        const IconComponent = block.icon;
+                        return (
+                          <div key={block.type} className="flex items-center gap-2 bg-white border rounded-lg p-2">
+                            <div className="flex items-center gap-2">
+                              <IconComponent className="w-4 h-4 text-slate-500" />
+                              <span className="text-sm font-medium">{block.label}</span>
+                            </div>
+                            <Select onValueChange={(col) => handleCreateFooter(parseInt(col, 10), block.type)}>
+                              <SelectTrigger className="w-28 h-8" data-testid={`select-add-block-${block.type}`}>
+                                <SelectValue placeholder="Add to..." />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {Array.from({ length: footerColumns }, (_, i) => (
+                                  <SelectItem key={i + 1} value={String(i + 1)}>Column {i + 1}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
             </div>
 
             {/* Footer Navigation Items List */}
@@ -788,16 +860,30 @@ export default function NavigationManagementPage() {
                           <p className="text-sm text-slate-400 italic">No items</p>
                         ) : (
                           colItems.map(item => {
-                            const IconComponent = availableIcons.find(i => i.name === item.icon)?.component;
+                            const isContentBlock = item.link_type === 'content_block';
+                            const blockDef = isContentBlock ? footerContentBlocks.find(b => b.type === item.content_block_type) : null;
+                            const IconComponent = isContentBlock 
+                              ? blockDef?.icon 
+                              : availableIcons.find(i => i.name === item.icon)?.component;
                             return (
                               <div 
                                 key={item.id} 
-                                className="flex items-center gap-2 p-2 bg-slate-50 rounded-lg hover:bg-slate-100 transition-colors"
+                                className={`flex items-center gap-2 p-2 rounded-lg transition-colors ${
+                                  isContentBlock 
+                                    ? 'bg-purple-50 border border-purple-200 hover:bg-purple-100' 
+                                    : 'bg-slate-50 hover:bg-slate-100'
+                                }`}
                               >
-                                {IconComponent && <IconComponent className="w-4 h-4 text-slate-500" />}
+                                {IconComponent && <IconComponent className={`w-4 h-4 ${isContentBlock ? 'text-purple-600' : 'text-slate-500'}`} />}
                                 <div className="flex-1 min-w-0">
                                   <span className="text-sm font-medium text-slate-800 truncate block">{item.title}</span>
-                                  <span className="text-xs text-slate-500 truncate block">{item.url}</span>
+                                  {isContentBlock ? (
+                                    <Badge variant="outline" className="text-xs text-purple-600 border-purple-300">
+                                      {blockDef?.label || 'Content Block'}
+                                    </Badge>
+                                  ) : (
+                                    <span className="text-xs text-slate-500 truncate block">{item.url}</span>
+                                  )}
                                 </div>
                                 <div className="flex items-center gap-1">
                                   <Button
@@ -865,10 +951,17 @@ export default function NavigationManagementPage() {
 
                 <div className="grid md:grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="link_type">Link Type</Label>
+                    <Label htmlFor="link_type">Item Type</Label>
                     <Select
                       value={editingItem.link_type}
-                      onValueChange={(value) => setEditingItem({ ...editingItem, link_type: value })}
+                      onValueChange={(value) => setEditingItem({ 
+                        ...editingItem, 
+                        link_type: value,
+                        // Clear URL when switching to content block
+                        url: value === 'content_block' ? '' : editingItem.url,
+                        // Set default content block type
+                        content_block_type: value === 'content_block' ? (editingItem.content_block_type || 'address') : null
+                      })}
                     >
                       <SelectTrigger>
                         <SelectValue />
@@ -876,6 +969,9 @@ export default function NavigationManagementPage() {
                       <SelectContent>
                         <SelectItem value="internal">Internal Page</SelectItem>
                         <SelectItem value="external">External URL</SelectItem>
+                        {editingItem.location === 'footer' && (
+                          <SelectItem value="content_block">Content Block</SelectItem>
+                        )}
                       </SelectContent>
                     </Select>
                   </div>
@@ -884,7 +980,14 @@ export default function NavigationManagementPage() {
                     <Label htmlFor="location">Navigation Area</Label>
                     <Select
                       value={editingItem.location}
-                      onValueChange={(value) => setEditingItem({ ...editingItem, location: value, footer_column: value === 'footer' ? 1 : null })}
+                      onValueChange={(value) => setEditingItem({ 
+                        ...editingItem, 
+                        location: value, 
+                        footer_column: value === 'footer' ? 1 : null,
+                        // Reset link_type if switching away from footer with content_block
+                        link_type: value !== 'footer' && editingItem.link_type === 'content_block' ? 'internal' : editingItem.link_type,
+                        content_block_type: value !== 'footer' ? null : editingItem.content_block_type
+                      })}
                     >
                       <SelectTrigger>
                         <SelectValue />
@@ -900,61 +1003,88 @@ export default function NavigationManagementPage() {
 
                 {/* Footer Column Selector - only show when location is footer */}
                 {editingItem.location === 'footer' && (
-                  <div className="space-y-2">
-                    <Label htmlFor="footer_column">Footer Column</Label>
-                    <Select
-                      value={String(editingItem.footer_column || 1)}
-                      onValueChange={(value) => setEditingItem({ ...editingItem, footer_column: parseInt(value, 10) })}
-                    >
-                      <SelectTrigger data-testid="select-footer-column">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {Array.from({ length: footerColumns }, (_, i) => (
-                          <SelectItem key={i + 1} value={String(i + 1)}>Column {i + 1}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <p className="text-xs text-slate-500">
-                      Which footer column this link should appear in
-                    </p>
+                  <div className="grid md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="footer_column">Footer Column</Label>
+                      <Select
+                        value={String(editingItem.footer_column || 1)}
+                        onValueChange={(value) => setEditingItem({ ...editingItem, footer_column: parseInt(value, 10) })}
+                      >
+                        <SelectTrigger data-testid="select-footer-column">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {Array.from({ length: footerColumns }, (_, i) => (
+                            <SelectItem key={i + 1} value={String(i + 1)}>Column {i + 1}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    
+                    {/* Content Block Type Selector - only show when link_type is content_block */}
+                    {editingItem.link_type === 'content_block' && (
+                      <div className="space-y-2">
+                        <Label htmlFor="content_block_type">Content Block Type</Label>
+                        <Select
+                          value={editingItem.content_block_type || 'address'}
+                          onValueChange={(value) => setEditingItem({ ...editingItem, content_block_type: value })}
+                        >
+                          <SelectTrigger data-testid="select-content-block-type">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {footerContentBlocks.map(block => (
+                              <SelectItem key={block.type} value={block.type}>
+                                {block.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-slate-500">
+                          This block will display content from your branding settings
+                        </p>
+                      </div>
+                    )}
                   </div>
                 )}
 
-                <div className="space-y-2">
-                  <Label htmlFor="url">
-                    {editingItem.link_type === 'internal' ? 'Page *' : 'URL *'}
-                  </Label>
-                  {editingItem.link_type === 'internal' ? (
-                    <Select
-                      value={editingItem.url}
-                      onValueChange={(value) => setEditingItem({ ...editingItem, url: value })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select a page..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {availablePages.map(page => (
-                          <SelectItem key={page.name} value={page.name}>
-                            {page.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  ) : (
-                    <Input
-                      id="url"
-                      value={editingItem.url}
-                      onChange={(e) => setEditingItem({ ...editingItem, url: e.target.value })}
-                      placeholder="e.g., https://example.com"
-                    />
-                  )}
-                  <p className="text-xs text-slate-500">
-                    {editingItem.link_type === 'internal' 
-                      ? 'Select from available public pages'
-                      : 'Enter the full URL including https://'}
-                  </p>
-                </div>
+                {/* URL/Page selector - hide for content blocks */}
+                {editingItem.link_type !== 'content_block' && (
+                  <div className="space-y-2">
+                    <Label htmlFor="url">
+                      {editingItem.link_type === 'internal' ? 'Page *' : 'URL *'}
+                    </Label>
+                    {editingItem.link_type === 'internal' ? (
+                      <Select
+                        value={editingItem.url}
+                        onValueChange={(value) => setEditingItem({ ...editingItem, url: value })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select a page..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {availablePages.map(page => (
+                            <SelectItem key={page.name} value={page.name}>
+                              {page.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Input
+                        id="url"
+                        value={editingItem.url}
+                        onChange={(e) => setEditingItem({ ...editingItem, url: e.target.value })}
+                        placeholder="e.g., https://example.com"
+                      />
+                    )}
+                    <p className="text-xs text-slate-500">
+                      {editingItem.link_type === 'internal' 
+                        ? 'Select from available public pages'
+                        : 'Enter the full URL including https://'}
+                    </p>
+                  </div>
+                )}
 
                 <div className="space-y-2">
                   <Label htmlFor="parent">Parent Item (for sub-menu)</Label>
