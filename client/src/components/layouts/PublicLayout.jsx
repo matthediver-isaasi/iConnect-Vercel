@@ -581,12 +581,20 @@ export default function PublicLayout({ children, currentPageName }) {
                 );
               };
               
-              // Group items by column
+              // Group items by column - items in columns beyond configured count go to last column
               const itemsByColumn = {};
               for (let i = 1; i <= footerColumns; i++) {
-                itemsByColumn[i] = footerNavItems
-                  .filter(item => (item.footer_column || 1) === i)
-                  .sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
+                itemsByColumn[i] = [];
+              }
+              footerNavItems.forEach(item => {
+                const assignedColumn = item.footer_column || 1;
+                // Clamp to configured columns range
+                const targetColumn = Math.min(Math.max(assignedColumn, 1), footerColumns);
+                itemsByColumn[targetColumn].push(item);
+              });
+              // Sort items within each column
+              for (let i = 1; i <= footerColumns; i++) {
+                itemsByColumn[i].sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
               }
               
               return (
