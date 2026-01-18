@@ -274,7 +274,10 @@ export default function PublicLayout({ children, currentPageName }) {
         </main>
 
         {/* Public Footer */}
-        <footer className="bg-black text-white">
+        <footer 
+          className="text-white"
+          style={{ backgroundColor: tenantFooterConfig.backgroundColor || '#000000' }}
+        >
           {/* Gradient Bar */}
           <div 
             className="w-full"
