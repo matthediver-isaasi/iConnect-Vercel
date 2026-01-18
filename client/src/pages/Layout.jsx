@@ -28,6 +28,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetClose } from "@/components/ui/sheet";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import PublicLayout from "@/components/layouts/PublicLayout";
@@ -541,6 +542,120 @@ function SidebarFooterContent({ memberInfo, memberRole, handleLogout }) {
         Sign Out
       </Button>
     </div>
+  );
+}
+
+// Navigation item component that handles both expanded (collapsible) and collapsed (popover) states
+function CollapsibleNavItem({ item, location, variant = 'user', hasPendingPOs = false }) {
+  const { state } = useSidebar();
+  const isCollapsed = state === 'collapsed';
+  const Icon = item.icon;
+  const isActive = item.url === location.pathname || 
+                   (item.subItems && item.subItems.some(sub => sub.url === location.pathname));
+  
+  // Variant-specific colors
+  const colors = variant === 'admin' 
+    ? { hover: 'hover:bg-amber-50 hover:text-amber-700', active: 'bg-amber-50 text-amber-700' }
+    : { hover: 'hover:bg-blue-50 hover:text-blue-700', active: 'bg-blue-50 text-blue-700' };
+  
+  // When collapsed, show popover with submenu
+  if (isCollapsed) {
+    return (
+      <SidebarMenuItem>
+        <Popover>
+          <PopoverTrigger asChild>
+            <SidebarMenuButton 
+              tooltip={item.title}
+              isActive={isActive}
+              className={`${colors.hover} transition-colors rounded-lg mb-1 ${
+                isActive ? `${colors.active} font-medium` : ''
+              }`}
+              data-testid={`button-nav-parent-${item.title.toLowerCase().replace(/\s+/g, '-')}`}
+            >
+              <Icon className="w-4 h-4 shrink-0" />
+              <span className="group-data-[collapsible=icon]:hidden">{item.title}</span>
+              <ChevronRight className="ml-auto w-4 h-4 group-data-[collapsible=icon]:hidden" />
+            </SidebarMenuButton>
+          </PopoverTrigger>
+          <PopoverContent 
+            side="right" 
+            align="start" 
+            sideOffset={8}
+            className="w-48 p-2"
+            data-testid={`popover-submenu-${item.title.toLowerCase().replace(/\s+/g, '-')}`}
+          >
+            <div className="font-medium text-sm mb-2 px-2 text-slate-700">{item.title}</div>
+            <div className="space-y-1">
+              {item.subItems.map(subItem => {
+                const isSubItemActive = subItem.url === location.pathname;
+                const isBookingsPage = subItem.url?.toLowerCase() === '/bookings';
+                const showSubPendingPOWarning = hasPendingPOs && isBookingsPage && variant === 'user';
+                return (
+                  <Link
+                    key={subItem.title}
+                    to={subItem.url}
+                    className={`flex items-center gap-2 px-2 py-1.5 rounded-md text-sm ${
+                      isSubItemActive ? `${colors.active} font-medium` : `${colors.hover}`
+                    }`}
+                    data-testid={`link-submenu-${subItem.title.toLowerCase().replace(/\s+/g, '-')}`}
+                  >
+                    <span className="flex-1">{subItem.title}</span>
+                    {showSubPendingPOWarning && (
+                      <Bell className="w-3 h-3 text-amber-500 animate-pulse" />
+                    )}
+                  </Link>
+                );
+              })}
+            </div>
+          </PopoverContent>
+        </Popover>
+      </SidebarMenuItem>
+    );
+  }
+  
+  // When expanded, use standard collapsible
+  return (
+    <Collapsible defaultOpen={isActive}>
+      <SidebarMenuItem>
+        <CollapsibleTrigger asChild>
+          <SidebarMenuButton 
+            tooltip={item.title}
+            isActive={isActive}
+            className={`${colors.hover} transition-colors rounded-lg mb-1 ${
+              isActive ? `${colors.active} font-medium` : ''
+            }`}
+          >
+            <Icon className="w-4 h-4 shrink-0" />
+            <span className="group-data-[collapsible=icon]:hidden">{item.title}</span>
+            <ChevronRight className="ml-auto w-4 h-4 transition-transform group-data-[state=open]/collapsible:rotate-90 group-data-[collapsible=icon]:hidden" />
+          </SidebarMenuButton>
+        </CollapsibleTrigger>
+      </SidebarMenuItem>
+      <CollapsibleContent>
+        <SidebarMenuSub>
+          {item.subItems.map(subItem => {
+            const isSubItemActive = subItem.url === location.pathname;
+            const isBookingsPage = subItem.url?.toLowerCase() === '/bookings';
+            const showSubPendingPOWarning = hasPendingPOs && isBookingsPage && variant === 'user';
+            return (
+              <SidebarMenuSubItem key={subItem.title}>
+                <Link
+                  to={subItem.url}
+                  className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm ${
+                    isSubItemActive ? `${colors.active} font-medium` : colors.hover
+                  }`}
+                >
+                  <span className="flex-1">{subItem.title}</span>
+                  {showSubPendingPOWarning && (
+                    <Bell className="w-4 h-4 text-amber-500 animate-pulse" data-testid="pending-po-warning-bell-sub" />
+                  )}
+                </Link>
+              </SidebarMenuSubItem>
+            );
+          })}
+        </SidebarMenuSub>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 
@@ -1822,48 +1937,13 @@ useEffect(() => {
 
                       if (item.subItems) {
                         return (
-                          <Collapsible key={item.title} defaultOpen={isActive}>
-                            <SidebarMenuItem>
-                                <CollapsibleTrigger asChild>
-                                  <SidebarMenuButton 
-                                    tooltip={item.title}
-                                    isActive={isActive}
-                                    className={`hover:bg-blue-50 hover:text-blue-700 transition-colors rounded-lg mb-1 ${
-                                      isActive ? 'bg-blue-50 text-blue-700 font-medium' : ''
-                                    }`}
-                                  >
-                                    <Icon className="w-4 h-4 shrink-0" />
-                                    <span className="group-data-[collapsible=icon]:hidden">{item.title}</span>
-                                    <ChevronRight className="ml-auto w-4 h-4 transition-transform group-data-[state=open]/collapsible:rotate-90 group-data-[collapsible=icon]:hidden" />
-                                  </SidebarMenuButton>
-                                </CollapsibleTrigger>
-                            </SidebarMenuItem>
-                            <CollapsibleContent>
-                              <SidebarMenuSub>
-                                {item.subItems.map(subItem => {
-                                  const isSubItemActive = subItem.url === location.pathname;
-                                  // Show pending PO bell only on the Bookings page link
-                                  const isBookingsPage = subItem.url?.toLowerCase() === '/bookings';
-                                  const showSubPendingPOWarning = hasPendingPOs && isBookingsPage;
-                                  return (
-                                    <SidebarMenuSubItem key={subItem.title}>
-                                      <Link
-                                        to={subItem.url}
-                                        className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm ${
-                                          isSubItemActive ? 'bg-blue-50 text-blue-700 font-medium' : 'hover:bg-blue-50 hover:text-blue-700'
-                                        }`}
-                                      >
-                                        <span className="flex-1">{subItem.title}</span>
-                                        {showSubPendingPOWarning && (
-                                          <Bell className="w-4 h-4 text-amber-500 animate-pulse" data-testid="pending-po-warning-bell-sub" />
-                                        )}
-                                      </Link>
-                                    </SidebarMenuSubItem>
-                                  );
-                                })}
-                              </SidebarMenuSub>
-                            </CollapsibleContent>
-                          </Collapsible>
+                          <CollapsibleNavItem 
+                            key={item.title} 
+                            item={item} 
+                            location={location} 
+                            variant="user"
+                            hasPendingPOs={hasPendingPOs}
+                          />
                         );
                       } else {
                         // Show pending PO bell only on the Bookings page link
@@ -1914,42 +1994,12 @@ useEffect(() => {
 
                         if (item.subItems) {
                           return (
-                            <Collapsible key={item.title} defaultOpen={isActive}>
-                              <SidebarMenuItem>
-                                <CollapsibleTrigger asChild>
-                                  <SidebarMenuButton 
-                                    tooltip={item.title}
-                                    isActive={isActive}
-                                    className={`hover:bg-amber-50 hover:text-amber-700 transition-colors rounded-lg mb-1 ${
-                                      isActive ? 'bg-amber-50 text-amber-700 font-medium' : ''
-                                    }`}
-                                  >
-                                    <Icon className="w-4 h-4 shrink-0" />
-                                    <span className="group-data-[collapsible=icon]:hidden">{item.title}</span>
-                                    <ChevronRight className="ml-auto w-4 h-4 transition-transform group-data-[state=open]/collapsible:rotate-90 group-data-[collapsible=icon]:hidden" />
-                                  </SidebarMenuButton>
-                                </CollapsibleTrigger>
-                              </SidebarMenuItem>
-                              <CollapsibleContent>
-                                <SidebarMenuSub>
-                                  {item.subItems.map(subItem => {
-                                    const isSubItemActive = subItem.url === location.pathname;
-                                    return (
-                                      <SidebarMenuSubItem key={subItem.title}>
-                                        <Link
-                                          to={subItem.url}
-                                          className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm ${
-                                            isSubItemActive ? 'bg-amber-50 text-amber-700 font-medium' : 'hover:bg-amber-50 hover:text-amber-700'
-                                          }`}
-                                        >
-                                          <span>{subItem.title}</span>
-                                        </Link>
-                                      </SidebarMenuSubItem>
-                                    );
-                                  })}
-                                </SidebarMenuSub>
-                              </CollapsibleContent>
-                            </Collapsible>
+                            <CollapsibleNavItem 
+                              key={item.title} 
+                              item={item} 
+                              location={location} 
+                              variant="admin"
+                            />
                           );
                         } else {
                           return (
