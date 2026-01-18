@@ -439,7 +439,29 @@ export default function PublicHeader() {
 
     const paddingLeft = 16 + (level * 16);
 
-    // Gradient button style
+    // Button display type - renders as a gradient button with arrow
+    if (item.display_type === 'button') {
+      return (
+        <LinkComponent 
+          key={item.id} 
+          {...linkProps}
+          onClick={() => setMobileMenuOpen(false)}
+        >
+          <div 
+            className="mx-4 my-2 py-3 px-4 text-white font-bold flex items-center justify-center gap-2"
+            style={{ 
+              background: BUTTON_ACCENT_GRADIENT
+            }}
+          >
+            {Icon && <Icon className="w-4 h-4" />}
+            {item.title}
+            <ArrowUpRight className="w-4 h-4" strokeWidth={2.5} />
+          </div>
+        </LinkComponent>
+      );
+    }
+
+    // Gradient button style (legacy highlight_style support)
     if (item.highlight_style === 'gradient_button') {
       return (
         <LinkComponent 
@@ -529,7 +551,26 @@ export default function PublicHeader() {
 
     const baseClassName = `nav-link text-${isTopNav ? 'white' : 'slate-900'} transition-colors ${getFontClass()} flex items-center gap-1`;
 
-    // Gradient button style
+    // Button display type - renders as a gradient button with arrow
+    if (item.display_type === 'button') {
+      return (
+        <LinkComponent key={item.id} {...linkProps}>
+          <Button 
+            className="text-white font-bold hover:opacity-90 transition-opacity px-6 py-5 rounded-none" 
+            style={{ 
+              fontFamily: 'Poppins, sans-serif',
+              background: BUTTON_ACCENT_GRADIENT
+            }}
+          >
+            {Icon && <Icon className="w-4 h-4 mr-2" />}
+            {item.title}
+            <ArrowUpRight className="ml-0.5 w-5 h-5" strokeWidth={2.5} />
+          </Button>
+        </LinkComponent>
+      );
+    }
+
+    // Gradient button style (legacy highlight_style support)
     if (item.highlight_style === 'gradient_button') {
       return (
         <LinkComponent key={item.id} {...linkProps}>
@@ -1089,20 +1130,6 @@ export default function PublicHeader() {
               <nav className="hidden lg:flex items-center gap-8 h-full">
                 {/* Dynamic Main Nav Items */}
                 {navItems.mainNav?.map(item => renderNavItem(item, false))}
-
-                {/* Static Events Button */}
-                <Link to="/events">
-                  <Button 
-                    className="text-white font-bold hover:opacity-90 transition-opacity px-6 py-5 rounded-none" 
-                    style={{ 
-                      fontFamily: 'Poppins, sans-serif',
-                      background: BUTTON_ACCENT_GRADIENT
-                    }}
-                  >
-                    Events
-                    <ArrowUpRight className="ml-0.5 w-5 h-5" strokeWidth={2.5} />
-                  </Button>
-                </Link>
               </nav>
 
               {/* Mobile Menu Button */}
@@ -1283,22 +1310,6 @@ export default function PublicHeader() {
             
             {/* Main Nav Items */}
             {navItems.mainNav?.map(item => renderMobileNavItem(item))}
-            
-            {/* Events Button */}
-            <Link 
-              to="/events"
-              onClick={() => setMobileMenuOpen(false)}
-            >
-              <div 
-                className="mx-4 my-2 py-3 px-4 text-white font-bold flex items-center justify-center gap-2"
-                style={{ 
-                  background: BUTTON_ACCENT_GRADIENT
-                }}
-              >
-                Events
-                <ArrowUpRight className="w-4 h-4" strokeWidth={2.5} />
-              </div>
-            </Link>
           </div>
 
         </div>

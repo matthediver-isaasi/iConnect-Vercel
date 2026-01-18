@@ -336,7 +336,8 @@ export default function NavigationManagementPage() {
       open_in_new_tab: false,
       icon: "",
       description: "",
-      highlight_style: "none"
+      highlight_style: "none",
+      display_type: "link"
     });
     setShowDialog(true);
   };
@@ -450,8 +451,13 @@ export default function NavigationManagementPage() {
                 <Badge className="text-xs" variant={item.location === 'top_nav' ? 'default' : 'secondary'}>
                   {item.location === 'top_nav' ? 'Top Bar' : 'Main Nav'}
                 </Badge>
-                {item.highlight_style === 'gradient_button' && (
+                {item.display_type === 'button' && (
                   <Badge className="text-xs bg-gradient-to-r from-purple-500 to-pink-500 text-white">
+                    Button
+                  </Badge>
+                )}
+                {item.highlight_style === 'gradient_button' && (
+                  <Badge className="text-xs bg-gradient-to-r from-amber-500 to-orange-500 text-white">
                     Featured
                   </Badge>
                 )}
@@ -785,6 +791,25 @@ export default function NavigationManagementPage() {
 
                 <div className="grid md:grid-cols-2 gap-4">
                   <div className="space-y-2">
+                    <Label htmlFor="display_type">Display Type</Label>
+                    <Select
+                      value={editingItem.display_type || 'link'}
+                      onValueChange={(value) => setEditingItem({ ...editingItem, display_type: value })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="link">Link</SelectItem>
+                        <SelectItem value="button">Button</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-slate-500">
+                      Buttons display with gradient styling; links display as text
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
                     <Label>Icon (Optional)</Label>
                     <Button
                       type="button"
@@ -814,22 +839,22 @@ export default function NavigationManagementPage() {
                       </Button>
                     )}
                   </div>
+                </div>
 
-                  <div className="space-y-2">
-                    <Label htmlFor="highlight">Highlight Style</Label>
-                    <Select
-                      value={editingItem.highlight_style}
-                      onValueChange={(value) => setEditingItem({ ...editingItem, highlight_style: value })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">None</SelectItem>
-                        <SelectItem value="gradient_button">Gradient Button</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+                <div className="space-y-2">
+                  <Label htmlFor="highlight">Highlight Style</Label>
+                  <Select
+                    value={editingItem.highlight_style}
+                    onValueChange={(value) => setEditingItem({ ...editingItem, highlight_style: value })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">None</SelectItem>
+                      <SelectItem value="gradient_button">Gradient Button</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-lg">
