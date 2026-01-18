@@ -56,6 +56,7 @@ export default function PublicLayout({ children, currentPageName }) {
   const [socialIcons, setSocialIcons] = useState(null);
   const [footerConfig, setFooterConfig] = useState(null);
   const [newsletterFormSlug, setNewsletterFormSlug] = useState(null);
+  const [footerNavItems, setFooterNavItems] = useState([]);
 
   const tenantFooterConfig = branding?.footerConfig || {};
   const tenantPrimaryColor = branding?.primaryColor || '#5C0085';
@@ -114,6 +115,15 @@ export default function PublicLayout({ children, currentPageName }) {
           }
         } else {
           setNewsletterFormSlug(null);
+        }
+
+        // Fetch footer navigation items
+        try {
+          const navItems = await publicClient.listNavigationItems();
+          const footerItems = navItems.filter(item => item.location === 'footer' && item.is_active);
+          setFooterNavItems(footerItems);
+        } catch (e) {
+          console.error('Failed to fetch footer navigation items:', e);
         }
       } catch (error) {
         console.error('Failed to fetch configs:', error);
@@ -287,114 +297,195 @@ export default function PublicLayout({ children, currentPageName }) {
             }}
           />
           <div className="max-w-7xl mx-auto px-4 py-16">
-            <div className="grid md:grid-cols-3 gap-12">
+            {/* Dynamic Footer Columns from Navigation Items */}
+            {(() => {
+              const footerColumns = tenantFooterConfig.columns || 4;
+              const buttonStyles = branding?.buttonStyles || {};
               
-              {/* Left Column - Newsletter */}
-              <div className="flex flex-col justify-start">
-                {/* Newsletter Signup - only show if a form is configured */}
-                {newsletterFormSlug && (
-                  <>
-                    <h2 
-                      className="text-3xl text-white mb-8"
-                      style={{ fontFamily: "'Degular Medium', sans-serif" }}
-                    >{tenantFooterConfig.newsletterText || 'Sign up to our newsletter'}</h2>
-                    <div>
-                      <Button 
-                        onClick={() => setShowNewsletterDialog(true)}
-                        className="text-white font-bold hover:opacity-90 transition-opacity px-6 py-5 rounded-none" 
-                        style={{ 
-                          fontFamily: 'Poppins, sans-serif',
-                          background: getButtonGradientStyle()
-                        }}
-                        data-testid="button-newsletter-signup"
-                      >
-                        Sign up
-                        <ArrowUpRight className="ml-0.5 w-5 h-5" strokeWidth={2.5} />
-                      </Button>
+              // Helper to get button style CSS
+              const getButtonStyle = (styleName) => {
+                const style = buttonStyles[styleName] || {};
+                return {
+                  backgroundColor: style.background || (styleName === 'primary' ? tenantPrimaryColor : 'transparent'),
+                  color: style.textColor || '#ffffff',
+                  borderColor: style.borderColor || 'transparent',
+                  borderWidth: style.borderWidth || '0',
+                  borderRadius: style.borderRadius || '0',
+                  borderStyle: 'solid'
+                };
+              };
+              
+              // Render a content block based on its type
+              const renderContentBlock = (item) => {
+                const blockType = item.content_block_type;
+                
+                switch (blockType) {
+                  case 'address':
+                    return (
+                      <div key={item.id}>
+                        <h4 className="text-white text-sm mb-3" style={{ fontFamily: 'Poppins, sans-serif', textTransform: 'uppercase', letterSpacing: '5px' }}>
+                          ADDRESS
+                        </h4>
+                        <div className="mb-4" style={{ width: '36px', height: '2px', backgroundColor: 'rgba(255,255,255,0.5)' }} />
+                        <div className="text-slate-300 text-sm leading-relaxed" style={{ fontFamily: 'Poppins, sans-serif' }}>
+                          {tenantFooterConfig.address?.name && <p>{tenantFooterConfig.address.name}</p>}
+                          {tenantFooterConfig.address?.lines?.map((line, i) => <p key={i}>{line}</p>)}
+                        </div>
+                      </div>
+                    );
+                  case 'contact':
+                    return (
+                      <div key={item.id}>
+                        <h4 className="text-white text-sm mb-3" style={{ fontFamily: 'Poppins, sans-serif', textTransform: 'uppercase', letterSpacing: '5px' }}>
+                          CONTACT US
+                        </h4>
+                        <div className="mb-4" style={{ width: '36px', height: '2px', backgroundColor: 'rgba(255,255,255,0.5)' }} />
+                        <ul className="space-y-3 text-sm text-slate-300" style={{ fontFamily: 'Poppins, sans-serif' }}>
+                          {tenantFooterConfig.contact?.phone && (
+                            <li className="flex items-center gap-3">
+                              <Phone className="w-4 h-4 shrink-0" />
+                              <span>{tenantFooterConfig.contact.phone}</span>
+                            </li>
+                          )}
+                          {tenantFooterConfig.contact?.email && (
+                            <li className="flex items-center gap-3">
+                              <Mail className="w-4 h-4 shrink-0" />
+                              <span>{tenantFooterConfig.contact.email}</span>
+                            </li>
+                          )}
+                        </ul>
+                      </div>
+                    );
+                  case 'newsletter':
+                    return newsletterFormSlug ? (
+                      <div key={item.id}>
+                        <h2 className="text-2xl text-white mb-6" style={{ fontFamily: "'Degular Medium', sans-serif" }}>
+                          {tenantFooterConfig.newsletterText || 'Sign up to our newsletter'}
+                        </h2>
+                        <Button 
+                          onClick={() => setShowNewsletterDialog(true)}
+                          className="text-white font-bold hover:opacity-90 transition-opacity px-6 py-4"
+                          style={{ 
+                            fontFamily: 'Poppins, sans-serif',
+                            ...(item.display_type === 'button' ? getButtonStyle(item.button_style || 'primary') : { background: getButtonGradientStyle() })
+                          }}
+                          data-testid="button-newsletter-signup"
+                        >
+                          Sign up
+                          <ArrowUpRight className="ml-0.5 w-5 h-5" strokeWidth={2.5} />
+                        </Button>
+                      </div>
+                    ) : null;
+                  case 'cta':
+                    return (
+                      <div key={item.id}>
+                        <h2 className="text-2xl text-white mb-6" style={{ fontFamily: "'Degular Medium', sans-serif" }}>
+                          {item.title || 'Get Started'}
+                        </h2>
+                        {item.url && (
+                          <Link to={item.link_type === 'internal' ? createPageUrl(item.url) : item.url}>
+                            <Button 
+                              className="text-white font-bold hover:opacity-90 transition-opacity px-6 py-4"
+                              style={{ 
+                                fontFamily: 'Poppins, sans-serif',
+                                ...(item.display_type === 'button' ? getButtonStyle(item.button_style || 'primary') : { background: getButtonGradientStyle() })
+                              }}
+                            >
+                              {item.title || 'Learn More'}
+                              <ArrowUpRight className="ml-0.5 w-5 h-5" strokeWidth={2.5} />
+                            </Button>
+                          </Link>
+                        )}
+                      </div>
+                    );
+                  case 'legal':
+                    return (
+                      <div key={item.id} className="text-sm text-slate-300" style={{ fontFamily: 'Poppins, sans-serif' }}>
+                        {tenantFooterConfig.legalText && <p className="mb-3">{tenantFooterConfig.legalText}</p>}
+                        <div className="flex flex-col gap-2">
+                          {tenantFooterConfig.termsAndConditionsUrl && (
+                            <a href={tenantFooterConfig.termsAndConditionsUrl} target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">
+                              Terms and Conditions
+                            </a>
+                          )}
+                          {tenantFooterConfig.privacyPolicyUrl && (
+                            <a href={tenantFooterConfig.privacyPolicyUrl} target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">
+                              Privacy Policy
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  default:
+                    return null;
+                }
+              };
+              
+              // Render a navigation item (link or button)
+              const renderNavItem = (item) => {
+                if (item.link_type === 'content_block') {
+                  return renderContentBlock(item);
+                }
+                
+                const linkUrl = item.link_type === 'internal' ? createPageUrl(item.url) : item.url;
+                const isButton = item.display_type === 'button';
+                
+                if (isButton) {
+                  return (
+                    <div key={item.id} className="mb-3">
+                      <Link to={linkUrl} target={item.open_in_new_tab ? '_blank' : undefined}>
+                        <Button 
+                          className="text-white font-bold hover:opacity-90 transition-opacity px-6 py-4"
+                          style={{ 
+                            fontFamily: 'Poppins, sans-serif',
+                            ...getButtonStyle(item.button_style || 'primary')
+                          }}
+                        >
+                          {item.title}
+                          {item.open_in_new_tab && <ArrowUpRight className="ml-0.5 w-4 h-4" />}
+                        </Button>
+                      </Link>
                     </div>
-                  </>
-                )}
-              </div>
-
-              {/* Middle Column - Address & Contact */}
-              <div className="space-y-8">
-                {/* Address Section */}
-                {(tenantFooterConfig.address?.lines?.length > 0 || tenantFooterConfig.address?.name || !hasBranding) && (
-                  <div>
-                    <h4 
-                      className="text-white text-sm mb-3"
-                      style={{ 
-                        fontFamily: 'Poppins, sans-serif',
-                        textTransform: 'uppercase',
-                        letterSpacing: '5px'
-                      }}
-                    >
-                      ADDRESS
-                    </h4>
-                    <div 
-                      className="mb-4"
-                      style={{ 
-                        width: '36px', 
-                        height: '2px', 
-                        backgroundColor: 'rgba(255,255,255,0.5)' 
-                      }}
-                    />
-                    <div className="text-slate-300 text-sm leading-relaxed" style={{ fontFamily: 'Poppins, sans-serif' }}>
-                      {hasBranding && tenantFooterConfig.address ? (
-                        <>
-                          {tenantFooterConfig.address.name && <p>{tenantFooterConfig.address.name}</p>}
-                          {tenantFooterConfig.address.lines?.map((line, i) => <p key={i}>{line}</p>)}
-                        </>
-                      ) : (
-                        <>
-                          <p>{branding?.name || 'Organization Name'}</p>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Contact Section */}
-                {(tenantFooterConfig.contact?.phone || tenantFooterConfig.contact?.email || !hasBranding) && (
-                  <div>
-                    <h4 
-                      className="text-white text-sm mb-3"
-                      style={{ 
-                        fontFamily: 'Poppins, sans-serif',
-                        textTransform: 'uppercase',
-                        letterSpacing: '5px'
-                      }}
-                    >
-                      CONTACT US
-                    </h4>
-                    <div 
-                      className="mb-4"
-                      style={{ 
-                        width: '36px', 
-                        height: '2px', 
-                        backgroundColor: 'rgba(255,255,255,0.5)' 
-                      }}
-                    />
-                    <ul className="space-y-3 text-sm text-slate-300" style={{ fontFamily: 'Poppins, sans-serif' }}>
-                      {(tenantFooterConfig.contact?.phone) && (
-                        <li className="flex items-center gap-3">
-                          <Phone className="w-4 h-4 shrink-0" />
-                          <span>{tenantFooterConfig.contact.phone}</span>
-                        </li>
-                      )}
-                      {(tenantFooterConfig.contact?.email) && (
-                        <li className="flex items-center gap-3">
-                          <Mail className="w-4 h-4 shrink-0" />
-                          <span>{tenantFooterConfig.contact.email}</span>
-                        </li>
-                      )}
-                    </ul>
-                  </div>
-                )}
-              </div>
-
-              {/* Right Column - Logo & Social */}
-              <div className="flex flex-col items-center md:items-end">
+                  );
+                }
+                
+                return (
+                  <Link 
+                    key={item.id}
+                    to={linkUrl}
+                    target={item.open_in_new_tab ? '_blank' : undefined}
+                    className="block text-slate-300 hover:text-white text-sm transition-colors mb-2"
+                    style={{ fontFamily: 'Poppins, sans-serif' }}
+                  >
+                    {item.title}
+                  </Link>
+                );
+              };
+              
+              // Group items by column
+              const itemsByColumn = {};
+              for (let i = 1; i <= footerColumns; i++) {
+                itemsByColumn[i] = footerNavItems
+                  .filter(item => (item.footer_column || 1) === i)
+                  .sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
+              }
+              
+              return (
+                <div className="grid gap-12" style={{ gridTemplateColumns: `repeat(${Math.min(footerColumns + 1, 6)}, 1fr)` }}>
+                  {/* Dynamic navigation columns */}
+                  {Array.from({ length: footerColumns }, (_, i) => i + 1).map(colNum => {
+                    const colItems = itemsByColumn[colNum] || [];
+                    if (colItems.length === 0) return null;
+                    
+                    return (
+                      <div key={colNum} className="space-y-4">
+                        {colItems.map(item => renderNavItem(item))}
+                      </div>
+                    );
+                  })}
+                  
+                  {/* Logo & Social Column - always last */}
+                  <div className="flex flex-col items-center md:items-end">
                 {/* Logo - Use tenant logo if available */}
                 {branding?.logoUrl ? (
                   <img 
@@ -509,9 +600,11 @@ export default function PublicLayout({ children, currentPageName }) {
                       )}
                     </div>
                   )}
+                  </div>
                 </div>
               </div>
-            </div>
+            );
+          })()}
 
             {/* Bottom Bar */}
             <div className="mt-12">
