@@ -877,13 +877,20 @@ export default function NavigationManagementPage() {
                                 {IconComponent && <IconComponent className={`w-4 h-4 ${isContentBlock ? 'text-purple-600' : 'text-slate-500'}`} />}
                                 <div className="flex-1 min-w-0">
                                   <span className="text-sm font-medium text-slate-800 truncate block">{item.title}</span>
-                                  {isContentBlock ? (
-                                    <Badge variant="outline" className="text-xs text-purple-600 border-purple-300">
-                                      {blockDef?.label || 'Content Block'}
-                                    </Badge>
-                                  ) : (
-                                    <span className="text-xs text-slate-500 truncate block">{item.url}</span>
-                                  )}
+                                  <div className="flex items-center gap-1">
+                                    {isContentBlock ? (
+                                      <Badge variant="outline" className="text-xs text-purple-600 border-purple-300">
+                                        {blockDef?.label || 'Content Block'}
+                                      </Badge>
+                                    ) : (
+                                      <span className="text-xs text-slate-500 truncate">{item.url}</span>
+                                    )}
+                                    {item.display_type === 'button' && (
+                                      <Badge variant="outline" className={`text-xs ml-1 ${item.button_style === 'secondary' ? 'text-blue-600 border-blue-300' : 'text-green-600 border-green-300'}`}>
+                                        {item.button_style === 'secondary' ? 'Secondary' : 'Primary'}
+                                      </Badge>
+                                    )}
+                                  </div>
                                 </div>
                                 <div className="flex items-center gap-1">
                                   <Button
