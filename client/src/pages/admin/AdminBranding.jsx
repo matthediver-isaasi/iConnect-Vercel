@@ -90,7 +90,9 @@ export default function AdminBranding() {
     },
     branding_config: {
       footerLogoHeight: '',
-      footerLogoWidth: ''
+      footerLogoWidth: '',
+      headerSocialIconColor: '#5C0085',
+      footerSocialIconColor: '#FFFFFF'
     },
     platform_branding: {
       showPlatformBranding: true,
@@ -193,7 +195,9 @@ export default function AdminBranding() {
               },
               branding_config: {
                 footerLogoHeight: t?.branding_config?.footerLogoHeight || '',
-                footerLogoWidth: t?.branding_config?.footerLogoWidth || ''
+                footerLogoWidth: t?.branding_config?.footerLogoWidth || '',
+                headerSocialIconColor: t?.branding_config?.headerSocialIconColor || '#5C0085',
+                footerSocialIconColor: t?.branding_config?.footerSocialIconColor || '#FFFFFF'
               },
               platform_branding: {
                 showPlatformBranding: t?.platform_branding?.showPlatformBranding !== false,
@@ -1466,6 +1470,77 @@ export default function AdminBranding() {
                       data-testid="input-privacy-url"
                     />
                   </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Social Icon Colors Card */}
+          <Card className="bg-slate-800 border-slate-700">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-white">
+                <Palette className="w-5 h-5 text-blue-400" />
+                Social Icon Colors
+              </CardTitle>
+              <CardDescription className="text-slate-400">
+                Set the colors for social media icons in the header and footer
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="grid md:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <Label className="text-slate-200">Header Social Icons</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      type="color"
+                      value={formData.branding_config?.headerSocialIconColor || '#5C0085'}
+                      onChange={(e) => setFormData(prev => ({
+                        ...prev,
+                        branding_config: { ...prev.branding_config, headerSocialIconColor: e.target.value }
+                      }))}
+                      className="w-16 h-10 p-1 cursor-pointer"
+                      data-testid="input-header-social-color"
+                    />
+                    <Input
+                      type="text"
+                      value={formData.branding_config?.headerSocialIconColor || '#5C0085'}
+                      onChange={(e) => setFormData(prev => ({
+                        ...prev,
+                        branding_config: { ...prev.branding_config, headerSocialIconColor: e.target.value }
+                      }))}
+                      className="flex-1 bg-slate-900/50 border-slate-600 text-white font-mono"
+                      placeholder="#FFFFFF"
+                      data-testid="input-header-social-color-text"
+                    />
+                  </div>
+                  <p className="text-xs text-slate-500">Color for social icons in the top navigation bar</p>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-slate-200">Footer Social Icons</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      type="color"
+                      value={formData.branding_config?.footerSocialIconColor || '#FFFFFF'}
+                      onChange={(e) => setFormData(prev => ({
+                        ...prev,
+                        branding_config: { ...prev.branding_config, footerSocialIconColor: e.target.value }
+                      }))}
+                      className="w-16 h-10 p-1 cursor-pointer"
+                      data-testid="input-footer-social-color"
+                    />
+                    <Input
+                      type="text"
+                      value={formData.branding_config?.footerSocialIconColor || '#FFFFFF'}
+                      onChange={(e) => setFormData(prev => ({
+                        ...prev,
+                        branding_config: { ...prev.branding_config, footerSocialIconColor: e.target.value }
+                      }))}
+                      className="flex-1 bg-slate-900/50 border-slate-600 text-white font-mono"
+                      placeholder="#FFFFFF"
+                      data-testid="input-footer-social-color-text"
+                    />
+                  </div>
+                  <p className="text-xs text-slate-500">Color for social icons in the footer</p>
                 </div>
               </div>
             </CardContent>

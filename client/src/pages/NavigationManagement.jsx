@@ -647,9 +647,10 @@ export default function NavigationManagementPage() {
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-2 max-w-md">
+          <TabsList className="grid w-full grid-cols-3 max-w-lg">
             <TabsTrigger value="header" data-testid="tab-header-nav">Header Navigation</TabsTrigger>
             <TabsTrigger value="footer" data-testid="tab-footer-nav">Footer Navigation</TabsTrigger>
+            <TabsTrigger value="social" data-testid="tab-social">Social Media</TabsTrigger>
           </TabsList>
 
           {/* Header Navigation Tab */}
@@ -668,9 +669,6 @@ export default function NavigationManagementPage() {
                 </div>
               </CardContent>
             </Card>
-
-            {/* Social Icons Configuration */}
-            <SocialIconsConfig />
 
             {/* Filters and Actions */}
             <div className="flex gap-4">
@@ -931,6 +929,27 @@ export default function NavigationManagementPage() {
                 })}
               </div>
             )}
+          </TabsContent>
+
+          {/* Social Media Tab */}
+          <TabsContent value="social" className="space-y-6">
+            {/* Info Banner */}
+            <Card className="border-purple-200 bg-purple-50">
+              <CardContent className="p-4">
+                <div className="flex items-start gap-3">
+                  <Share2 className="w-5 h-5 text-purple-600 mt-0.5" />
+                  <div className="flex-1">
+                    <h3 className="font-semibold text-purple-900 mb-1">Social Media Icons</h3>
+                    <p className="text-sm text-purple-700">
+                      Configure which social media icons appear in both the header and footer navigation. 
+                      Icon colors can be customized in <a href="/admin/branding" className="underline font-medium">Admin Branding</a>.
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <SocialIconsConfig />
           </TabsContent>
         </Tabs>
 
