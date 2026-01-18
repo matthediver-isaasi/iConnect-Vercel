@@ -1326,7 +1326,7 @@ useEffect(() => {
     }
   }, []);
 
-  // Restore scroll position after SidebarContent mounts
+  // Restore scroll position after SidebarContent mounts (only once on initial mount)
   React.useEffect(() => {
     const sidebar = sidebarContentRef.current;
     if (sidebar) {
@@ -1338,7 +1338,7 @@ useEffect(() => {
         }, 0);
       }
     }
-  });
+  }, []);
 
   // Scroll main content to top on navigation only
   useEffect(() => {

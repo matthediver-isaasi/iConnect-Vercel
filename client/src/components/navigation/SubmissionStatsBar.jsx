@@ -73,22 +73,20 @@ export default function SubmissionStatsBar() {
         </div>
       </div>
       
-      {/* Collapsed view - compact icon with count */}
-      {stats.new > 0 && (
-        <div className="hidden group-data-[collapsible=icon]:flex justify-center py-2">
-          <div 
-            onClick={handleClick}
-            className="relative flex items-center justify-center w-8 h-8 rounded-md bg-blue-600 hover:bg-blue-700 transition-colors cursor-pointer"
-            data-testid="link-submission-stats-collapsed"
-            role="button"
-            tabIndex={0}
-            onKeyDown={(e) => e.key === 'Enter' && handleClick()}
-            title={`${stats.new} new submission${stats.new !== 1 ? 's' : ''}`}
-          >
-            <span className="text-white text-xs font-bold">{stats.new}</span>
-          </div>
+      {/* Collapsed view - compact icon with count (always shown) */}
+      <div className="hidden group-data-[collapsible=icon]:flex justify-center py-2">
+        <div 
+          onClick={handleClick}
+          className="relative flex items-center justify-center w-8 h-8 rounded-md bg-blue-600 hover:bg-blue-700 transition-colors cursor-pointer"
+          data-testid="link-submission-stats-collapsed"
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => e.key === 'Enter' && handleClick()}
+          title={`${stats.new} new submission${stats.new !== 1 ? 's' : ''}`}
+        >
+          <span className="text-white text-xs font-bold">{stats.new}</span>
         </div>
-      )}
+      </div>
     </>
   );
 }
