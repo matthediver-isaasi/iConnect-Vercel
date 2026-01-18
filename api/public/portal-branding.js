@@ -56,19 +56,41 @@ export default async function handler(req, res) {
     }
 
     if (tenant) {
-      const settings = tenant.settings || {};
+      const tenantSettings = tenant.settings || {};
+      
+      // Also check system_settings for tenant-specific settings like home page slug
+      // This is where setPublicHomePage stores the home page setting with tenant_id
+      const { data: tenantSystemSettings } = await supabase
+        .from('system_settings')
+        .select('setting_key, setting_value')
+        .eq('tenant_id', tenant.id)
+        .in('setting_key', ['public_home_page_slug', 'date_display_format']);
+      
+      const systemSettingsMap = {};
+      if (tenantSystemSettings) {
+        for (const s of tenantSystemSettings) {
+          systemSettingsMap[s.setting_key] = s.setting_value;
+        }
+      }
+      
+      // Prefer system_settings.public_home_page_slug over tenant.settings.home_page_slug
+      // because the IEditPageManagement UI saves to system_settings
+      const homePageSlug = systemSettingsMap.public_home_page_slug || tenantSettings.home_page_slug || '';
+      
       return res.status(200).json({
         logoUrl: tenant.header_logo_url || tenant.logo_url || null,
         faviconUrl: tenant.favicon_url || null,
-        logoHeight: settings.logo_height || 'medium',
-        logoLink: settings.logo_link || '',
-        homePageSlug: settings.home_page_slug || '',
-        dateDisplayFormat: settings.date_display_format || 'DD/MM/YYYY',
+        logoHeight: tenantSettings.logo_height || 'medium',
+        logoLink: tenantSettings.logo_link || '',
+        homePageSlug: homePageSlug,
+        dateDisplayFormat: systemSettingsMap.date_display_format || tenantSettings.date_display_format || 'DD/MM/YYYY',
         tenantName: tenant.name || null,
         source: 'tenant'
       });
     }
 
+    // Fallback: No tenant found - try system_settings without tenant filtering
+    // This is legacy behavior for systems without multi-tenancy
     const { data: systemSettings } = await supabase
       .from('system_settings')
       .select('setting_key, setting_value')
