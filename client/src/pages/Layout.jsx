@@ -1895,14 +1895,14 @@ useEffect(() => {
                 </div>
               ) : (
                 <>
-              {/* Only show organization info for regular members */}
+              {/* Only show organization info for regular members - hidden when sidebar is collapsed */}
               {memberInfo && !memberInfo.is_team_member && organizationInfo && (
-                <SidebarGroup>
+                <SidebarGroup className="group-data-[collapsible=icon]:hidden">
                   <SidebarGroupLabel className="text-xs font-medium text-slate-500 uppercase tracking-wider px-3 py-2">
                     Your Account
                   </SidebarGroupLabel>
                   <SidebarGroupContent>
-                    <div className="px-3 py-2 space-y-3 group-data-[collapsible=icon]:hidden">
+                    <div className="px-3 py-2 space-y-3">
                       {organizationInfo.name && (
                         <div className="text-sm">
                           <span className="text-slate-600 block mb-1">Organisation</span>
@@ -1925,8 +1925,8 @@ useEffect(() => {
                 <NextEventCountdown memberEmail={memberInfo.email} />
               )}
 
-              <SidebarGroup className={memberInfo && !memberInfo.is_team_member && organizationInfo ? "mt-4" : ""}>
-                <SidebarGroupLabel className="text-xs font-medium text-slate-500 uppercase tracking-wider px-3 py-2">
+              <SidebarGroup className={memberInfo && !memberInfo.is_team_member && organizationInfo ? "mt-4 group-data-[collapsible=icon]:mt-0" : ""}>
+                <SidebarGroupLabel className="text-xs font-medium text-slate-500 uppercase tracking-wider px-3 py-2 group-data-[collapsible=icon]:hidden">
                   Navigation
                 </SidebarGroupLabel>
                 <SidebarGroupContent>
@@ -1982,8 +1982,8 @@ useEffect(() => {
 
               {/* Admin Section */}
               {filteredAdminNavigationItems.length > 0 && (
-                <SidebarGroup className="mt-4">
-                  <SidebarGroupLabel className="text-xs font-medium text-amber-600 uppercase tracking-wider px-3 py-2">
+                <SidebarGroup className="mt-4 group-data-[collapsible=icon]:mt-0">
+                  <SidebarGroupLabel className="text-xs font-medium text-amber-600 uppercase tracking-wider px-3 py-2 group-data-[collapsible=icon]:hidden">
                     Administration
                   </SidebarGroupLabel>
                   <SidebarGroupContent>
