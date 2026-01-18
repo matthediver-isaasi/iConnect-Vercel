@@ -337,7 +337,8 @@ export default function NavigationManagementPage() {
       icon: "",
       description: "",
       highlight_style: "none",
-      display_type: "link"
+      display_type: "link",
+      button_style: null
     });
     setShowDialog(true);
   };
@@ -794,9 +795,9 @@ export default function NavigationManagementPage() {
                     <Label htmlFor="display_type">Display Type</Label>
                     <Select
                       value={editingItem.display_type || 'link'}
-                      onValueChange={(value) => setEditingItem({ ...editingItem, display_type: value })}
+                      onValueChange={(value) => setEditingItem({ ...editingItem, display_type: value, button_style: value === 'button' ? (editingItem.button_style || 'primary') : null })}
                     >
-                      <SelectTrigger>
+                      <SelectTrigger data-testid="select-display-type">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -805,9 +806,30 @@ export default function NavigationManagementPage() {
                       </SelectContent>
                     </Select>
                     <p className="text-xs text-slate-500">
-                      Buttons display with gradient styling; links display as text
+                      Buttons display with custom styling from Button Style Creator
                     </p>
                   </div>
+
+                  {editingItem.display_type === 'button' && (
+                    <div className="space-y-2">
+                      <Label htmlFor="button_style">Button Style</Label>
+                      <Select
+                        value={editingItem.button_style || 'primary'}
+                        onValueChange={(value) => setEditingItem({ ...editingItem, button_style: value })}
+                      >
+                        <SelectTrigger data-testid="select-button-style">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="primary">Primary Style</SelectItem>
+                          <SelectItem value="secondary">Secondary Style</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-slate-500">
+                        Choose from styles defined in Button Style Creator
+                      </p>
+                    </div>
+                  )}
 
                   <div className="space-y-2">
                     <Label>Icon (Optional)</Label>

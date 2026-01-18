@@ -49,6 +49,105 @@ const DEFAULT_GRADIENT_STOPS = [
 const BUTTON_ACCENT_GRADIENT = 'linear-gradient(to top right, #5C0085, #BA0087, #EE00C3, #FF4229, #FFB000)';
 const BUTTON_ACCENT_GRADIENT_HORIZONTAL = 'linear-gradient(to right, #5C0085, #BA0087, #EE00C3, #FF4229, #FFB000)';
 
+// Helper to generate CSS styles from button style config (returns both normal and hover)
+const getButtonStyles = (buttonStyleConfig) => {
+  if (!buttonStyleConfig) return null;
+  
+  const bg = buttonStyleConfig.background || {};
+  const border = buttonStyleConfig.border || {};
+  const radius = buttonStyleConfig.radius || 0;
+  const textColor = buttonStyleConfig.textColor || '#FFFFFF';
+  const hoverTextColor = buttonStyleConfig.hoverTextColor || textColor;
+  const hover = buttonStyleConfig.hover || {};
+  
+  // Generate normal background
+  let background;
+  if (bg.type === 'gradient' && bg.gradientStart && bg.gradientEnd) {
+    const direction = bg.gradientDirection || 'to right';
+    background = `linear-gradient(${direction}, ${bg.gradientStart}, ${bg.gradientEnd})`;
+  } else {
+    background = bg.solidColor || '#3b82f6';
+  }
+  
+  // Generate hover background
+  let hoverBackground;
+  if (hover.type === 'gradient' && hover.gradientStart && hover.gradientEnd) {
+    const direction = hover.gradientDirection || 'to right';
+    hoverBackground = `linear-gradient(${direction}, ${hover.gradientStart}, ${hover.gradientEnd})`;
+  } else if (hover.type === 'solid' && hover.solidColor) {
+    hoverBackground = hover.solidColor;
+  } else {
+    hoverBackground = background; // fallback to same as normal
+  }
+  
+  const baseStyle = {
+    borderWidth: border.width ? `${border.width}px` : '0',
+    borderStyle: border.width ? (border.style || 'solid') : 'none',
+    borderColor: border.color || 'transparent',
+    borderRadius: `${radius}px`,
+  };
+  
+  return {
+    normal: {
+      ...baseStyle,
+      background,
+      color: textColor,
+    },
+    hover: {
+      ...baseStyle,
+      background: hoverBackground,
+      color: hoverTextColor,
+    }
+  };
+};
+
+// Styled navigation button component with hover state
+function StyledNavButton({ styleConfig, children, className = '' }) {
+  const [isHovered, setIsHovered] = useState(false);
+  
+  const styles = getButtonStyles(styleConfig);
+  const currentStyle = styles ? (isHovered ? styles.hover : styles.normal) : {
+    background: BUTTON_ACCENT_GRADIENT,
+    color: '#FFFFFF'
+  };
+  
+  return (
+    <Button 
+      className={`font-bold transition-all px-6 py-5 ${className}`}
+      style={{ 
+        fontFamily: 'Poppins, sans-serif',
+        ...currentStyle
+      }}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+    >
+      {children}
+    </Button>
+  );
+}
+
+// Styled navigation div for mobile with hover state
+function StyledNavDiv({ styleConfig, children, className = '' }) {
+  const [isHovered, setIsHovered] = useState(false);
+  
+  const styles = getButtonStyles(styleConfig);
+  const currentStyle = styles ? (isHovered ? styles.hover : styles.normal) : {
+    background: BUTTON_ACCENT_GRADIENT,
+    color: '#FFFFFF'
+  };
+  
+  return (
+    <div 
+      className={`font-bold transition-all ${className}`}
+      style={currentStyle}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+    >
+      {children}
+    </div>
+  );
+}
+
 const convertLegacyGradientColors = (colors) => {
   if (!colors || colors.length === 0) return DEFAULT_GRADIENT_STOPS;
   if (colors.length === 1) {
@@ -90,6 +189,7 @@ const getColorStopsOnly = (stops) => {
 
 export default function PublicHeader() {
   const { branding } = useTenantBranding() || {};
+  const buttonStyles = branding?.brandingConfig?.button_styles || {};
   const headerLogoUrl = branding?.headerLogoUrl || branding?.logoUrl || DEFAULT_HEADER_LOGO;
   const tenantName = branding?.name || "Graduate Futures Institute";
   const headerLogoHeight = branding?.headerConfig?.logoHeight;
@@ -439,24 +539,25 @@ export default function PublicHeader() {
 
     const paddingLeft = 16 + (level * 16);
 
-    // Button display type - renders as a gradient button with arrow
+    // Button display type - renders with custom button style from branding
     if (item.display_type === 'button') {
+      const styleName = item.button_style || 'primary';
+      const styleConfig = buttonStyles[styleName];
+      
       return (
         <LinkComponent 
           key={item.id} 
           {...linkProps}
           onClick={() => setMobileMenuOpen(false)}
         >
-          <div 
-            className="mx-4 my-2 py-3 px-4 text-white font-bold flex items-center justify-center gap-2"
-            style={{ 
-              background: BUTTON_ACCENT_GRADIENT
-            }}
+          <StyledNavDiv 
+            styleConfig={styleConfig}
+            className="mx-4 my-2 py-3 px-4 flex items-center justify-center gap-2"
           >
             {Icon && <Icon className="w-4 h-4" />}
             {item.title}
             <ArrowUpRight className="w-4 h-4" strokeWidth={2.5} />
-          </div>
+          </StyledNavDiv>
         </LinkComponent>
       );
     }
@@ -469,16 +570,14 @@ export default function PublicHeader() {
           {...linkProps}
           onClick={() => setMobileMenuOpen(false)}
         >
-          <div 
-            className="mx-4 my-2 py-3 px-4 text-white font-bold flex items-center justify-center gap-2"
-            style={{ 
-              background: BUTTON_ACCENT_GRADIENT
-            }}
+          <StyledNavDiv 
+            styleConfig={null}
+            className="mx-4 my-2 py-3 px-4 flex items-center justify-center gap-2"
           >
             {Icon && <Icon className="w-4 h-4" />}
             {item.title}
             <ArrowUpRight className="w-4 h-4" strokeWidth={2.5} />
-          </div>
+          </StyledNavDiv>
         </LinkComponent>
       );
     }
@@ -551,21 +650,18 @@ export default function PublicHeader() {
 
     const baseClassName = `nav-link text-${isTopNav ? 'white' : 'slate-900'} transition-colors ${getFontClass()} flex items-center gap-1`;
 
-    // Button display type - renders as a gradient button with arrow
+    // Button display type - renders with custom button style from branding
     if (item.display_type === 'button') {
+      const styleName = item.button_style || 'primary';
+      const styleConfig = buttonStyles[styleName];
+      
       return (
         <LinkComponent key={item.id} {...linkProps}>
-          <Button 
-            className="text-white font-bold hover:opacity-90 transition-opacity px-6 py-5 rounded-none" 
-            style={{ 
-              fontFamily: 'Poppins, sans-serif',
-              background: BUTTON_ACCENT_GRADIENT
-            }}
-          >
+          <StyledNavButton styleConfig={styleConfig}>
             {Icon && <Icon className="w-4 h-4 mr-2" />}
             {item.title}
             <ArrowUpRight className="ml-0.5 w-5 h-5" strokeWidth={2.5} />
-          </Button>
+          </StyledNavButton>
         </LinkComponent>
       );
     }
@@ -574,17 +670,11 @@ export default function PublicHeader() {
     if (item.highlight_style === 'gradient_button') {
       return (
         <LinkComponent key={item.id} {...linkProps}>
-          <Button 
-            className="text-white font-bold hover:opacity-90 transition-opacity px-6 py-5 rounded-none" 
-            style={{ 
-              fontFamily: 'Poppins, sans-serif',
-              background: BUTTON_ACCENT_GRADIENT
-            }}
-          >
+          <StyledNavButton styleConfig={null}>
             {Icon && <Icon className="w-4 h-4 mr-2" />}
             {item.title}
             <ArrowUpRight className="ml-0.5 w-5 h-5" strokeWidth={2.5} />
-          </Button>
+          </StyledNavButton>
         </LinkComponent>
       );
     }

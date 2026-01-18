@@ -62,6 +62,7 @@ export default async function handler(req, res) {
         icon,
         link_type,
         display_type,
+        button_style,
         highlight_style
       `)
       .eq('tenant_id', tenant.id)
