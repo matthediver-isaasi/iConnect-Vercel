@@ -56,7 +56,8 @@ export default async function handler(req, res) {
         tagline,
         header_config,
         footer_config,
-        branding_config
+        branding_config,
+        platform_branding
       `)
       .eq('slug', tenantSlug)
       .eq('status', 'active')
@@ -81,7 +82,8 @@ export default async function handler(req, res) {
         tagline: tenantData.tagline,
         headerConfig: tenantData.header_config || {},
         footerConfig: tenantData.footer_config || {},
-        brandingConfig: tenantData.branding_config || {}
+        brandingConfig: tenantData.branding_config || {},
+        platformBranding: tenantData.platform_branding || { showPlatformBranding: true }
       }
     });
   } catch (error) {

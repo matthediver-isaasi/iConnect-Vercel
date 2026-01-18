@@ -42,7 +42,7 @@ export default async function handler(req, res) {
     try {
       const { data: tenant, error } = await supabase
         .from('tenant')
-        .select('id, primary_color, secondary_color, tagline, logo_url, header_logo_url, header_config, footer_config, branding_config')
+        .select('id, primary_color, secondary_color, tagline, logo_url, header_logo_url, header_config, footer_config, branding_config, platform_branding')
         .eq('id', tenantId)
         .single();
 
@@ -65,7 +65,8 @@ export default async function handler(req, res) {
         'header_logo_url',
         'header_config',
         'footer_config',
-        'branding_config'
+        'branding_config',
+        'platform_branding'
       ];
       
       const updates = {};
@@ -119,6 +120,22 @@ export default async function handler(req, res) {
         }
       }
 
+      // Validate platform_branding colors if provided
+      if (updates.platform_branding) {
+        if (updates.platform_branding.backgroundColor) {
+          const normalized = normalizeHexColor(updates.platform_branding.backgroundColor);
+          if (normalized) {
+            updates.platform_branding.backgroundColor = normalized;
+          }
+        }
+        if (updates.platform_branding.textColor) {
+          const normalized = normalizeHexColor(updates.platform_branding.textColor);
+          if (normalized) {
+            updates.platform_branding.textColor = normalized;
+          }
+        }
+      }
+
       if (Object.keys(updates).length === 0) {
         return res.status(400).json({ error: 'No valid fields to update' });
       }
@@ -129,7 +146,7 @@ export default async function handler(req, res) {
         .from('tenant')
         .update(updates)
         .eq('id', tenantId)
-        .select('id, slug, domain, primary_color, secondary_color, tagline, logo_url, header_logo_url, header_config, footer_config, branding_config')
+        .select('id, slug, domain, primary_color, secondary_color, tagline, logo_url, header_logo_url, header_config, footer_config, branding_config, platform_branding')
         .single();
 
       if (error) {

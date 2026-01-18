@@ -630,33 +630,40 @@ export default function PublicLayout({ children, currentPageName }) {
               </div>
               
               {/* Powered by isaasi */}
-              <div className="text-center mt-8">
-                <a
-                  href="https://isaasi.co.uk"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-block hover:opacity-80 transition-opacity"
+              {(branding?.platformBranding?.showPlatformBranding !== false) && (
+                <div 
+                  className="text-center mt-8 py-4 -mx-4 sm:-mx-8 md:-mx-16 px-4 sm:px-8 md:px-16"
+                  style={{ backgroundColor: branding?.platformBranding?.backgroundColor || '#000000' }}
                 >
-                  <img
-                    src="https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/68efc20f3e0a30fafad6dde7/fe03f7c5e_linked-aa.png"
-                    alt="isaasi"
-                    className="w-[40px] mx-auto mb-2"
-                  />
-                </a>
-                <p className="text-xs text-slate-500">
-                  Designed and delivered by{' '}
                   <a
                     href="https://isaasi.co.uk"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="hover:opacity-80 transition-opacity"
-                    style={{ color: '#eb008c' }}
+                    className="inline-block hover:opacity-80 transition-opacity"
                   >
-                    isaasi
-                  </a>. Copyright 2026
-                </p>
-                
-              </div>
+                    <img
+                      src="https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/68efc20f3e0a30fafad6dde7/fe03f7c5e_linked-aa.png"
+                      alt="isaasi"
+                      className="w-[40px] mx-auto mb-2"
+                    />
+                  </a>
+                  <p 
+                    className="text-xs"
+                    style={{ color: branding?.platformBranding?.textColor || '#64748b' }}
+                  >
+                    Designed and delivered by{' '}
+                    <a
+                      href="https://isaasi.co.uk"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="hover:opacity-80 transition-opacity"
+                      style={{ color: '#eb008c' }}
+                    >
+                      isaasi
+                    </a>. Copyright 2026
+                  </p>
+                </div>
+              )}
             </div>
           </div>
         </footer>

@@ -17,8 +17,10 @@ import {
   Type,
   LayoutTemplate,
   Plus,
-  X
+  X,
+  Shield
 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/components/ui/use-toast";
 
 export default function AdminBranding() {
@@ -89,6 +91,11 @@ export default function AdminBranding() {
     branding_config: {
       footerLogoHeight: '',
       footerLogoWidth: ''
+    },
+    platform_branding: {
+      showPlatformBranding: true,
+      backgroundColor: '#000000',
+      textColor: '#64748b'
     }
   });
 
@@ -183,6 +190,11 @@ export default function AdminBranding() {
               branding_config: {
                 footerLogoHeight: t?.branding_config?.footerLogoHeight || '',
                 footerLogoWidth: t?.branding_config?.footerLogoWidth || ''
+              },
+              platform_branding: {
+                showPlatformBranding: t?.platform_branding?.showPlatformBranding !== false,
+                backgroundColor: t?.platform_branding?.backgroundColor || '#000000',
+                textColor: t?.platform_branding?.textColor || '#64748b'
               }
             });
           } else {
@@ -1438,6 +1450,113 @@ export default function AdminBranding() {
                   </div>
                 </div>
               </div>
+            </CardContent>
+          </Card>
+
+          {/* Platform Branding Card */}
+          <Card className="bg-slate-800 border-slate-700">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-white">
+                <Shield className="w-5 h-5 text-purple-400" />
+                Platform Branding
+              </CardTitle>
+              <CardDescription className="text-slate-400">
+                Configure the "Powered by" section that appears at the bottom of the footer
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="flex items-center justify-between p-4 bg-slate-900/50 rounded-lg border border-slate-600">
+                <div className="space-y-1">
+                  <Label className="text-white font-medium">Show Platform Branding</Label>
+                  <p className="text-sm text-slate-400">
+                    Display the "Designed and delivered by isaasi" section in the footer
+                  </p>
+                </div>
+                <Switch
+                  checked={formData.platform_branding.showPlatformBranding}
+                  onCheckedChange={(checked) => setFormData(prev => ({
+                    ...prev,
+                    platform_branding: { ...prev.platform_branding, showPlatformBranding: checked }
+                  }))}
+                  data-testid="switch-platform-branding"
+                />
+              </div>
+
+              {formData.platform_branding.showPlatformBranding && (
+                <div className="grid md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label className="text-slate-200">Background Color</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        type="color"
+                        value={formData.platform_branding.backgroundColor}
+                        onChange={(e) => setFormData(prev => ({
+                          ...prev,
+                          platform_branding: { ...prev.platform_branding, backgroundColor: e.target.value }
+                        }))}
+                        className="w-16 h-10 p-1 cursor-pointer"
+                        data-testid="input-platform-bg-color"
+                      />
+                      <Input
+                        type="text"
+                        value={formData.platform_branding.backgroundColor}
+                        onChange={(e) => setFormData(prev => ({
+                          ...prev,
+                          platform_branding: { ...prev.platform_branding, backgroundColor: e.target.value }
+                        }))}
+                        className="flex-1 bg-slate-900/50 border-slate-600 text-white font-mono"
+                        placeholder="#000000"
+                        data-testid="input-platform-bg-color-text"
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-slate-200">Text Color</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        type="color"
+                        value={formData.platform_branding.textColor}
+                        onChange={(e) => setFormData(prev => ({
+                          ...prev,
+                          platform_branding: { ...prev.platform_branding, textColor: e.target.value }
+                        }))}
+                        className="w-16 h-10 p-1 cursor-pointer"
+                        data-testid="input-platform-text-color"
+                      />
+                      <Input
+                        type="text"
+                        value={formData.platform_branding.textColor}
+                        onChange={(e) => setFormData(prev => ({
+                          ...prev,
+                          platform_branding: { ...prev.platform_branding, textColor: e.target.value }
+                        }))}
+                        className="flex-1 bg-slate-900/50 border-slate-600 text-white font-mono"
+                        placeholder="#64748b"
+                        data-testid="input-platform-text-color-text"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Preview */}
+              {formData.platform_branding.showPlatformBranding && (
+                <div className="border-t border-slate-700 pt-4">
+                  <Label className="text-slate-200 mb-3 block">Preview</Label>
+                  <div 
+                    className="text-center p-4 rounded-lg"
+                    style={{ backgroundColor: formData.platform_branding.backgroundColor }}
+                  >
+                    <p 
+                      className="text-xs"
+                      style={{ color: formData.platform_branding.textColor }}
+                    >
+                      Designed and delivered by{' '}
+                      <span style={{ color: '#eb008c' }}>isaasi</span>. Copyright 2026
+                    </p>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
 

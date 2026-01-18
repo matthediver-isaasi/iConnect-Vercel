@@ -18,6 +18,7 @@ export const tenant = pgTable("tenant", {
   header_config: jsonb("header_config").default({}),
   footer_config: jsonb("footer_config").default({}),
   branding_config: jsonb("branding_config").default({}),
+  platform_branding: jsonb("platform_branding").default({}),
   subscription_plan: varchar("subscription_plan", { length: 50 }).default('free'),
   subscription_status: varchar("subscription_status", { length: 50 }).default('active'),
   stripe_customer_id: varchar("stripe_customer_id", { length: 255 }),
