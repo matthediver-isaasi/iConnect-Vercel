@@ -2,6 +2,7 @@ import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { FileText } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 
@@ -75,17 +76,23 @@ export default function SubmissionStatsBar() {
       
       {/* Collapsed view - compact icon with count (always shown) */}
       <div className="hidden group-data-[collapsible=icon]:flex justify-center py-2">
-        <div 
-          onClick={handleClick}
-          className="relative flex items-center justify-center w-8 h-8 rounded-md bg-blue-600 hover:bg-blue-700 transition-colors cursor-pointer"
-          data-testid="link-submission-stats-collapsed"
-          role="button"
-          tabIndex={0}
-          onKeyDown={(e) => e.key === 'Enter' && handleClick()}
-          title={`${stats.new} new submission${stats.new !== 1 ? 's' : ''}`}
-        >
-          <span className="text-white text-xs font-bold">{stats.new}</span>
-        </div>
+        <Tooltip>
+          <TooltipTrigger asChild onFocus={(e) => e.preventDefault()}>
+            <div 
+              onClick={handleClick}
+              className="relative flex items-center justify-center w-8 h-8 rounded-md bg-blue-600 hover:bg-blue-700 transition-colors cursor-pointer"
+              data-testid="link-submission-stats-collapsed"
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => e.key === 'Enter' && handleClick()}
+            >
+              <span className="text-white text-xs font-bold">{stats.new}</span>
+            </div>
+          </TooltipTrigger>
+          <TooltipContent side="right">
+            {stats.new} new submission{stats.new !== 1 ? 's' : ''}
+          </TooltipContent>
+        </Tooltip>
       </div>
     </>
   );

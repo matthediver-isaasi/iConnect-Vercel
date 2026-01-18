@@ -29,6 +29,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetClose } from "@/components/ui/sheet";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import PublicLayout from "@/components/layouts/PublicLayout";
@@ -443,18 +444,24 @@ function SidebarEdgeToggle() {
   const isCollapsed = state === 'collapsed';
   
   return (
-    <button
-      onClick={toggleSidebar}
-      className="w-6 h-6 bg-white border border-slate-200 rounded-full shadow-sm flex items-center justify-center hover:bg-slate-50 transition-colors cursor-pointer"
-      title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-      data-testid="button-sidebar-toggle"
-    >
-      {isCollapsed ? (
-        <ChevronRight className="w-4 h-4 text-slate-600" />
-      ) : (
-        <ChevronLeft className="w-4 h-4 text-slate-600" />
-      )}
-    </button>
+    <Tooltip>
+      <TooltipTrigger asChild onFocus={(e) => e.preventDefault()}>
+        <button
+          onClick={toggleSidebar}
+          className="w-6 h-6 bg-white border border-slate-200 rounded-full shadow-sm flex items-center justify-center hover:bg-slate-50 transition-colors cursor-pointer"
+          data-testid="button-sidebar-toggle"
+        >
+          {isCollapsed ? (
+            <ChevronRight className="w-4 h-4 text-slate-600" />
+          ) : (
+            <ChevronLeft className="w-4 h-4 text-slate-600" />
+          )}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right">
+        {isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -469,31 +476,48 @@ function SidebarFooterContent({ memberInfo, memberRole, handleLogout }) {
     // Show only icons when collapsed
     return (
       <div className="flex flex-col items-center gap-2 py-2">
-        {memberInfo.google_id ? (
-          <SiGoogle className="w-5 h-5 text-[#4285F4]" />
-        ) : (
-          <User className="w-5 h-5 text-slate-500" />
-        )}
+        <Tooltip>
+          <TooltipTrigger asChild onFocus={(e) => e.preventDefault()}>
+            <div className="flex items-center justify-center">
+              {memberInfo.google_id ? (
+                <SiGoogle className="w-5 h-5 text-[#4285F4]" />
+              ) : (
+                <User className="w-5 h-5 text-slate-500" />
+              )}
+            </div>
+          </TooltipTrigger>
+          <TooltipContent side="right">
+            {memberInfo.first_name} {memberInfo.last_name}
+          </TooltipContent>
+        </Tooltip>
         {memberInfo.hasTenantUserLink && (
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => {
-              window.location.href = 'https://iconn.app/admin/dashboard';
-            }}
-            title="Admin Dashboard"
-          >
-            <ExternalLink className="w-4 h-4" />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild onFocus={(e) => e.preventDefault()}>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => {
+                  window.location.href = 'https://iconn.app/admin/dashboard';
+                }}
+              >
+                <ExternalLink className="w-4 h-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right">Admin Dashboard</TooltipContent>
+          </Tooltip>
         )}
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={handleLogout}
-          title="Sign Out"
-        >
-          <LogOut className="w-4 h-4" />
-        </Button>
+        <Tooltip>
+          <TooltipTrigger asChild onFocus={(e) => e.preventDefault()}>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleLogout}
+            >
+              <LogOut className="w-4 h-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="right">Sign Out</TooltipContent>
+        </Tooltip>
       </div>
     );
   }
