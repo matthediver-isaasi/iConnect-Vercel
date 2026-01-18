@@ -320,6 +320,22 @@ export default function PublicLayout({ children, currentPageName }) {
                 const blockType = item.content_block_type;
                 
                 switch (blockType) {
+                  case 'heading':
+                    return (
+                      <div key={item.id}>
+                        <h4 
+                          className="text-white text-sm mb-3" 
+                          style={{ 
+                            fontFamily: 'Poppins, sans-serif', 
+                            textTransform: 'uppercase', 
+                            letterSpacing: '5px' 
+                          }}
+                        >
+                          {item.title || 'Section'}
+                        </h4>
+                        <div className="mb-4" style={{ width: '36px', height: '2px', backgroundColor: 'rgba(255,255,255,0.5)' }} />
+                      </div>
+                    );
                   case 'address':
                     return (
                       <div key={item.id}>
