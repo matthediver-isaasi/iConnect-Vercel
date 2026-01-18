@@ -21,6 +21,8 @@ import { createPageUrl } from "@/utils";
 // Footer content block types that reference branding configuration sections
 const footerContentBlocks = [
   { type: 'heading', label: 'Heading', icon: Type, description: 'Display a styled heading text' },
+  { type: 'logo', label: 'Logo', icon: Image, description: 'Display tenant logo from branding settings' },
+  { type: 'social', label: 'Social Icons', icon: Share2, description: 'Display social media icons from settings' },
   { type: 'address', label: 'Address', icon: MapPin, description: 'Display address from branding settings' },
   { type: 'contact', label: 'Contact', icon: Phone, description: 'Display phone & email from branding settings' },
   { type: 'cta', label: 'Call to Action', icon: Zap, description: 'Display CTA button from branding settings' },
