@@ -566,7 +566,7 @@ function CollapsibleNavItem({ item, location, variant = 'user', hasPendingPOs = 
         <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
           <PopoverTrigger asChild>
             <SidebarMenuButton 
-              tooltip={item.title}
+              tooltip={popoverOpen ? undefined : item.title}
               isActive={isActive}
               className={`${colors.hover} transition-colors rounded-lg mb-1 ${
                 isActive ? `${colors.active} font-medium` : ''
@@ -582,10 +582,9 @@ function CollapsibleNavItem({ item, location, variant = 'user', hasPendingPOs = 
             side="right" 
             align="start" 
             sideOffset={8}
-            className="w-48 p-2"
+            className="w-48 p-1"
             data-testid={`popover-submenu-${item.title.toLowerCase().replace(/\s+/g, '-')}`}
           >
-            <div className="font-medium text-sm mb-2 px-2 text-slate-700">{item.title}</div>
             <div className="space-y-1">
               {item.subItems.map(subItem => {
                 const isSubItemActive = subItem.url === location.pathname;
