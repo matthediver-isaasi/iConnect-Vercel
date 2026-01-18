@@ -2652,19 +2652,30 @@ const functionHandlers = {
     };
   },
 
-  async setPublicHomePage(params) {
+  async setPublicHomePage(params, req) {
     if (!supabase) throw new Error('Supabase not configured');
     
     const { slug } = params;
     const settingKey = 'public_home_page_slug';
     
-    console.log(`[setPublicHomePage] Setting home page to: ${slug || '(none)'}`);
+    // Get tenant context for proper multi-tenant isolation
+    const { getTenantContext } = await import('./_lib/tenantContext.js');
+    const tenantContext = await getTenantContext(req);
+    const tenantId = tenantContext.tenantId;
+    
+    if (!tenantId) {
+      console.error('[setPublicHomePage] No tenant context found');
+      throw new Error('Unable to determine tenant context. Please ensure you are logged in.');
+    }
+    
+    console.log(`[setPublicHomePage] Setting home page to: ${slug || '(none)'} for tenant: ${tenantId}`);
 
-    // First try to find existing setting
+    // First try to find existing setting for this tenant
     const { data: existingSettings, error: fetchError } = await supabase
       .from('system_settings')
       .select('*')
-      .eq('setting_key', settingKey);
+      .eq('setting_key', settingKey)
+      .eq('tenant_id', tenantId);
 
     if (fetchError) {
       console.error('[setPublicHomePage] Error fetching settings:', fetchError);
@@ -2679,6 +2690,7 @@ const functionHandlers = {
         .from('system_settings')
         .update({ setting_value: slug || '' })
         .eq('id', existingSetting.id)
+        .eq('tenant_id', tenantId)
         .select()
         .single();
 
@@ -2690,12 +2702,13 @@ const functionHandlers = {
       console.log('[setPublicHomePage] Updated existing setting:', data);
       return { success: true, data };
     } else {
-      // Create new setting
+      // Create new setting with tenant_id
       const { data, error } = await supabase
         .from('system_settings')
         .insert({
           setting_key: settingKey,
-          setting_value: slug || ''
+          setting_value: slug || '',
+          tenant_id: tenantId
         })
         .select()
         .single();
