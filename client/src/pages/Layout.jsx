@@ -2,7 +2,7 @@
 import React, { useEffect, useState, useRef, useMemo } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { createPageUrl } from "@/utils";
-import { Calendar, User, CreditCard, LogOut, Ticket, Wallet, Shield, Users, Settings, Sparkles, ShoppingCart, History, BarChart3, Briefcase, FileEdit, Image, FileText, AtSign, FolderTree, Square, Trophy, BookOpen, Mail, MousePointer2, Building, Download, Upload, HelpCircle, Menu, ChevronRight, Video, Bell, Newspaper, PenLine, Home, Globe, Folder, MessageSquare, Star, Heart, Eye, Link as LinkIcon, ExternalLink, Tag, Award, Bookmark, Clock, Search, Phone, MapPin, Music, Camera, Mic, Headphones, Tv, Radio, Rss, Share2, Gift, Zap, Target, Flag, Layers, Grid, List, Layout as LayoutIcon, Monitor, Smartphone, Tablet, Laptop, Server, Database, Cloud, Lock, Key, UserCheck, UserPlus, UserMinus, Users2, MessageCircle, Send, Inbox, Archive, Navigation, UserCog } from "lucide-react";
+import { Calendar, User, CreditCard, LogOut, Ticket, Wallet, Shield, Users, Settings, Sparkles, ShoppingCart, History, BarChart3, Briefcase, FileEdit, Image, FileText, AtSign, FolderTree, Square, Trophy, BookOpen, Mail, MousePointer2, Building, Download, Upload, HelpCircle, Menu, ChevronRight, ChevronLeft, Video, Bell, Newspaper, PenLine, Home, Globe, Folder, MessageSquare, Star, Heart, Eye, Link as LinkIcon, ExternalLink, Tag, Award, Bookmark, Clock, Search, Phone, MapPin, Music, Camera, Mic, Headphones, Tv, Radio, Rss, Share2, Gift, Zap, Target, Flag, Layers, Grid, List, Layout as LayoutIcon, Monitor, Smartphone, Tablet, Laptop, Server, Database, Cloud, Lock, Key, UserCheck, UserPlus, UserMinus, Users2, MessageCircle, Send, Inbox, Archive, Navigation, UserCog } from "lucide-react";
 import { useLayoutContext } from "@/contexts/LayoutContext";
 import { useArticleUrl } from "@/contexts/ArticleUrlContext";
 import { isResourceExcluded } from "@/lib/roleVisibility";
@@ -425,6 +425,28 @@ const adminNavigationItems = [
     featureId: "page_ZoomWebinarProvisioning"
   },
   ];
+
+// Circular toggle button on sidebar edge
+function SidebarEdgeToggle() {
+  const { state, toggleSidebar } = useSidebar();
+  const isCollapsed = state === 'collapsed';
+  
+  return (
+    <button
+      onClick={toggleSidebar}
+      className="absolute top-1/2 -right-3 z-50 w-6 h-6 bg-white border border-slate-200 rounded-full shadow-sm flex items-center justify-center hover:bg-slate-50 transition-colors cursor-pointer"
+      style={{ transform: 'translateY(-50%)' }}
+      title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+      data-testid="button-sidebar-toggle"
+    >
+      {isCollapsed ? (
+        <ChevronRight className="w-4 h-4 text-slate-600" />
+      ) : (
+        <ChevronLeft className="w-4 h-4 text-slate-600" />
+      )}
+    </button>
+  );
+}
 
 // Separate component for sidebar footer content to use useSidebar hook
 function SidebarFooterContent({ memberInfo, memberRole, handleLogout }) {
@@ -1699,7 +1721,8 @@ useEffect(() => {
 
       <SidebarProvider key="main-sidebar-provider">
         <div className="flex h-screen w-full overflow-hidden">
-        <Sidebar collapsible="icon" className="border-r border-slate-200 bg-white flex-shrink-0">
+        <Sidebar collapsible="icon" className="relative border-r border-slate-200 bg-white flex-shrink-0">
+            <SidebarEdgeToggle />
             <SidebarHeader className="border-b border-slate-200 p-4">
               {portalLogoSettings?.logoUrl ? (
                 // Custom portal logo
@@ -1984,11 +2007,6 @@ useEffect(() => {
               >
                 <Menu className="w-6 h-6" />
               </Button>
-            </header>
-
-            {/* Desktop Sidebar Toggle - only visible on larger screens */}
-            <header className="hidden md:flex items-center gap-2 px-4 py-2 border-b border-slate-200 bg-white">
-              <SidebarTrigger data-testid="button-sidebar-toggle" className="text-slate-600 hover:text-slate-900" />
             </header>
 
             {/* Mobile Navigation Sheet */}
