@@ -56,6 +56,10 @@ export default function PublicLayout({ children, currentPageName }) {
   const [socialIcons, setSocialIcons] = useState(null);
   const [newsletterFormSlug, setNewsletterFormSlug] = useState(null);
   const [footerNavItems, setFooterNavItems] = useState([]);
+  const [platformDefaults, setPlatformDefaults] = useState({
+    platformBrandingText: 'Powered by isaasi',
+    platformBrandingUrl: 'https://isaasi.co.uk'
+  });
 
   const tenantFooterConfig = branding?.footerConfig || {};
   const tenantPrimaryColor = branding?.primaryColor || '#5C0085';
@@ -114,6 +118,20 @@ export default function PublicLayout({ children, currentPageName }) {
           setFooterNavItems(footerItems);
         } catch (e) {
           console.error('Failed to fetch footer navigation items:', e);
+        }
+
+        // Fetch platform defaults for branding text
+        try {
+          const defaultsRes = await fetch('/api/public/platform-defaults');
+          if (defaultsRes.ok) {
+            const defaultsData = await defaultsRes.json();
+            setPlatformDefaults(prev => ({
+              ...prev,
+              ...defaultsData
+            }));
+          }
+        } catch (e) {
+          console.error('Failed to fetch platform defaults:', e);
         }
       } catch (error) {
         console.error('Failed to fetch configs:', error);
@@ -629,21 +647,21 @@ export default function PublicLayout({ children, currentPageName }) {
                 </div>
               </div>
               
-              {/* Powered by isaasi */}
+              {/* Platform Branding */}
               {(branding?.platformBranding?.showPlatformBranding !== false) && (
                 <div 
                   className="text-center mt-8 py-4 -mx-4 sm:-mx-8 md:-mx-16 px-4 sm:px-8 md:px-16"
                   style={{ backgroundColor: branding?.platformBranding?.backgroundColor || '#000000' }}
                 >
                   <a
-                    href="https://isaasi.co.uk"
+                    href={platformDefaults.platformBrandingUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-block hover:opacity-80 transition-opacity"
                   >
                     <img
                       src="https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/68efc20f3e0a30fafad6dde7/fe03f7c5e_linked-aa.png"
-                      alt="isaasi"
+                      alt="Platform logo"
                       className="w-[40px] mx-auto mb-2"
                     />
                   </a>
@@ -651,16 +669,7 @@ export default function PublicLayout({ children, currentPageName }) {
                     className="text-xs"
                     style={{ color: branding?.platformBranding?.textColor || '#64748b' }}
                   >
-                    Designed and delivered by{' '}
-                    <a
-                      href="https://isaasi.co.uk"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="hover:opacity-80 transition-opacity"
-                      style={{ color: '#eb008c' }}
-                    >
-                      isaasi
-                    </a>. Copyright 2026
+                    {platformDefaults.platformBrandingText}
                   </p>
                 </div>
               )}

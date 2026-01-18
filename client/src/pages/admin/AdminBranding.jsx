@@ -103,6 +103,10 @@ export default function AdminBranding() {
   const [newGradientColor, setNewGradientColor] = useState('#000000');
   const [newHeaderGradientColor, setNewHeaderGradientColor] = useState('#000000');
   const [newHeaderGradientPosition, setNewHeaderGradientPosition] = useState(100);
+  const [platformDefaults, setPlatformDefaults] = useState({
+    platformBrandingText: 'Powered by isaasi',
+    platformBrandingUrl: 'https://isaasi.co.uk'
+  });
 
   const convertLegacyGradientColors = (colors) => {
     if (!colors || colors.length === 0) return DEFAULT_GRADIENT_STOPS;
@@ -197,6 +201,20 @@ export default function AdminBranding() {
                 textColor: t?.platform_branding?.textColor || '#64748b'
               }
             });
+            
+            // Also fetch platform defaults
+            try {
+              const defaultsRes = await fetch('/api/public/platform-defaults');
+              if (defaultsRes.ok) {
+                const defaultsData = await defaultsRes.json();
+                setPlatformDefaults(prev => ({
+                  ...prev,
+                  ...defaultsData
+                }));
+              }
+            } catch (err) {
+              console.error('Failed to fetch platform defaults:', err);
+            }
           } else {
             navigate('/admin/login');
           }
@@ -1551,10 +1569,12 @@ export default function AdminBranding() {
                       className="text-xs"
                       style={{ color: formData.platform_branding.textColor }}
                     >
-                      Designed and delivered by{' '}
-                      <span style={{ color: '#eb008c' }}>isaasi</span>. Copyright 2026
+                      {platformDefaults.platformBrandingText}
                     </p>
                   </div>
+                  <p className="text-xs text-slate-500 mt-2">
+                    Text and link URL are configured in Platform Admin &rarr; Defaults
+                  </p>
                 </div>
               )}
             </CardContent>
