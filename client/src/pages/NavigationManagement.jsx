@@ -336,7 +336,6 @@ export default function NavigationManagementPage() {
       open_in_new_tab: false,
       icon: "",
       description: "",
-      highlight_style: "none",
       display_type: "link",
       button_style: null
     });
@@ -455,11 +454,6 @@ export default function NavigationManagementPage() {
                 {item.display_type === 'button' && (
                   <Badge className="text-xs bg-gradient-to-r from-purple-500 to-pink-500 text-white">
                     Button
-                  </Badge>
-                )}
-                {item.highlight_style === 'gradient_button' && (
-                  <Badge className="text-xs bg-gradient-to-r from-amber-500 to-orange-500 text-white">
-                    Featured
                   </Badge>
                 )}
                 {hasChildren && (
@@ -861,22 +855,6 @@ export default function NavigationManagementPage() {
                       </Button>
                     )}
                   </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="highlight">Highlight Style</Label>
-                  <Select
-                    value={editingItem.highlight_style}
-                    onValueChange={(value) => setEditingItem({ ...editingItem, highlight_style: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">None</SelectItem>
-                      <SelectItem value="gradient_button">Gradient Button</SelectItem>
-                    </SelectContent>
-                  </Select>
                 </div>
 
                 <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-lg">
