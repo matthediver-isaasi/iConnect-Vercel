@@ -105,7 +105,7 @@ const SidebarProvider = React.forwardRef((
 
   return (
     (<SidebarContext.Provider value={contextValue}>
-      <TooltipProvider delayDuration={0}>
+      <TooltipProvider delayDuration={300} skipDelayDuration={100}>
         <div
           style={
             {
@@ -471,7 +471,7 @@ const SidebarMenuButton = React.forwardRef((
 
   return (
     (<Tooltip>
-      <TooltipTrigger asChild>{button}</TooltipTrigger>
+      <TooltipTrigger asChild onFocus={(e) => e.preventDefault()}>{button}</TooltipTrigger>
       <TooltipContent
         side="right"
         align="center"
