@@ -2548,7 +2548,7 @@ export default function EditEvent() {
                   const embedCode = `<iframe src="${embedUrl}" style="width: 100%; min-height: 600px; border: none;" loading="lazy"></iframe>
 <script>
   window.addEventListener('message', function(e) {
-    if (e.data.type === 'iconn-event-resize') {
+    if (e.data.type === 'iconn-event-resize' && e.data.eventId === '${eventId}' && e.data.tenant === '${tenantSlug}') {
       var iframe = document.querySelector('iframe[src*="id=${eventId}"]');
       if (iframe) iframe.style.height = e.data.height + 'px';
     }

@@ -98,13 +98,19 @@ export default function EventDetailsPage() {
   const eventId = urlParams.get('id');
   const debugMode = urlParams.get('debugZoom') === '1';
   const isEmbedMode = urlParams.get('embed') === 'true';
+  const embedTenant = urlParams.get('tenant');
 
   // Notify parent iframe of height changes for embed mode
   const notifyParentResize = () => {
     if (!isEmbedMode) return;
     setTimeout(() => {
       const height = document.documentElement.scrollHeight;
-      window.parent.postMessage({ type: 'iconn-event-resize', height }, '*');
+      window.parent.postMessage({ 
+        type: 'iconn-event-resize', 
+        height,
+        eventId,
+        tenant: embedTenant
+      }, '*');
     }, 100);
   };
 

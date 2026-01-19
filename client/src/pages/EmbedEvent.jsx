@@ -81,7 +81,12 @@ export default function EmbedEventPage() {
   const notifyParentResize = () => {
     setTimeout(() => {
       const height = document.documentElement.scrollHeight;
-      window.parent.postMessage({ type: 'iconn-event-resize', height }, '*');
+      window.parent.postMessage({ 
+        type: 'iconn-event-resize', 
+        height,
+        eventId: identifier,
+        tenant: tenantParam
+      }, '*');
     }, 100);
   };
 
