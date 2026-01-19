@@ -87,10 +87,10 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'Invalid tenant context' });
       }
 
-      // Get form to verify it exists and get its settings
+      // Get form to verify it exists
       let formQuery = supabase
         .from('form')
-        .select('id, tenant_id, updated_at, settings')
+        .select('id, tenant_id, updated_at')
         .eq('tenant_id', tenantData.id)
         .eq('is_active', true);
 
@@ -106,13 +106,8 @@ export default async function handler(req, res) {
         return res.status(404).json({ error: 'Form not found' });
       }
 
-      // Check if save drafts is disabled for this form
-      if (form.settings?.disable_save_draft === true) {
-        return res.status(403).json({ error: 'Save draft is disabled for this form' });
-      }
-
-      // Calculate expiry date
-      const expiryDays = form.settings?.draft_expiry_days || DEFAULT_EXPIRY_DAYS;
+      // Calculate expiry date (always use default since settings column doesn't exist)
+      const expiryDays = DEFAULT_EXPIRY_DAYS;
       const expiresAt = new Date();
       expiresAt.setDate(expiresAt.getDate() + expiryDays);
 
