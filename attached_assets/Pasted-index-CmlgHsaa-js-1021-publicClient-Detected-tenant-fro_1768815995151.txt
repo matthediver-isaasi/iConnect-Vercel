@@ -1,0 +1,185 @@
+index-CmlgHsaa.js:1021 [publicClient] Detected tenant from subdomain: gsf
+index-CmlgHsaa.js:1106 GoTrueClient@sb-lvmzliemqnieeoruhkik-auth-token:1 (2.84.0) 2026-01-19T09:46:06.253Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+Mg @ index-CmlgHsaa.js:1106
+voe @ index-CmlgHsaa.js:1107
+_initSupabaseAuthClient @ index-CmlgHsaa.js:1107
+yoe @ index-CmlgHsaa.js:1107
+Dz @ index-CmlgHsaa.js:1107
+(anonymous) @ index-CmlgHsaa.js:2089
+(anonymous) @ index-CmlgHsaa.js:1
+(anonymous) @ index-CmlgHsaa.js:2502
+index-CmlgHsaa.js:1410 [usePendingPurchaseOrders] memberInfo: null
+index-CmlgHsaa.js:1410 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-CmlgHsaa.js:1410 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-CmlgHsaa.js:1410 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-CmlgHsaa.js:1410 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-CmlgHsaa.js:1410 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CmlgHsaa.js:1410 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CmlgHsaa.js:1410 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-CmlgHsaa.js:1410 [usePendingPurchaseOrders] Query running, memberInfo.id: b24e022f-adcc-4930-8952-63a34cc16925
+index-CmlgHsaa.js:1410 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-CmlgHsaa.js:1410 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CmlgHsaa.js:1410 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CmlgHsaa.js:1410 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-CmlgHsaa.js:1410 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-CmlgHsaa.js:1410 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CmlgHsaa.js:1410 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CmlgHsaa.js:1410 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-CmlgHsaa.js:1410 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-CmlgHsaa.js:1410 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CmlgHsaa.js:1410 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CmlgHsaa.js:1410 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-CmlgHsaa.js:1410 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-CmlgHsaa.js:1410 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CmlgHsaa.js:1410 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CmlgHsaa.js:1410 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-CmlgHsaa.js:1376 Error loading member record: {code: 'PGRST116', details: 'Results contain 3 rows, application/vnd.pgrst.object+json requires 1 row', hint: null, message: 'JSON object requested, multiple (or no) rows returned'}
+queryFn @ index-CmlgHsaa.js:1376
+await in queryFn
+i @ index-CmlgHsaa.js:1021
+v @ index-CmlgHsaa.js:1021
+start @ index-CmlgHsaa.js:1021
+fetch @ index-CmlgHsaa.js:1021
+Pf @ index-CmlgHsaa.js:1021
+onSubscribe @ index-CmlgHsaa.js:1021
+subscribe @ index-CmlgHsaa.js:1021
+(anonymous) @ index-CmlgHsaa.js:1021
+QR @ index-CmlgHsaa.js:38
+Dj @ index-CmlgHsaa.js:40
+Uh @ index-CmlgHsaa.js:40
+aX @ index-CmlgHsaa.js:40
+Uu @ index-CmlgHsaa.js:40
+K5 @ index-CmlgHsaa.js:40
+_u @ index-CmlgHsaa.js:38
+(anonymous) @ index-CmlgHsaa.js:40
+setTimeout
+r @ index-CmlgHsaa.js:1021
+l @ index-CmlgHsaa.js:1021
+batch @ index-CmlgHsaa.js:1021
+Nc @ index-CmlgHsaa.js:1021
+setData @ index-CmlgHsaa.js:1021
+onSuccess @ index-CmlgHsaa.js:1021
+h @ index-CmlgHsaa.js:1021
+Promise.then
+v @ index-CmlgHsaa.js:1021
+start @ index-CmlgHsaa.js:1021
+fetch @ index-CmlgHsaa.js:1021
+Pf @ index-CmlgHsaa.js:1021
+onSubscribe @ index-CmlgHsaa.js:1021
+subscribe @ index-CmlgHsaa.js:1021
+(anonymous) @ index-CmlgHsaa.js:1021
+QR @ index-CmlgHsaa.js:38
+Dj @ index-CmlgHsaa.js:40
+Uh @ index-CmlgHsaa.js:40
+(anonymous) @ index-CmlgHsaa.js:40
+w @ index-CmlgHsaa.js:25
+S @ index-CmlgHsaa.js:25
+index-CmlgHsaa.js:1410 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-CmlgHsaa.js:1410 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CmlgHsaa.js:1410 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CmlgHsaa.js:1410 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-CmlgHsaa.js:1410 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-CmlgHsaa.js:1410 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CmlgHsaa.js:1410 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CmlgHsaa.js:1410 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-CmlgHsaa.js:1410 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-CmlgHsaa.js:1410 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CmlgHsaa.js:1410 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CmlgHsaa.js:1410 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-CmlgHsaa.js:1410 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-CmlgHsaa.js:1410 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CmlgHsaa.js:1410 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CmlgHsaa.js:1410 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-CmlgHsaa.js:1410 [usePendingPurchaseOrders] Fetched bookings count: 0
+index-CmlgHsaa.js:1410 [usePendingPurchaseOrders] Pending PO bookings: 0
+index-CmlgHsaa.js:1410 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-CmlgHsaa.js:1410 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-CmlgHsaa.js:1410 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-CmlgHsaa.js:1410 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-CmlgHsaa.js:1410 [Layout] Server session found: mat.the.diver@googlemail.com
+index-CmlgHsaa.js:1410 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-CmlgHsaa.js:1410 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-CmlgHsaa.js:1410 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-CmlgHsaa.js:1410 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-CmlgHsaa.js:1410 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-CmlgHsaa.js:1410 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-CmlgHsaa.js:1410 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-CmlgHsaa.js:1410 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-CmlgHsaa.js:40 Error: A <Select.Item /> must have a value prop that is not an empty string. This is because the Select value can be set to an empty string to clear the selection and show the placeholder.
+    at index-CmlgHsaa.js:1376:87102
+    at Lk (index-CmlgHsaa.js:38:17018)
+    at R5 (index-CmlgHsaa.js:40:1571)
+    at O$ (index-CmlgHsaa.js:40:46033)
+    at M$ (index-CmlgHsaa.js:40:39790)
+    at tX (index-CmlgHsaa.js:40:39718)
+    at fy (index-CmlgHsaa.js:40:39570)
+    at X2 (index-CmlgHsaa.js:40:35934)
+    at K5 (index-CmlgHsaa.js:40:36738)
+    at _u (index-CmlgHsaa.js:38:3279)
+z2 @ index-CmlgHsaa.js:40
+i.componentDidCatch.a.callback @ index-CmlgHsaa.js:40
+E5 @ index-CmlgHsaa.js:38
+V5 @ index-CmlgHsaa.js:40
+E$ @ index-CmlgHsaa.js:40
+XQ @ index-CmlgHsaa.js:40
+aX @ index-CmlgHsaa.js:40
+Uu @ index-CmlgHsaa.js:40
+K5 @ index-CmlgHsaa.js:40
+_u @ index-CmlgHsaa.js:38
+aX @ index-CmlgHsaa.js:40
+Uu @ index-CmlgHsaa.js:40
+P$ @ index-CmlgHsaa.js:40
+w @ index-CmlgHsaa.js:25
+S @ index-CmlgHsaa.js:25
+index-CmlgHsaa.js:40 Error: A <Select.Item /> must have a value prop that is not an empty string. This is because the Select value can be set to an empty string to clear the selection and show the placeholder.
+    at index-CmlgHsaa.js:1376:87102
+    at Lk (index-CmlgHsaa.js:38:17018)
+    at R5 (index-CmlgHsaa.js:40:1571)
+    at O$ (index-CmlgHsaa.js:40:46033)
+    at M$ (index-CmlgHsaa.js:40:39790)
+    at tX (index-CmlgHsaa.js:40:39718)
+    at fy (index-CmlgHsaa.js:40:39570)
+    at X2 (index-CmlgHsaa.js:40:35934)
+    at K5 (index-CmlgHsaa.js:40:36738)
+    at _u (index-CmlgHsaa.js:38:3279)
+z2 @ index-CmlgHsaa.js:40
+a.callback @ index-CmlgHsaa.js:40
+E5 @ index-CmlgHsaa.js:38
+V5 @ index-CmlgHsaa.js:40
+E$ @ index-CmlgHsaa.js:40
+XQ @ index-CmlgHsaa.js:40
+aX @ index-CmlgHsaa.js:40
+Uu @ index-CmlgHsaa.js:40
+K5 @ index-CmlgHsaa.js:40
+_u @ index-CmlgHsaa.js:38
+aX @ index-CmlgHsaa.js:40
+Uu @ index-CmlgHsaa.js:40
+P$ @ index-CmlgHsaa.js:40
+w @ index-CmlgHsaa.js:25
+S @ index-CmlgHsaa.js:25
+index-CmlgHsaa.js:1376 Uncaught Error: A <Select.Item /> must have a value prop that is not an empty string. This is because the Select value can be set to an empty string to clear the selection and show the placeholder.
+    at index-CmlgHsaa.js:1376:87102
+    at Lk (index-CmlgHsaa.js:38:17018)
+    at R5 (index-CmlgHsaa.js:40:1571)
+    at O$ (index-CmlgHsaa.js:40:46033)
+    at M$ (index-CmlgHsaa.js:40:39790)
+    at tX (index-CmlgHsaa.js:40:39718)
+    at fy (index-CmlgHsaa.js:40:39570)
+    at X2 (index-CmlgHsaa.js:40:35934)
+    at K5 (index-CmlgHsaa.js:40:36738)
+    at _u (index-CmlgHsaa.js:38:3279)
+(anonymous) @ index-CmlgHsaa.js:1376
+Lk @ index-CmlgHsaa.js:38
+R5 @ index-CmlgHsaa.js:40
+O$ @ index-CmlgHsaa.js:40
+M$ @ index-CmlgHsaa.js:40
+tX @ index-CmlgHsaa.js:40
+fy @ index-CmlgHsaa.js:40
+X2 @ index-CmlgHsaa.js:40
+K5 @ index-CmlgHsaa.js:40
+_u @ index-CmlgHsaa.js:38
+aX @ index-CmlgHsaa.js:40
+Uu @ index-CmlgHsaa.js:40
+P$ @ index-CmlgHsaa.js:40
+w @ index-CmlgHsaa.js:25
+S @ index-CmlgHsaa.js:25

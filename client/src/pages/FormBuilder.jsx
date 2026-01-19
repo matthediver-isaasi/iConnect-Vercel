@@ -2493,14 +2493,14 @@ function FieldCard({
                         <p className="text-xs text-amber-600">Add options above first to set a default value</p>
                       ) : (
                         <Select
-                          value={field.default_value || ''}
-                          onValueChange={(value) => updateField(originalIndex, { default_value: value })}
+                          value={field.default_value || '__none__'}
+                          onValueChange={(value) => updateField(originalIndex, { default_value: value === '__none__' ? null : value })}
                         >
                           <SelectTrigger className="h-8 text-xs" data-testid={`select-default-value-${field.id}`}>
                             <SelectValue placeholder="Select a default option..." />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="">No default</SelectItem>
+                            <SelectItem value="__none__">No default</SelectItem>
                             {(field.options || []).filter(opt => opt && opt.trim()).map((option, idx) => (
                               <SelectItem key={idx} value={option}>{option}</SelectItem>
                             ))}
