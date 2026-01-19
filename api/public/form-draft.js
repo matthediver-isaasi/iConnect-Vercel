@@ -83,6 +83,12 @@ export default async function handler(req, res) {
       }
 
       const tenantData = await resolveTenant(tenantSlug);
+      console.log('[Form Draft] Tenant resolution:', { 
+        tenantSlug, 
+        tenantData,
+        host: req.headers['x-forwarded-host'] || req.headers.host 
+      });
+      
       if (!tenantData) {
         return res.status(400).json({ error: 'Invalid tenant context' });
       }
@@ -100,10 +106,25 @@ export default async function handler(req, res) {
         formQuery = formQuery.eq('slug', form_slug);
       }
 
+      console.log('[Form Draft] Form query params:', { 
+        form_id, 
+        form_slug, 
+        tenant_id: tenantData.id 
+      });
+
       const { data: form, error: formError } = await formQuery.single();
 
+      console.log('[Form Draft] Form lookup result:', { 
+        form: form ? { id: form.id, tenant_id: form.tenant_id } : null, 
+        error: formError?.message,
+        code: formError?.code 
+      });
+
       if (formError || !form) {
-        return res.status(404).json({ error: 'Form not found' });
+        return res.status(404).json({ 
+          error: 'Form not found',
+          debug: { form_id, form_slug, tenant_id: tenantData.id, dbError: formError?.message }
+        });
       }
 
       // Calculate expiry date (always use default since settings column doesn't exist)
