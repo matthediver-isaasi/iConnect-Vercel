@@ -2434,6 +2434,130 @@ function FieldCard({
                 </div>
               )}
 
+              {/* Default Value Section - for non-boolean fields */}
+              {!['boolean', 'terms_conditions', 'file', 'list', 'user_name', 'user_email', 'user_organization', 'user_job_title', 'organisation_dropdown', 'category_multiselect', 'category_dropdown', 'communication_preferences'].includes(field.type) && (
+                <div className="space-y-2 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                  <Label className="text-xs font-medium">Default Value</Label>
+                  <p className="text-xs text-slate-500 mb-2">Pre-filled value when form loads</p>
+                  
+                  {/* Text-based fields */}
+                  {['text', 'textarea', 'email', 'url', 'tel'].includes(field.type) && (
+                    <Input
+                      type={field.type === 'email' ? 'email' : field.type === 'url' ? 'url' : field.type === 'tel' ? 'tel' : 'text'}
+                      value={field.default_value || ''}
+                      onChange={(e) => updateField(originalIndex, { default_value: e.target.value })}
+                      placeholder="Enter default value..."
+                      className="h-8 text-xs"
+                      data-testid={`input-default-value-${field.id}`}
+                    />
+                  )}
+                  
+                  {/* Number field */}
+                  {field.type === 'number' && (
+                    <Input
+                      type="number"
+                      value={field.default_value ?? ''}
+                      onChange={(e) => updateField(originalIndex, { default_value: e.target.value ? Number(e.target.value) : '' })}
+                      placeholder="Enter default number..."
+                      className="h-8 text-xs"
+                      data-testid={`input-default-value-${field.id}`}
+                    />
+                  )}
+                  
+                  {/* Date field */}
+                  {field.type === 'date' && (
+                    <Input
+                      type="date"
+                      value={field.default_value || ''}
+                      onChange={(e) => updateField(originalIndex, { default_value: e.target.value })}
+                      className="h-8 text-xs"
+                      data-testid={`input-default-value-${field.id}`}
+                    />
+                  )}
+                  
+                  {/* Time field */}
+                  {field.type === 'time' && (
+                    <Input
+                      type="time"
+                      value={field.default_value || ''}
+                      onChange={(e) => updateField(originalIndex, { default_value: e.target.value })}
+                      className="h-8 text-xs"
+                      data-testid={`input-default-value-${field.id}`}
+                    />
+                  )}
+                  
+                  {/* Single-select fields (select, radio) - dropdown to pick from options */}
+                  {['select', 'radio'].includes(field.type) && (
+                    <>
+                      {(field.options || []).length === 0 ? (
+                        <p className="text-xs text-amber-600">Add options above first to set a default value</p>
+                      ) : (
+                        <Select
+                          value={field.default_value || ''}
+                          onValueChange={(value) => updateField(originalIndex, { default_value: value })}
+                        >
+                          <SelectTrigger className="h-8 text-xs" data-testid={`select-default-value-${field.id}`}>
+                            <SelectValue placeholder="Select a default option..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="">No default</SelectItem>
+                            {(field.options || []).filter(opt => opt && opt.trim()).map((option, idx) => (
+                              <SelectItem key={idx} value={option}>{option}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    </>
+                  )}
+                  
+                  {/* Multi-select field (checkbox) - checkboxes to pick defaults */}
+                  {field.type === 'checkbox' && (
+                    <>
+                      {(field.options || []).length === 0 ? (
+                        <p className="text-xs text-amber-600">Add options above first to set default values</p>
+                      ) : (
+                        <div className="space-y-1 max-h-32 overflow-y-auto">
+                          {(field.options || []).filter(opt => opt && opt.trim()).map((option, idx) => {
+                            const currentDefaults = Array.isArray(field.default_value) ? field.default_value : [];
+                            const isChecked = currentDefaults.includes(option);
+                            return (
+                              <div key={idx} className="flex items-center gap-2">
+                                <Checkbox
+                                  id={`default-${field.id}-${idx}`}
+                                  checked={isChecked}
+                                  onCheckedChange={(checked) => {
+                                    const newDefaults = checked
+                                      ? [...currentDefaults, option]
+                                      : currentDefaults.filter(v => v !== option);
+                                    updateField(originalIndex, { default_value: newDefaults.length > 0 ? newDefaults : null });
+                                  }}
+                                />
+                                <Label htmlFor={`default-${field.id}-${idx}`} className="text-xs cursor-pointer">
+                                  {option}
+                                </Label>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </>
+                  )}
+                  
+                  {field.default_value && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 text-xs text-slate-500 hover:text-red-600"
+                      onClick={() => updateField(originalIndex, { default_value: null })}
+                    >
+                      <X className="w-3 h-3 mr-1" />
+                      Clear default
+                    </Button>
+                  )}
+                </div>
+              )}
+
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
                   <div className="flex items-center gap-2">

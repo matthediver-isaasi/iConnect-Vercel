@@ -293,36 +293,37 @@ export default function FormViewPage() {
     setFormValues({});
   }, [form?.id]);
   
-  // Initialize boolean fields and hidden fields with their default values
+  // Initialize all fields with their default values
   // This runs after reset and sets the flag to allow prefill to proceed
   useEffect(() => {
     if (!form?.fields || defaultsInitialized) return;
     
     const fieldDefaults = {};
     for (const field of form.fields) {
+      // Boolean fields - use default_value or false
       if (field.type === 'boolean') {
         fieldDefaults[field.id] = field.default_value === true ? true : false;
+        continue;
       }
+      
+      // Terms conditions - always start unchecked
       if (field.type === 'terms_conditions') {
         fieldDefaults[field.id] = false;
+        continue;
       }
-      // Initialize hidden fields so they're included in form submission
-      // This ensures hidden fields mapped to entity_pipelines have their values available
-      // Fields with starts_hidden need to be initialized even without default_value
+      
+      // All other field types - use default_value if set
+      if (field.default_value !== undefined && field.default_value !== null && field.default_value !== '') {
+        fieldDefaults[field.id] = field.default_value;
+        console.log(`[FormView Init] Field "${field.label}" (${field.id}) initialized with default_value:`, field.default_value);
+        continue;
+      }
+      
+      // Hidden fields need to be initialized even without default_value
       // so that set_value rules can populate them
-      // Skip boolean fields as they're already handled above with proper false default
-      if ((field.starts_hidden === true || field.starts_hidden === 'true') && field.type !== 'boolean') {
-        // Only initialize if not already set (preserve earlier defaults)
-        if (fieldDefaults[field.id] === undefined) {
-          if (field.default_value !== undefined && field.default_value !== null && field.default_value !== '') {
-            fieldDefaults[field.id] = field.default_value;
-            console.log(`[FormView Init] Hidden field "${field.label}" (${field.id}) initialized with default_value:`, field.default_value);
-          } else {
-            // Initialize with empty string so set_value rules can populate it
-            fieldDefaults[field.id] = '';
-            console.log(`[FormView Init] Hidden field "${field.label}" (${field.id}) initialized with empty string (no default_value)`);
-          }
-        }
+      if ((field.starts_hidden === true || field.starts_hidden === 'true')) {
+        fieldDefaults[field.id] = '';
+        console.log(`[FormView Init] Hidden field "${field.label}" (${field.id}) initialized with empty string (no default_value)`);
       }
     }
     
