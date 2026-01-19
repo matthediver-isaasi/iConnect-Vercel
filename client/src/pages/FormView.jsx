@@ -541,6 +541,13 @@ export default function FormViewPage() {
     if (!defaultsInitialized) return; // Wait for boolean defaults to be set first
     if (prefillApplied) return; // Already applied prefill, don't overwrite user edits
     
+    // Wait for org custom values to finish loading before attempting prefill
+    // This prevents the race condition where prefill runs with empty custom values
+    if (form.prefill_source === 'organization' && orgCustomValuesLoading) {
+      console.log('[FormView Prefill] Waiting for org custom values to load...');
+      return;
+    }
+    
     // Primary entity based on prefill source
     const memberEntity = prefillMember;
     const orgEntity = effectiveOrgEntity;
@@ -654,7 +661,7 @@ export default function FormViewPage() {
     } else {
       console.log('[FormView Prefill] No newValues to apply - check if fields have prefill_field configured');
     }
-  }, [form, prefillMember, effectiveOrgEntity, prefillMemberCustomValues, prefillOrgCustomValues, prefillApplied, defaultsInitialized, prefillOrgId]);
+  }, [form, prefillMember, effectiveOrgEntity, prefillMemberCustomValues, prefillOrgCustomValues, prefillApplied, defaultsInitialized, prefillOrgId, orgCustomValuesLoading]);
 
   const submitFormMutation = useMutation({
     mutationFn: async (submissionData) => {
