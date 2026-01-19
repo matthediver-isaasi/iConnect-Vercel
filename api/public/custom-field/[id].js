@@ -51,22 +51,19 @@ export default async function handler(req, res) {
       }
     }
     
-    // Build query with tenant isolation when possible
-    let query = supabase
+    // Tenant context is MANDATORY for security
+    if (!tenantId) {
+      console.error('[Public Custom Field] Missing tenant context for field:', id);
+      return res.status(400).json({ error: 'Tenant context required' });
+    }
+
+    const { data, error } = await supabase
       .from('preference_field')
       .select('id, label, field_type, options, entity_scope, min_selections, max_selections')
       .eq('id', id)
-      .eq('is_active', true);
-    
-    // Add tenant filter if we have tenant context (preferred for security)
-    // If no tenant context, allow lookup (backward compatibility for legacy embeds)
-    if (tenantId) {
-      query = query.eq('tenant_id', tenantId);
-    } else {
-      console.warn('[Public Custom Field] No tenant context - falling back to global lookup for field:', id);
-    }
-    
-    const { data, error } = await query.single();
+      .eq('tenant_id', tenantId)
+      .eq('is_active', true)
+      .single();
 
     if (error) {
       console.error('Error fetching custom field:', error);
