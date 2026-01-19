@@ -50,6 +50,7 @@ const STANDARD_FIELD_TYPES = [
   { value: 'country', label: 'Country' },
   { value: 'countries', label: 'Countries (Multi-Select)' },
   { value: 'percentage', label: 'Percentage' },
+  { value: 'contact', label: 'Contact (Composite)' },
   { value: 'instructions', label: 'Instructions (Display Only)' },
 ];
 
