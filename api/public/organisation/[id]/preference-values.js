@@ -78,6 +78,7 @@ export default async function handler(req, res) {
     }
 
     // Fetch all custom field values for this organization
+    console.log('[preference-values API] Fetching values for organization:', id);
     const { data: values, error: valuesError } = await supabase
       .from('organization_preference_value')
       .select('id, organization_id, field_id, value')
@@ -88,6 +89,7 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: valuesError.message });
     }
 
+    console.log('[preference-values API] Found values:', values?.length || 0, JSON.stringify(values));
     return res.json(values || []);
   } catch (error) {
     console.error('Public organization preference values fetch error:', error);
