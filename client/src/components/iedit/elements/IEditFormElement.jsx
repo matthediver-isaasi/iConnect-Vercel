@@ -7,7 +7,7 @@ import { base44 } from "@/api/base44Client";
 import { publicClient } from "@/api/publicClient";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Loader2, AlertCircle, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Upload, X, Image as ImageIcon, FolderOpen, Folder, Home, Search, FileText, CheckCircle2 } from "lucide-react";
+import { Loader2, AlertCircle, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Upload, X, Image as ImageIcon, FolderOpen, Folder, Home, Search, FileText, CheckCircle2, Save, Copy, Check, AlertTriangle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -104,10 +104,20 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   const [validationErrors, setValidationErrors] = useState([]);
   const [fieldValidity, setFieldValidity] = useState({}); // Track format validity for each field
   
-  // Get prefill parameters from URL query string (same as FormView)
+  // Get URL parameters
   const urlParams = new URLSearchParams(window.location.search);
   const prefillMemberId = urlParams.get('member_id');
   const prefillOrgId = urlParams.get('organization_id');
+  const draftToken = urlParams.get('draft');
+  
+  // Draft save state
+  const [resumeToken, setResumeToken] = useState(draftToken || null);
+  const [showResumeLink, setShowResumeLink] = useState(false);
+  const [resumeLinkCopied, setResumeLinkCopied] = useState(false);
+  const [draftLoaded, setDraftLoaded] = useState(false);
+  const [schemaChanged, setSchemaChanged] = useState(false);
+  const [schemaChangeMessage, setSchemaChangeMessage] = useState(null);
+  const [isSavingDraft, setIsSavingDraft] = useState(false);
 
   // Fetch default consent message from public endpoint (works without auth)
   const { data: defaultConsentMessage } = useQuery({
@@ -272,6 +282,114 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     },
     enabled: !!formSlug
   });
+
+  // Load draft if resume token is in URL
+  const { data: draftData } = useQuery({
+    queryKey: ['form-draft-embed', draftToken],
+    queryFn: async () => {
+      const host = window.location.hostname;
+      const tenantSlug = host.split('.')[0];
+      const response = await fetch(`/api/public/form-draft?token=${encodeURIComponent(draftToken)}&tenant=${tenantSlug}`);
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to load draft');
+      }
+      return response.json();
+    },
+    enabled: !!draftToken && !draftLoaded,
+    retry: false
+  });
+
+  // Apply draft data when loaded
+  useEffect(() => {
+    if (draftData?.success && !draftLoaded) {
+      console.log('[IEditFormElement] Loading draft data:', draftData);
+      setFormValues(prev => ({ ...prev, ...draftData.draft.draft_data }));
+      if (draftData.draft.current_page_index) {
+        setCurrentPageIndex(draftData.draft.current_page_index);
+      }
+      setDraftLoaded(true);
+      if (draftData.schema_changed) {
+        setSchemaChanged(true);
+        setSchemaChangeMessage(draftData.message);
+      }
+      toast.success('Your saved progress has been restored');
+    }
+  }, [draftData, draftLoaded]);
+
+  // Save draft handler
+  const handleSaveDraft = async () => {
+    if (!form || isSavingDraft) return;
+    
+    setIsSavingDraft(true);
+    try {
+      const host = window.location.hostname;
+      const tenantSlug = host.split('.')[0];
+      
+      // Try to find an email field value for contact
+      const emailField = form?.fields?.find(f => f.type === 'email');
+      const contactEmail = emailField ? formValues[emailField.id] : null;
+      
+      const payload = {
+        form_slug: formSlug,
+        form_id: form?.id,
+        draft_data: formValues,
+        current_page_index: currentPageIndex,
+        contact_email: contactEmail,
+        resume_token: resumeToken,
+        tenant: tenantSlug,
+        form_updated_at: form?.updated_at
+      };
+      
+      const response = await fetch('/api/public/form-draft', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to save draft');
+      }
+      
+      const result = await response.json();
+      console.log('[IEditFormElement] Draft saved:', result);
+      setResumeToken(result.resume_token);
+      setShowResumeLink(true);
+      toast.success('Your progress has been saved!');
+    } catch (error) {
+      console.error('[IEditFormElement] Draft save error:', error);
+      toast.error(error.message || 'Failed to save your progress');
+    } finally {
+      setIsSavingDraft(false);
+    }
+  };
+
+  // Generate resume URL - preserve existing query params and add/update draft token
+  const getResumeUrl = () => {
+    if (!resumeToken) return '';
+    const baseUrl = window.location.origin;
+    const path = window.location.pathname;
+    // Preserve existing query params (like tenant, etc.) and add draft token
+    const existingParams = new URLSearchParams(window.location.search);
+    existingParams.set('draft', resumeToken);
+    return `${baseUrl}${path}?${existingParams.toString()}`;
+  };
+
+  // Copy resume link to clipboard
+  const copyResumeLink = async () => {
+    try {
+      await navigator.clipboard.writeText(getResumeUrl());
+      setResumeLinkCopied(true);
+      setTimeout(() => setResumeLinkCopied(false), 2000);
+      toast.success('Link copied to clipboard!');
+    } catch (err) {
+      toast.error('Failed to copy link');
+    }
+  };
+
+  // Check if save draft is enabled for this form
+  const isDraftSaveEnabled = form && form.settings?.disable_save_draft !== true;
 
   // Extract role_id from primary member entity_pipeline for capacity checking
   const primaryMemberRoleId = useMemo(() => {
@@ -1587,6 +1705,47 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                 </>
               );
             })()}
+            {/* Schema change warning */}
+            {schemaChanged && schemaChangeMessage && (
+              <div className="flex items-start gap-3 p-3 bg-amber-50 border border-amber-200 rounded-md mb-4">
+                <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <div className="text-sm text-amber-800">
+                  <p className="font-medium">Form has been updated</p>
+                  <p className="text-amber-700">{schemaChangeMessage}</p>
+                </div>
+              </div>
+            )}
+            
+            {/* Resume link display */}
+            {showResumeLink && resumeToken && (
+              <div className="mb-4 p-4 bg-green-50 border border-green-200 rounded-md">
+                <p className="text-sm font-medium text-green-800 mb-2">Your progress has been saved!</p>
+                <p className="text-xs text-green-700 mb-3">
+                  Copy this link to continue later. Your draft will be available for 30 days.
+                </p>
+                <div className="flex items-center gap-2">
+                  <input 
+                    type="text" 
+                    readOnly 
+                    value={getResumeUrl()} 
+                    className="flex-1 text-xs bg-white border border-green-300 rounded px-2 py-1.5 text-slate-600"
+                  />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={copyResumeLink}
+                    className="shrink-0"
+                  >
+                    {resumeLinkCopied ? (
+                      <Check className="w-4 h-4 text-green-600" />
+                    ) : (
+                      <Copy className="w-4 h-4" />
+                    )}
+                  </Button>
+                </div>
+              </div>
+            )}
+            
             {validationErrors.length > 0 && (
               <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
                 <div className="flex items-start gap-3">
@@ -1602,7 +1761,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                 </div>
               </div>
             )}
-            <div className="flex justify-between pt-4">
+            <div className="flex justify-between pt-4 gap-2 flex-wrap">
               {hasPages && !isFirstPage ? (
                 <Button
                   variant="outline"
@@ -1615,31 +1774,56 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
               ) : (
                 <div />
               )}
-              {isLastPage ? (
-                <Button 
-                  onClick={handleSubmit}
-                  disabled={isSubmitting}
-                  className="bg-blue-600 hover:bg-blue-700"
-                  data-testid="button-submit-form"
-                >
-                  {isSubmitting ? (
-                    <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Submitting...
-                    </>
-                  ) : (
-                    form.submit_button_text || 'Submit'
-                  )}
-                </Button>
-              ) : (
-                <Button
-                  onClick={goToNextPage}
-                  data-testid="button-next-page"
-                >
-                  Next
-                  <ChevronRight className="w-4 h-4 ml-2" />
-                </Button>
-              )}
+              
+              <div className="flex gap-2 flex-wrap">
+                {/* Save & Continue Later button */}
+                {isDraftSaveEnabled && (
+                  <Button
+                    variant="outline"
+                    onClick={handleSaveDraft}
+                    disabled={isSavingDraft}
+                    data-testid="button-save-draft"
+                  >
+                    {isSavingDraft ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <Save className="w-4 h-4 mr-2" />
+                        Save & Continue Later
+                      </>
+                    )}
+                  </Button>
+                )}
+                
+                {isLastPage ? (
+                  <Button 
+                    onClick={handleSubmit}
+                    disabled={isSubmitting}
+                    className="bg-blue-600 hover:bg-blue-700"
+                    data-testid="button-submit-form"
+                  >
+                    {isSubmitting ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Submitting...
+                      </>
+                    ) : (
+                      form.submit_button_text || 'Submit'
+                    )}
+                  </Button>
+                ) : (
+                  <Button
+                    onClick={goToNextPage}
+                    data-testid="button-next-page"
+                  >
+                    Next
+                    <ChevronRight className="w-4 h-4 ml-2" />
+                  </Button>
+                )}
+              </div>
             </div>
             {(isLastPage || !hasPages) && defaultConsentMessage && (
               <p className="text-xs text-slate-500 text-center mt-2" data-testid="text-consent-message">

@@ -487,3 +487,37 @@ export const insertMemberEmailSchema = createInsertSchema(memberEmail).omit({
 
 export type InsertMemberEmail = z.infer<typeof insertMemberEmailSchema>;
 export type MemberEmail = typeof memberEmail.$inferSelect;
+
+// Form Draft Submissions - stores partial form submissions for "Save as you go" functionality
+export const formDraftSubmission = pgTable("form_draft_submission", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenant_id: varchar("tenant_id").notNull(),
+  form_id: varchar("form_id").notNull(),
+  
+  // Security: store hash of resume token, not the raw token
+  resume_token_hash: text("resume_token_hash").notNull().unique(),
+  
+  // Draft data
+  draft_data: jsonb("draft_data").notNull().default({}),
+  
+  // Metadata for schema drift detection
+  form_updated_at: timestamp("form_updated_at"), // form.updated_at at time of save
+  current_page_index: integer("current_page_index").default(0),
+  
+  // Optional contact info for email reminders
+  contact_email: varchar("contact_email", { length: 255 }),
+  
+  // Lifecycle
+  expires_at: timestamp("expires_at").notNull(),
+  last_saved_at: timestamp("last_saved_at").defaultNow(),
+  created_at: timestamp("created_at").defaultNow(),
+});
+
+export const insertFormDraftSubmissionSchema = createInsertSchema(formDraftSubmission).omit({
+  id: true,
+  created_at: true,
+  last_saved_at: true,
+});
+
+export type InsertFormDraftSubmission = z.infer<typeof insertFormDraftSubmissionSchema>;
+export type FormDraftSubmission = typeof formDraftSubmission.$inferSelect;
