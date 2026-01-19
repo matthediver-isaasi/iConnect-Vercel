@@ -1426,12 +1426,20 @@ export default function FormViewPage() {
       }
     }
 
+    // Filter out instructions fields (display-only, not stored)
+    const instructionsFieldIds = new Set(
+      (form.fields || []).filter(f => f.type === 'instructions').map(f => f.id)
+    );
+    const filteredFormValues = Object.fromEntries(
+      Object.entries(formValues).filter(([key]) => !instructionsFieldIds.has(key))
+    );
+
     const submissionData = {
       form_id: form.id,
       form_name: form.name,
       submitted_by_email: memberInfo?.email || null,
       submitted_by_name: memberInfo ? `${memberInfo.first_name} ${memberInfo.last_name}` : null,
-      submission_data: formValues,
+      submission_data: filteredFormValues,
       created_date: new Date().toISOString()
     };
 

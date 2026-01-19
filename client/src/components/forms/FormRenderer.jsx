@@ -1039,10 +1039,30 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
           </div>
         );
 
+      case 'instructions':
+        return null;
+
       default:
         return <p className="text-sm text-slate-500">Unsupported field type: {field.type}</p>;
     }
   };
+
+  if (field.type === 'instructions') {
+    return (
+      <div 
+        className="prose prose-sm max-w-none p-4 bg-blue-50 border border-blue-200 rounded-lg"
+        data-testid={`instructions-${field.id}`}
+      >
+        {field.label && (
+          <h4 className="text-sm font-semibold text-blue-900 mb-2">{field.label}</h4>
+        )}
+        <div 
+          className="text-blue-800 [&>p]:mb-2 [&>ul]:list-disc [&>ul]:pl-4 [&>ol]:list-decimal [&>ol]:pl-4"
+          dangerouslySetInnerHTML={{ __html: field.content || '<p>No instructions provided.</p>' }}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-2">

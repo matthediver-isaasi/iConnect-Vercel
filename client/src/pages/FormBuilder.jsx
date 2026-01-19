@@ -27,6 +27,8 @@ import { Columns2, Columns3, ArrowRight, Settings2, Wand2, Building2 } from "luc
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import ReactQuill from 'react-quill';
+import 'react-quill/dist/quill.snow.css';
 
 const STANDARD_FIELD_TYPES = [
   { value: 'text', label: 'Text (Single Line)' },
@@ -44,6 +46,7 @@ const STANDARD_FIELD_TYPES = [
   { value: 'date', label: 'Date' },
   { value: 'time', label: 'Time' },
   { value: 'file', label: 'File Upload' },
+  { value: 'instructions', label: 'Instructions (Display Only)' },
 ];
 
 const PREPOPULATE_FIELD_TYPES = [
@@ -1210,7 +1213,7 @@ function LogicRulesSection({
                           </span>
                         </div>
                         
-                        {/* Field selector */}
+                        {/* Field selector - exclude instructions type (display-only, not a data source) */}
                         <div className="space-y-1 min-w-[120px] flex-1">
                           <Select
                             value={condition.field_id || undefined}
@@ -1224,7 +1227,7 @@ function LogicRulesSection({
                               <SelectValue placeholder="Select field..." />
                             </SelectTrigger>
                             <SelectContent>
-                              {fields.map(field => (
+                              {fields.filter(f => f.type !== 'instructions').map(field => (
                                 <SelectItem key={field.id} value={field.id}>
                                   {field.label || field.type}
                                 </SelectItem>
@@ -2434,8 +2437,33 @@ function FieldCard({
                 </div>
               )}
 
+              {/* Instructions Content - Rich text editor for display-only content */}
+              {field.type === 'instructions' && (
+                <div className="space-y-2">
+                  <Label className="text-xs font-medium">Instructions Content</Label>
+                  <p className="text-xs text-slate-500 mb-2">This content will be displayed to users (not editable by them)</p>
+                  <div className="bg-white rounded border border-slate-200">
+                    <ReactQuill
+                      theme="snow"
+                      value={field.content || ''}
+                      onChange={(value) => updateField(originalIndex, { content: value })}
+                      placeholder="Enter instructions, guidance, or informational text..."
+                      modules={{
+                        toolbar: [
+                          [{ 'header': [1, 2, 3, false] }],
+                          ['bold', 'italic', 'underline'],
+                          [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+                          ['link'],
+                          ['clean']
+                        ]
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+
               {/* Default Value Section - for non-boolean fields */}
-              {!['boolean', 'terms_conditions', 'file', 'list', 'user_name', 'user_email', 'user_organization', 'user_job_title', 'organisation_dropdown', 'category_multiselect', 'category_dropdown', 'communication_preferences'].includes(field.type) && (
+              {!['boolean', 'terms_conditions', 'file', 'list', 'instructions', 'user_name', 'user_email', 'user_organization', 'user_job_title', 'organisation_dropdown', 'category_multiselect', 'category_dropdown', 'communication_preferences'].includes(field.type) && (
                 <div className="space-y-2 p-3 bg-slate-50 border border-slate-200 rounded-lg">
                   <Label className="text-xs font-medium">Default Value</Label>
                   <p className="text-xs text-slate-500 mb-2">Pre-filled value when form loads</p>
