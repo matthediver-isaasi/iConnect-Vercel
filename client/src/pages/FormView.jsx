@@ -959,26 +959,48 @@ export default function FormViewPage() {
     } else if (sourceType === 'field') {
       return formValues[action.set_value_field_id];
     } else if (sourceType === 'formula') {
-      // Calculate formula: Field A {operator} Field B
-      const fieldAValue = parseFloat(formValues[action.formula_field_a] || 0);
-      const fieldBValue = parseFloat(formValues[action.formula_field_b] || 0);
+      // Calculate formula: Operand A {operator} Operand B
+      // Each operand can be either a field reference or a fixed value
+      
+      // Resolve Operand A
+      const operandAMode = action.formula_operand_a_mode || 'field';
+      let operandAValue;
+      if (operandAMode === 'value') {
+        operandAValue = parseFloat(action.formula_operand_a_value || 0);
+      } else {
+        // Field mode - support both new and legacy field references
+        const fieldId = action.formula_operand_a_field_id || action.formula_field_a;
+        operandAValue = parseFloat(formValues[fieldId] || 0);
+      }
+      
+      // Resolve Operand B
+      const operandBMode = action.formula_operand_b_mode || 'field';
+      let operandBValue;
+      if (operandBMode === 'value') {
+        operandBValue = parseFloat(action.formula_operand_b_value || 0);
+      } else {
+        // Field mode - support both new and legacy field references
+        const fieldId = action.formula_operand_b_field_id || action.formula_field_b;
+        operandBValue = parseFloat(formValues[fieldId] || 0);
+      }
+      
       const operator = action.formula_operator || 'add';
       
       let result;
       switch (operator) {
         case 'add':
-          result = fieldAValue + fieldBValue;
+          result = operandAValue + operandBValue;
           break;
         case 'subtract':
-          result = fieldAValue - fieldBValue;
+          result = operandAValue - operandBValue;
           break;
         case 'multiply':
-          result = fieldAValue * fieldBValue;
+          result = operandAValue * operandBValue;
           break;
         case 'divide':
           // Skip update if dividing by zero
-          if (fieldBValue === 0) return null;
-          result = fieldAValue / fieldBValue;
+          if (operandBValue === 0) return null;
+          result = operandAValue / operandBValue;
           break;
         default:
           result = 0;
@@ -1083,12 +1105,20 @@ export default function FormViewPage() {
                 }
               }
               // For formula-source actions that are already active, continuously recalculate
-              else if ((action.set_value_source || 'static') === 'formula' && action.formula_field_a && action.formula_field_b) {
-                const newValue = computeSetValue(action, prefillEntity);
-                const currentTargetValue = formValues[action.target_field_id];
-                // Only update if calculated value differs from current
-                if (newValue !== currentTargetValue && newValue !== null && newValue !== undefined) {
-                  updates[action.target_field_id] = newValue;
+              else if ((action.set_value_source || 'static') === 'formula') {
+                // Check if formula has at least one operand configured (field or value)
+                const hasOperandA = (action.formula_operand_a_mode === 'value' && action.formula_operand_a_value !== '') ||
+                                    (action.formula_operand_a_mode !== 'value' && (action.formula_operand_a_field_id || action.formula_field_a));
+                const hasOperandB = (action.formula_operand_b_mode === 'value' && action.formula_operand_b_value !== '') ||
+                                    (action.formula_operand_b_mode !== 'value' && (action.formula_operand_b_field_id || action.formula_field_b));
+                
+                if (hasOperandA || hasOperandB) {
+                  const newValue = computeSetValue(action, prefillEntity);
+                  const currentTargetValue = formValues[action.target_field_id];
+                  // Only update if calculated value differs from current
+                  if (newValue !== currentTargetValue && newValue !== null && newValue !== undefined) {
+                    updates[action.target_field_id] = newValue;
+                  }
                 }
               }
             }
