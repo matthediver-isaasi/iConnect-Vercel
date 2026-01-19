@@ -1,11 +1,13 @@
 import { createClient } from '@supabase/supabase-js';
 
-// Fields safe to return publicly - excludes internal config like entity_pipelines, field_mappings
+// Fields safe to return publicly - excludes internal config like field_mappings
 const PUBLIC_FORM_FIELDS = [
   'id', 'name', 'slug', 'description', 'fields', 'is_active', 
   'layout_type', 'submit_button_text', 'success_message', 'redirect_url',
   'send_email', 'email_templates', 'prefill_source',
-  'visibility_rules', 'pages'  // Needed for conditional logic and multi-page forms
+  'visibility_rules', 'pages',  // Needed for conditional logic and multi-page forms
+  'updated_at',  // Needed for schema drift detection
+  'entity_pipelines'  // Needed for role capacity checking
 ];
 
 export default async function handler(req, res) {

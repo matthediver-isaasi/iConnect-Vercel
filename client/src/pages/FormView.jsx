@@ -84,13 +84,21 @@ export default function FormViewPage() {
     enabled: !!memberInfo?.id
   });
 
-  const { data: form, isLoading } = useQuery({
-    queryKey: ['form-by-slug', formSlug],
+  const { data: form, isLoading, error: formError } = useQuery({
+    queryKey: ['public-form-by-slug', formSlug],
     queryFn: async () => {
-      const allForms = await base44.entities.Form.list();
-      return allForms.find(f => f.slug === formSlug && f.is_active);
+      // Use public API endpoint that doesn't require authentication
+      const host = window.location.hostname;
+      const tenantSlug = host.split('.')[0];
+      const response = await fetch(`/api/public/form/${encodeURIComponent(formSlug)}?tenant=${tenantSlug}`);
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to load form');
+      }
+      return response.json();
     },
-    enabled: !!formSlug
+    enabled: !!formSlug,
+    retry: false
   });
 
   // Fetch default consent message from public endpoint (works without auth)
