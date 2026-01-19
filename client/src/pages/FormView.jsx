@@ -419,18 +419,14 @@ export default function FormViewPage() {
   });
 
   // Prefill: Fetch org custom field values (either from direct org prefill or from member's org)
+  // Uses public endpoint to support unauthenticated form viewing
   const effectiveOrgIdForCustomFields = form?.prefill_source === 'organization' 
     ? prefillOrgId 
     : prefillMember?.organization_id;
   
   const { data: prefillOrgCustomValues = [] } = useQuery({
     queryKey: ['prefill-org-custom-values', effectiveOrgIdForCustomFields],
-    queryFn: async () => {
-      const values = await base44.entities.OrganizationPreferenceValue.list({
-        filter: { organization_id: effectiveOrgIdForCustomFields }
-      });
-      return values || [];
-    },
+    queryFn: () => publicClient.getOrganizationPreferenceValues(effectiveOrgIdForCustomFields),
     enabled: !!effectiveOrgIdForCustomFields && form?.prefill_source && form.prefill_source !== 'none'
   });
 

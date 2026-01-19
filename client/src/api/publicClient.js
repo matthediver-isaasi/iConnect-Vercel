@@ -415,6 +415,12 @@ class PublicClient {
     return this._fetch(`/api/public/organisation/${orgId}/domains`);
   }
   
+  // Organization Preference Values (for form prefill)
+  async getOrganizationPreferenceValues(orgId) {
+    if (!orgId) return [];
+    return this._fetch(`/api/public/organisation/${orgId}/preference-values`);
+  }
+  
   // Submit booking
   async submitBooking(slug, data) {
     if (!slug) {
