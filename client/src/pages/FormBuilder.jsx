@@ -802,9 +802,13 @@ function LogicRulesSection({
         set_value: '',
         set_value_field_id: '',
         set_value_prefill_field: '',
-        formula_field_a: '',
+        formula_operand_a_mode: 'field',
+        formula_operand_a_field_id: '',
+        formula_operand_a_value: '',
         formula_operator: 'add',
-        formula_field_b: ''
+        formula_operand_b_mode: 'field',
+        formula_operand_b_field_id: '',
+        formula_operand_b_value: ''
       };
     } else if (actionType === 'visibility') {
       // Consolidated visibility action - check if one already exists
@@ -1005,9 +1009,13 @@ function LogicRulesSection({
                 set_value: '', 
                 set_value_field_id: '',
                 set_value_prefill_field: '',
-                formula_field_a: '',
+                formula_operand_a_mode: 'field',
+                formula_operand_a_field_id: '',
+                formula_operand_a_value: '',
                 formula_operator: 'add',
-                formula_field_b: ''
+                formula_operand_b_mode: 'field',
+                formula_operand_b_field_id: '',
+                formula_operand_b_value: ''
               })}
               data-testid={`button-source-formula-${actionIndex}`}
             >
@@ -1018,23 +1026,58 @@ function LogicRulesSection({
 
         {sourceType === 'formula' ? (
           <div className="space-y-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-            <Label className="text-xs font-medium text-blue-800">Calculate: Field A {'{operator}'} Field B</Label>
+            <Label className="text-xs font-medium text-blue-800">Calculate: Operand A {'{operator}'} Operand B</Label>
             <div className="flex items-center gap-2 flex-wrap">
-              <Select
-                value={action.formula_field_a || undefined}
-                onValueChange={(value) => updateAction(ruleId, action.id, { formula_field_a: value })}
-              >
-                <SelectTrigger className="h-9 w-40" data-testid={`select-formula-field-a-${actionIndex}`}>
-                  <SelectValue placeholder="Field A..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {availableSourceFields.filter(f => ['number', 'percentage'].includes(f.type)).map(field => (
-                    <SelectItem key={field.id} value={field.id}>
-                      {field.label || field.type}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {/* Operand A */}
+              <div className="flex items-center gap-1">
+                <div className="flex gap-0.5">
+                  <Button
+                    variant={(action.formula_operand_a_mode || 'field') === 'field' ? 'default' : 'outline'}
+                    size="sm"
+                    className="h-7 text-xs px-2 rounded-r-none"
+                    onClick={() => updateAction(ruleId, action.id, { formula_operand_a_mode: 'field', formula_operand_a_value: '' })}
+                    data-testid={`button-operand-a-field-${actionIndex}`}
+                  >
+                    Field
+                  </Button>
+                  <Button
+                    variant={(action.formula_operand_a_mode || 'field') === 'value' ? 'default' : 'outline'}
+                    size="sm"
+                    className="h-7 text-xs px-2 rounded-l-none"
+                    onClick={() => updateAction(ruleId, action.id, { formula_operand_a_mode: 'value', formula_operand_a_field_id: '' })}
+                    data-testid={`button-operand-a-value-${actionIndex}`}
+                  >
+                    Value
+                  </Button>
+                </div>
+                {(action.formula_operand_a_mode || 'field') === 'field' ? (
+                  <Select
+                    value={action.formula_operand_a_field_id || action.formula_field_a || undefined}
+                    onValueChange={(value) => updateAction(ruleId, action.id, { formula_operand_a_field_id: value })}
+                  >
+                    <SelectTrigger className="h-9 w-32" data-testid={`select-formula-field-a-${actionIndex}`}>
+                      <SelectValue placeholder="Select..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableSourceFields.filter(f => ['number', 'percentage'].includes(f.type)).map(field => (
+                        <SelectItem key={field.id} value={field.id}>
+                          {field.label || field.type}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input
+                    type="number"
+                    step="any"
+                    value={action.formula_operand_a_value || ''}
+                    onChange={(e) => updateAction(ruleId, action.id, { formula_operand_a_value: e.target.value })}
+                    placeholder="0"
+                    className="h-9 w-24"
+                    data-testid={`input-formula-value-a-${actionIndex}`}
+                  />
+                )}
+              </div>
               
               <Select
                 value={action.formula_operator || 'add'}
@@ -1051,24 +1094,59 @@ function LogicRulesSection({
                 </SelectContent>
               </Select>
               
-              <Select
-                value={action.formula_field_b || undefined}
-                onValueChange={(value) => updateAction(ruleId, action.id, { formula_field_b: value })}
-              >
-                <SelectTrigger className="h-9 w-40" data-testid={`select-formula-field-b-${actionIndex}`}>
-                  <SelectValue placeholder="Field B..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {availableSourceFields.filter(f => ['number', 'percentage'].includes(f.type)).map(field => (
-                    <SelectItem key={field.id} value={field.id}>
-                      {field.label || field.type}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {/* Operand B */}
+              <div className="flex items-center gap-1">
+                <div className="flex gap-0.5">
+                  <Button
+                    variant={(action.formula_operand_b_mode || 'field') === 'field' ? 'default' : 'outline'}
+                    size="sm"
+                    className="h-7 text-xs px-2 rounded-r-none"
+                    onClick={() => updateAction(ruleId, action.id, { formula_operand_b_mode: 'field', formula_operand_b_value: '' })}
+                    data-testid={`button-operand-b-field-${actionIndex}`}
+                  >
+                    Field
+                  </Button>
+                  <Button
+                    variant={(action.formula_operand_b_mode || 'field') === 'value' ? 'default' : 'outline'}
+                    size="sm"
+                    className="h-7 text-xs px-2 rounded-l-none"
+                    onClick={() => updateAction(ruleId, action.id, { formula_operand_b_mode: 'value', formula_operand_b_field_id: '' })}
+                    data-testid={`button-operand-b-value-${actionIndex}`}
+                  >
+                    Value
+                  </Button>
+                </div>
+                {(action.formula_operand_b_mode || 'field') === 'field' ? (
+                  <Select
+                    value={action.formula_operand_b_field_id || action.formula_field_b || undefined}
+                    onValueChange={(value) => updateAction(ruleId, action.id, { formula_operand_b_field_id: value })}
+                  >
+                    <SelectTrigger className="h-9 w-32" data-testid={`select-formula-field-b-${actionIndex}`}>
+                      <SelectValue placeholder="Select..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableSourceFields.filter(f => ['number', 'percentage'].includes(f.type)).map(field => (
+                        <SelectItem key={field.id} value={field.id}>
+                          {field.label || field.type}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input
+                    type="number"
+                    step="any"
+                    value={action.formula_operand_b_value || ''}
+                    onChange={(e) => updateAction(ruleId, action.id, { formula_operand_b_value: e.target.value })}
+                    placeholder="0"
+                    className="h-9 w-24"
+                    data-testid={`input-formula-value-b-${actionIndex}`}
+                  />
+                )}
+              </div>
             </div>
             <p className="text-xs text-blue-600">
-              Result will be calculated when conditions are met. Only number and percentage fields can be used.
+              Result will be calculated when conditions are met. Use Field to reference form values or Value for fixed numbers.
             </p>
           </div>
         ) : sourceType === 'prefill' ? (
