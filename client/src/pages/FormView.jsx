@@ -958,6 +958,36 @@ export default function FormViewPage() {
       return action.set_value;
     } else if (sourceType === 'field') {
       return formValues[action.set_value_field_id];
+    } else if (sourceType === 'formula') {
+      // Calculate formula: Field A {operator} Field B
+      const fieldAValue = parseFloat(formValues[action.formula_field_a] || 0);
+      const fieldBValue = parseFloat(formValues[action.formula_field_b] || 0);
+      const operator = action.formula_operator || 'add';
+      
+      let result;
+      switch (operator) {
+        case 'add':
+          result = fieldAValue + fieldBValue;
+          break;
+        case 'subtract':
+          result = fieldAValue - fieldBValue;
+          break;
+        case 'multiply':
+          result = fieldAValue * fieldBValue;
+          break;
+        case 'divide':
+          // Skip update if dividing by zero
+          if (fieldBValue === 0) return null;
+          result = fieldAValue / fieldBValue;
+          break;
+        default:
+          result = 0;
+      }
+      
+      // Handle floating point precision - round to 10 decimal places then clean up
+      const rounded = Math.round(result * 1e10) / 1e10;
+      // Convert to string, removing unnecessary trailing zeros
+      return rounded.toString();
     } else if (sourceType === 'prefill' && prefillEntity) {
       const prefillField = action.set_value_prefill_field || '';
       if (prefillField.startsWith('core.')) {
@@ -1050,6 +1080,15 @@ export default function FormViewPage() {
                 // Only update if source changed and target doesn't match
                 if (sourceValue !== currentTargetValue && sourceValue !== null && sourceValue !== undefined) {
                   updates[action.target_field_id] = sourceValue;
+                }
+              }
+              // For formula-source actions that are already active, continuously recalculate
+              else if ((action.set_value_source || 'static') === 'formula' && action.formula_field_a && action.formula_field_b) {
+                const newValue = computeSetValue(action, prefillEntity);
+                const currentTargetValue = formValues[action.target_field_id];
+                // Only update if calculated value differs from current
+                if (newValue !== currentTargetValue && newValue !== null && newValue !== undefined) {
+                  updates[action.target_field_id] = newValue;
                 }
               }
             }

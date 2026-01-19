@@ -801,7 +801,10 @@ function LogicRulesSection({
         set_value_source: 'static',
         set_value: '',
         set_value_field_id: '',
-        set_value_prefill_field: ''
+        set_value_prefill_field: '',
+        formula_field_a: '',
+        formula_operator: 'add',
+        formula_field_b: ''
       };
     } else if (actionType === 'visibility') {
       // Consolidated visibility action - check if one already exists
@@ -993,10 +996,82 @@ function LogicRulesSection({
                 From Pre-fill Data
               </Button>
             )}
+            <Button
+              variant={sourceType === 'formula' ? 'default' : 'outline'}
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => updateAction(ruleId, action.id, { 
+                set_value_source: 'formula', 
+                set_value: '', 
+                set_value_field_id: '',
+                set_value_prefill_field: '',
+                formula_field_a: '',
+                formula_operator: 'add',
+                formula_field_b: ''
+              })}
+              data-testid={`button-source-formula-${actionIndex}`}
+            >
+              Formula
+            </Button>
           </div>
         </div>
 
-        {sourceType === 'prefill' ? (
+        {sourceType === 'formula' ? (
+          <div className="space-y-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+            <Label className="text-xs font-medium text-blue-800">Calculate: Field A {'{operator}'} Field B</Label>
+            <div className="flex items-center gap-2 flex-wrap">
+              <Select
+                value={action.formula_field_a || undefined}
+                onValueChange={(value) => updateAction(ruleId, action.id, { formula_field_a: value })}
+              >
+                <SelectTrigger className="h-9 w-40" data-testid={`select-formula-field-a-${actionIndex}`}>
+                  <SelectValue placeholder="Field A..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableSourceFields.filter(f => ['number', 'percentage'].includes(f.type)).map(field => (
+                    <SelectItem key={field.id} value={field.id}>
+                      {field.label || field.type}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              
+              <Select
+                value={action.formula_operator || 'add'}
+                onValueChange={(value) => updateAction(ruleId, action.id, { formula_operator: value })}
+              >
+                <SelectTrigger className="h-9 w-24" data-testid={`select-formula-operator-${actionIndex}`}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="add">+ Add</SelectItem>
+                  <SelectItem value="subtract">− Subtract</SelectItem>
+                  <SelectItem value="multiply">× Multiply</SelectItem>
+                  <SelectItem value="divide">÷ Divide</SelectItem>
+                </SelectContent>
+              </Select>
+              
+              <Select
+                value={action.formula_field_b || undefined}
+                onValueChange={(value) => updateAction(ruleId, action.id, { formula_field_b: value })}
+              >
+                <SelectTrigger className="h-9 w-40" data-testid={`select-formula-field-b-${actionIndex}`}>
+                  <SelectValue placeholder="Field B..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableSourceFields.filter(f => ['number', 'percentage'].includes(f.type)).map(field => (
+                    <SelectItem key={field.id} value={field.id}>
+                      {field.label || field.type}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <p className="text-xs text-blue-600">
+              Result will be calculated when conditions are met. Only number and percentage fields can be used.
+            </p>
+          </div>
+        ) : sourceType === 'prefill' ? (
           <Select
             value={action.set_value_prefill_field || undefined}
             onValueChange={(value) => updateAction(ruleId, action.id, { set_value_prefill_field: value })}
