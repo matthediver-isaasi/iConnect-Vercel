@@ -256,6 +256,11 @@ class PublicClient {
     return this._fetch('/api/public/organisations');
   }
   
+  async getOrganization(id) {
+    if (!id) return null;
+    return this._fetch(`/api/public/organisation/${id}`);
+  }
+  
   // Categories
   async listCategories() {
     return this._fetch('/api/public/categories');

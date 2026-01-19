@@ -284,20 +284,30 @@ export default function FormViewPage() {
 
   // Prefill: Fetch member's organization when prefill_source = 'member'
   // This allows forms to prefill org fields even when primary source is member
+  // Uses authenticated API when session exists, public endpoint for embedded/unauthenticated access
   const { data: prefillMemberOrg } = useQuery({
-    queryKey: ['prefill-member-org', prefillMember?.organization_id],
+    queryKey: ['prefill-member-org', prefillMember?.organization_id, !!memberInfo],
     queryFn: async () => {
-      return base44.entities.Organization.get(prefillMember.organization_id);
+      // Use authenticated API if logged in (full data), public API otherwise (safe subset)
+      if (memberInfo) {
+        return base44.entities.Organization.get(prefillMember.organization_id);
+      }
+      return publicClient.getOrganization(prefillMember.organization_id);
     },
     enabled: !!prefillMember?.organization_id && form?.prefill_source === 'member'
   });
 
   // Prefill: Fetch organization entity whenever organization_id URL param is present
   // This is needed for per-org capacity checks regardless of prefill_source setting
+  // Uses authenticated API when session exists, public endpoint for embedded/unauthenticated access
   const { data: prefillOrg } = useQuery({
-    queryKey: ['prefill-org', prefillOrgId],
+    queryKey: ['prefill-org', prefillOrgId, !!memberInfo],
     queryFn: async () => {
-      return base44.entities.Organization.get(prefillOrgId);
+      // Use authenticated API if logged in (full data), public API otherwise (safe subset)
+      if (memberInfo) {
+        return base44.entities.Organization.get(prefillOrgId);
+      }
+      return publicClient.getOrganization(prefillOrgId);
     },
     enabled: !!prefillOrgId // Fetch whenever org ID is in URL
   });
