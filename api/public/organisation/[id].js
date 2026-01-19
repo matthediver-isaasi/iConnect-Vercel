@@ -61,29 +61,20 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Invalid tenant context' });
     }
 
-    // Fetch organization with whitelisted fields for form prefill
-    // Includes fields commonly used in prefill mappings, excluding sensitive financial/internal data
-    // Note: training_fund_balance and internal notes are intentionally excluded for public safety
-    const publicFields = [
-      'id', 'name', 'status', 'email', 'phone', 'website', 'website_url',
-      'address', 'city', 'state', 'country', 'postal_code',
-      'invoicing_email', 'invoicing_address', 'invoicing_contact',
-      'logo_url', 'description', 'domain', 'map',
-      'abn', 'acn', 'registration_number', 'industry', 'size', 'type',
-      'primary_contact_name', 'primary_contact_email', 'primary_contact_phone',
-      'billing_contact_name', 'billing_contact_email', 'billing_contact_phone',
-      'membership_start_date', 'membership_end_date', 'membership_type',
-      'employee_count', 'annual_revenue_range', 'founded_year',
-      'linkedin_url', 'twitter_url', 'facebook_url'
-    ].join(', ');
-    
+    // Fetch organization - use select(*) and filter sensitive fields after
+    // This avoids errors from non-existent columns in the whitelist
     const { data: org, error: orgError } = await supabase
       .from('organization')
-      .select(publicFields + ', tenant_id')
+      .select('*')
       .eq('id', id)
       .single();
 
-    if (orgError || !org) {
+    if (orgError) {
+      console.error('Error fetching organization:', orgError);
+      return res.status(404).json({ error: 'Organisation not found' });
+    }
+    
+    if (!org) {
       return res.status(404).json({ error: 'Organisation not found' });
     }
 
@@ -92,8 +83,14 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Organisation not found' });
     }
 
-    // Remove internal fields from response
-    const { tenant_id, ...publicOrg } = org;
+    // Remove sensitive/internal fields from response
+    const {
+      tenant_id,
+      training_fund_balance,
+      internal_notes,
+      notes,
+      ...publicOrg
+    } = org;
 
     return res.json(publicOrg);
   } catch (error) {
