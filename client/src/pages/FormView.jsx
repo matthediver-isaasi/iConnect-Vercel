@@ -625,111 +625,137 @@ export default function FormViewPage() {
 
   const submitFormMutation = useMutation({
     mutationFn: async (submissionData) => {
-      return await base44.entities.FormSubmission.create(submissionData);
-    },
-    onSuccess: async (submissionResult) => {
-      // Increment form submission count
-      if (form) {
-        await base44.entities.Form.update(form.id, {
-          submission_count: (form.submission_count || 0) + 1
-        });
+      // Use public API endpoint that doesn't require authentication
+      const host = window.location.hostname;
+      const tenantSlug = host.split('.')[0];
+      
+      const response = await fetch('/api/public/form-submission', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...submissionData,
+          tenant: tenantSlug
+        })
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to submit form');
       }
       
+      return response.json();
+    },
+    onSuccess: async (submissionResult) => {
       // Track created member/org IDs from process-application for email placeholders
       let createdMemberId = null;
       let createdOrganizationId = null;
       
-      // Process entity pipelines if configured (create/update member/org entities)
-      const hasEntityPipelines = (form?.entity_pipelines?.members?.length > 0) || (form?.entity_pipelines?.organisations?.length > 0);
-      if (hasEntityPipelines) {
-        try {
-          console.log('[FormView] Processing application - roleActionTriggered:', roleActionTriggeredRef.current, 'triggeredRoleId:', triggeredRoleIdRef.current);
-          
-          // Determine organization ID to pass to backend for capacity validation
-          // Priority: 1) prefill org, 2) member's org, 3) org dropdown/pipeline source field value
-          let resolvedOrgIdForBackend = effectiveOrgIdForCapacity;
-          if (!resolvedOrgIdForBackend) {
-            // Check org pipeline config source field
-            if (orgCapacityConfig?.sourceFieldId) {
-              const sourceField = form?.fields?.find(f => f.id === orgCapacityConfig.sourceFieldId);
-              if (sourceField?.type === 'organisation_dropdown') {
-                // Org dropdown value IS the org UUID
-                resolvedOrgIdForBackend = formValues[orgCapacityConfig.sourceFieldId] || null;
-                console.log('[FormView] Using org pipeline dropdown value for backend:', resolvedOrgIdForBackend);
+      // For authenticated users only - update form count and process entity pipelines client-side
+      // For unauthenticated users, the public API endpoint handles entity pipelines server-side
+      if (memberInfo) {
+        // Increment form submission count
+        if (form) {
+          try {
+            await base44.entities.Form.update(form.id, {
+              submission_count: (form.submission_count || 0) + 1
+            });
+          } catch (err) {
+            console.log('[FormView] Could not update form count (may be unauthenticated)');
+          }
+        }
+        
+        // Process entity pipelines if configured (create/update member/org entities)
+        const hasEntityPipelines = (form?.entity_pipelines?.members?.length > 0) || (form?.entity_pipelines?.organisations?.length > 0);
+        if (hasEntityPipelines) {
+          try {
+            console.log('[FormView] Processing application - roleActionTriggered:', roleActionTriggeredRef.current, 'triggeredRoleId:', triggeredRoleIdRef.current);
+            
+            // Determine organization ID to pass to backend for capacity validation
+            // Priority: 1) prefill org, 2) member's org, 3) org dropdown/pipeline source field value
+            let resolvedOrgIdForBackend = effectiveOrgIdForCapacity;
+            if (!resolvedOrgIdForBackend) {
+              // Check org pipeline config source field
+              if (orgCapacityConfig?.sourceFieldId) {
+                const sourceField = form?.fields?.find(f => f.id === orgCapacityConfig.sourceFieldId);
+                if (sourceField?.type === 'organisation_dropdown') {
+                  // Org dropdown value IS the org UUID
+                  resolvedOrgIdForBackend = formValues[orgCapacityConfig.sourceFieldId] || null;
+                  console.log('[FormView] Using org pipeline dropdown value for backend:', resolvedOrgIdForBackend);
+                }
+              }
+              // Also check for standalone org dropdown (without org pipeline)
+              if (!resolvedOrgIdForBackend && orgDropdownField) {
+                resolvedOrgIdForBackend = formValues[orgDropdownField.id] || null;
+                console.log('[FormView] Using standalone org dropdown value for backend:', resolvedOrgIdForBackend);
               }
             }
-            // Also check for standalone org dropdown (without org pipeline)
-            if (!resolvedOrgIdForBackend && orgDropdownField) {
-              resolvedOrgIdForBackend = formValues[orgDropdownField.id] || null;
-              console.log('[FormView] Using standalone org dropdown value for backend:', resolvedOrgIdForBackend);
-            }
-          }
-          
-          const response = await fetch('/api/forms/process-application', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              form_id: form.id,
-              form_values: formValues,
-              fields: form.fields,
-              field_mappings: form.field_mappings || [],
-              application_level: form.application_level || 'member',
-              submission_id: submissionResult?.id,
-              // Pass organization context from any source (URL prefill, member org, or form field dropdown)
-              // This is used for per-organization role capacity validation
-              prefill_organization_id: resolvedOrgIdForBackend || null,
-              // Pass role_id: use triggered role from visibility rules, or pipeline role, or form default
-              // Priority: 1) triggered role (from conditional logic) 2) pipeline role 3) form default
-              role_id: roleActionTriggeredRef.current 
-                ? triggeredRoleIdRef.current 
-                : (primaryMemberRoleId || form.default_member_role_id || null),
-              // Pass entity pipelines configuration (unified structure)
-              entity_pipelines: form.entity_pipelines || { members: [], organisations: [] },
-              // Legacy fallback fields for backward compatibility
-              member_entity_action: form.member_entity_action || 'none',
-              organization_entity_action: form.organization_entity_action || 'none',
-              additional_member_creations: form.additional_member_creations || []
-            })
-          });
-          if (response.ok) {
-            const result = await response.json();
-            console.log('[FormView] Application processed:', result);
-            // Capture created member/org IDs for email placeholders
-            createdMemberId = result.created_member_id || null;
-            createdOrganizationId = result.created_organization_id || null;
-          } else {
-            const error = await response.json();
-            console.error('[FormView] Application processing failed:', error);
-            // Show user-friendly error for capacity-related errors
-            if (error.code === 'ROLE_CAPACITY_EXCEEDED' || error.code === 'ROLE_CAPACITY_MISSING_ORG') {
-              toast.error(error.error || 'This role has reached its maximum capacity.');
-              return; // Don't continue with form success flow
-            }
-          }
-        } catch (error) {
-          console.error('[FormView] Error processing application:', error);
-        }
-      }
-      // For authenticated users with custom field mappings (non-application forms)
-      else if (memberInfo) {
-        const hasMappings = form?.fields?.some(f => f.custom_field_id);
-        if (hasMappings) {
-          try {
-            const response = await fetch('/api/forms/process-field-mappings', {
+            
+            const response = await fetch('/api/forms/process-application', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
+                form_id: form.id,
                 form_values: formValues,
-                fields: form.fields
+                fields: form.fields,
+                field_mappings: form.field_mappings || [],
+                application_level: form.application_level || 'member',
+                submission_id: submissionResult?.id,
+                // Pass organization context from any source (URL prefill, member org, or form field dropdown)
+                // This is used for per-organization role capacity validation
+                prefill_organization_id: resolvedOrgIdForBackend || null,
+                // Pass role_id: use triggered role from visibility rules, or pipeline role, or form default
+                // Priority: 1) triggered role (from conditional logic) 2) pipeline role 3) form default
+                role_id: roleActionTriggeredRef.current 
+                  ? triggeredRoleIdRef.current 
+                  : (primaryMemberRoleId || form.default_member_role_id || null),
+                // Pass entity pipelines configuration (unified structure)
+                entity_pipelines: form.entity_pipelines || { members: [], organisations: [] },
+                // Legacy fallback fields for backward compatibility
+                member_entity_action: form.member_entity_action || 'none',
+                organization_entity_action: form.organization_entity_action || 'none',
+                additional_member_creations: form.additional_member_creations || []
               })
             });
             if (response.ok) {
-              console.log('[FormView] CRM field mappings processed');
-            } else if (response.status === 401) {
-              console.log('[FormView] Field mappings skipped - user not authenticated');
+              const result = await response.json();
+              console.log('[FormView] Application processed:', result);
+              // Capture created member/org IDs for email placeholders
+              createdMemberId = result.created_member_id || null;
+              createdOrganizationId = result.created_organization_id || null;
+            } else {
+              const error = await response.json();
+              console.error('[FormView] Application processing failed:', error);
+              // Show user-friendly error for capacity-related errors
+              if (error.code === 'ROLE_CAPACITY_EXCEEDED' || error.code === 'ROLE_CAPACITY_MISSING_ORG') {
+                toast.error(error.error || 'This role has reached its maximum capacity.');
+                return; // Don't continue with form success flow
+              }
             }
           } catch (error) {
-            console.error('[FormView] Error processing field mappings:', error);
+            console.error('[FormView] Error processing application:', error);
+          }
+        }
+        // For authenticated users with custom field mappings (non-application forms)
+        else {
+          const hasMappings = form?.fields?.some(f => f.custom_field_id);
+          if (hasMappings) {
+            try {
+              const response = await fetch('/api/forms/process-field-mappings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  form_values: formValues,
+                  fields: form.fields
+                })
+              });
+              if (response.ok) {
+                console.log('[FormView] CRM field mappings processed');
+              } else if (response.status === 401) {
+                console.log('[FormView] Field mappings skipped - user not authenticated');
+              }
+            } catch (error) {
+              console.error('[FormView] Error processing field mappings:', error);
+            }
           }
         }
       }
