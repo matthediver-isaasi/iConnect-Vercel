@@ -36,7 +36,9 @@ import {
   Bell,
   Code,
   FileText,
-  Download
+  Download,
+  Copy,
+  ExternalLink
 } from "lucide-react";
 import { createFilterTagKey, parseFilterTagKey, normalizeFilterTags } from "@/lib/utils";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -219,6 +221,17 @@ export default function EditEvent() {
       const allTemplates = await base44.entities.EmailTemplate.list();
       return allTemplates.filter(t => t.category === 'events' && t.is_active);
     }
+  });
+
+  // Fetch current tenant for embed code generation
+  const { data: currentTenant } = useQuery({
+    queryKey: ['current-tenant'],
+    queryFn: async () => {
+      const response = await fetch('/api/functions/get-current-tenant');
+      const data = await response.json();
+      return data.tenant;
+    },
+    staleTime: 60000,
   });
 
   // Sync fetched emails to state when loaded
@@ -2515,6 +2528,74 @@ export default function EditEvent() {
               )}
             </CardContent>
           </Card>
+
+          {/* Embed on External Websites */}
+          {eventId && currentTenant?.slug && (
+            <Card className="border-slate-200 shadow-sm bg-white">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Code className="w-5 h-5 text-slate-600" />
+                  Embed on External Websites
+                </CardTitle>
+                <CardDescription>
+                  Use this embed code to display this event on your website.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {(() => {
+                  const tenantSlug = currentTenant.slug;
+                  const embedUrl = `https://${tenantSlug}.iconn.app/embed/event/${eventId}?tenant=${tenantSlug}`;
+                  const embedCode = `<iframe src="${embedUrl}" style="width: 100%; min-height: 400px; border: none;" loading="lazy"></iframe>
+<script>
+  window.addEventListener('message', function(e) {
+    if (e.data.type === 'iconn-event-resize') {
+      var iframe = document.querySelector('iframe[src*="${eventId}"]');
+      if (iframe) iframe.style.height = e.data.height + 'px';
+    }
+  });
+</script>`;
+                  return (
+                    <div className="space-y-3">
+                      <div className="space-y-2">
+                        <Label className="text-xs text-slate-500">iFrame Embed Code</Label>
+                        <div className="relative">
+                          <textarea
+                            readOnly
+                            value={embedCode}
+                            className="w-full p-3 pr-10 bg-slate-100 border border-slate-300 rounded-lg text-xs font-mono resize-none"
+                            rows={6}
+                            data-testid="input-event-embed-code"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard.writeText(embedCode);
+                              toast.success("Embed code copied to clipboard");
+                            }}
+                            className="absolute top-2 right-2 p-1.5 bg-white hover:bg-slate-100 rounded border border-slate-300"
+                            title="Copy embed code"
+                            data-testid="button-copy-embed-code"
+                          >
+                            <Copy className="w-4 h-4 text-slate-600" />
+                          </button>
+                        </div>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => window.open(`https://${tenantSlug}.iconn.app/embed/event/${eventId}?tenant=${tenantSlug}`, '_blank')}
+                        data-testid="button-preview-embed"
+                      >
+                        <ExternalLink className="w-4 h-4 mr-2" />
+                        Preview Embedded Event
+                      </Button>
+                    </div>
+                  );
+                })()}
+              </CardContent>
+            </Card>
+          )}
 
           <div className="flex items-center justify-end gap-4">
             <Button

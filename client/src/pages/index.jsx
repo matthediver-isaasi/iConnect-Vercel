@@ -158,6 +158,8 @@ import EmbedForm from "./EmbedForm";
 
 import EmbedResource from "./EmbedResource";
 
+import EmbedEvent from "./EmbedEvent";
+
 import PublicBooking from "./PublicBooking";
 
 import MyBookings from "./MyBookings";
@@ -871,6 +873,7 @@ function StandaloneRoutes() {
             <Route path="/register" element={<TenantSignup />} />
             <Route path="/embed/form/:slug" element={<EmbedForm />} />
             <Route path="/embed/resource/:identifier" element={<EmbedResource />} />
+            <Route path="/embed/event/:identifier" element={<EmbedEvent />} />
             <Route path="/book/:slug" element={<PublicBooking />} />
         </Routes>
     );
