@@ -511,6 +511,30 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
           />
         );
 
+      case 'percentage':
+        return (
+          <div className="relative">
+            <Input
+              type="text"
+              inputMode="decimal"
+              value={value || ''}
+              onChange={(e) => {
+                const val = e.target.value.replace(/[^0-9.]/g, '');
+                const parts = val.split('.');
+                const sanitized = parts.length > 2 ? parts[0] + '.' + parts.slice(1).join('') : val;
+                onChange(sanitized);
+              }}
+              placeholder={field.placeholder || '0'}
+              required={field.required}
+              disabled={isFieldDisabled}
+              autoFocus={autoFocus}
+              className={`pr-8 ${isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : ''}`}
+              data-testid={`input-percentage-${field.id}`}
+            />
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">%</span>
+          </div>
+        );
+
       case 'textarea':
         return (
           <Textarea

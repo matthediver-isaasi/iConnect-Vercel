@@ -49,6 +49,7 @@ const STANDARD_FIELD_TYPES = [
   { value: 'file', label: 'File Upload' },
   { value: 'country', label: 'Country' },
   { value: 'countries', label: 'Countries (Multi-Select)' },
+  { value: 'percentage', label: 'Percentage' },
   { value: 'instructions', label: 'Instructions (Display Only)' },
 ];
 
