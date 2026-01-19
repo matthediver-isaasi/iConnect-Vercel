@@ -319,6 +319,13 @@ export default function FormViewPage() {
         continue;
       }
       
+      // Countries (multi-select) fields - use default_countries if set
+      if (field.type === 'countries' && field.default_countries?.length > 0) {
+        fieldDefaults[field.id] = field.default_countries;
+        console.log(`[FormView Init] Countries field "${field.label}" (${field.id}) initialized with default_countries:`, field.default_countries);
+        continue;
+      }
+      
       // All other field types - use default_value if set
       if (field.default_value !== undefined && field.default_value !== null && field.default_value !== '') {
         fieldDefaults[field.id] = field.default_value;

@@ -72,6 +72,71 @@ function CountryCombobox({ countries, value, onChange, disabled, placeholder, fi
   );
 }
 
+function MultiCountryCombobox({ countries, value = [], onChange, disabled, placeholder, fieldId }) {
+  const [open, setOpen] = useState(false);
+  const selectedCountries = countries.filter(c => value.includes(c.code));
+  
+  const toggleCountry = (code) => {
+    const newValue = value.includes(code)
+      ? value.filter(c => c !== code)
+      : [...value, code];
+    onChange(newValue);
+  };
+  
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          disabled={disabled}
+          className="w-full justify-between font-normal min-h-9 h-auto"
+          data-testid={`select-countries-${fieldId}`}
+        >
+          <span className="flex flex-wrap gap-1 flex-1 text-left">
+            {selectedCountries.length > 0 ? (
+              selectedCountries.length <= 3 ? (
+                selectedCountries.map(c => c.name).join(', ')
+              ) : (
+                `${selectedCountries.length} countries selected`
+              )
+            ) : (
+              <span className="text-muted-foreground">{placeholder}</span>
+            )}
+          </span>
+          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-full p-0" align="start">
+        <Command>
+          <CommandInput placeholder="Search countries..." />
+          <CommandList>
+            <CommandEmpty>No country found.</CommandEmpty>
+            <CommandGroup>
+              {countries.map((country) => (
+                <CommandItem
+                  key={country.code}
+                  value={country.name}
+                  onSelect={() => toggleCountry(country.code)}
+                >
+                  <Check
+                    className={cn(
+                      "mr-2 h-4 w-4",
+                      value.includes(country.code) ? "opacity-100" : "opacity-0"
+                    )}
+                  />
+                  {country.name}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function CommunicationPreferencesField({ field, value, onChange, disabled }) {
   const { data: categories = [], isLoading } = useQuery({
     queryKey: ['public-communication-categories'],
@@ -1107,6 +1172,22 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
             onChange={onChange}
             disabled={isFieldDisabled}
             placeholder="Select a country..."
+            fieldId={field.id}
+          />
+        );
+
+      case 'countries':
+        const availableCountriesMulti = field.all_countries !== false 
+          ? COUNTRIES 
+          : COUNTRIES.filter(c => (field.selected_countries || []).includes(c.code));
+        
+        return (
+          <MultiCountryCombobox
+            countries={availableCountriesMulti}
+            value={Array.isArray(value) ? value : []}
+            onChange={onChange}
+            disabled={isFieldDisabled}
+            placeholder="Select countries..."
             fieldId={field.id}
           />
         );
