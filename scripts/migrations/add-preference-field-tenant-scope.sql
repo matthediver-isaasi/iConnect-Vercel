@@ -24,17 +24,18 @@ FROM (
 ) sub
 WHERE pf.id = sub.field_id AND pf.tenant_id IS NULL;
 
--- Step 4: Backfill tenant_id from member_preference_value -> member -> tenant_membership -> tenant
--- This covers member-scoped preference fields
+-- Step 4: Backfill tenant_id from member_preference_value -> member -> organization -> tenant
+-- This covers member-scoped preference fields (members belong to organizations which belong to tenants)
 UPDATE preference_field pf
 SET tenant_id = sub.tenant_id
 FROM (
-  SELECT DISTINCT pf2.id as field_id, tm.tenant_id
+  SELECT DISTINCT pf2.id as field_id, o.tenant_id
   FROM preference_field pf2
   JOIN member_preference_value mpv ON mpv.field_id = pf2.id
   JOIN member m ON m.id = mpv.member_id
-  JOIN tenant_membership tm ON tm.member_id = m.id
+  JOIN organization o ON o.id = m.organization_id
   WHERE pf2.tenant_id IS NULL
+    AND o.tenant_id IS NOT NULL
 ) sub
 WHERE pf.id = sub.field_id AND pf.tenant_id IS NULL;
 
