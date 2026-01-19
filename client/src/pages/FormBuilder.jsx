@@ -1222,7 +1222,10 @@ function LogicRulesSection({
             const normalizedRule = normalizeRule(rule);
             const conditions = normalizedRule.conditions || [];
             const conditionFieldIds = conditions.map(c => c.field_id).filter(Boolean);
+            // For visibility actions, exclude condition fields
             const availableTargetFields = fields.filter(f => !conditionFieldIds.includes(f.id));
+            // For set_value actions, include ALL fields (including locked ones) - locked fields are prime targets for conditional value setting
+            const availableSetValueTargetFields = fields;
             const actions = normalizedRule.actions || [];
             
             return (
@@ -1623,9 +1626,9 @@ function LogicRulesSection({
                                       <SelectValue placeholder="Select field to set..." />
                                     </SelectTrigger>
                                     <SelectContent>
-                                      {availableTargetFields.map(field => (
+                                      {availableSetValueTargetFields.map(field => (
                                         <SelectItem key={field.id} value={field.id}>
-                                          {field.label || field.type} ({field.type})
+                                          {field.label || field.type} ({field.type}){field.locked ? ' [Locked]' : ''}
                                         </SelectItem>
                                       ))}
                                     </SelectContent>
