@@ -735,6 +735,11 @@ export default async function handler(req, res) {
           if (orgData.website_url) orgUpdateData.website_url = orgData.website_url;
           if (orgData.invoicing_address) orgUpdateData.invoicing_address = orgData.invoicing_address;
           
+          // Set tenant_id if org has none and we have a valid tenant_id (from public form)
+          if (tenant_id && !existingOrg.tenant_id) {
+            orgUpdateData.tenant_id = tenant_id;
+          }
+          
           if (Object.keys(orgUpdateData).length > 0) {
             const { error: orgUpdateError } = await supabase
               .from('organization')
