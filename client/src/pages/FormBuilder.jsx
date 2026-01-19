@@ -29,6 +29,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
+import { COUNTRIES } from '@/data/countries';
 
 const STANDARD_FIELD_TYPES = [
   { value: 'text', label: 'Text (Single Line)' },
@@ -46,6 +47,7 @@ const STANDARD_FIELD_TYPES = [
   { value: 'date', label: 'Date' },
   { value: 'time', label: 'Time' },
   { value: 'file', label: 'File Upload' },
+  { value: 'country', label: 'Country' },
   { value: 'instructions', label: 'Instructions (Display Only)' },
 ];
 
@@ -2437,6 +2439,81 @@ function FieldCard({
                 </div>
               )}
 
+              {/* Country Field Configuration */}
+              {field.type === 'country' && (
+                <div className="space-y-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                  <Label className="text-xs font-medium">Country Options</Label>
+                  
+                  {/* All Countries Toggle */}
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id={`all-countries-${field.id}`}
+                      checked={field.all_countries !== false}
+                      onCheckedChange={(checked) => {
+                        updateField(originalIndex, { 
+                          all_countries: checked,
+                          selected_countries: checked ? [] : (field.selected_countries || [])
+                        });
+                      }}
+                    />
+                    <Label htmlFor={`all-countries-${field.id}`} className="text-xs">
+                      Include all countries
+                    </Label>
+                  </div>
+                  
+                  {/* Country Selection (when not all) */}
+                  {field.all_countries === false && (
+                    <div className="space-y-2">
+                      <Label className="text-xs text-slate-500">Select countries to include:</Label>
+                      <div className="max-h-48 overflow-y-auto border border-slate-200 rounded bg-white p-2 space-y-1">
+                        {COUNTRIES.map((country) => (
+                          <div key={country.code} className="flex items-center gap-2">
+                            <Checkbox
+                              id={`country-${field.id}-${country.code}`}
+                              checked={(field.selected_countries || []).includes(country.code)}
+                              onCheckedChange={(checked) => {
+                                const current = field.selected_countries || [];
+                                const updated = checked 
+                                  ? [...current, country.code]
+                                  : current.filter(c => c !== country.code);
+                                updateField(originalIndex, { selected_countries: updated });
+                              }}
+                            />
+                            <Label htmlFor={`country-${field.id}-${country.code}`} className="text-xs">
+                              {country.name}
+                            </Label>
+                          </div>
+                        ))}
+                      </div>
+                      <p className="text-xs text-slate-500">
+                        {(field.selected_countries || []).length} countries selected
+                      </p>
+                    </div>
+                  )}
+                  
+                  {/* Default Country */}
+                  <div className="space-y-1">
+                    <Label className="text-xs">Default Country</Label>
+                    <Select
+                      value={field.default_country || '__none__'}
+                      onValueChange={(value) => updateField(originalIndex, { default_country: value === '__none__' ? '' : value })}
+                    >
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue placeholder="No default" />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-60 overflow-y-auto">
+                        <SelectItem value="__none__">No default</SelectItem>
+                        {(field.all_countries !== false ? COUNTRIES : COUNTRIES.filter(c => (field.selected_countries || []).includes(c.code))).map((country) => (
+                          <SelectItem key={country.code} value={country.code}>
+                            {country.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              )}
+
               {/* Instructions Content - Rich text editor for display-only content */}
               {field.type === 'instructions' && (
                 <div className="space-y-2">
@@ -2463,7 +2540,7 @@ function FieldCard({
               )}
 
               {/* Default Value Section - for non-boolean fields */}
-              {!['boolean', 'terms_conditions', 'file', 'list', 'instructions', 'user_name', 'user_email', 'user_organization', 'user_job_title', 'organisation_dropdown', 'category_multiselect', 'category_dropdown', 'communication_preferences'].includes(field.type) && (
+              {!['boolean', 'terms_conditions', 'file', 'list', 'instructions', 'country', 'user_name', 'user_email', 'user_organization', 'user_job_title', 'organisation_dropdown', 'category_multiselect', 'category_dropdown', 'communication_preferences'].includes(field.type) && (
                 <div className="space-y-2 p-3 bg-slate-50 border border-slate-200 rounded-lg">
                   <Label className="text-xs font-medium">Default Value</Label>
                   <p className="text-xs text-slate-500 mb-2">Pre-filled value when form loads</p>

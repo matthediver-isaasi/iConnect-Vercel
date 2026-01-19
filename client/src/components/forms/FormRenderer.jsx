@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -7,7 +7,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import { Loader2, Plus, X } from "lucide-react";
+import { Loader2, Plus, X, Check, ChevronsUpDown } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -16,6 +16,61 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { publicClient } from "@/api/publicClient";
+import { COUNTRIES } from "@/data/countries";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { cn } from "@/lib/utils";
+
+function CountryCombobox({ countries, value, onChange, disabled, placeholder, fieldId }) {
+  const [open, setOpen] = useState(false);
+  const selectedCountry = countries.find(c => c.code === value);
+  
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          disabled={disabled}
+          className="w-full justify-between font-normal"
+          data-testid={`select-country-${fieldId}`}
+        >
+          {selectedCountry ? selectedCountry.name : placeholder}
+          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-full p-0" align="start">
+        <Command>
+          <CommandInput placeholder="Search countries..." />
+          <CommandList>
+            <CommandEmpty>No country found.</CommandEmpty>
+            <CommandGroup>
+              {countries.map((country) => (
+                <CommandItem
+                  key={country.code}
+                  value={country.name}
+                  onSelect={() => {
+                    onChange(country.code);
+                    setOpen(false);
+                  }}
+                >
+                  <Check
+                    className={cn(
+                      "mr-2 h-4 w-4",
+                      value === country.code ? "opacity-100" : "opacity-0"
+                    )}
+                  />
+                  {country.name}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 function CommunicationPreferencesField({ field, value, onChange, disabled }) {
   const { data: categories = [], isLoading } = useQuery({
@@ -1037,6 +1092,23 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
               <p className="text-sm text-slate-500">No items added</p>
             )}
           </div>
+        );
+
+      case 'country':
+        const availableCountries = field.all_countries !== false 
+          ? COUNTRIES 
+          : COUNTRIES.filter(c => (field.selected_countries || []).includes(c.code));
+        const selectedCountry = availableCountries.find(c => c.code === (value || field.default_country));
+        
+        return (
+          <CountryCombobox
+            countries={availableCountries}
+            value={value || field.default_country || ''}
+            onChange={onChange}
+            disabled={isFieldDisabled}
+            placeholder="Select a country..."
+            fieldId={field.id}
+          />
         );
 
       case 'instructions':
