@@ -197,7 +197,8 @@ export default async function handler(req, res) {
       submission_id,
       role_id,                     // Role ID from form conditional logic (set_role action)
       additional_member_creations, // Legacy: Array of additional members to create
-      entity_pipelines             // New unified structure: {members: [], organisations: []}
+      entity_pipelines,            // New unified structure: {members: [], organisations: []}
+      tenant_id                    // Tenant ID for multi-tenant isolation (from public API)
     } = req.body;
 
     if (!form_values || typeof form_values !== 'object') {
@@ -768,6 +769,11 @@ export default async function handler(req, res) {
             website_url: orgData.website_url || null,
             created_at: new Date().toISOString()
           };
+          
+          // Add tenant_id if provided (from public form submission)
+          if (tenant_id) {
+            orgInsertData.tenant_id = tenant_id;
+          }
 
           console.log('[AppProcessor] Creating organization with data:', orgInsertData);
 
@@ -976,6 +982,12 @@ export default async function handler(req, res) {
             login_enabled: memberData.login_enabled !== undefined ? memberData.login_enabled : true,
             show_in_directory: memberData.show_in_directory !== undefined ? memberData.show_in_directory : true
           };
+          
+          // Add tenant_id if provided (from public form submission)
+          if (tenant_id) {
+            memberInsertData.tenant_id = tenant_id;
+          }
+          
           // Add job_title only if provided (it's a valid column)
           if (memberData.job_title) memberInsertData.job_title = memberData.job_title;
           // Add mobile and landline if provided
@@ -1650,6 +1662,11 @@ export default async function handler(req, res) {
             organization_id: additionalOrgId,
             ...additionalMemberData
           };
+          
+          // Add tenant_id if provided (from public form submission)
+          if (tenant_id) {
+            newMemberData.tenant_id = tenant_id;
+          }
           
           // Check role capacity before creating additional member (per-organization)
           if (newMemberData.role_id && newMemberData.role_id !== null) {

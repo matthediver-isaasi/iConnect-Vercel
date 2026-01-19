@@ -114,7 +114,8 @@ export default async function handler(req, res) {
     const hasEntityPipelines = (form.entity_pipelines?.members?.length > 0) || (form.entity_pipelines?.organisations?.length > 0);
     if (hasEntityPipelines) {
       try {
-        fetch(`${baseUrl}/api/forms/process-application`, {
+        console.log('[Public Form Submission] Processing entity pipelines for tenant:', tenantData.id);
+        const pipelineResponse = await fetch(`${baseUrl}/api/forms/process-application`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -126,13 +127,40 @@ export default async function handler(req, res) {
             submission_id: submission.id,
             prefill_organization_id: prefill_organization_id || null,
             role_id: null,
-            entity_pipelines: form.entity_pipelines  // Pass entity pipelines config
+            entity_pipelines: form.entity_pipelines,  // Pass entity pipelines config
+            tenant_id: tenantData.id  // Pass tenant_id for multi-tenant isolation
           })
-        }).catch(err => {
-          console.error('[Public Form Submission] Entity pipeline processing failed:', err);
         });
+        
+        // Safely parse response - handle empty bodies and non-JSON responses
+        const contentType = pipelineResponse.headers.get('content-type') || '';
+        const hasJsonBody = contentType.includes('application/json');
+        
+        if (!pipelineResponse.ok) {
+          if (hasJsonBody) {
+            try {
+              const errorData = await pipelineResponse.json();
+              console.error('[Public Form Submission] Entity pipeline processing failed:', errorData);
+            } catch (parseErr) {
+              console.error('[Public Form Submission] Entity pipeline failed with status:', pipelineResponse.status);
+            }
+          } else {
+            console.error('[Public Form Submission] Entity pipeline failed with status:', pipelineResponse.status);
+          }
+        } else {
+          if (hasJsonBody) {
+            try {
+              const result = await pipelineResponse.json();
+              console.log('[Public Form Submission] Entity pipeline processed:', result);
+            } catch (parseErr) {
+              console.log('[Public Form Submission] Entity pipeline completed (no JSON body)');
+            }
+          } else {
+            console.log('[Public Form Submission] Entity pipeline completed successfully');
+          }
+        }
       } catch (err) {
-        console.error('[Public Form Submission] Entity pipeline setup error:', err);
+        console.error('[Public Form Submission] Entity pipeline error:', err);
       }
     }
 
