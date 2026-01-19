@@ -48,6 +48,40 @@ const fontWeights = [
   { value: 800, label: 'Extra Bold' }
 ];
 
+// Helper to check if a field value is considered "filled" for validation purposes
+const isFieldValueFilled = (field, value) => {
+  if (!value) return false;
+  
+  // Handle Contact composite field type - check required sub-fields
+  if (field.type === 'contact') {
+    if (typeof value !== 'object') return false;
+    // Contact requires firstName, lastName, and email when the field is required
+    return !!(value.firstName?.trim() && value.lastName?.trim() && value.email?.trim());
+  }
+  
+  // For arrays (checkbox, list, etc.)
+  if (Array.isArray(value)) {
+    return value.length > 0;
+  }
+  
+  // For strings
+  if (typeof value === 'string') {
+    return value.length > 0;
+  }
+  
+  // For booleans (boolean, terms_conditions) - consider any value as "filled"
+  if (typeof value === 'boolean') {
+    return true;
+  }
+  
+  // For other objects
+  if (typeof value === 'object') {
+    return Object.keys(value).length > 0;
+  }
+  
+  return true;
+};
+
 const safeHexColor = (color, fallback = '#000000') => {
   if (!color || typeof color !== 'string') return fallback;
   const trimmed = color.trim();
@@ -951,7 +985,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   const validateCurrentPage = () => {
     const pageFields = filterVisibleFields(getCurrentPageFields());
     const missingFields = pageFields.filter(field => 
-      field.required && (!formValues[field.id] || formValues[field.id].length === 0)
+      field.required && !isFieldValueFilled(field, formValues[field.id])
     );
     if (missingFields.length > 0) {
       toast.error(`Please fill in required fields: ${missingFields.map(f => f.label).join(', ')}`);
@@ -1106,7 +1140,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     // Validate required fields - only check VISIBLE fields (skip hidden ones)
     const visibleFields = filterVisibleFields(form.fields);
     const missingFields = visibleFields.filter(field => 
-      field.required && (!formValues[field.id] || formValues[field.id].length === 0)
+      field.required && !isFieldValueFilled(field, formValues[field.id])
     );
 
     if (missingFields.length > 0) {

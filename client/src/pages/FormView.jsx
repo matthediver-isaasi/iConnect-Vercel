@@ -9,6 +9,40 @@ import FormRenderer from "../components/forms/FormRenderer";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 
+// Helper to check if a field value is considered "filled" for validation purposes
+const isFieldValueFilled = (field, value) => {
+  if (!value) return false;
+  
+  // Handle Contact composite field type - check required sub-fields
+  if (field.type === 'contact') {
+    if (typeof value !== 'object') return false;
+    // Contact requires firstName, lastName, and email when the field is required
+    return !!(value.firstName?.trim() && value.lastName?.trim() && value.email?.trim());
+  }
+  
+  // For arrays (checkbox, list, etc.)
+  if (Array.isArray(value)) {
+    return value.length > 0;
+  }
+  
+  // For strings
+  if (typeof value === 'string') {
+    return value.length > 0;
+  }
+  
+  // For booleans (boolean, terms_conditions) - consider any value as "filled"
+  if (typeof value === 'boolean') {
+    return true;
+  }
+  
+  // For other objects
+  if (typeof value === 'object') {
+    return Object.keys(value).length > 0;
+  }
+  
+  return true;
+};
+
 export default function FormViewPage() {
   const { memberInfo, organizationInfo } = useMemberAccess();
 
@@ -1358,7 +1392,7 @@ export default function FormViewPage() {
         const page = pages[i];
         const pageFields = visibleFields.filter(f => f.page_id === page.id);
         const missingFields = pageFields.filter(field => 
-          field.required && (!formValues[field.id] || formValues[field.id].length === 0)
+          field.required && !isFieldValueFilled(field, formValues[field.id])
         );
         
         if (missingFields.length > 0) {
@@ -1370,7 +1404,7 @@ export default function FormViewPage() {
       // Also check unassigned fields (page_id is null) - only visible ones
       const unassignedFields = visibleFields.filter(f => !f.page_id);
       const missingUnassigned = unassignedFields.filter(field => 
-        field.required && (!formValues[field.id] || formValues[field.id].length === 0)
+        field.required && !isFieldValueFilled(field, formValues[field.id])
       );
       
       if (missingUnassigned.length > 0) {
@@ -1380,7 +1414,7 @@ export default function FormViewPage() {
     } else {
       // Standard validation for non-paginated forms (only visible fields)
       const missingFields = visibleFields.filter(field => 
-        field.required && (!formValues[field.id] || formValues[field.id].length === 0)
+        field.required && !isFieldValueFilled(field, formValues[field.id])
       );
 
       if (missingFields.length > 0) {
@@ -1671,7 +1705,7 @@ export default function FormViewPage() {
   const validateCurrentPage = () => {
     const pageFields = filterVisibleFields(getCurrentPageFields());
     const missingFields = pageFields.filter(field => 
-      field.required && (!formValues[field.id] || formValues[field.id].length === 0)
+      field.required && !isFieldValueFilled(field, formValues[field.id])
     );
     
     if (missingFields.length > 0) {
