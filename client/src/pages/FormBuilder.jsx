@@ -661,6 +661,28 @@ function LogicRulesSection({
         normalizedRule = { ...normalizedRule, actions: consolidatedActions };
       }
       
+      // Migrate legacy trigger_field_id/operator/value to conditions array format
+      if (!normalizedRule.conditions || !Array.isArray(normalizedRule.conditions)) {
+        needsUpdate = true;
+        const conditions = normalizedRule.trigger_field_id ? [{
+          id: `cond_${normalizedRule.id}_0`,
+          field_id: normalizedRule.trigger_field_id,
+          operator: normalizedRule.operator || 'equals',
+          value: normalizedRule.value || ''
+        }] : [{
+          id: `cond_${normalizedRule.id}_0`,
+          field_id: '',
+          operator: 'equals',
+          value: ''
+        }];
+        
+        normalizedRule = {
+          ...normalizedRule,
+          logic: normalizedRule.logic || 'and',
+          conditions
+        };
+      }
+      
       return normalizedRule;
     });
     
@@ -675,30 +697,86 @@ function LogicRulesSection({
     }
   }, [visibilityRules, onRulesChange]);
 
-  // Simple normalize for rendering (no migration, just ensure actions array exists)
+  // Simple normalize for rendering - ensures default values exist
+  // The actual migration is done in the useEffect above which persists the changes
   const normalizeRule = (rule) => {
-    if (rule.actions && Array.isArray(rule.actions)) {
-      return rule;
-    }
-    // Fallback for any rules not yet migrated
     return {
-      id: rule.id,
-      trigger_field_id: rule.trigger_field_id,
-      operator: rule.operator,
-      value: rule.value,
-      actions: []
+      ...rule,
+      actions: rule.actions || [],
+      conditions: rule.conditions || [],
+      logic: rule.logic || 'and'
     };
   };
 
   const addRule = () => {
     const newRule = {
       id: `rule_${Date.now()}`,
-      trigger_field_id: '',
-      operator: 'equals',
-      value: '',
+      logic: 'and', // Default to AND logic
+      conditions: [{
+        id: `cond_${Date.now()}`,
+        field_id: '',
+        operator: 'equals',
+        value: ''
+      }],
       actions: [] // Start with empty actions, user adds them
     };
     onRulesChange([...visibilityRules, newRule]);
+  };
+
+  const addCondition = (ruleId) => {
+    const rule = visibilityRules.find(r => r.id === ruleId);
+    if (!rule) return;
+    
+    const normalizedRule = normalizeRule(rule);
+    const newCondition = {
+      id: `cond_${Date.now()}`,
+      field_id: '',
+      operator: 'equals',
+      value: ''
+    };
+    
+    const updatedConditions = [...(normalizedRule.conditions || []), newCondition];
+    updateRule(ruleId, { conditions: updatedConditions });
+  };
+
+  const updateCondition = (ruleId, conditionId, updates) => {
+    const rule = visibilityRules.find(r => r.id === ruleId);
+    if (!rule) return;
+    
+    const normalizedRule = normalizeRule(rule);
+    const updatedConditions = (normalizedRule.conditions || []).map(c =>
+      c.id === conditionId ? { ...c, ...updates } : c
+    );
+    updateRule(ruleId, { conditions: updatedConditions });
+  };
+
+  const removeCondition = (ruleId, conditionId) => {
+    const rule = visibilityRules.find(r => r.id === ruleId);
+    if (!rule) return;
+    
+    const normalizedRule = normalizeRule(rule);
+    const updatedConditions = (normalizedRule.conditions || []).filter(c => c.id !== conditionId);
+    
+    // Ensure at least one condition remains
+    if (updatedConditions.length === 0) {
+      toast.info('At least one condition is required per rule');
+      return;
+    }
+    
+    updateRule(ruleId, { conditions: updatedConditions });
+  };
+
+  const getConditionFieldOptions = (fieldId) => {
+    const field = fields.find(f => f.id === fieldId);
+    if (!field) return [];
+    
+    if (field.type === 'select' || field.type === 'radio') {
+      return field.options || [];
+    }
+    if (field.type === 'checkbox') {
+      return field.options || [];
+    }
+    return [];
   };
 
   const addAction = (ruleId, actionType = 'visibility') => {
@@ -1060,10 +1138,9 @@ function LogicRulesSection({
         <div className="space-y-3">
           {visibilityRules.map((rule, index) => {
             const normalizedRule = normalizeRule(rule);
-            const triggerField = fields.find(f => f.id === normalizedRule.trigger_field_id);
-            const triggerOptions = getTriggerFieldOptions(normalizedRule.trigger_field_id);
-            const needsValueInput = normalizedRule.operator !== 'is_empty' && normalizedRule.operator !== 'not_empty';
-            const availableTargetFields = fields.filter(f => f.id !== normalizedRule.trigger_field_id);
+            const conditions = normalizedRule.conditions || [];
+            const conditionFieldIds = conditions.map(c => c.field_id).filter(Boolean);
+            const availableTargetFields = fields.filter(f => !conditionFieldIds.includes(f.id));
             const actions = normalizedRule.actions || [];
             
             return (
@@ -1072,98 +1149,164 @@ function LogicRulesSection({
                 className="p-4 border rounded-lg space-y-3 bg-slate-50 border-slate-200"
                 data-testid={`rule-row-${index}`}
               >
-                {/* Trigger Condition Header */}
-                <div className="flex items-center gap-2 mb-2">
-                  <Settings2 className="w-4 h-4 text-slate-600" />
-                  <span className="text-xs font-medium text-slate-600">
-                    Rule #{index + 1} ({actions.length} action{actions.length !== 1 ? 's' : ''})
-                  </span>
+                {/* Rule Header */}
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <Settings2 className="w-4 h-4 text-slate-600" />
+                    <span className="text-xs font-medium text-slate-600">
+                      Rule #{index + 1} ({conditions.length} condition{conditions.length !== 1 ? 's' : ''}, {actions.length} action{actions.length !== 1 ? 's' : ''})
+                    </span>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => removeRule(rule.id)}
+                    className="h-8 w-8 text-red-600 hover:text-red-700 hover:bg-red-50"
+                    data-testid={`button-delete-rule-${index}`}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
                 </div>
 
-                {/* Trigger Condition Row */}
-                <div className="flex flex-wrap items-end gap-3">
-                  <div className="space-y-1 min-w-[80px]">
-                    <Label className="text-xs">When</Label>
-                    <Select
-                      value={normalizedRule.trigger_field_id || undefined}
-                      onValueChange={(value) => {
-                        if (value) {
-                          updateRule(rule.id, { trigger_field_id: value, value: '' });
-                        }
-                      }}
-                    >
-                      <SelectTrigger className="h-9" data-testid={`select-trigger-field-${index}`}>
-                        <SelectValue placeholder="Select field..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {fields.map(field => (
-                          <SelectItem key={field.id} value={field.id}>
-                            {field.label || field.type}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-1 min-w-[120px]">
-                    <Label className="text-xs">Condition</Label>
-                    <Select
-                      value={normalizedRule.operator}
-                      onValueChange={(value) => updateRule(rule.id, { operator: value })}
-                    >
-                      <SelectTrigger className="h-9" data-testid={`select-operator-${index}`}>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {VISIBILITY_OPERATORS.map(op => (
-                          <SelectItem key={op.value} value={op.value}>{op.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {needsValueInput && (
-                    <div className="space-y-1 min-w-[140px] flex-1">
-                      <Label className="text-xs">Value</Label>
-                      {triggerOptions.length > 0 ? (
-                        <Select
-                          value={normalizedRule.value || undefined}
-                          onValueChange={(value) => updateRule(rule.id, { value })}
-                        >
-                          <SelectTrigger className="h-9" data-testid={`select-value-${index}`}>
-                            <SelectValue placeholder="Select value..." />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {triggerOptions.map((opt, optIdx) => (
-                              <SelectItem key={optIdx} value={typeof opt === 'string' ? opt : opt.value || opt}>
-                                {typeof opt === 'string' ? opt : opt.label || opt.value || opt}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      ) : (
-                        <Input
-                          value={normalizedRule.value || ''}
-                          onChange={(e) => updateRule(rule.id, { value: e.target.value })}
-                          placeholder="Enter value..."
-                          className="h-9"
-                          data-testid={`input-value-${index}`}
-                        />
-                      )}
+                {/* AND/OR Logic Toggle - shown when multiple conditions */}
+                {conditions.length > 1 && (
+                  <div className="flex items-center gap-2 pb-2">
+                    <Label className="text-xs text-slate-600">Match:</Label>
+                    <div className="flex gap-1">
+                      <Button
+                        variant={normalizedRule.logic === 'and' ? 'default' : 'outline'}
+                        size="sm"
+                        className="h-7 text-xs px-3"
+                        onClick={() => updateRule(rule.id, { logic: 'and' })}
+                        data-testid={`button-logic-and-${index}`}
+                      >
+                        ALL conditions (AND)
+                      </Button>
+                      <Button
+                        variant={normalizedRule.logic === 'or' ? 'default' : 'outline'}
+                        size="sm"
+                        className="h-7 text-xs px-3"
+                        onClick={() => updateRule(rule.id, { logic: 'or' })}
+                        data-testid={`button-logic-or-${index}`}
+                      >
+                        ANY condition (OR)
+                      </Button>
                     </div>
-                  )}
-
-                  <div className="flex items-end pb-0.5">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => removeRule(rule.id)}
-                      className="h-9 w-9 text-red-600 hover:text-red-700 hover:bg-red-50"
-                      data-testid={`button-delete-rule-${index}`}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
                   </div>
+                )}
+
+                {/* Conditions */}
+                <div className="space-y-2">
+                  {conditions.map((condition, condIndex) => {
+                    const conditionOptions = getConditionFieldOptions(condition.field_id);
+                    const needsValueInput = condition.operator !== 'is_empty' && condition.operator !== 'not_empty';
+                    
+                    return (
+                      <div key={condition.id} className="flex flex-wrap items-end gap-2 p-2 bg-white rounded border border-slate-200">
+                        {/* Condition prefix label */}
+                        <div className="flex items-center h-9 min-w-[50px]">
+                          <span className="text-xs font-medium text-slate-500">
+                            {condIndex === 0 ? 'When' : (normalizedRule.logic === 'and' ? 'AND' : 'OR')}
+                          </span>
+                        </div>
+                        
+                        {/* Field selector */}
+                        <div className="space-y-1 min-w-[120px] flex-1">
+                          <Select
+                            value={condition.field_id || undefined}
+                            onValueChange={(value) => {
+                              if (value) {
+                                updateCondition(rule.id, condition.id, { field_id: value, value: '' });
+                              }
+                            }}
+                          >
+                            <SelectTrigger className="h-9" data-testid={`select-condition-field-${index}-${condIndex}`}>
+                              <SelectValue placeholder="Select field..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {fields.map(field => (
+                                <SelectItem key={field.id} value={field.id}>
+                                  {field.label || field.type}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        {/* Operator selector */}
+                        <div className="space-y-1 min-w-[100px]">
+                          <Select
+                            value={condition.operator}
+                            onValueChange={(value) => updateCondition(rule.id, condition.id, { operator: value })}
+                          >
+                            <SelectTrigger className="h-9" data-testid={`select-condition-operator-${index}-${condIndex}`}>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {VISIBILITY_OPERATORS.map(op => (
+                                <SelectItem key={op.value} value={op.value}>{op.label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        {/* Value input */}
+                        {needsValueInput && (
+                          <div className="space-y-1 min-w-[120px] flex-1">
+                            {conditionOptions.length > 0 ? (
+                              <Select
+                                value={condition.value || undefined}
+                                onValueChange={(value) => updateCondition(rule.id, condition.id, { value })}
+                              >
+                                <SelectTrigger className="h-9" data-testid={`select-condition-value-${index}-${condIndex}`}>
+                                  <SelectValue placeholder="Select value..." />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {conditionOptions.map((opt, optIdx) => (
+                                    <SelectItem key={optIdx} value={typeof opt === 'string' ? opt : opt.value || opt}>
+                                      {typeof opt === 'string' ? opt : opt.label || opt.value || opt}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            ) : (
+                              <Input
+                                value={condition.value || ''}
+                                onChange={(e) => updateCondition(rule.id, condition.id, { value: e.target.value })}
+                                placeholder="Enter value..."
+                                className="h-9"
+                                data-testid={`input-condition-value-${index}-${condIndex}`}
+                              />
+                            )}
+                          </div>
+                        )}
+
+                        {/* Remove condition button - only if more than 1 condition */}
+                        {conditions.length > 1 && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => removeCondition(rule.id, condition.id)}
+                            className="h-9 w-9 text-slate-400 hover:text-red-600 hover:bg-red-50"
+                            data-testid={`button-remove-condition-${index}-${condIndex}`}
+                          >
+                            <X className="w-4 h-4" />
+                          </Button>
+                        )}
+                      </div>
+                    );
+                  })}
+                  
+                  {/* Add condition button */}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() => addCondition(rule.id)}
+                    data-testid={`button-add-condition-${index}`}
+                  >
+                    <Plus className="w-3 h-3 mr-1" /> Add Condition
+                  </Button>
                 </div>
 
                 {/* Actions Section */}

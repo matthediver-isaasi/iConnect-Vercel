@@ -612,8 +612,8 @@ export default function FormViewPage() {
     }
   });
 
-  // Helper to evaluate a rule condition
-  const evaluateCondition = (triggerValue, operator, value) => {
+  // Helper to evaluate a single condition
+  const evaluateSingleCondition = (triggerValue, operator, value) => {
     switch (operator) {
       case 'equals':
         if (Array.isArray(triggerValue)) {
@@ -641,6 +641,41 @@ export default function FormViewPage() {
       default:
         return false;
     }
+  };
+
+  // Helper to evaluate all conditions in a rule with AND/OR logic
+  const evaluateRuleConditions = (rule, formValues) => {
+    // Check for legacy format FIRST - single trigger_field_id takes precedence for backward compat
+    // This handles forms saved before the conditions array was introduced
+    if (rule.trigger_field_id && (!rule.conditions || !Array.isArray(rule.conditions) || rule.conditions.length === 0)) {
+      const triggerValue = formValues[rule.trigger_field_id];
+      return evaluateSingleCondition(triggerValue, rule.operator, rule.value);
+    }
+    
+    // New format: rule has conditions array
+    if (rule.conditions && Array.isArray(rule.conditions) && rule.conditions.length > 0) {
+      const logic = rule.logic || 'and';
+      const results = rule.conditions.map(condition => {
+        if (!condition.field_id) return false;
+        const triggerValue = formValues[condition.field_id];
+        return evaluateSingleCondition(triggerValue, condition.operator, condition.value);
+      });
+      
+      // AND logic: all conditions must be true
+      // OR logic: at least one condition must be true
+      if (logic === 'and') {
+        return results.every(r => r === true);
+      } else {
+        return results.some(r => r === true);
+      }
+    }
+    
+    return false;
+  };
+
+  // Backward-compatible wrapper for legacy code paths
+  const evaluateCondition = (triggerValue, operator, value) => {
+    return evaluateSingleCondition(triggerValue, operator, value);
   };
 
   // Compute initial hidden fields from field.starts_hidden property
@@ -705,10 +740,11 @@ export default function FormViewPage() {
     const fieldVisibility = {};
     
     for (const rule of form.visibility_rules) {
-      if (!rule.trigger_field_id) continue;
+      // Skip rules without conditions (new format) or trigger_field_id (legacy format)
+      if (!rule.conditions?.length && !rule.trigger_field_id) continue;
       
-      const triggerValue = formValues[rule.trigger_field_id];
-      const conditionMet = evaluateCondition(triggerValue, rule.operator, rule.value);
+      // Evaluate conditions using AND/OR logic for new format, or single condition for legacy
+      const conditionMet = evaluateRuleConditions(rule, formValues);
 
       // Handle new multi-action format
       if (rule.actions && Array.isArray(rule.actions)) {
@@ -816,10 +852,11 @@ export default function FormViewPage() {
     const fieldDisability = {};
     
     for (const rule of form.visibility_rules) {
-      if (!rule.trigger_field_id) continue;
+      // Skip rules without conditions (new format) or trigger_field_id (legacy format)
+      if (!rule.conditions?.length && !rule.trigger_field_id) continue;
       
-      const triggerValue = formValues[rule.trigger_field_id];
-      const conditionMet = evaluateCondition(triggerValue, rule.operator, rule.value);
+      // Evaluate conditions using AND/OR logic for new format, or single condition for legacy
+      const conditionMet = evaluateRuleConditions(rule, formValues);
 
       // Handle new multi-action format
       if (rule.actions && Array.isArray(rule.actions)) {
@@ -958,10 +995,11 @@ export default function FormViewPage() {
     
     // First pass: identify all active actions and build field->action mapping
     for (const rule of form.visibility_rules) {
-      if (!rule.trigger_field_id) continue;
+      // Skip rules without conditions (new format) or trigger_field_id (legacy format)
+      if (!rule.conditions?.length && !rule.trigger_field_id) continue;
       
-      const triggerValue = formValues[rule.trigger_field_id];
-      const conditionMet = evaluateCondition(triggerValue, rule.operator, rule.value);
+      // Evaluate conditions using AND/OR logic for new format, or single condition for legacy
+      const conditionMet = evaluateRuleConditions(rule, formValues);
       
       // Handle new multi-action format
       if (rule.actions && Array.isArray(rule.actions)) {
@@ -1094,10 +1132,11 @@ export default function FormViewPage() {
     const nowActiveRoleActions = new Set();
     
     for (const rule of form.visibility_rules) {
-      if (!rule.trigger_field_id) continue;
+      // Skip rules without conditions (new format) or trigger_field_id (legacy format)
+      if (!rule.conditions?.length && !rule.trigger_field_id) continue;
       
-      const triggerValue = formValues[rule.trigger_field_id];
-      const conditionMet = evaluateCondition(triggerValue, rule.operator, rule.value);
+      // Evaluate conditions using AND/OR logic for new format, or single condition for legacy
+      const conditionMet = evaluateRuleConditions(rule, formValues);
       
       if (conditionMet && rule.actions && Array.isArray(rule.actions)) {
         rule.actions.forEach((action, actionIndex) => {
