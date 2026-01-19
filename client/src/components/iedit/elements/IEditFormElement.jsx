@@ -389,7 +389,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   };
 
   // Check if save draft is enabled for this form
-  const isDraftSaveEnabled = form && form.settings?.disable_save_draft !== true;
+  // Save & Continue Later is always enabled for all forms
 
   // Extract role_id from primary member entity_pipeline for capacity checking
   const primaryMemberRoleId = useMemo(() => {
@@ -1777,7 +1777,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
               
               <div className="flex gap-2 flex-wrap">
                 {/* Save & Continue Later button */}
-                {isDraftSaveEnabled && (
+                {(
                   <Button
                     variant="outline"
                     onClick={handleSaveDraft}

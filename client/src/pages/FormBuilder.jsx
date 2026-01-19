@@ -2991,8 +2991,7 @@ export default function FormBuilderPage() {
     entity_pipelines: {
       members: [], // [{id, label, isPrimary, role_id, uniqueness_key, field_mappings}]
       organisations: [] // [{id, label, isPrimary, uniqueness_key, field_mappings}]
-    },
-    settings: {} // Form-level settings like disable_save_draft, draft_expiry_days
+    }
   });
   
   // Track which form pages are expanded (for collapsible UI) - true = expanded, false = collapsed
@@ -3355,8 +3354,7 @@ export default function FormBuilderPage() {
           set_value_prefill_field: rule.set_value_prefill_field || '',
           target_field_ids: rule.target_field_ids || []
         })),
-        entity_pipelines: entityPipelines,
-        settings: existingForm.settings || {}
+        entity_pipelines: entityPipelines
       });
     }
   }, [existingForm]);
@@ -3885,22 +3883,6 @@ export default function FormBuilderPage() {
                   data-testid="switch-due-diligence-required"
                 />
                 <Label htmlFor="due_diligence_required" className="text-sm">Due Diligence Required</Label>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <Switch
-                  id="enable_save_draft"
-                  checked={!(formData.settings?.disable_save_draft === true)}
-                  onCheckedChange={(checked) => setFormData({ 
-                    ...formData, 
-                    settings: { 
-                      ...formData.settings, 
-                      disable_save_draft: !checked 
-                    } 
-                  })}
-                  data-testid="switch-enable-save-draft"
-                />
-                <Label htmlFor="enable_save_draft" className="text-sm">Save & Continue Later</Label>
               </div>
 
               <div className="text-xs text-slate-500 ml-auto">
