@@ -874,6 +874,7 @@ function StandaloneRoutes() {
             <Route path="/embed/form/:slug" element={<EmbedForm />} />
             <Route path="/embed/resource/:identifier" element={<EmbedResource />} />
             <Route path="/embed/event/:identifier" element={<EmbedEvent />} />
+            <Route path="/EventDetails" element={<EventDetails />} />
             <Route path="/book/:slug" element={<PublicBooking />} />
         </Routes>
     );
@@ -948,10 +949,13 @@ function AppRoutes() {
     const isEmbedPage = location.pathname.toLowerCase().startsWith('/embed/');
     const isBookingPage = location.pathname.toLowerCase().startsWith('/book/');
     
+    // Use window.location.search to reliably detect embed param (works even before routing)
+    const hasEmbedParam = new URLSearchParams(window.location.search).get('embed') === 'true';
+    
     const isAdminPage = location.pathname.toLowerCase().startsWith('/admin');
     const isPlatformPage = location.pathname.toLowerCase().startsWith('/platform');
     
-    if (isStandalonePage || isEmbedPage || isBookingPage) {
+    if (isStandalonePage || isEmbedPage || isBookingPage || hasEmbedParam) {
         return <StandaloneRoutes />;
     }
     

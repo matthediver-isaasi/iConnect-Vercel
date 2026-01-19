@@ -2544,12 +2544,12 @@ export default function EditEvent() {
               <CardContent>
                 {(() => {
                   const tenantSlug = currentTenant.slug;
-                  const embedUrl = `https://${tenantSlug}.iconn.app/embed/event/${eventId}?tenant=${tenantSlug}`;
-                  const embedCode = `<iframe src="${embedUrl}" style="width: 100%; min-height: 400px; border: none;" loading="lazy"></iframe>
+                  const embedUrl = `https://${tenantSlug}.iconn.app/EventDetails?id=${eventId}&embed=true&tenant=${tenantSlug}`;
+                  const embedCode = `<iframe src="${embedUrl}" style="width: 100%; min-height: 600px; border: none;" loading="lazy"></iframe>
 <script>
   window.addEventListener('message', function(e) {
     if (e.data.type === 'iconn-event-resize') {
-      var iframe = document.querySelector('iframe[src*="${eventId}"]');
+      var iframe = document.querySelector('iframe[src*="id=${eventId}"]');
       if (iframe) iframe.style.height = e.data.height + 'px';
     }
   });
@@ -2584,7 +2584,7 @@ export default function EditEvent() {
                         type="button"
                         variant="outline"
                         size="sm"
-                        onClick={() => window.open(`https://${tenantSlug}.iconn.app/embed/event/${eventId}?tenant=${tenantSlug}`, '_blank')}
+                        onClick={() => window.open(`https://${tenantSlug}.iconn.app/EventDetails?id=${eventId}&embed=true&tenant=${tenantSlug}`, '_blank')}
                         data-testid="button-preview-embed"
                       >
                         <ExternalLink className="w-4 h-4 mr-2" />

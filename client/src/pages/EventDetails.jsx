@@ -97,9 +97,30 @@ export default function EventDetailsPage() {
   const urlParams = new URLSearchParams(window.location.search);
   const eventId = urlParams.get('id');
   const debugMode = urlParams.get('debugZoom') === '1';
+  const isEmbedMode = urlParams.get('embed') === 'true';
 
-  // Determine if tours should be shown for this user
-  const shouldShowTours = memberRole?.show_tours !== false;
+  // Notify parent iframe of height changes for embed mode
+  const notifyParentResize = () => {
+    if (!isEmbedMode) return;
+    setTimeout(() => {
+      const height = document.documentElement.scrollHeight;
+      window.parent.postMessage({ type: 'iconn-event-resize', height }, '*');
+    }, 100);
+  };
+
+  // Watch for resize in embed mode
+  useEffect(() => {
+    if (!isEmbedMode) return;
+    notifyParentResize();
+    const resizeObserver = new ResizeObserver(() => {
+      notifyParentResize();
+    });
+    resizeObserver.observe(document.body);
+    return () => resizeObserver.disconnect();
+  }, [isEmbedMode]);
+
+  // Determine if tours should be shown for this user (never in embed mode)
+  const shouldShowTours = !isEmbedMode && memberRole?.show_tours !== false;
 
   // Check if user has seen this page's tour
   const hasSeenTour = currentMemberInfo?.page_tours_seen?.EventDetails === true;
@@ -1090,12 +1111,14 @@ export default function EventDetailsPage() {
       )}
 
       <div className="max-w-7xl mx-auto">
-        <div className="flex items-center justify-between mb-6">
-          <Link to={createPageUrl('Events')} className="inline-flex items-center gap-2 text-slate-600 hover:text-slate-900">
-            <ArrowLeft className="w-4 h-4" />
-            Back to Events
-          </Link>
-        </div>
+        {!isEmbedMode && (
+          <div className="flex items-center justify-between mb-6">
+            <Link to={createPageUrl('Events')} className="inline-flex items-center gap-2 text-slate-600 hover:text-slate-900">
+              <ArrowLeft className="w-4 h-4" />
+              Back to Events
+            </Link>
+          </div>
+        )}
 
         <div className="grid lg:grid-cols-3 gap-8 mb-8">
           <div className="lg:col-span-2 space-y-6">
