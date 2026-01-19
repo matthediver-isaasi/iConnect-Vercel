@@ -434,10 +434,31 @@ export default function FormViewPage() {
     ? prefillOrgId 
     : prefillMember?.organization_id;
   
-  const { data: prefillOrgCustomValues = [] } = useQuery({
+  // DEBUG: Log the org custom field query setup
+  console.log('[FormView DEBUG] Org Custom Fields Query Setup:', {
+    formPrefillSource: form?.prefill_source,
+    prefillOrgId,
+    prefillMemberOrgId: prefillMember?.organization_id,
+    effectiveOrgIdForCustomFields,
+    queryEnabled: !!effectiveOrgIdForCustomFields && form?.prefill_source && form.prefill_source !== 'none'
+  });
+  
+  const { data: prefillOrgCustomValues = [], isLoading: orgCustomValuesLoading, error: orgCustomValuesError } = useQuery({
     queryKey: ['prefill-org-custom-values', effectiveOrgIdForCustomFields],
-    queryFn: () => publicClient.getOrganizationPreferenceValues(effectiveOrgIdForCustomFields),
+    queryFn: async () => {
+      console.log('[FormView DEBUG] Fetching org custom values for org:', effectiveOrgIdForCustomFields);
+      const values = await publicClient.getOrganizationPreferenceValues(effectiveOrgIdForCustomFields);
+      console.log('[FormView DEBUG] Org custom values API response:', values);
+      return values;
+    },
     enabled: !!effectiveOrgIdForCustomFields && form?.prefill_source && form.prefill_source !== 'none'
+  });
+  
+  // DEBUG: Log org custom values state
+  console.log('[FormView DEBUG] Org Custom Values State:', {
+    prefillOrgCustomValues,
+    orgCustomValuesLoading,
+    orgCustomValuesError: orgCustomValuesError?.message
   });
 
   // Track if prefill has been applied to prevent overwriting user edits
@@ -528,9 +549,12 @@ export default function FormViewPage() {
     const primaryEntity = form.prefill_source === 'member' ? memberEntity : orgEntity;
     if (!primaryEntity) return;
     
-    console.log('[FormView Prefill] Starting prefill');
+    console.log('[FormView Prefill] ========== PREFILL DEBUG START ==========');
+    console.log('[FormView Prefill] Form prefill_source:', form.prefill_source);
     console.log('[FormView Prefill] Member entity:', memberEntity);
     console.log('[FormView Prefill] Org entity:', orgEntity);
+    console.log('[FormView Prefill] prefillMemberCustomValues:', prefillMemberCustomValues);
+    console.log('[FormView Prefill] prefillOrgCustomValues:', prefillOrgCustomValues);
     console.log('[FormView Prefill] Fields with prefill_field configured:', 
       form.fields?.filter(f => f.prefill_field).map(f => ({id: f.id, label: f.label, prefill_field: f.prefill_field})));
     
@@ -586,7 +610,10 @@ export default function FormViewPage() {
       } else if (prefillField.startsWith('org_custom:')) {
         // Organisation custom field
         const customFieldId = prefillField.replace('org_custom:', '');
+        console.log(`[FormView Prefill DEBUG] Looking for org_custom field_id: "${customFieldId}"`);
+        console.log(`[FormView Prefill DEBUG] Available prefillOrgCustomValues:`, prefillOrgCustomValues.map(v => ({ field_id: v.field_id, value: v.value })));
         const cfv = prefillOrgCustomValues.find(v => v.field_id === customFieldId);
+        console.log(`[FormView Prefill DEBUG] Found match:`, cfv);
         value = parseCustomFieldValue(cfv, field.type);
         console.log(`[FormView Prefill] ${field.label}: org_custom:${customFieldId} = "${value}"`);
       } else if (prefillField.startsWith('custom:')) {
