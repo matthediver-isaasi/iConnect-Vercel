@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { resolveTenantFromRequest } from '../../_lib/tenantResolver.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -13,16 +14,44 @@ export default async function handler(req, res) {
   }
 
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
-  const { id } = req.query;
+  const { id, tenant: tenantParam } = req.query;
 
   try {
-    // PreferenceField is a GLOBAL entity (TENANT_SCOPE.GLOBAL in tenantContext.js)
-    // Field definitions are shared across tenants - tenant scoping happens at VALUE level
-    // (member_preference_value, organization_preference_value tables)
+    // Resolve tenant for proper data isolation
+    let tenantId = null;
+    
+    // First try: centralized tenant resolver (subdomain and custom domain)
+    const tenant = await resolveTenantFromRequest(req);
+    if (tenant) {
+      tenantId = tenant.id;
+    }
+    
+    // Second try: explicit tenant query parameter (for embedded forms, local dev)
+    if (!tenantId && tenantParam) {
+      const { data: tenantBySlug } = await supabase
+        .from('tenant')
+        .select('id')
+        .eq('slug', tenantParam)
+        .eq('status', 'active')
+        .single();
+      
+      if (tenantBySlug) {
+        tenantId = tenantBySlug.id;
+      }
+    }
+    
+    // Tenant context is required for proper data isolation
+    if (!tenantId) {
+      console.error('[Public Custom Field] Missing tenant context for field:', id);
+      return res.status(400).json({ error: 'Tenant context required' });
+    }
+
+    // PreferenceField is now TENANT-scoped (tenant_id column added via migration)
     const { data, error } = await supabase
       .from('preference_field')
       .select('id, label, field_type, options, entity_scope, min_selections, max_selections')
       .eq('id', id)
+      .eq('tenant_id', tenantId)
       .eq('is_active', true)
       .single();
 

@@ -31,8 +31,8 @@ export const TENANT_SCOPE = {
  * Entity to tenant scope mapping
  * 
  * GLOBAL entities are system-wide and accessible to all tenants:
- * - SystemSettings, PreferenceField (definitions), TypographyStyle (defaults)
- * - IEditElementTemplate (template library), RoleAccessItem (capability catalog)
+ * - TypographyStyle (defaults), IEditElementTemplate (template library)
+ * - RoleAccessItem (capability catalog), ButtonStyle (styling defaults)
  * 
  * TENANT entities are per-tenant (filtered by tenant_id):
  * - Organization, Role, Event, Program, Form, Resource, JobPosting, etc.
@@ -48,7 +48,7 @@ export const entityTenantScope = {
   'Tenant': TENANT_SCOPE.GLOBAL, // Tenants themselves are global (accessed by slug/domain)
   // SystemSettings is TENANT-scoped for proper multi-tenant isolation
   'SystemSettings': TENANT_SCOPE.TENANT,
-  'PreferenceField': TENANT_SCOPE.GLOBAL,
+  'PreferenceField': TENANT_SCOPE.TENANT, // Custom field definitions are per-tenant
   'TypographyStyle': TENANT_SCOPE.GLOBAL,
   'IEditElementTemplate': TENANT_SCOPE.GLOBAL,
   'RoleAccessItem': TENANT_SCOPE.GLOBAL,
