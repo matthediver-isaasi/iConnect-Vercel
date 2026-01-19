@@ -966,6 +966,65 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
         
         const customFieldOptions = customFieldDef.options || [];
         
+        // Handle text-based custom field types that don't need options
+        const textBasedTypes = ['text', 'email', 'url', 'number', 'textarea', 'phone', 'date'];
+        if (textBasedTypes.includes(customFieldDef.field_type)) {
+          // Render appropriate input based on field_type
+          if (customFieldDef.field_type === 'textarea') {
+            return (
+              <Textarea
+                value={value || ''}
+                onChange={(e) => !isFieldDisabled && onChange(e.target.value)}
+                placeholder={field.placeholder}
+                disabled={isFieldDisabled}
+                className={isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : ''}
+                data-testid={`textarea-custom-${field.id}`}
+              />
+            );
+          }
+          
+          if (customFieldDef.field_type === 'number') {
+            return (
+              <Input
+                type="number"
+                value={value || ''}
+                onChange={(e) => !isFieldDisabled && onChange(e.target.value)}
+                placeholder={field.placeholder}
+                disabled={isFieldDisabled}
+                className={isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : ''}
+                data-testid={`input-custom-number-${field.id}`}
+              />
+            );
+          }
+          
+          if (customFieldDef.field_type === 'date') {
+            return (
+              <Input
+                type="date"
+                value={value || ''}
+                onChange={(e) => !isFieldDisabled && onChange(e.target.value)}
+                disabled={isFieldDisabled}
+                className={isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : ''}
+                data-testid={`input-custom-date-${field.id}`}
+              />
+            );
+          }
+          
+          // Default to text input for text, email, url, phone
+          return (
+            <Input
+              type={customFieldDef.field_type === 'email' ? 'email' : customFieldDef.field_type === 'url' ? 'url' : 'text'}
+              value={value || ''}
+              onChange={(e) => !isFieldDisabled && onChange(e.target.value)}
+              placeholder={field.placeholder}
+              disabled={isFieldDisabled}
+              className={isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : ''}
+              data-testid={`input-custom-${customFieldDef.field_type}-${field.id}`}
+            />
+          );
+        }
+        
+        // For option-based types (checkbox, radio, picklist, dropdown), require options
         if (customFieldOptions.length === 0) {
           return (
             <p className="text-sm text-slate-500">
