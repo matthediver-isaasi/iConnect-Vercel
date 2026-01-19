@@ -96,7 +96,7 @@ export default async function handler(req, res) {
       // Get form to verify it exists
       let formQuery = supabase
         .from('form')
-        .select('id, tenant_id, updated_at')
+        .select('id, tenant_id')
         .eq('tenant_id', tenantData.id)
         .eq('is_active', true);
 
@@ -154,7 +154,7 @@ export default async function handler(req, res) {
             draft_data,
             current_page_index: current_page_index || 0,
             contact_email: contact_email || null,
-            form_updated_at: form.updated_at,
+            form_updated_at: form_updated_at || null,
             expires_at: expiresAt.toISOString(),
             last_saved_at: new Date().toISOString()
           })
@@ -186,7 +186,7 @@ export default async function handler(req, res) {
           draft_data,
           current_page_index: current_page_index || 0,
           contact_email: contact_email || null,
-          form_updated_at: form.updated_at,
+          form_updated_at: form_updated_at || null,
           expires_at: expiresAt.toISOString()
         });
 
