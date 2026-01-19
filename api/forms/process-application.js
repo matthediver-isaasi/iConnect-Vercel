@@ -221,19 +221,21 @@ export default async function handler(req, res) {
       Object.entries(form_values).slice(0, 5).map(([k, v]) => `${k}=${JSON.stringify(v)?.substring(0, 50)}`));
     
     // Determine if we should process members/orgs based on new entity_pipelines structure
-    // If entity_pipelines has entries, use that; otherwise fall back to legacy fields
+    // If entity_pipelines is provided, use that exclusively; otherwise fall back to legacy fields
     const validActions = ['none', 'create', 'update', 'upsert'];
+    const hasEntityPipelinesConfig = entity_pipelines !== undefined && entity_pipelines !== null;
     
     let memberAction;
     let orgAction;
     
-    if (memberPipelines.length > 0) {
-      // New entity_pipelines system - always use 'upsert' mode for pipeline entries
-      memberAction = 'upsert';
+    if (hasEntityPipelinesConfig) {
+      // New entity_pipelines system - if provided, use it exclusively
+      // If member pipelines exist, use 'upsert'; otherwise 'none' (no member processing)
+      memberAction = memberPipelines.length > 0 ? 'upsert' : 'none';
     } else if (member_entity_action && validActions.includes(member_entity_action)) {
       memberAction = member_entity_action;
     } else {
-      // Legacy fallback
+      // Legacy fallback (only when entity_pipelines is not provided)
       const legacyEntityType = create_entity_type || application_level || 'member';
       const legacyActionMode = entity_action || 'create';
       if (legacyEntityType === 'member' || legacyEntityType === 'both') {
@@ -243,13 +245,14 @@ export default async function handler(req, res) {
       }
     }
     
-    if (orgPipelines.length > 0) {
-      // New entity_pipelines system - always use 'upsert' mode for pipeline entries
-      orgAction = 'upsert';
+    if (hasEntityPipelinesConfig) {
+      // New entity_pipelines system - if provided, use it exclusively
+      // If org pipelines exist, use 'upsert'; otherwise 'none' (no org processing)
+      orgAction = orgPipelines.length > 0 ? 'upsert' : 'none';
     } else if (organization_entity_action && validActions.includes(organization_entity_action)) {
       orgAction = organization_entity_action;
     } else {
-      // Legacy fallback
+      // Legacy fallback (only when entity_pipelines is not provided)
       const legacyEntityType = create_entity_type || application_level || 'member';
       const legacyActionMode = entity_action || 'create';
       if (legacyEntityType === 'organization' || legacyEntityType === 'both') {
