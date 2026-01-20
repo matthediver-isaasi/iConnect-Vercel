@@ -798,6 +798,13 @@ export default async function handler(req, res) {
 
           createdOrganizationId = newOrg.id;
           console.log('[AppProcessor] Created organization:', createdOrganizationId);
+          
+          // Trigger workflow evaluation for new organization (non-blocking)
+          const baseUrl = process.env.APP_URL || `https://${req.headers.host}`;
+          console.log('[AppProcessor] Triggering workflows for organization:', createdOrganizationId, 'tenant_id:', newOrg.tenant_id);
+          triggerWorkflows('organization', newOrg.id, null, newOrg, 'record_create', baseUrl).catch(err => {
+            console.error('[AppProcessor] Workflow error for organization:', err);
+          });
         }
       }
 
