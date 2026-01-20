@@ -33,7 +33,17 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
-  if (tenantUser.role !== 'owner' && tenantUser.role !== 'admin') {
+  console.log('[Provision Mailgun Domain] Tenant user:', JSON.stringify({
+    id: tenantUser.id,
+    email: tenantUser.email,
+    role: tenantUser.role,
+    tenant_id: tenantUser.tenant_id,
+    _isUnifiedIdentity: tenantUser._isUnifiedIdentity
+  }));
+
+  // Allow owner, admin roles - also treat null/undefined role as owner for legacy records
+  const isAuthorized = tenantUser.role === 'owner' || tenantUser.role === 'admin' || !tenantUser.role;
+  if (!isAuthorized) {
     return res.status(403).json({ error: 'Forbidden - requires owner or admin role' });
   }
 
