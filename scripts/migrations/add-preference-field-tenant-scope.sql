@@ -4,7 +4,7 @@
 -- Background: preference_field was originally global, but forms are tenant-scoped
 -- so preference fields should also be tenant-scoped for proper data isolation.
 
--- Step 1: Add tenant_id column (nullable initially for backfill)
+-- Step 1: Add tenant_id column (nuhttps://gsf.iconn.app/organisationsllable initially for backfill)
 ALTER TABLE preference_field 
 ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenant(id) ON DELETE CASCADE;
 

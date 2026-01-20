@@ -983,26 +983,68 @@ export default function EmailTemplateManagement() {
         </Dialog>
 
         <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
-          <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>Preview: {selectedTemplate?.name}</DialogTitle>
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto p-0">
+            <DialogHeader className="p-6 pb-0">
+              <DialogTitle className="flex items-center gap-2">
+                <Mail className="w-5 h-5" />
+                Email Preview: {selectedTemplate?.name}
+              </DialogTitle>
             </DialogHeader>
             {selectedTemplate && (
-              <div className="space-y-4">
-                <div className="bg-muted p-4 rounded-lg space-y-2">
-                  <p><span className="font-medium">Subject:</span> {selectedTemplate.subject}</p>
-                  {selectedTemplate.from_name && (
-                    <p><span className="font-medium">From:</span> {selectedTemplate.from_name} &lt;{selectedTemplate.from_email || 'noreply@mail.iconn.app'}&gt;</p>
-                  )}
+              <div className="space-y-0">
+                <div className="bg-muted/50 border-b px-6 py-4 space-y-1">
+                  <div className="flex items-center gap-2 text-sm">
+                    <span className="font-medium text-muted-foreground w-16">From:</span>
+                    <span>{selectedTemplate.from_name || 'Your Organization'} &lt;{selectedTemplate.from_email || 'noreply@mail.iconn.app'}&gt;</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm">
+                    <span className="font-medium text-muted-foreground w-16">To:</span>
+                    <span className="text-muted-foreground italic">recipient@example.com</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm">
+                    <span className="font-medium text-muted-foreground w-16">Subject:</span>
+                    <span className="font-medium">{selectedTemplate.subject}</span>
+                  </div>
                   {selectedTemplate.reply_to && (
-                    <p><span className="font-medium">Reply-To:</span> {selectedTemplate.reply_to}</p>
+                    <div className="flex items-center gap-2 text-sm">
+                      <span className="font-medium text-muted-foreground w-16">Reply-To:</span>
+                      <span>{selectedTemplate.reply_to}</span>
+                    </div>
                   )}
                 </div>
-                <div className="border rounded-lg p-4">
+                <div className="bg-slate-100 dark:bg-slate-800 p-6">
                   <div 
-                    className="prose prose-sm max-w-none dark:prose-invert"
-                    dangerouslySetInnerHTML={{ __html: selectedTemplate.body }}
-                  />
+                    className="bg-white dark:bg-slate-900 rounded-lg shadow-sm max-w-[600px] mx-auto overflow-hidden"
+                    style={{ fontFamily: 'Arial, sans-serif' }}
+                  >
+                    <div 
+                      className="p-6"
+                      style={{ fontSize: '14px', lineHeight: '1.6', color: '#333' }}
+                      dangerouslySetInnerHTML={{ __html: selectedTemplate.body }}
+                    />
+                    {footerHtml && (
+                      <div 
+                        dangerouslySetInnerHTML={{ 
+                          __html: (() => {
+                            let processedFooter = footerHtml;
+                            if (socialIcons && Array.isArray(socialIcons)) {
+                              socialIcons.forEach(icon => {
+                                if (icon.platform && icon.url) {
+                                  const placeholder = `{{${icon.platform.toLowerCase()}_url}}`;
+                                  processedFooter = processedFooter.split(placeholder).join(icon.url);
+                                }
+                              });
+                            }
+                            processedFooter = processedFooter.replace(/\{\{[a-z_]+_url\}\}/gi, '#');
+                            return processedFooter;
+                          })()
+                        }}
+                      />
+                    )}
+                  </div>
+                </div>
+                <div className="px-6 py-3 bg-muted/30 border-t text-xs text-muted-foreground text-center">
+                  This is a preview. Placeholders like [[member.first_name]] will be replaced with actual values when the email is sent.
                 </div>
               </div>
             )}
@@ -1034,21 +1076,50 @@ export default function EmailTemplateManagement() {
 
         {/* Footer Preview Dialog */}
         <Dialog open={footerPreviewOpen} onOpenChange={setFooterPreviewOpen}>
-          <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>Email Footer Preview</DialogTitle>
+          <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto p-0">
+            <DialogHeader className="p-6 pb-4">
+              <DialogTitle className="flex items-center gap-2">
+                <FileText className="w-5 h-5" />
+                Email Footer Preview
+              </DialogTitle>
             </DialogHeader>
-            <div className="space-y-4">
-              <p className="text-sm text-muted-foreground">
-                This is how the footer will appear at the bottom of all emails. Dynamic placeholders will be replaced with actual values when emails are sent.
-              </p>
-              <div className="border rounded-lg overflow-hidden">
-                <div 
-                  dangerouslySetInnerHTML={{ __html: footerHtml }}
-                />
+            <div className="space-y-0">
+              <div className="px-6 pb-4">
+                <p className="text-sm text-muted-foreground">
+                  This preview shows how the footer will appear at the bottom of all emails, with social media links populated from your configuration.
+                </p>
               </div>
+              <div className="bg-slate-100 dark:bg-slate-800 p-6">
+                <div className="max-w-[600px] mx-auto overflow-hidden rounded-lg shadow-sm">
+                  <div 
+                    dangerouslySetInnerHTML={{ 
+                      __html: (() => {
+                        let processedFooter = footerHtml;
+                        if (socialIcons && Array.isArray(socialIcons)) {
+                          socialIcons.forEach(icon => {
+                            if (icon.platform && icon.url) {
+                              const placeholder = `{{${icon.platform.toLowerCase()}_url}}`;
+                              processedFooter = processedFooter.split(placeholder).join(icon.url);
+                            }
+                          });
+                        }
+                        processedFooter = processedFooter.replace(/\{\{[a-z_]+_url\}\}/gi, '#');
+                        return processedFooter;
+                      })()
+                    }}
+                  />
+                </div>
+              </div>
+              {socialIcons && Array.isArray(socialIcons) && socialIcons.length > 0 && (
+                <div className="px-6 py-3 bg-muted/30 border-t">
+                  <p className="text-xs text-muted-foreground">
+                    <span className="font-medium">Social links detected:</span>{' '}
+                    {socialIcons.map(icon => icon.platform).filter(Boolean).join(', ')}
+                  </p>
+                </div>
+              )}
             </div>
-            <DialogFooter>
+            <DialogFooter className="p-6 pt-4">
               <Button variant="outline" onClick={() => setFooterPreviewOpen(false)}>
                 Close
               </Button>
