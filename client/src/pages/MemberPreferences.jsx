@@ -75,11 +75,11 @@ export default function MemberPreferencesPage() {
     queryKey: ['member-field-order-settings'],
     queryFn: async () => {
       const settings = await base44.entities.SystemSettings.list({
-        filter: { key: 'member_field_order' }
+        filter: { setting_key: 'member_field_order' }
       });
       if (settings && settings.length > 0) {
         try {
-          return JSON.parse(settings[0].value);
+          return JSON.parse(settings[0].setting_value);
         } catch {
           return null;
         }
@@ -148,17 +148,17 @@ export default function MemberPreferencesPage() {
   const saveOrderMutation = useMutation({
     mutationFn: async ({ profileFieldOrder, customFieldOrder }) => {
       const settings = await base44.entities.SystemSettings.list({
-        filter: { key: 'member_field_order' }
+        filter: { setting_key: 'member_field_order' }
       });
       
       const orderData = JSON.stringify({ profileFieldOrder, customFieldOrder });
       
       if (settings && settings.length > 0) {
-        await base44.entities.SystemSettings.update(settings[0].id, { value: orderData });
+        await base44.entities.SystemSettings.update(settings[0].id, { setting_value: orderData });
       } else {
         await base44.entities.SystemSettings.create({
-          key: 'member_field_order',
-          value: orderData,
+          setting_key: 'member_field_order',
+          setting_value: orderData,
           description: 'Field display order for About Me page'
         });
       }
