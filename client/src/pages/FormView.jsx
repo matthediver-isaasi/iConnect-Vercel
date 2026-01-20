@@ -136,26 +136,6 @@ export default function FormViewPage() {
     retry: false
   });
 
-  // Apply draft data when loaded - must wait for defaults to be initialized first
-  // This ensures draft values override any defaults, not the other way around
-  useEffect(() => {
-    if (draftData?.success && !draftLoaded && defaultsInitialized) {
-      console.log('[FormView] Loading draft data (after defaults initialized):', draftData);
-      setFormValues(prev => ({ ...prev, ...draftData.draft.draft_data }));
-      if (draftData.draft.current_page_index) {
-        setCurrentPageIndex(draftData.draft.current_page_index);
-      }
-      setDraftLoaded(true);
-      // Mark prefill as applied so it doesn't overwrite draft values
-      setPrefillApplied(true);
-      if (draftData.schema_changed) {
-        setSchemaChanged(true);
-        setSchemaChangeMessage(draftData.message);
-      }
-      toast.success('Your saved progress has been restored');
-    }
-  }, [draftData, draftLoaded, defaultsInitialized]);
-
   // Save draft mutation
   const saveDraftMutation = useMutation({
     mutationFn: async () => {
@@ -542,6 +522,26 @@ export default function FormViewPage() {
     }
     setDefaultsInitialized(true);
   }, [form?.fields, defaultsInitialized]);
+
+  // Apply draft data when loaded - must wait for defaults to be initialized first
+  // This ensures draft values override any defaults, not the other way around
+  useEffect(() => {
+    if (draftData?.success && !draftLoaded && defaultsInitialized) {
+      console.log('[FormView] Loading draft data (after defaults initialized):', draftData);
+      setFormValues(prev => ({ ...prev, ...draftData.draft.draft_data }));
+      if (draftData.draft.current_page_index) {
+        setCurrentPageIndex(draftData.draft.current_page_index);
+      }
+      setDraftLoaded(true);
+      // Mark prefill as applied so it doesn't overwrite draft values
+      setPrefillApplied(true);
+      if (draftData.schema_changed) {
+        setSchemaChanged(true);
+        setSchemaChangeMessage(draftData.message);
+      }
+      toast.success('Your saved progress has been restored');
+    }
+  }, [draftData, draftLoaded, defaultsInitialized]);
 
   // Prefill: Populate form values when prefill entity loads (one-time only)
   // Must wait for defaultsInitialized to ensure boolean defaults are set first
