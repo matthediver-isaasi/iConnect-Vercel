@@ -640,13 +640,32 @@ export async function getSessionTenantUser(req) {
         if (membership && !membershipError) {
           console.log('[Session] Verified via unified identity system:', identity.email);
           
+          // Check if there's also a tenant_user record with a higher privilege role
+          // This handles cases where user is both a member and tenant owner
+          let effectiveRole = membership.role || 'owner';
+          
+          if (session.data.tenantUserId && effectiveRole === 'member') {
+            const { data: legacyUser } = await supabase
+              .from('tenant_user')
+              .select('role')
+              .eq('id', session.data.tenantUserId)
+              .eq('tenant_id', session.data.tenantId)
+              .eq('status', 'active')
+              .single();
+            
+            if (legacyUser && (legacyUser.role === 'owner' || legacyUser.role === 'admin')) {
+              console.log('[Session] Elevating role from tenant_user table:', legacyUser.role);
+              effectiveRole = legacyUser.role;
+            }
+          }
+          
           // Return a tenant user-like object for API compatibility
           const unifiedUser = {
             id: identity.id,
             email: identity.email,
             first_name: identity.first_name,
             last_name: identity.last_name,
-            role: membership.role || 'owner',
+            role: effectiveRole,
             status: 'active',
             tenant_id: session.data.tenantId,
             tenant: membership.tenant,
