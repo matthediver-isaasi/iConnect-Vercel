@@ -25,7 +25,8 @@ import {
   ExternalLink,
   ChevronDown,
   Check,
-  Plus
+  Plus,
+  Mail
 } from "lucide-react";
 
 export default function AdminDashboard() {
@@ -211,6 +212,13 @@ export default function AdminDashboard() {
       icon: Users,
       href: "/admin/team",
       color: "text-pink-400"
+    },
+    {
+      title: "Email Logs",
+      description: "View email delivery and statistics",
+      icon: Mail,
+      href: "/admin/email-logs",
+      color: "text-cyan-400"
     }
   ];
 

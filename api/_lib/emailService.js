@@ -53,16 +53,6 @@ async function getTenantEmailConfig(tenantId) {
       return config;
     }
 
-    if (tenant.slug) {
-      const config = {
-        domain: `${tenant.slug}.${APP_DOMAIN}`,
-        fromEmail: `noreply@${tenant.slug}.${APP_DOMAIN}`,
-        fromName: tenant.name || 'ICONN',
-      };
-      tenantEmailConfigCache.set(cacheKey, { config, timestamp: Date.now() });
-      return config;
-    }
-
     tenantEmailConfigCache.set(cacheKey, { config: null, timestamp: Date.now() });
     return null;
 
