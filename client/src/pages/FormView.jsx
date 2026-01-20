@@ -846,7 +846,8 @@ export default function FormViewPage() {
       }
     },
     onError: (error) => {
-      toast.error('Failed to submit form');
+      console.error('[FormView] Submit error:', error);
+      toast.error(error.message || 'Failed to submit form');
     }
   });
 

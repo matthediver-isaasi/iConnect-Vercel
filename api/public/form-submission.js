@@ -139,15 +139,45 @@ export default async function handler(req, res) {
         const hasJsonBody = contentType.includes('application/json');
         
         if (!pipelineResponse.ok) {
+          // Pipeline failed - rollback the form_submission record to prevent orphaned data
+          console.log('[Public Form Submission] Rolling back submission due to pipeline failure:', submission.id);
+          await supabase.from('form_submission').delete().eq('id', submission.id);
+          
           if (hasJsonBody) {
             try {
               const errorData = await pipelineResponse.json();
               console.error('[Public Form Submission] Entity pipeline processing failed:', errorData);
+              
+              // Return uniqueness conflict errors with user-friendly message
+              if (pipelineResponse.status === 409 && errorData.code === 'UNIQUENESS_CONFLICT') {
+                const conflictMessages = (errorData.conflicts || [])
+                  .map(c => c.message || `${c.field_label}: Duplicate value`)
+                  .join('. ');
+                return res.status(409).json({
+                  error: conflictMessages || 'A record with this information already exists',
+                  conflicts: errorData.conflicts || [],
+                  code: 'UNIQUENESS_CONFLICT'
+                });
+              }
+              
+              // Return all other pipeline errors to the frontend (don't swallow them)
+              return res.status(pipelineResponse.status).json({
+                error: errorData.error || errorData.message || 'Failed to process application',
+                code: errorData.code || 'PIPELINE_ERROR'
+              });
             } catch (parseErr) {
               console.error('[Public Form Submission] Entity pipeline failed with status:', pipelineResponse.status);
+              return res.status(pipelineResponse.status).json({
+                error: 'Failed to process application',
+                code: 'PIPELINE_ERROR'
+              });
             }
           } else {
             console.error('[Public Form Submission] Entity pipeline failed with status:', pipelineResponse.status);
+            return res.status(pipelineResponse.status).json({
+              error: 'Failed to process application',
+              code: 'PIPELINE_ERROR'
+            });
           }
         } else {
           if (hasJsonBody) {
@@ -162,7 +192,18 @@ export default async function handler(req, res) {
           }
         }
       } catch (err) {
+        // Network/runtime error during pipeline processing - rollback and return error
         console.error('[Public Form Submission] Entity pipeline error:', err);
+        console.log('[Public Form Submission] Rolling back submission due to pipeline error:', submission.id);
+        try {
+          await supabase.from('form_submission').delete().eq('id', submission.id);
+        } catch (deleteErr) {
+          console.error('[Public Form Submission] Failed to rollback submission:', deleteErr);
+        }
+        return res.status(502).json({
+          error: 'Failed to process application. Please try again.',
+          code: 'PIPELINE_NETWORK_ERROR'
+        });
       }
     }
 
