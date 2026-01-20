@@ -265,6 +265,7 @@ import AdminLogin from "./admin/AdminLogin";
 import AdminDashboard from "./admin/AdminDashboard";
 import AdminSettings from "./admin/AdminSettings";
 import AdminBranding from "./admin/AdminBranding";
+import AdminDomains from "./admin/AdminDomains";
 import AdminTeam from "./admin/AdminTeam";
 import SaasLanding from "./admin/SaasLanding";
 
@@ -888,7 +889,7 @@ function AdminRoutes() {
             <Route path="/admin/dashboard" element={<AdminDashboard />} />
             <Route path="/admin/settings" element={<AdminSettings />} />
             <Route path="/admin/branding" element={<AdminBranding />} />
-            <Route path="/admin/domains" element={<DomainSettings />} />
+            <Route path="/admin/domains" element={<AdminDomains />} />
             <Route path="/admin/team" element={<AdminTeam />} />
             <Route path="/admin" element={<AdminDashboard />} />
         </Routes>
@@ -922,7 +923,7 @@ function SaasRoutes() {
             <Route path="/admin/dashboard" element={<AdminDashboard />} />
             <Route path="/admin/settings" element={<AdminSettings />} />
             <Route path="/admin/branding" element={<AdminBranding />} />
-            <Route path="/admin/domains" element={<DomainSettings />} />
+            <Route path="/admin/domains" element={<AdminDomains />} />
             <Route path="/admin/team" element={<AdminTeam />} />
             <Route path="/admin" element={<AdminDashboard />} />
             <Route path="/platform/setup" element={<PlatformSetup />} />
