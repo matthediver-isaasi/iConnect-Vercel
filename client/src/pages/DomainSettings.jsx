@@ -18,7 +18,9 @@ import {
   Copy, 
   ExternalLink,
   Loader2,
-  Info
+  Info,
+  Mail,
+  Settings
 } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -117,6 +119,50 @@ export default function DomainSettings() {
     onError: (error) => {
       toast.error("Verification failed", {
         description: error.message || "Please check your DNS settings.",
+      });
+    },
+  });
+
+  const provisionEmailDomainMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest('/api/functions/provision-mailgun-domain', {
+        method: 'POST',
+      });
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['tenant-domains'] });
+      toast.success("Email domain provisioned", {
+        description: "Mailgun domain and DNS records have been created. Verification may take a few minutes.",
+      });
+    },
+    onError: (error) => {
+      toast.error("Failed to provision email domain", {
+        description: error.message || "Please try again.",
+      });
+    },
+  });
+
+  const verifyEmailDomainMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest('/api/functions/verify-mailgun-domain', {
+        method: 'POST',
+      });
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['tenant-domains'] });
+      if (data.verified || data.status === 'verified') {
+        toast.success("Email domain verified", {
+          description: "Your email domain is now active and ready to send emails.",
+        });
+      } else {
+        toast.info("Verification pending", {
+          description: "DNS records are propagating. This can take a few hours.",
+        });
+      }
+    },
+    onError: (error) => {
+      toast.error("Verification failed", {
+        description: error.message || "Please try again later.",
       });
     },
   });
@@ -337,6 +383,117 @@ export default function DomainSettings() {
               ))}
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      {/* Email Domain Section */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Mail className="w-5 h-5" />
+            Email Domain
+          </CardTitle>
+          <CardDescription>
+            Configure your email sending domain for outbound emails
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {(() => {
+            const emailDomain = tenant?.settings?.email_domain;
+            const status = emailDomain?.status;
+            const domain = emailDomain?.domain;
+            const fromEmail = emailDomain?.from_email;
+            
+            if (!emailDomain || status === 'pending_setup' || !domain) {
+              return (
+                <div className="space-y-4">
+                  <div className="text-center py-6 text-muted-foreground">
+                    <Mail className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                    <p>Email domain not configured</p>
+                    <p className="text-sm">Set up a dedicated email domain for this workspace</p>
+                  </div>
+                  <Button
+                    onClick={() => provisionEmailDomainMutation.mutate()}
+                    disabled={provisionEmailDomainMutation.isPending}
+                    className="w-full"
+                    data-testid="button-provision-email-domain"
+                  >
+                    {provisionEmailDomainMutation.isPending ? (
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    ) : (
+                      <Settings className="w-4 h-4 mr-2" />
+                    )}
+                    Provision Email Domain
+                  </Button>
+                </div>
+              );
+            }
+            
+            return (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between gap-2 p-3 bg-muted rounded-lg">
+                  <div className="flex items-center gap-2">
+                    <Mail className="w-4 h-4 text-muted-foreground" />
+                    <span className="font-mono text-sm" data-testid="text-email-domain">{domain}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {status === 'verified' ? (
+                      <Badge variant="secondary" className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
+                        <CheckCircle2 className="w-3 h-3 mr-1" /> Verified
+                      </Badge>
+                    ) : (
+                      <Badge variant="secondary" className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200">
+                        <Clock className="w-3 h-3 mr-1" /> Pending Verification
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+                
+                {fromEmail && (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <span>Sending from:</span>
+                    <span className="font-mono">{fromEmail}</span>
+                  </div>
+                )}
+                
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => verifyEmailDomainMutation.mutate()}
+                    disabled={verifyEmailDomainMutation.isPending}
+                    data-testid="button-verify-email-domain"
+                  >
+                    <RefreshCw className={`w-4 h-4 mr-2 ${verifyEmailDomainMutation.isPending ? 'animate-spin' : ''}`} />
+                    Verify Status
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => provisionEmailDomainMutation.mutate()}
+                    disabled={provisionEmailDomainMutation.isPending}
+                    data-testid="button-reprovision-email-domain"
+                  >
+                    {provisionEmailDomainMutation.isPending ? (
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    ) : (
+                      <Settings className="w-4 h-4 mr-2" />
+                    )}
+                    Re-provision Domain
+                  </Button>
+                </div>
+                
+                {status !== 'verified' && (
+                  <Alert>
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertTitle>Verification In Progress</AlertTitle>
+                    <AlertDescription>
+                      DNS records have been created. Verification typically completes within a few minutes to a few hours.
+                      Click "Verify Status" to check the current state.
+                    </AlertDescription>
+                  </Alert>
+                )}
+              </div>
+            );
+          })()}
         </CardContent>
       </Card>
 

@@ -24,7 +24,7 @@ export default async function handler(req, res) {
 
     const { data: tenant } = await supabase
       .from('tenant')
-      .select('id, name, slug, domain, status')
+      .select('id, name, slug, domain, status, settings')
       .eq('id', org.tenant_id)
       .single();
 
@@ -45,7 +45,8 @@ export default async function handler(req, res) {
       tenant: {
         id: tenant.id,
         name: tenant.name,
-        slug: tenant.slug
+        slug: tenant.slug,
+        settings: tenant.settings
       },
       domains
     });
