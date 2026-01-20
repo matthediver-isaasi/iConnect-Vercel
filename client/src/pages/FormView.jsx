@@ -136,22 +136,25 @@ export default function FormViewPage() {
     retry: false
   });
 
-  // Apply draft data when loaded
+  // Apply draft data when loaded - must wait for defaults to be initialized first
+  // This ensures draft values override any defaults, not the other way around
   useEffect(() => {
-    if (draftData?.success && !draftLoaded) {
-      console.log('[FormView] Loading draft data:', draftData);
+    if (draftData?.success && !draftLoaded && defaultsInitialized) {
+      console.log('[FormView] Loading draft data (after defaults initialized):', draftData);
       setFormValues(prev => ({ ...prev, ...draftData.draft.draft_data }));
       if (draftData.draft.current_page_index) {
         setCurrentPageIndex(draftData.draft.current_page_index);
       }
       setDraftLoaded(true);
+      // Mark prefill as applied so it doesn't overwrite draft values
+      setPrefillApplied(true);
       if (draftData.schema_changed) {
         setSchemaChanged(true);
         setSchemaChangeMessage(draftData.message);
       }
       toast.success('Your saved progress has been restored');
     }
-  }, [draftData, draftLoaded]);
+  }, [draftData, draftLoaded, defaultsInitialized]);
 
   // Save draft mutation
   const saveDraftMutation = useMutation({
@@ -482,6 +485,7 @@ export default function FormViewPage() {
     setSubmitted(false);
     setPrefillApplied(false);
     setDefaultsInitialized(false);
+    setDraftLoaded(false); // Reset so draft can be re-applied after form loads
     setFormValues({});
   }, [form?.id]);
   
