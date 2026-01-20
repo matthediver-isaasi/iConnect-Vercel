@@ -1,5 +1,6 @@
 import { getEmailStats, getEmailEvents } from '../_lib/emailLogsService.js';
 import { supabase } from '../_lib/database.js';
+import { getSessionTenantUser } from '../_lib/session.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -7,13 +8,18 @@ export default async function handler(req, res) {
   }
 
   try {
-    const session = req.session;
+    const tenantUser = await getSessionTenantUser(req);
     
-    if (!session || !session.tenantUserId || !session.tenantId) {
-      return res.status(401).json({ error: 'Unauthorized - tenant session required' });
+    if (!tenantUser) {
+      return res.status(401).json({ error: 'Not authenticated' });
     }
 
-    const tenantId = session.tenantId;
+    const tenantId = tenantUser._sessionTenantId || tenantUser.tenant_id;
+    
+    if (!tenantId) {
+      return res.status(400).json({ error: 'No tenant context' });
+    }
+    
     const { type, limit, page, event, recipient } = req.query;
 
     console.log(`[Email Logs API] Request type: ${type || 'summary'} for tenant: ${tenantId}`);
