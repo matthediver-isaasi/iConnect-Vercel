@@ -51,6 +51,14 @@ export default function FormViewPage() {
   const [formValues, setFormValues] = useState({});
   const [submitted, setSubmitted] = useState(false);
   const [fieldValidity, setFieldValidity] = useState({}); // Track format validity for each field
+  const [submissionError, setSubmissionError] = useState(null); // Inline error display for validation failures
+
+  // Clear submission error when form values change (user is correcting their input)
+  useEffect(() => {
+    if (submissionError) {
+      setSubmissionError(null);
+    }
+  }, [formValues]);
 
   // Handler for field validity changes from FormRenderer
   const handleValidityChange = (fieldId, isValid) => {
@@ -847,7 +855,7 @@ export default function FormViewPage() {
     },
     onError: (error) => {
       console.error('[FormView] Submit error:', error);
-      toast.error(error.message || 'Failed to submit form');
+      setSubmissionError(error.message || 'Failed to submit form');
     }
   });
 
@@ -1869,6 +1877,11 @@ export default function FormViewPage() {
                   : 'Please complete the required field above to continue'}
               </p>
             )}
+            {submissionError && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-md" data-testid="submission-error">
+                <p className="text-sm text-red-700">{submissionError}</p>
+              </div>
+            )}
             <div className="flex justify-between gap-2">
               <Button
                 variant="outline"
@@ -2131,6 +2144,13 @@ export default function FormViewPage() {
                     )}
                   </Button>
                 </div>
+              </div>
+            )}
+            
+            {/* Submission error display */}
+            {submissionError && (
+              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md" data-testid="submission-error">
+                <p className="text-sm text-red-700">{submissionError}</p>
               </div>
             )}
             

@@ -17,6 +17,14 @@ export default function EmbedFormPage() {
   const [formValues, setFormValues] = useState({});
   const [submitted, setSubmitted] = useState(false);
   const [fieldValidity, setFieldValidity] = useState({});
+  const [submissionError, setSubmissionError] = useState(null);
+
+  // Clear submission error when form values change
+  useEffect(() => {
+    if (submissionError) {
+      setSubmissionError(null);
+    }
+  }, [formValues]);
 
   const handleValidityChange = (fieldId, isValid) => {
     setFieldValidity(prev => ({ ...prev, [fieldId]: isValid }));
@@ -220,7 +228,7 @@ export default function EmbedFormPage() {
       }
     },
     onError: (error) => {
-      toast.error(error.message || 'Failed to submit form');
+      setSubmissionError(error.message || 'Failed to submit form');
     }
   });
 
@@ -480,6 +488,11 @@ export default function EmbedFormPage() {
                   : 'Please complete the required field above to continue'}
               </p>
             )}
+            {submissionError && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-md" data-testid="submission-error">
+                <p className="text-sm text-red-700">{submissionError}</p>
+              </div>
+            )}
             <div className="flex justify-between">
               <Button
                 variant="outline"
@@ -567,6 +580,13 @@ export default function EmbedFormPage() {
               />
             ))}
           </div>
+
+          {/* Submission error display */}
+          {submissionError && (
+            <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-md" data-testid="submission-error">
+              <p className="text-sm text-red-700">{submissionError}</p>
+            </div>
+          )}
 
           <div className="flex justify-between mt-6">
             {isMultiPage && currentPageIndex > 0 ? (
