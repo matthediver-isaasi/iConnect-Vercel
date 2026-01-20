@@ -973,17 +973,19 @@ function AppRoutes() {
         return <AdminRoutes />;
     }
     
-    return <PagesContent />;
+    return (
+        <ArticleUrlProvider>
+            <PagesContent />
+        </ArticleUrlProvider>
+    );
 }
 
 export default function Pages() {
     return (
         <Router>
-            <ArticleUrlProvider>
-                <LayoutProvider>
-                    <AppRoutes />
-                </LayoutProvider>
-            </ArticleUrlProvider>
+            <LayoutProvider>
+                <AppRoutes />
+            </LayoutProvider>
         </Router>
     );
 }
