@@ -182,7 +182,7 @@ export default function OrganisationDetailView({
   });
   const [customFieldValues, setCustomFieldValues] = useState({});
   
-  const { layoutConfig, saveLayout, isSaving: isLayoutSaving } = useOrgDetailLayout();
+  const { layoutConfig, saveLayout, isSaving: isLayoutSaving, isLoading: isLayoutLoading } = useOrgDetailLayout();
   const effectiveLayout = mergeLayoutWithCustomFields(layoutConfig, orgCustomFields);
 
   const { data: orgMembersRaw = [], isLoading: membersLoading } = useQuery({
@@ -1020,7 +1020,26 @@ export default function OrganisationDetailView({
         {(activeTab === 'overview' || isNew) && (
           <div className={isNew ? "max-w-4xl mx-auto space-y-6" : "grid grid-cols-1 lg:grid-cols-3 gap-6"}>
             <div className={isNew ? "space-y-6" : "lg:col-span-2 space-y-6"}>
-              {effectiveLayout.cards.map(card => renderLayoutCard(card))}
+              {isLayoutLoading ? (
+                <div className="space-y-6">
+                  {[1, 2, 3].map(i => (
+                    <Card key={i}>
+                      <CardHeader>
+                        <div className="h-5 w-40 bg-slate-200 rounded animate-pulse" />
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-3">
+                          <div className="h-4 w-full bg-slate-100 rounded animate-pulse" />
+                          <div className="h-4 w-3/4 bg-slate-100 rounded animate-pulse" />
+                          <div className="h-4 w-1/2 bg-slate-100 rounded animate-pulse" />
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              ) : (
+                effectiveLayout.cards.map(card => renderLayoutCard(card))
+              )}
             </div>
 
             {!isNew && (
