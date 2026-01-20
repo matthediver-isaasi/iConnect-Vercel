@@ -290,6 +290,98 @@ export default async function handler(req, res) {
       }
     }
 
+    // SERVER-SIDE UNIQUENESS VALIDATION (defense in depth)
+    // This blocks duplicates even if client-side validation is bypassed
+    // Skip for update modes with prefill IDs (those are legitimate self-updates)
+    const isCreatingNewEntities = !prefill_member_id && !prefill_organization_id;
+    
+    if (form_id && isCreatingNewEntities) {
+      const { data: formData } = await supabase
+        .from('form')
+        .select('uniqueness_checks, tenant_id')
+        .eq('id', form_id)
+        .single();
+      
+      if (formData?.uniqueness_checks && Array.isArray(formData.uniqueness_checks) && formData.uniqueness_checks.length > 0) {
+        const effectiveTenantId = tenant_id || formData.tenant_id;
+        console.log('[AppProcessor] Running server-side uniqueness validation, tenant_id:', effectiveTenantId);
+        
+        const conflicts = [];
+        const validFieldIds = new Set((fields || []).filter(f => f && f.id).map(f => f.id));
+        
+        for (const check of formData.uniqueness_checks) {
+          if (!check || !check.field_id || !validFieldIds.has(check.field_id)) continue;
+          
+          const field = fields.find(f => f && f.id === check.field_id);
+          if (!field) continue;
+          
+          const value = form_values[check.field_id];
+          if (!value) continue;
+          
+          const targetField = check.target_field;
+          if (!targetField || !targetField.includes('.')) continue;
+          
+          const [targetEntity, targetColumn] = targetField.split('.');
+          const tableName = targetEntity === 'organization' ? 'organization' : 'member';
+          
+          // Validate target column against whitelist
+          const validColumns = {
+            member: ['email', 'full_name', 'phone'],
+            organization: ['name', 'invoicing_email', 'phone', 'website_url']
+          };
+          if (!validColumns[tableName]?.includes(targetColumn)) continue;
+          
+          // Escape SQL wildcards for safe ilike usage
+          const searchValue = String(value).trim().replace(/[%_]/g, '\\$&');
+          const mode = check.comparison_mode || 'equals_lowercase';
+          
+          // Build query based on comparison mode
+          let query = supabase.from(tableName).select('id', { count: 'exact', head: true });
+          
+          if (mode === 'equals') {
+            query = query.eq(targetColumn, searchValue);
+          } else if (mode === 'contains') {
+            query = query.ilike(targetColumn, `%${searchValue}%`);
+          } else if (mode === 'starts_with') {
+            query = query.ilike(targetColumn, `${searchValue}%`);
+          } else if (mode === 'ends_with') {
+            query = query.ilike(targetColumn, `%${searchValue}`);
+          } else {
+            // Default: equals_lowercase (case insensitive exact match)
+            query = query.ilike(targetColumn, searchValue);
+          }
+          
+          // Add tenant filtering
+          if (effectiveTenantId) {
+            query = query.eq('tenant_id', effectiveTenantId);
+          }
+          
+          const { count } = await query;
+          
+          if (count && count > 0) {
+            const entityLabel = tableName === 'organization' ? 'an organisation' : 'a member';
+            conflicts.push({
+              field_id: check.field_id,
+              field_label: field.label || check.field_id,
+              message: `We already have ${entityLabel} registered with this value.`
+            });
+          }
+        }
+        
+        if (conflicts.length > 0) {
+          console.log('[AppProcessor] Server-side uniqueness check BLOCKED submission:', conflicts);
+          return res.status(409).json({
+            valid: false,
+            error: 'Uniqueness validation failed',
+            conflicts,
+            code: 'UNIQUENESS_CONFLICT'
+          });
+        }
+        
+        console.log('[AppProcessor] Server-side uniqueness check passed');
+      }
+    }
+
     const memberData = {};
     const orgData = {};
     // Use Maps to aggregate values for list fields
