@@ -69,7 +69,7 @@ function SubmissionRow({ submission, workflowStages, riskLevels, onClick }) {
   const stage = workflowStages.find(s => s.id === submission.workflow_status) || { label: submission.workflow_status, color: '#6b7280' };
   const riskConfig = riskLevels.find(r => r.name.toLowerCase() === submission.risk_level?.toLowerCase()) || { color: '#6b7280' };
   
-  const formValues = submission.form_submission?.form_values || {};
+  const formValues = submission.form_submission?.submission_data || {};
   const displayName = formValues.organization_name || formValues.company_name || formValues.name || submission.application_uid;
   
   return (
@@ -198,7 +198,7 @@ export default function DueDiligenceDashboardPage() {
     const query = searchQuery.toLowerCase();
     return submissions.filter(sub => {
       const uid = sub.application_uid?.toLowerCase() || '';
-      const formValues = sub.form_submission?.form_values || {};
+      const formValues = sub.form_submission?.submission_data || {};
       const orgName = (formValues.organization_name || formValues.company_name || formValues.name || '').toLowerCase();
       
       return uid.includes(query) || orgName.includes(query);
