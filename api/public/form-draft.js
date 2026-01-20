@@ -240,11 +240,11 @@ export default async function handler(req, res) {
         return res.status(410).json({ error: 'Draft has expired' });
       }
 
-      // Get current form to check for schema changes
+      // Get current form to verify it still exists and is active
       // Must include tenant_id filter for Supabase RLS policies
       const { data: form, error: formError } = await supabase
         .from('form')
-        .select('id, slug, name, updated_at, fields')
+        .select('id, slug, name')
         .eq('id', draft.form_id)
         .eq('tenant_id', tenantData.id)
         .eq('is_active', true)
@@ -255,9 +255,8 @@ export default async function handler(req, res) {
         return res.status(404).json({ error: 'Form no longer exists' });
       }
 
-      // Detect schema drift
-      const schemaChanged = draft.form_updated_at && 
-        new Date(form.updated_at).getTime() !== new Date(draft.form_updated_at).getTime();
+      // Schema drift detection is not currently supported (form table lacks updated_at column)
+      const schemaChanged = false;
 
       return res.status(200).json({
         success: true,
