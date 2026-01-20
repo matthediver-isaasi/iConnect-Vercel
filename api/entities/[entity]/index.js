@@ -462,6 +462,7 @@ export default async function handler(req, res) {
       // Trigger workflow evaluation for new Organization/Member/JobPosting (non-blocking)
       if ((entityNorm === 'organization' || entityNorm === 'member' || entityNorm === 'jobposting') && data) {
         const entityType = entityNorm === 'jobposting' ? 'job_posting' : entityNorm;
+        console.log(`[Entity POST] Triggering workflows for ${entityType}:${data.id}, tenant_id=${data.tenant_id}, data keys:`, Object.keys(data));
         triggerWorkflows(entityType, data.id, null, data, 'record_create', baseUrl).catch(err => {
           console.error('[Entity POST] Workflow error:', err);
         });

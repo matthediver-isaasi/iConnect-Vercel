@@ -696,20 +696,29 @@ async function logWorkflowExecution(workflow, entityType, entityId, triggerData,
 }
 
 export async function triggerWorkflows(entityType, entityId, beforeData, afterData, triggerType, baseUrl) {
-  if (!supabase) return;
+  console.log(`[Workflows] triggerWorkflows called: entityType=${entityType}, entityId=${entityId}, triggerType=${triggerType}`);
+  console.log(`[Workflows] afterData.tenant_id=${afterData?.tenant_id}, beforeData.tenant_id=${beforeData?.tenant_id}`);
+  
+  if (!supabase) {
+    console.log(`[Workflows] No supabase client available, skipping`);
+    return;
+  }
   
   try {
     // Get tenant_id from entity data (afterData or beforeData)
     let tenantId = afterData?.tenant_id || beforeData?.tenant_id;
+    console.log(`[Workflows] Initial tenantId from data: ${tenantId}`);
     
     // If tenant_id not in payload, resolve from entity (for member entities that may have org_id)
     if (!tenantId && entityId) {
+      console.log(`[Workflows] Resolving tenant_id from ${entityType} table for id ${entityId}`);
       const table = entityType === 'job_posting' ? 'job_posting' : entityType;
-      const { data: entity } = await supabase
+      const { data: entity, error: entityError } = await supabase
         .from(table)
         .select('tenant_id')
         .eq('id', entityId)
         .single();
+      console.log(`[Workflows] Entity lookup result:`, entity, 'error:', entityError);
       if (entity?.tenant_id) {
         tenantId = entity.tenant_id;
       }
@@ -721,14 +730,20 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
       return;
     }
     
-    const { data: workflows } = await supabase
+    console.log(`[Workflows] Querying workflows: entity_type=${entityType}, tenant_id=${tenantId}, is_active=true`);
+    const { data: workflows, error: workflowError } = await supabase
       .from('workflow')
       .select('*')
       .eq('entity_type', entityType)
       .eq('tenant_id', tenantId)
       .eq('is_active', true);
 
-    if (!workflows || workflows.length === 0) return;
+    console.log(`[Workflows] Query result: ${workflows?.length || 0} workflows found, error:`, workflowError);
+    
+    if (!workflows || workflows.length === 0) {
+      console.log(`[Workflows] No matching workflows found for ${entityType} in tenant ${tenantId}`);
+      return;
+    }
     
     console.log(`[Workflows] Evaluating ${workflows.length} workflows for ${entityType}:${entityId} (tenant: ${tenantId})`);
 
