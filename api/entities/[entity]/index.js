@@ -412,6 +412,38 @@ export default async function handler(req, res) {
         }
       }
       
+      // SPECIAL CASE: FormSubmission can be created by unauthenticated users (public/embedded forms)
+      // Derive tenant_id from hostname or from the parent Form's tenant_id
+      if (entityNorm === 'formsubmission' && !sanitizedBody.tenant_id) {
+        let resolvedTenantId = null;
+        
+        // First try: use tenant from hostname (subdomain resolution)
+        if (tenantCtx.tenantId) {
+          resolvedTenantId = tenantCtx.tenantId;
+          console.log(`[Entity POST] FormSubmission: Using tenant_id ${resolvedTenantId} from hostname`);
+        }
+        
+        // Fallback: derive from the parent Form's tenant_id
+        if (!resolvedTenantId && sanitizedBody.form_id) {
+          const { data: form } = await supabase
+            .from('form')
+            .select('tenant_id')
+            .eq('id', sanitizedBody.form_id)
+            .single();
+          if (form?.tenant_id) {
+            resolvedTenantId = form.tenant_id;
+            console.log(`[Entity POST] FormSubmission: Resolved tenant_id ${resolvedTenantId} from form ${sanitizedBody.form_id}`);
+          }
+        }
+        
+        if (resolvedTenantId) {
+          sanitizedBody.tenant_id = resolvedTenantId;
+        } else {
+          console.error(`[Entity POST] SECURITY: FormSubmission missing tenant_id and unable to resolve from hostname or form`);
+          return res.status(403).json({ error: 'Unable to determine tenant context for form submission' });
+        }
+      }
+      
       // Normalize email to lowercase for member, team_member, and magic_link entities
       // Use normalized entity name to handle both PascalCase and slug-case variants
       if ((entityNorm === 'member' || entityNorm === 'teammember' || entityNorm === 'magiclink') && sanitizedBody.email) {
