@@ -79,13 +79,6 @@ export async function getEmailStats(tenantId) {
     const now = new Date();
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
     
-    const stats = await client.stats.getDomain(domain, {
-      event: ['accepted', 'delivered', 'failed', 'opened', 'clicked', 'unsubscribed', 'complained', 'stored'],
-      start: thirtyDaysAgo.toISOString(),
-      end: now.toISOString(),
-      resolution: 'month'
-    });
-
     let totals = {
       accepted: 0,
       delivered: 0,
@@ -97,18 +90,55 @@ export async function getEmailStats(tenantId) {
       stored: 0
     };
 
-    if (stats && stats.stats) {
-      for (const stat of stats.stats) {
-        if (stat.accepted) totals.accepted += (stat.accepted.total || 0);
-        if (stat.delivered) totals.delivered += (stat.delivered.total || 0);
-        if (stat.failed) {
-          totals.failed += (stat.failed.permanent?.total || 0) + (stat.failed.temporary?.total || 0);
+    try {
+      const stats = await client.stats.getDomain(domain, {
+        event: ['accepted', 'delivered', 'failed', 'opened', 'clicked', 'unsubscribed', 'complained', 'stored'],
+        start: thirtyDaysAgo.toISOString(),
+        end: now.toISOString(),
+        resolution: 'month'
+      });
+
+      if (stats && stats.stats) {
+        for (const stat of stats.stats) {
+          if (stat.accepted) totals.accepted += (stat.accepted.total || 0);
+          if (stat.delivered) totals.delivered += (stat.delivered.total || 0);
+          if (stat.failed) {
+            totals.failed += (stat.failed.permanent?.total || 0) + (stat.failed.temporary?.total || 0);
+          }
+          if (stat.opened) totals.opened += (stat.opened.total || 0);
+          if (stat.clicked) totals.clicked += (stat.clicked.total || 0);
+          if (stat.unsubscribed) totals.unsubscribed += (stat.unsubscribed.total || 0);
+          if (stat.complained) totals.complained += (stat.complained.total || 0);
+          if (stat.stored) totals.stored += (stat.stored.total || 0);
         }
-        if (stat.opened) totals.opened += (stat.opened.total || 0);
-        if (stat.clicked) totals.clicked += (stat.clicked.total || 0);
-        if (stat.unsubscribed) totals.unsubscribed += (stat.unsubscribed.total || 0);
-        if (stat.complained) totals.complained += (stat.complained.total || 0);
-        if (stat.stored) totals.stored += (stat.stored.total || 0);
+      }
+    } catch (statsErr) {
+      console.log('[Email Logs] Stats API error, will calculate from events:', statsErr.message);
+    }
+
+    const hasStats = Object.values(totals).some(v => v > 0);
+    
+    if (!hasStats) {
+      console.log('[Email Logs] No aggregated stats available, calculating from recent events');
+      try {
+        const events = await client.events.get(domain, { limit: 300 });
+        
+        if (events && events.items) {
+          for (const item of events.items) {
+            const eventType = item.event;
+            if (eventType === 'accepted') totals.accepted++;
+            else if (eventType === 'delivered') totals.delivered++;
+            else if (eventType === 'failed') totals.failed++;
+            else if (eventType === 'opened') totals.opened++;
+            else if (eventType === 'clicked') totals.clicked++;
+            else if (eventType === 'unsubscribed') totals.unsubscribed++;
+            else if (eventType === 'complained') totals.complained++;
+            else if (eventType === 'stored') totals.stored++;
+          }
+          console.log(`[Email Logs] Calculated stats from ${events.items.length} events`);
+        }
+      } catch (eventsErr) {
+        console.error('[Email Logs] Error fetching events for stats:', eventsErr.message);
       }
     }
 
