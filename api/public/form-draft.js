@@ -241,14 +241,17 @@ export default async function handler(req, res) {
       }
 
       // Get current form to check for schema changes
+      // Must include tenant_id filter for Supabase RLS policies
       const { data: form, error: formError } = await supabase
         .from('form')
         .select('id, slug, name, updated_at, fields')
         .eq('id', draft.form_id)
+        .eq('tenant_id', tenantData.id)
         .eq('is_active', true)
         .single();
 
       if (formError || !form) {
+        console.error('[Form Draft] Form lookup error:', { formError, formId: draft.form_id, tenantId: tenantData.id });
         return res.status(404).json({ error: 'Form no longer exists' });
       }
 
