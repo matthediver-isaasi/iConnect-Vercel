@@ -366,13 +366,13 @@ export default async function handler(req, res) {
       }
       
       const fieldValue = form_values?.[condition.field_id];
-      const conditionValue = condition.value || '';
+      const conditionValue = condition.value ?? '';
       const operator = condition.operator || 'equals';
       
-      // Normalize field value for comparison
-      const normalizedFieldValue = Array.isArray(fieldValue) 
+      // Normalize field value for comparison (use nullish coalescing to preserve 0 and false)
+      const normalizedFieldValue = (Array.isArray(fieldValue) 
         ? fieldValue.join(', ') 
-        : (fieldValue || '').toString().trim();
+        : (fieldValue ?? '')).toString().trim();
       const normalizedConditionValue = conditionValue.toString().trim();
       
       console.log('[FormSubmissionEmail] Evaluating condition:', {
