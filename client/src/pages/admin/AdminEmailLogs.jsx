@@ -66,6 +66,13 @@ export default function AdminEmailLogs() {
 
   const { data: statsData, isLoading: statsLoading, refetch: refetchStats } = useQuery({
     queryKey: ['/api/tenant/email-logs'],
+    queryFn: async () => {
+      const response = await fetch('/api/tenant/email-logs', { 
+        credentials: 'include' 
+      });
+      if (!response.ok) throw new Error('Failed to fetch stats');
+      return response.json();
+    },
     enabled: !loading && !!tenant
   });
 
