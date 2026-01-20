@@ -4,9 +4,18 @@
  * This module defines tenant scoping rules and provides helpers
  * for enforcing data isolation between tenants.
  * 
+ * IMPORTANT: Data Scoping Rules
+ * =============================
+ * All application data MUST be scoped to tenant_id unless it is platform-level
+ * data that applies to all tenants (GLOBAL scope).
+ * 
+ * - Use tenant_id for data isolation, NOT organization_id
+ * - organization_id is ONLY for sub-filtering within a tenant (e.g., org-specific contacts)
+ * - Data without proper tenant_id scoping will leak across tenants
+ * 
  * Multi-tenancy hierarchy:
- * - TENANT: The SaaS subscribing company (top level)
- * - ORGANIZATION: Organizational members within a tenant (member companies)
+ * - TENANT: The SaaS subscribing company (top level) - ALL data must be scoped here
+ * - ORGANIZATION: Sub-entities within a tenant (member companies) - NOT for primary isolation
  * - MEMBER: Individual people associated with organizations
  */
 
@@ -15,10 +24,15 @@ import { supabase } from './database.js';
 
 /**
  * Entity tenant scope classifications:
- * - GLOBAL: Shared across all tenants (system-wide data)
- * - TENANT: Per-tenant data, must be filtered by tenant_id
- * - ORGANIZATION: Per-organization data within a tenant (uses organization_id)
- * - MEMBER: Scoped to member's own data
+ * - GLOBAL: Platform-level data shared across all tenants (system defaults, templates)
+ * - TENANT: Per-tenant data, MUST be filtered by tenant_id (this is the default and correct scope)
+ * - ORGANIZATION: Sub-filtering within a tenant by organization_id (NOT for primary isolation)
+ * - MEMBER: Scoped to member's own data within their tenant
+ * 
+ * IMPORTANT: organization_id scoping is DEPRECATED for primary data isolation.
+ * All new entities should use TENANT scope with tenant_id filtering.
+ * ORGANIZATION scope should only be used for data that genuinely needs
+ * sub-filtering by organization within a tenant (e.g., org contacts, org preferences).
  */
 export const TENANT_SCOPE = {
   GLOBAL: 'global',
@@ -30,17 +44,19 @@ export const TENANT_SCOPE = {
 /**
  * Entity to tenant scope mapping
  * 
- * GLOBAL entities are system-wide and accessible to all tenants:
+ * GLOBAL entities are platform-level data accessible to all tenants:
  * - TypographyStyle (defaults), IEditElementTemplate (template library)
  * - RoleAccessItem (capability catalog), ButtonStyle (styling defaults)
  * 
- * TENANT entities are per-tenant (filtered by tenant_id):
- * - Organization, Role, Event, Program, Form, Resource, JobPosting, etc.
+ * TENANT entities are per-tenant (filtered by tenant_id) - THIS IS THE DEFAULT:
+ * - Organization, Role, Event, Program, Form, FormSubmission, Resource, JobPosting, etc.
+ * - ALL business data should be TENANT-scoped for proper isolation
  * 
- * ORGANIZATION entities are per-organization within a tenant:
- * - Member, OrganizationContact, Booking (through member), etc.
+ * ORGANIZATION entities are for sub-filtering within a tenant (NOT primary isolation):
+ * - OrganizationContact, OrganizationPreferenceValue (org-specific data only)
+ * - NOTE: Do NOT use ORGANIZATION scope for new entities - use TENANT scope instead
  * 
- * MEMBER entities are scoped to the authenticated member:
+ * MEMBER entities are scoped to the authenticated member's own data:
  * - MemberPreferenceValue, MemberCommunicationPreference
  */
 export const entityTenantScope = {

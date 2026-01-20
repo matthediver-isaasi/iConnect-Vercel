@@ -268,19 +268,22 @@ export default async function handler(req, res) {
             // Only for tables that still have organization_id column
             const entitiesWithoutOrgId = [
               'PortalMenu', 'PortalNavigationItem', 'NavigationItem', 'PageBanner', 'Floater',
-              'FormDueDiligenceConfig', 'FormSubmissionDueDiligence', 'Form', 'ResourceCategory', 'Resource',
+              'FormDueDiligenceConfig', 'FormSubmissionDueDiligence', 'Form', 'FormSubmission', 'ResourceCategory', 'Resource',
               'FileRepository', 'FileRepositoryFolder', 'Event', 'NewsPost', 'SystemSettings', 'PreferenceField',
               'EmailTemplate', 'Workflow', 'WorkflowLog'
             ];
-            if (!entitiesWithoutOrgId.includes(entity)) {
+            if (entitiesWithoutOrgId.includes(entity)) {
+              // SECURITY: Entities without organization_id column MUST have tenant_id - block access if missing
+              console.error(`[Entity GET] SECURITY: Entity ${entity} requires tenant_id but none available, blocking query`);
+              return res.status(403).json({ error: 'Invalid tenant context - tenant_id required for this entity' });
+            } else {
               query = query.eq('organization_id', tenantCtx.organizationId);
             }
-            // For entities without organization_id, we need tenant_id - 
-            // if we reach here without it, the query will return all data
-            // which is a temporary state during migration
+          } else {
+            // SECURITY: No tenant_id and no organization_id - block access
+            console.error(`[Entity GET] SECURITY: No tenant context available for ${entity}, blocking query`);
+            return res.status(403).json({ error: 'Invalid tenant context - please log out and log in again' });
           }
-          // If neither tenantId nor organizationId is available (tenant admin case),
-          // skip the filter - the security check above already verified the user is authorized
         }
       }
       
@@ -392,7 +395,7 @@ export default async function handler(req, res) {
           // These entities have been fully migrated to tenant_id only (no organization_id column):
           const entitiesWithoutOrgId = [
             'PortalMenu', 'PortalNavigationItem', 'NavigationItem', 'PageBanner', 'Floater',
-            'FormDueDiligenceConfig', 'FormSubmissionDueDiligence', 'Form', 'ResourceCategory', 'Resource',
+            'FormDueDiligenceConfig', 'FormSubmissionDueDiligence', 'Form', 'FormSubmission', 'ResourceCategory', 'Resource',
             'FileRepository', 'FileRepositoryFolder', 'Event', 'NewsPost', 'SystemSettings', 'PreferenceField',
             'EmailTemplate', 'Workflow', 'WorkflowLog'
           ];
