@@ -88,13 +88,15 @@ export default async function handler(req, res) {
     }
 
     // Create the form submission - match FormView structure exactly
+    // SECURITY: Include tenant_id for proper multi-tenant isolation
     const submissionRecord = {
       form_id,
       form_name,
       submitted_by_email: null,
       submitted_by_name: null,
       submission_data: submission_data || {},
-      created_date: new Date().toISOString()
+      created_date: new Date().toISOString(),
+      tenant_id: tenantData.id
     };
 
     const { data: submission, error: insertError } = await supabase
