@@ -359,11 +359,64 @@ export default async function handler(req, res) {
       return result;
     };
 
+    // Helper function to evaluate email send condition
+    const evaluateCondition = (condition) => {
+      if (!condition || !condition.field_id) {
+        return true; // No condition = always send
+      }
+      
+      const fieldValue = form_values?.[condition.field_id];
+      const conditionValue = condition.value || '';
+      const operator = condition.operator || 'equals';
+      
+      // Normalize field value for comparison
+      const normalizedFieldValue = Array.isArray(fieldValue) 
+        ? fieldValue.join(', ') 
+        : (fieldValue || '').toString().trim();
+      const normalizedConditionValue = conditionValue.toString().trim();
+      
+      console.log('[FormSubmissionEmail] Evaluating condition:', {
+        field_id: condition.field_id,
+        operator,
+        conditionValue: normalizedConditionValue,
+        fieldValue: normalizedFieldValue
+      });
+      
+      switch (operator) {
+        case 'equals':
+          return normalizedFieldValue.toLowerCase() === normalizedConditionValue.toLowerCase();
+        case 'not_equals':
+          return normalizedFieldValue.toLowerCase() !== normalizedConditionValue.toLowerCase();
+        case 'contains':
+          return normalizedFieldValue.toLowerCase().includes(normalizedConditionValue.toLowerCase());
+        case 'not_contains':
+          return !normalizedFieldValue.toLowerCase().includes(normalizedConditionValue.toLowerCase());
+        case 'is_empty':
+          return !normalizedFieldValue || normalizedFieldValue.length === 0;
+        case 'is_not_empty':
+          return normalizedFieldValue && normalizedFieldValue.length > 0;
+        default:
+          return true;
+      }
+    };
+
     // Process each email configuration
     const results = [];
     
     for (const emailConfig of emailsToSend) {
       console.log('[FormSubmissionEmail] Processing email:', emailConfig.id, 'template:', emailConfig.template_id);
+      
+      // Check send condition
+      if (emailConfig.condition && !evaluateCondition(emailConfig.condition)) {
+        console.log('[FormSubmissionEmail] Condition not met, skipping email:', emailConfig.id);
+        results.push({
+          id: emailConfig.id,
+          success: true,
+          skipped: true,
+          reason: 'Condition not met'
+        });
+        continue;
+      }
       
       // Get the email template
       const { data: template, error: templateError } = await supabase

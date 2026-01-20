@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Loader2, Plus, Trash2, GripVertical, Save, ArrowLeft, FileText, ChevronDown, ChevronUp, Edit2, X, Eye, EyeOff, Lock, Unlock, UserCheck, UserMinus, Users, UserPlus, Mail, Copy, Code, ExternalLink } from "lucide-react";
+import { Loader2, Plus, Trash2, GripVertical, Save, ArrowLeft, FileText, ChevronDown, ChevronUp, Edit2, X, Eye, EyeOff, Lock, Unlock, UserCheck, UserMinus, Users, UserPlus, Mail, Copy, Code, ExternalLink, Filter } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -2016,6 +2016,126 @@ function EmailCard({
                 </div>
               </div>
             )}
+            
+            {/* Send Condition */}
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <Label className="text-xs font-medium flex items-center gap-1">
+                    <Filter className="w-3 h-3" />
+                    Send Condition
+                  </Label>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Only send this email when a field value matches
+                  </p>
+                </div>
+                <Switch
+                  checked={!!email.condition}
+                  onCheckedChange={(checked) => {
+                    if (checked) {
+                      onUpdate({ 
+                        condition: { 
+                          field_id: '', 
+                          operator: 'equals', 
+                          value: '' 
+                        } 
+                      });
+                    } else {
+                      onUpdate({ condition: null });
+                    }
+                  }}
+                  data-testid={`switch-email-condition-${email.id}`}
+                />
+              </div>
+              
+              {email.condition && (
+                <div className="space-y-2">
+                  <div className="grid grid-cols-3 gap-2">
+                    <Select
+                      value={email.condition.field_id || '_none'}
+                      onValueChange={(val) => {
+                        onUpdate({
+                          condition: {
+                            ...email.condition,
+                            field_id: val === '_none' ? '' : val
+                          }
+                        });
+                      }}
+                    >
+                      <SelectTrigger data-testid={`select-condition-field-${email.id}`}>
+                        <SelectValue placeholder="Select field" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="_none">Select field...</SelectItem>
+                        {formFields.filter(f => 
+                          ['text', 'email', 'select', 'radio', 'checkbox', 'number', 'phone', 'url'].includes(f.type)
+                        ).map(field => (
+                          <SelectItem key={field.id} value={field.id}>
+                            {field.label || field.id}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    
+                    <Select
+                      value={email.condition.operator || 'equals'}
+                      onValueChange={(val) => {
+                        onUpdate({
+                          condition: {
+                            ...email.condition,
+                            operator: val
+                          }
+                        });
+                      }}
+                    >
+                      <SelectTrigger data-testid={`select-condition-operator-${email.id}`}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="equals">Equals</SelectItem>
+                        <SelectItem value="not_equals">Does not equal</SelectItem>
+                        <SelectItem value="contains">Contains</SelectItem>
+                        <SelectItem value="not_contains">Does not contain</SelectItem>
+                        <SelectItem value="is_empty">Is empty</SelectItem>
+                        <SelectItem value="is_not_empty">Is not empty</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    
+                    {!['is_empty', 'is_not_empty'].includes(email.condition.operator) && (
+                      <Input
+                        value={email.condition.value || ''}
+                        onChange={(e) => {
+                          onUpdate({
+                            condition: {
+                              ...email.condition,
+                              value: e.target.value
+                            }
+                          });
+                        }}
+                        placeholder="Value to match"
+                        data-testid={`input-condition-value-${email.id}`}
+                      />
+                    )}
+                  </div>
+                  
+                  {email.condition.field_id && (
+                    <p className="text-xs text-amber-700">
+                      Email will only send when{' '}
+                      <span className="font-medium">
+                        {formFields.find(f => f.id === email.condition.field_id)?.label || email.condition.field_id}
+                      </span>
+                      {' '}
+                      {email.condition.operator === 'equals' && `equals "${email.condition.value}"`}
+                      {email.condition.operator === 'not_equals' && `does not equal "${email.condition.value}"`}
+                      {email.condition.operator === 'contains' && `contains "${email.condition.value}"`}
+                      {email.condition.operator === 'not_contains' && `does not contain "${email.condition.value}"`}
+                      {email.condition.operator === 'is_empty' && 'is empty'}
+                      {email.condition.operator === 'is_not_empty' && 'is not empty'}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
           </>
         )}
       </CardContent>
@@ -4333,7 +4453,8 @@ export default function FormBuilderPage() {
                       recipient: '',
                       cc: '',
                       bcc: '',
-                      field_mapping: {}
+                      field_mapping: {},
+                      condition: null
                     };
                     setFormData({ 
                       ...formData, 
