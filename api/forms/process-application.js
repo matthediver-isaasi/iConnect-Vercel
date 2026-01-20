@@ -829,12 +829,16 @@ export default async function handler(req, res) {
       }
       
       // Trigger workflow evaluation for newly created organization (AFTER custom fields are saved)
+      // Must await to ensure completion before Vercel terminates the function
       if (newlyCreatedOrgData) {
         const baseUrl = process.env.APP_URL || `https://${req.headers.host}`;
         console.log('[AppProcessor] Triggering workflows for organization:', newlyCreatedOrgData.id, 'tenant_id:', newlyCreatedOrgData.tenant_id);
-        triggerWorkflows('organization', newlyCreatedOrgData.id, null, newlyCreatedOrgData, 'record_create', baseUrl).catch(err => {
+        try {
+          await triggerWorkflows('organization', newlyCreatedOrgData.id, null, newlyCreatedOrgData, 'record_create', baseUrl);
+          console.log('[AppProcessor] Workflow evaluation completed for organization:', newlyCreatedOrgData.id);
+        } catch (err) {
           console.error('[AppProcessor] Workflow error for organization:', err);
-        });
+        }
       }
     }
 
@@ -1069,11 +1073,15 @@ export default async function handler(req, res) {
           createdMemberId = newMember.id;
           console.log('[AppProcessor] Created member:', createdMemberId);
           
-          // Trigger workflows for new member creation (non-blocking)
+          // Trigger workflows for new member creation
+          // Must await to ensure completion before Vercel terminates the function
           const baseUrl = process.env.APP_URL || `https://${req.headers.host}`;
-          triggerWorkflows('member', createdMemberId, null, newMember, 'record_create', baseUrl).catch(err => {
+          try {
+            await triggerWorkflows('member', createdMemberId, null, newMember, 'record_create', baseUrl);
+            console.log('[AppProcessor] Workflow evaluation completed for member:', createdMemberId);
+          } catch (err) {
             console.error('[AppProcessor] Workflow error:', err);
-          });
+          }
           console.log('[AppProcessor] Triggered workflows for new member:', createdMemberId);
         }
       }
@@ -1731,11 +1739,15 @@ export default async function handler(req, res) {
           });
           console.log('[AppProcessor] Created additional member:', newMember.id, 'tracking:', { role_id: newMember.role_id, organization_id: newMember.organization_id });
           
-          // Trigger workflows for new additional member creation (non-blocking)
+          // Trigger workflows for new additional member creation
+          // Must await to ensure completion before Vercel terminates the function
           const addlBaseUrl = process.env.APP_URL || `https://${req.headers.host}`;
-          triggerWorkflows('member', newMember.id, null, newMember, 'record_create', addlBaseUrl).catch(err => {
+          try {
+            await triggerWorkflows('member', newMember.id, null, newMember, 'record_create', addlBaseUrl);
+            console.log('[AppProcessor] Workflow evaluation completed for additional member:', newMember.id);
+          } catch (err) {
             console.error('[AppProcessor] Additional member workflow error:', err);
-          });
+          }
         }
         
         // Process custom field mappings (upsert logic)
