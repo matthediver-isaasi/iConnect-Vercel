@@ -20,6 +20,28 @@ The backend is built with Express.js, using PostgreSQL (Neon serverless) with Dr
 
 The platform supports a three-tier hierarchy: TENANT, ORGANIZATION, and MEMBER. A `tenant` table stores SaaS subscribing companies, and access control enforces data isolation at GLOBAL, TENANT, ORGANIZATION, and MEMBER levels. Members are TENANT-scoped, allowing individuals to exist without belonging to an organization.
 
+### Data Scoping Rules (IMPORTANT)
+
+**All application data MUST be scoped to `tenant_id` unless it is platform-level data (GLOBAL scope).**
+
+- Use `tenant_id` for data isolation, NOT `organization_id`
+- `organization_id` is ONLY for sub-filtering within a tenant (e.g., org-specific contacts)
+- Data without proper `tenant_id` scoping will leak across tenants
+
+**Scope Classifications:**
+- **GLOBAL**: Platform-level data shared across all tenants (TypographyStyle, IEditElementTemplate, RoleAccessItem, ButtonStyle)
+- **TENANT**: Per-tenant data filtered by `tenant_id` - THIS IS THE DEFAULT for all business data
+- **ORGANIZATION**: Sub-filtering within a tenant (NOT for primary isolation) - DEPRECATED for new entities
+- **MEMBER**: Scoped to individual member's own data
+
+**Key Files:**
+- `api/_lib/tenantContext.js` - Defines entity scoping rules and tenant context resolution
+- `api/entities/[entity]/index.js` - Enforces tenant filtering on all entity operations
+
+**Security Enforcement:**
+- Entities requiring `tenant_id` but lacking it will return 403 Forbidden
+- No fallback to unfiltered queries - access is blocked if tenant context is missing
+
 ## Unified Identity System
 
 A centralized `tenant_identity` table handles all user authentication for owners and members. This allows a single user to own multiple tenants and be a member in multiple organizations, facilitating seamless tenant switching. Per-tenant password isolation is implemented via `tenant_membership_credentials`, allowing different passwords for each tenant an identity belongs to. Both systems support Google OAuth.
@@ -175,6 +197,7 @@ A `SidebarNavLink` component wraps react-router `Link` with `React.forwardRef` t
 
 # Recent Changes
 
+- **Jan 2026**: FormSubmission tenant scoping fix - FormSubmission now enforces `tenant_id` filtering. Added security checks to block access when `tenant_id` is missing for entities that don't support `organization_id` fallback. Updated documentation to clarify that all data must be tenant-scoped.
 - **Jan 2026**: Workflow tenant scoping - Workflows are now properly scoped to tenants (not organizations). Added `tenant_id` column to `workflow` and `workflow_log` tables. Workflow queries and executions now filter by tenant_id for proper multi-tenant isolation.
 - **Jan 2026**: Fixed sidebar toggle positioning - moved inside `SidebarHeader` for proper Shadcn structure
 - **Jan 2026**: Implemented icon centering and tooltips for collapsed sidebar mode
