@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -6,6 +7,31 @@ const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
 const supabase = supabaseUrl && supabaseServiceKey 
   ? createClient(supabaseUrl, supabaseServiceKey)
   : null;
+
+// Helper to resolve tenant_id from hostname or form
+async function resolveTenantId(req, form_id) {
+  // First try: resolve from hostname (subdomain)
+  const tenantFromHost = await resolveTenantFromRequest(req);
+  if (tenantFromHost?.id) {
+    console.log(`[Form Uniqueness] Resolved tenant_id ${tenantFromHost.id} from hostname`);
+    return tenantFromHost.id;
+  }
+  
+  // Fallback: derive from the form's tenant_id
+  if (form_id && supabase) {
+    const { data: form } = await supabase
+      .from('form')
+      .select('tenant_id')
+      .eq('id', form_id)
+      .single();
+    if (form?.tenant_id) {
+      console.log(`[Form Uniqueness] Resolved tenant_id ${form.tenant_id} from form ${form_id}`);
+      return form.tenant_id;
+    }
+  }
+  
+  return null;
+}
 
 // Helper to extract domain from email or URL
 // Returns lowercase domain or null if extraction fails
@@ -77,6 +103,14 @@ export default async function handler(req, res) {
     if (!Array.isArray(fields)) {
       return res.status(400).json({ error: 'Invalid fields array' });
     }
+
+    // SECURITY: Resolve tenant_id for proper multi-tenant isolation
+    const tenantId = await resolveTenantId(req, form_id);
+    if (!tenantId) {
+      console.error('[Form Uniqueness] SECURITY: Unable to resolve tenant context');
+      return res.status(403).json({ error: 'Unable to determine tenant context for uniqueness check' });
+    }
+    console.log(`[Form Uniqueness] Using tenant_id ${tenantId} for uniqueness checks`);
 
     const conflicts = [];
     
@@ -192,6 +226,9 @@ export default async function handler(req, res) {
             .limit(1);
       }
 
+      // SECURITY: Add tenant_id filtering to ensure multi-tenant isolation
+      query = query.eq('tenant_id', tenantId);
+
       const { data, error } = await query;
 
       if (error) {
@@ -211,10 +248,12 @@ export default async function handler(req, res) {
       if (form_id) {
         const originalValue = String(form_values[field_id]).trim();
         
+        // SECURITY: Add tenant_id filtering to form_submission query for multi-tenant isolation
         const { data: submissions, error: subError } = await supabase
           .from('form_submission')
           .select('id, submission_data')
           .eq('form_id', form_id)
+          .eq('tenant_id', tenantId)
           .not('submission_data', 'is', null)
           .limit(100);
 
