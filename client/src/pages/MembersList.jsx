@@ -49,7 +49,6 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl, isDeletedMember } from "@/utils";
 import MemberDetailView from "@/components/MemberDetailView";
 import { useToast } from "@/components/ui/use-toast";
-import { useLocation } from "react-router-dom";
 import { useTenantBranding } from "@/contexts/TenantBrandingContext";
 
 const DEFAULT_COLUMNS = [
@@ -98,7 +97,6 @@ export default function MembersListPage() {
   const { isAdmin, isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
   const { tenantSlug } = useTenantBranding() || {};
   const queryClient = useQueryClient();
-  const location = useLocation();
   const [accessChecked, setAccessChecked] = useState(false);
   const lastLoadedSlugRef = useRef(undefined);
   
@@ -152,14 +150,6 @@ export default function MembersListPage() {
       }
     }
   }, [isFeatureExcluded, isAccessReady]);
-
-  // Reset detail view state when navigating away from this page
-  useEffect(() => {
-    if (location.pathname !== '/members') {
-      setSelectedMember(null);
-      setIsCreatingNew(false);
-    }
-  }, [location.pathname]);
 
   // Fetch specific member directly when we have an ID in URL (avoids loading all members)
   const { data: directMember, isLoading: directMemberLoading } = useQuery({

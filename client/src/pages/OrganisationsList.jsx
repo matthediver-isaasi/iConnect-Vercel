@@ -52,7 +52,6 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl, isDeletedMember } from "@/utils";
 import OrganisationDetailView from "@/components/OrganisationDetailView";
 import { useToast } from "@/components/ui/use-toast";
-import { useLocation } from "react-router-dom";
 import { useTenantBranding } from "@/contexts/TenantBrandingContext";
 
 const DEFAULT_COLUMNS = [
@@ -84,7 +83,6 @@ export default function OrganisationsListPage() {
   const { isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
   const { tenantSlug } = useTenantBranding() || {};
   const queryClient = useQueryClient();
-  const location = useLocation();
   const [accessChecked, setAccessChecked] = useState(false);
   const lastLoadedSlugRef = useRef(undefined);
   
@@ -135,15 +133,6 @@ export default function OrganisationsListPage() {
       }
     }
   }, [isFeatureExcluded, isAccessReady]);
-
-  // Reset detail view state when navigating away from this page
-  useEffect(() => {
-    // Only reset if we're no longer on /organisations
-    if (location.pathname !== '/organisations') {
-      setSelectedOrg(null);
-      setIsCreatingNew(false);
-    }
-  }, [location.pathname]);
 
   const { data: organizations = [], isLoading: orgsLoading } = useQuery({
     queryKey: ['organizations-crm-list'],
