@@ -120,7 +120,7 @@ export default async function handler(req, res) {
     );
 
     for (const check of sanitizedChecks) {
-      const { field_id, target_field, comparison_mode } = check;
+      const { field_id, target_field, comparison_mode, error_message } = check;
       
       const field = fields.find(f => f && f.id === field_id);
       if (!field) continue;
@@ -234,12 +234,16 @@ export default async function handler(req, res) {
       if (error) {
         console.error(`[Form Uniqueness] Error checking ${field_id} in ${tableName}.${targetColumn}:`, error);
       } else if (data && data.length > 0) {
-        const entityLabel = tableName === 'organization' ? 'an organisation' : 'a member';
-        const modeLabel = mode === 'domain_equals' ? 'email domain' : 'value';
+        // Use custom error message if provided, otherwise fall back to default
+        const defaultMessage = (() => {
+          const entityLabel = tableName === 'organization' ? 'an organisation' : 'a member';
+          const modeLabel = mode === 'domain_equals' ? 'email domain' : 'value';
+          return `We already have ${entityLabel} registered with this ${modeLabel}. Please contact us if you believe this is an error.`;
+        })();
         conflicts.push({
           field_id,
           field_label: field.label || field_id,
-          message: `We already have ${entityLabel} registered with this ${modeLabel}. Please contact us if you believe this is an error.`
+          message: error_message && error_message.trim() ? error_message.trim() : defaultMessage
         });
         continue;
       }
@@ -300,10 +304,12 @@ export default async function handler(req, res) {
             }
             
             if (matches) {
+              // Use custom error message if provided, otherwise fall back to default
+              const defaultSubMessage = 'This value has already been submitted in a previous application';
               conflicts.push({
                 field_id,
                 field_label: field.label || field_id,
-                message: 'This value has already been submitted in a previous application'
+                message: error_message && error_message.trim() ? error_message.trim() : defaultSubMessage
               });
               foundConflict = true;
             }

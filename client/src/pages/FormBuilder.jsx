@@ -2205,6 +2205,7 @@ function FieldCard({
     if (onUniquenessChange) {
       let newTargetField = updates.target_field ?? targetField;
       let newComparisonMode = updates.comparison_mode ?? comparisonMode;
+      let newErrorMessage = updates.error_message !== undefined ? updates.error_message : (uniquenessCheck?.error_message || '');
       
       // If target field changed, validate comparison mode is still valid
       if (updates.target_field) {
@@ -2220,7 +2221,8 @@ function FieldCard({
       
       onUniquenessChange(field.id, true, { 
         target_field: newTargetField, 
-        comparison_mode: newComparisonMode 
+        comparison_mode: newComparisonMode,
+        error_message: newErrorMessage
       });
     }
   };
@@ -2466,6 +2468,19 @@ function FieldCard({
                             ))}
                           </SelectContent>
                         </Select>
+                      </div>
+                      
+                      <div className="space-y-1">
+                        <Label className="text-xs text-slate-600">Custom error message (optional):</Label>
+                        <Input
+                          type="text"
+                          value={uniquenessCheck?.error_message || ''}
+                          onChange={(e) => handleUniquenessUpdate({ error_message: e.target.value })}
+                          placeholder="e.g., An organisation with this name already exists"
+                          className="h-8 text-xs"
+                          data-testid={`input-uniqueness-error-message-${field.id}`}
+                        />
+                        <p className="text-xs text-slate-500">Leave blank to use the default message</p>
                       </div>
                       
                       {targetField && (
@@ -3609,10 +3624,12 @@ export default function FormBuilderPage() {
     
     if (enabled) {
       const existingIndex = existingChecks.findIndex(c => c.field_id === fieldId);
+      const existingCheck = existingIndex >= 0 ? existingChecks[existingIndex] : {};
       const newCheck = { 
         field_id: fieldId, 
-        target_field: options.target_field || (formData.application_level === 'member' ? 'member.email' : 'organization.name'),
-        comparison_mode: options.comparison_mode || 'equals_lowercase'
+        target_field: options.target_field || existingCheck.target_field || (formData.application_level === 'member' ? 'member.email' : 'organization.name'),
+        comparison_mode: options.comparison_mode || existingCheck.comparison_mode || 'equals_lowercase',
+        error_message: options.error_message !== undefined ? options.error_message : (existingCheck.error_message || '')
       };
       
       if (existingIndex >= 0) {
