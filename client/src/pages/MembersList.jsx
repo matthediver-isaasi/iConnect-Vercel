@@ -50,6 +50,7 @@ import { createPageUrl, isDeletedMember } from "@/utils";
 import MemberDetailView from "@/components/MemberDetailView";
 import { useToast } from "@/components/ui/use-toast";
 import { useLocation } from "react-router-dom";
+import { useTenantBranding } from "@/contexts/TenantBrandingContext";
 
 const DEFAULT_COLUMNS = [
   { id: 'name', label: 'Member', visible: true, locked: true },
@@ -61,20 +62,20 @@ const DEFAULT_COLUMNS = [
   { id: 'roles', label: 'Roles', visible: false, locked: false }
 ];
 
-const STORAGE_KEY = 'members_list_columns';
+const getStorageKey = (tenantSlug) => `members_list_columns_${tenantSlug || 'default'}`;
 const getColumnPrefKey = (memberId) => `crm_member_columns_${memberId}`;
 
-const loadLocalColumns = () => {
+const loadLocalColumns = (tenantSlug) => {
   try {
-    const saved = localStorage.getItem(STORAGE_KEY);
+    const saved = localStorage.getItem(getStorageKey(tenantSlug));
     if (saved) return JSON.parse(saved);
   } catch {}
   return null;
 };
 
-const saveLocalColumns = (columns) => {
+const saveLocalColumns = (columns, tenantSlug) => {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(columns));
+    localStorage.setItem(getStorageKey(tenantSlug), JSON.stringify(columns));
   } catch {}
 };
 
@@ -95,9 +96,11 @@ const getInitials = (name) => {
 
 export default function MembersListPage() {
   const { isAdmin, isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
+  const { tenantSlug } = useTenantBranding() || {};
   const queryClient = useQueryClient();
   const location = useLocation();
   const [accessChecked, setAccessChecked] = useState(false);
+  const lastLoadedSlugRef = useRef(undefined);
   
   const [viewMode, setViewMode] = useState('list');
   const [searchQuery, setSearchQuery] = useState('');
@@ -113,7 +116,7 @@ export default function MembersListPage() {
   const [selectedMember, setSelectedMember] = useState(null);
   const [isCreatingNew, setIsCreatingNew] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [columns, setColumns] = useState(() => loadLocalColumns() || DEFAULT_COLUMNS);
+  const [columns, setColumns] = useState(DEFAULT_COLUMNS);
   const [selectedMembers, setSelectedMembers] = useState([]);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
@@ -123,6 +126,22 @@ export default function MembersListPage() {
     const params = new URLSearchParams(window.location.search);
     return params.get('id');
   });
+
+  // Load columns from tenant-scoped localStorage on mount or when tenant slug changes
+  // Falls back to 'default' namespace if no tenantSlug is available (e.g., platform admin)
+  useEffect(() => {
+    const currentSlug = tenantSlug || 'default';
+    if (lastLoadedSlugRef.current !== currentSlug) {
+      const saved = loadLocalColumns(tenantSlug);
+      if (saved) {
+        setColumns(saved);
+      } else if (lastLoadedSlugRef.current !== undefined) {
+        // Reset to defaults when switching to a new tenant with no saved preferences
+        setColumns(DEFAULT_COLUMNS);
+      }
+      lastLoadedSlugRef.current = currentSlug;
+    }
+  }, [tenantSlug]);
 
   useEffect(() => {
     if (isAccessReady) {
@@ -257,11 +276,11 @@ export default function MembersListPage() {
         const parsed = JSON.parse(savedDbColumns.setting_value);
         if (Array.isArray(parsed) && parsed.length > 0) {
           setColumns(parsed);
-          saveLocalColumns(parsed);
+          saveLocalColumns(parsed, tenantSlug);
         }
       } catch {}
     }
-  }, [savedDbColumns]);
+  }, [savedDbColumns, tenantSlug]);
 
   const saveViewMutation = useMutation({
     mutationFn: async () => {
@@ -491,7 +510,7 @@ export default function MembersListPage() {
           }));
         if (newCustomFieldColumns.length > 0) {
           const updated = [...prev, ...newCustomFieldColumns];
-          saveLocalColumns(updated);
+          saveLocalColumns(updated, tenantSlug);
           return updated;
         }
         return prev;
@@ -504,7 +523,7 @@ export default function MembersListPage() {
   const toggleColumnVisibility = (colId) => {
     setColumns(prev => {
       const updated = prev.map(c => c.id === colId && !c.locked ? { ...c, visible: !c.visible } : c);
-      saveLocalColumns(updated);
+      saveLocalColumns(updated, tenantSlug);
       return updated;
     });
   };
@@ -530,14 +549,14 @@ export default function MembersListPage() {
 
   const handleDragEnd = () => {
     if (draggedColumn !== null) {
-      saveLocalColumns(columns);
+      saveLocalColumns(columns, tenantSlug);
     }
     setDraggedColumn(null);
   };
 
   const resetColumns = () => {
     setColumns(DEFAULT_COLUMNS);
-    saveLocalColumns(DEFAULT_COLUMNS);
+    saveLocalColumns(DEFAULT_COLUMNS, tenantSlug);
     customFieldsMergedRef.current = false;
   };
 

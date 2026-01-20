@@ -53,6 +53,7 @@ import { createPageUrl, isDeletedMember } from "@/utils";
 import OrganisationDetailView from "@/components/OrganisationDetailView";
 import { useToast } from "@/components/ui/use-toast";
 import { useLocation } from "react-router-dom";
+import { useTenantBranding } from "@/contexts/TenantBrandingContext";
 
 const DEFAULT_COLUMNS = [
   { id: 'name', label: 'Organisation', visible: true, locked: true },
@@ -61,29 +62,31 @@ const DEFAULT_COLUMNS = [
   { id: 'created_at', label: 'Created', visible: false, locked: false },
 ];
 
-const STORAGE_KEY = 'organisations_list_columns';
+const getStorageKey = (tenantSlug) => `organisations_list_columns_${tenantSlug || 'default'}`;
 const getColumnPrefKey = (memberId) => `crm_org_columns_${memberId}`;
 
-const loadLocalColumns = () => {
+const loadLocalColumns = (tenantSlug) => {
   try {
-    const saved = localStorage.getItem(STORAGE_KEY);
+    const saved = localStorage.getItem(getStorageKey(tenantSlug));
     if (saved) return JSON.parse(saved);
   } catch {}
   return null;
 };
 
-const saveLocalColumns = (columns) => {
+const saveLocalColumns = (columns, tenantSlug) => {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(columns));
+    localStorage.setItem(getStorageKey(tenantSlug), JSON.stringify(columns));
   } catch {}
 };
 
 
 export default function OrganisationsListPage() {
   const { isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
+  const { tenantSlug } = useTenantBranding() || {};
   const queryClient = useQueryClient();
   const location = useLocation();
   const [accessChecked, setAccessChecked] = useState(false);
+  const lastLoadedSlugRef = useRef(undefined);
   
   const [viewMode, setViewMode] = useState('list');
   const [searchQuery, setSearchQuery] = useState('');
@@ -103,8 +106,24 @@ export default function OrganisationsListPage() {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [singleDeleteOrg, setSingleDeleteOrg] = useState(null);
-  const [columns, setColumns] = useState(() => loadLocalColumns() || DEFAULT_COLUMNS);
+  const [columns, setColumns] = useState(DEFAULT_COLUMNS);
   const [draggedColumn, setDraggedColumn] = useState(null);
+
+  // Load columns from tenant-scoped localStorage on mount or when tenant slug changes
+  // Falls back to 'default' namespace if no tenantSlug is available (e.g., platform admin)
+  useEffect(() => {
+    const currentSlug = tenantSlug || 'default';
+    if (lastLoadedSlugRef.current !== currentSlug) {
+      const saved = loadLocalColumns(tenantSlug);
+      if (saved) {
+        setColumns(saved);
+      } else if (lastLoadedSlugRef.current !== undefined) {
+        // Reset to defaults when switching to a new tenant with no saved preferences
+        setColumns(DEFAULT_COLUMNS);
+      }
+      lastLoadedSlugRef.current = currentSlug;
+    }
+  }, [tenantSlug]);
 
   useEffect(() => {
     if (isAccessReady) {
@@ -218,11 +237,11 @@ export default function OrganisationsListPage() {
         const parsed = JSON.parse(savedDbColumns.setting_value);
         if (Array.isArray(parsed) && parsed.length > 0) {
           setColumns(parsed);
-          saveLocalColumns(parsed);
+          saveLocalColumns(parsed, tenantSlug);
         }
       } catch {}
     }
-  }, [savedDbColumns]);
+  }, [savedDbColumns, tenantSlug]);
 
   // Mutation to save view (user-initiated)
   const saveViewMutation = useMutation({
@@ -448,7 +467,7 @@ export default function OrganisationsListPage() {
           }));
         if (newCustomFieldColumns.length > 0) {
           const updated = [...prev, ...newCustomFieldColumns];
-          saveLocalColumns(updated);
+          saveLocalColumns(updated, tenantSlug);
           return updated;
         }
         return prev;
@@ -456,10 +475,12 @@ export default function OrganisationsListPage() {
     }
   }, [orgCustomFields]);
 
-  // Save columns to localStorage when they change
+  // Save columns to localStorage when they change (only after initial load)
   useEffect(() => {
-    saveLocalColumns(columns);
-  }, [columns]);
+    if (lastLoadedSlugRef.current !== undefined) {
+      saveLocalColumns(columns, tenantSlug);
+    }
+  }, [columns, tenantSlug]);
 
   const visibleColumns = useMemo(() => columns.filter(c => c.visible), [columns]);
 
@@ -509,7 +530,7 @@ export default function OrganisationsListPage() {
     const newColumns = [...DEFAULT_COLUMNS, ...customFieldCols];
     setColumns(newColumns);
     // Save immediately to both local and database
-    saveLocalColumns(newColumns);
+    saveLocalColumns(newColumns, tenantSlug);
     if (memberInfo?.id) {
       saveColumnsMutation.mutate(newColumns);
     }
