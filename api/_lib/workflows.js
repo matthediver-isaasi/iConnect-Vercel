@@ -824,15 +824,20 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
             afterValue = afterData?.[condition.field_id];
             console.log(`[Workflows] Member core field "${condition.field_id}": afterValue="${afterValue}"`);
           } else if (isOrgField) {
-            // Organization core field - need to fetch from organization table
-            if (afterData?.organization_id) {
+            // Organization core field
+            // For organization entity: use afterData directly (the org itself)
+            // For member entity: fetch from organization table using organization_id
+            if (entityType === 'organization') {
+              afterValue = afterData?.[condition.field_id];
+              console.log(`[Workflows] Org core field "${condition.field_id}" (direct): afterValue="${afterValue}"`);
+            } else if (afterData?.organization_id) {
               const { data: orgData } = await supabase
                 .from('organization')
                 .select('*')
                 .eq('id', afterData.organization_id)
                 .single();
               afterValue = orgData?.[condition.field_id];
-              console.log(`[Workflows] Org core field "${condition.field_id}": afterValue="${afterValue}"`);
+              console.log(`[Workflows] Org core field "${condition.field_id}" for org ${afterData.organization_id}: afterValue="${afterValue}"`);
             }
           } else if (isMemberCustom) {
             // Member custom field - fetch from member_preference_value
@@ -848,15 +853,20 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
             }
           } else if (isOrgCustom) {
             // Organization custom field - fetch from organization_preference_value
-            if (afterData?.organization_id) {
+            // For organization entity: use afterData.id (the org itself)
+            // For member entity: use afterData.organization_id (the member's org)
+            const orgIdForCustomField = entityType === 'organization' ? afterData?.id : afterData?.organization_id;
+            if (orgIdForCustomField) {
               const { data: prefValue } = await supabase
                 .from('organization_preference_value')
                 .select('value')
-                .eq('organization_id', afterData.organization_id)
+                .eq('organization_id', orgIdForCustomField)
                 .eq('field_id', condition.field_id)
                 .single();
               afterValue = prefValue?.value;
-              console.log(`[Workflows] Org custom field "${condition.field_id}": afterValue="${afterValue}"`);
+              console.log(`[Workflows] Org custom field "${condition.field_id}" for org ${orgIdForCustomField}: afterValue="${afterValue}"`);
+            } else {
+              console.log(`[Workflows] Org custom field "${condition.field_id}": no org ID available (entityType=${entityType})`);
             }
           } else {
             console.log(`[Workflows] Unknown field_type "${fieldType}" for condition "${condition.field_id}" - skipping`);
