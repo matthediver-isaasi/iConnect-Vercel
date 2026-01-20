@@ -1,0 +1,248 @@
+2026-01-20 14:12:55.920 [info] [AppProcessor] Entity pipelines - members: 0 organisations: 1
+2026-01-20 14:12:55.921 [info] [AppProcessor] Form values - all field IDs present: [
+  'field_1768304665971',
+  'field_1768813507278',
+  'field_1768304231277',
+  'field_1768293136224',
+  'field_1768304247877',
+  'field_1768304257908',
+  'field_1768304652071'
+]
+2026-01-20 14:12:55.921 [info] [AppProcessor] Form values sample (first 5 entries): [
+  'field_1768304665971=true',
+  'field_1768813507278="SO"',
+  'field_1768304231277="testorgd"',
+  'field_1768293136224="m"',
+  'field_1768304247877="m"'
+]
+2026-01-20 14:12:55.921 [info] [AppProcessor] Entity actions - member: none organization: upsert
+2026-01-20 14:12:55.921 [info] [AppProcessor] Received role_id: null type: object
+2026-01-20 14:12:56.260 [info] [AppProcessor] Entity pipeline fields to skip in legacy field_mappings - member: [] org: [ 'name' ]
+2026-01-20 14:12:56.260 [info] [AppProcessor] Org pipelines: 1 Primary found: true
+2026-01-20 14:12:56.260 [info] [AppProcessor] Primary org pipeline mappings: [
+  {
+    "id": "mapping_1768819540422",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "name",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1768304231277"
+  },
+  {
+    "id": "mapping_1768819560521",
+    "source_type": "field",
+    "target_type": "custom",
+    "static_value": "",
+    "target_field": "8f08906a-80b5-47bc-8d98-ee217d307b7d",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1768293136224"
+  },
+  {
+    "id": "mapping_1768819567888",
+    "source_type": "field",
+    "target_type": "custom",
+    "static_value": "",
+    "target_field": "268300dd-6e22-4f10-b3bd-213c0ee0f424",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1768304247877"
+  },
+  {
+    "id": "mapping_1768819578453",
+    "source_type": "field",
+    "target_type": "custom",
+    "static_value": "",
+    "target_field": "1833e681-6bb7-4ccc-a953-70dda8cc4920",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1768304257908"
+  },
+  {
+    "id": "mapping_1768819587505",
+    "source_type": "field",
+    "target_type": "custom",
+    "static_value": "",
+    "target_field": "df161bcf-c88f-400f-a8e3-0873117b938c",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1768304652071"
+  },
+  {
+    "id": "mapping_1768819600405",
+    "source_type": "field",
+    "target_type": "custom",
+    "static_value": "",
+    "target_field": "7af40750-1543-44e8-8022-0e0e27bc2c5c",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1768813507278"
+  },
+  {
+    "id": "mapping_1768819867711",
+    "source_type": "static",
+    "target_type": "custom",
+    "static_value": "Initial application",
+    "target_field": "1c395ccf-7df2-4818-917d-1cd672216f71",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": ""
+  }
+]
+2026-01-20 14:12:56.260 [info] [AppProcessor] Processing organization from entity_pipelines (new format): Primary Organisation mappings: 7
+2026-01-20 14:12:56.261 [info] [AppProcessor] Primary Organisation mappings detail: [
+  {
+    "id": "mapping_1768819540422",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "name",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1768304231277"
+  },
+  {
+    "id": "mapping_1768819560521",
+    "source_type": "field",
+    "target_type": "custom",
+    "static_value": "",
+    "target_field": "8f08906a-80b5-47bc-8d98-ee217d307b7d",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1768293136224"
+  },
+  {
+    "id": "mapping_1768819567888",
+    "source_type": "field",
+    "target_type": "custom",
+    "static_value": "",
+    "target_field": "268300dd-6e22-4f10-b3bd-213c0ee0f424",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1768304247877"
+  },
+  {
+    "id": "mapping_1768819578453",
+    "source_type": "field",
+    "target_type": "custom",
+    "static_value": "",
+    "target_field": "1833e681-6bb7-4ccc-a953-70dda8cc4920",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1768304257908"
+  },
+  {
+    "id": "mapping_1768819587505",
+    "source_type": "field",
+    "target_type": "custom",
+    "static_value": "",
+    "target_field": "df161bcf-c88f-400f-a8e3-0873117b938c",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1768304652071"
+  },
+  {
+    "id": "mapping_1768819600405",
+    "source_type": "field",
+    "target_type": "custom",
+    "static_value": "",
+    "target_field": "7af40750-1543-44e8-8022-0e0e27bc2c5c",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1768813507278"
+  },
+  {
+    "id": "mapping_1768819867711",
+    "source_type": "static",
+    "target_type": "custom",
+    "static_value": "Initial application",
+    "target_field": "1c395ccf-7df2-4818-917d-1cd672216f71",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": ""
+  }
+]
+2026-01-20 14:12:56.261 [info] [AppProcessor] Form values for Primary Organisation:
+2026-01-20 14:12:56.261 [info] - name: form_values["field_1768304231277"] = "testorgd"
+2026-01-20 14:12:56.261 [info] - 8f08906a-80b5-47bc-8d98-ee217d307b7d: form_values["field_1768293136224"] = "m"
+2026-01-20 14:12:56.261 [info] - 268300dd-6e22-4f10-b3bd-213c0ee0f424: form_values["field_1768304247877"] = "m"
+2026-01-20 14:12:56.261 [info] - 1833e681-6bb7-4ccc-a953-70dda8cc4920: form_values["field_1768304257908"] = "m"
+2026-01-20 14:12:56.261 [info] - df161bcf-c88f-400f-a8e3-0873117b938c: form_values["field_1768304652071"] = "mat@isaasi.co.uk"
+2026-01-20 14:12:56.261 [info] - 7af40750-1543-44e8-8022-0e0e27bc2c5c: form_values["field_1768813507278"] = "SO"
+2026-01-20 14:12:56.261 [info] [AppProcessor] Custom field mapping: target=8f08906a-80b5-47bc-8d98-ee217d307b7d, source=field_1768293136224, value="m", hasValue=true
+2026-01-20 14:12:56.261 [info] [AppProcessor] Added custom field value: 8f08906a-80b5-47bc-8d98-ee217d307b7d = "m"
+2026-01-20 14:12:56.261 [info] [AppProcessor] Custom field mapping: target=268300dd-6e22-4f10-b3bd-213c0ee0f424, source=field_1768304247877, value="m", hasValue=true
+2026-01-20 14:12:56.261 [info] [AppProcessor] Added custom field value: 268300dd-6e22-4f10-b3bd-213c0ee0f424 = "m"
+2026-01-20 14:12:56.261 [info] [AppProcessor] Custom field mapping: target=1833e681-6bb7-4ccc-a953-70dda8cc4920, source=field_1768304257908, value="m", hasValue=true
+2026-01-20 14:12:56.261 [info] [AppProcessor] Added custom field value: 1833e681-6bb7-4ccc-a953-70dda8cc4920 = "m"
+2026-01-20 14:12:56.261 [info] [AppProcessor] Custom field mapping: target=df161bcf-c88f-400f-a8e3-0873117b938c, source=field_1768304652071, value="mat@isaasi.co.uk", hasValue=true
+2026-01-20 14:12:56.261 [info] [AppProcessor] Added custom field value: df161bcf-c88f-400f-a8e3-0873117b938c = "mat@isaasi.co.uk"
+2026-01-20 14:12:56.261 [info] [AppProcessor] Custom field mapping: target=7af40750-1543-44e8-8022-0e0e27bc2c5c, source=field_1768813507278, value="SO", hasValue=true
+2026-01-20 14:12:56.261 [info] [AppProcessor] Added custom field value: 7af40750-1543-44e8-8022-0e0e27bc2c5c = "SO"
+2026-01-20 14:12:56.261 [info] [AppProcessor] Custom field mapping: target=1c395ccf-7df2-4818-917d-1cd672216f71, source=, value="Initial application", hasValue=true
+2026-01-20 14:12:56.261 [info] [AppProcessor] Added custom field value: 1c395ccf-7df2-4818-917d-1cd672216f71 = "Initial application"
+2026-01-20 14:12:56.262 [info] [AppProcessor] Extracted data: {
+  memberData: {},
+  orgData: { name: 'testorgd' },
+  memberCustomFields: 0,
+  orgCustomFields: 6,
+  orgCustomFieldsDetail: [
+    { field_id: '8f08906a-80b5-47bc-8d98-ee217d307b7d', value: 'm' },
+    { field_id: '268300dd-6e22-4f10-b3bd-213c0ee0f424', value: 'm' },
+    { field_id: '1833e681-6bb7-4ccc-a953-70dda8cc4920', value: 'm' },
+    {
+      field_id: 'df161bcf-c88f-400f-a8e3-0873117b938c',
+      value: 'mat@isaasi.co.uk'
+    },
+    { field_id: '7af40750-1543-44e8-8022-0e0e27bc2c5c', value: 'SO' },
+    {
+      field_id: '1c395ccf-7df2-4818-917d-1cd672216f71',
+      value: 'Initial application'
+    }
+  ]
+}
+2026-01-20 14:12:56.262 [info] [AppProcessor] Org processing enabled. Action: upsert OrgData: { name: 'testorgd' } PrefillOrgId: null
+2026-01-20 14:12:56.392 [info] [AppProcessor] Found org by name: undefined
+2026-01-20 14:12:56.392 [info] [AppProcessor] Creating organization with data: {
+  name: 'testorgd',
+  invoicing_email: null,
+  phone: null,
+  website_url: null,
+  created_at: '2026-01-20T14:12:56.392Z',
+  tenant_id: '21296ad6-1350-483a-a90c-1b06ece70501'
+}
+2026-01-20 14:12:56.532 [info] [AppProcessor] Created organization: 59746cf2-95fc-4abb-9d84-dfea200866e1
+2026-01-20 14:12:56.532 [info] [AppProcessor] Triggering workflows for organization: 59746cf2-95fc-4abb-9d84-dfea200866e1 tenant_id: 21296ad6-1350-483a-a90c-1b06ece70501
+2026-01-20 14:12:56.534 [info] [Workflows] triggerWorkflows called: entityType=organization, entityId=59746cf2-95fc-4abb-9d84-dfea200866e1, triggerType=record_create
+2026-01-20 14:12:56.534 [info] [Workflows] afterData.tenant_id=21296ad6-1350-483a-a90c-1b06ece70501, beforeData.tenant_id=undefined
+2026-01-20 14:12:56.534 [info] [Workflows] Initial tenantId from data: 21296ad6-1350-483a-a90c-1b06ece70501
+2026-01-20 14:12:56.534 [info] [Workflows] Querying workflows: entity_type=organization, tenant_id=21296ad6-1350-483a-a90c-1b06ece70501, is_active=true
+2026-01-20 14:12:56.664 [info] [Workflows] Query result: 1 workflows found, error: null
+2026-01-20 14:12:56.664 [info] [Workflows] Evaluating 1 workflows for organization:59746cf2-95fc-4abb-9d84-dfea200866e1 (tenant: 21296ad6-1350-483a-a90c-1b06ece70501)
+2026-01-20 14:12:56.664 [info] [Workflows] Checking workflow "Send SO long form": trigger_type="record_create", incoming triggerType="record_create"
+2026-01-20 14:12:56.664 [info] [Workflows] "Send SO long form" matched: record_create
+2026-01-20 14:12:56.664 [info] [Workflows] Send SO long form - conditions array: [{"logic":"AND","value":"SO","field_id":"7af40750-1543-44e8-8022-0e0e27bc2c5c","operator":"equals","field_type":"org_custom"}]
+2026-01-20 14:12:56.664 [info] [Workflows] Send SO long form - afterData keys: [
+  'id',
+  'name',
+  'logo_url',
+  'training_fund_balance',
+  'program_ticket_balances',
+  'phone',
+  'invoicing_email',
+  'invoicing_address',
+  'description',
+  'website_url',
+  'created_at',
+  'tenant_id',
+  'status'
+]
+2026-01-20 14:12:56.664 [info] [Workflows] Send SO long form - afterData.login_enabled: undefined type: undefined
+2026-01-20 14:12:56.664 [info] [Workflows] Evaluating 1 conditions for Send SO long form
+2026-01-20 14:12:56.665 [info] [Workflows] Condition 0 field_type="org_custom", isMemberField=false, isOrgField=false, isMemberCustom=false, isOrgCustom=true, isJobPostingField=false
+2026-01-20 14:12:56.665 [info] [Workflows] Condition 0: field="7af40750-1543-44e8-8022-0e0e27bc2c5c", op="equals", value="SO", actual="", met=false, logic=AND
+2026-01-20 14:12:56.665 [info] [Workflows] After condition 0: allConditionsMet=false (initial)
+2026-01-20 14:12:56.665 [info] [Workflows] Final allConditionsMet for Send SO long form: false
+2026-01-20 14:12:56.665 [info] [Workflows] Conditions not met for workflow: Send SO long form - SKIPPING

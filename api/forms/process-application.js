@@ -692,6 +692,7 @@ export default async function handler(req, res) {
     console.log('[AppProcessor] Extracted data:', { memberData, orgData, memberCustomFields: memberCustomFields.length, orgCustomFields: orgCustomFields.length, orgCustomFieldsDetail: orgCustomFields });
 
     let createdOrganizationId = null;
+    let newlyCreatedOrgData = null; // Track org data for workflow trigger after custom fields saved
     let createdMemberId = null;
 
     // Process organization based on orgAction (none/create/update/upsert)
@@ -797,14 +798,8 @@ export default async function handler(req, res) {
           }
 
           createdOrganizationId = newOrg.id;
+          newlyCreatedOrgData = newOrg; // Track for workflow trigger after custom fields are saved
           console.log('[AppProcessor] Created organization:', createdOrganizationId);
-          
-          // Trigger workflow evaluation for new organization (non-blocking)
-          const baseUrl = process.env.APP_URL || `https://${req.headers.host}`;
-          console.log('[AppProcessor] Triggering workflows for organization:', createdOrganizationId, 'tenant_id:', newOrg.tenant_id);
-          triggerWorkflows('organization', newOrg.id, null, newOrg, 'record_create', baseUrl).catch(err => {
-            console.error('[AppProcessor] Workflow error for organization:', err);
-          });
         }
       }
 
@@ -831,6 +826,15 @@ export default async function handler(req, res) {
             });
           }
         }
+      }
+      
+      // Trigger workflow evaluation for newly created organization (AFTER custom fields are saved)
+      if (newlyCreatedOrgData) {
+        const baseUrl = process.env.APP_URL || `https://${req.headers.host}`;
+        console.log('[AppProcessor] Triggering workflows for organization:', newlyCreatedOrgData.id, 'tenant_id:', newlyCreatedOrgData.tenant_id);
+        triggerWorkflows('organization', newlyCreatedOrgData.id, null, newlyCreatedOrgData, 'record_create', baseUrl).catch(err => {
+          console.error('[AppProcessor] Workflow error for organization:', err);
+        });
       }
     }
 
