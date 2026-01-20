@@ -50,6 +50,7 @@ interface Action {
 
 interface Workflow {
   id: string;
+  tenant_id: string;
   name: string;
   entity_type: 'organization' | 'member' | 'job_posting';
   trigger_type: 'field_change' | 'record_create' | 'record_update';
@@ -477,6 +478,7 @@ async function executeUpdateFieldAction(
 
 // Log workflow execution
 async function logExecution(
+  tenantId: string,
   workflowId: string,
   entityType: string,
   entityId: string,
@@ -489,6 +491,7 @@ async function logExecution(
 
   try {
     await supabase.from('workflow_log').insert({
+      tenant_id: tenantId,
       workflow_id: workflowId,
       entity_type: entityType,
       entity_id: entityId,
@@ -517,18 +520,40 @@ export async function evaluateWorkflows(
   }
 
   try {
-    // Fetch active workflows for this entity type
+    // Get tenant_id from entity data
+    let tenantId = afterData?.tenant_id || beforeData?.tenant_id;
+    
+    // If tenant_id not in payload, resolve from entity
+    if (!tenantId && entityId && supabase) {
+      const table = entityType === 'job_posting' ? 'job_posting' : entityType;
+      const { data: entity } = await supabase
+        .from(table)
+        .select('tenant_id')
+        .eq('id', entityId)
+        .single();
+      if (entity?.tenant_id) {
+        tenantId = entity.tenant_id;
+      }
+    }
+    
+    // SECURITY: Require tenant_id to prevent cross-tenant workflow execution
+    if (!tenantId) {
+      console.log(`[Workflow Engine] No tenant_id available for ${entityType}:${entityId}, skipping workflow evaluation`);
+      return;
+    }
+    
     const { data: workflows, error } = await supabase
       .from('workflow')
       .select('*')
       .eq('entity_type', entityType)
+      .eq('tenant_id', tenantId)
       .eq('is_active', true);
 
     if (error || !workflows || workflows.length === 0) {
       return;
     }
 
-    console.log(`[Workflow Engine] Found ${workflows.length} active workflows for ${entityType}`);
+    console.log(`[Workflow Engine] Found ${workflows.length} active workflows for ${entityType} (tenant: ${tenantId})`);
 
     for (const workflow of workflows as Workflow[]) {
       try {
@@ -609,6 +634,7 @@ export async function evaluateWorkflows(
           : 'success';
 
         await logExecution(
+          workflow.tenant_id,
           workflow.id,
           entityType,
           entityId,
@@ -622,6 +648,7 @@ export async function evaluateWorkflows(
       } catch (workflowError: any) {
         console.error(`[Workflow Engine] Error executing workflow ${workflow.name}:`, workflowError);
         await logExecution(
+          workflow.tenant_id,
           workflow.id,
           entityType,
           entityId,

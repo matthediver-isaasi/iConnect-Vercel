@@ -55,6 +55,7 @@ export type User = typeof users.$inferSelect;
 // Workflow automation tables
 export const workflow = pgTable("workflow", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenant_id: varchar("tenant_id").notNull(), // Tenant isolation
   name: text("name").notNull(),
   description: text("description"),
   entity_type: text("entity_type").notNull(), // 'organization' or 'member'
@@ -80,6 +81,7 @@ export type Workflow = typeof workflow.$inferSelect;
 // Workflow execution logs
 export const workflowLog = pgTable("workflow_log", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenant_id: varchar("tenant_id").notNull(), // Tenant isolation
   workflow_id: varchar("workflow_id").notNull(),
   entity_type: text("entity_type").notNull(),
   entity_id: text("entity_id").notNull(),

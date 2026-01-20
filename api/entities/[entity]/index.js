@@ -267,7 +267,7 @@ export default async function handler(req, res) {
               'PortalMenu', 'PortalNavigationItem', 'NavigationItem', 'PageBanner', 'Floater',
               'FormDueDiligenceConfig', 'FormSubmissionDueDiligence', 'Form', 'ResourceCategory', 'Resource',
               'FileRepository', 'FileRepositoryFolder', 'Event', 'NewsPost', 'SystemSettings', 'PreferenceField',
-              'EmailTemplate'
+              'EmailTemplate', 'Workflow', 'WorkflowLog'
             ];
             if (!entitiesWithoutOrgId.includes(entity)) {
               query = query.eq('organization_id', tenantCtx.organizationId);
@@ -391,7 +391,7 @@ export default async function handler(req, res) {
             'PortalMenu', 'PortalNavigationItem', 'NavigationItem', 'PageBanner', 'Floater',
             'FormDueDiligenceConfig', 'FormSubmissionDueDiligence', 'Form', 'ResourceCategory', 'Resource',
             'FileRepository', 'FileRepositoryFolder', 'Event', 'NewsPost', 'SystemSettings', 'PreferenceField',
-            'EmailTemplate'
+            'EmailTemplate', 'Workflow', 'WorkflowLog'
           ];
           if (!entitiesWithoutOrgId.includes(entity)) {
             // For Member entity, preserve the organization_id from request body if provided

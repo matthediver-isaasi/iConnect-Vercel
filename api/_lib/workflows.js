@@ -684,6 +684,7 @@ async function checkOncePerRecord(workflow, entityType, entityId) {
 
 async function logWorkflowExecution(workflow, entityType, entityId, triggerData, results) {
   await supabase.from('workflow_log').insert({
+    tenant_id: workflow.tenant_id,
     workflow_id: workflow.id,
     entity_type: entityType,
     entity_id: entityId,
@@ -698,15 +699,38 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
   if (!supabase) return;
   
   try {
+    // Get tenant_id from entity data (afterData or beforeData)
+    let tenantId = afterData?.tenant_id || beforeData?.tenant_id;
+    
+    // If tenant_id not in payload, resolve from entity (for member entities that may have org_id)
+    if (!tenantId && entityId) {
+      const table = entityType === 'job_posting' ? 'job_posting' : entityType;
+      const { data: entity } = await supabase
+        .from(table)
+        .select('tenant_id')
+        .eq('id', entityId)
+        .single();
+      if (entity?.tenant_id) {
+        tenantId = entity.tenant_id;
+      }
+    }
+    
+    // SECURITY: Require tenant_id to prevent cross-tenant workflow execution
+    if (!tenantId) {
+      console.log(`[Workflows] No tenant_id available for ${entityType}:${entityId}, skipping workflow evaluation`);
+      return;
+    }
+    
     const { data: workflows } = await supabase
       .from('workflow')
       .select('*')
       .eq('entity_type', entityType)
+      .eq('tenant_id', tenantId)
       .eq('is_active', true);
 
     if (!workflows || workflows.length === 0) return;
     
-    console.log(`[Workflows] Evaluating ${workflows.length} workflows for ${entityType}:${entityId}`);
+    console.log(`[Workflows] Evaluating ${workflows.length} workflows for ${entityType}:${entityId} (tenant: ${tenantId})`);
 
     for (const workflow of workflows) {
       console.log(`[Workflows] Checking workflow "${workflow.name}": trigger_type="${workflow.trigger_type}", incoming triggerType="${triggerType}"`);
@@ -907,16 +931,33 @@ export async function triggerPreferenceWorkflows(entityType, entityId, fieldId, 
   if (!supabase) return;
   
   try {
+    // Resolve tenant_id from the entity
+    const table = entityType === 'organization' ? 'organization' : 'member';
+    const { data: entity } = await supabase
+      .from(table)
+      .select('tenant_id')
+      .eq('id', entityId)
+      .single();
+    
+    const tenantId = entity?.tenant_id;
+    
+    // SECURITY: Require tenant_id to prevent cross-tenant workflow execution
+    if (!tenantId) {
+      console.log(`[Workflows] No tenant_id available for ${entityType}:${entityId}, skipping preference workflow evaluation`);
+      return;
+    }
+    
     const { data: workflows } = await supabase
       .from('workflow')
       .select('*')
       .eq('entity_type', entityType)
       .eq('trigger_type', 'field_change')
+      .eq('tenant_id', tenantId)
       .eq('is_active', true);
 
     if (!workflows || workflows.length === 0) return;
     
-    console.log(`[Workflows] Evaluating ${workflows.length} workflows for ${entityType} preference field ${fieldId}, incoming value="${value}"`);
+    console.log(`[Workflows] Evaluating ${workflows.length} workflows for ${entityType} preference field ${fieldId}, incoming value="${value}" (tenant: ${tenantId})`);
 
     for (const workflow of workflows) {
       const cfg = workflow.trigger_config;

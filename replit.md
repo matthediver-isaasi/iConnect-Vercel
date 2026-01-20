@@ -175,10 +175,26 @@ A `SidebarNavLink` component wraps react-router `Link` with `React.forwardRef` t
 
 # Recent Changes
 
+- **Jan 2026**: Workflow tenant scoping - Workflows are now properly scoped to tenants (not organizations). Added `tenant_id` column to `workflow` and `workflow_log` tables. Workflow queries and executions now filter by tenant_id for proper multi-tenant isolation.
 - **Jan 2026**: Fixed sidebar toggle positioning - moved inside `SidebarHeader` for proper Shadcn structure
 - **Jan 2026**: Implemented icon centering and tooltips for collapsed sidebar mode
 - **Jan 2026**: Created `SidebarNavLink` ref-forwarding wrapper for proper tooltip integration
 - **Jan 2026**: Platform provisioning emails now use root domain (mail.iconn.app) for immediate sending
+
+## Workflow Automation System
+
+Workflows are tenant-scoped entities that enable automated actions based on entity events (organization, member, job_posting).
+
+**Key Files:**
+- `api/_lib/workflows.js` - Main workflow trigger functions (triggerWorkflows, triggerPreferenceWorkflows)
+- `server/workflowEngine.ts` - Workflow execution engine (evaluateWorkflows)
+- `api/entities/[entity]/index.js` - Entity handlers that trigger workflows
+
+**Tenant Scoping:**
+- Workflows have a `tenant_id` column for multi-tenant isolation
+- All workflow queries filter by `tenant_id` to prevent cross-tenant execution
+- Workflow logs also include `tenant_id` for audit purposes
+- The system requires valid tenant_id for workflow execution (fail-safe behavior)
 
 # External Dependencies
 
