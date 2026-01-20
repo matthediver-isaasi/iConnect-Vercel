@@ -888,6 +888,7 @@ function AdminRoutes() {
             <Route path="/admin/dashboard" element={<AdminDashboard />} />
             <Route path="/admin/settings" element={<AdminSettings />} />
             <Route path="/admin/branding" element={<AdminBranding />} />
+            <Route path="/admin/domains" element={<DomainSettings />} />
             <Route path="/admin/team" element={<AdminTeam />} />
             <Route path="/admin" element={<AdminDashboard />} />
         </Routes>
@@ -921,6 +922,7 @@ function SaasRoutes() {
             <Route path="/admin/dashboard" element={<AdminDashboard />} />
             <Route path="/admin/settings" element={<AdminSettings />} />
             <Route path="/admin/branding" element={<AdminBranding />} />
+            <Route path="/admin/domains" element={<DomainSettings />} />
             <Route path="/admin/team" element={<AdminTeam />} />
             <Route path="/admin" element={<AdminDashboard />} />
             <Route path="/platform/setup" element={<PlatformSetup />} />
