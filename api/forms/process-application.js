@@ -1888,7 +1888,8 @@ export default async function handler(req, res) {
                   to: memberEmail,
                   subject: `Welcome to ${appName} - Your Login Details`,
                   html: emailHtml,
-                  from: `${fromName} <${fromAddress}>`
+                  from: `${fromName} <${fromAddress}>`,
+                  tenantId: tenant_id
                 });
                 
                 console.log('[AppProcessor] Welcome email sent to additional member:', memberEmail);

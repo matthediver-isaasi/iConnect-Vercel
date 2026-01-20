@@ -129,7 +129,7 @@ export default async function handler(req, res) {
     // Get the form with email settings
     const { data: form, error: formError } = await supabase
       .from('form')
-      .select('*')
+      .select('*, tenant_id')
       .eq('id', form_id)
       .single();
 
@@ -138,7 +138,8 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Form not found' });
     }
 
-    console.log('[FormSubmissionEmail] Form loaded:', form.name);
+    const tenantId = form.tenant_id;
+    console.log('[FormSubmissionEmail] Form loaded:', form.name, 'tenant_id:', tenantId);
     console.log('[FormSubmissionEmail] Form email config - submission_emails:', JSON.stringify(form.submission_emails));
     console.log('[FormSubmissionEmail] Form email config - legacy template_id:', form.submission_email_template_id);
     console.log('[FormSubmissionEmail] Form email config - legacy recipient:', form.submission_email_recipient);
@@ -461,13 +462,14 @@ export default async function handler(req, res) {
       console.log('[FormSubmissionEmail] Sending email...');
       console.log('[FormSubmissionEmail] Subject:', emailSubject);
 
-      // Send the email
+      // Send the email with tenant context for proper email domain
       const emailResult = await sendEmail({
         to: toEmail,
         subject: emailSubject,
         html: emailBody,
         cc: ccEmail || undefined,
-        bcc: bccEmail || undefined
+        bcc: bccEmail || undefined,
+        tenantId
       });
 
       console.log('[FormSubmissionEmail] Email result:', emailResult);

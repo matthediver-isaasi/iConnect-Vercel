@@ -14,11 +14,13 @@ async function sendFormSubmissionEmail(submissionData) {
     // Fetch the form to check if it has email template configured
     const { data: form } = await supabase
       .from('form')
-      .select('submission_email_template_id, submission_email_recipient, fields')
+      .select('submission_email_template_id, submission_email_recipient, fields, tenant_id')
       .eq('id', formId)
       .single();
 
     if (!form || !form.submission_email_template_id) return;
+    
+    const formTenantId = form.tenant_id;
 
     // Fetch the email template
     const { data: template } = await supabase
@@ -65,13 +67,14 @@ async function sendFormSubmissionEmail(submissionData) {
       return String(formValues[fieldId] || '');
     });
 
-    // Send the email
+    // Send the email with tenant context for proper email domain
     const result = await sendEmail({
       to: recipient,
       subject: subject,
       html: body,
       from: template.from_email,
-      replyTo: template.reply_to
+      replyTo: template.reply_to,
+      tenantId: formTenantId
     });
 
     console.log(`[FormSubmission] Email sent to ${recipient}:`, result.success ? 'success' : result.error);

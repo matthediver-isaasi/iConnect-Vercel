@@ -232,7 +232,8 @@ export default async function handler(req, res) {
         await sendEmail({
           to: normalizedEmail,
           subject: emailSubject,
-          html: emailHtml
+          html: emailHtml,
+          tenantId
         });
 
         console.log(`[Tenant Team] Invitation email sent to ${normalizedEmail} (isNewUser: ${isNewUser})`);

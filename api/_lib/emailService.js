@@ -4,7 +4,8 @@ import { supabase } from './database.js';
 
 const MAILGUN_API_KEY = process.env.MAILGUN_API_KEY;
 const APP_DOMAIN = process.env.APP_DOMAIN || 'iconn.app';
-const MAILGUN_FALLBACK_DOMAIN = process.env.MAILGUN_DOMAIN || APP_DOMAIN;
+// Use mail.iconn.app as the standard fallback domain for all tenants
+const MAILGUN_FALLBACK_DOMAIN = `mail.${APP_DOMAIN}`;
 const DEFAULT_DOMAIN = MAILGUN_FALLBACK_DOMAIN;
 const DEFAULT_FROM = process.env.MAILGUN_FROM_EMAIL || `ICONN <noreply@${MAILGUN_FALLBACK_DOMAIN}>`;
 const MAILGUN_REGION = process.env.MAILGUN_REGION || 'eu';
@@ -179,6 +180,9 @@ export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bc
     };
   }
 
+  // Log tenantId for debugging email domain resolution
+  console.log(`[Email Service] tenantId provided: ${tenantId || 'none'}`);
+  
   const tenantConfig = await getTenantEmailConfig(tenantId);
   
   let domain = DEFAULT_DOMAIN;
@@ -189,9 +193,9 @@ export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bc
     if (!from) {
       fromAddress = `${tenantConfig.fromName} <${tenantConfig.fromEmail}>`;
     }
-    console.log(`[Email Service] Using tenant domain: ${domain}`);
+    console.log(`[Email Service] Using tenant domain: ${domain} (tenantId: ${tenantId})`);
   } else {
-    console.log(`[Email Service] Using default domain: ${domain}`);
+    console.log(`[Email Service] Using fallback domain: ${domain} (tenantId: ${tenantId || 'not provided'})`);
   }
 
   try {

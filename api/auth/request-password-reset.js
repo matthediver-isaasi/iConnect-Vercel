@@ -258,7 +258,8 @@ export default async function handler(req, res) {
       const emailResult = await sendEmail({
         to: normalizedEmail,
         subject: `${tenantName} Password Reset Request`,
-        html: emailHtml
+        html: emailHtml,
+        tenantId: member.tenant_id
       });
 
       console.log('[Password Reset] sendEmail result:', JSON.stringify(emailResult));

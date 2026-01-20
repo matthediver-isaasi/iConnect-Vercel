@@ -233,10 +233,10 @@ async function sendConfirmationEmailsFromTemplate(eventId, booking, attendee, pe
 
     console.log(`[sendConfirmationEmailsFromTemplate] Found ${confirmationEmails.length} confirmation email(s) to send`);
 
-    // Fetch event details
+    // Fetch event details including tenant_id for email domain
     const { data: event, error: eventError } = await supabase
       .from('event')
-      .select('id, title, start_date, location, is_online, zoom_meeting_id, zoom_webinar_id')
+      .select('id, title, start_date, location, is_online, zoom_meeting_id, zoom_webinar_id, tenant_id')
       .eq('id', eventId)
       .single();
 
@@ -287,7 +287,8 @@ async function sendConfirmationEmailsFromTemplate(eventId, booking, attendee, pe
         const emailResult = await sendEmail({
           to: bookingData.attendee_email,
           subject: subject,
-          html: formatBodyAsHtml(body)
+          html: formatBodyAsHtml(body),
+          tenantId: event.tenant_id
         });
 
         if (emailResult.success) {
@@ -3437,10 +3438,10 @@ const functionHandlers = {
       .eq('email', email.toLowerCase())
       .maybeSingle();
     
-    // Get the inviter's details including organization
+    // Get the inviter's details including organization and tenant_id for email domain
     const { data: inviter } = await supabase
       .from('member')
-      .select('id, first_name, last_name, organization_id')
+      .select('id, first_name, last_name, organization_id, tenant_id')
       .eq('email', inviterEmail.toLowerCase())
       .maybeSingle();
     
@@ -3509,11 +3510,12 @@ const functionHandlers = {
     finalSubject = finalSubject.replace(/\[\[member\.full_name\]\]/gi, inviterFullName);
     finalSubject = finalSubject.replace(/\[\[organization\.name\]\]/gi, organizationName);
     
-    // Send email via Mailgun
+    // Send email via Mailgun with tenant context for proper email domain
     const emailResult = await sendEmail({
       to: email,
       subject: finalSubject,
-      html: finalBody
+      html: finalBody,
+      tenantId: inviter?.tenant_id
     });
     
     if (!emailResult.success) {

@@ -121,7 +121,8 @@ export default async function handler(req, res) {
       await sendEmail({
         to: identity.email,
         subject: `New invitation to ${tenantName}`,
-        html: emailHtml
+        html: emailHtml,
+        tenantId
       });
 
       console.log(`[Resend Invite] Email sent to ${identity.email}`);

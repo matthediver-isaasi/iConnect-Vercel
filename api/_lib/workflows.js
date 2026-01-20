@@ -331,6 +331,7 @@ async function getMembersByRoleInOrganization(roleId, organizationId) {
 
 async function executeWorkflowActions(workflow, entityType, entityId, entityData, baseUrl) {
   const results = [];
+  const tenantId = workflow.tenant_id;
   
   for (const action of (workflow.actions || [])) {
     // Normalize prefixed field types (e.g., job_posting_core -> core)
@@ -437,7 +438,7 @@ async function executeWorkflowActions(workflow, entityType, entityId, entityData
       if (cc) console.log(`[Workflows] CC: "${cc}"`);
       if (bcc) console.log(`[Workflows] BCC: "${bcc}"`);
       
-      const emailResult = await sendEmail({ to, subject, html: body, from: fromEmail, replyTo, cc, bcc });
+      const emailResult = await sendEmail({ to, subject, html: body, from: fromEmail, replyTo, cc, bcc, tenantId });
       console.log(`[Workflows] Email result:`, JSON.stringify(emailResult));
       
       results.push({ 
@@ -457,6 +458,7 @@ async function executeWorkflowActions(workflow, entityType, entityId, entityData
 // roleIds parameter is an array of role IDs to send to
 async function executeRoleBasedEmail(action, workflow, entityType, entityId, entityData, baseUrl, roleIds) {
   const results = [];
+  const tenantId = workflow.tenant_id;
   
   console.log(`[Workflows] Role-based email: sending to all members with roles: ${roleIds.join(', ')}`);
   
@@ -632,7 +634,8 @@ async function executeRoleBasedEmail(action, workflow, entityType, entityId, ent
         from: fromEmail,
         replyTo,
         cc,
-        bcc
+        bcc,
+        tenantId
       });
       
       if (emailResult.success) {

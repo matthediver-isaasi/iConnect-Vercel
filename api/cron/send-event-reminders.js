@@ -102,7 +102,7 @@ export default async function handler(req, res) {
 
         const { data: event, error: eventError } = await supabase
           .from('event')
-          .select('id, title, start_date, location, is_online, zoom_meeting_id, zoom_webinar_id')
+          .select('id, title, start_date, location, is_online, zoom_meeting_id, zoom_webinar_id, tenant_id')
           .eq('id', eventEmail.event_id)
           .single();
 
@@ -147,7 +147,8 @@ export default async function handler(req, res) {
         const emailResult = await sendEmail({
           to: scheduledEmail.attendee_email,
           subject: subject,
-          html: formatBodyAsHtml(body)
+          html: formatBodyAsHtml(body),
+          tenantId: event.tenant_id
         });
 
         if (emailResult.success) {

@@ -5,8 +5,8 @@ import { supabase } from './database.js';
 const MAILGUN_API_KEY = process.env.MAILGUN_API_KEY;
 const MAILGUN_REGION = process.env.MAILGUN_REGION || 'eu';
 const APP_DOMAIN = process.env.APP_DOMAIN || 'iconn.app';
-// Root domain for platform-level emails (no tenant context)
-const ROOT_EMAIL_DOMAIN = process.env.MAILGUN_DOMAIN || `mail.${APP_DOMAIN}`;
+// Root domain for platform-level emails (no tenant context) - always use mail.iconn.app
+const ROOT_EMAIL_DOMAIN = `mail.${APP_DOMAIN}`;
 const DEFAULT_FROM = process.env.MAILGUN_FROM_EMAIL || `ICONN <noreply@${ROOT_EMAIL_DOMAIN}>`;
 
 let mailgunClient = null;

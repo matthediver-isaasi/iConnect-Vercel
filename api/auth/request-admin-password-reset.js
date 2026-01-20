@@ -160,7 +160,8 @@ export default async function handler(req, res) {
       await sendEmail({
         to: normalizedEmail,
         subject: 'Reset Your Admin Password',
-        html: emailHtml
+        html: emailHtml,
+        tenantId
       });
 
       console.log(`[Admin Password Reset] Email sent to ${normalizedEmail}`);
