@@ -52,6 +52,7 @@ export default function DueDiligenceConfigPage() {
   
   const [scoringApproach, setScoringApproach] = useState('dynamic');
   const [defaultReviewState, setDefaultReviewState] = useState('amended');
+  const [cardReferenceField, setCardReferenceField] = useState('');
   const [scoringRules, setScoringRules] = useState({ rules: [], risk_thresholds: {} });
   const [staticQuestions, setStaticQuestions] = useState([]);
   const [customRiskLevels, setCustomRiskLevels] = useState(DEFAULT_RISK_LEVELS);
@@ -108,6 +109,7 @@ export default function DueDiligenceConfigPage() {
     if (ddConfig && !hasInitialized) {
       setScoringApproach(ddConfig.scoring_approach || 'dynamic');
       setDefaultReviewState(ddConfig.default_review_state || 'amended');
+      setCardReferenceField(ddConfig.card_reference_field || '');
       setScoringRules(ddConfig.scoring_rules || { rules: [], risk_thresholds: {} });
       setStaticQuestions(ddConfig.static_questions || []);
       setCustomRiskLevels(ddConfig.custom_risk_levels?.length > 0 ? ddConfig.custom_risk_levels : DEFAULT_RISK_LEVELS);
@@ -124,6 +126,7 @@ export default function DueDiligenceConfigPage() {
         tenant_id: memberInfo?.tenant_id,
         scoring_approach: data.scoringApproach,
         default_review_state: data.defaultReviewState,
+        card_reference_field: data.cardReferenceField || null,
         scoring_rules: data.scoringRules,
         static_questions: data.staticQuestions,
         custom_risk_levels: data.customRiskLevels,
@@ -151,6 +154,7 @@ export default function DueDiligenceConfigPage() {
     saveMutation.mutate({
       scoringApproach,
       defaultReviewState,
+      cardReferenceField,
       scoringRules,
       staticQuestions,
       customRiskLevels,
@@ -449,6 +453,33 @@ export default function DueDiligenceConfigPage() {
                     </div>
                   </Label>
                 </div>
+              </div>
+
+              <div className="space-y-3 pt-4 border-t">
+                <Label className="text-base font-medium">Dashboard Card Reference</Label>
+                <p className="text-sm text-muted-foreground">
+                  Choose which form field value to display as the reference on dashboard submission cards.
+                </p>
+                <Select
+                  value={cardReferenceField || '__default__'}
+                  onValueChange={(val) => setCardReferenceField(val === '__default__' ? '' : val)}
+                  data-testid="select-card-reference-field"
+                >
+                  <SelectTrigger className="w-full max-w-md">
+                    <SelectValue placeholder="Select a field..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__default__">None (use default)</SelectItem>
+                    {availableFields
+                      .filter(f => !f.due_diligence && ['text', 'email', 'select', 'country'].includes(f.type))
+                      .map((field) => (
+                        <SelectItem key={field.id} value={field.name}>
+                          {field.label || field.name}
+                        </SelectItem>
+                      ))
+                    }
+                  </SelectContent>
+                </Select>
               </div>
             </CardContent>
           </Card>

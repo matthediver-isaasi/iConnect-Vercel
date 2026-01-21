@@ -65,12 +65,18 @@ function StatCard({ title, value, icon: Icon, color, subtitle }) {
   );
 }
 
-function SubmissionRow({ submission, workflowStages, riskLevels, onClick }) {
+function SubmissionRow({ submission, workflowStages, riskLevels, onClick, cardReferenceField }) {
   const stage = workflowStages.find(s => s.id === submission.workflow_status) || { label: submission.workflow_status, color: '#6b7280' };
   const riskConfig = riskLevels.find(r => r.name.toLowerCase() === submission.risk_level?.toLowerCase()) || { color: '#6b7280' };
   
   const formValues = submission.form_submission?.submission_data || {};
-  const displayName = formValues.organization_name || formValues.company_name || formValues.name || submission.application_uid;
+  
+  let displayReference = submission.application_uid;
+  if (cardReferenceField && formValues[cardReferenceField]) {
+    displayReference = formValues[cardReferenceField];
+  } else {
+    displayReference = formValues.organization_name || formValues.company_name || formValues.name || formValues.email || submission.application_uid;
+  }
   
   return (
     <TableRow 
@@ -78,12 +84,11 @@ function SubmissionRow({ submission, workflowStages, riskLevels, onClick }) {
       onClick={() => onClick(submission.id)}
       data-testid={`submission-row-${submission.id}`}
     >
-      <TableCell className="font-medium">{submission.application_uid}</TableCell>
-      <TableCell>{displayName}</TableCell>
+      <TableCell className="font-medium">{displayReference}</TableCell>
       <TableCell>
         <Badge 
           style={{ backgroundColor: stage.color, color: '#fff' }}
-          className="text-xs"
+          className="text-xs no-default-hover-elevate no-default-active-elevate"
         >
           {stage.label}
         </Badge>
@@ -146,6 +151,24 @@ export default function DueDiligenceDashboardPage() {
     enabled: isAccessReady
   });
 
+  const { data: ddConfigs = [] } = useQuery({
+    queryKey: ['dd-configs-all'],
+    queryFn: async () => {
+      return await base44.entities.FormDueDiligenceConfig.list();
+    },
+    enabled: isAccessReady
+  });
+
+  const cardReferenceFieldByFormId = useMemo(() => {
+    const lookup = {};
+    ddConfigs.forEach(config => {
+      if (config.form_id && config.card_reference_field) {
+        lookup[config.form_id] = config.card_reference_field;
+      }
+    });
+    return lookup;
+  }, [ddConfigs]);
+
   const { data: submissionsData, isLoading: submissionsLoading, refetch } = useQuery({
     queryKey: ['dd-submissions', statusFilter, riskFilter, selectedFormId],
     queryFn: async () => {
@@ -199,11 +222,19 @@ export default function DueDiligenceDashboardPage() {
     return submissions.filter(sub => {
       const uid = sub.application_uid?.toLowerCase() || '';
       const formValues = sub.form_submission?.submission_data || {};
-      const orgName = (formValues.organization_name || formValues.company_name || formValues.name || '').toLowerCase();
+      const formId = sub.form_submission?.form_id;
+      const refField = formId ? cardReferenceFieldByFormId[formId] : null;
       
-      return uid.includes(query) || orgName.includes(query);
+      let displayRef = '';
+      if (refField && formValues[refField]) {
+        displayRef = String(formValues[refField]).toLowerCase();
+      } else {
+        displayRef = (formValues.organization_name || formValues.company_name || formValues.name || formValues.email || '').toLowerCase();
+      }
+      
+      return uid.includes(query) || displayRef.includes(query);
     });
-  }, [submissions, searchQuery]);
+  }, [submissions, searchQuery, cardReferenceFieldByFormId]);
 
   const workflowStages = DEFAULT_WORKFLOW_STAGES;
   const riskLevels = DEFAULT_RISK_LEVELS;
@@ -340,8 +371,7 @@ export default function DueDiligenceDashboardPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Application ID</TableHead>
-                    <TableHead>Organization</TableHead>
+                    <TableHead>Reference</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Score</TableHead>
                     <TableHead>Risk Level</TableHead>
@@ -350,15 +380,20 @@ export default function DueDiligenceDashboardPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredSubmissions.map((submission) => (
-                    <SubmissionRow
-                      key={submission.id}
-                      submission={submission}
-                      workflowStages={workflowStages}
-                      riskLevels={riskLevels}
-                      onClick={handleRowClick}
-                    />
-                  ))}
+                  {filteredSubmissions.map((submission) => {
+                    const formId = submission.form_submission?.form_id;
+                    const refField = formId ? cardReferenceFieldByFormId[formId] : null;
+                    return (
+                      <SubmissionRow
+                        key={submission.id}
+                        submission={submission}
+                        workflowStages={workflowStages}
+                        riskLevels={riskLevels}
+                        onClick={handleRowClick}
+                        cardReferenceField={refField}
+                      />
+                    );
+                  })}
                 </TableBody>
               </Table>
             </div>
