@@ -99,6 +99,7 @@ function ScoreGradient({ score, riskLevel, customRiskLevels }) {
 
 function ReviewFieldEditor({ 
   field, 
+  fieldKey,
   originalValue, 
   reviewedValue, 
   reviewStatus, 
@@ -111,6 +112,9 @@ function ReviewFieldEditor({
   const isApproved = reviewStatus === 'approved';
   const isAmended = reviewStatus === 'amended';
   const isPending = reviewStatus === 'pending' || !reviewStatus;
+  
+  // Use fieldKey (field.id) for state management, but field.name for display/values
+  const stateKey = fieldKey || field.name;
   
   const displayOriginal = Array.isArray(originalValue) 
     ? originalValue.join(', ') 
@@ -126,7 +130,7 @@ function ReviewFieldEditor({
         isAmended && "bg-amber-50 border-amber-200",
         isPending && "bg-gray-50 border-gray-200"
       )}
-      data-testid={`review-field-${field.name}`}
+      data-testid={`review-field-${stateKey}`}
     >
       <div className="space-y-1">
         <Label className="text-sm font-medium">{field.label || field.name}</Label>
@@ -146,12 +150,12 @@ function ReviewFieldEditor({
               type="button"
               role="switch"
               aria-checked={isAmended}
-              onClick={() => onStatusChange(field.name, isApproved ? 'amended' : 'approved')}
+              onClick={() => onStatusChange(stateKey, isApproved ? 'amended' : 'approved')}
               className={cn(
                 "relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                 isApproved ? "bg-green-500" : "bg-amber-500"
               )}
-              data-testid={`toggle-status-${field.name}`}
+              data-testid={`toggle-status-${stateKey}`}
             >
               <span
                 className={cn(
@@ -193,7 +197,7 @@ function ReviewFieldEditor({
             size="sm"
             className="h-6 text-xs"
             onClick={() => setShowNote(!showNote)}
-            data-testid={`button-toggle-note-${field.name}`}
+            data-testid={`button-toggle-note-${stateKey}`}
           >
             <NotebookText className="w-3 h-3 mr-1" />
             {showNote ? 'Hide Note' : 'Add Note'}
@@ -203,10 +207,10 @@ function ReviewFieldEditor({
         {showNote && (
           <Textarea
             value={note || ''}
-            onChange={(e) => onNoteChange(field.name, e.target.value)}
+            onChange={(e) => onNoteChange(stateKey, e.target.value)}
             placeholder="Add reviewer notes..."
             className="text-xs min-h-[60px]"
-            data-testid={`textarea-note-${field.name}`}
+            data-testid={`textarea-note-${stateKey}`}
           />
         )}
       </div>
@@ -381,10 +385,12 @@ export default function ReviewSubmissionPage() {
       
       // Apply default state to any field lacking an explicit status
       // This handles both new reviews AND existing reviews with newly added fields
+      // Use field.id as the unique identifier (not field.name which may be duplicated)
       const mergedStatus = { ...existingStatus };
       fields.forEach(field => {
-        if (!mergedStatus[field.name]) {
-          mergedStatus[field.name] = defaultState;
+        const fieldKey = field.id || field.name;
+        if (!mergedStatus[fieldKey]) {
+          mergedStatus[fieldKey] = defaultState;
         }
       });
       setFieldReviewStatus(mergedStatus);
@@ -700,19 +706,23 @@ export default function ReviewSubmissionPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="font-semibold text-sm uppercase tracking-wide text-muted-foreground">Original</div>
                   <div className="font-semibold text-sm uppercase tracking-wide text-muted-foreground">Reviewed</div>
-                  {currentPageFields.map((field, index) => (
-                    <ReviewFieldEditor
-                      key={field.id || field.name || `field-${index}`}
-                      field={field}
-                      originalValue={originalFormValues[field.name]}
-                      reviewedValue={reviewedFormValues[field.name]}
-                      reviewStatus={fieldReviewStatus[field.name]}
-                      onChange={handleFieldChange}
-                      onStatusChange={handleFieldStatusChange}
-                      note={fieldNotes[field.name]}
-                      onNoteChange={handleFieldNoteChange}
-                    />
-                  ))}
+                  {currentPageFields.map((field, index) => {
+                    const fieldKey = field.id || field.name;
+                    return (
+                      <ReviewFieldEditor
+                        key={fieldKey || `field-${index}`}
+                        field={field}
+                        fieldKey={fieldKey}
+                        originalValue={originalFormValues[field.name]}
+                        reviewedValue={reviewedFormValues[field.name]}
+                        reviewStatus={fieldReviewStatus[fieldKey]}
+                        onChange={handleFieldChange}
+                        onStatusChange={handleFieldStatusChange}
+                        note={fieldNotes[fieldKey]}
+                        onNoteChange={handleFieldNoteChange}
+                      />
+                    );
+                  })}
                 </div>
               ) : (
                 <div className="text-center py-12 text-muted-foreground">
