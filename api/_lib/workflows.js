@@ -979,7 +979,9 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
 }
 
 export async function triggerPreferenceWorkflows(entityType, entityId, fieldId, value, baseUrl) {
-  if (!supabase) return;
+  const pendingConfirmations = [];
+  
+  if (!supabase) return { pendingConfirmations };
   
   try {
     // Resolve tenant_id from the entity
@@ -995,7 +997,7 @@ export async function triggerPreferenceWorkflows(entityType, entityId, fieldId, 
     // SECURITY: Require tenant_id to prevent cross-tenant workflow execution
     if (!tenantId) {
       console.log(`[Workflows] No tenant_id available for ${entityType}:${entityId}, skipping preference workflow evaluation`);
-      return;
+      return { pendingConfirmations };
     }
     
     const { data: workflows } = await supabase
@@ -1006,7 +1008,7 @@ export async function triggerPreferenceWorkflows(entityType, entityId, fieldId, 
       .eq('tenant_id', tenantId)
       .eq('is_active', true);
 
-    if (!workflows || workflows.length === 0) return;
+    if (!workflows || workflows.length === 0) return { pendingConfirmations };
     
     console.log(`[Workflows] Evaluating ${workflows.length} workflows for ${entityType} preference field ${fieldId}, incoming value="${value}" (tenant: ${tenantId})`);
 
@@ -1041,10 +1043,26 @@ export async function triggerPreferenceWorkflows(entityType, entityId, fieldId, 
         continue;
       }
       
+      // Check if this workflow requires user confirmation before executing
+      if (cfg.requires_confirmation) {
+        console.log(`[Workflows] Workflow "${workflow.name}" requires user confirmation - adding to pending list`);
+        pendingConfirmations.push({
+          workflow_id: workflow.id,
+          workflow_name: workflow.name,
+          entity_type: entityType,
+          entity_id: entityId,
+          actions: workflow.actions?.map(a => ({
+            type: a.type,
+            description: a.type === 'send_email' ? 'Send email notification' : 'Update field value'
+          })) || []
+        });
+        continue;
+      }
+      
       console.log(`[Workflows] Executing workflow: ${workflow.name} (trigger_mode=${workflow.trigger_mode || 'every_time'})`);
 
-      const table = entityType === 'organization' ? 'organization' : 'member';
-      const { data: entityData } = await supabase.from(table).select('*').eq('id', entityId).single();
+      const entityTable = entityType === 'organization' ? 'organization' : 'member';
+      const { data: entityData } = await supabase.from(entityTable).select('*').eq('id', entityId).single();
       
       const results = await executeWorkflowActions(workflow, entityType, entityId, entityData || {}, baseUrl);
       await logWorkflowExecution(workflow, entityType, entityId, { field_id: fieldId, value: value, trigger_type: 'field_change' }, results);
@@ -1052,6 +1070,8 @@ export async function triggerPreferenceWorkflows(entityType, entityId, fieldId, 
   } catch (err) {
     console.error('[Workflows] Preference Error:', err.message, err.stack);
   }
+  
+  return { pendingConfirmations };
 }
 
 // Execute a workflow that was pending user confirmation

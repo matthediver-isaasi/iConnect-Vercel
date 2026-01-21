@@ -508,6 +508,8 @@ export default async function handler(req, res) {
       
       // Also trigger workflows when preference values are created
       const isPreferenceValueEntity = entityNorm === 'organizationpreferencevalue' || entityNorm === 'memberpreferencevalue';
+      let pendingWorkflowConfirmations = [];
+      
       if (isPreferenceValueEntity && data) {
         const entityType = entityNorm === 'organizationpreferencevalue' ? 'organization' : 'member';
         const entityId = data.organization_id || data.member_id;
@@ -516,9 +518,14 @@ export default async function handler(req, res) {
         console.log(`[Entity POST] Preference value created - entityId: ${entityId}, fieldId: ${fieldId}, value: ${data.value}`);
         
         if (entityId && fieldId) {
-          triggerPreferenceWorkflows(entityType, entityId, fieldId, data.value, baseUrl).catch(err => {
+          try {
+            const prefResult = await triggerPreferenceWorkflows(entityType, entityId, fieldId, data.value, baseUrl);
+            if (prefResult?.pendingConfirmations?.length > 0) {
+              pendingWorkflowConfirmations.push(...prefResult.pendingConfirmations);
+            }
+          } catch (err) {
             console.error('[Entity POST] Preference workflow error:', err);
-          });
+          }
         }
       }
 
@@ -526,6 +533,14 @@ export default async function handler(req, res) {
       if (entityNorm === 'formsubmission' && data) {
         sendFormSubmissionEmail(data).catch(err => {
           console.error('[Entity POST] Form submission email error:', err);
+        });
+      }
+
+      // If there are pending workflow confirmations, include them in the response
+      if (pendingWorkflowConfirmations.length > 0) {
+        return res.status(201).json({
+          ...data,
+          _pendingWorkflowConfirmations: pendingWorkflowConfirmations
         });
       }
 

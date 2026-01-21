@@ -359,8 +359,12 @@ export default async function handler(req, res) {
           console.log(`[Entity PATCH] Calling triggerPreferenceWorkflows with entityType=${entityType}, entityId=${entityId}, fieldId=${fieldId}, value=${newValue}`);
           // Await the workflow trigger to ensure it completes before returning
           try {
-            await triggerPreferenceWorkflows(entityType, entityId, fieldId, newValue, baseUrl);
+            const prefResult = await triggerPreferenceWorkflows(entityType, entityId, fieldId, newValue, baseUrl);
             console.log(`[Entity PATCH] triggerPreferenceWorkflows completed`);
+            // Add any pending confirmations from preference workflows
+            if (prefResult?.pendingConfirmations?.length > 0) {
+              pendingWorkflowConfirmations.push(...prefResult.pendingConfirmations);
+            }
           } catch (err) {
             console.error('[Entity PATCH] Preference workflow error:', err);
           }

@@ -63,6 +63,8 @@ import { isDeletedMember } from "@/utils";
 import { useDateFormat } from "@/hooks/useDateFormat";
 import OrgDetailLayoutEditor from "@/components/OrgDetailLayoutEditor";
 import MemberDetailView from "@/components/MemberDetailView";
+import { useWorkflowConfirmation } from "@/hooks/useWorkflowConfirmation";
+import WorkflowConfirmationModal from "@/components/WorkflowConfirmationModal";
 
 const getMemberName = (m) => {
   return [m?.first_name, m?.last_name].filter(Boolean).join(' ') || m?.full_name || '';
@@ -157,6 +159,15 @@ export default function OrganisationDetailView({
   const { isAdmin, memberInfo } = useMemberAccess();
   const { formatDate } = useDateFormat();
   const queryClient = useQueryClient();
+  const {
+    pendingWorkflows,
+    showConfirmationModal,
+    setShowConfirmationModal,
+    checkForPendingWorkflows,
+    handleConfirmWorkflow,
+    handleSkipWorkflow,
+    handleSkipAllWorkflows
+  } = useWorkflowConfirmation();
   const [isEditing, setIsEditing] = useState(isNew);
   const [activeTab, setActiveTab] = useState('overview');
   const [showLayoutEditor, setShowLayoutEditor] = useState(false);
@@ -492,9 +503,11 @@ export default function OrganisationDetailView({
         });
       }
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['org-detail-preference-values', organization?.id] });
       queryClient.invalidateQueries({ queryKey: ['all-org-preference-values-crm'] });
+      // Check for pending workflow confirmations
+      checkForPendingWorkflows(data);
     }
   });
 
@@ -1536,6 +1549,15 @@ export default function OrganisationDetailView({
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        <WorkflowConfirmationModal
+          open={showConfirmationModal}
+          onOpenChange={setShowConfirmationModal}
+          pendingWorkflows={pendingWorkflows}
+          onConfirm={handleConfirmWorkflow}
+          onSkip={handleSkipWorkflow}
+          onSkipAll={handleSkipAllWorkflows}
+        />
       </main>
     </div>
   );
