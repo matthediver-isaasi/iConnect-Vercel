@@ -700,9 +700,9 @@ export default function ReviewSubmissionPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="font-semibold text-sm uppercase tracking-wide text-muted-foreground">Original</div>
                   <div className="font-semibold text-sm uppercase tracking-wide text-muted-foreground">Reviewed</div>
-                  {currentPageFields.map((field) => (
+                  {currentPageFields.map((field, index) => (
                     <ReviewFieldEditor
-                      key={field.name}
+                      key={field.id || field.name || `field-${index}`}
                       field={field}
                       originalValue={originalFormValues[field.name]}
                       reviewedValue={reviewedFormValues[field.name]}

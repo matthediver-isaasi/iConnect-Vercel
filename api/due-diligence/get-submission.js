@@ -67,10 +67,10 @@ export default async function handler(req, res) {
       .eq('tenant_id', tenantCtx.tenantId)
       .single();
 
-    // Get form details with tenant isolation
+    // Get form details with tenant isolation (include pages for multi-step forms)
     const { data: form } = await supabase
       .from('form')
-      .select('id, name, fields, due_diligence_required')
+      .select('id, name, fields, pages, due_diligence_required')
       .eq('id', ddSubmission.form_submission?.form_id)
       .eq('tenant_id', tenantCtx.tenantId)
       .single();
