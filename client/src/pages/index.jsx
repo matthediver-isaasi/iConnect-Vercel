@@ -547,6 +547,10 @@ const PAGES = {
     Search: SearchResults,
     search: SearchResults,
     
+    DueDiligenceDashboard: DueDiligenceDashboard,
+    DueDiligenceConfig: DueDiligenceConfig,
+    ReviewSubmission: ReviewSubmission,
+    
 }
 
 function _getCurrentPage(url) {
