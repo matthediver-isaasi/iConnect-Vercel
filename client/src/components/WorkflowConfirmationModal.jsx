@@ -76,11 +76,18 @@ export function WorkflowConfirmationModal({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Zap className="h-5 w-5 text-primary" />
-            Workflow Confirmation
+            {allProcessed ? 'Workflows Processed' : 'Workflow Confirmation'}
           </DialogTitle>
           <DialogDescription>
-            The following workflows are ready to run based on your changes. 
-            Would you like to execute them?
+            {allProcessed ? (
+              processedWorkflows.every(p => p.action === 'skipped') 
+                ? 'All workflows were skipped. No actions were taken.'
+                : processedWorkflows.every(p => p.action === 'confirmed')
+                  ? 'All workflows have been executed successfully.'
+                  : 'Your workflow choices have been processed.'
+            ) : (
+              'The following workflows are ready to run based on your changes. Would you like to execute them?'
+            )}
           </DialogDescription>
         </DialogHeader>
 
