@@ -83,7 +83,11 @@ Access to organization-scoped data for write operations is controlled purely by 
 
 ## Workflow Automation System
 
-Workflows are tenant-scoped entities that enable automated actions based on entity events (organization, member, job_posting). They include `tenant_id` for multi-tenant isolation, and queries filter by `tenant_id` to prevent cross-tenant execution.
+Workflows are tenant-scoped entities that enable automated actions based on entity events (organization, member, job_posting). They include `tenant_id` for multi-tenant isolation, and queries filter by `tenant_id` to prevent cross-tenant execution. Field change triggers can optionally require user confirmation via modal dialog.
+
+## Supabase Realtime Subscriptions
+
+The frontend uses Supabase Realtime to subscribe to database changes and automatically refresh lists when data is modified. The `useRealtimeSubscription` hook in `client/src/hooks/useRealtimeSubscription.js` provides tenant-scoped subscriptions that invalidate TanStack Query cache keys when INSERT/UPDATE/DELETE events occur. Currently implemented for OrganisationsList and MembersList pages.
 
 # External Dependencies
 
