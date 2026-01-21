@@ -4162,30 +4162,6 @@ export default function FormBuilderPage() {
                 <div className="bg-blue-50/50 rounded-lg p-4 space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div className="space-y-2">
-                      <Label htmlFor="contract_org">Link to Organisation</Label>
-                      <Select
-                        value={formData.contract_settings?.organization_id || "_none"}
-                        onValueChange={(value) => setFormData({
-                          ...formData,
-                          contract_settings: {
-                            ...formData.contract_settings,
-                            organization_id: value === "_none" ? null : value
-                          }
-                        })}
-                      >
-                        <SelectTrigger data-testid="select-contract-org">
-                          <SelectValue placeholder="Select organisation..." />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="_none">No organisation</SelectItem>
-                          {organizations.map(org => (
-                            <SelectItem key={org.id} value={org.id}>{org.name}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="space-y-2">
                       <Label htmlFor="timeout_days">Timeout (Days)</Label>
                       <Input
                         id="timeout_days"
@@ -4221,8 +4197,68 @@ export default function FormBuilderPage() {
                     </div>
                   </div>
 
-                  {/* Reminder Schedule */}
+                  {/* Initial Email Template */}
                   <div className="space-y-3 pt-2 border-t border-blue-100">
+                    <div className="flex items-center gap-2">
+                      <Mail className="w-4 h-4 text-slate-500" />
+                      <Label className="text-sm font-medium">Initial Email Template</Label>
+                    </div>
+                    <p className="text-xs text-slate-500">
+                      Select the email template to send when the contract is sent for signing.
+                    </p>
+                    <Select
+                      value={formData.contract_settings?.initial_email_template_id || "_none"}
+                      onValueChange={(value) => setFormData({
+                        ...formData,
+                        contract_settings: {
+                          ...formData.contract_settings,
+                          initial_email_template_id: value === "_none" ? null : value
+                        }
+                      })}
+                    >
+                      <SelectTrigger data-testid="select-initial-email-template">
+                        <SelectValue placeholder="Select email template..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="_none">No template (don't send email)</SelectItem>
+                        {emailTemplates.map(template => (
+                          <SelectItem key={template.id} value={template.id}>{template.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Number of Signers Required */}
+                  <div className="space-y-3 pt-4 border-t border-slate-100">
+                    <div className="flex items-center gap-2">
+                      <Users className="w-4 h-4 text-slate-500" />
+                      <Label className="text-sm font-medium">Number of Signers Required</Label>
+                    </div>
+                    <p className="text-xs text-slate-500">
+                      Specify how many signers are required for this contract template. The actual signer details will be provided when the contract is created via a workflow action.
+                    </p>
+                    <Input
+                      type="number"
+                      min="1"
+                      max="10"
+                      value={formData.contract_settings?.required_signers_count || 1}
+                      onChange={(e) => setFormData({
+                        ...formData,
+                        contract_settings: {
+                          ...formData.contract_settings,
+                          required_signers_count: parseInt(e.target.value) || 1
+                        }
+                      })}
+                      className="w-32"
+                      data-testid="input-required-signers-count"
+                    />
+                    <p className="text-xs text-slate-400">
+                      {formData.contract_settings?.required_signers_count || 1} signer{(formData.contract_settings?.required_signers_count || 1) !== 1 ? 's' : ''} will be required to sign this contract.
+                    </p>
+                  </div>
+
+                  {/* Reminder Schedule */}
+                  <div className="space-y-3 pt-4 border-t border-slate-100">
                     <div className="flex items-center justify-between">
                       <Label className="text-sm font-medium">Reminder Schedule</Label>
                       <Button
@@ -4323,66 +4359,6 @@ export default function FormBuilderPage() {
                         ))}
                       </div>
                     )}
-                  </div>
-
-                  {/* Initial Email Template */}
-                  <div className="space-y-3 pt-4 border-t border-slate-100">
-                    <div className="flex items-center gap-2">
-                      <Mail className="w-4 h-4 text-slate-500" />
-                      <Label className="text-sm font-medium">Initial Email Template</Label>
-                    </div>
-                    <p className="text-xs text-slate-500">
-                      Select the email template to send when the contract is sent for signing.
-                    </p>
-                    <Select
-                      value={formData.contract_settings?.initial_email_template_id || "_none"}
-                      onValueChange={(value) => setFormData({
-                        ...formData,
-                        contract_settings: {
-                          ...formData.contract_settings,
-                          initial_email_template_id: value === "_none" ? null : value
-                        }
-                      })}
-                    >
-                      <SelectTrigger data-testid="select-initial-email-template">
-                        <SelectValue placeholder="Select email template..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="_none">No template (don't send email)</SelectItem>
-                        {emailTemplates.map(template => (
-                          <SelectItem key={template.id} value={template.id}>{template.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {/* Number of Signers Required */}
-                  <div className="space-y-3 pt-4 border-t border-slate-100">
-                    <div className="flex items-center gap-2">
-                      <Users className="w-4 h-4 text-slate-500" />
-                      <Label className="text-sm font-medium">Number of Signers Required</Label>
-                    </div>
-                    <p className="text-xs text-slate-500">
-                      Specify how many signers are required for this contract template. The actual signer details will be provided when the contract is created via a workflow action.
-                    </p>
-                    <Input
-                      type="number"
-                      min="1"
-                      max="10"
-                      value={formData.contract_settings?.required_signers_count || 1}
-                      onChange={(e) => setFormData({
-                        ...formData,
-                        contract_settings: {
-                          ...formData.contract_settings,
-                          required_signers_count: parseInt(e.target.value) || 1
-                        }
-                      })}
-                      className="w-32"
-                      data-testid="input-required-signers-count"
-                    />
-                    <p className="text-xs text-slate-400">
-                      {formData.contract_settings?.required_signers_count || 1} signer{(formData.contract_settings?.required_signers_count || 1) !== 1 ? 's' : ''} will be required to sign this contract.
-                    </p>
                   </div>
                 </div>
               </div>
