@@ -4164,12 +4164,12 @@ export default function FormBuilderPage() {
                     <div className="space-y-2">
                       <Label htmlFor="contract_org">Link to Organisation</Label>
                       <Select
-                        value={formData.contract_settings?.organization_id || ""}
+                        value={formData.contract_settings?.organization_id || "_none"}
                         onValueChange={(value) => setFormData({
                           ...formData,
                           contract_settings: {
                             ...formData.contract_settings,
-                            organization_id: value || null
+                            organization_id: value === "_none" ? null : value
                           }
                         })}
                       >
@@ -4177,7 +4177,7 @@ export default function FormBuilderPage() {
                           <SelectValue placeholder="Select organisation..." />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="">No organisation</SelectItem>
+                          <SelectItem value="_none">No organisation</SelectItem>
                           {organizations.map(org => (
                             <SelectItem key={org.id} value={org.id}>{org.name}</SelectItem>
                           ))}
@@ -4282,10 +4282,10 @@ export default function FormBuilderPage() {
                             </div>
                             <div className="flex-1">
                               <Select
-                                value={reminder.email_template_id || ""}
+                                value={reminder.email_template_id || "_none"}
                                 onValueChange={(value) => {
                                   const reminders = [...(formData.contract_settings?.reminders || [])];
-                                  reminders[idx] = { ...reminder, email_template_id: value || null };
+                                  reminders[idx] = { ...reminder, email_template_id: value === "_none" ? null : value };
                                   setFormData({
                                     ...formData,
                                     contract_settings: { ...formData.contract_settings, reminders }
@@ -4296,6 +4296,7 @@ export default function FormBuilderPage() {
                                   <SelectValue placeholder="Select email template..." />
                                 </SelectTrigger>
                                 <SelectContent>
+                                  <SelectItem value="_none">No template</SelectItem>
                                   {emailTemplates.map(template => (
                                     <SelectItem key={template.id} value={template.id}>{template.name}</SelectItem>
                                   ))}
@@ -4427,13 +4428,13 @@ export default function FormBuilderPage() {
                                   </>
                                 ) : (
                                   <Select
-                                    value={signer.member_id || ''}
+                                    value={signer.member_id || '_none'}
                                     onValueChange={(value) => {
                                       const signers = [...(formData.contract_settings?.signers || [])];
                                       const member = members.find(m => m.id === value);
                                       signers[idx] = { 
                                         ...signers[idx], 
-                                        member_id: value,
+                                        member_id: value === '_none' ? null : value,
                                         name: member ? `${member.first_name || ''} ${member.last_name || ''}`.trim() : '',
                                         email: member?.email || ''
                                       };
@@ -4447,6 +4448,7 @@ export default function FormBuilderPage() {
                                       <SelectValue placeholder="Select member..." />
                                     </SelectTrigger>
                                     <SelectContent>
+                                      <SelectItem value="_none">Select member...</SelectItem>
                                       {members.map(member => (
                                         <SelectItem key={member.id} value={member.id}>
                                           {member.first_name} {member.last_name}
