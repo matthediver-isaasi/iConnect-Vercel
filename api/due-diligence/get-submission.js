@@ -67,7 +67,7 @@ export default async function handler(req, res) {
     // Get form details with tenant isolation
     const { data: form } = await supabase
       .from('form')
-      .select('id, name, fields, is_due_diligence_enabled')
+      .select('id, name, fields, due_diligence_required')
       .eq('id', ddSubmission.form_submission?.form_id)
       .eq('tenant_id', tenantCtx.tenantId)
       .single();

@@ -141,7 +141,7 @@ export default function DueDiligenceDashboardPage() {
     queryKey: ['dd-enabled-forms'],
     queryFn: async () => {
       const forms = await base44.entities.Form.list();
-      return forms.filter(f => f.is_due_diligence_enabled);
+      return forms.filter(f => f.due_diligence_required);
     },
     enabled: isAccessReady
   });

@@ -67,10 +67,10 @@ export default async function handler(req, res) {
 
     // Verify the form exists and belongs to this tenant
     // Include fields, entity_pipelines, field_mappings for post-submission processing
-    // Include is_due_diligence_enabled for auto-creating DD records
+    // Include due_diligence_required for auto-creating DD records
     const { data: form, error: formError } = await supabase
       .from('form')
-      .select('id, tenant_id, require_authentication, fields, entity_pipelines, field_mappings, application_level, is_due_diligence_enabled')
+      .select('id, tenant_id, require_authentication, fields, entity_pipelines, field_mappings, application_level, due_diligence_required')
       .eq('id', form_id)
       .eq('tenant_id', tenantData.id)
       .eq('is_active', true)
@@ -215,8 +215,8 @@ export default async function handler(req, res) {
     }
 
     // Auto-create due diligence record if form has due diligence enabled
-    console.log('[Public Form Submission] Checking DD enabled:', form.is_due_diligence_enabled, 'form_id:', form.id);
-    if (form.is_due_diligence_enabled) {
+    console.log('[Public Form Submission] Checking DD enabled:', form.due_diligence_required, 'form_id:', form.id);
+    if (form.due_diligence_required) {
       try {
         console.log('[Public Form Submission] Creating due diligence record for submission:', submission.id);
         
