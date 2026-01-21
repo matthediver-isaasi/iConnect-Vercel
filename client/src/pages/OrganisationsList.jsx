@@ -148,6 +148,20 @@ export default function OrganisationsListPage() {
     }
   });
 
+  // Sync selectedOrg with latest data when organizations list updates (e.g., from realtime)
+  useEffect(() => {
+    if (selectedOrg && !orgsLoading) {
+      const updatedOrg = organizations.find(org => org.id === selectedOrg.id);
+      if (!updatedOrg) {
+        // Organization was deleted or no longer in list, clear selection
+        setSelectedOrg(null);
+      } else if (updatedOrg !== selectedOrg) {
+        // Organization object changed, sync with latest data
+        setSelectedOrg(updatedOrg);
+      }
+    }
+  }, [organizations, selectedOrg, orgsLoading]);
+
   const { data: members = [] } = useQuery({
     queryKey: ['all-members-for-org-list'],
     enabled: accessChecked,

@@ -184,6 +184,20 @@ export default function MembersListPage() {
     }
   });
 
+  // Sync selectedMember with latest data when members list updates (e.g., from realtime)
+  useEffect(() => {
+    if (selectedMember && !membersLoading) {
+      const updatedMember = members.find(m => m.id === selectedMember.id);
+      if (!updatedMember) {
+        // Member was deleted or no longer in list, clear selection
+        setSelectedMember(null);
+      } else if (updatedMember !== selectedMember) {
+        // Member object changed, sync with latest data
+        setSelectedMember(updatedMember);
+      }
+    }
+  }, [members, selectedMember, membersLoading]);
+
   const { data: organizations = [] } = useQuery({
     queryKey: ['organizations-for-members'],
     enabled: accessChecked,
