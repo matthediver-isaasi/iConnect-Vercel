@@ -124,6 +124,25 @@ export default function MemberDetailView({
     show_in_directory: true
   });
 
+  // Sync formData with member prop when it changes (for realtime updates)
+  useEffect(() => {
+    if (member?.id && !isEditing) {
+      setFormData({
+        first_name: member.first_name || '',
+        last_name: member.last_name || '',
+        email: member.email || '',
+        mobile: member.mobile || '',
+        landline: member.landline || '',
+        job_title: member.job_title || '',
+        biography: member.biography || '',
+        organization_id: member.organization_id || '',
+        login_enabled: member.login_enabled !== false,
+        show_in_directory: member.show_in_directory !== false
+      });
+      setSelectedRoleId(member.role_id || null);
+    }
+  }, [member, isEditing]);
+
   const getMemberName = (m) => {
     return [m?.first_name, m?.last_name].filter(Boolean).join(' ') || '';
   };
@@ -442,26 +461,6 @@ export default function MemberDetailView({
       return false;
     });
   }, [roles, segmentationFieldId, orgPreferenceValues]);
-
-  useEffect(() => {
-    // Only populate form from member data when editing an existing member (has id)
-    // Skip this for new member creation to preserve defaultOrganizationId
-    if (member?.id) {
-      setFormData({
-        first_name: member.first_name || '',
-        last_name: member.last_name || '',
-        email: member.email || '',
-        mobile: member.mobile || '',
-        landline: member.landline || '',
-        job_title: member.job_title || '',
-        biography: member.biography || '',
-        organization_id: member.organization_id || '',
-        login_enabled: member.login_enabled !== false,
-        show_in_directory: member.show_in_directory !== false
-      });
-      setSelectedRoleId(member.role_id || null);
-    }
-  }, [member]);
 
   // Preselect the default role when creating a new member
   useEffect(() => {

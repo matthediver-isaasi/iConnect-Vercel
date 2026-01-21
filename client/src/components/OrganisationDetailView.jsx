@@ -212,6 +212,21 @@ export default function OrganisationDetailView({
     training_fund_balance: 0
   });
   const [customFieldValues, setCustomFieldValues] = useState({});
+
+  // Sync formData with organization prop when it changes (for realtime updates)
+  useEffect(() => {
+    if (organization && !isEditing) {
+      setFormData({
+        name: organization.name || '',
+        phone: organization.phone || '',
+        website_url: organization.website_url || '',
+        invoicing_email: organization.invoicing_email || '',
+        invoicing_address: organization.invoicing_address || '',
+        description: organization.description || '',
+        training_fund_balance: organization.training_fund_balance || 0
+      });
+    }
+  }, [organization, isEditing]);
   
   const { layoutConfig, saveLayout, isSaving: isLayoutSaving, isLoading: isLayoutLoading } = useOrgDetailLayout();
   const effectiveLayout = mergeLayoutWithCustomFields(layoutConfig, orgCustomFields);
@@ -439,20 +454,6 @@ export default function OrganisationDetailView({
       toast.error('Failed to delete note: ' + error.message);
     }
   });
-
-  useEffect(() => {
-    if (organization) {
-      setFormData({
-        name: organization.name || '',
-        phone: organization.phone || '',
-        website_url: organization.website_url || '',
-        invoicing_email: organization.invoicing_email || '',
-        invoicing_address: organization.invoicing_address || '',
-        description: organization.description || '',
-        training_fund_balance: organization.training_fund_balance || 0
-      });
-    }
-  }, [organization]);
 
   useEffect(() => {
     if (orgValues.length > 0 && orgCustomFields.length > 0) {
