@@ -219,7 +219,7 @@ function CommunicationPreferencesField({ field, value, onChange, disabled }) {
   );
 }
 
-export default function FormRenderer({ field, value, onChange, memberInfo, organizationInfo, disabled = false, onValidityChange, autoFocus = false }) {
+export default function FormRenderer({ field, value, onChange, memberInfo, organizationInfo, disabled = false, onValidityChange, autoFocus = false, hideLabel = false }) {
   const [showOtherInput, setShowOtherInput] = useState(false);
   const [otherValue, setOtherValue] = useState('');
   const [domainError, setDomainError] = useState('');
@@ -1444,6 +1444,10 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
         />
       </div>
     );
+  }
+
+  if (hideLabel) {
+    return renderField();
   }
 
   return (

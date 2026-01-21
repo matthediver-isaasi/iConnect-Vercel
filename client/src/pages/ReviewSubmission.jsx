@@ -177,6 +177,7 @@ function ReviewFieldEditor({
             value={reviewedValue}
             onChange={(value) => onChange(stateKey, value)}
             disabled={false}
+            hideLabel={true}
           />
         ) : (
           <div className="p-2 bg-white rounded border text-sm min-h-[40px]">
