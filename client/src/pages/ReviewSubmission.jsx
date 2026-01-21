@@ -138,27 +138,31 @@ function ReviewFieldEditor({
       <div className="space-y-2">
         <div className="flex items-center justify-between gap-2">
           <Label className="text-sm font-medium">Reviewed Value</Label>
-          <div className="flex items-center gap-1">
-            <Button
-              variant={isApproved ? "default" : "outline"}
-              size="sm"
-              onClick={() => onStatusChange(field.name, 'approved')}
-              className={cn("h-7 px-2", isApproved && "bg-green-600 hover:bg-green-700")}
-              data-testid={`button-approve-${field.name}`}
+          <div className="flex items-center gap-2">
+            <span className={cn("text-xs font-medium", isApproved ? "text-green-600" : "text-muted-foreground")}>
+              Approved
+            </span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={isAmended}
+              onClick={() => onStatusChange(field.name, isApproved ? 'amended' : 'approved')}
+              className={cn(
+                "relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                isApproved ? "bg-green-500" : "bg-amber-500"
+              )}
+              data-testid={`toggle-status-${field.name}`}
             >
-              <Check className="w-3 h-3 mr-1" />
-              Approve
-            </Button>
-            <Button
-              variant={isAmended ? "default" : "outline"}
-              size="sm"
-              onClick={() => onStatusChange(field.name, 'amended')}
-              className={cn("h-7 px-2", isAmended && "bg-amber-600 hover:bg-amber-700")}
-              data-testid={`button-amend-${field.name}`}
-            >
-              <Edit2 className="w-3 h-3 mr-1" />
-              Amend
-            </Button>
+              <span
+                className={cn(
+                  "inline-block h-4 w-4 transform rounded-full bg-white shadow-lg transition-transform",
+                  isAmended ? "translate-x-6" : "translate-x-1"
+                )}
+              />
+            </button>
+            <span className={cn("text-xs font-medium", isAmended ? "text-amber-600" : "text-muted-foreground")}>
+              Amended
+            </span>
           </div>
         </div>
         

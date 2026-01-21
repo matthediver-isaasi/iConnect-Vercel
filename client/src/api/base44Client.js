@@ -253,6 +253,8 @@ class EntitiesProxy {
   get ContractDocument() { return this._getEntity('ContractDocument'); }
   get ContractSigner() { return this._getEntity('ContractSigner'); }
   get ContractReminder() { return this._getEntity('ContractReminder'); }
+  get FormDueDiligenceConfig() { return this._getEntity('FormDueDiligenceConfig'); }
+  get FormSubmissionDueDiligence() { return this._getEntity('FormSubmissionDueDiligence'); }
 }
 
 const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25MB in bytes
