@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useLocation, useSearch } from "wouter";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -311,17 +311,14 @@ function HistoryLogModal({ isOpen, onClose, historyLog }) {
 }
 
 export default function ReviewSubmissionPage() {
-  const [, navigate] = useLocation();
-  const searchString = useSearch();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const { isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   
-  // Use useSearch from wouter to reactively get query params
-  const submissionId = useMemo(() => {
-    const urlParams = new URLSearchParams(searchString);
-    return urlParams.get('id');
-  }, [searchString]);
+  // Use useSearchParams from react-router-dom to reactively get query params
+  const submissionId = searchParams.get('id');
   
   const [reviewedFormValues, setReviewedFormValues] = useState({});
   const [fieldReviewStatus, setFieldReviewStatus] = useState({});

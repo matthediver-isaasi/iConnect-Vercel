@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useLocation } from "wouter";
+import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -129,7 +129,7 @@ function SubmissionRow({ submission, workflowStages, riskLevels, onClick }) {
 }
 
 export default function DueDiligenceDashboardPage() {
-  const [, navigate] = useLocation();
+  const navigate = useNavigate();
   const { isAccessReady, memberInfo } = useMemberAccess();
   
   const [searchQuery, setSearchQuery] = useState('');
