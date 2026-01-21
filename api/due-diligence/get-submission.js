@@ -24,6 +24,8 @@ export default async function handler(req, res) {
   try {
     const { id, formSubmissionId } = req.query;
 
+    console.log('[DD Get] Request params:', { id, formSubmissionId, tenantId: tenantCtx.tenantId });
+
     if (!id && !formSubmissionId) {
       return res.status(400).json({ error: 'id or formSubmissionId is required' });
     }
@@ -52,7 +54,10 @@ export default async function handler(req, res) {
 
     const { data: ddSubmission, error: ddError } = await query.single();
 
+    console.log('[DD Get] Query result:', { found: !!ddSubmission, error: ddError?.message, ddSubmissionId: ddSubmission?.id });
+
     if (ddError || !ddSubmission) {
+      console.log('[DD Get] Not found - ddError:', ddError, 'ddSubmission:', ddSubmission);
       return res.status(404).json({ error: 'Due diligence submission not found' });
     }
 
