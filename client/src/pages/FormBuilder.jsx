@@ -27,6 +27,7 @@ import { Columns2, Columns3, ArrowRight, Settings2, Wand2, Building2 } from "luc
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 import { COUNTRIES } from '@/data/countries';
@@ -2155,7 +2156,10 @@ function FieldCard({
   applicationLevel = "member",
   uniquenessChecks = [],
   onUniquenessChange,
-  prefillSource = "none"
+  prefillSource = "none",
+  isDrawerOpen = false,
+  onOpenDrawer,
+  onCloseDrawer
 }) {
   const isEmailType = field.type === 'email' || field.type === 'user_email';
   const isUrlType = field.type === 'url';
@@ -3133,6 +3137,9 @@ export default function FormBuilderPage() {
   // Use a ref to track "all collapsed" mode separately from individual toggles
   const [expandedPages, setExpandedPages] = useState({});
   const [allCollapsedMode, setAllCollapsedMode] = useState(false);
+  
+  // Track which field's configuration drawer is open
+  const [editingFieldId, setEditingFieldId] = useState(null);
   
   const togglePageExpanded = (pageId) => {
     setExpandedPages(prev => {
@@ -4696,11 +4703,13 @@ export default function FormBuilderPage() {
                                       FIELD_TYPES={FIELD_TYPES}
                                       categories={categories}
                                       customFields={customFields}
-
                                       applicationLevel={formData.application_level}
                                       uniquenessChecks={formData.uniqueness_checks}
                                       onUniquenessChange={handleUniquenessChange}
                                       prefillSource={formData.prefill_source || "none"}
+                                      isDrawerOpen={editingFieldId === field.id}
+                                      onOpenDrawer={() => setEditingFieldId(field.id)}
+                                      onCloseDrawer={() => setEditingFieldId(null)}
                                     />
                                   ))}
                                 {provided.placeholder}
@@ -4833,11 +4842,13 @@ export default function FormBuilderPage() {
                                                   FIELD_TYPES={FIELD_TYPES}
                                                   categories={categories}
                                                   customFields={customFields}
-            
                                                   applicationLevel={formData.application_level}
                                                   uniquenessChecks={formData.uniqueness_checks}
                                                   onUniquenessChange={handleUniquenessChange}
                                                   prefillSource={formData.prefill_source || "none"}
+                                                  isDrawerOpen={editingFieldId === field.id}
+                                                  onOpenDrawer={() => setEditingFieldId(field.id)}
+                                                  onCloseDrawer={() => setEditingFieldId(null)}
                                                 />
                                               ))
                                             )}
@@ -4891,6 +4902,9 @@ export default function FormBuilderPage() {
                               uniquenessChecks={formData.uniqueness_checks}
                               onUniquenessChange={handleUniquenessChange}
                               prefillSource={formData.prefill_source || "none"}
+                              isDrawerOpen={editingFieldId === field.id}
+                              onOpenDrawer={() => setEditingFieldId(field.id)}
+                              onCloseDrawer={() => setEditingFieldId(null)}
                             />
                           ))}
                           {provided.placeholder}
