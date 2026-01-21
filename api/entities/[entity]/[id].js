@@ -92,11 +92,13 @@ const entityToTable = {
 const getTableName = (entity) => entityToTable[entity] || entity.toLowerCase().replace(/([A-Z])/g, '_$1').toLowerCase().replace(/^_/, '');
 
 export default async function handler(req, res) {
+  const { entity, id } = req.query;
+  console.log(`[Entity ${req.method}] Incoming request: entity="${entity}", id="${id}"`);
+  
   if (!supabase) {
     return res.status(503).json({ error: 'Supabase not configured' });
   }
 
-  const { entity, id } = req.query;
   const tableName = getTableName(entity);
 
   // Get tenant context from session
