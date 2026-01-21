@@ -252,6 +252,7 @@ export async function getTenantContext(req) {
     tenantId,
     organizationId: member.organization_id,
     memberId: member.id,
+    roleId: member.role_id, // Include role_id for permission checks
     isAuthenticated: true,
     isSuperAdmin,
     tenantFromHost,
@@ -313,15 +314,18 @@ export function requiresTenantFilter(entity, method = 'GET') {
 }
 
 /**
- * Check if a member has CRM edit permissions based on their role
- * CRM access allows editing data for any organization within the tenant
+ * Check if a member has cross-organization CRM access based on their role
+ * Cross-org access allows editing organization-scoped data for any organization within the tenant
+ * 
+ * This is a targeted permission for organization management, NOT member editing.
+ * admin_can_edit_members only grants member-level operations, not cross-org data access.
  * 
  * @param {string|null} roleId - The member's role_id
- * @returns {Promise<{hasCrmAccess: boolean, isAdmin: boolean}>}
+ * @returns {Promise<{hasCrossOrgAccess: boolean, isAdmin: boolean}>}
  */
-export async function checkMemberCrmPermissions(roleId) {
+export async function checkCrossOrgPermissions(roleId) {
   if (!roleId || !supabase) {
-    return { hasCrmAccess: false, isAdmin: false };
+    return { hasCrossOrgAccess: false, isAdmin: false };
   }
   
   try {
@@ -332,25 +336,24 @@ export async function checkMemberCrmPermissions(roleId) {
       .single();
     
     if (error || !role) {
-      return { hasCrmAccess: false, isAdmin: false };
+      return { hasCrossOrgAccess: false, isAdmin: false };
     }
     
     const excludedFeatures = role.excluded_features || [];
     
-    // Admin access: role-management is NOT excluded
+    // Admin access: role-management is NOT excluded (Super Admin or equivalent)
     const isAdmin = !isResourceExcluded(excludedFeatures, 'admin.role-management');
     
-    // CRM access: can edit members OR is admin
-    // Check for both member editing and organization access
-    const canEditMembers = !isResourceExcluded(excludedFeatures, 'admin_can_edit_members');
+    // Cross-org access: can access organization management page
+    // NOTE: admin_can_edit_members is for member-level operations only, NOT cross-org access
     const canAccessOrganizations = !isResourceExcluded(excludedFeatures, 'admin.organizations');
     
-    // Has CRM access if admin, can edit members, or can access organizations
-    const hasCrmAccess = isAdmin || canEditMembers || canAccessOrganizations;
+    // Has cross-org access only if admin OR can access organization management
+    const hasCrossOrgAccess = isAdmin || canAccessOrganizations;
     
-    return { hasCrmAccess, isAdmin };
+    return { hasCrossOrgAccess, isAdmin };
   } catch (err) {
-    console.error('Error checking CRM permissions:', err);
-    return { hasCrmAccess: false, isAdmin: false };
+    console.error('Error checking cross-org permissions:', err);
+    return { hasCrossOrgAccess: false, isAdmin: false };
   }
 }

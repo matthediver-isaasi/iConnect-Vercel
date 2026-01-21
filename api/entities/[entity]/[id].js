@@ -1,7 +1,7 @@
 import { triggerWorkflows, triggerPreferenceWorkflows } from '../../_lib/workflows.js';
 import { invalidateMemberSessions, getSessionMember } from '../../_lib/session.js';
 import { supabase } from '../../_lib/database.js';
-import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, checkMemberCrmPermissions } from '../../_lib/tenantContext.js';
+import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, checkCrossOrgPermissions } from '../../_lib/tenantContext.js';
 
 // Entity name to Supabase table mapping (singular names for Base44 compatibility)
 const entityToTable = {
@@ -288,20 +288,17 @@ export default async function handler(req, res) {
         } else if (tenantScope === TENANT_SCOPE.ORGANIZATION) {
           // For organization-scoped entities:
           // - Tenant users (tenantUserId present) can access any org in their tenant
-          // - Members with CRM permissions can access any org in their tenant
+          // - Members with organization management permissions can access any org in their tenant
           // - Regular members can only access their own organization
           
-          // Check if this is a tenant_user (has tenantUserId) or a member with CRM permissions
+          // Check if this is a tenant_user (has tenantUserId) or a member with cross-org permissions
           let hasCrossOrgAccess = !!tenantCtx.tenantUserId;
           
-          if (!hasCrossOrgAccess && tenantCtx.memberId) {
-            // Check if member has CRM permissions via their role
-            const sessionMember = await getSessionMember(req);
-            if (sessionMember?.role_id) {
-              const { hasCrmAccess } = await checkMemberCrmPermissions(sessionMember.role_id);
-              hasCrossOrgAccess = hasCrmAccess;
-              console.log(`[Entity PATCH] CRM permission check: roleId=${sessionMember.role_id}, hasCrmAccess=${hasCrmAccess}`);
-            }
+          if (!hasCrossOrgAccess && tenantCtx.memberId && tenantCtx.roleId) {
+            // Check if member has organization management permissions via their role
+            const { hasCrossOrgAccess: hasAccess } = await checkCrossOrgPermissions(tenantCtx.roleId);
+            hasCrossOrgAccess = hasAccess;
+            console.log(`[Entity PATCH] Cross-org permission check: roleId=${tenantCtx.roleId}, hasCrossOrgAccess=${hasAccess}`);
           }
           
           console.log(`[Entity PATCH] ORGANIZATION scope: organizationId=${tenantCtx.organizationId}, tenantId=${tenantCtx.tenantId}, hasCrossOrgAccess=${hasCrossOrgAccess}`);
