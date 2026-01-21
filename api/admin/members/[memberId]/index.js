@@ -1,6 +1,7 @@
 import { getSessionMember } from '../../../_lib/session.js';
 import { createClient } from '@supabase/supabase-js';
 import { isResourceExcluded } from '../../../_lib/roleVisibility.js';
+import { triggerWorkflows } from '../../../_lib/workflows.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -117,6 +118,13 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'No valid fields to update' });
       }
 
+      // Fetch the member before the update for workflow comparison
+      const { data: beforeData } = await supabase
+        .from('member')
+        .select('*')
+        .eq('id', memberId)
+        .single();
+
       const { data: updatedMember, error: updateError } = await supabase
         .from('member')
         .update(updates)
@@ -127,6 +135,30 @@ export default async function handler(req, res) {
       if (updateError) {
         console.error('[Admin Update Member] Error:', updateError);
         return res.status(500).json({ error: updateError.message });
+      }
+
+      // Trigger workflows and check for pending confirmations
+      let pendingWorkflowConfirmations = [];
+      try {
+        const protocol = req.headers['x-forwarded-proto'] || 'https';
+        const host = req.headers['x-forwarded-host'] || req.headers.host || '';
+        const baseUrl = host ? `${protocol}://${host}` : '';
+        
+        const workflowResult = await triggerWorkflows('member', memberId, beforeData, updatedMember, 'field_change', baseUrl);
+        if (workflowResult?.pendingConfirmations?.length > 0) {
+          pendingWorkflowConfirmations = workflowResult.pendingConfirmations;
+          console.log(`[Admin Update Member] ${pendingWorkflowConfirmations.length} workflow(s) pending confirmation`);
+        }
+      } catch (err) {
+        console.error('[Admin Update Member] Workflow error:', err);
+      }
+
+      // Include pending confirmations in response if any
+      if (pendingWorkflowConfirmations.length > 0) {
+        return res.json({
+          ...updatedMember,
+          _pendingWorkflowConfirmations: pendingWorkflowConfirmations
+        });
       }
 
       return res.json(updatedMember);

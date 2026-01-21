@@ -324,12 +324,19 @@ export default async function handler(req, res) {
       const baseUrl = host ? `${protocol}://${host}` : (process.env.APP_URL || '');
       console.log(`[Entity PATCH] Derived baseUrl: "${baseUrl}"`);
 
-      // Trigger workflow evaluation (non-blocking)
+      // Trigger workflow evaluation and check for pending confirmations
+      let pendingWorkflowConfirmations = [];
       if (isWorkflowEntity && data) {
         const entityType = entityNormalized === 'jobposting' ? 'job_posting' : entityNormalized;
-        triggerWorkflows(entityType, id, beforeData, data, 'field_change', baseUrl).catch(err => {
+        try {
+          const workflowResult = await triggerWorkflows(entityType, id, beforeData, data, 'field_change', baseUrl);
+          if (workflowResult?.pendingConfirmations?.length > 0) {
+            pendingWorkflowConfirmations = workflowResult.pendingConfirmations;
+            console.log(`[Entity PATCH] ${pendingWorkflowConfirmations.length} workflow(s) pending confirmation`);
+          }
+        } catch (err) {
           console.error('[Entity PATCH] Workflow error:', err);
-        });
+        }
       }
       
       // Also trigger workflows when preference values are updated
@@ -362,6 +369,14 @@ export default async function handler(req, res) {
         }
       } else {
         console.log(`[Entity PATCH] Not a preference value entity or no data: isPreferenceValueEntity=${isPreferenceValueEntity}, data=${!!data}`);
+      }
+
+      // If there are pending workflow confirmations, include them in the response
+      if (pendingWorkflowConfirmations.length > 0) {
+        return res.json({
+          ...data,
+          _pendingWorkflowConfirmations: pendingWorkflowConfirmations
+        });
       }
 
       return res.json(data);

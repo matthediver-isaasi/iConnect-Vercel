@@ -702,9 +702,11 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
   console.log(`[Workflows] triggerWorkflows called: entityType=${entityType}, entityId=${entityId}, triggerType=${triggerType}`);
   console.log(`[Workflows] afterData.tenant_id=${afterData?.tenant_id}, beforeData.tenant_id=${beforeData?.tenant_id}`);
   
+  const pendingConfirmations = [];
+  
   if (!supabase) {
     console.log(`[Workflows] No supabase client available, skipping`);
-    return;
+    return { pendingConfirmations };
   }
   
   try {
@@ -730,7 +732,7 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
     // SECURITY: Require tenant_id to prevent cross-tenant workflow execution
     if (!tenantId) {
       console.log(`[Workflows] No tenant_id available for ${entityType}:${entityId}, skipping workflow evaluation`);
-      return;
+      return { pendingConfirmations };
     }
     
     console.log(`[Workflows] Querying workflows: entity_type=${entityType}, tenant_id=${tenantId}, is_active=true`);
@@ -745,7 +747,7 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
     
     if (!workflows || workflows.length === 0) {
       console.log(`[Workflows] No matching workflows found for ${entityType} in tenant ${tenantId}`);
-      return;
+      return { pendingConfirmations };
     }
     
     console.log(`[Workflows] Evaluating ${workflows.length} workflows for ${entityType}:${entityId} (tenant: ${tenantId})`);
@@ -945,13 +947,34 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
         continue;
       }
 
+      // Check if this workflow requires user confirmation before executing
+      if (workflow.trigger_type === 'field_change' && workflow.trigger_config?.requires_confirmation) {
+        console.log(`[Workflows] Workflow "${workflow.name}" requires user confirmation - adding to pending list`);
+        // Only include minimal non-sensitive data needed for confirmation UI
+        pendingConfirmations.push({
+          workflow_id: workflow.id,
+          workflow_name: workflow.name,
+          entity_type: entityType,
+          entity_id: entityId,
+          // Don't include before_data/after_data for security - server will fetch fresh data when confirmed
+          actions: workflow.actions?.map(a => ({
+            type: a.type,
+            description: a.type === 'send_email' ? 'Send email notification' : 'Update field value'
+          })) || []
+        });
+        continue;
+      }
+
       console.log(`[Workflows] Executing workflow: ${workflow.name} (trigger_mode=${workflow.trigger_mode || 'every_time'})`);
 
       const results = await executeWorkflowActions(workflow, entityType, entityId, afterData || {}, baseUrl);
       await logWorkflowExecution(workflow, entityType, entityId, { before: beforeData, after: afterData, trigger_type: triggerType }, results);
     }
+    
+    return { pendingConfirmations };
   } catch (err) {
     console.error('[Workflows] Error:', err.message, err.stack);
+    return { pendingConfirmations: [] };
   }
 }
 
@@ -1028,5 +1051,69 @@ export async function triggerPreferenceWorkflows(entityType, entityId, fieldId, 
     }
   } catch (err) {
     console.error('[Workflows] Preference Error:', err.message, err.stack);
+  }
+}
+
+// Execute a workflow that was pending user confirmation
+export async function executeConfirmedWorkflow(workflowId, entityType, entityId, beforeData, afterData, baseUrl) {
+  console.log(`[Workflows] executeConfirmedWorkflow called: workflowId=${workflowId}, entityType=${entityType}, entityId=${entityId}`);
+  
+  if (!supabase) {
+    console.log(`[Workflows] No supabase client available`);
+    return { success: false, error: 'Database not configured' };
+  }
+  
+  try {
+    // Fetch the workflow
+    const { data: workflow, error: workflowError } = await supabase
+      .from('workflow')
+      .select('*')
+      .eq('id', workflowId)
+      .single();
+    
+    if (workflowError || !workflow) {
+      console.error(`[Workflows] Failed to fetch workflow ${workflowId}:`, workflowError);
+      return { success: false, error: 'Workflow not found' };
+    }
+    
+    if (!workflow.is_active) {
+      console.log(`[Workflows] Workflow ${workflowId} is not active`);
+      return { success: false, error: 'Workflow is not active' };
+    }
+    
+    // Check once per record limit
+    if (await checkOncePerRecord(workflow, entityType, entityId)) {
+      console.log(`[Workflows] Workflow "${workflow.name}" already executed for entity ${entityId}`);
+      return { success: false, error: 'Workflow already executed for this record' };
+    }
+    
+    console.log(`[Workflows] Executing confirmed workflow: ${workflow.name}`);
+    
+    // Get the current entity data if afterData is not provided
+    let entityData = afterData;
+    if (!entityData) {
+      const table = entityType === 'job_posting' ? 'job_posting' : entityType;
+      const { data } = await supabase.from(table).select('*').eq('id', entityId).single();
+      entityData = data || {};
+    }
+    
+    const results = await executeWorkflowActions(workflow, entityType, entityId, entityData, baseUrl);
+    await logWorkflowExecution(workflow, entityType, entityId, { 
+      before: beforeData, 
+      after: afterData, 
+      trigger_type: 'field_change',
+      confirmed_by_user: true 
+    }, results);
+    
+    const hasFailures = results.some(r => r.status === 'failed');
+    
+    return { 
+      success: !hasFailures, 
+      results,
+      workflow_name: workflow.name
+    };
+  } catch (err) {
+    console.error('[Workflows] executeConfirmedWorkflow Error:', err.message, err.stack);
+    return { success: false, error: err.message };
   }
 }

@@ -17,6 +17,7 @@ interface TriggerConfig {
   field_type: 'core' | 'custom';
   operator: string;
   value: string;
+  requires_confirmation?: boolean;
 }
 
 interface Condition {

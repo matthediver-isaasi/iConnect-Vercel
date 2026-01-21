@@ -39,6 +39,8 @@ import { useLayoutContext } from "@/contexts/LayoutContext";
 import { useServerAdminAuth } from "@/hooks/useServerAdminAuth";
 import { createPageUrl } from "@/utils";
 import MemberEmails from "@/components/MemberEmails";
+import WorkflowConfirmationModal from "@/components/WorkflowConfirmationModal";
+import { useWorkflowConfirmation } from "@/hooks/useWorkflowConfirmation";
 
 async function uploadImageToSupabase(file, bucket, folderPrefix = "") {
   const fileExt = file.name.split(".").pop();
@@ -87,6 +89,16 @@ export default function AdminMemberEdit() {
   const [hasUnsavedOrgLogo, setHasUnsavedOrgLogo] = useState(false);
 
   const [updatingCommPrefs, setUpdatingCommPrefs] = useState(new Set());
+
+  const {
+    pendingWorkflows,
+    showConfirmationModal,
+    setShowConfirmationModal,
+    checkForPendingWorkflows,
+    handleConfirmWorkflow,
+    handleSkipWorkflow,
+    handleSkipAllWorkflows,
+  } = useWorkflowConfirmation();
 
   const { data: memberRecord, isLoading: memberLoading, error: memberError } = useQuery({
     queryKey: ["adminMember", memberId],
@@ -364,12 +376,14 @@ export default function AdminMemberEdit() {
       }
       return response.json();
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["adminMember", memberId] });
       queryClient.invalidateQueries({ queryKey: ["all-members-directory"] });
       toast.success("Member profile updated successfully");
       setHasUnsavedProfile(false);
       setIsSavingProfile(false);
+      
+      checkForPendingWorkflows(data);
     },
     onError: (error) => {
       toast.error(error.message || "Failed to update member profile");
@@ -1113,6 +1127,15 @@ export default function AdminMemberEdit() {
           memberName={memberFullName}
         />
       </div>
+
+      <WorkflowConfirmationModal
+        open={showConfirmationModal}
+        onOpenChange={setShowConfirmationModal}
+        pendingWorkflows={pendingWorkflows}
+        onConfirm={handleConfirmWorkflow}
+        onSkip={handleSkipWorkflow}
+        onSkipAll={handleSkipAllWorkflows}
+      />
     </div>
   );
 }

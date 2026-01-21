@@ -158,7 +158,7 @@ export default function WorkflowManagementPage() {
     description: '',
     entity_type: 'organization',
     trigger_type: 'field_change',
-    trigger_config: { field_id: '', field_type: 'core', operator: 'changed_to', value: '' },
+    trigger_config: { field_id: '', field_type: 'core', operator: 'changed_to', value: '', requires_confirmation: false },
     trigger_mode: 'every_time',
     conditions: [],
     actions: [],
@@ -361,7 +361,7 @@ export default function WorkflowManagementPage() {
       description: '',
       entity_type: 'organization',
       trigger_type: 'field_change',
-      trigger_config: { field_id: '', field_type: 'core', operator: 'changed_to', value: '' },
+      trigger_config: { field_id: '', field_type: 'core', operator: 'changed_to', value: '', requires_confirmation: false },
       trigger_mode: 'every_time',
       conditions: [],
       actions: [],
@@ -371,12 +371,13 @@ export default function WorkflowManagementPage() {
 
   const handleEditWorkflow = (workflow) => {
     setEditingWorkflow(workflow);
+    const existingTriggerConfig = workflow.trigger_config || { field_id: '', field_type: 'core', operator: 'changed_to', value: '' };
     setFormData({
       name: workflow.name || '',
       description: workflow.description || '',
       entity_type: workflow.entity_type || 'organization',
       trigger_type: workflow.trigger_type || 'field_change',
-      trigger_config: workflow.trigger_config || { field_id: '', field_type: 'core', operator: 'changed_to', value: '' },
+      trigger_config: { ...existingTriggerConfig, requires_confirmation: existingTriggerConfig.requires_confirmation || false },
       trigger_mode: workflow.trigger_mode || 'every_time',
       conditions: workflow.conditions || [],
       actions: workflow.actions || [],
@@ -570,6 +571,12 @@ export default function WorkflowManagementPage() {
                             <span className={workflow.trigger_mode === 'once_per_record' ? 'text-amber-600 dark:text-amber-400 font-medium' : ''}>
                               {workflow.trigger_mode === 'once_per_record' ? 'Runs once per record' : 'Runs every time'}
                             </span>
+                            {workflow.trigger_type === 'field_change' && workflow.trigger_config?.requires_confirmation && (
+                              <span className="text-blue-600 dark:text-blue-400 font-medium flex items-center gap-1">
+                                <AlertTriangle className="h-3 w-3" />
+                                Requires confirmation
+                              </span>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -939,6 +946,26 @@ export default function WorkflowManagementPage() {
                         </div>
                       );
                     })()}
+
+                    <Separator className="my-4" />
+                    
+                    <div className="flex items-center justify-between">
+                      <div className="space-y-0.5">
+                        <Label htmlFor="requires-confirmation">Requires user confirmation</Label>
+                        <p className="text-xs text-muted-foreground">
+                          When enabled, a confirmation dialog will appear before running this workflow
+                        </p>
+                      </div>
+                      <Switch
+                        id="requires-confirmation"
+                        checked={formData.trigger_config.requires_confirmation || false}
+                        onCheckedChange={(checked) => setFormData(prev => ({
+                          ...prev,
+                          trigger_config: { ...prev.trigger_config, requires_confirmation: checked }
+                        }))}
+                        data-testid="switch-requires-confirmation"
+                      />
+                    </div>
                   </div>
                 )}
               </div>
