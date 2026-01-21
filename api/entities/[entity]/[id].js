@@ -1,5 +1,5 @@
 import { triggerWorkflows, triggerPreferenceWorkflows } from '../../_lib/workflows.js';
-import { invalidateMemberSessions, getSessionMember } from '../../_lib/session.js';
+import { invalidateMemberSessions } from '../../_lib/session.js';
 import { supabase } from '../../_lib/database.js';
 import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, checkCrossOrgPermissions } from '../../_lib/tenantContext.js';
 
@@ -179,18 +179,13 @@ export default async function handler(req, res) {
       return res.json(data);
 
     } else if (req.method === 'PATCH') {
-      console.log(`[Entity PATCH] Entity: "${entity}", ID: ${id}, Body:`, JSON.stringify(req.body));
-      
       // Normalize entity name for comparison (handles both PascalCase and slug-case)
       const entityNormalized = entity.replace(/[-_]/g, '').toLowerCase();
-      console.log(`[Entity PATCH] Normalized entity: "${entityNormalized}"`);
       
       // For Organization/Member/JobPosting, fetch before data for workflow evaluation
       let beforeData = null;
       const isWorkflowEntity = entityNormalized === 'organization' || entityNormalized === 'member' || entityNormalized === 'jobposting';
       const isPreferenceValueEntity = entityNormalized === 'organizationpreferencevalue' || entityNormalized === 'memberpreferencevalue';
-      
-      console.log(`[Entity PATCH] isPreferenceValueEntity: ${isPreferenceValueEntity}`);
       
       if (isWorkflowEntity) {
         try {
@@ -287,32 +282,24 @@ export default async function handler(req, res) {
           patchQuery = patchQuery.eq('member_id', tenantCtx.memberId);
         } else if (tenantScope === TENANT_SCOPE.ORGANIZATION) {
           // For organization-scoped entities:
-          // - Tenant users (tenantUserId present) can access any org in their tenant
-          // - Members with organization management permissions can access any org in their tenant
+          // - Members with organization management permissions (admin.organizations) can access any org in their tenant
           // - Regular members can only access their own organization
+          // Access is purely role-based - tenant owners are provisioned with Super Admin role which includes org access
           
-          // Check if this is a tenant_user (has tenantUserId) or a member with cross-org permissions
-          let hasCrossOrgAccess = !!tenantCtx.tenantUserId;
+          let hasCrossOrgAccess = false;
           
-          if (!hasCrossOrgAccess && tenantCtx.memberId && tenantCtx.roleId) {
-            // Check if member has organization management permissions via their role
+          if (tenantCtx.roleId) {
             const { hasCrossOrgAccess: hasAccess } = await checkCrossOrgPermissions(tenantCtx.roleId);
             hasCrossOrgAccess = hasAccess;
-            console.log(`[Entity PATCH] Cross-org permission check: roleId=${tenantCtx.roleId}, hasCrossOrgAccess=${hasAccess}`);
           }
-          
-          console.log(`[Entity PATCH] ORGANIZATION scope: organizationId=${tenantCtx.organizationId}, tenantId=${tenantCtx.tenantId}, hasCrossOrgAccess=${hasCrossOrgAccess}`);
           
           if (hasCrossOrgAccess && tenantCtx.tenantId) {
             // User has cross-org access: verify the entity's organization belongs to their tenant
-            console.log(`[Entity PATCH] Cross-org access path - fetching entity ${id} from ${tableName}`);
             const { data: entityRecord, error: entityError } = await supabase
               .from(tableName)
               .select('organization_id')
               .eq('id', id)
               .single();
-            
-            console.log(`[Entity PATCH] Entity lookup result: data=${JSON.stringify(entityRecord)}, error=${JSON.stringify(entityError)}`);
             
             if (!entityRecord?.organization_id) {
               return res.status(404).json({ error: 'Entity not found' });
@@ -325,14 +312,11 @@ export default async function handler(req, res) {
               .eq('id', entityRecord.organization_id)
               .single();
             
-            console.log(`[Entity PATCH] Org lookup result: org.tenant_id=${org?.tenant_id}, tenantCtx.tenantId=${tenantCtx.tenantId}, match=${org?.tenant_id === tenantCtx.tenantId}`);
-            
             if (!org || org.tenant_id !== tenantCtx.tenantId) {
               return res.status(403).json({ error: 'Access denied - organization not in your tenant' });
             }
             
             // Organization verified, filter by its id
-            console.log(`[Entity PATCH] Verification passed - adding filter organization_id=${entityRecord.organization_id}`);
             patchQuery = patchQuery.eq('organization_id', entityRecord.organization_id);
           } else if (tenantCtx.organizationId) {
             // Regular member without CRM access: can only access their own organization's data
@@ -367,7 +351,6 @@ export default async function handler(req, res) {
 
       // SECURITY: If login_enabled was changed to false for a member, invalidate all their sessions
       if (entityNormalized === 'member' && sanitizedBody.login_enabled === false) {
-        console.log(`[Entity PATCH] Member login disabled - invalidating sessions for member ${id}`);
         await invalidateMemberSessions(id);
       }
 
@@ -381,7 +364,6 @@ export default async function handler(req, res) {
       }
       
       const baseUrl = host ? `${protocol}://${host}` : (process.env.APP_URL || '');
-      console.log(`[Entity PATCH] Derived baseUrl: "${baseUrl}"`);
 
       // Trigger workflow evaluation and check for pending confirmations
       let pendingWorkflowConfirmations = [];
@@ -391,10 +373,9 @@ export default async function handler(req, res) {
           const workflowResult = await triggerWorkflows(entityType, id, beforeData, data, 'field_change', baseUrl);
           if (workflowResult?.pendingConfirmations?.length > 0) {
             pendingWorkflowConfirmations = workflowResult.pendingConfirmations;
-            console.log(`[Entity PATCH] ${pendingWorkflowConfirmations.length} workflow(s) pending confirmation`);
           }
         } catch (err) {
-          console.error('[Entity PATCH] Workflow error:', err);
+          console.error('Workflow error:', err);
         }
       }
       
@@ -404,34 +385,21 @@ export default async function handler(req, res) {
         const entityId = data.organization_id || data.member_id;
         const fieldId = data.field_id;
         
-        // Log what was in the request vs what's in the response
-        console.log(`[Entity PATCH] Preference PATCH - req.body.value: "${req.body.value}", data.value: "${data.value}"`);
-        console.log(`[Entity PATCH] Preference value updated - entityId: ${entityId}, fieldId: ${fieldId}, value: ${data.value}`);
-        console.log(`[Entity PATCH] Full data returned:`, JSON.stringify(data));
-        
         // Use req.body.value (what was sent) rather than data.value (what was returned)
         // This ensures we check against the NEW value being set
         const newValue = req.body.value !== undefined ? req.body.value : data.value;
-        console.log(`[Entity PATCH] newValue to use: "${newValue}"`);
         
         if (entityId && fieldId) {
-          console.log(`[Entity PATCH] Calling triggerPreferenceWorkflows with entityType=${entityType}, entityId=${entityId}, fieldId=${fieldId}, value=${newValue}`);
-          // Await the workflow trigger to ensure it completes before returning
           try {
             const prefResult = await triggerPreferenceWorkflows(entityType, entityId, fieldId, newValue, baseUrl);
-            console.log(`[Entity PATCH] triggerPreferenceWorkflows completed`);
             // Add any pending confirmations from preference workflows
             if (prefResult?.pendingConfirmations?.length > 0) {
               pendingWorkflowConfirmations.push(...prefResult.pendingConfirmations);
             }
           } catch (err) {
-            console.error('[Entity PATCH] Preference workflow error:', err);
+            console.error('Preference workflow error:', err);
           }
-        } else {
-          console.log(`[Entity PATCH] SKIPPING workflow - missing entityId (${entityId}) or fieldId (${fieldId})`);
         }
-      } else {
-        console.log(`[Entity PATCH] Not a preference value entity or no data: isPreferenceValueEntity=${isPreferenceValueEntity}, data=${!!data}`);
       }
 
       // If there are pending workflow confirmations, include them in the response

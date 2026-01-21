@@ -1,6 +1,6 @@
 # Overview
 
-This project is a comprehensive membership management platform built with React (Vite) and Express.js. It aims to streamline membership operations, event management, and content delivery for organizations. Key capabilities include managing members, organizations, events, bookings, program tickets, resources, and blog posts, alongside administrative functions. It integrates with various external services for CRM, payments, and accounting, providing a robust, all-in-one solution designed as a multi-tenant SaaS product.
+This project is a multi-tenant SaaS membership management platform built with React (Vite) and Express.js. It offers comprehensive features for managing members, organizations, events, bookings, program tickets, resources, and blog posts. The platform also includes robust administrative functions and integrates with external services for CRM, payments, and accounting, aiming to be an all-in-one solution for organizations.
 
 # User Preferences
 
@@ -14,92 +14,28 @@ The frontend uses React 18 with TypeScript/JSX, Vite, TanStack Query, shadcn/ui 
 
 ## Backend
 
-The backend is built with Express.js, using PostgreSQL (Neon serverless) with Drizzle ORM. It follows a generic entity CRUD API pattern, incorporating password-based authentication and server-side session management. An admin security model implements role-based access control. All API endpoints are implemented as Vercel serverless functions.
+The backend is built with Express.js, using PostgreSQL (Neon serverless) with Drizzle ORM. It follows a generic entity CRUD API pattern, incorporates password-based authentication and server-side session management, and uses an admin security model with role-based access control. All API endpoints are implemented as Vercel serverless functions.
 
 ## Multi-Tenant SaaS Architecture
 
-The platform supports a three-tier hierarchy: TENANT, ORGANIZATION, and MEMBER. A `tenant` table stores SaaS subscribing companies, and access control enforces data isolation at GLOBAL, TENANT, ORGANIZATION, and MEMBER levels. Members are TENANT-scoped, allowing individuals to exist without belonging to an organization.
-
-### Data Scoping Rules (IMPORTANT)
-
-**All application data MUST be scoped to `tenant_id` unless it is platform-level data (GLOBAL scope).**
-
-- Use `tenant_id` for data isolation, NOT `organization_id`
-- `organization_id` is ONLY for sub-filtering within a tenant (e.g., org-specific contacts)
-- Data without proper `tenant_id` scoping will leak across tenants
-
-**Scope Classifications:**
-- **GLOBAL**: Platform-level data shared across all tenants (TypographyStyle, IEditElementTemplate, RoleAccessItem, ButtonStyle)
-- **TENANT**: Per-tenant data filtered by `tenant_id` - THIS IS THE DEFAULT for all business data
-- **ORGANIZATION**: Sub-filtering within a tenant (NOT for primary isolation) - DEPRECATED for new entities
-- **MEMBER**: Scoped to individual member's own data
-
-**Key Files:**
-- `api/_lib/tenantContext.js` - Defines entity scoping rules and tenant context resolution
-- `api/entities/[entity]/index.js` - Enforces tenant filtering on all entity operations
-
-**Security Enforcement:**
-- Entities requiring `tenant_id` but lacking it will return 403 Forbidden
-- No fallback to unfiltered queries - access is blocked if tenant context is missing
+The platform supports a three-tier hierarchy: TENANT, ORGANIZATION, and MEMBER. A `tenant` table stores SaaS subscribing companies, and access control enforces data isolation at GLOBAL, TENANT, ORGANIZATION, and MEMBER levels. All application data, except platform-level (GLOBAL scope), **MUST be scoped to `tenant_id`**. `organization_id` is for sub-filtering within a tenant only, not primary isolation.
 
 ## Unified Identity System
 
-A centralized `tenant_identity` table handles all user authentication for owners and members. This allows a single user to own multiple tenants and be a member in multiple organizations, facilitating seamless tenant switching. Per-tenant password isolation is implemented via `tenant_membership_credentials`, allowing different passwords for each tenant an identity belongs to. Both systems support Google OAuth.
-
-### Multi-Tenant Provisioning Flow
-
-When a new tenant is provisioned via platform owner, the system:
-1. **Checks for existing identity** by email in `tenant_identity` table
-2. **For NEW users**: Creates `tenant_identity` with `reset_token` (7-day expiry), sends welcome email with setup link
-3. **For EXISTING users**: Reuses existing identity, sets `tenant_user.status` to 'active', sends notification email about new access
-4. **Always creates**: `member`, `tenant_membership`, `tenant_user`, and `tenant_user_member_link` records - all linked to identity_id
-5. **is_default flag**: Set to `true` only for new identities; existing users keep their current default tenant
-
-The tenant switcher (`/api/auth/tenant-list`) queries both `tenant_membership` and `tenant_user` tables by identity_id, merging results to show all accessible tenants.
+A centralized `tenant_identity` table handles all user authentication for owners and members, allowing users to own multiple tenants and be members in multiple organizations. Per-tenant password isolation is implemented via `tenant_membership_credentials`. Both systems support Google OAuth.
 
 ## Deployment & Domain Architecture
 
-**CRITICAL: IGNORE the local Express dev server entirely.** All development, testing, and debugging happens on Vercel. The Replit workspace is used only for code editing - never for running or testing the application locally.
-
-### Domain Structure
-
-- **`iconn.app`** (root domain) - Tenant owner area for provisioning, login, setup, and multi-tenant management. One person can own multiple tenants.
-- **`{tenant}.iconn.app`** (subdomains) - Member portals for each specific tenant. Members access their tenant's portal here.
-
-### Navigation Rules
-
-- Tenant owners login and manage tenants on `iconn.app`. They access tenant portals via "Open Portal" button.
-- The "Admin Dashboard" link in portal navigation always redirects to `https://iconn.app/admin/dashboard`.
-- Session cookies use `.iconn.app` domain for cross-subdomain sharing.
-
-### Preview vs Production
-
-Preview and production environments work **identically** - the only difference is which Vercel branch is deployed:
-- **Preview branches**: Deploy automatically for testing; have their own Vercel environment variables
-- **Production branch**: Merged after preview testing is confirmed; has its own Vercel environment variables
-
-There is NO functional code difference between preview and production - do NOT add environment-specific logic.
-
-**IMPORTANT: Environment Variables**
-- There is NO concept of DEV_* prefixed environment variables (e.g., no DEV_SUPABASE_URL)
-- All code uses standard environment variable names (SUPABASE_URL, SUPABASE_SERVICE_KEY, DATABASE_URL)
-- Vercel manages different values for these variables per branch/deployment
-- Never add NODE_ENV-based logic to switch between dev/prod configurations
-
-### Development Workflow
-
-- All code changes automatically deploy to Vercel preview branches
-- API endpoints are Vercel serverless functions in the `/api/` directory
-- Test all changes on the Vercel preview URL, not locally
-- Debug using Vercel logs, not local Express logs
+All development, testing, and debugging occur on Vercel; the Replit workspace is for code editing only.
+The domain structure uses `iconn.app` for tenant owner management and `{tenant}.iconn.app` for member portals. Session cookies use `.iconn.app` for cross-subdomain sharing. Preview and production environments function identically, with differences only in Vercel branch deployments and environment variables, not in code logic.
 
 ## Data Model & Features
 
-The data model includes core entities like Member, Organization, Role, TeamMember, supporting role segmentation, event/booking management, content management (BlogPost, Resource), and a dynamic page builder. Additional features encompass a custom forms system with conditional logic, workflows, Speaker profiles, Card Deck content, navigation/settings configuration, communication preferences, custom fields, training funds, voucher codes, and an internal notes system.
+The data model includes core entities like Member, Organization, Role, and TeamMember, supporting various functionalities such as role segmentation, event/booking management, content management (BlogPost, Resource), and a dynamic page builder. Additional features include a custom forms system with conditional logic, workflows, Speaker profiles, Card Deck content, navigation/settings configuration, communication preferences, custom fields, training funds, voucher codes, and an internal notes system.
 
 ## Role Management System
 
-A feature-based role management system controls UI visibility and backend access, with protected system roles and role-based field access control for member profiles.
+A feature-based role management system controls UI visibility and backend access, including protected system roles and role-based field access control for member profiles.
 
 ## Email Template Placeholder System
 
@@ -111,118 +47,48 @@ An optional due diligence review capability for form submissions includes config
 
 ## Platform Owner Configuration System
 
-A third authentication tier for "Platform Owners" provides super-admin capabilities, managing platform-wide preferences and performing tenant deletion.
+A third authentication tier for "Platform Owners" provides super-admin capabilities for managing platform-wide preferences and tenant deletion.
 
 ## Tenant Branding System
 
-The platform supports per-tenant branding customization for public-facing pages, including `primary_color`, `secondary_color`, `tagline`, `logo_url`, `header_config`, and `footer_config` stored as JSONB. A public API endpoint (`/api/public/tenant-branding`) returns branding based on subdomain detection, integrated via `TenantBrandingContext` in the frontend.
+The platform supports per-tenant branding customization for public-facing pages, storing `primary_color`, `secondary_color`, `tagline`, `logo_url`, `header_config`, and `footer_config` as JSONB. A public API endpoint (`/api/public/tenant-branding`) returns branding based on subdomain detection.
 
 ## Form Embedding System
 
-Forms can be embedded on external websites via iFrame. A public API endpoint (`/api/public/form/[slug]`) provides form data, and an embed page (`/embed/form/:slug`) renders standalone forms. Security measures include tenant scoping, public-safe field returns, and disallowing embedding for forms requiring authentication.
+Forms can be embedded on external websites via iFrame, with a public API endpoint (`/api/public/form/[slug]`) providing form data and an embed page (`/embed/form/:slug`) for rendering. Security ensures tenant scoping and public-safe field returns.
 
 ## Public API Client
 
-All public-facing pages use a centralized `publicClient` for tenant-aware API requests, ensuring multi-tenant data isolation for unauthenticated users. Tenant detection prioritizes URL query parameters, then localStorage, subdomain extraction, and finally an environment variable.
+All public-facing pages use a centralized `publicClient` for tenant-aware API requests, ensuring multi-tenant data isolation for unauthenticated users.
 
 ## Session Validation Security Pattern
 
-Hybrid pages use a `sessionValidated` flag in `LayoutContext` to prevent leaking member-only data to unauthenticated users with stale localStorage. This flag is set to `true` only after successful `/api/auth/me` validation, ensuring authenticated API calls are made only when a valid session is confirmed.
+Hybrid pages use a `sessionValidated` flag in `LayoutContext` to prevent leaking member-only data to unauthenticated users with stale localStorage, ensuring authenticated API calls only occur after session validation.
 
 ## Outlook Email Integration
 
-The platform supports Microsoft Outlook integration for email tracking on member records. This involves `outlook_connection` and `member_email` tables for OAuth tokens and synced emails, respectively. It includes OAuth flow, API endpoints for connection status, syncing, sending emails, and UI components for management.
+The platform supports Microsoft Outlook integration for email tracking on member records, involving OAuth for `outlook_connection` and `member_email` tables for syncing emails.
 
 ## Tenant Email Domain Provisioning System
 
-The platform supports automated Mailgun domain provisioning for each tenant, enabling tenant-specific email sending domains (`mail.{tenant-slug}.iconn.app`).
-
-**Key Components:**
-- `api/functions/provision-mailgun-domain.js` - Creates Mailgun sending domain and Vercel DNS records
-- `api/functions/verify-mailgun-domain.js` - Checks domain verification status
-- `api/_lib/tenantEmailService.js` - Tenant-aware email sending with fallback to default domain
-
-**Flow:**
-1. On tenant provisioning, email domain placeholder is created in tenant.settings.email_domain
-2. Admin calls `/api/functions/provision-mailgun-domain` to create actual Mailgun domain
-3. Vercel DNS records (TXT for SPF/DKIM) are created automatically via Vercel API
-4. Admin calls `/api/functions/verify-mailgun-domain` to check verification status
-5. Once verified, `sendTenantEmail()` uses the tenant-specific domain; falls back to default if pending
-
-**Required Secrets:**
-- `VERCEL_API_TOKEN` - For programmatic DNS record creation
-- `MAILGUN_API_KEY` - For Mailgun API operations
-
-**Configuration Stored in tenant.settings:**
-```json
-{
-  "email_domain": {
-    "domain": "mail.{slug}.iconn.app",
-    "status": "verified|pending|pending_setup",
-    "from_email": "noreply@mail.{slug}.iconn.app",
-    "from_name": "Tenant Name"
-  }
-}
-```
+The platform supports automated Mailgun domain provisioning for each tenant, enabling tenant-specific email sending domains (`mail.{tenant-slug}.iconn.app`) with Vercel DNS record creation.
 
 ## Collapsible Sidebar Implementation
 
-The authenticated portal uses Shadcn's sidebar component (`@/components/ui/sidebar`) with these patterns:
+The authenticated portal uses Shadcn's collapsible sidebar component with ref-forwarding for navigation links, tooltips for collapsed icons, and adaptive footer content.
 
-**Key Files:**
-- `client/src/pages/Layout.jsx` - Main layout with sidebar implementation
+## Cross-Organization Access Control (CRM)
 
-**Sidebar Features:**
-- Collapsible to icon-only mode via circular toggle button on sidebar edge
-- Toggle positioned in `SidebarHeader` with absolute positioning
-- Tooltips appear on hover when collapsed (using `tooltip` prop on `SidebarMenuButton`)
-- Footer adapts: shows only icons when collapsed, full user info when expanded
-
-**Ref-Forwarding Link Pattern:**
-A `SidebarNavLink` component wraps react-router `Link` with `React.forwardRef` to enable:
-- Proper tooltip attachment with Shadcn's `asChild` pattern
-- Maintained SPA navigation (no full page reloads)
-- Collapsed-state utility classes to work properly
-
-**Collapsed-State CSS Classes:**
-- `group-data-[collapsible=icon]:hidden` - Hide labels/chevrons when collapsed
-- `shrink-0` on icons - Prevent icon resizing
-- These classes go on child elements inside `SidebarMenuButton`
-
-**Navigation Structure:**
-- Main navigation items (blue hover)
-- Admin navigation items (amber hover) - only shown to users with admin access
-- Collapsible groups for items with sub-menus
-- `SidebarFooterContent` component handles collapsed/expanded user info display
-
-# Recent Changes
-
-- **Jan 2026**: FormSubmission tenant scoping fix - FormSubmission now enforces `tenant_id` filtering. Added security checks to block access when `tenant_id` is missing for entities that don't support `organization_id` fallback. Updated documentation to clarify that all data must be tenant-scoped.
-- **Jan 2026**: Workflow tenant scoping - Workflows are now properly scoped to tenants (not organizations). Added `tenant_id` column to `workflow` and `workflow_log` tables. Workflow queries and executions now filter by tenant_id for proper multi-tenant isolation.
-- **Jan 2026**: Fixed sidebar toggle positioning - moved inside `SidebarHeader` for proper Shadcn structure
-- **Jan 2026**: Implemented icon centering and tooltips for collapsed sidebar mode
-- **Jan 2026**: Created `SidebarNavLink` ref-forwarding wrapper for proper tooltip integration
-- **Jan 2026**: Platform provisioning emails now use root domain (mail.iconn.app) for immediate sending
+Access to organization-scoped data for write operations is controlled purely by role permissions. Members with `admin.organizations` or `admin.role-management` permissions can edit data for any organization within their tenant, while regular members are restricted to their own organization's data.
 
 ## Workflow Automation System
 
-Workflows are tenant-scoped entities that enable automated actions based on entity events (organization, member, job_posting).
-
-**Key Files:**
-- `api/_lib/workflows.js` - Main workflow trigger functions (triggerWorkflows, triggerPreferenceWorkflows)
-- `server/workflowEngine.ts` - Workflow execution engine (evaluateWorkflows)
-- `api/entities/[entity]/index.js` - Entity handlers that trigger workflows
-
-**Tenant Scoping:**
-- Workflows have a `tenant_id` column for multi-tenant isolation
-- All workflow queries filter by `tenant_id` to prevent cross-tenant execution
-- Workflow logs also include `tenant_id` for audit purposes
-- The system requires valid tenant_id for workflow execution (fail-safe behavior)
+Workflows are tenant-scoped entities that enable automated actions based on entity events (organization, member, job_posting). They include `tenant_id` for multi-tenant isolation, and queries filter by `tenant_id` to prevent cross-tenant execution.
 
 # External Dependencies
 
-**Supabase:** Primary database (PostgreSQL) for application data, including CRUD and realtime subscriptions, and file storage.
+**Supabase:** Primary database (PostgreSQL) and file storage.
 **Stripe:** Payment processing.
-**Xero:** Invoice generation with multi-tenant isolation.
-**Microsoft Graph API:** Outlook email integration for CRM-style email tracking on member records.
-**Email Delivery:** For magic links and notifications.
+**Xero:** Invoice generation.
+**Microsoft Graph API:** Outlook email integration.
+**Mailgun:** Tenant-specific email sending domains and email delivery.
