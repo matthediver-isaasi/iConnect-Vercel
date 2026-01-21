@@ -18,7 +18,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { 
   Zap, Plus, Pencil, Trash2, AlertCircle, Mail, Play, Pause, 
   ChevronRight, ChevronLeft, Building2, User, Settings, Clock,
-  CheckCircle2, XCircle, History, Filter, ArrowRight, Users, AlertTriangle, Check, ChevronsUpDown, Briefcase, FileSignature, Send
+  CheckCircle2, XCircle, History, Filter, ArrowRight, Users, AlertTriangle, Check, ChevronsUpDown, Briefcase, FileSignature, Send, Copy
 } from "lucide-react";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
@@ -406,6 +406,24 @@ export default function WorkflowManagementPage() {
     setShowDialog(true);
   };
 
+  const handleDuplicateWorkflow = (workflow) => {
+    setEditingWorkflow(null);
+    const existingTriggerConfig = workflow.trigger_config || { field_id: '', field_type: 'core', operator: 'changed_to', value: '' };
+    setFormData({
+      name: `${workflow.name || ''} (Copy)`,
+      description: workflow.description || '',
+      entity_type: workflow.entity_type || 'organization',
+      trigger_type: workflow.trigger_type || 'field_change',
+      trigger_config: { ...existingTriggerConfig, requires_confirmation: existingTriggerConfig.requires_confirmation || false },
+      trigger_mode: workflow.trigger_mode || 'every_time',
+      conditions: workflow.conditions ? JSON.parse(JSON.stringify(workflow.conditions)) : [],
+      actions: workflow.actions ? JSON.parse(JSON.stringify(workflow.actions)) : [],
+      is_active: workflow.is_active !== false,
+    });
+    setBuilderStep(1);
+    setShowDialog(true);
+  };
+
   const handleSaveWorkflow = () => {
     if (!formData.name.trim()) {
       toast.error('Please enter a workflow name');
@@ -607,6 +625,9 @@ export default function WorkflowManagementPage() {
                         />
                         <Button variant="ghost" size="icon" onClick={() => handleEditWorkflow(workflow)} data-testid={`button-edit-workflow-${workflow.id}`}>
                           <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button variant="ghost" size="icon" onClick={() => handleDuplicateWorkflow(workflow)} data-testid={`button-duplicate-workflow-${workflow.id}`}>
+                          <Copy className="h-4 w-4" />
                         </Button>
                         <Button 
                           variant="ghost" 
