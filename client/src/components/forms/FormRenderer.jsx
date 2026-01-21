@@ -8,6 +8,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Loader2, Plus, X, Check, ChevronsUpDown } from "lucide-react";
+import CustomFieldFileUpload from "@/components/CustomFieldFileUpload";
 import {
   Select,
   SelectContent,
@@ -965,6 +966,20 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
         }
         
         const customFieldOptions = customFieldDef.options || [];
+        
+        // Handle file upload custom field type
+        if (customFieldDef.field_type === 'file') {
+          return (
+            <CustomFieldFileUpload
+              fieldId={field.id}
+              value={value}
+              onChange={(fileData) => !isFieldDisabled && onChange(fileData)}
+              allowedTypes={customFieldDef.allowed_file_types || []}
+              disabled={isFieldDisabled}
+              label={field.label || customFieldDef.label || 'Upload File'}
+            />
+          );
+        }
         
         // Handle text-based custom field types that don't need options
         const textBasedTypes = ['text', 'email', 'url', 'number', 'textarea', 'phone', 'date'];
