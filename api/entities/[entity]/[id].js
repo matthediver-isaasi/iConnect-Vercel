@@ -1,7 +1,7 @@
 import { triggerWorkflows, triggerPreferenceWorkflows } from '../../_lib/workflows.js';
-import { invalidateMemberSessions } from '../../_lib/session.js';
+import { invalidateMemberSessions, getSessionMember } from '../../_lib/session.js';
 import { supabase } from '../../_lib/database.js';
-import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE } from '../../_lib/tenantContext.js';
+import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, checkMemberCrmPermissions } from '../../_lib/tenantContext.js';
 
 // Entity name to Supabase table mapping (singular names for Base44 compatibility)
 const entityToTable = {
@@ -286,16 +286,29 @@ export default async function handler(req, res) {
         if (tenantScope === TENANT_SCOPE.MEMBER) {
           patchQuery = patchQuery.eq('member_id', tenantCtx.memberId);
         } else if (tenantScope === TENANT_SCOPE.ORGANIZATION) {
-          // For organization-scoped entities, tenant admins can access any org in their tenant
-          // Regular members can only access their own organization
-          console.log(`[Entity PATCH] ORGANIZATION scope: organizationId=${tenantCtx.organizationId}, tenantId=${tenantCtx.tenantId}, isTenantAdmin=${!!tenantCtx.tenantId}`);
+          // For organization-scoped entities:
+          // - Tenant users (tenantUserId present) can access any org in their tenant
+          // - Members with CRM permissions can access any org in their tenant
+          // - Regular members can only access their own organization
           
-          // Tenant admins (have tenantId) should verify via tenant, not personal organizationId
-          // This allows them to edit preference values for any organization in their tenant
-          if (tenantCtx.tenantId) {
-            // Tenant owner: verify the entity's organization belongs to their tenant
-            // First fetch the entity to get its organization_id
-            console.log(`[Entity PATCH] Tenant owner path - fetching entity ${id} from ${tableName}`);
+          // Check if this is a tenant_user (has tenantUserId) or a member with CRM permissions
+          let hasCrossOrgAccess = !!tenantCtx.tenantUserId;
+          
+          if (!hasCrossOrgAccess && tenantCtx.memberId) {
+            // Check if member has CRM permissions via their role
+            const sessionMember = await getSessionMember(req);
+            if (sessionMember?.role_id) {
+              const { hasCrmAccess } = await checkMemberCrmPermissions(sessionMember.role_id);
+              hasCrossOrgAccess = hasCrmAccess;
+              console.log(`[Entity PATCH] CRM permission check: roleId=${sessionMember.role_id}, hasCrmAccess=${hasCrmAccess}`);
+            }
+          }
+          
+          console.log(`[Entity PATCH] ORGANIZATION scope: organizationId=${tenantCtx.organizationId}, tenantId=${tenantCtx.tenantId}, hasCrossOrgAccess=${hasCrossOrgAccess}`);
+          
+          if (hasCrossOrgAccess && tenantCtx.tenantId) {
+            // User has cross-org access: verify the entity's organization belongs to their tenant
+            console.log(`[Entity PATCH] Cross-org access path - fetching entity ${id} from ${tableName}`);
             const { data: entityRecord, error: entityError } = await supabase
               .from(tableName)
               .select('organization_id')
@@ -325,7 +338,7 @@ export default async function handler(req, res) {
             console.log(`[Entity PATCH] Verification passed - adding filter organization_id=${entityRecord.organization_id}`);
             patchQuery = patchQuery.eq('organization_id', entityRecord.organization_id);
           } else if (tenantCtx.organizationId) {
-            // Regular member: can only access their own organization's data
+            // Regular member without CRM access: can only access their own organization's data
             patchQuery = patchQuery.eq('organization_id', tenantCtx.organizationId);
           }
         } else if (entity === 'Organization') {

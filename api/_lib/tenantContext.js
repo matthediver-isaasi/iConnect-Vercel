@@ -21,6 +21,7 @@
 
 import { getSessionMember, getSessionTenantUser } from './session.js';
 import { supabase } from './database.js';
+import { isResourceExcluded } from './roleVisibility.js';
 
 /**
  * Entity tenant scope classifications:
@@ -309,4 +310,47 @@ export function requiresTenantFilter(entity, method = 'GET') {
   // For now, require tenant filter for all tenant-scoped reads
   // Public pages will need to use separate public API endpoints
   return scope === TENANT_SCOPE.TENANT || scope === TENANT_SCOPE.ORGANIZATION || scope === TENANT_SCOPE.MEMBER;
+}
+
+/**
+ * Check if a member has CRM edit permissions based on their role
+ * CRM access allows editing data for any organization within the tenant
+ * 
+ * @param {string|null} roleId - The member's role_id
+ * @returns {Promise<{hasCrmAccess: boolean, isAdmin: boolean}>}
+ */
+export async function checkMemberCrmPermissions(roleId) {
+  if (!roleId || !supabase) {
+    return { hasCrmAccess: false, isAdmin: false };
+  }
+  
+  try {
+    const { data: role, error } = await supabase
+      .from('role')
+      .select('excluded_features')
+      .eq('id', roleId)
+      .single();
+    
+    if (error || !role) {
+      return { hasCrmAccess: false, isAdmin: false };
+    }
+    
+    const excludedFeatures = role.excluded_features || [];
+    
+    // Admin access: role-management is NOT excluded
+    const isAdmin = !isResourceExcluded(excludedFeatures, 'admin.role-management');
+    
+    // CRM access: can edit members OR is admin
+    // Check for both member editing and organization access
+    const canEditMembers = !isResourceExcluded(excludedFeatures, 'admin_can_edit_members');
+    const canAccessOrganizations = !isResourceExcluded(excludedFeatures, 'admin.organizations');
+    
+    // Has CRM access if admin, can edit members, or can access organizations
+    const hasCrmAccess = isAdmin || canEditMembers || canAccessOrganizations;
+    
+    return { hasCrmAccess, isAdmin };
+  } catch (err) {
+    console.error('Error checking CRM permissions:', err);
+    return { hasCrmAccess: false, isAdmin: false };
+  }
 }
