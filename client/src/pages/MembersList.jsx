@@ -46,6 +46,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { useRealtimeSubscription } from "@/hooks/useRealtimeSubscription";
 import { createPageUrl, isDeletedMember } from "@/utils";
 import MemberDetailView from "@/components/MemberDetailView";
 import { useToast } from "@/components/ui/use-toast";
@@ -123,6 +124,11 @@ export default function MembersListPage() {
   const [pendingMemberId, setPendingMemberId] = useState(() => {
     const params = new URLSearchParams(window.location.search);
     return params.get('id');
+  });
+
+  useRealtimeSubscription('member', [['members-crm-list']], { 
+    enabled: accessChecked, 
+    tenantId: memberInfo?.tenant_id 
   });
 
   // Load columns from tenant-scoped localStorage on mount or when tenant slug changes

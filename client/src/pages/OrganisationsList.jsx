@@ -49,6 +49,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { useRealtimeSubscription } from "@/hooks/useRealtimeSubscription";
 import { createPageUrl, isDeletedMember } from "@/utils";
 import OrganisationDetailView from "@/components/OrganisationDetailView";
 import { useToast } from "@/components/ui/use-toast";
@@ -106,6 +107,11 @@ export default function OrganisationsListPage() {
   const [singleDeleteOrg, setSingleDeleteOrg] = useState(null);
   const [columns, setColumns] = useState(DEFAULT_COLUMNS);
   const [draggedColumn, setDraggedColumn] = useState(null);
+
+  useRealtimeSubscription('organization', [['organizations-crm-list']], { 
+    enabled: accessChecked, 
+    tenantId: memberInfo?.tenant_id 
+  });
 
   // Load columns from tenant-scoped localStorage on mount or when tenant slug changes
   // Falls back to 'default' namespace if no tenantSlug is available (e.g., platform admin)
