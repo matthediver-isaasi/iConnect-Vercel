@@ -19,6 +19,7 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 import { cn } from "@/lib/utils";
 import { format } from 'date-fns';
+import FormRenderer from "@/components/forms/FormRenderer";
 async function apiRequest(method, url, body = null) {
   const options = {
     method,
@@ -171,20 +172,12 @@ function ReviewFieldEditor({
         </div>
         
         {isAmended ? (
-          field.type === 'textarea' || field.type === 'paragraph' ? (
-            <Textarea
-              value={reviewedValue || ''}
-              onChange={(e) => onChange(stateKey, e.target.value)}
-              className="min-h-[80px]"
-              data-testid={`input-reviewed-${stateKey}`}
-            />
-          ) : (
-            <Input
-              value={reviewedValue || ''}
-              onChange={(e) => onChange(stateKey, e.target.value)}
-              data-testid={`input-reviewed-${stateKey}`}
-            />
-          )
+          <FormRenderer
+            field={field}
+            value={reviewedValue}
+            onChange={(value) => onChange(stateKey, value)}
+            disabled={false}
+          />
         ) : (
           <div className="p-2 bg-white rounded border text-sm min-h-[40px]">
             {reviewedValue || displayOriginal || <span className="text-muted-foreground italic">No value</span>}
