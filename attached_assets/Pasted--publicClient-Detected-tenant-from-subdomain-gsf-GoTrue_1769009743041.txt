@@ -1,0 +1,170 @@
+ [publicClient] Detected tenant from subdomain: gsf
+ GoTrueClient@sb-lvmzliemqnieeoruhkik-auth-token:1 (2.84.0) 2026-01-21T15:33:01.462Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+Vg @ index-DaoE7lt2.js:1126
+ [usePendingPurchaseOrders] memberInfo: null
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+ [Layout] hasPendingPOs: false count: 0 isLoading: false
+ [Layout] currentPageName: FormView currentPortalPageId: null
+ [usePendingPurchaseOrders] memberInfo: null
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+ [Layout] hasPendingPOs: false count: 0 isLoading: false
+ [Layout] currentPageName: FormView currentPortalPageId: null
+ [usePendingPurchaseOrders] memberInfo: null
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+ [Layout] hasPendingPOs: false count: 0 isLoading: false
+ [Layout] currentPageName: FormView currentPortalPageId: null
+ [usePendingPurchaseOrders] memberInfo: null
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+ [Layout] hasPendingPOs: false count: 0 isLoading: false
+ [Layout] currentPageName: FormView currentPortalPageId: null
+ [usePendingPurchaseOrders] memberInfo: null
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+ [Layout] hasPendingPOs: false count: 0 isLoading: false
+ [Layout] currentPageName: FormView currentPortalPageId: null
+ [usePendingPurchaseOrders] memberInfo: null
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+ [Layout] hasPendingPOs: false count: 0 isLoading: false
+ [Layout] currentPageName: FormView currentPortalPageId: null
+ [FormView] entity_pipelines.members: undefined
+ [FormView] First member object (full): none
+ [FormView] primaryMember: undefined
+ [FormView] Extracted primaryMemberRoleId: null
+ [FormView] Using prefillOrgId for capacity: 8c3729c9-7015-4c12-b3fd-3f4febc24a14
+ [FormView] Capacity check state: Object
+ [FormView DEBUG] Org Custom Fields Query Setup: Object
+ [FormView DEBUG] Org Custom Values State: Object
+ [FormView Init] Initial hidden fields from starts_hidden: Array(0)
+ [FormView Init] All fields with starts_hidden property: undefined
+ [useNavigationRealtime] Setting up realtime subscription for navigation_item table
+ [publicClient] Detected tenant from subdomain: gsf
+ [FormView] Capacity check state: Object
+ [FormView DEBUG] Org Custom Fields Query Setup: Object
+ [FormView DEBUG] Org Custom Values State: Object
+ [Layout] Server returned null for /api/auth/me - member deleted or disabled
+ [usePendingPurchaseOrders] memberInfo: null
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+ [Layout] hasPendingPOs: false count: 0 isLoading: false
+ [Layout] currentPageName: FormView currentPortalPageId: null
+ [FormView] Capacity check state: Object
+ [FormView DEBUG] Org Custom Fields Query Setup: Object
+ [FormView DEBUG] Org Custom Values State: Object
+ [useNavigationRealtime] Subscription status: SUBSCRIBED
+ [FormView] Capacity check state: Object
+ [FormView DEBUG] Org Custom Fields Query Setup: Object
+ [FormView DEBUG] Org Custom Values State: Object
+ [PublicLayout] Fetching banners for page: FormView portalPageId: null isCustomSlug: false urlSlug: Articles
+ [PublicLayout] All banners found: 15
+ [PublicLayout] pageToPortalPageMap keys: Array(26)
+ [PublicLayout] Matched banners: 0
+ [FormView] Capacity check state: Object
+ [FormView DEBUG] Org Custom Fields Query Setup: Object
+ [FormView DEBUG] Org Custom Values State: Object
+ [FormView] Capacity check state: Object
+ [FormView DEBUG] Org Custom Fields Query Setup: Object
+ [FormView DEBUG] Org Custom Values State: Object
+ [FormView] entity_pipelines.members: Array(0)
+ [FormView] First member object (full): none
+ [FormView] primaryMember: undefined
+ [FormView] Extracted primaryMemberRoleId: null
+ [FormView] Capacity check state: Object
+ [FormView DEBUG] Org Custom Fields Query Setup: Object
+ [FormView DEBUG] Org Custom Values State: Object
+ [FormView Init] Field "CEO first name" (field_1768822633632) has starts_hidden=true, adding to initial hidden
+ [FormView Init] Field "CEO last name" (field_1768822653764) has starts_hidden=true, adding to initial hidden
+ [FormView Init] Field "Email of CEO" (field_1768822667197) has starts_hidden=true, adding to initial hidden
+ [FormView Init] Field "If you are not registered in any of the countries, please tell us why?" (field_1768823830032) has starts_hidden=true, adding to initial hidden
+ [FormView Init] Field "Describe your engagement with the government" (field_1768828450327) has starts_hidden=true, adding to initial hidden
+ [FormView Init] Field "Child Safety Policy Help" (field_1768828550914) has starts_hidden=true, adding to initial hidden
+ [FormView Init] Initial hidden fields from starts_hidden: Array(6)
+ [FormView Init] All fields with starts_hidden property: Array(79)
+ [FormView Visibility] Evaluating visibility rules, fieldVisibility: Object
+ [FormView Visibility] Final hidden set: Array(6)
+ [FormView] Capacity block decision: Object
+ [FormView DEBUG] Fetching org custom values for org: 8c3729c9-7015-4c12-b3fd-3f4febc24a14
+ [FormView Init] Hidden field "CEO first name" (field_1768822633632) initialized with empty string (no default_value)
+ [FormView Init] Hidden field "CEO last name" (field_1768822653764) initialized with empty string (no default_value)
+ [FormView Init] Hidden field "Email of CEO" (field_1768822667197) initialized with empty string (no default_value)
+ [FormView Init] Hidden field "If you are not registered in any of the countries, please tell us why?" (field_1768823830032) initialized with empty string (no default_value)
+ [FormView Init] Hidden field "Describe your engagement with the government" (field_1768828450327) initialized with empty string (no default_value)
+ [FormView Init] Hidden field "Child Safety Policy Help" (field_1768828550914) initialized with empty string (no default_value)
+index-DaoE7lt2.js:2416 [FormView Init] Field "Would you like to receive communication from GSF?" (field_1768830616942) initialized with default_value: Array(2)
+index-DaoE7lt2.js:2416 [FormView] Capacity check state: Object
+index-DaoE7lt2.js:2416 [FormView DEBUG] Org Custom Fields Query Setup: Object
+index-DaoE7lt2.js:2416 [FormView DEBUG] Org Custom Values State: Object
+index-DaoE7lt2.js:2416 [FormView Visibility] Evaluating visibility rules, fieldVisibility: Object
+index-DaoE7lt2.js:2416 [FormView Visibility] Final hidden set: Array(6)
+index-DaoE7lt2.js:2416 [FormView] Capacity block decision: Object
+index-DaoE7lt2.js:2416 [FormView Prefill] Waiting for org custom values to load...
+index-DaoE7lt2.js:2416 [FormView DEBUG] Org custom values API response: Array(6)
+index-DaoE7lt2.js:2416 [FormView] Capacity check state: Object
+index-DaoE7lt2.js:2416 [FormView DEBUG] Org Custom Fields Query Setup: Object
+index-DaoE7lt2.js:2416 [FormView DEBUG] Org Custom Values State: Object
+index-DaoE7lt2.js:2416 [FormView] Capacity block decision: Object
+index-DaoE7lt2.js:2416 [FormView Prefill] ========== PREFILL DEBUG START ==========
+index-DaoE7lt2.js:2416 [FormView Prefill] Form prefill_source: organization
+index-DaoE7lt2.js:2416 [FormView Prefill] Member entity: undefined
+index-DaoE7lt2.js:2416 [FormView Prefill] Org entity: Object
+index-DaoE7lt2.js:2416 [FormView Prefill] prefillMemberCustomValues: Array(0)
+index-DaoE7lt2.js:2416 [FormView Prefill] prefillOrgCustomValues: Array(6)
+index-DaoE7lt2.js:2416 [FormView Prefill] Fields with prefill_field configured: Array(5)
+index-DaoE7lt2.js:2416 [FormView Prefill DEBUG] Looking for org_custom field_id: "8f08906a-80b5-47bc-8d98-ee217d307b7d"
+index-DaoE7lt2.js:2416 [FormView Prefill DEBUG] Available prefillOrgCustomValues: Array(6)
+index-DaoE7lt2.js:2416 [FormView Prefill DEBUG] Found match: Object
+index-DaoE7lt2.js:2416 [FormView Prefill] Applicant first name: org_custom:8f08906a-80b5-47bc-8d98-ee217d307b7d = "Mat"
+index-DaoE7lt2.js:2416 [FormView Prefill DEBUG] Looking for org_custom field_id: "268300dd-6e22-4f10-b3bd-213c0ee0f424"
+index-DaoE7lt2.js:2416 [FormView Prefill DEBUG] Available prefillOrgCustomValues: Array(6)
+index-DaoE7lt2.js:2416 [FormView Prefill DEBUG] Found match: Object
+index-DaoE7lt2.js:2416 [FormView Prefill] Applicant last name: org_custom:268300dd-6e22-4f10-b3bd-213c0ee0f424 = "Henderson"
+index-DaoE7lt2.js:2416 [FormView Prefill DEBUG] Looking for org_custom field_id: "1833e681-6bb7-4ccc-a953-70dda8cc4920"
+index-DaoE7lt2.js:2416 [FormView Prefill DEBUG] Available prefillOrgCustomValues: Array(6)
+index-DaoE7lt2.js:2416 [FormView Prefill DEBUG] Found match: Object
+index-DaoE7lt2.js:2416 [FormView Prefill] Job title: org_custom:1833e681-6bb7-4ccc-a953-70dda8cc4920 = "ceo"
+index-DaoE7lt2.js:2416 [FormView Prefill DEBUG] Looking for org_custom field_id: "df161bcf-c88f-400f-a8e3-0873117b938c"
+index-DaoE7lt2.js:2416 [FormView Prefill DEBUG] Available prefillOrgCustomValues: Array(6)
+index-DaoE7lt2.js:2416 [FormView Prefill DEBUG] Found match: Object
+index-DaoE7lt2.js:2416 [FormView Prefill] Applicant email: org_custom:df161bcf-c88f-400f-a8e3-0873117b938c = "mat@isaasi.co.uk"
+index-DaoE7lt2.js:2416 [FormView Prefill] Total newValues to apply: 5 Object
+index-DaoE7lt2.js:2416 [FormView Prefill] Merged formValues: Object
+index-DaoE7lt2.js:2416 [FormView] Capacity check state: Object
+index-DaoE7lt2.js:2416 [FormView DEBUG] Org Custom Fields Query Setup: Object
+index-DaoE7lt2.js:2416 [FormView DEBUG] Org Custom Values State: Object
+index-DaoE7lt2.js:2416 [FormView Visibility] Evaluating visibility rules, fieldVisibility: Object
+index-DaoE7lt2.js:2416 [FormView Visibility] Final hidden set: Array(6)
+index-DaoE7lt2.js:2416 [FormView] Capacity block decision: Object
+index-DaoE7lt2.js:2416 [FormView] Capacity check state: Object
+index-DaoE7lt2.js:2416 [FormView DEBUG] Org Custom Fields Query Setup: Object
+index-DaoE7lt2.js:2416 [FormView DEBUG] Org Custom Values State: Object
+index-DaoE7lt2.js:2416 [FormView] Capacity block decision: Object
+index-DaoE7lt2.js:2416 [FormView] Capacity check state: Object
+index-DaoE7lt2.js:2416 [FormView DEBUG] Org Custom Fields Query Setup: Object
+index-DaoE7lt2.js:2416 [FormView DEBUG] Org Custom Values State: Object
+index-DaoE7lt2.js:2416 [FormView] Capacity block decision: Object
+index-DaoE7lt2.js:2416 [FormView] Capacity check state: Object
+index-DaoE7lt2.js:2416 [FormView DEBUG] Org Custom Fields Query Setup: Object
+index-DaoE7lt2.js:2416 [FormView DEBUG] Org Custom Values State: Object
+index-DaoE7lt2.js:2416 [FormView] Capacity block decision: Object
+index-DaoE7lt2.js:40 Error: A <Select.Item /> must have a value prop that is not an empty string. This is because the Select value can be set to an empty string to clear the selection and show the placeholder.
+    at index-DaoE7lt2.js:1396:129800
+    at Yk (index-DaoE7lt2.js:38:17018)
+    at Y5 (index-DaoE7lt2.js:40:1571)
+    at G$ (index-DaoE7lt2.js:40:46033)
+    at H$ (index-DaoE7lt2.js:40:39790)
+    at yX (index-DaoE7lt2.js:40:39718)
+    at Cj (index-DaoE7lt2.js:40:39570)
+    at cC (index-DaoE7lt2.js:40:35934)
+    at iF (index-DaoE7lt2.js:40:36738)
+    at ku (index-DaoE7lt2.js:38:3279)
+Q2 @ index-DaoE7lt2.js:40
+index-DaoE7lt2.js:38 Uncaught Error: A <Select.Item /> must have a value prop that is not an empty string. This is because the Select value can be set to an empty string to clear the selection and show the placeholder.
+    at index-DaoE7lt2.js:1396:129800
+    at Yk (index-DaoE7lt2.js:38:17018)
+    at Y5 (index-DaoE7lt2.js:40:1571)
+    at G$ (index-DaoE7lt2.js:40:46033)
+    at H$ (index-DaoE7lt2.js:40:39790)
+    at yX (index-DaoE7lt2.js:40:39718)
+    at Cj (index-DaoE7lt2.js:40:39570)
+    at cC (index-DaoE7lt2.js:40:35934)
+    at iF (index-DaoE7lt2.js:40:36738)
+    at ku (index-DaoE7lt2.js:38:3279)
+index-DaoE7lt2.js:1127 [useNavigationRealtime] Cleaning up realtime subscription
+index-DaoE7lt2.js:1127 [useNavigationRealtime] Subscription status: CLOSED
