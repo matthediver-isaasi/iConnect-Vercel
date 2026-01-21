@@ -288,33 +288,40 @@ export default async function handler(req, res) {
         } else if (tenantScope === TENANT_SCOPE.ORGANIZATION) {
           // For organization-scoped entities, filter by organization_id if available
           // If tenant owner (has tenantId but no organizationId), verify via organization's tenant_id
+          console.log(`[Entity PATCH] ORGANIZATION scope: organizationId=${tenantCtx.organizationId}, tenantId=${tenantCtx.tenantId}`);
           if (tenantCtx.organizationId) {
             patchQuery = patchQuery.eq('organization_id', tenantCtx.organizationId);
           } else if (tenantCtx.tenantId) {
             // Tenant owner: verify the entity's organization belongs to their tenant
             // First fetch the entity to get its organization_id
-            const { data: entityRecord } = await supabase
+            console.log(`[Entity PATCH] Tenant owner path - fetching entity ${id} from ${tableName}`);
+            const { data: entityRecord, error: entityError } = await supabase
               .from(tableName)
               .select('organization_id')
               .eq('id', id)
               .single();
+            
+            console.log(`[Entity PATCH] Entity lookup result: data=${JSON.stringify(entityRecord)}, error=${JSON.stringify(entityError)}`);
             
             if (!entityRecord?.organization_id) {
               return res.status(404).json({ error: 'Entity not found' });
             }
             
             // Verify the organization belongs to the tenant
-            const { data: org } = await supabase
+            const { data: org, error: orgError } = await supabase
               .from('organization')
               .select('tenant_id')
               .eq('id', entityRecord.organization_id)
               .single();
+            
+            console.log(`[Entity PATCH] Org lookup result: org.tenant_id=${org?.tenant_id}, tenantCtx.tenantId=${tenantCtx.tenantId}, match=${org?.tenant_id === tenantCtx.tenantId}`);
             
             if (!org || org.tenant_id !== tenantCtx.tenantId) {
               return res.status(403).json({ error: 'Access denied - organization not in your tenant' });
             }
             
             // Organization verified, filter by its id
+            console.log(`[Entity PATCH] Verification passed - adding filter organization_id=${entityRecord.organization_id}`);
             patchQuery = patchQuery.eq('organization_id', entityRecord.organization_id);
           }
         } else if (entity === 'Organization') {
