@@ -53,6 +53,7 @@ const STANDARD_FIELD_TYPES = [
   { value: 'percentage', label: 'Percentage' },
   { value: 'contact', label: 'Contact (Composite)' },
   { value: 'instructions', label: 'Instructions (Display Only)' },
+  { value: 'signature', label: 'Signature' },
 ];
 
 const PREPOPULATE_FIELD_TYPES = [
@@ -3194,6 +3195,15 @@ export default function FormBuilderPage() {
     entity_pipelines: {
       members: [], // [{id, label, isPrimary, role_id, uniqueness_key, field_mappings}]
       organisations: [] // [{id, label, isPrimary, uniqueness_key, field_mappings}]
+    },
+    // Contract signing mode
+    is_contract: false,
+    contract_settings: {
+      timeout_days: 30, // Days before contract expires
+      organization_id: null, // Linked organisation
+      reminders: [], // [{id, days_before_timeout, email_template_id}]
+      require_signature: true,
+      signers: [] // [{id, name, email, type: 'external'|'member', member_id}]
     }
   });
   
@@ -3315,6 +3325,32 @@ export default function FormBuilderPage() {
           sort: { display_order: 'asc' } 
         });
         return categories || [];
+      } catch {
+        return [];
+      }
+    }
+  });
+
+  // Fetch organisations for contract linking
+  const { data: organizations = [] } = useQuery({
+    queryKey: ['organizations-for-contracts'],
+    queryFn: async () => {
+      try {
+        const orgs = await base44.entities.Organization.list('name');
+        return orgs || [];
+      } catch {
+        return [];
+      }
+    }
+  });
+
+  // Fetch members for contract signer selection
+  const { data: members = [] } = useQuery({
+    queryKey: ['members-for-contract-signers'],
+    queryFn: async () => {
+      try {
+        const memberList = await base44.entities.Member.list('first_name, last_name, email');
+        return memberList || [];
       } catch {
         return [];
       }
@@ -3560,7 +3596,15 @@ export default function FormBuilderPage() {
           set_value_prefill_field: rule.set_value_prefill_field || '',
           target_field_ids: rule.target_field_ids || []
         })),
-        entity_pipelines: entityPipelines
+        entity_pipelines: entityPipelines,
+        is_contract: existingForm.is_contract || false,
+        contract_settings: existingForm.contract_settings || {
+          timeout_days: 30,
+          organization_id: null,
+          reminders: [],
+          require_signature: true,
+          signers: []
+        }
       });
     }
   }, [existingForm]);
@@ -4093,10 +4137,351 @@ export default function FormBuilderPage() {
                 <Label htmlFor="due_diligence_required" className="text-sm">Due Diligence Required</Label>
               </div>
 
+              <div className="flex items-center gap-2">
+                <Switch
+                  id="is_contract"
+                  checked={formData.is_contract}
+                  onCheckedChange={(checked) => setFormData({ ...formData, is_contract: checked })}
+                  data-testid="switch-is-contract"
+                />
+                <Label htmlFor="is_contract" className="text-sm">Contract Mode</Label>
+              </div>
+
               <div className="text-xs text-slate-500 ml-auto">
                 URL: /FormView?slug={formData.slug || 'your-slug'}
               </div>
             </div>
+
+            {/* Contract Settings Section - Only shown when Contract Mode is enabled */}
+            {formData.is_contract && (
+              <div className="mt-4 pt-4 border-t border-slate-100 space-y-4">
+                <div className="flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-blue-600" />
+                  <Label className="text-sm font-medium">Contract Settings</Label>
+                </div>
+                <div className="bg-blue-50/50 rounded-lg p-4 space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="contract_org">Link to Organisation</Label>
+                      <Select
+                        value={formData.contract_settings?.organization_id || ""}
+                        onValueChange={(value) => setFormData({
+                          ...formData,
+                          contract_settings: {
+                            ...formData.contract_settings,
+                            organization_id: value || null
+                          }
+                        })}
+                      >
+                        <SelectTrigger data-testid="select-contract-org">
+                          <SelectValue placeholder="Select organisation..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="">No organisation</SelectItem>
+                          {organizations.map(org => (
+                            <SelectItem key={org.id} value={org.id}>{org.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="timeout_days">Timeout (Days)</Label>
+                      <Input
+                        id="timeout_days"
+                        type="number"
+                        min="1"
+                        max="365"
+                        value={formData.contract_settings?.timeout_days || 30}
+                        onChange={(e) => setFormData({
+                          ...formData,
+                          contract_settings: {
+                            ...formData.contract_settings,
+                            timeout_days: parseInt(e.target.value) || 30
+                          }
+                        })}
+                        data-testid="input-timeout-days"
+                      />
+                    </div>
+
+                    <div className="flex items-center gap-2 pt-6">
+                      <Switch
+                        id="require_signature"
+                        checked={formData.contract_settings?.require_signature ?? true}
+                        onCheckedChange={(checked) => setFormData({
+                          ...formData,
+                          contract_settings: {
+                            ...formData.contract_settings,
+                            require_signature: checked
+                          }
+                        })}
+                        data-testid="switch-require-signature"
+                      />
+                      <Label htmlFor="require_signature" className="text-sm">Require Signature</Label>
+                    </div>
+                  </div>
+
+                  {/* Reminder Schedule */}
+                  <div className="space-y-3 pt-2 border-t border-blue-100">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-sm font-medium">Reminder Schedule</Label>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          const reminders = formData.contract_settings?.reminders || [];
+                          setFormData({
+                            ...formData,
+                            contract_settings: {
+                              ...formData.contract_settings,
+                              reminders: [...reminders, {
+                                id: `reminder_${Date.now()}`,
+                                days_before_timeout: 7,
+                                email_template_id: null
+                              }]
+                            }
+                          });
+                        }}
+                        data-testid="button-add-reminder"
+                      >
+                        <Plus className="w-4 h-4 mr-1" />
+                        Add Reminder
+                      </Button>
+                    </div>
+                    
+                    {(formData.contract_settings?.reminders || []).length === 0 ? (
+                      <div className="text-center py-4 text-slate-400 border border-dashed border-slate-200 rounded-lg">
+                        <Mail className="w-6 h-6 mx-auto mb-2 opacity-50" />
+                        <p className="text-sm">No reminders configured</p>
+                        <p className="text-xs mt-1">Add reminders to notify signers before timeout</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {(formData.contract_settings?.reminders || []).map((reminder, idx) => (
+                          <div key={reminder.id} className="flex items-center gap-3 bg-white p-3 rounded-md border border-slate-200" data-testid={`reminder-row-${idx}`}>
+                            <div className="flex items-center gap-2 flex-1">
+                              <Label className="text-sm whitespace-nowrap">Send</Label>
+                              <Input
+                                type="number"
+                                min="1"
+                                max={formData.contract_settings?.timeout_days || 30}
+                                value={reminder.days_before_timeout}
+                                onChange={(e) => {
+                                  const reminders = [...(formData.contract_settings?.reminders || [])];
+                                  reminders[idx] = { ...reminder, days_before_timeout: parseInt(e.target.value) || 7 };
+                                  setFormData({
+                                    ...formData,
+                                    contract_settings: { ...formData.contract_settings, reminders }
+                                  });
+                                }}
+                                className="w-20"
+                                data-testid={`input-reminder-days-${idx}`}
+                              />
+                              <Label className="text-sm whitespace-nowrap">days before timeout</Label>
+                            </div>
+                            <div className="flex-1">
+                              <Select
+                                value={reminder.email_template_id || ""}
+                                onValueChange={(value) => {
+                                  const reminders = [...(formData.contract_settings?.reminders || [])];
+                                  reminders[idx] = { ...reminder, email_template_id: value || null };
+                                  setFormData({
+                                    ...formData,
+                                    contract_settings: { ...formData.contract_settings, reminders }
+                                  });
+                                }}
+                              >
+                                <SelectTrigger data-testid={`select-reminder-template-${idx}`}>
+                                  <SelectValue placeholder="Select email template..." />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {emailTemplates.map(template => (
+                                    <SelectItem key={template.id} value={template.id}>{template.name}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => {
+                                const reminders = (formData.contract_settings?.reminders || []).filter(r => r.id !== reminder.id);
+                                setFormData({
+                                  ...formData,
+                                  contract_settings: { ...formData.contract_settings, reminders }
+                                });
+                              }}
+                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                              data-testid={`button-delete-reminder-${idx}`}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Signers Configuration */}
+                  <div className="space-y-3 pt-4 border-t border-slate-100">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Users className="w-4 h-4 text-slate-500" />
+                        <Label className="text-sm font-medium">Required Signers</Label>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          const signers = formData.contract_settings?.signers || [];
+                          setFormData({
+                            ...formData,
+                            contract_settings: {
+                              ...formData.contract_settings,
+                              signers: [...signers, {
+                                id: `signer_${Date.now()}`,
+                                name: '',
+                                email: '',
+                                type: 'external',
+                                member_id: null
+                              }]
+                            }
+                          });
+                        }}
+                        data-testid="button-add-signer"
+                      >
+                        <Plus className="w-3 h-3 mr-1" />
+                        Add Signer
+                      </Button>
+                    </div>
+                    <p className="text-xs text-slate-500">
+                      Add signers who must sign this contract. Signers can be external parties or existing members.
+                    </p>
+                    
+                    {(formData.contract_settings?.signers || []).length === 0 ? (
+                      <p className="text-xs text-slate-400 italic">No signers configured. The form will be open for any submission.</p>
+                    ) : (
+                      <div className="space-y-3">
+                        {(formData.contract_settings?.signers || []).map((signer, idx) => (
+                          <div 
+                            key={signer.id} 
+                            className="flex gap-2 items-start p-3 bg-slate-50 rounded-lg"
+                            data-testid={`signer-item-${idx}`}
+                          >
+                            <div className="flex-1 space-y-2">
+                              <div className="flex gap-2">
+                                <Select
+                                  value={signer.type}
+                                  onValueChange={(value) => {
+                                    const signers = [...(formData.contract_settings?.signers || [])];
+                                    signers[idx] = { ...signers[idx], type: value, member_id: null };
+                                    setFormData({
+                                      ...formData,
+                                      contract_settings: { ...formData.contract_settings, signers }
+                                    });
+                                  }}
+                                >
+                                  <SelectTrigger className="w-32" data-testid={`select-signer-type-${idx}`}>
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="external">External</SelectItem>
+                                    <SelectItem value="member">Member</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                                
+                                {signer.type === 'external' ? (
+                                  <>
+                                    <Input
+                                      placeholder="Signer name"
+                                      value={signer.name || ''}
+                                      onChange={(e) => {
+                                        const signers = [...(formData.contract_settings?.signers || [])];
+                                        signers[idx] = { ...signers[idx], name: e.target.value };
+                                        setFormData({
+                                          ...formData,
+                                          contract_settings: { ...formData.contract_settings, signers }
+                                        });
+                                      }}
+                                      className="flex-1"
+                                      data-testid={`input-signer-name-${idx}`}
+                                    />
+                                    <Input
+                                      type="email"
+                                      placeholder="Email address"
+                                      value={signer.email || ''}
+                                      onChange={(e) => {
+                                        const signers = [...(formData.contract_settings?.signers || [])];
+                                        signers[idx] = { ...signers[idx], email: e.target.value };
+                                        setFormData({
+                                          ...formData,
+                                          contract_settings: { ...formData.contract_settings, signers }
+                                        });
+                                      }}
+                                      className="flex-1"
+                                      data-testid={`input-signer-email-${idx}`}
+                                    />
+                                  </>
+                                ) : (
+                                  <Select
+                                    value={signer.member_id || ''}
+                                    onValueChange={(value) => {
+                                      const signers = [...(formData.contract_settings?.signers || [])];
+                                      const member = members.find(m => m.id === value);
+                                      signers[idx] = { 
+                                        ...signers[idx], 
+                                        member_id: value,
+                                        name: member ? `${member.first_name || ''} ${member.last_name || ''}`.trim() : '',
+                                        email: member?.email || ''
+                                      };
+                                      setFormData({
+                                        ...formData,
+                                        contract_settings: { ...formData.contract_settings, signers }
+                                      });
+                                    }}
+                                  >
+                                    <SelectTrigger className="flex-1" data-testid={`select-signer-member-${idx}`}>
+                                      <SelectValue placeholder="Select member..." />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {members.map(member => (
+                                        <SelectItem key={member.id} value={member.id}>
+                                          {member.first_name} {member.last_name}
+                                          {member.email && ` (${member.email})`}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                )}
+                              </div>
+                            </div>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => {
+                                const signers = (formData.contract_settings?.signers || []).filter(s => s.id !== signer.id);
+                                setFormData({
+                                  ...formData,
+                                  contract_settings: { ...formData.contract_settings, signers }
+                                });
+                              }}
+                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                              data-testid={`button-delete-signer-${idx}`}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Embed Code Section */}
             {formData.slug && formData.is_active && !formData.require_authentication && (() => {

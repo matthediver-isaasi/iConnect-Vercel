@@ -141,6 +141,11 @@ export const entityTenantScope = {
   'FormDueDiligenceConfig': TENANT_SCOPE.TENANT,
   'FormSubmissionDueDiligence': TENANT_SCOPE.TENANT,
   
+  // CONTRACT SIGNING - Contract documents with signature requirements
+  'ContractDocument': TENANT_SCOPE.TENANT,
+  'ContractSigner': TENANT_SCOPE.TENANT,
+  'ContractReminder': TENANT_SCOPE.TENANT,
+  
   // ORGANIZATION - Per-organization within a tenant (uses organization_id)
   // Note: Member moved to TENANT scope - members can exist with or without an organization
   'Member': TENANT_SCOPE.TENANT,

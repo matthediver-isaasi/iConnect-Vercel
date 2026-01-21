@@ -89,6 +89,50 @@ Workflows are tenant-scoped entities that enable automated actions based on enti
 
 The frontend uses Supabase Realtime to subscribe to database changes and automatically refresh lists when data is modified. The `useRealtimeSubscription` hook in `client/src/hooks/useRealtimeSubscription.js` provides tenant-scoped subscriptions that invalidate TanStack Query cache keys when INSERT/UPDATE/DELETE events occur. Currently implemented for OrganisationsList and MembersList pages.
 
+## Contract Signing Module
+
+A contract signing system built on the existing FormBuilder infrastructure, allowing structured forms with signature fields to be sent to signers for electronic signatures.
+
+### Key Features:
+- **Contract Mode Toggle**: Forms can be marked as contracts via `is_contract` flag in FormBuilder
+- **Contract Settings**: Stored in `contract_settings` JSON field including:
+  - `timeout_days`: Days before contract expires (default 30)
+  - `organization_id`: Linked organisation for the contract
+  - `reminders`: Array of reminder configurations with days before timeout and email template
+  - `require_signature`: Whether signature is mandatory
+  - `signers`: Array of signers (external or member) with name, email, type, and member_id
+- **Signature Field**: New form field type `signature` with canvas-based signature capture
+- **Multi-Signer Support**: Contracts can have multiple signers (external parties or existing members)
+- **Status Tracking**: draft, out_for_signing, received, expired
+- **Automated Reminders**: Cron job sends reminder emails based on configured schedule
+
+### API Endpoints:
+- `POST /api/contracts/send-to-signers`: Send contract to all configured signers
+- `GET /api/contracts/status?formId=xxx`: Get contract status with signed/unsigned signers
+- `GET /api/cron/send-contract-reminders`: Cron endpoint for processing pending reminders
+
+### Frontend Components:
+- `SignatureField`: Canvas-based signature capture component in `client/src/components/forms/SignatureField.jsx`
+- FormBuilder contract settings panel for configuring signers, timeouts, and reminders
+- FormManagement page with Standard Forms and Contracts tabs
+- Documents tab in OrganisationDetailView showing linked contracts
+
+### Database Tables Required:
+```sql
+CREATE TABLE contract_reminder_log (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  reminder_key TEXT NOT NULL UNIQUE,
+  form_id UUID NOT NULL REFERENCES form(id),
+  signer_email TEXT NOT NULL,
+  sent_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  tenant_id UUID NOT NULL REFERENCES tenant(id),
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_contract_reminder_log_tenant ON contract_reminder_log(tenant_id);
+CREATE INDEX idx_contract_reminder_log_form ON contract_reminder_log(form_id);
+```
+
 # External Dependencies
 
 **Supabase:** Primary database (PostgreSQL) and file storage.

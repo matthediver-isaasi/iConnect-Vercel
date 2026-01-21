@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Loader2, Plus, X, Check, ChevronsUpDown } from "lucide-react";
 import CustomFieldFileUpload from "@/components/CustomFieldFileUpload";
+import SignatureField from "@/components/forms/SignatureField";
 import {
   Select,
   SelectContent,
@@ -1409,6 +1410,18 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
 
       case 'instructions':
         return null;
+
+      case 'signature':
+        return (
+          <SignatureField
+            fieldId={field.id}
+            value={value?.data || value}
+            onChange={onChange}
+            disabled={isFieldDisabled}
+            required={field.required}
+            label={field.label}
+          />
+        );
 
       default:
         return <p className="text-sm text-slate-500">Unsupported field type: {field.type}</p>;
