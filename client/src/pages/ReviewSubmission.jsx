@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -311,16 +311,17 @@ function HistoryLogModal({ isOpen, onClose, historyLog }) {
 }
 
 export default function ReviewSubmissionPage() {
-  const [location, navigate] = useLocation();
+  const [, navigate] = useLocation();
+  const searchString = useSearch();
   const queryClient = useQueryClient();
   const { isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   
-  // Use useMemo to make submissionId reactive to URL changes
+  // Use useSearch from wouter to reactively get query params
   const submissionId = useMemo(() => {
-    const urlParams = new URLSearchParams(window.location.search);
+    const urlParams = new URLSearchParams(searchString);
     return urlParams.get('id');
-  }, [location]);
+  }, [searchString]);
   
   const [reviewedFormValues, setReviewedFormValues] = useState({});
   const [fieldReviewStatus, setFieldReviewStatus] = useState({});
