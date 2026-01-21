@@ -71,6 +71,7 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { useRealtimeSubscription } from "@/hooks/useRealtimeSubscription";
 import { useDateFormat } from "@/hooks/useDateFormat";
 import MemberEmails from "@/components/MemberEmails";
 
@@ -84,9 +85,30 @@ export default function MemberDetailView({
   onCreated,
   defaultOrganizationId = ''
 }) {
-  const { isAdmin } = useMemberAccess();
+  const { isAdmin, memberInfo } = useMemberAccess();
   const { formatDate } = useDateFormat();
   const queryClient = useQueryClient();
+
+  // Subscribe to realtime changes for member and preference values
+  // Only enable when both entity ID and tenant ID are available to ensure tenant scoping
+  const realtimeEnabled = !!member?.id && !!memberInfo?.tenant_id;
+
+  useRealtimeSubscription('member', [
+    ['members-crm-list'],
+    ['member-direct', member?.id]
+  ], { 
+    enabled: realtimeEnabled, 
+    tenantId: memberInfo?.tenant_id 
+  });
+
+  useRealtimeSubscription('member_preference_value', [
+    ['member-detail-preference-values', member?.id],
+    ['all-member-preference-values-crm']
+  ], { 
+    enabled: realtimeEnabled, 
+    tenantId: memberInfo?.tenant_id 
+  });
+
   const [isEditing, setIsEditing] = useState(isNew);
   const [activeTab, setActiveTab] = useState('overview');
   const [formData, setFormData] = useState({

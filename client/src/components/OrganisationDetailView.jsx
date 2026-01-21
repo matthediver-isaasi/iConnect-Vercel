@@ -58,6 +58,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { useRealtimeSubscription } from "@/hooks/useRealtimeSubscription";
 import { useOrgDetailLayout, mergeLayoutWithCustomFields, CORE_FIELDS } from "@/hooks/useOrgDetailLayout";
 import { isDeletedMember } from "@/utils";
 import { useDateFormat } from "@/hooks/useDateFormat";
@@ -159,6 +160,25 @@ export default function OrganisationDetailView({
   const { isAdmin, memberInfo } = useMemberAccess();
   const { formatDate } = useDateFormat();
   const queryClient = useQueryClient();
+
+  // Subscribe to realtime changes for organization and preference values
+  // Only enable when both entity ID and tenant ID are available to ensure tenant scoping
+  const realtimeEnabled = !!organization?.id && !!memberInfo?.tenant_id;
+
+  useRealtimeSubscription('organization', [
+    ['organizations-crm-list']
+  ], { 
+    enabled: realtimeEnabled, 
+    tenantId: memberInfo?.tenant_id 
+  });
+
+  useRealtimeSubscription('organization_preference_value', [
+    ['org-detail-preference-values', organization?.id],
+    ['all-org-preference-values-crm']
+  ], { 
+    enabled: realtimeEnabled, 
+    tenantId: memberInfo?.tenant_id 
+  });
   const {
     pendingWorkflows,
     showConfirmationModal,
