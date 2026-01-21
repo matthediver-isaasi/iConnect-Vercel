@@ -64,9 +64,10 @@ export default async function handler(req, res) {
 
     // Verify the form exists and belongs to this tenant
     // Include fields, entity_pipelines, field_mappings for post-submission processing
+    // Include is_due_diligence_enabled for auto-creating DD records
     const { data: form, error: formError } = await supabase
       .from('form')
-      .select('id, tenant_id, require_authentication, fields, entity_pipelines, field_mappings, application_level')
+      .select('id, tenant_id, require_authentication, fields, entity_pipelines, field_mappings, application_level, is_due_diligence_enabled')
       .eq('id', form_id)
       .eq('tenant_id', tenantData.id)
       .eq('is_active', true)
@@ -205,6 +206,62 @@ export default async function handler(req, res) {
           error: 'Failed to process application. Please try again.',
           code: 'PIPELINE_NETWORK_ERROR'
         });
+      }
+    }
+
+    // Auto-create due diligence record if form has due diligence enabled
+    if (form.is_due_diligence_enabled) {
+      try {
+        console.log('[Public Form Submission] Creating due diligence record for submission:', submission.id);
+        
+        // Get the form's DD config for initial workflow status
+        const { data: ddConfig } = await supabase
+          .from('form_due_diligence_config')
+          .select('workflow_stages')
+          .eq('form_id', form_id)
+          .eq('tenant_id', tenantData.id)
+          .single();
+        
+        // Find initial stage
+        const workflowStages = ddConfig?.workflow_stages || [];
+        const initialStage = workflowStages.find(s => s.is_initial) || workflowStages[0];
+        const initialStatus = initialStage?.id || 'new';
+        
+        // Create the DD submission record
+        const ddRecord = {
+          form_submission_id: submission.id,
+          tenant_id: tenantData.id,
+          application_uid: `DD-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          original_form_values: submission_data || {},
+          reviewed_form_values: submission_data || {},
+          field_review_status: {},
+          workflow_status: initialStatus,
+          history_log: [{
+            timestamp: new Date().toISOString(),
+            event_type: 'submission_received',
+            user_email: 'System',
+            details: {
+              form_submission_id: submission.id,
+              initial_status: initialStatus
+            }
+          }]
+        };
+
+        const { data: newDDRecord, error: ddInsertError } = await supabase
+          .from('form_submission_due_diligence')
+          .insert(ddRecord)
+          .select()
+          .single();
+
+        if (ddInsertError) {
+          console.error('[Public Form Submission] Failed to create DD record:', ddInsertError);
+          // Don't fail the submission, just log the error
+        } else {
+          console.log('[Public Form Submission] Due diligence record created:', newDDRecord.id);
+        }
+      } catch (ddError) {
+        console.error('[Public Form Submission] Error creating DD record:', ddError);
+        // Don't fail the submission for DD errors
       }
     }
 
