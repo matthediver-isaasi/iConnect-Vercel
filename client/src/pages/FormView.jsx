@@ -71,6 +71,7 @@ export default function FormViewPage() {
   const prefillMemberId = urlParams.get('member_id');
   const prefillOrgId = urlParams.get('organization_id');
   const draftToken = urlParams.get('draft');
+  const contractInstanceId = urlParams.get('contract_instance');
   
   // Draft save state
   const [resumeToken, setResumeToken] = useState(draftToken || null);
@@ -1767,7 +1768,8 @@ export default function FormViewPage() {
       submitted_by_email: memberInfo?.email || null,
       submitted_by_name: memberInfo ? `${memberInfo.first_name} ${memberInfo.last_name}` : null,
       submission_data: filteredFormValues,
-      created_date: new Date().toISOString()
+      created_date: new Date().toISOString(),
+      ...(contractInstanceId && { contract_instance_id: contractInstanceId })
     };
 
     submitFormMutation.mutate(submissionData);

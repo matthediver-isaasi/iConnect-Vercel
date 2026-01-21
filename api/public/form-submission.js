@@ -13,7 +13,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { form_id, form_name, answers, submission_data, source, tenant, prefill_organization_id } = req.body;
+  const { form_id, form_name, answers, submission_data, source, tenant, prefill_organization_id, contract_instance_id } = req.body;
 
   if (!form_id) {
     return res.status(400).json({ error: 'Form ID is required' });
@@ -96,7 +96,8 @@ export default async function handler(req, res) {
       submitted_by_name: null,
       submission_data: submission_data || {},
       created_date: new Date().toISOString(),
-      tenant_id: tenantData.id
+      tenant_id: tenantData.id,
+      ...(contract_instance_id && { contract_instance_id })
     };
 
     const { data: submission, error: insertError } = await supabase
