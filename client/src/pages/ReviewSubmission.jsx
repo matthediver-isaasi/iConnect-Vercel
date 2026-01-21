@@ -311,13 +311,16 @@ function HistoryLogModal({ isOpen, onClose, historyLog }) {
 }
 
 export default function ReviewSubmissionPage() {
-  const [, navigate] = useLocation();
+  const [location, navigate] = useLocation();
   const queryClient = useQueryClient();
   const { isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   
-  const urlParams = new URLSearchParams(window.location.search);
-  const submissionId = urlParams.get('id');
+  // Use useMemo to make submissionId reactive to URL changes
+  const submissionId = useMemo(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    return urlParams.get('id');
+  }, [location]);
   
   const [reviewedFormValues, setReviewedFormValues] = useState({});
   const [fieldReviewStatus, setFieldReviewStatus] = useState({});
@@ -341,6 +344,12 @@ export default function ReviewSubmissionPage() {
       }
     }
   }, [isFeatureExcluded, isAccessReady]);
+
+  // Reset initialization state when submissionId changes (e.g., navigating to different submission)
+  useEffect(() => {
+    setHasInitialized(false);
+    setHasUnsavedChanges(false);
+  }, [submissionId]);
 
   const { data: ddSubmissionData, isLoading } = useQuery({
     queryKey: ['dd-submission', submissionId],
