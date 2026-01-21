@@ -643,7 +643,7 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
                 <SelectValue placeholder={field.placeholder || 'Select an option'} />
               </SelectTrigger>
               <SelectContent>
-                {(field.options || []).map((option, index) => (
+                {(field.options || []).filter(option => option !== '').map((option, index) => (
                   <SelectItem key={index} value={option}>
                     {option}
                   </SelectItem>
@@ -939,7 +939,7 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
               <SelectValue placeholder={field.placeholder || 'Select an option'} />
             </SelectTrigger>
             <SelectContent>
-              {subcategoryOptions.map((option, index) => (
+              {subcategoryOptions.filter(option => option !== '').map((option, index) => (
                 <SelectItem key={index} value={option} data-testid={`option-subcategory-${index}`}>
                   {option}
                 </SelectItem>
@@ -1183,6 +1183,7 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
               {customFieldOptions.map((option, index) => {
                 const optValue = option.value || option.label || option;
                 const optLabel = option.label || option.value || option;
+                if (!optValue) return null;
                 return (
                   <SelectItem key={index} value={optValue} data-testid={`option-custom-${field.id}-${index}`}>
                     {optLabel}
