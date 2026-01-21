@@ -18,7 +18,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { 
   Zap, Plus, Pencil, Trash2, AlertCircle, Mail, Play, Pause, 
   ChevronRight, ChevronLeft, Building2, User, Settings, Clock,
-  CheckCircle2, XCircle, History, Filter, ArrowRight, Users, AlertTriangle, Check, ChevronsUpDown, Briefcase
+  CheckCircle2, XCircle, History, Filter, ArrowRight, Users, AlertTriangle, Check, ChevronsUpDown, Briefcase, FileSignature, Send
 } from "lucide-react";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
@@ -48,6 +48,7 @@ const CONDITION_OPERATORS = [
 const ACTION_TYPES = [
   { value: 'send_email', label: 'Send Email', icon: Mail, description: 'Send an email notification' },
   { value: 'update_field', label: 'Update Field', icon: Settings, description: 'Update a field value on the record' },
+  { value: 'create_contract', label: 'Create Contract', icon: FileSignature, description: 'Create a contract from a template and optionally send for signing' },
 ];
 
 const ORGANIZATION_CORE_FIELDS = [
@@ -218,6 +219,24 @@ export default function WorkflowManagementPage() {
     queryKey: ['roles'],
     queryFn: async () => {
       const result = await base44.entities.Role.list();
+      return result || [];
+    },
+    enabled: accessChecked,
+  });
+
+  const { data: contractForms = [] } = useQuery({
+    queryKey: ['contract-forms'],
+    queryFn: async () => {
+      const result = await base44.entities.Form.list();
+      return (result || []).filter(f => f.is_contract === true);
+    },
+    enabled: accessChecked,
+  });
+
+  const { data: organizations = [] } = useQuery({
+    queryKey: ['organizations'],
+    queryFn: async () => {
+      const result = await base44.entities.Organization.list();
       return result || [];
     },
     enabled: accessChecked,
@@ -1712,6 +1731,238 @@ export default function WorkflowManagementPage() {
                                   data-testid={`input-action-field-value-${index}`}
                                 />
                               </div>
+                            </div>
+                          )}
+
+                          {action.type === 'create_contract' && (
+                            <div className="space-y-4">
+                              <div className="space-y-2">
+                                <Label>Contract Template</Label>
+                                <Select
+                                  value={action.config?.contract_form_id || '_none'}
+                                  onValueChange={(val) => {
+                                    const selectedForm = contractForms.find(f => f.id === val);
+                                    const requiredSigners = selectedForm?.contract_settings?.required_signers_count || 1;
+                                    const signerMappings = Array.from({ length: requiredSigners }, (_, i) => ({
+                                      first_name_field: '',
+                                      last_name_field: '',
+                                      email_field: ''
+                                    }));
+                                    updateAction(index, { 
+                                      config: { 
+                                        ...action.config, 
+                                        contract_form_id: val === '_none' ? null : val,
+                                        required_signers_count: requiredSigners,
+                                        signer_mappings: signerMappings
+                                      } 
+                                    });
+                                  }}
+                                >
+                                  <SelectTrigger data-testid={`select-contract-template-${index}`}>
+                                    <SelectValue placeholder="Select contract template..." />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="_none">Select contract template...</SelectItem>
+                                    {contractForms.map(form => (
+                                      <SelectItem key={form.id} value={form.id}>
+                                        {form.name} ({form.contract_settings?.required_signers_count || 1} signer{(form.contract_settings?.required_signers_count || 1) !== 1 ? 's' : ''})
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                                {contractForms.length === 0 && (
+                                  <p className="text-xs text-amber-600">No contract templates found. Create a form with Contract Mode enabled first.</p>
+                                )}
+                              </div>
+
+                              {action.config?.contract_form_id && (
+                                <>
+                                  <div className="space-y-2">
+                                    <Label>Link to Organisation</Label>
+                                    <Select
+                                      value={action.config?.organization_mapping || '_trigger'}
+                                      onValueChange={(val) => updateAction(index, { 
+                                        config: { ...action.config, organization_mapping: val } 
+                                      })}
+                                    >
+                                      <SelectTrigger data-testid={`select-contract-org-${index}`}>
+                                        <SelectValue placeholder="Select organisation source..." />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="_trigger">From Trigger Record</SelectItem>
+                                        <SelectItem value="_trigger_org_id">Organization ID from Trigger</SelectItem>
+                                        {formData.entity_type === 'member' && (
+                                          <SelectItem value="_member_org">Member's Organisation</SelectItem>
+                                        )}
+                                        <SelectGroup>
+                                          <SelectLabel>Specific Organisation</SelectLabel>
+                                          {organizations.map(org => (
+                                            <SelectItem key={org.id} value={`static:${org.id}`}>{org.name}</SelectItem>
+                                          ))}
+                                        </SelectGroup>
+                                      </SelectContent>
+                                    </Select>
+                                    <p className="text-xs text-slate-500">
+                                      {action.config?.organization_mapping === '_trigger' && formData.entity_type === 'organization' && 'Will use the organization that triggered the workflow'}
+                                      {action.config?.organization_mapping === '_trigger' && formData.entity_type === 'member' && 'Will use the member record as the trigger context'}
+                                      {action.config?.organization_mapping === '_member_org' && 'Will use the member\'s linked organisation'}
+                                      {action.config?.organization_mapping?.startsWith('static:') && 'Will always use this specific organisation'}
+                                    </p>
+                                  </div>
+
+                                  <Separator />
+
+                                  <div className="space-y-3">
+                                    <div className="flex items-center gap-2">
+                                      <Users className="w-4 h-4 text-slate-500" />
+                                      <Label className="font-medium">Signer Mappings</Label>
+                                    </div>
+                                    <p className="text-xs text-slate-500">
+                                      Map fields from the trigger record to each signer's details. This contract requires {action.config?.required_signers_count || 1} signer(s).
+                                    </p>
+
+                                    {(action.config?.signer_mappings || []).map((signer, signerIdx) => (
+                                      <Card key={signerIdx} className="bg-slate-50">
+                                        <CardContent className="p-3 space-y-3">
+                                          <div className="flex items-center gap-2">
+                                            <Badge variant="outline" className="text-xs">Signer {signerIdx + 1}</Badge>
+                                          </div>
+                                          <div className="grid grid-cols-3 gap-2">
+                                            <div className="space-y-1">
+                                              <Label className="text-xs">First Name</Label>
+                                              <Select
+                                                value={signer.first_name_field || '_none'}
+                                                onValueChange={(val) => {
+                                                  const mappings = [...(action.config?.signer_mappings || [])];
+                                                  mappings[signerIdx] = { ...mappings[signerIdx], first_name_field: val === '_none' ? '' : val };
+                                                  updateAction(index, { config: { ...action.config, signer_mappings: mappings } });
+                                                }}
+                                              >
+                                                <SelectTrigger className="h-8 text-xs" data-testid={`select-signer-${signerIdx}-first-name-${index}`}>
+                                                  <SelectValue placeholder="Select field" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                  <SelectItem value="_none">Select field...</SelectItem>
+                                                  <SelectItem value="_static">Static value</SelectItem>
+                                                  {getEntitySpecificFields(formData.entity_type).core.map(f => (
+                                                    <SelectItem key={f.id} value={`core:${f.id}`}>{f.label}</SelectItem>
+                                                  ))}
+                                                </SelectContent>
+                                              </Select>
+                                              {signer.first_name_field === '_static' && (
+                                                <Input
+                                                  className="h-8 text-xs mt-1"
+                                                  placeholder="Enter first name"
+                                                  value={signer.first_name_static || ''}
+                                                  onChange={(e) => {
+                                                    const mappings = [...(action.config?.signer_mappings || [])];
+                                                    mappings[signerIdx] = { ...mappings[signerIdx], first_name_static: e.target.value };
+                                                    updateAction(index, { config: { ...action.config, signer_mappings: mappings } });
+                                                  }}
+                                                />
+                                              )}
+                                            </div>
+                                            <div className="space-y-1">
+                                              <Label className="text-xs">Last Name</Label>
+                                              <Select
+                                                value={signer.last_name_field || '_none'}
+                                                onValueChange={(val) => {
+                                                  const mappings = [...(action.config?.signer_mappings || [])];
+                                                  mappings[signerIdx] = { ...mappings[signerIdx], last_name_field: val === '_none' ? '' : val };
+                                                  updateAction(index, { config: { ...action.config, signer_mappings: mappings } });
+                                                }}
+                                              >
+                                                <SelectTrigger className="h-8 text-xs" data-testid={`select-signer-${signerIdx}-last-name-${index}`}>
+                                                  <SelectValue placeholder="Select field" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                  <SelectItem value="_none">Select field...</SelectItem>
+                                                  <SelectItem value="_static">Static value</SelectItem>
+                                                  {getEntitySpecificFields(formData.entity_type).core.map(f => (
+                                                    <SelectItem key={f.id} value={`core:${f.id}`}>{f.label}</SelectItem>
+                                                  ))}
+                                                </SelectContent>
+                                              </Select>
+                                              {signer.last_name_field === '_static' && (
+                                                <Input
+                                                  className="h-8 text-xs mt-1"
+                                                  placeholder="Enter last name"
+                                                  value={signer.last_name_static || ''}
+                                                  onChange={(e) => {
+                                                    const mappings = [...(action.config?.signer_mappings || [])];
+                                                    mappings[signerIdx] = { ...mappings[signerIdx], last_name_static: e.target.value };
+                                                    updateAction(index, { config: { ...action.config, signer_mappings: mappings } });
+                                                  }}
+                                                />
+                                              )}
+                                            </div>
+                                            <div className="space-y-1">
+                                              <Label className="text-xs">Email</Label>
+                                              <Select
+                                                value={signer.email_field || '_none'}
+                                                onValueChange={(val) => {
+                                                  const mappings = [...(action.config?.signer_mappings || [])];
+                                                  mappings[signerIdx] = { ...mappings[signerIdx], email_field: val === '_none' ? '' : val };
+                                                  updateAction(index, { config: { ...action.config, signer_mappings: mappings } });
+                                                }}
+                                              >
+                                                <SelectTrigger className="h-8 text-xs" data-testid={`select-signer-${signerIdx}-email-${index}`}>
+                                                  <SelectValue placeholder="Select field" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                  <SelectItem value="_none">Select field...</SelectItem>
+                                                  <SelectItem value="_static">Static value</SelectItem>
+                                                  {getEntitySpecificFields(formData.entity_type).core.filter(f => f.type === 'email' || f.id.includes('email')).map(f => (
+                                                    <SelectItem key={f.id} value={`core:${f.id}`}>{f.label}</SelectItem>
+                                                  ))}
+                                                  {getEntitySpecificFields(formData.entity_type).core.filter(f => f.type !== 'email' && !f.id.includes('email')).map(f => (
+                                                    <SelectItem key={f.id} value={`core:${f.id}`}>{f.label}</SelectItem>
+                                                  ))}
+                                                </SelectContent>
+                                              </Select>
+                                              {signer.email_field === '_static' && (
+                                                <Input
+                                                  className="h-8 text-xs mt-1"
+                                                  type="email"
+                                                  placeholder="Enter email"
+                                                  value={signer.email_static || ''}
+                                                  onChange={(e) => {
+                                                    const mappings = [...(action.config?.signer_mappings || [])];
+                                                    mappings[signerIdx] = { ...mappings[signerIdx], email_static: e.target.value };
+                                                    updateAction(index, { config: { ...action.config, signer_mappings: mappings } });
+                                                  }}
+                                                />
+                                              )}
+                                            </div>
+                                          </div>
+                                        </CardContent>
+                                      </Card>
+                                    ))}
+                                  </div>
+
+                                  <Separator />
+
+                                  <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-lg">
+                                    <Checkbox
+                                      id={`send-for-signing-${index}`}
+                                      checked={action.config?.send_for_signing ?? true}
+                                      onCheckedChange={(checked) => updateAction(index, { 
+                                        config: { ...action.config, send_for_signing: checked } 
+                                      })}
+                                      data-testid={`checkbox-send-for-signing-${index}`}
+                                    />
+                                    <div className="flex-1">
+                                      <Label htmlFor={`send-for-signing-${index}`} className="flex items-center gap-2 font-medium cursor-pointer">
+                                        <Send className="w-4 h-4 text-blue-600" />
+                                        Send for Signing Immediately
+                                      </Label>
+                                      <p className="text-xs text-slate-500 mt-1">
+                                        When enabled, the contract will be emailed to signers immediately after creation using the template's initial email.
+                                      </p>
+                                    </div>
+                                  </div>
+                                </>
+                              )}
                             </div>
                           )}
                         </CardContent>

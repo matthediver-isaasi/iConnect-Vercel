@@ -4325,161 +4325,64 @@ export default function FormBuilderPage() {
                     )}
                   </div>
 
-                  {/* Signers Configuration */}
+                  {/* Initial Email Template */}
                   <div className="space-y-3 pt-4 border-t border-slate-100">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Users className="w-4 h-4 text-slate-500" />
-                        <Label className="text-sm font-medium">Required Signers</Label>
-                      </div>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          const signers = formData.contract_settings?.signers || [];
-                          setFormData({
-                            ...formData,
-                            contract_settings: {
-                              ...formData.contract_settings,
-                              signers: [...signers, {
-                                id: `signer_${Date.now()}`,
-                                name: '',
-                                email: '',
-                                type: 'external',
-                                member_id: null
-                              }]
-                            }
-                          });
-                        }}
-                        data-testid="button-add-signer"
-                      >
-                        <Plus className="w-3 h-3 mr-1" />
-                        Add Signer
-                      </Button>
+                    <div className="flex items-center gap-2">
+                      <Mail className="w-4 h-4 text-slate-500" />
+                      <Label className="text-sm font-medium">Initial Email Template</Label>
                     </div>
                     <p className="text-xs text-slate-500">
-                      Add signers who must sign this contract. Signers can be external parties or existing members.
+                      Select the email template to send when the contract is sent for signing.
                     </p>
-                    
-                    {(formData.contract_settings?.signers || []).length === 0 ? (
-                      <p className="text-xs text-slate-400 italic">No signers configured. The form will be open for any submission.</p>
-                    ) : (
-                      <div className="space-y-3">
-                        {(formData.contract_settings?.signers || []).map((signer, idx) => (
-                          <div 
-                            key={signer.id} 
-                            className="flex gap-2 items-start p-3 bg-slate-50 rounded-lg"
-                            data-testid={`signer-item-${idx}`}
-                          >
-                            <div className="flex-1 space-y-2">
-                              <div className="flex gap-2">
-                                <Select
-                                  value={signer.type}
-                                  onValueChange={(value) => {
-                                    const signers = [...(formData.contract_settings?.signers || [])];
-                                    signers[idx] = { ...signers[idx], type: value, member_id: null };
-                                    setFormData({
-                                      ...formData,
-                                      contract_settings: { ...formData.contract_settings, signers }
-                                    });
-                                  }}
-                                >
-                                  <SelectTrigger className="w-32" data-testid={`select-signer-type-${idx}`}>
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="external">External</SelectItem>
-                                    <SelectItem value="member">Member</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                                
-                                {signer.type === 'external' ? (
-                                  <>
-                                    <Input
-                                      placeholder="Signer name"
-                                      value={signer.name || ''}
-                                      onChange={(e) => {
-                                        const signers = [...(formData.contract_settings?.signers || [])];
-                                        signers[idx] = { ...signers[idx], name: e.target.value };
-                                        setFormData({
-                                          ...formData,
-                                          contract_settings: { ...formData.contract_settings, signers }
-                                        });
-                                      }}
-                                      className="flex-1"
-                                      data-testid={`input-signer-name-${idx}`}
-                                    />
-                                    <Input
-                                      type="email"
-                                      placeholder="Email address"
-                                      value={signer.email || ''}
-                                      onChange={(e) => {
-                                        const signers = [...(formData.contract_settings?.signers || [])];
-                                        signers[idx] = { ...signers[idx], email: e.target.value };
-                                        setFormData({
-                                          ...formData,
-                                          contract_settings: { ...formData.contract_settings, signers }
-                                        });
-                                      }}
-                                      className="flex-1"
-                                      data-testid={`input-signer-email-${idx}`}
-                                    />
-                                  </>
-                                ) : (
-                                  <Select
-                                    value={signer.member_id || '_none'}
-                                    onValueChange={(value) => {
-                                      const signers = [...(formData.contract_settings?.signers || [])];
-                                      const member = members.find(m => m.id === value);
-                                      signers[idx] = { 
-                                        ...signers[idx], 
-                                        member_id: value === '_none' ? null : value,
-                                        name: member ? `${member.first_name || ''} ${member.last_name || ''}`.trim() : '',
-                                        email: member?.email || ''
-                                      };
-                                      setFormData({
-                                        ...formData,
-                                        contract_settings: { ...formData.contract_settings, signers }
-                                      });
-                                    }}
-                                  >
-                                    <SelectTrigger className="flex-1" data-testid={`select-signer-member-${idx}`}>
-                                      <SelectValue placeholder="Select member..." />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      <SelectItem value="_none">Select member...</SelectItem>
-                                      {members.map(member => (
-                                        <SelectItem key={member.id} value={member.id}>
-                                          {member.first_name} {member.last_name}
-                                          {member.email && ` (${member.email})`}
-                                        </SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
-                                )}
-                              </div>
-                            </div>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => {
-                                const signers = (formData.contract_settings?.signers || []).filter(s => s.id !== signer.id);
-                                setFormData({
-                                  ...formData,
-                                  contract_settings: { ...formData.contract_settings, signers }
-                                });
-                              }}
-                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                              data-testid={`button-delete-signer-${idx}`}
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
-                          </div>
+                    <Select
+                      value={formData.contract_settings?.initial_email_template_id || "_none"}
+                      onValueChange={(value) => setFormData({
+                        ...formData,
+                        contract_settings: {
+                          ...formData.contract_settings,
+                          initial_email_template_id: value === "_none" ? null : value
+                        }
+                      })}
+                    >
+                      <SelectTrigger data-testid="select-initial-email-template">
+                        <SelectValue placeholder="Select email template..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="_none">No template (don't send email)</SelectItem>
+                        {emailTemplates.map(template => (
+                          <SelectItem key={template.id} value={template.id}>{template.name}</SelectItem>
                         ))}
-                      </div>
-                    )}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Number of Signers Required */}
+                  <div className="space-y-3 pt-4 border-t border-slate-100">
+                    <div className="flex items-center gap-2">
+                      <Users className="w-4 h-4 text-slate-500" />
+                      <Label className="text-sm font-medium">Number of Signers Required</Label>
+                    </div>
+                    <p className="text-xs text-slate-500">
+                      Specify how many signers are required for this contract template. The actual signer details will be provided when the contract is created via a workflow action.
+                    </p>
+                    <Input
+                      type="number"
+                      min="1"
+                      max="10"
+                      value={formData.contract_settings?.required_signers_count || 1}
+                      onChange={(e) => setFormData({
+                        ...formData,
+                        contract_settings: {
+                          ...formData.contract_settings,
+                          required_signers_count: parseInt(e.target.value) || 1
+                        }
+                      })}
+                      className="w-32"
+                      data-testid="input-required-signers-count"
+                    />
+                    <p className="text-xs text-slate-400">
+                      {formData.contract_settings?.required_signers_count || 1} signer{(formData.contract_settings?.required_signers_count || 1) !== 1 ? 's' : ''} will be required to sign this contract.
+                    </p>
                   </div>
                 </div>
               </div>

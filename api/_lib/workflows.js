@@ -448,10 +448,190 @@ async function executeWorkflowActions(workflow, entityType, entityId, entityData
         error: emailResult.error,
         template_id: action.config?.template_id
       });
+    } else if (action.type === 'create_contract') {
+      const contractResult = await executeCreateContractAction(action, workflow, entityType, entityId, entityData, baseUrl);
+      results.push(contractResult);
     }
   }
   
   return results;
+}
+
+async function executeCreateContractAction(action, workflow, entityType, entityId, entityData, baseUrl) {
+  const tenantId = workflow.tenant_id;
+  console.log(`[Workflows] Executing create_contract action for entity ${entityType}:${entityId}`);
+  
+  try {
+    const contractFormId = action.config?.contract_form_id;
+    if (!contractFormId) {
+      return { action_type: 'create_contract', status: 'failed', error: 'No contract template specified' };
+    }
+    
+    const { data: contractForm, error: formError } = await supabase
+      .from('form')
+      .select('*')
+      .eq('id', contractFormId)
+      .eq('tenant_id', tenantId)
+      .single();
+    
+    if (formError || !contractForm) {
+      console.error('[Workflows] Contract form not found:', formError);
+      return { action_type: 'create_contract', status: 'failed', error: 'Contract template not found' };
+    }
+    
+    let organizationId = null;
+    const orgMapping = action.config?.organization_mapping || '_trigger';
+    
+    if (orgMapping === '_trigger' && entityType === 'organization') {
+      organizationId = entityId;
+    } else if (orgMapping === '_trigger_org_id' && entityData?.organization_id) {
+      organizationId = entityData.organization_id;
+    } else if (orgMapping === '_member_org' && entityType === 'member') {
+      organizationId = entityData?.organization_id;
+    } else if (orgMapping?.startsWith('static:')) {
+      organizationId = orgMapping.replace('static:', '');
+    }
+    
+    console.log(`[Workflows] Resolved organization_id: ${organizationId}`);
+    
+    const signerMappings = action.config?.signer_mappings || [];
+    const resolvedSigners = [];
+    
+    for (let i = 0; i < signerMappings.length; i++) {
+      const mapping = signerMappings[i];
+      const signer = {
+        id: `signer_${Date.now()}_${i}`,
+        type: 'external',
+        name: '',
+        email: ''
+      };
+      
+      let firstName = '';
+      if (mapping.first_name_field === '_static') {
+        firstName = mapping.first_name_static || '';
+      } else if (mapping.first_name_field?.startsWith('core:')) {
+        const fieldId = mapping.first_name_field.replace('core:', '');
+        firstName = entityData?.[fieldId] || '';
+      }
+      
+      let lastName = '';
+      if (mapping.last_name_field === '_static') {
+        lastName = mapping.last_name_static || '';
+      } else if (mapping.last_name_field?.startsWith('core:')) {
+        const fieldId = mapping.last_name_field.replace('core:', '');
+        lastName = entityData?.[fieldId] || '';
+      }
+      
+      signer.name = `${firstName} ${lastName}`.trim();
+      
+      if (mapping.email_field === '_static') {
+        signer.email = mapping.email_static || '';
+      } else if (mapping.email_field?.startsWith('core:')) {
+        const fieldId = mapping.email_field.replace('core:', '');
+        signer.email = entityData?.[fieldId] || '';
+      }
+      
+      if (signer.email) {
+        resolvedSigners.push(signer);
+      } else {
+        console.warn(`[Workflows] Signer ${i + 1} has no email, skipping`);
+      }
+    }
+    
+    console.log(`[Workflows] Resolved ${resolvedSigners.length} signers`);
+    
+    const newContractSettings = {
+      ...contractForm.contract_settings,
+      organization_id: organizationId,
+      signers: resolvedSigners,
+      created_from_workflow: workflow.id,
+      created_at: new Date().toISOString()
+    };
+    
+    const sendForSigning = action.config?.send_for_signing !== false;
+    
+    if (sendForSigning) {
+      newContractSettings.sent_at = new Date().toISOString();
+    }
+    
+    const { error: updateError } = await supabase
+      .from('form')
+      .update({ contract_settings: newContractSettings })
+      .eq('id', contractFormId);
+    
+    if (updateError) {
+      console.error('[Workflows] Error updating contract settings:', updateError);
+      return { action_type: 'create_contract', status: 'failed', error: 'Failed to update contract' };
+    }
+    
+    if (sendForSigning && resolvedSigners.length > 0) {
+      const initialTemplateId = contractForm.contract_settings?.initial_email_template_id;
+      
+      if (initialTemplateId) {
+        const { data: emailTemplate, error: templateError } = await supabase
+          .from('email_template')
+          .select('*')
+          .eq('id', initialTemplateId)
+          .single();
+        
+        if (emailTemplate && !templateError) {
+          for (const signer of resolvedSigners) {
+            const signingUrl = `${baseUrl}/form/${contractForm.slug}?signer=${encodeURIComponent(signer.email)}`;
+            
+            let subject = emailTemplate.subject || 'Contract for Signing';
+            let body = emailTemplate.body || '';
+            
+            subject = subject
+              .replace(/\{\{signer_name\}\}/gi, signer.name)
+              .replace(/\{\{signer_email\}\}/gi, signer.email)
+              .replace(/\{\{contract_name\}\}/gi, contractForm.name)
+              .replace(/\{\{signing_url\}\}/gi, signingUrl)
+              .replace(/\{\{signing_link\}\}/gi, `<a href="${signingUrl}">Click here to sign</a>`);
+            
+            body = body
+              .replace(/\{\{signer_name\}\}/gi, signer.name)
+              .replace(/\{\{signer_email\}\}/gi, signer.email)
+              .replace(/\{\{contract_name\}\}/gi, contractForm.name)
+              .replace(/\{\{signing_url\}\}/gi, signingUrl)
+              .replace(/\{\{signing_link\}\}/gi, `<a href="${signingUrl}">Click here to sign</a>`);
+            
+            body = replacePlaceholders(body, entityType, entityData);
+            subject = replacePlaceholders(subject, entityType, entityData);
+            
+            console.log(`[Workflows] Sending signing invitation to ${signer.email}`);
+            
+            await sendEmail({
+              to: signer.email,
+              subject,
+              html: body,
+              from: emailTemplate.from_email,
+              replyTo: emailTemplate.reply_to,
+              tenantId
+            });
+          }
+          
+          console.log(`[Workflows] Sent signing invitations to ${resolvedSigners.length} signers`);
+        } else {
+          console.warn(`[Workflows] Initial email template not found: ${initialTemplateId}`);
+        }
+      } else {
+        console.log(`[Workflows] No initial email template configured, contract created but not sent`);
+      }
+    }
+    
+    return {
+      action_type: 'create_contract',
+      status: 'success',
+      contract_form_id: contractFormId,
+      organization_id: organizationId,
+      signers_count: resolvedSigners.length,
+      sent_for_signing: sendForSigning
+    };
+    
+  } catch (error) {
+    console.error('[Workflows] create_contract action error:', error);
+    return { action_type: 'create_contract', status: 'failed', error: error.message };
+  }
 }
 
 // Execute role-based email: sends individual emails to all members with the specified role(s) in the organization
