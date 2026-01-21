@@ -1,0 +1,22 @@
+2026-01-21 09:47:15.594 [info] [Entity PATCH] Incoming request: entity="OrganizationPreferenceValue", id="6b4ea958-45b7-4eb6-a260-9e42be744450"
+2026-01-21 09:47:15.594 [info] [Session] getSession: Looking up session: d5663fe6
+2026-01-21 09:47:15.736 [info] [Session] getSession: Session found, userType: tenant_user
+2026-01-21 09:47:15.736 [info] [Session] getSessionTenantUser called, session data: {"hasSession":true,"sessionId":"d5663fe6","userType":"tenant_user","tenantUserId":"11ee8b69-e967-45d5-9bfa-dff5a52c4ae6","preservedTenantUserId":"11ee8b69-e967-45d5-9bfa-dff5a52c4ae6","memberId":"b24e022f-adcc-4930-8952-63a34cc16925","identityId":"545269d1-326b-4fff-90d0-b8a4e0cab9bb","tenantId":"21296ad6-1350-483a-a90c-1b06ece70501"}
+2026-01-21 09:47:15.736 [info] [Session] Found tenant_user session, continuing with normal handling
+2026-01-21 09:47:15.965 [info] [Session] Verified via unified identity system: mat.the.diver@googlemail.com
+2026-01-21 09:47:16.082 [info] [Session] Elevating role from tenant_user table: owner
+2026-01-21 09:47:16.082 [info] [Session] getSession: Looking up session: d5663fe6
+2026-01-21 09:47:16.241 [info] [Session] getSession: Session found, userType: tenant_user
+2026-01-21 09:47:16.242 [info] [Session] getSessionMember called, session data: {"hasSession":true,"sessionId":"d5663fe6","userType":"tenant_user","memberId":"b24e022f-adcc-4930-8952-63a34cc16925","preservedTenantUserId":"11ee8b69-e967-45d5-9bfa-dff5a52c4ae6","preservedIdentityId":"545269d1-326b-4fff-90d0-b8a4e0cab9bb"}
+2026-01-21 09:47:16.360 [info] [Session] Attaching preserved admin context to member: {
+  memberId: 'b24e022f-adcc-4930-8952-63a34cc16925',
+  preservedTenantUserId: '11ee8b69-e967-45d5-9bfa-dff5a52c4ae6'
+}
+2026-01-21 09:47:16.361 [info] [Session] Attaching preserved identity to member: {
+  memberId: 'b24e022f-adcc-4930-8952-63a34cc16925',
+  preservedIdentityId: '545269d1-326b-4fff-90d0-b8a4e0cab9bb'
+}
+2026-01-21 09:47:16.361 [info] [Entity PATCH] Entity: "OrganizationPreferenceValue", ID: 6b4ea958-45b7-4eb6-a260-9e42be744450, Body: {"value":"Rejected"}
+2026-01-21 09:47:16.361 [info] [Entity PATCH] Normalized entity: "organizationpreferencevalue"
+2026-01-21 09:47:16.361 [info] [Entity PATCH] isPreferenceValueEntity: true
+2026-01-21 09:47:16.361 [info] [Entity PATCH] ORGANIZATION scope: organizationId=7a097c15-1028-4e12-acde-c5ababb7201e, tenantId=21296ad6-1350-483a-a90c-1b06ece70501

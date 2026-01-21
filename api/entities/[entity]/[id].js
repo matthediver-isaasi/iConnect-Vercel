@@ -140,12 +140,12 @@ export default async function handler(req, res) {
         if (tenantScope === TENANT_SCOPE.MEMBER) {
           query = query.eq('member_id', tenantCtx.memberId);
         } else if (tenantScope === TENANT_SCOPE.ORGANIZATION) {
-          // Filter by organization_id if available, otherwise verify via tenant
-          if (tenantCtx.organizationId) {
-            query = query.eq('organization_id', tenantCtx.organizationId);
-          } else if (tenantCtx.tenantId) {
-            // Tenant owner can access any org in their tenant - use inner join filter
+          // Tenant admins can access any org in their tenant via inner join filter
+          // Regular members can only access their own organization
+          if (tenantCtx.tenantId) {
             query = query.eq('organization.tenant_id', tenantCtx.tenantId);
+          } else if (tenantCtx.organizationId) {
+            query = query.eq('organization_id', tenantCtx.organizationId);
           }
         } else if (entity === 'Organization') {
           // Organization entity: verify belongs to same tenant or is member's org
@@ -286,12 +286,13 @@ export default async function handler(req, res) {
         if (tenantScope === TENANT_SCOPE.MEMBER) {
           patchQuery = patchQuery.eq('member_id', tenantCtx.memberId);
         } else if (tenantScope === TENANT_SCOPE.ORGANIZATION) {
-          // For organization-scoped entities, filter by organization_id if available
-          // If tenant owner (has tenantId but no organizationId), verify via organization's tenant_id
-          console.log(`[Entity PATCH] ORGANIZATION scope: organizationId=${tenantCtx.organizationId}, tenantId=${tenantCtx.tenantId}`);
-          if (tenantCtx.organizationId) {
-            patchQuery = patchQuery.eq('organization_id', tenantCtx.organizationId);
-          } else if (tenantCtx.tenantId) {
+          // For organization-scoped entities, tenant admins can access any org in their tenant
+          // Regular members can only access their own organization
+          console.log(`[Entity PATCH] ORGANIZATION scope: organizationId=${tenantCtx.organizationId}, tenantId=${tenantCtx.tenantId}, isTenantAdmin=${!!tenantCtx.tenantId}`);
+          
+          // Tenant admins (have tenantId) should verify via tenant, not personal organizationId
+          // This allows them to edit preference values for any organization in their tenant
+          if (tenantCtx.tenantId) {
             // Tenant owner: verify the entity's organization belongs to their tenant
             // First fetch the entity to get its organization_id
             console.log(`[Entity PATCH] Tenant owner path - fetching entity ${id} from ${tableName}`);
@@ -323,6 +324,9 @@ export default async function handler(req, res) {
             // Organization verified, filter by its id
             console.log(`[Entity PATCH] Verification passed - adding filter organization_id=${entityRecord.organization_id}`);
             patchQuery = patchQuery.eq('organization_id', entityRecord.organization_id);
+          } else if (tenantCtx.organizationId) {
+            // Regular member: can only access their own organization's data
+            patchQuery = patchQuery.eq('organization_id', tenantCtx.organizationId);
           }
         } else if (entity === 'Organization') {
           if (tenantCtx.tenantId) {
