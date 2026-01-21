@@ -4273,7 +4273,8 @@ export default function FormBuilderPage() {
                               ...formData.contract_settings,
                               reminders: [...reminders, {
                                 id: `reminder_${Date.now()}`,
-                                days_before_timeout: 7,
+                                days: 7,
+                                timing_type: 'before_timeout',
                                 email_template_id: null
                               }]
                             }
@@ -4290,22 +4291,23 @@ export default function FormBuilderPage() {
                       <div className="text-center py-4 text-slate-400 border border-dashed border-slate-200 rounded-lg">
                         <Mail className="w-6 h-6 mx-auto mb-2 opacity-50" />
                         <p className="text-sm">No reminders configured</p>
-                        <p className="text-xs mt-1">Add reminders to notify signers before timeout</p>
+                        <p className="text-xs mt-1">Add reminders to notify signers</p>
                       </div>
                     ) : (
                       <div className="space-y-2">
                         {(formData.contract_settings?.reminders || []).map((reminder, idx) => (
-                          <div key={reminder.id} className="flex items-center gap-3 bg-white p-3 rounded-md border border-slate-200" data-testid={`reminder-row-${idx}`}>
-                            <div className="flex items-center gap-2 flex-1">
+                          <div key={reminder.id} className="flex flex-wrap items-center gap-3 bg-white p-3 rounded-md border border-slate-200" data-testid={`reminder-row-${idx}`}>
+                            <div className="flex items-center gap-2">
                               <Label className="text-sm whitespace-nowrap">Send</Label>
                               <Input
                                 type="number"
                                 min="1"
                                 max={formData.contract_settings?.timeout_days || 30}
-                                value={reminder.days_before_timeout}
+                                value={reminder.days || reminder.days_before_timeout || 7}
                                 onChange={(e) => {
                                   const reminders = [...(formData.contract_settings?.reminders || [])];
-                                  reminders[idx] = { ...reminder, days_before_timeout: parseInt(e.target.value) || 7 };
+                                  reminders[idx] = { ...reminder, days: parseInt(e.target.value) || 7 };
+                                  delete reminders[idx].days_before_timeout;
                                   setFormData({
                                     ...formData,
                                     contract_settings: { ...formData.contract_settings, reminders }
@@ -4314,9 +4316,30 @@ export default function FormBuilderPage() {
                                 className="w-20"
                                 data-testid={`input-reminder-days-${idx}`}
                               />
-                              <Label className="text-sm whitespace-nowrap">days before timeout</Label>
+                              <Label className="text-sm whitespace-nowrap">days</Label>
                             </div>
-                            <div className="flex-1">
+                            <div className="w-40">
+                              <Select
+                                value={reminder.timing_type || 'before_timeout'}
+                                onValueChange={(value) => {
+                                  const reminders = [...(formData.contract_settings?.reminders || [])];
+                                  reminders[idx] = { ...reminder, timing_type: value };
+                                  setFormData({
+                                    ...formData,
+                                    contract_settings: { ...formData.contract_settings, reminders }
+                                  });
+                                }}
+                              >
+                                <SelectTrigger data-testid={`select-reminder-timing-${idx}`}>
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="before_timeout">before timeout</SelectItem>
+                                  <SelectItem value="after_first_send">after first send</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="flex-1 min-w-[180px]">
                               <Select
                                 value={reminder.email_template_id || "_none"}
                                 onValueChange={(value) => {

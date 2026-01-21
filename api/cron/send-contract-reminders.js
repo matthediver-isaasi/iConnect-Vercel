@@ -17,41 +17,70 @@ export default async function handler(req, res) {
   try {
     const now = new Date();
     
-    const { data: contractForms, error: formsError } = await supabase
-      .from('form')
-      .select('*')
-      .eq('is_contract', true)
-      .eq('is_active', true);
+    // Fetch active contract instances that are out for signing
+    const { data: contractInstances, error: instancesError } = await supabase
+      .from('contract_instance')
+      .select(`
+        *,
+        form:form_id (
+          id,
+          name,
+          slug,
+          tenant_id,
+          contract_settings
+        )
+      `)
+      .eq('status', 'out_for_signing');
 
-    if (formsError) {
-      console.error('[cron/send-contract-reminders] Forms fetch error:', formsError);
-      return res.status(500).json({ error: 'Failed to fetch contract forms' });
+    if (instancesError) {
+      // Handle case where table doesn't exist yet
+      if (instancesError.code === '42P01') {
+        console.log('[cron/send-contract-reminders] contract_instance table not found - migration pending');
+        return res.status(200).json({ message: 'Migration pending', processed: 0 });
+      }
+      console.error('[cron/send-contract-reminders] Instances fetch error:', instancesError);
+      return res.status(500).json({ error: 'Failed to fetch contract instances' });
     }
 
-    if (!contractForms || contractForms.length === 0) {
-      console.log('[cron/send-contract-reminders] No active contract forms found');
+    if (!contractInstances || contractInstances.length === 0) {
+      console.log('[cron/send-contract-reminders] No active contract instances found');
       return res.status(200).json({ message: 'No active contracts', processed: 0 });
     }
 
-    console.log(`[cron/send-contract-reminders] Processing ${contractForms.length} contract forms`);
+    console.log(`[cron/send-contract-reminders] Processing ${contractInstances.length} contract instances`);
 
     let remindersSent = 0;
     let contractsSkipped = 0;
+    
+    // Cache tenant slugs to avoid repeated queries
+    const tenantSlugCache = {};
 
-    for (const form of contractForms) {
+    for (const instance of contractInstances) {
       try {
+        const form = instance.form;
+        if (!form) {
+          console.log(`[cron/send-contract-reminders] Instance ${instance.id} has no linked form, skipping`);
+          continue;
+        }
+        
+        // Cache tenant slug for this instance
+        if (form.tenant_id && !tenantSlugCache[form.tenant_id]) {
+          tenantSlugCache[form.tenant_id] = await getTenantSlug(form.tenant_id);
+        }
+        const tenantSlug = tenantSlugCache[form.tenant_id] || '';
+
         const contractSettings = form.contract_settings || {};
         const reminders = contractSettings.reminders || [];
-        const signers = contractSettings.signers || [];
-        const timeoutDays = contractSettings.timeout_days || 30;
-        const sentAt = contractSettings.sent_at;
+        const signers = instance.signers || [];
+        const timeoutDays = instance.timeout_days || contractSettings.timeout_days || 30;
+        const sentAt = instance.sent_at;
 
         if (reminders.length === 0 || signers.length === 0) {
           continue;
         }
 
         if (!sentAt) {
-          console.log(`[cron/send-contract-reminders] Contract ${form.id} has not been sent yet, skipping`);
+          console.log(`[cron/send-contract-reminders] Instance ${instance.id} has not been sent yet, skipping`);
           continue;
         }
 
@@ -60,28 +89,31 @@ export default async function handler(req, res) {
         expiryDate.setDate(expiryDate.getDate() + timeoutDays);
 
         if (now > expiryDate) {
-          console.log(`[cron/send-contract-reminders] Contract ${form.id} has expired`);
+          console.log(`[cron/send-contract-reminders] Instance ${instance.id} has expired`);
           continue;
         }
 
+        // Get submissions linked to this contract instance
         const { data: submissions, error: subError } = await supabase
           .from('form_submission')
           .select('*')
-          .eq('form_id', form.id);
+          .eq('contract_instance_id', instance.id);
 
-        if (subError) {
-          console.error(`[cron/send-contract-reminders] Submissions fetch error for form ${form.id}:`, subError);
+        if (subError && subError.code !== '42703') {
+          console.error(`[cron/send-contract-reminders] Submissions fetch error for instance ${instance.id}:`, subError);
           continue;
         }
 
+        // Determine which signers have already signed
         const signedEmails = new Set();
         (submissions || []).forEach(sub => {
-          if (sub.data) {
-            const hasSignature = Object.values(sub.data).some(v => 
+          const data = sub.submission_data || sub.data;
+          if (data) {
+            const hasSignature = Object.values(data).some(v => 
               typeof v === 'object' && v?.type === 'signature'
             );
             if (hasSignature) {
-              const email = sub.data.signer_email || sub.data.email;
+              const email = data.signer_email || data.email || sub.submitted_by_email;
               if (email) signedEmails.add(email.toLowerCase());
             }
           }
@@ -92,98 +124,131 @@ export default async function handler(req, res) {
         );
 
         if (unsignedSigners.length === 0) {
-          console.log(`[cron/send-contract-reminders] All signers have signed contract ${form.id}`);
+          console.log(`[cron/send-contract-reminders] All signers have signed instance ${instance.id}`);
           contractsSkipped++;
           continue;
         }
 
+        const daysSinceSent = Math.floor((now - sentDate) / (1000 * 60 * 60 * 24));
         const daysUntilExpiry = Math.ceil((expiryDate - now) / (1000 * 60 * 60 * 24));
 
         for (const reminder of reminders) {
-          const daysBeforeTimeout = reminder.days_before_timeout || 7;
+          // Support both old 'days_before_timeout' and new 'days' field
+          const reminderDays = reminder.days || reminder.days_before_timeout || 7;
+          const timingType = reminder.timing_type || 'before_timeout';
           
-          if (daysUntilExpiry <= daysBeforeTimeout && daysUntilExpiry > (daysBeforeTimeout - 1)) {
-            for (const signer of unsignedSigners) {
-              if (!signer.email) continue;
+          let shouldSendReminder = false;
+          
+          if (timingType === 'before_timeout') {
+            // Send X days before timeout
+            shouldSendReminder = daysUntilExpiry <= reminderDays && daysUntilExpiry > (reminderDays - 1);
+          } else if (timingType === 'after_first_send') {
+            // Send X days after first send
+            shouldSendReminder = daysSinceSent >= reminderDays && daysSinceSent < (reminderDays + 1);
+          }
 
-              const reminderKey = `${form.id}_${signer.id}_${reminder.id}_${now.toISOString().split('T')[0]}`;
-              
-              const { data: existingReminder } = await supabase
-                .from('contract_reminder_log')
-                .select('id')
-                .eq('reminder_key', reminderKey)
-                .single();
+          if (!shouldSendReminder) {
+            continue;
+          }
 
-              if (existingReminder) {
-                continue;
-              }
+          for (const signer of unsignedSigners) {
+            if (!signer.email) continue;
 
-              let emailSubject = `Reminder: Please sign ${form.name}`;
-              let emailBody = `
-                <p>Dear ${signer.name || 'Signer'},</p>
-                <p>This is a reminder that you have a pending contract to sign: <strong>${form.name}</strong></p>
-                <p>The contract will expire in ${daysUntilExpiry} day(s).</p>
-                <p>Please click the link below to sign the contract:</p>
-                <p><a href="${process.env.APP_URL || 'https://your-app.com'}/form/${form.slug}?signer_email=${encodeURIComponent(signer.email)}">Sign Contract</a></p>
-                <p>Thank you.</p>
-              `;
+            const signerIdentifier = signer.id || signer.email;
+            const reminderKey = `${instance.id}_${signerIdentifier}_${reminder.id}_${now.toISOString().split('T')[0]}`;
+            
+            // Check if reminder was already sent today
+            const { data: existingReminder } = await supabase
+              .from('contract_reminder_log')
+              .select('id')
+              .eq('reminder_key', reminderKey)
+              .single();
 
-              if (reminder.email_template_id) {
-                const { data: template } = await supabase
-                  .from('email_template')
-                  .select('*')
-                  .eq('id', reminder.email_template_id)
-                  .single();
+            if (existingReminder) {
+              continue;
+            }
 
-                if (template) {
-                  emailSubject = template.subject
-                    .replace(/{{contract_name}}/g, form.name)
-                    .replace(/{{signer_name}}/g, signer.name || 'Signer')
-                    .replace(/{{days_remaining}}/g, daysUntilExpiry.toString());
-                  
-                  emailBody = template.body
-                    .replace(/{{contract_name}}/g, form.name)
-                    .replace(/{{signer_name}}/g, signer.name || 'Signer')
-                    .replace(/{{days_remaining}}/g, daysUntilExpiry.toString())
-                    .replace(/{{sign_url}}/g, `${process.env.APP_URL || 'https://your-app.com'}/form/${form.slug}?signer_email=${encodeURIComponent(signer.email)}`);
-                }
-              }
+            const signerName = signer.first_name 
+              ? `${signer.first_name} ${signer.last_name || ''}`.trim()
+              : signer.name || 'Signer';
 
-              const { data: tenant } = await supabase
-                .from('tenant')
+            // Build signing URL using cached tenant slug
+            const appUrl = process.env.APP_URL || process.env.VERCEL_URL || 'https://iconn.app';
+            const signingUrl = tenantSlug 
+              ? `https://${tenantSlug}.iconn.app/form/${form.slug}?contract_instance=${instance.id}&signer_email=${encodeURIComponent(signer.email)}`
+              : `${appUrl}/form/${form.slug}?contract_instance=${instance.id}&signer_email=${encodeURIComponent(signer.email)}`;
+
+            let emailSubject = `Reminder: Please sign ${form.name}`;
+            let emailBody = `
+              <p>Dear ${signerName},</p>
+              <p>This is a reminder that you have a pending contract to sign: <strong>${form.name}</strong></p>
+              <p>The contract will expire in ${daysUntilExpiry} day(s).</p>
+              <p>Please click the link below to sign the contract:</p>
+              <p><a href="${signingUrl}">Sign Contract</a></p>
+              <p>Thank you.</p>
+            `;
+
+            if (reminder.email_template_id) {
+              const { data: template } = await supabase
+                .from('email_template')
                 .select('*')
-                .eq('id', form.tenant_id)
+                .eq('id', reminder.email_template_id)
                 .single();
 
-              try {
-                await sendEmail({
-                  to: signer.email,
-                  subject: emailSubject,
-                  body: emailBody,
-                  tenantId: form.tenant_id,
-                  tenant
+              if (template) {
+                emailSubject = template.subject
+                  .replace(/{{contract_name}}/g, form.name)
+                  .replace(/{{signer_name}}/g, signerName)
+                  .replace(/{{signer_first_name}}/g, signer.first_name || signerName)
+                  .replace(/{{signer_last_name}}/g, signer.last_name || '')
+                  .replace(/{{days_remaining}}/g, daysUntilExpiry.toString())
+                  .replace(/{{days_since_sent}}/g, daysSinceSent.toString());
+                
+                emailBody = template.body
+                  .replace(/{{contract_name}}/g, form.name)
+                  .replace(/{{signer_name}}/g, signerName)
+                  .replace(/{{signer_first_name}}/g, signer.first_name || signerName)
+                  .replace(/{{signer_last_name}}/g, signer.last_name || '')
+                  .replace(/{{days_remaining}}/g, daysUntilExpiry.toString())
+                  .replace(/{{days_since_sent}}/g, daysSinceSent.toString())
+                  .replace(/{{sign_url}}/g, signingUrl);
+              }
+            }
+
+            const { data: tenant } = await supabase
+              .from('tenant')
+              .select('*')
+              .eq('id', form.tenant_id)
+              .single();
+
+            try {
+              await sendEmail({
+                to: signer.email,
+                subject: emailSubject,
+                body: emailBody,
+                tenantId: form.tenant_id,
+                tenant
+              });
+
+              await supabase
+                .from('contract_reminder_log')
+                .insert({
+                  reminder_key: reminderKey,
+                  contract_instance_id: instance.id,
+                  signer_email: signer.email,
+                  sent_at: now.toISOString(),
+                  tenant_id: form.tenant_id
                 });
 
-                await supabase
-                  .from('contract_reminder_log')
-                  .insert({
-                    reminder_key: reminderKey,
-                    form_id: form.id,
-                    signer_email: signer.email,
-                    sent_at: now.toISOString(),
-                    tenant_id: form.tenant_id
-                  });
-
-                remindersSent++;
-                console.log(`[cron/send-contract-reminders] Sent reminder for contract ${form.id} to ${signer.email}`);
-              } catch (emailError) {
-                console.error(`[cron/send-contract-reminders] Failed to send email to ${signer.email}:`, emailError);
-              }
+              remindersSent++;
+              console.log(`[cron/send-contract-reminders] Sent reminder for instance ${instance.id} to ${signer.email} (${timingType}: ${reminderDays} days)`);
+            } catch (emailError) {
+              console.error(`[cron/send-contract-reminders] Failed to send email to ${signer.email}:`, emailError);
             }
           }
         }
-      } catch (formError) {
-        console.error(`[cron/send-contract-reminders] Error processing form ${form.id}:`, formError);
+      } catch (instanceError) {
+        console.error(`[cron/send-contract-reminders] Error processing instance ${instance.id}:`, instanceError);
       }
     }
 
@@ -198,5 +263,18 @@ export default async function handler(req, res) {
   } catch (error) {
     console.error('[cron/send-contract-reminders] Error:', error);
     return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+async function getTenantSlug(tenantId) {
+  try {
+    const { data: tenant } = await supabase
+      .from('tenant')
+      .select('slug')
+      .eq('id', tenantId)
+      .single();
+    return tenant?.slug || '';
+  } catch {
+    return '';
   }
 }
