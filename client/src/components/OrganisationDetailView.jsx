@@ -176,8 +176,8 @@ export default function OrganisationDetailView({
     ['org-detail-preference-values', organization?.id],
     ['all-org-preference-values-crm']
   ], { 
-    enabled: realtimeEnabled, 
-    tenantId: memberInfo?.tenant_id 
+    enabled: realtimeEnabled && !!organization?.id,
+    filter: organization?.id ? `organization_id=eq.${organization.id}` : null
   });
   const {
     pendingWorkflows,

@@ -105,8 +105,8 @@ export default function MemberDetailView({
     ['member-detail-preference-values', member?.id],
     ['all-member-preference-values-crm']
   ], { 
-    enabled: realtimeEnabled, 
-    tenantId: memberInfo?.tenant_id 
+    enabled: realtimeEnabled && !!member?.id,
+    filter: member?.id ? `member_id=eq.${member.id}` : null
   });
 
   const [isEditing, setIsEditing] = useState(isNew);

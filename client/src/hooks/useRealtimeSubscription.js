@@ -5,18 +5,24 @@ import { supabase, isSupabaseConfigured } from '@/api/supabaseClient';
 export function useRealtimeSubscription(tableName, queryKeysToInvalidate = [], options = {}) {
   const queryClient = useQueryClient();
   const channelRef = useRef(null);
-  const { enabled = true, schema = 'public', tenantId = null } = options;
+  const { 
+    enabled = true, 
+    schema = 'public', 
+    tenantId = null,
+    filter: customFilter = null  // Custom filter string, e.g. "organization_id=eq.123"
+  } = options;
 
   useEffect(() => {
     if (!enabled || !isSupabaseConfigured || !supabase || !tableName) {
       return;
     }
 
-    const channelName = tenantId 
-      ? `realtime:${tableName}:${tenantId}` 
-      : `realtime:${tableName}`;
-
-    const filter = tenantId ? `tenant_id=eq.${tenantId}` : undefined;
+    // Build filter: prefer custom filter, fall back to tenant_id filter
+    const filter = customFilter || (tenantId ? `tenant_id=eq.${tenantId}` : undefined);
+    
+    // Build unique channel name based on filter
+    const filterKey = filter || 'all';
+    const channelName = `realtime:${tableName}:${filterKey}`;
 
     channelRef.current = supabase
       .channel(channelName)
@@ -42,7 +48,7 @@ export function useRealtimeSubscription(tableName, queryKeysToInvalidate = [], o
         channelRef.current = null;
       }
     };
-  }, [tableName, enabled, schema, tenantId, queryClient, JSON.stringify(queryKeysToInvalidate)]);
+  }, [tableName, enabled, schema, tenantId, customFilter, queryClient, JSON.stringify(queryKeysToInvalidate)]);
 
   return { isSubscribed: !!channelRef.current };
 }
