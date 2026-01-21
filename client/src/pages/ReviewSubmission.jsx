@@ -174,15 +174,15 @@ function ReviewFieldEditor({
           field.type === 'textarea' || field.type === 'paragraph' ? (
             <Textarea
               value={reviewedValue || ''}
-              onChange={(e) => onChange(field.name, e.target.value)}
+              onChange={(e) => onChange(stateKey, e.target.value)}
               className="min-h-[80px]"
-              data-testid={`input-reviewed-${field.name}`}
+              data-testid={`input-reviewed-${stateKey}`}
             />
           ) : (
             <Input
               value={reviewedValue || ''}
-              onChange={(e) => onChange(field.name, e.target.value)}
-              data-testid={`input-reviewed-${field.name}`}
+              onChange={(e) => onChange(stateKey, e.target.value)}
+              data-testid={`input-reviewed-${stateKey}`}
             />
           )
         ) : (
@@ -376,15 +376,28 @@ export default function ReviewSubmissionPage() {
 
   useEffect(() => {
     if (ddSubmission && form && !hasInitialized) {
-      setReviewedFormValues(ddSubmission.reviewed_form_values || ddSubmission.original_form_values || {});
+      const fields = form?.fields?.filter(f => f.visible !== false) || [];
+      const existingReviewedValues = ddSubmission.reviewed_form_values || {};
+      const originalValues = ddSubmission.original_form_values || {};
+      
+      // Initialize reviewed values using field.id as key
+      // If we have existing reviewed values (keyed by field.id), use them
+      // Otherwise, initialize from original values (keyed by field.name) 
+      const initialReviewedValues = { ...existingReviewedValues };
+      fields.forEach(field => {
+        const fieldKey = field.id || field.name;
+        if (initialReviewedValues[fieldKey] === undefined) {
+          // Copy from original values using field.name
+          initialReviewedValues[fieldKey] = originalValues[field.name];
+        }
+      });
+      setReviewedFormValues(initialReviewedValues);
       
       // Initialize field review status with default from config for unreviewed fields
       const existingStatus = ddSubmission.field_review_status || {};
       const defaultState = ddConfig?.default_review_state || 'amended';
-      const fields = form?.fields?.filter(f => f.visible !== false) || [];
       
       // Apply default state to any field lacking an explicit status
-      // This handles both new reviews AND existing reviews with newly added fields
       // Use field.id as the unique identifier (not field.name which may be duplicated)
       const mergedStatus = { ...existingStatus };
       fields.forEach(field => {
@@ -409,16 +422,29 @@ export default function ReviewSubmissionPage() {
     setHasUnsavedChanges(true);
   }, []);
 
-  const handleFieldStatusChange = useCallback((fieldName, status) => {
-    setFieldReviewStatus(prev => ({ ...prev, [fieldName]: status }));
+  // Create a mapping from fieldKey (field.id) to field.name for looking up original values
+  const fieldKeyToName = useMemo(() => {
+    const mapping = {};
+    const fields = form?.fields?.filter(f => f.visible !== false) || [];
+    fields.forEach(field => {
+      const fieldKey = field.id || field.name;
+      mapping[fieldKey] = field.name;
+    });
+    return mapping;
+  }, [form]);
+
+  const handleFieldStatusChange = useCallback((fieldKey, status) => {
+    setFieldReviewStatus(prev => ({ ...prev, [fieldKey]: status }));
     if (status === 'approved') {
+      // Look up the original value using field.name (not fieldKey)
+      const fieldName = fieldKeyToName[fieldKey] || fieldKey;
       setReviewedFormValues(prev => ({
         ...prev,
-        [fieldName]: ddSubmission?.original_form_values?.[fieldName]
+        [fieldKey]: ddSubmission?.original_form_values?.[fieldName]
       }));
     }
     setHasUnsavedChanges(true);
-  }, [ddSubmission]);
+  }, [ddSubmission, fieldKeyToName]);
 
   const handleFieldNoteChange = useCallback((fieldName, note) => {
     setFieldNotes(prev => ({ ...prev, [fieldName]: note }));
@@ -714,7 +740,7 @@ export default function ReviewSubmissionPage() {
                         field={field}
                         fieldKey={fieldKey}
                         originalValue={originalFormValues[field.name]}
-                        reviewedValue={reviewedFormValues[field.name]}
+                        reviewedValue={reviewedFormValues[fieldKey]}
                         reviewStatus={fieldReviewStatus[fieldKey]}
                         onChange={handleFieldChange}
                         onStatusChange={handleFieldStatusChange}
