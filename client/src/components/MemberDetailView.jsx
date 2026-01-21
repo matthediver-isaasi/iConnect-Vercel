@@ -473,15 +473,17 @@ export default function MemberDetailView({
     }
   }, [isNew, filteredRoles, selectedRoleId]);
 
+  // Sync customFieldValues with memberValues when they change (for realtime updates)
+  // Only sync when not editing to preserve user edits
   useEffect(() => {
-    if (memberValues.length > 0) {
+    if (!isEditing) {
       const valuesMap = {};
       memberValues.forEach(pv => {
         valuesMap[pv.field_id] = pv.value;
       });
       setCustomFieldValues(valuesMap);
     }
-  }, [memberValues]);
+  }, [memberValues, isEditing]);
 
   // Load selected categories from member_resource_category join table
   // This effect runs whenever memberCategorySelections changes

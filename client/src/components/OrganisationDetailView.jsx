@@ -455,8 +455,10 @@ export default function OrganisationDetailView({
     }
   });
 
+  // Sync customFieldValues with orgValues when they change (for realtime updates)
+  // Only sync when not editing to preserve user edits
   useEffect(() => {
-    if (orgValues.length > 0 && orgCustomFields.length > 0) {
+    if (!isEditing && orgCustomFields.length > 0) {
       const valuesMap = {};
       orgValues.forEach(pv => {
         const field = orgCustomFields.find(f => f.id === pv.field_id);
@@ -477,7 +479,7 @@ export default function OrganisationDetailView({
       });
       setCustomFieldValues(valuesMap);
     }
-  }, [orgValues, orgCustomFields]);
+  }, [orgValues, orgCustomFields, isEditing]);
 
   const createOrgMutation = useMutation({
     mutationFn: async (newOrg) => {
