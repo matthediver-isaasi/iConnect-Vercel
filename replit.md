@@ -91,38 +91,80 @@ The frontend uses Supabase Realtime to subscribe to database changes and automat
 
 ## Contract Signing Module
 
-A contract signing system built on the existing FormBuilder infrastructure, allowing structured forms with signature fields to be sent to signers for electronic signatures.
+A contract signing system built on the existing FormBuilder infrastructure, allowing structured forms with signature fields to be sent to signers for electronic signatures. The system separates **contract templates** (forms) from **contract instances** (individual contract runs created via workflows).
+
+### Architecture:
+- **Contract Templates**: Forms marked with `is_contract=true` define the structure and schema. Templates specify:
+  - Number of signers required (`required_signers_count`)
+  - Timeout days for expiration
+  - Initial email template for sending
+  - Reminder schedules
+- **Contract Instances**: Created when a workflow's "Create Contract" action executes. Each instance is linked to:
+  - A specific organization
+  - Resolved signer details (names and emails)
+  - Status tracking (draft, out_for_signing, received, expired)
 
 ### Key Features:
 - **Contract Mode Toggle**: Forms can be marked as contracts via `is_contract` flag in FormBuilder
-- **Contract Settings**: Stored in `contract_settings` JSON field including:
+- **Template Settings**: Stored in `contract_settings` JSON field including:
+  - `required_signers_count`: Number of signers this template requires
   - `timeout_days`: Days before contract expires (default 30)
-  - `organization_id`: Linked organisation for the contract
+  - `initial_email_template_id`: Email template for sending signing invitations
   - `reminders`: Array of reminder configurations with days before timeout and email template
-  - `require_signature`: Whether signature is mandatory
-  - `signers`: Array of signers (external or member) with name, email, type, and member_id
 - **Signature Field**: New form field type `signature` with canvas-based signature capture
-- **Multi-Signer Support**: Contracts can have multiple signers (external parties or existing members)
+- **Workflow Integration**: "Create Contract" action in workflows:
+  - Maps organization from trigger entity
+  - Maps signer details (first name, last name, email) from entity fields or static values
+  - Option to send for signing immediately
+- **Multi-Signer Support**: Contracts can have multiple signers (external parties)
 - **Status Tracking**: draft, out_for_signing, received, expired
 - **Automated Reminders**: Cron job sends reminder emails based on configured schedule
 
 ### API Endpoints:
-- `POST /api/contracts/send-to-signers`: Send contract to all configured signers
+- `GET /api/contracts/by-organization?organizationId=xxx`: Get all contract instances for an organization
 - `GET /api/contracts/status?formId=xxx`: Get contract status with signed/unsigned signers
 - `GET /api/cron/send-contract-reminders`: Cron endpoint for processing pending reminders
 
 ### Frontend Components:
 - `SignatureField`: Canvas-based signature capture component in `client/src/components/forms/SignatureField.jsx`
-- FormBuilder contract settings panel for configuring signers, timeouts, and reminders
+- FormBuilder contract settings panel for configuring template settings (signer count, email template, reminders)
+- WorkflowManagement "Create Contract" action for creating instances with signer mappings
 - FormManagement page with Standard Forms and Contracts tabs
-- Documents tab in OrganisationDetailView showing linked contracts
+- Documents tab in OrganisationDetailView showing linked contract instances
 
 ### Database Tables Required:
 ```sql
+-- Contract instances table for tracking individual contract runs
+CREATE TABLE contract_instance (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL REFERENCES tenant(id),
+  form_id UUID NOT NULL REFERENCES form(id),
+  organization_id UUID REFERENCES organization(id),
+  signers JSONB NOT NULL DEFAULT '[]',
+  status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'out_for_signing', 'received', 'expired')),
+  timeout_days INTEGER NOT NULL DEFAULT 30,
+  sent_at TIMESTAMPTZ,
+  created_from_workflow_id UUID REFERENCES workflow(id),
+  created_from_entity_type TEXT,
+  created_from_entity_id UUID,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_contract_instance_tenant ON contract_instance(tenant_id);
+CREATE INDEX idx_contract_instance_form ON contract_instance(form_id);
+CREATE INDEX idx_contract_instance_organization ON contract_instance(organization_id);
+CREATE INDEX idx_contract_instance_status ON contract_instance(status);
+
+-- Add contract_instance_id to form_submission for linking signatures
+ALTER TABLE form_submission ADD COLUMN contract_instance_id UUID REFERENCES contract_instance(id);
+CREATE INDEX idx_form_submission_contract_instance ON form_submission(contract_instance_id);
+
+-- Contract reminder log for tracking sent reminders
 CREATE TABLE contract_reminder_log (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   reminder_key TEXT NOT NULL UNIQUE,
-  form_id UUID NOT NULL REFERENCES form(id),
+  contract_instance_id UUID NOT NULL REFERENCES contract_instance(id),
   signer_email TEXT NOT NULL,
   sent_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   tenant_id UUID NOT NULL REFERENCES tenant(id),
@@ -130,7 +172,7 @@ CREATE TABLE contract_reminder_log (
 );
 
 CREATE INDEX idx_contract_reminder_log_tenant ON contract_reminder_log(tenant_id);
-CREATE INDEX idx_contract_reminder_log_form ON contract_reminder_log(form_id);
+CREATE INDEX idx_contract_reminder_log_instance ON contract_reminder_log(contract_instance_id);
 ```
 
 # External Dependencies

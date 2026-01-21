@@ -503,7 +503,9 @@ async function executeCreateContractAction(action, workflow, entityType, entityI
         id: `signer_${Date.now()}_${i}`,
         type: 'external',
         name: '',
-        email: ''
+        email: '',
+        signed: false,
+        signed_at: null
       };
       
       let firstName = '';
@@ -540,29 +542,38 @@ async function executeCreateContractAction(action, workflow, entityType, entityI
     
     console.log(`[Workflows] Resolved ${resolvedSigners.length} signers`);
     
-    const newContractSettings = {
-      ...contractForm.contract_settings,
+    const sendForSigning = action.config?.send_for_signing !== false;
+    
+    const contractInstance = {
+      tenant_id: tenantId,
+      form_id: contractFormId,
       organization_id: organizationId,
       signers: resolvedSigners,
-      created_from_workflow: workflow.id,
+      status: sendForSigning ? 'out_for_signing' : 'draft',
+      timeout_days: contractForm.contract_settings?.timeout_days || 30,
+      created_from_workflow_id: workflow.id,
+      created_from_entity_type: entityType,
+      created_from_entity_id: entityId,
+      sent_at: sendForSigning ? new Date().toISOString() : null,
       created_at: new Date().toISOString()
     };
     
-    const sendForSigning = action.config?.send_for_signing !== false;
+    const { data: insertedInstance, error: insertError } = await supabase
+      .from('contract_instance')
+      .insert(contractInstance)
+      .select()
+      .single();
     
-    if (sendForSigning) {
-      newContractSettings.sent_at = new Date().toISOString();
+    if (insertError) {
+      console.error('[Workflows] Error creating contract instance:', insertError);
+      if (insertError.code === '42P01') {
+        console.error('[Workflows] contract_instance table does not exist. Please run the migration.');
+        return { action_type: 'create_contract', status: 'failed', error: 'Contract instance table not set up. Please contact administrator.' };
+      }
+      return { action_type: 'create_contract', status: 'failed', error: 'Failed to create contract instance' };
     }
     
-    const { error: updateError } = await supabase
-      .from('form')
-      .update({ contract_settings: newContractSettings })
-      .eq('id', contractFormId);
-    
-    if (updateError) {
-      console.error('[Workflows] Error updating contract settings:', updateError);
-      return { action_type: 'create_contract', status: 'failed', error: 'Failed to update contract' };
-    }
+    console.log(`[Workflows] Created contract instance: ${insertedInstance.id}`);
     
     if (sendForSigning && resolvedSigners.length > 0) {
       const initialTemplateId = contractForm.contract_settings?.initial_email_template_id;
@@ -576,7 +587,7 @@ async function executeCreateContractAction(action, workflow, entityType, entityI
         
         if (emailTemplate && !templateError) {
           for (const signer of resolvedSigners) {
-            const signingUrl = `${baseUrl}/form/${contractForm.slug}?signer=${encodeURIComponent(signer.email)}`;
+            const signingUrl = `${baseUrl}/form/${contractForm.slug}?contract_instance=${insertedInstance.id}&signer=${encodeURIComponent(signer.email)}`;
             
             let subject = emailTemplate.subject || 'Contract for Signing';
             let body = emailTemplate.body || '';
@@ -615,13 +626,14 @@ async function executeCreateContractAction(action, workflow, entityType, entityI
           console.warn(`[Workflows] Initial email template not found: ${initialTemplateId}`);
         }
       } else {
-        console.log(`[Workflows] No initial email template configured, contract created but not sent`);
+        console.log(`[Workflows] No initial email template configured, contract instance created but not sent`);
       }
     }
     
     return {
       action_type: 'create_contract',
       status: 'success',
+      contract_instance_id: insertedInstance.id,
       contract_form_id: contractFormId,
       organization_id: organizationId,
       signers_count: resolvedSigners.length,
