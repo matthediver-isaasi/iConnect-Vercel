@@ -49,6 +49,7 @@ import { useLayoutContext } from "@/contexts/LayoutContext";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import OutlookConnection from "@/components/OutlookConnection";
 import BookingAvailabilitySettings from "@/components/BookingAvailabilitySettings";
+import CustomFieldFileUpload, { CustomFieldFileDisplay } from "@/components/CustomFieldFileUpload";
 
 // --- List Field Editor Component ---
 function ListFieldEditor({ fieldId, values = [], onChange, placeholder, disabled = false }) {
@@ -2745,8 +2746,22 @@ export default function PreferencesPage() {
                           )
                         )}
 
+                        {field.field_type === 'file' && (
+                          canEdit ? (
+                            <CustomFieldFileUpload
+                              fieldId={field.id}
+                              value={fieldValue}
+                              onChange={(newValue) => handleAdditionalInfoChange(field.id, newValue)}
+                              allowedTypes={field.allowed_file_types || []}
+                              label={`Upload ${field.label}`}
+                            />
+                          ) : (
+                            <CustomFieldFileDisplay value={fieldValue} />
+                          )
+                        )}
+
                         {/* Fallback for unrecognized field types - render as text input */}
-                        {!['text', 'url', 'number', 'decimal', 'boolean', 'dropdown', 'picklist', 'list'].includes(field.field_type) && (
+                        {!['text', 'url', 'number', 'decimal', 'boolean', 'dropdown', 'picklist', 'list', 'file'].includes(field.field_type) && (
                           canEdit ? (
                             <Input
                               id={`field-${field.id}`}

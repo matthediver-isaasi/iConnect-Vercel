@@ -9,7 +9,8 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { GripVertical, Loader2, ClipboardList, Plus, Pencil, Trash2, X, User, Building2, Filter } from "lucide-react";
+import { GripVertical, Loader2, ClipboardList, Plus, Pencil, Trash2, X, User, Building2, Filter, Upload, FileText, FileImage, FileSpreadsheet, File } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
@@ -25,7 +26,20 @@ const FIELD_TYPES = [
   { value: 'decimal', label: 'Decimal Number' },
   { value: 'picklist', label: 'Picklist (Multiple Selection)' },
   { value: 'dropdown', label: 'Dropdown (Single Selection)' },
-  { value: 'list', label: 'List (User-Defined Values)' }
+  { value: 'list', label: 'List (User-Defined Values)' },
+  { value: 'file', label: 'File Upload' }
+];
+
+const ALLOWED_FILE_TYPES = [
+  { value: 'pdf', label: 'PDF Documents', extension: '.pdf', icon: FileText },
+  { value: 'word', label: 'Word Documents', extension: '.doc,.docx', icon: FileText },
+  { value: 'excel', label: 'Excel Spreadsheets', extension: '.xls,.xlsx,.csv', icon: FileSpreadsheet },
+  { value: 'powerpoint', label: 'PowerPoint Presentations', extension: '.ppt,.pptx', icon: FileText },
+  { value: 'images', label: 'Images', extension: '.jpg,.jpeg,.png,.gif,.webp,.svg', icon: FileImage },
+  { value: 'text', label: 'Text Files', extension: '.txt,.rtf', icon: FileText },
+  { value: 'zip', label: 'Archives (ZIP, RAR)', extension: '.zip,.rar,.7z', icon: File },
+  { value: 'video', label: 'Videos', extension: '.mp4,.mov,.avi,.webm', icon: File },
+  { value: 'audio', label: 'Audio Files', extension: '.mp3,.wav,.m4a,.ogg', icon: File }
 ];
 
 const ENTITY_SCOPES = [
@@ -139,6 +153,7 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
   const [fieldFilterable, setFieldFilterable] = useState(false);
   const [minSelections, setMinSelections] = useState('');
   const [maxSelections, setMaxSelections] = useState('');
+  const [allowedFileTypes, setAllowedFileTypes] = useState([]);
   // Visibility toggles for organization fields
   const [showInMyOrganisation, setShowInMyOrganisation] = useState(true);
   const [showInDirectoryCard, setShowInDirectoryCard] = useState(true);
@@ -250,6 +265,7 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
     setFieldFilterable(false);
     setMinSelections('');
     setMaxSelections('');
+    setAllowedFileTypes([]);
     // Reset visibility toggles to default (all visible)
     setShowInMyOrganisation(true);
     setShowInDirectoryCard(true);
@@ -271,6 +287,21 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
     setFieldFilterable(field.is_filterable || false);
     setMinSelections(field.min_selections != null ? String(field.min_selections) : '');
     setMaxSelections(field.max_selections != null ? String(field.max_selections) : '');
+    // Parse allowed_file_types - handle both array and JSON string formats
+    let parsedFileTypes = [];
+    if (field.allowed_file_types) {
+      if (Array.isArray(field.allowed_file_types)) {
+        parsedFileTypes = field.allowed_file_types;
+      } else if (typeof field.allowed_file_types === 'string') {
+        try {
+          parsedFileTypes = JSON.parse(field.allowed_file_types);
+          if (!Array.isArray(parsedFileTypes)) parsedFileTypes = [];
+        } catch {
+          parsedFileTypes = [];
+        }
+      }
+    }
+    setAllowedFileTypes(parsedFileTypes);
     // Load visibility settings (default to true for backward compatibility)
     setShowInMyOrganisation(field.show_in_my_organisation !== false);
     setShowInDirectoryCard(field.show_in_directory_card !== false);
@@ -307,6 +338,12 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
       return;
     }
 
+    // Validate file field has at least one allowed file type
+    if (fieldType === 'file' && allowedFileTypes.length === 0) {
+      toast.error('Please select at least one allowed file type');
+      return;
+    }
+
     // Note: We no longer require options for picklist/dropdown fields
     // This allows creating fields where options are added per-record (e.g., approved domains per organisation)
 
@@ -322,6 +359,7 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
       is_filterable: (fieldType === 'picklist' || fieldType === 'dropdown') ? fieldFilterable : false,
       min_selections: fieldType === 'picklist' && minSelections ? parseInt(minSelections, 10) : null,
       max_selections: fieldType === 'picklist' && maxSelections ? parseInt(maxSelections, 10) : null,
+      allowed_file_types: fieldType === 'file' ? allowedFileTypes : null,
       // Visibility settings (only relevant for organization fields)
       show_in_my_organisation: entityScope === 'organization' ? showInMyOrganisation : true,
       show_in_directory_card: entityScope === 'organization' ? showInDirectoryCard : true,
@@ -445,6 +483,18 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
                                 Options: {field.options.map(o => o.label).join(', ')}
                               </p>
                             )}
+                            {field.field_type === 'file' && field.allowed_file_types && (() => {
+                              let types = field.allowed_file_types;
+                              if (typeof types === 'string') {
+                                try { types = JSON.parse(types); } catch { types = []; }
+                              }
+                              if (!Array.isArray(types) || types.length === 0) return null;
+                              return (
+                                <p className="text-sm text-slate-400 mt-1">
+                                  Allowed: {types.map(t => ALLOWED_FILE_TYPES.find(ft => ft.value === t)?.label).filter(Boolean).join(', ')}
+                                </p>
+                              );
+                            })()}
                           </div>
                           
                           <div className="flex items-center gap-2">
@@ -550,6 +600,57 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
                 <p className="text-xs text-green-600 mt-1">
                   Example uses: skills, interests, tags, domains, certifications
                 </p>
+              </div>
+            )}
+
+            {fieldType === 'file' && (
+              <div className="space-y-3">
+                <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
+                  <p className="text-sm text-blue-800">
+                    <strong>File Upload Field:</strong> Users can upload files which are stored securely. 
+                    Select which file types are allowed for this field.
+                  </p>
+                </div>
+                <Label>Allowed File Types *</Label>
+                <div className="grid grid-cols-1 gap-2 max-h-[200px] overflow-y-auto border rounded-lg p-3">
+                  {ALLOWED_FILE_TYPES.map((fileType) => {
+                    const IconComponent = fileType.icon;
+                    const isChecked = allowedFileTypes.includes(fileType.value);
+                    return (
+                      <div 
+                        key={fileType.value} 
+                        className={`flex items-center gap-3 p-2 rounded-lg transition-colors ${
+                          isChecked ? 'bg-blue-50 border border-blue-200' : 'bg-white'
+                        }`}
+                      >
+                        <Checkbox
+                          id={`file-type-${fileType.value}`}
+                          checked={isChecked}
+                          onCheckedChange={(checked) => {
+                            if (checked) {
+                              setAllowedFileTypes(prev => [...prev, fileType.value]);
+                            } else {
+                              setAllowedFileTypes(prev => prev.filter(t => t !== fileType.value));
+                            }
+                          }}
+                          data-testid={`checkbox-file-type-${fileType.value}`}
+                        />
+                        <IconComponent className="w-4 h-4 text-slate-500" />
+                        <div className="flex-1">
+                          <span className="text-sm font-medium">
+                            {fileType.label}
+                          </span>
+                          <p className="text-xs text-slate-400">{fileType.extension}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                {allowedFileTypes.length > 0 && (
+                  <p className="text-xs text-slate-500">
+                    Selected: {allowedFileTypes.map(t => ALLOWED_FILE_TYPES.find(ft => ft.value === t)?.label).filter(Boolean).join(', ')}
+                  </p>
+                )}
               </div>
             )}
 

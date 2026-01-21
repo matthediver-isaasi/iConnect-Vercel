@@ -15,6 +15,7 @@ import { Loader2, Building2, Globe, Users, Phone, Mail, MapPin, ClipboardList, E
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl, isDeletedMember } from "@/utils";
 import { useToast } from "@/components/ui/use-toast";
+import CustomFieldFileUpload, { CustomFieldFileDisplay } from "@/components/CustomFieldFileUpload";
 
 function ListFieldInput({ items, onChange, placeholder, fieldId }) {
   const [newItem, setNewItem] = useState('');
@@ -945,6 +946,17 @@ export default function MyOrganisationPage() {
           />
         );
         
+      case 'file':
+        return (
+          <CustomFieldFileUpload
+            fieldId={field.id}
+            value={fieldValue}
+            onChange={(newValue) => handleCustomFieldChange(field.id, newValue)}
+            allowedTypes={field.allowed_file_types || []}
+            label={`Upload ${field.label}`}
+          />
+        );
+        
       default:
         return (
           <Input
@@ -1235,6 +1247,8 @@ export default function MyOrganisationPage() {
                             <div className="text-sm font-medium text-slate-900 text-right" data-testid={`text-custom-field-${field.id}`}>
                               {field.field_type === 'list' ? (
                                 <ListFieldDisplay items={displayValue} />
+                              ) : field.field_type === 'file' ? (
+                                <CustomFieldFileDisplay value={displayValue} />
                               ) : (
                                 displayValue || <span className="text-slate-400 italic font-normal">Not set</span>
                               )}
