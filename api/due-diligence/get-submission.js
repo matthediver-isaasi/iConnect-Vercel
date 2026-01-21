@@ -39,9 +39,7 @@ export default async function handler(req, res) {
           form_id,
           submission_data,
           status,
-          created_date,
-          member_id,
-          organization_id
+          created_date
         )
       `)
       .eq('tenant_id', tenantCtx.tenantId);
