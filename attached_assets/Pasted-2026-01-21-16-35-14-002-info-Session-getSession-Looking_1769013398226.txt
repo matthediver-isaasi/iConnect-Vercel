@@ -1,0 +1,28 @@
+2026-01-21 16:35:14.002 [info] [Session] getSession: Looking up session: c6510bed
+2026-01-21 16:35:14.156 [info] [Session] getSession: Session found, userType: tenant_user
+2026-01-21 16:35:14.156 [info] [Session] getSessionMember called, session data: {"hasSession":true,"sessionId":"c6510bed","userType":"tenant_user","memberId":"b24e022f-adcc-4930-8952-63a34cc16925","preservedTenantUserId":"11ee8b69-e967-45d5-9bfa-dff5a52c4ae6","preservedIdentityId":"545269d1-326b-4fff-90d0-b8a4e0cab9bb"}
+2026-01-21 16:35:14.281 [info] [Session] Attaching preserved admin context to member: {
+  memberId: 'b24e022f-adcc-4930-8952-63a34cc16925',
+  preservedTenantUserId: '11ee8b69-e967-45d5-9bfa-dff5a52c4ae6'
+}
+2026-01-21 16:35:14.281 [info] [Session] Attaching preserved identity to member: {
+  memberId: 'b24e022f-adcc-4930-8952-63a34cc16925',
+  preservedIdentityId: '545269d1-326b-4fff-90d0-b8a4e0cab9bb'
+}
+2026-01-21 16:35:14.281 [info] [Session] getSession: Looking up session: c6510bed
+2026-01-21 16:35:14.415 [info] [Session] getSession: Session found, userType: tenant_user
+2026-01-21 16:35:14.415 [info] [Session] getSessionTenantUser called, session data: {"hasSession":true,"sessionId":"c6510bed","userType":"tenant_user","tenantUserId":"11ee8b69-e967-45d5-9bfa-dff5a52c4ae6","preservedTenantUserId":"11ee8b69-e967-45d5-9bfa-dff5a52c4ae6","memberId":"b24e022f-adcc-4930-8952-63a34cc16925","identityId":"545269d1-326b-4fff-90d0-b8a4e0cab9bb","tenantId":"21296ad6-1350-483a-a90c-1b06ece70501"}
+2026-01-21 16:35:14.415 [info] [Session] Found tenant_user session, continuing with normal handling
+2026-01-21 16:35:14.673 [info] [Session] Verified via unified identity system: mat.the.diver@googlemail.com
+2026-01-21 16:35:14.789 [info] [Session] Elevating role from tenant_user table: owner
+2026-01-21 16:35:14.790 [info] [Session] getSession: Looking up session: c6510bed
+2026-01-21 16:35:14.920 [info] [Session] getSession: Session found, userType: tenant_user
+2026-01-21 16:35:14.920 [info] [Session] getSessionMember called, session data: {"hasSession":true,"sessionId":"c6510bed","userType":"tenant_user","memberId":"b24e022f-adcc-4930-8952-63a34cc16925","preservedTenantUserId":"11ee8b69-e967-45d5-9bfa-dff5a52c4ae6","preservedIdentityId":"545269d1-326b-4fff-90d0-b8a4e0cab9bb"}
+2026-01-21 16:35:15.049 [info] [Session] Attaching preserved admin context to member: {
+  memberId: 'b24e022f-adcc-4930-8952-63a34cc16925',
+  preservedTenantUserId: '11ee8b69-e967-45d5-9bfa-dff5a52c4ae6'
+}
+2026-01-21 16:35:15.049 [info] [Session] Attaching preserved identity to member: {
+  memberId: 'b24e022f-adcc-4930-8952-63a34cc16925',
+  preservedIdentityId: '545269d1-326b-4fff-90d0-b8a4e0cab9bb'
+}
