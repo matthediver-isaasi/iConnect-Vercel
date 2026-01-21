@@ -1077,8 +1077,9 @@ export default function FormViewPage() {
 
   // Helper to filter visible fields
   // hiddenFieldIds already includes fields with "show" rules as hidden by default
+  // Also excludes due_diligence fields which should not be shown to end users
   const filterVisibleFields = (fields) => {
-    return fields.filter(field => !hiddenFieldIds.has(field.id));
+    return fields.filter(field => !hiddenFieldIds.has(field.id) && !field.due_diligence);
   };
 
   // Compute initial disabled fields from field.starts_disabled property

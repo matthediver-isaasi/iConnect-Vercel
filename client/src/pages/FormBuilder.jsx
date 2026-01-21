@@ -2264,6 +2264,11 @@ function FieldCard({
               {field.locked && (
                 <Lock className="w-3 h-3 text-slate-400 flex-shrink-0" />
               )}
+              {field.due_diligence && (
+                <Badge variant="outline" className="text-xs flex-shrink-0 border-amber-300 text-amber-600 bg-amber-50">
+                  DD
+                </Badge>
+              )}
             </div>
             <Button
               variant="ghost"
@@ -3137,6 +3142,14 @@ function FieldCard({
                         <Label htmlFor={`allow-other-${field.id}`} className="text-sm">Allow "Other"</Label>
                       </div>
                     )}
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        id={`due-diligence-${field.id}`}
+                        checked={field.due_diligence || false}
+                        onCheckedChange={(checked) => updateField(originalIndex, { due_diligence: checked })}
+                      />
+                      <Label htmlFor={`due-diligence-${field.id}`} className="text-sm">Due Diligence</Label>
+                    </div>
                   </div>
                 </div>
               </div>

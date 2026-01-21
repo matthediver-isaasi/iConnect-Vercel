@@ -770,8 +770,9 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   }, [form?.visibility_rules, formValues, initialHiddenFieldIds]);
 
   // Helper to filter visible fields
+  // Also excludes due_diligence fields which should not be shown to end users
   const filterVisibleFields = (fields) => {
-    return fields.filter(field => !hiddenFieldIds.has(field.id));
+    return fields.filter(field => !hiddenFieldIds.has(field.id) && !field.due_diligence);
   };
 
   // Compute initial disabled fields from field.starts_disabled property
