@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useLocation } from "wouter";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -42,13 +42,13 @@ const PRESET_COLORS = [
 ];
 
 export default function DueDiligenceConfigPage() {
-  const [, navigate] = useLocation();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const { isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   
-  const urlParams = new URLSearchParams(window.location.search);
-  const formId = urlParams.get('formId');
+  const formId = searchParams.get('formId');
   
   const [scoringApproach, setScoringApproach] = useState('dynamic');
   const [defaultReviewState, setDefaultReviewState] = useState('amended');
@@ -386,13 +386,73 @@ export default function DueDiligenceConfigPage() {
         </Button>
       </div>
 
-      <Tabs defaultValue="scoring" className="space-y-6">
+      <Tabs defaultValue="settings" className="space-y-6">
         <TabsList data-testid="tabs-config">
+          <TabsTrigger value="settings" data-testid="tab-settings">Settings</TabsTrigger>
           <TabsTrigger value="scoring" data-testid="tab-scoring">Scoring</TabsTrigger>
           <TabsTrigger value="workflow" data-testid="tab-workflow">Workflow Stages</TabsTrigger>
           <TabsTrigger value="risk" data-testid="tab-risk">Risk Levels</TabsTrigger>
           <TabsTrigger value="webhooks" data-testid="tab-webhooks">Webhooks</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="settings" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Review Settings</CardTitle>
+              <CardDescription>Configure default behavior for field reviews</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="space-y-3">
+                <Label className="text-base font-medium">Default Field Review State</Label>
+                <p className="text-sm text-muted-foreground">
+                  When a reviewer opens a submission, each field will start in this state.
+                </p>
+                <div className="flex gap-4">
+                  <Label 
+                    className={cn(
+                      "flex items-center gap-3 p-4 border rounded-lg cursor-pointer transition-colors",
+                      defaultReviewState === 'approved' && "border-green-500 bg-green-50"
+                    )}
+                  >
+                    <input
+                      type="radio"
+                      name="defaultReviewState"
+                      value="approved"
+                      checked={defaultReviewState === 'approved'}
+                      onChange={(e) => setDefaultReviewState(e.target.value)}
+                      className="w-4 h-4"
+                      data-testid="radio-default-approved"
+                    />
+                    <div>
+                      <span className="font-medium">Approved</span>
+                      <p className="text-sm text-muted-foreground">Fields start as approved - reviewers amend only what needs changes</p>
+                    </div>
+                  </Label>
+                  <Label 
+                    className={cn(
+                      "flex items-center gap-3 p-4 border rounded-lg cursor-pointer transition-colors",
+                      defaultReviewState === 'amended' && "border-orange-500 bg-orange-50"
+                    )}
+                  >
+                    <input
+                      type="radio"
+                      name="defaultReviewState"
+                      value="amended"
+                      checked={defaultReviewState === 'amended'}
+                      onChange={(e) => setDefaultReviewState(e.target.value)}
+                      className="w-4 h-4"
+                      data-testid="radio-default-amended"
+                    />
+                    <div>
+                      <span className="font-medium">Amended</span>
+                      <p className="text-sm text-muted-foreground">Fields start as needing review - reviewers must approve each field</p>
+                    </div>
+                  </Label>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
 
         <TabsContent value="scoring" className="space-y-6">
           <Card>
@@ -428,18 +488,6 @@ export default function DueDiligenceConfigPage() {
                 </Label>
               </div>
 
-              <div className="flex items-center gap-4">
-                <Label>Default Review State:</Label>
-                <Select value={defaultReviewState} onValueChange={setDefaultReviewState} data-testid="select-review-state">
-                  <SelectTrigger className="w-48">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="amended">Amended (requires review)</SelectItem>
-                    <SelectItem value="approved">Approved (auto-approve)</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
             </CardContent>
           </Card>
 

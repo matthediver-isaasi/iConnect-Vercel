@@ -13,7 +13,7 @@ import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { ArrowLeft, Save, AlertCircle, Calculator, Loader2, NotebookText, X, RotateCcw, History, Check, Edit2, Clock, ChevronDown, ChevronUp } from "lucide-react";
+import { ArrowLeft, Save, AlertCircle, Calculator, Loader2, NotebookText, X, RotateCcw, History, Check, Edit2, Clock, ChevronDown, ChevronUp, ChevronLeft, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
@@ -129,10 +129,7 @@ function ReviewFieldEditor({
       data-testid={`review-field-${field.name}`}
     >
       <div className="space-y-1">
-        <div className="flex items-center justify-between">
-          <Label className="text-sm font-medium">{field.label || field.name}</Label>
-          <Badge variant="outline" className="text-xs">{field.type}</Badge>
-        </div>
+        <Label className="text-sm font-medium">{field.label || field.name}</Label>
         <div className="p-2 bg-white rounded border text-sm min-h-[40px]">
           {displayOriginal || <span className="text-muted-foreground italic">No value</span>}
         </div>
@@ -332,6 +329,7 @@ export default function ReviewSubmissionPage() {
   const [isCalculatingScore, setIsCalculatingScore] = useState(false);
   const [hasInitialized, setHasInitialized] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [currentPageIndex, setCurrentPageIndex] = useState(0);
 
   useEffect(() => {
     if (isAccessReady) {
@@ -369,9 +367,24 @@ export default function ReviewSubmissionPage() {
   }, [ddConfig]);
 
   useEffect(() => {
-    if (ddSubmission && !hasInitialized) {
+    if (ddSubmission && form && !hasInitialized) {
       setReviewedFormValues(ddSubmission.reviewed_form_values || ddSubmission.original_form_values || {});
-      setFieldReviewStatus(ddSubmission.field_review_status || {});
+      
+      // Initialize field review status with default from config for unreviewed fields
+      const existingStatus = ddSubmission.field_review_status || {};
+      const defaultState = ddConfig?.default_review_state || 'amended';
+      const fields = form?.fields?.filter(f => f.visible !== false) || [];
+      
+      // Apply default state to any field lacking an explicit status
+      // This handles both new reviews AND existing reviews with newly added fields
+      const mergedStatus = { ...existingStatus };
+      fields.forEach(field => {
+        if (!mergedStatus[field.name]) {
+          mergedStatus[field.name] = defaultState;
+        }
+      });
+      setFieldReviewStatus(mergedStatus);
+      
       setFieldNotes(ddSubmission.field_notes || {});
       setStaticQuestionResponses(ddSubmission.static_question_responses || {});
       setStaticQuestionNotes(ddSubmission.static_question_notes || {});
@@ -379,7 +392,7 @@ export default function ReviewSubmissionPage() {
       setNotes(ddSubmission.notes || '');
       setHasInitialized(true);
     }
-  }, [ddSubmission, hasInitialized]);
+  }, [ddSubmission, form, ddConfig, hasInitialized]);
 
   const handleFieldChange = useCallback((fieldName, value) => {
     setReviewedFormValues(prev => ({ ...prev, [fieldName]: value }));
@@ -488,9 +501,51 @@ export default function ReviewSubmissionPage() {
     updateStatusMutation.mutate(newStatus);
   };
 
-  const formFields = useMemo(() => {
+  // Get all visible form fields
+  const allFormFields = useMemo(() => {
     return form?.fields?.filter(f => f.visible !== false) || [];
   }, [form]);
+
+  // Get pages from form
+  const pages = useMemo(() => form?.pages || [], [form]);
+  const hasPages = pages.length > 0;
+
+  // Get fields for current page
+  const currentPageFields = useMemo(() => {
+    if (!hasPages) {
+      return allFormFields;
+    }
+    
+    const currentPage = pages[currentPageIndex];
+    if (!currentPage) return [];
+    
+    // Get fields assigned to this page
+    const pageFields = allFormFields.filter(f => f.page_id === currentPage.id);
+    
+    // On first page, also include unassigned fields for backwards compatibility
+    if (currentPageIndex === 0) {
+      const unassignedFields = allFormFields.filter(f => !f.page_id);
+      return [...unassignedFields, ...pageFields];
+    }
+    
+    return pageFields;
+  }, [allFormFields, pages, currentPageIndex, hasPages]);
+
+  const isFirstPage = currentPageIndex === 0;
+  const isLastPage = !hasPages || currentPageIndex === pages.length - 1;
+  const currentPage = hasPages ? pages[currentPageIndex] : null;
+
+  const goToNextPage = () => {
+    if (!isLastPage) {
+      setCurrentPageIndex(prev => prev + 1);
+    }
+  };
+
+  const goToPreviousPage = () => {
+    if (!isFirstPage) {
+      setCurrentPageIndex(prev => prev - 1);
+    }
+  };
 
   if (!accessChecked || isLoading) {
     return (
@@ -613,13 +668,35 @@ export default function ReviewSubmissionPage() {
             <CardHeader className="bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-t-lg">
               <CardTitle>Application Fields Review</CardTitle>
               <p className="text-blue-100 text-sm">Review each field and approve or amend as needed</p>
+              {hasPages && (
+                <div className="mt-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-medium text-blue-100">
+                      {currentPage?.title || `Page ${currentPageIndex + 1}`}
+                    </span>
+                    <span className="text-sm text-blue-200">
+                      {currentPageIndex + 1} of {pages.length}
+                    </span>
+                  </div>
+                  <div className="flex gap-1">
+                    {pages.map((_, index) => (
+                      <div
+                        key={index}
+                        className={`h-1.5 flex-1 rounded-full transition-colors ${
+                          index <= currentPageIndex ? 'bg-white' : 'bg-blue-400'
+                        }`}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
             </CardHeader>
             <CardContent className="p-6 space-y-2">
-              {formFields.length > 0 ? (
+              {currentPageFields.length > 0 ? (
                 <div className="grid grid-cols-2 gap-4">
                   <div className="font-semibold text-sm uppercase tracking-wide text-muted-foreground">Original</div>
                   <div className="font-semibold text-sm uppercase tracking-wide text-muted-foreground">Reviewed</div>
-                  {formFields.map((field) => (
+                  {currentPageFields.map((field) => (
                     <ReviewFieldEditor
                       key={field.name}
                       field={field}
@@ -637,6 +714,35 @@ export default function ReviewSubmissionPage() {
                 <div className="text-center py-12 text-muted-foreground">
                   <AlertCircle className="w-12 h-12 mx-auto mb-3 opacity-50" />
                   <p>No form fields configured for review</p>
+                </div>
+              )}
+              
+              {hasPages && (
+                <div className="flex justify-between pt-6 border-t mt-6">
+                  {!isFirstPage ? (
+                    <Button
+                      variant="outline"
+                      onClick={goToPreviousPage}
+                      data-testid="button-previous-page"
+                    >
+                      <ChevronLeft className="w-4 h-4 mr-2" />
+                      Previous
+                    </Button>
+                  ) : (
+                    <div />
+                  )}
+                  
+                  {!isLastPage ? (
+                    <Button
+                      onClick={goToNextPage}
+                      data-testid="button-next-page"
+                    >
+                      Next
+                      <ChevronRight className="w-4 h-4 ml-2" />
+                    </Button>
+                  ) : (
+                    <div />
+                  )}
                 </div>
               )}
             </CardContent>
