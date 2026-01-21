@@ -37,7 +37,7 @@ export default async function handler(req, res) {
         form_submission:form_submission_id(
           id,
           form_id,
-          form_values,
+          submission_data,
           status,
           created_date,
           member_id,
