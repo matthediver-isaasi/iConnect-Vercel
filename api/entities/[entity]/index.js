@@ -363,7 +363,24 @@ export default async function handler(req, res) {
           sanitizedBody.member_id = tenantCtx.memberId;
         } else if (tenantScope === TENANT_SCOPE.ORGANIZATION) {
           // Organization-scoped entities: force organization_id from session
-          sanitizedBody.organization_id = tenantCtx.organizationId;
+          // For tenant admins, preserve the organization_id from request if valid
+          if (tenantCtx.organizationId) {
+            sanitizedBody.organization_id = tenantCtx.organizationId;
+          } else if (tenantCtx.tenantId && sanitizedBody.organization_id) {
+            // Tenant admin: verify the provided organization_id belongs to their tenant
+            const { data: org } = await supabase
+              .from('organization')
+              .select('tenant_id')
+              .eq('id', sanitizedBody.organization_id)
+              .single();
+            
+            if (!org || org.tenant_id !== tenantCtx.tenantId) {
+              return res.status(403).json({ error: 'Organization does not belong to your tenant' });
+            }
+            // Keep the organization_id from request - it's validated
+          } else if (!sanitizedBody.organization_id) {
+            return res.status(400).json({ error: 'organization_id is required for this entity' });
+          }
         } else if (entity === 'Organization') {
           // Creating organizations: set tenant_id if available
           if (tenantCtx.tenantId) {

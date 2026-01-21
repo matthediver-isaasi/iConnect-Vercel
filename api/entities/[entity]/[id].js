@@ -115,8 +115,8 @@ export default async function handler(req, res) {
     if (tenantScope === TENANT_SCOPE.TENANT && !tenantCtx.tenantId && !tenantCtx.organizationId) {
       return res.status(403).json({ error: 'Member must belong to an organization to access this resource' });
     }
-    // For organization-scoped entities, require a valid organization_id
-    if (tenantScope === TENANT_SCOPE.ORGANIZATION && !tenantCtx.organizationId) {
+    // For organization-scoped entities, require a valid organization_id OR tenant_id (tenant owners can access all orgs in their tenant)
+    if (tenantScope === TENANT_SCOPE.ORGANIZATION && !tenantCtx.organizationId && !tenantCtx.tenantId) {
       return res.status(403).json({ error: 'Member must belong to an organization to access this resource' });
     }
     // For member-scoped entities, require a valid member_id
@@ -138,7 +138,13 @@ export default async function handler(req, res) {
         if (tenantScope === TENANT_SCOPE.MEMBER) {
           query = query.eq('member_id', tenantCtx.memberId);
         } else if (tenantScope === TENANT_SCOPE.ORGANIZATION) {
-          query = query.eq('organization_id', tenantCtx.organizationId);
+          // Filter by organization_id if available, otherwise verify via tenant
+          if (tenantCtx.organizationId) {
+            query = query.eq('organization_id', tenantCtx.organizationId);
+          } else if (tenantCtx.tenantId) {
+            // Tenant owner can access any org in their tenant - use inner join filter
+            query = query.eq('organization.tenant_id', tenantCtx.tenantId);
+          }
         } else if (entity === 'Organization') {
           // Organization entity: verify belongs to same tenant or is member's org
           if (tenantCtx.tenantId) {
@@ -278,7 +284,37 @@ export default async function handler(req, res) {
         if (tenantScope === TENANT_SCOPE.MEMBER) {
           patchQuery = patchQuery.eq('member_id', tenantCtx.memberId);
         } else if (tenantScope === TENANT_SCOPE.ORGANIZATION) {
-          patchQuery = patchQuery.eq('organization_id', tenantCtx.organizationId);
+          // For organization-scoped entities, filter by organization_id if available
+          // If tenant owner (has tenantId but no organizationId), verify via organization's tenant_id
+          if (tenantCtx.organizationId) {
+            patchQuery = patchQuery.eq('organization_id', tenantCtx.organizationId);
+          } else if (tenantCtx.tenantId) {
+            // Tenant owner: verify the entity's organization belongs to their tenant
+            // First fetch the entity to get its organization_id
+            const { data: entityRecord } = await supabase
+              .from(tableName)
+              .select('organization_id')
+              .eq('id', id)
+              .single();
+            
+            if (!entityRecord?.organization_id) {
+              return res.status(404).json({ error: 'Entity not found' });
+            }
+            
+            // Verify the organization belongs to the tenant
+            const { data: org } = await supabase
+              .from('organization')
+              .select('tenant_id')
+              .eq('id', entityRecord.organization_id)
+              .single();
+            
+            if (!org || org.tenant_id !== tenantCtx.tenantId) {
+              return res.status(403).json({ error: 'Access denied - organization not in your tenant' });
+            }
+            
+            // Organization verified, filter by its id
+            patchQuery = patchQuery.eq('organization_id', entityRecord.organization_id);
+          }
         } else if (entity === 'Organization') {
           if (tenantCtx.tenantId) {
             patchQuery = patchQuery.eq('tenant_id', tenantCtx.tenantId);
