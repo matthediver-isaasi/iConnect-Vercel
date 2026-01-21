@@ -117,12 +117,63 @@ function ReviewFieldEditor({
   // Use fieldKey (field.id) for state management, but field.name for display/values
   const stateKey = fieldKey || field.name;
   
+  // Check if this is a due diligence only field (reviewer-only, not from submission)
+  const isDueDiligenceOnly = field.due_diligence === true;
+  
   const displayOriginal = Array.isArray(originalValue) 
     ? originalValue.join(', ') 
     : (typeof originalValue === 'object' && originalValue !== null)
       ? JSON.stringify(originalValue, null, 2)
       : (originalValue || '');
 
+  // Due diligence only fields: single column, blue background, no toggle
+  if (isDueDiligenceOnly) {
+    return (
+      <div 
+        className="col-span-2 p-4 border rounded-lg bg-blue-50 border-blue-200"
+        data-testid={`review-field-dd-${stateKey}`}
+      >
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <Label className="text-sm font-medium">{field.label || field.name}</Label>
+            <Badge variant="outline" className="text-xs bg-blue-100 text-blue-700 border-blue-300">
+              Due Diligence Only
+            </Badge>
+          </div>
+          <FormRenderer
+            field={field}
+            value={reviewedValue}
+            onChange={(value) => onChange(stateKey, value)}
+            disabled={false}
+            hideLabel={true}
+          />
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 text-xs"
+              onClick={() => setShowNote(!showNote)}
+              data-testid={`button-toggle-note-${stateKey}`}
+            >
+              <NotebookText className="w-3 h-3 mr-1" />
+              {showNote ? 'Hide Note' : 'Add Note'}
+            </Button>
+          </div>
+          {showNote && (
+            <Textarea
+              value={note || ''}
+              onChange={(e) => onNoteChange(stateKey, e.target.value)}
+              placeholder="Add reviewer notes..."
+              className="text-xs min-h-[60px]"
+              data-testid={`textarea-note-${stateKey}`}
+            />
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // Regular submission fields: two columns with approve/amend toggle
   return (
     <div 
       className={cn(
