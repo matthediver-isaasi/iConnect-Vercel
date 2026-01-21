@@ -1,6 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
 
 export default async function handler(req, res) {
+  console.log('[Public Form Submission] === ENDPOINT CALLED ===');
+  
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -14,6 +16,7 @@ export default async function handler(req, res) {
   }
 
   const { form_id, form_name, answers, submission_data, source, tenant, prefill_organization_id, contract_instance_id } = req.body;
+  console.log('[Public Form Submission] form_id:', form_id, 'form_name:', form_name);
 
   if (!form_id) {
     return res.status(400).json({ error: 'Form ID is required' });
@@ -111,6 +114,8 @@ export default async function handler(req, res) {
       console.error('[Public Form Submission] Insert error:', insertError);
       return res.status(500).json({ error: 'Failed to save submission' });
     }
+
+    console.log('[Public Form Submission] Submission created successfully:', submission.id);
 
     const baseUrl = `${req.headers['x-forwarded-proto'] || 'https'}://${host}`;
 
@@ -210,6 +215,7 @@ export default async function handler(req, res) {
     }
 
     // Auto-create due diligence record if form has due diligence enabled
+    console.log('[Public Form Submission] Checking DD enabled:', form.is_due_diligence_enabled, 'form_id:', form.id);
     if (form.is_due_diligence_enabled) {
       try {
         console.log('[Public Form Submission] Creating due diligence record for submission:', submission.id);
