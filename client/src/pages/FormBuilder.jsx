@@ -2231,40 +2231,96 @@ function FieldCard({
     }
   };
 
+  const fieldTypeLabel = FIELD_TYPES.find(t => t.value === field.type)?.label || field.type;
+
   return (
     <Draggable draggableId={field.id} index={index}>
       {(provided) => (
         <div
           ref={provided.innerRef}
           {...provided.draggableProps}
-          className="bg-white rounded-lg p-4 border border-slate-200 shadow-sm"
+          className="bg-white rounded-lg px-3 py-2 border border-slate-200 shadow-sm"
         >
-          <div className="flex items-start gap-3">
-            <div {...provided.dragHandleProps} className="mt-2 cursor-move">
-              <GripVertical className="w-5 h-5 text-slate-400" />
+          {/* Collapsed row - always visible */}
+          <div className="flex items-center gap-2">
+            <div {...provided.dragHandleProps} className="cursor-move flex-shrink-0">
+              <GripVertical className="w-4 h-4 text-slate-400" />
             </div>
-            <div className="flex-1 space-y-3">
-              <div className="grid grid-cols-3 gap-3">
-                <div className="space-y-1">
-                  <Label className="text-xs">Standard Fields</Label>
-                  <Select
-                    value={getFieldTypeCategory(field.type) === 'standard' ? field.type : ''}
-                    onValueChange={(value) => {
-                      if (value) updateField(originalIndex, { type: value });
-                    }}
-                  >
-                    <SelectTrigger className="h-9" data-testid={`select-standard-type-${field.id}`}>
-                      <SelectValue placeholder="Select..." />
-                    </SelectTrigger>
-                    <SelectContent className="max-h-60 overflow-y-auto">
-                      {STANDARD_FIELD_TYPES.map(type => (
-                        <SelectItem key={type.value} value={type.value}>
-                          {type.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+            <div className="flex-1 min-w-0 flex items-center gap-2">
+              <span className="text-sm font-medium text-slate-700 truncate">
+                {field.label || 'Untitled Field'}
+              </span>
+              <Badge variant="outline" className="text-xs flex-shrink-0">
+                {fieldTypeLabel}
+              </Badge>
+              {field.required && (
+                <Badge variant="secondary" className="text-xs flex-shrink-0">
+                  Required
+                </Badge>
+              )}
+              {field.starts_hidden && (
+                <EyeOff className="w-3 h-3 text-slate-400 flex-shrink-0" />
+              )}
+              {field.locked && (
+                <Lock className="w-3 h-3 text-slate-400 flex-shrink-0" />
+              )}
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onOpenDrawer}
+              className="h-8 w-8 text-slate-500 hover:text-slate-700"
+              data-testid={`button-configure-field-${field.id}`}
+            >
+              <Settings2 className="w-4 h-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => removeField(originalIndex)}
+              className="h-8 w-8 text-red-500 hover:text-red-700 hover:bg-red-50"
+              data-testid={`button-delete-field-${field.id}`}
+            >
+              <Trash2 className="w-4 h-4" />
+            </Button>
+          </div>
+
+          {/* Field Configuration Drawer */}
+          <Sheet open={isDrawerOpen} onOpenChange={(open) => { if (!open) onCloseDrawer?.(); }}>
+            <SheetContent side="right" className="w-[70vw] sm:max-w-[70vw] overflow-y-auto">
+              <SheetHeader className="mb-6">
+                <SheetTitle className="flex items-center gap-2">
+                  <Settings2 className="w-5 h-5" />
+                  Configure Field
+                </SheetTitle>
+                <SheetDescription>
+                  {field.label || 'Untitled Field'} - {fieldTypeLabel}
+                </SheetDescription>
+              </SheetHeader>
+
+              <div className="space-y-4">
+                {/* Field Type Selection */}
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs">Standard Fields</Label>
+                    <Select
+                      value={getFieldTypeCategory(field.type) === 'standard' ? field.type : ''}
+                      onValueChange={(value) => {
+                        if (value) updateField(originalIndex, { type: value });
+                      }}
+                    >
+                      <SelectTrigger className="h-9" data-testid={`select-standard-type-${field.id}`}>
+                        <SelectValue placeholder="Select..." />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-60 overflow-y-auto">
+                        {STANDARD_FIELD_TYPES.map(type => (
+                          <SelectItem key={type.value} value={type.value}>
+                            {type.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 <div className="space-y-1">
                   <Label className="text-xs">Pre-populate Fields</Label>
                   <Select
@@ -3043,54 +3099,49 @@ function FieldCard({
                 </div>
               )}
 
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <div className="flex items-center gap-2">
-                    <Switch
-                      id={`required-${field.id}`}
-                      checked={field.required}
-                      onCheckedChange={(checked) => updateField(originalIndex, { required: checked })}
-                    />
-                    <Label htmlFor={`required-${field.id}`} className="text-xs">Required</Label>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Switch
-                      id={`locked-${field.id}`}
-                      checked={field.locked || false}
-                      onCheckedChange={(checked) => updateField(originalIndex, { locked: checked })}
-                    />
-                    <Label htmlFor={`locked-${field.id}`} className="text-xs">Locked</Label>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Switch
-                      id={`starts-hidden-${field.id}`}
-                      checked={field.starts_hidden || false}
-                      onCheckedChange={(checked) => updateField(originalIndex, { starts_hidden: checked })}
-                    />
-                    <Label htmlFor={`starts-hidden-${field.id}`} className="text-xs">Hidden on load</Label>
-                  </div>
-                  {field.type === 'select' && (
+              {/* Field Settings Section */}
+                <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg space-y-4">
+                  <Label className="text-sm font-medium">Field Settings</Label>
+                  <div className="grid grid-cols-2 gap-4">
                     <div className="flex items-center gap-2">
                       <Switch
-                        id={`allow-other-${field.id}`}
-                        checked={field.allow_other || false}
-                        onCheckedChange={(checked) => updateField(originalIndex, { allow_other: checked })}
+                        id={`required-${field.id}`}
+                        checked={field.required}
+                        onCheckedChange={(checked) => updateField(originalIndex, { required: checked })}
                       />
-                      <Label htmlFor={`allow-other-${field.id}`} className="text-xs">Allow "Other"</Label>
+                      <Label htmlFor={`required-${field.id}`} className="text-sm">Required</Label>
                     </div>
-                  )}
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        id={`locked-${field.id}`}
+                        checked={field.locked || false}
+                        onCheckedChange={(checked) => updateField(originalIndex, { locked: checked })}
+                      />
+                      <Label htmlFor={`locked-${field.id}`} className="text-sm">Locked</Label>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        id={`starts-hidden-${field.id}`}
+                        checked={field.starts_hidden || false}
+                        onCheckedChange={(checked) => updateField(originalIndex, { starts_hidden: checked })}
+                      />
+                      <Label htmlFor={`starts-hidden-${field.id}`} className="text-sm">Hidden on load</Label>
+                    </div>
+                    {field.type === 'select' && (
+                      <div className="flex items-center gap-2">
+                        <Switch
+                          id={`allow-other-${field.id}`}
+                          checked={field.allow_other || false}
+                          onCheckedChange={(checked) => updateField(originalIndex, { allow_other: checked })}
+                        />
+                        <Label htmlFor={`allow-other-${field.id}`} className="text-sm">Allow "Other"</Label>
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => removeField(originalIndex)}
-                  className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </Button>
               </div>
-            </div>
-          </div>
+            </SheetContent>
+          </Sheet>
         </div>
       )}
     </Draggable>
