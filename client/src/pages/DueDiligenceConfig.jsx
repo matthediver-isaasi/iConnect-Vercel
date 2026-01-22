@@ -41,6 +41,12 @@ const PRESET_COLORS = [
   "#8b5cf6", "#a855f7", "#d946ef", "#ec4899", "#f43f5e", "#6b7280"
 ];
 
+const DEFAULT_LIGHT_OPTIONS = [
+  { id: 'green', label: 'Green', color: '#22c55e', value: 100 },
+  { id: 'amber', label: 'Amber', color: '#f59e0b', value: 50 },
+  { id: 'red', label: 'Red', color: '#ef4444', value: 0 }
+];
+
 export default function DueDiligenceConfigPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -106,6 +112,29 @@ export default function DueDiligenceConfigPage() {
     enabled: !!formId && accessChecked
   });
 
+  const normalizeStaticQuestions = (questions) => {
+    if (!questions || !Array.isArray(questions)) return [];
+    return questions.map(q => {
+      if (q.type === 'header') return q;
+      if (!q.options || q.options.length === 0) {
+        return {
+          ...q,
+          options: DEFAULT_LIGHT_OPTIONS.map(opt => ({
+            ...opt,
+            id: `opt_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+          }))
+        };
+      }
+      return {
+        ...q,
+        options: q.options.map(opt => ({
+          ...opt,
+          id: opt.id || `opt_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+        }))
+      };
+    });
+  };
+
   useEffect(() => {
     if (ddConfig && !hasInitialized) {
       setScoringApproach(ddConfig.scoring_approach || 'dynamic');
@@ -113,7 +142,7 @@ export default function DueDiligenceConfigPage() {
       setCardReferenceField(ddConfig.card_reference_field || '');
       setShowDescriptionFields(ddConfig.show_description_fields || false);
       setScoringRules(ddConfig.scoring_rules || { rules: [], risk_thresholds: {} });
-      setStaticQuestions(ddConfig.static_questions || []);
+      setStaticQuestions(normalizeStaticQuestions(ddConfig.static_questions));
       setCustomRiskLevels(ddConfig.custom_risk_levels?.length > 0 ? ddConfig.custom_risk_levels : DEFAULT_RISK_LEVELS);
       setWorkflowStages(ddConfig.workflow_stages?.length > 0 ? ddConfig.workflow_stages : DEFAULT_WORKFLOW_STAGES);
       setStatusWebhooks(ddConfig.status_change_webhooks || []);
@@ -171,7 +200,11 @@ export default function DueDiligenceConfigPage() {
     const newItem = {
       id: `${type === 'header' ? 'h' : 'q'}_${Date.now()}`,
       type,
-      ...(type === 'question' ? { question: '', weight: 1 } : { text: '' })
+      ...(type === 'question' ? { 
+        question: '', 
+        weight: 1,
+        options: DEFAULT_LIGHT_OPTIONS.map(opt => ({ ...opt, id: `opt_${Date.now()}_${Math.random().toString(36).substr(2, 9)}` }))
+      } : { text: '' })
     };
     setStaticQuestions([...staticQuestions, newItem]);
   };
@@ -184,6 +217,44 @@ export default function DueDiligenceConfigPage() {
 
   const removeStaticQuestion = (index) => {
     setStaticQuestions(staticQuestions.filter((_, i) => i !== index));
+  };
+
+  const addLightOption = (questionIndex) => {
+    const updated = [...staticQuestions];
+    const question = updated[questionIndex];
+    const options = question.options || [];
+    const newOption = {
+      id: `opt_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      label: 'New Option',
+      color: PRESET_COLORS[options.length % PRESET_COLORS.length],
+      value: 0
+    };
+    updated[questionIndex] = { ...question, options: [...options, newOption] };
+    setStaticQuestions(updated);
+  };
+
+  const updateLightOption = (questionIndex, optionIndex, field, value) => {
+    const updated = [...staticQuestions];
+    const question = updated[questionIndex];
+    const options = [...(question.options || [])];
+    options[optionIndex] = { ...options[optionIndex], [field]: value };
+    updated[questionIndex] = { ...question, options };
+    setStaticQuestions(updated);
+  };
+
+  const removeLightOption = (questionIndex, optionIndex) => {
+    const updated = [...staticQuestions];
+    const question = updated[questionIndex];
+    const options = question.options || [];
+    if (options.length <= 2) {
+      toast.error("You must have at least 2 options per question");
+      return;
+    }
+    updated[questionIndex] = { 
+      ...question, 
+      options: options.filter((_, i) => i !== optionIndex) 
+    };
+    setStaticQuestions(updated);
   };
 
   const handleStageDragEnd = (result) => {
@@ -549,7 +620,7 @@ export default function DueDiligenceConfigPage() {
                 <div className="flex items-center justify-between">
                   <div>
                     <CardTitle>Static Questions</CardTitle>
-                    <CardDescription>Questions reviewers answer with Green/Amber/Red</CardDescription>
+                    <CardDescription>Questions reviewers answer with configurable traffic light options</CardDescription>
                   </div>
                   <div className="flex gap-2">
                     <Button variant="outline" size="sm" onClick={() => addStaticQuestion('header')} data-testid="button-add-header">
@@ -561,39 +632,131 @@ export default function DueDiligenceConfigPage() {
                   </div>
                 </div>
               </CardHeader>
-              <CardContent className="space-y-3">
+              <CardContent className="space-y-4">
                 {staticQuestions.map((item, index) => (
-                  <div key={item.id} className="flex items-start gap-3 p-3 border rounded-lg" data-testid={`static-question-${index}`}>
+                  <div key={item.id} className="border rounded-lg" data-testid={`static-question-${index}`}>
                     {item.type === 'header' ? (
-                      <Input
-                        value={item.text || ''}
-                        onChange={(e) => updateStaticQuestion(index, 'text', e.target.value)}
-                        placeholder="Section header..."
-                        className="font-semibold"
-                        data-testid={`input-header-${index}`}
-                      />
+                      <div className="flex items-center gap-3 p-3">
+                        <Badge variant="secondary" className="shrink-0">Header</Badge>
+                        <Input
+                          value={item.text || ''}
+                          onChange={(e) => updateStaticQuestion(index, 'text', e.target.value)}
+                          placeholder="Section header..."
+                          className="font-semibold flex-1"
+                          data-testid={`input-header-${index}`}
+                        />
+                        <Button variant="ghost" size="icon" onClick={() => removeStaticQuestion(index)} data-testid={`button-remove-question-${index}`}>
+                          <Trash2 className="w-4 h-4 text-destructive" />
+                        </Button>
+                      </div>
                     ) : (
-                      <>
-                        <Input
-                          value={item.question || ''}
-                          onChange={(e) => updateStaticQuestion(index, 'question', e.target.value)}
-                          placeholder="Enter question..."
-                          className="flex-1"
-                          data-testid={`input-question-${index}`}
-                        />
-                        <Input
-                          type="number"
-                          value={item.weight || 1}
-                          onChange={(e) => updateStaticQuestion(index, 'weight', parseInt(e.target.value) || 1)}
-                          className="w-20"
-                          min={1}
-                          data-testid={`input-weight-${index}`}
-                        />
-                      </>
+                      <Collapsible>
+                        <div className="flex items-center gap-3 p-3">
+                          <CollapsibleTrigger asChild>
+                            <Button variant="ghost" size="icon" className="shrink-0" data-testid={`button-expand-question-${index}`}>
+                              <ChevronDown className="w-4 h-4" />
+                            </Button>
+                          </CollapsibleTrigger>
+                          <Input
+                            value={item.question || ''}
+                            onChange={(e) => updateStaticQuestion(index, 'question', e.target.value)}
+                            placeholder="Enter question..."
+                            className="flex-1"
+                            data-testid={`input-question-${index}`}
+                          />
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="text-sm text-muted-foreground">Weight:</span>
+                            <Input
+                              type="number"
+                              value={item.weight || 1}
+                              onChange={(e) => updateStaticQuestion(index, 'weight', parseInt(e.target.value) || 1)}
+                              className="w-16"
+                              min={1}
+                              data-testid={`input-weight-${index}`}
+                            />
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            {(item.options || []).map((opt) => (
+                              <div
+                                key={opt.id}
+                                className="w-4 h-4 rounded-full"
+                                style={{ backgroundColor: opt.color }}
+                                title={`${opt.label}: ${opt.value}%`}
+                              />
+                            ))}
+                          </div>
+                          <Button variant="ghost" size="icon" onClick={() => removeStaticQuestion(index)} data-testid={`button-remove-question-${index}`}>
+                            <Trash2 className="w-4 h-4 text-destructive" />
+                          </Button>
+                        </div>
+                        <CollapsibleContent>
+                          <div className="px-3 pb-3 pt-0 border-t bg-muted/30">
+                            <div className="flex items-center justify-between py-2">
+                              <span className="text-sm font-medium">Light Options</span>
+                              <Button variant="outline" size="sm" onClick={() => addLightOption(index)} data-testid={`button-add-option-${index}`}>
+                                <Plus className="w-3 h-3 mr-1" /> Add Option
+                              </Button>
+                            </div>
+                            <div className="space-y-2">
+                              {(item.options || []).map((opt, optIndex) => (
+                                <div key={opt.id} className="flex items-center gap-2 p-2 bg-background rounded-md" data-testid={`option-${index}-${optIndex}`}>
+                                  <input
+                                    type="color"
+                                    value={opt.color}
+                                    onChange={(e) => updateLightOption(index, optIndex, 'color', e.target.value)}
+                                    className="w-8 h-8 rounded-full cursor-pointer border-0 shrink-0"
+                                    style={{ backgroundColor: opt.color }}
+                                    data-testid={`input-option-color-${index}-${optIndex}`}
+                                  />
+                                  <div className="flex flex-wrap gap-1 shrink-0">
+                                    {PRESET_COLORS.map((presetColor) => (
+                                      <button
+                                        key={presetColor}
+                                        type="button"
+                                        className={cn(
+                                          "w-5 h-5 rounded-full border transition-transform",
+                                          opt.color === presetColor ? "ring-2 ring-offset-1 ring-primary scale-110" : "hover:scale-110"
+                                        )}
+                                        style={{ backgroundColor: presetColor }}
+                                        onClick={() => updateLightOption(index, optIndex, 'color', presetColor)}
+                                        data-testid={`button-preset-color-${index}-${optIndex}-${presetColor.replace('#', '')}`}
+                                      />
+                                    ))}
+                                  </div>
+                                  <Input
+                                    value={opt.label}
+                                    onChange={(e) => updateLightOption(index, optIndex, 'label', e.target.value)}
+                                    placeholder="Label..."
+                                    className="flex-1 min-w-24"
+                                    data-testid={`input-option-label-${index}-${optIndex}`}
+                                  />
+                                  <div className="flex items-center gap-1 shrink-0">
+                                    <Input
+                                      type="number"
+                                      value={opt.value}
+                                      onChange={(e) => updateLightOption(index, optIndex, 'value', parseInt(e.target.value) || 0)}
+                                      min={0}
+                                      max={100}
+                                      className="w-16"
+                                      data-testid={`input-option-value-${index}-${optIndex}`}
+                                    />
+                                    <span className="text-sm text-muted-foreground">%</span>
+                                  </div>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => removeLightOption(index, optIndex)}
+                                    data-testid={`button-remove-option-${index}-${optIndex}`}
+                                  >
+                                    <Trash2 className="w-4 h-4 text-destructive" />
+                                  </Button>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </CollapsibleContent>
+                      </Collapsible>
                     )}
-                    <Button variant="ghost" size="icon" onClick={() => removeStaticQuestion(index)} data-testid={`button-remove-question-${index}`}>
-                      <Trash2 className="w-4 h-4 text-destructive" />
-                    </Button>
                   </div>
                 ))}
                 {staticQuestions.length === 0 && (
