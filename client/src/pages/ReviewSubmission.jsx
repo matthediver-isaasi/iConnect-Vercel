@@ -11,9 +11,10 @@ import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { ArrowLeft, Save, AlertCircle, Calculator, Loader2, NotebookText, X, RotateCcw, History, Check, Edit2, Clock, ChevronDown, ChevronUp, ChevronLeft, ChevronRight } from "lucide-react";
+import { ArrowLeft, Save, AlertCircle, Calculator, Loader2, NotebookText, X, RotateCcw, History, Check, Edit2, Clock, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ClipboardList, PanelRightOpen } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
@@ -286,6 +287,12 @@ function ReviewFieldEditor({
   );
 }
 
+const DEFAULT_LIGHT_OPTIONS = [
+  { id: 'green', label: 'Green', color: '#22c55e', value: 100 },
+  { id: 'amber', label: 'Amber', color: '#f59e0b', value: 50 },
+  { id: 'red', label: 'Red', color: '#ef4444', value: 0 }
+];
+
 function StaticQuestionReview({ questions, responses, notes, onResponseChange, onNoteChange }) {
   if (!questions || questions.length === 0) return null;
   
@@ -302,28 +309,28 @@ function StaticQuestionReview({ questions, responses, notes, onResponseChange, o
         
         const response = responses[item.id] || '';
         const note = notes[item.id] || '';
+        const options = item.options || DEFAULT_LIGHT_OPTIONS;
         
         return (
-          <div key={item.id} className="space-y-2 p-3 bg-white/50 rounded-lg" data-testid={`static-question-${index}`}>
+          <div key={item.id} className="space-y-2 p-3 bg-muted/50 rounded-lg" data-testid={`static-question-${index}`}>
             <p className="text-sm font-medium">{item.question}</p>
-            <div className="flex gap-2">
-              {['green', 'amber', 'red'].map((color) => (
-                <Button
-                  key={color}
-                  variant={response === color ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => onResponseChange(item.id, color)}
-                  className={cn(
-                    "flex-1",
-                    response === color && color === 'green' && "bg-green-600 hover:bg-green-700",
-                    response === color && color === 'amber' && "bg-amber-500 hover:bg-amber-600",
-                    response === color && color === 'red' && "bg-red-600 hover:bg-red-700"
-                  )}
-                  data-testid={`button-${color}-${item.id}`}
-                >
-                  {color.charAt(0).toUpperCase() + color.slice(1)}
-                </Button>
-              ))}
+            <div className="flex flex-wrap gap-2">
+              {options.map((opt) => {
+                const optColor = opt.color || '#6b7280';
+                return (
+                  <Button
+                    key={opt.id}
+                    variant={response === opt.id ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => onResponseChange(item.id, opt.id)}
+                    style={response === opt.id ? { backgroundColor: optColor, borderColor: optColor } : {}}
+                    className="flex-1 min-w-[60px]"
+                    data-testid={`button-${opt.id}-${item.id}`}
+                  >
+                    {opt.label || 'Option'}
+                  </Button>
+                );
+              })}
             </div>
             <Input
               value={note}
@@ -404,6 +411,7 @@ export default function ReviewSubmissionPage() {
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [selectedDocument, setSelectedDocument] = useState(null);
   const [showDocumentModal, setShowDocumentModal] = useState(false);
+  const [showQuestionsDrawer, setShowQuestionsDrawer] = useState(false);
   const [isCalculatingScore, setIsCalculatingScore] = useState(false);
   const [hasInitialized, setHasInitialized] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
@@ -905,20 +913,25 @@ export default function ReviewSubmissionPage() {
           </Card>
 
           {ddConfig?.scoring_approach === 'static_traffic_light' && (
-            <Card className="shadow-lg">
-              <CardHeader className="bg-gradient-to-r from-purple-600 to-purple-700 text-white rounded-t-lg">
-                <CardTitle className="text-lg">Due Diligence Questions</CardTitle>
-              </CardHeader>
-              <CardContent className="p-4">
-                <StaticQuestionReview
-                  questions={ddConfig?.static_questions || []}
-                  responses={staticQuestionResponses}
-                  notes={staticQuestionNotes}
-                  onResponseChange={handleStaticResponseChange}
-                  onNoteChange={handleStaticNoteChange}
-                />
-              </CardContent>
-            </Card>
+            <div
+              role="button"
+              tabIndex={0}
+              className="w-full flex items-center justify-between p-3 rounded-md bg-gradient-to-r from-purple-600 to-purple-700 text-white cursor-pointer hover-elevate active-elevate-2"
+              onClick={() => setShowQuestionsDrawer(true)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowQuestionsDrawer(true); }}
+              data-testid="button-open-questions-drawer"
+            >
+              <div className="flex items-center gap-2">
+                <ClipboardList className="w-4 h-4" />
+                <span className="font-medium">Due Diligence Questions</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Badge variant="secondary" className="bg-white/20 text-white border-0">
+                  {(ddConfig?.static_questions || []).filter(q => q.type !== 'header').length} questions
+                </Badge>
+                <PanelRightOpen className="w-4 h-4" />
+              </div>
+            </div>
           )}
 
           <Card className="shadow-lg">
@@ -979,6 +992,29 @@ export default function ReviewSubmissionPage() {
         onClose={setShowHistoryModal}
         historyLog={ddSubmission.history_log}
       />
+
+      <Sheet open={showQuestionsDrawer} onOpenChange={setShowQuestionsDrawer}>
+        <SheetContent side="right" className="w-full sm:max-w-md overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle className="flex items-center gap-2">
+              <ClipboardList className="w-5 h-5 text-purple-600" />
+              Due Diligence Questions
+            </SheetTitle>
+            <SheetDescription>
+              Answer each question using the traffic light options
+            </SheetDescription>
+          </SheetHeader>
+          <div className="mt-6">
+            <StaticQuestionReview
+              questions={ddConfig?.static_questions || []}
+              responses={staticQuestionResponses}
+              notes={staticQuestionNotes}
+              onResponseChange={handleStaticResponseChange}
+              onNoteChange={handleStaticNoteChange}
+            />
+          </div>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
