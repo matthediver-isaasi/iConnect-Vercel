@@ -906,31 +906,19 @@ export default function ReviewSubmissionPage() {
         <div className="space-y-6">
           <Card className="bg-gradient-to-br from-blue-600 to-blue-700 text-white shadow-lg">
             <CardContent className="pt-6">
-              <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center justify-between gap-2 mb-4">
                 <span className="font-medium">Due Diligence Score</span>
-                <div className="flex items-center gap-2">
-                  {ddConfig?.scoring_approach === 'static_traffic_light' && (
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => setShowQuestionsDrawer(true)}
-                      data-testid="button-open-questions-modal"
-                    >
-                      <ClipboardList className="w-4 h-4 mr-1" />
-                      Questions
-                    </Button>
-                  )}
+                {ddConfig?.scoring_approach === 'static_traffic_light' && (
                   <Button
                     variant="secondary"
                     size="sm"
-                    onClick={handleCalculateScore}
-                    disabled={isCalculatingScore}
-                    data-testid="button-calculate-score"
+                    onClick={() => setShowQuestionsDrawer(true)}
+                    data-testid="button-open-questions-modal"
                   >
-                    {isCalculatingScore ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Calculator className="w-4 h-4 mr-1" />}
-                    Calculate
+                    <ClipboardList className="w-4 h-4 mr-1" />
+                    Questions
                   </Button>
-                </div>
+                )}
               </div>
               <ScoreGradient
                 score={ddSubmission.due_diligence_score}
@@ -1004,20 +992,9 @@ export default function ReviewSubmissionPage() {
         <Dialog open={showQuestionsDrawer} onOpenChange={setShowQuestionsDrawer}>
           <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col p-0 gap-0">
             <div className="bg-gradient-to-br from-blue-600 to-blue-700 text-white p-6 rounded-t-lg">
-              <div className="flex items-center justify-between gap-2 mb-3">
-                <div className="flex items-center gap-2">
-                  <ClipboardList className="w-5 h-5" />
-                  <span className="font-semibold text-lg">Due Diligence Questions</span>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="text-white hover:bg-white/20"
-                  onClick={() => setShowQuestionsDrawer(false)}
-                  data-testid="button-close-questions-modal"
-                >
-                  <X className="w-4 h-4" />
-                </Button>
+              <div className="flex items-center gap-2 mb-3">
+                <ClipboardList className="w-5 h-5" />
+                <span className="font-semibold text-lg">Due Diligence Questions</span>
               </div>
               <ScoreGradient
                 score={ddSubmission.due_diligence_score}
