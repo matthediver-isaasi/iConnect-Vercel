@@ -47,7 +47,7 @@ export default async function handler(req, res) {
       const { error: ageError } = await supabase
         .from('submission_document')
         .update({
-          status: 'aged',
+          status: 'pending',
           status_changed_at: now,
           status_changed_by: member.email,
           updated_at: now

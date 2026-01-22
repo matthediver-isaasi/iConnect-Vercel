@@ -9,7 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { 
-  FileText, Image, FileSpreadsheet, File, Check, X, Clock, RefreshCw, 
+  FileText, Image, FileSpreadsheet, File, Check, X, Clock, 
   Upload, Download, Send, Loader2, ChevronDown, ChevronUp, ExternalLink,
   MessageSquare, History
 } from "lucide-react";
@@ -34,8 +34,7 @@ async function apiRequest(method, url, body = null) {
 const STATUS_CONFIG = {
   pending: { label: 'Pending', color: '#f59e0b', bgColor: '#fef3c7', icon: Clock },
   approved: { label: 'Approved', color: '#22c55e', bgColor: '#dcfce7', icon: Check },
-  rejected: { label: 'Rejected', color: '#ef4444', bgColor: '#fee2e2', icon: X },
-  aged: { label: 'Aged', color: '#6b7280', bgColor: '#f3f4f6', icon: RefreshCw }
+  rejected: { label: 'Rejected', color: '#ef4444', bgColor: '#fee2e2', icon: X }
 };
 
 function getFileIcon(mimeType) {
@@ -395,11 +394,6 @@ export default function DocumentDetailModal({
           mimeType: document.mime_type
         });
         supersedeDocId = createResult.document.id;
-        
-        await apiRequest('POST', '/api/due-diligence/documents/update-status', {
-          documentId: supersedeDocId,
-          status: 'aged'
-        });
       }
       
       await apiRequest('POST', '/api/due-diligence/documents/create', {

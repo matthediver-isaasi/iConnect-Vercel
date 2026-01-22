@@ -28,7 +28,7 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'documentId and status are required' });
     }
 
-    const validStatuses = ['pending', 'approved', 'rejected', 'aged'];
+    const validStatuses = ['pending', 'approved', 'rejected'];
     if (!validStatuses.includes(status)) {
       return res.status(400).json({ 
         error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` 

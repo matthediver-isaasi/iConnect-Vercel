@@ -54,7 +54,7 @@ export default async function handler(req, res) {
 
     if (currentVersionDoc && currentVersionDoc.status === 'approved') {
       return res.status(400).json({ 
-        error: 'Cannot supersede an approved document. Mark it as aged first.' 
+        error: 'Cannot supersede an approved document. Change it to pending first.' 
       });
     }
 
@@ -72,7 +72,7 @@ export default async function handler(req, res) {
 
       if (existingDoc.status === 'approved') {
         return res.status(400).json({ 
-          error: 'Cannot supersede an approved document. Mark it as aged first.' 
+          error: 'Cannot supersede an approved document. Change it to pending first.' 
         });
       }
 

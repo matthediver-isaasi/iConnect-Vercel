@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { FileText, Image, FileSpreadsheet, File, Check, X, Clock, RefreshCw, Loader2 } from "lucide-react";
+import { FileText, Image, FileSpreadsheet, File, Check, X, Clock, Loader2 } from "lucide-react";
 
 async function apiRequest(method, url, body = null) {
   const options = { method, credentials: 'include', headers: {} };
@@ -22,8 +22,7 @@ async function apiRequest(method, url, body = null) {
 const STATUS_CONFIG = {
   pending: { label: 'Pending', color: '#f59e0b', icon: Clock },
   approved: { label: 'Approved', color: '#22c55e', icon: Check },
-  rejected: { label: 'Rejected', color: '#ef4444', icon: X },
-  aged: { label: 'Aged', color: '#6b7280', icon: RefreshCw }
+  rejected: { label: 'Rejected', color: '#ef4444', icon: X }
 };
 
 function getFileIcon(mimeTypeOrFilename) {
