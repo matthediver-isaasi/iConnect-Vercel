@@ -697,6 +697,62 @@ export default function ReviewSubmissionPage() {
     }
   };
 
+  // Calculate live traffic light score based on current responses
+  const liveTrafficLightScore = useMemo(() => {
+    if (ddConfig?.scoring_approach !== 'static_traffic_light') return null;
+    
+    const questions = (ddConfig?.static_questions || []).filter(q => q.type !== 'header');
+    if (questions.length === 0) return { score: 0, riskLevel: null };
+    
+    let totalWeightedScore = 0;
+    let totalWeight = 0;
+    let answeredCount = 0;
+    
+    for (const question of questions) {
+      const selectedOptionId = staticQuestionResponses[question.id];
+      const weight = question.weight || 1;
+      
+      if (selectedOptionId !== undefined && selectedOptionId !== null) {
+        answeredCount++;
+        // Find the selected option to get its score
+        const options = question.light_options || [];
+        const selectedOption = options.find(opt => opt.id === selectedOptionId);
+        
+        if (selectedOption) {
+          // Use opt.score with fallback to opt.value for legacy data
+          const optionScore = selectedOption.score ?? selectedOption.value ?? 0;
+          totalWeightedScore += optionScore * weight;
+          totalWeight += weight;
+        }
+      }
+    }
+    
+    const score = totalWeight > 0 ? Math.round(totalWeightedScore / totalWeight) : 0;
+    
+    // Determine risk level based on score
+    const customLevels = ddConfig?.custom_risk_levels || [];
+    const defaultLevels = [
+      { name: 'low', threshold: 80 },
+      { name: 'medium', threshold: 50 },
+      { name: 'high', threshold: 20 },
+      { name: 'critical', threshold: 0 }
+    ];
+    const levels = customLevels.length > 0 
+      ? customLevels.map(l => ({ name: l.name.toLowerCase().replace(' ', '_'), threshold: l.threshold }))
+      : defaultLevels;
+    const sortedLevels = [...levels].sort((a, b) => b.threshold - a.threshold);
+    
+    let riskLevel = sortedLevels[sortedLevels.length - 1]?.name || 'unknown';
+    for (const level of sortedLevels) {
+      if (score >= level.threshold) {
+        riskLevel = level.name;
+        break;
+      }
+    }
+    
+    return { score, riskLevel, answeredCount, totalQuestions: questions.length };
+  }, [ddConfig, staticQuestionResponses]);
+
   if (!accessChecked || isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen" data-testid="loading-spinner">
@@ -921,8 +977,8 @@ export default function ReviewSubmissionPage() {
                 )}
               </div>
               <ScoreGradient
-                score={ddSubmission.due_diligence_score}
-                riskLevel={ddSubmission.risk_level}
+                score={liveTrafficLightScore?.answeredCount > 0 ? liveTrafficLightScore.score : ddSubmission.due_diligence_score}
+                riskLevel={liveTrafficLightScore?.answeredCount > 0 ? liveTrafficLightScore.riskLevel : ddSubmission.risk_level}
                 customRiskLevels={ddConfig?.custom_risk_levels}
               />
             </CardContent>
@@ -997,30 +1053,24 @@ export default function ReviewSubmissionPage() {
                 <span className="font-semibold text-lg">Due Diligence Questions</span>
               </div>
               <ScoreGradient
-                score={ddSubmission.due_diligence_score}
-                riskLevel={ddSubmission.risk_level}
+                score={liveTrafficLightScore?.answeredCount > 0 ? liveTrafficLightScore.score : ddSubmission.due_diligence_score}
+                riskLevel={liveTrafficLightScore?.answeredCount > 0 ? liveTrafficLightScore.riskLevel : ddSubmission.risk_level}
                 customRiskLevels={ddConfig?.custom_risk_levels}
               />
-              {(() => {
-                const questions = (ddConfig?.static_questions || []).filter(q => q.type !== 'header');
-                const answered = questions.filter(q => staticQuestionResponses[q.id] !== undefined && staticQuestionResponses[q.id] !== null).length;
-                const total = questions.length;
-                const progress = total > 0 ? Math.round((answered / total) * 100) : 0;
-                return (
-                  <div className="mt-4 space-y-1">
-                    <div className="flex items-center justify-between text-sm">
-                      <span>Progress</span>
-                      <span>{answered} of {total} questions answered</span>
-                    </div>
-                    <div className="h-2 bg-white/30 rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-white rounded-full transition-all duration-300"
-                        style={{ width: `${progress}%` }}
-                      />
-                    </div>
+              {liveTrafficLightScore && (
+                <div className="mt-4 space-y-1">
+                  <div className="flex items-center justify-between text-sm">
+                    <span>Progress</span>
+                    <span>{liveTrafficLightScore.answeredCount} of {liveTrafficLightScore.totalQuestions} questions answered</span>
                   </div>
-                );
-              })()}
+                  <div className="h-2 bg-white/30 rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-white rounded-full transition-all duration-300"
+                      style={{ width: `${liveTrafficLightScore.totalQuestions > 0 ? Math.round((liveTrafficLightScore.answeredCount / liveTrafficLightScore.totalQuestions) * 100) : 0}%` }}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
             <div className="flex-1 overflow-y-auto p-6 min-h-0">
               <StaticQuestionReview
