@@ -2160,7 +2160,8 @@ function FieldCard({
   prefillSource = "none",
   isDrawerOpen = false,
   onOpenDrawer,
-  onCloseDrawer
+  onCloseDrawer,
+  contractForms = []
 }) {
   const isEmailType = field.type === 'email' || field.type === 'user_email';
   const isUrlType = field.type === 'url';
@@ -2981,8 +2982,62 @@ function FieldCard({
                 </div>
               )}
 
+              {/* Contact Field - Contract Template Selection */}
+              {field.type === 'contact' && (
+                <div className="space-y-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                  <div className="flex items-center gap-2">
+                    <FileSignature className="w-4 h-4 text-blue-600" />
+                    <Label className="text-xs font-medium">Contract Template (Optional)</Label>
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    Select a contract to send to this contact after form submission
+                  </p>
+                  <Select
+                    value={field.contract_form_id || '__none__'}
+                    onValueChange={(value) => updateField(originalIndex, { 
+                      contract_form_id: value === '__none__' ? null : value 
+                    })}
+                  >
+                    <SelectTrigger className="text-xs" data-testid={`select-contract-template-${field.id}`}>
+                      <SelectValue placeholder="No contract template" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__" data-testid={`option-contract-none-${field.id}`}>No contract template</SelectItem>
+                      {contractForms.map((form) => (
+                        <SelectItem key={form.id} value={form.id} data-testid={`option-contract-${form.id}`}>
+                          <div className="flex items-center gap-2">
+                            <FileSignature className="w-3 h-3 text-blue-500" />
+                            <span>{form.name}</span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {field.contract_form_id && (
+                    <div className="flex items-start gap-2 p-2 bg-blue-50 border border-blue-200 rounded-md">
+                      <div className="text-blue-600 mt-0.5">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                      </div>
+                      <div>
+                        <p className="text-xs font-medium text-blue-800">Contract will be sent to contact</p>
+                        <p className="text-xs text-blue-600 mt-0.5">
+                          When the form is submitted, the selected contract can be sent to the contact details (name and email) captured in this field.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                  {contractForms.length === 0 && (
+                    <p className="text-xs text-amber-600">
+                      No contract templates available. Create a form with "Contract Mode" enabled to use this feature.
+                    </p>
+                  )}
+                </div>
+              )}
+
               {/* Default Value Section - for non-boolean fields */}
-              {!['boolean', 'terms_conditions', 'file', 'list', 'instructions', 'country', 'countries', 'user_name', 'user_email', 'user_organization', 'user_job_title', 'organisation_dropdown', 'category_multiselect', 'category_dropdown', 'communication_preferences'].includes(field.type) && (
+              {!['boolean', 'terms_conditions', 'file', 'list', 'instructions', 'country', 'countries', 'user_name', 'user_email', 'user_organization', 'user_job_title', 'organisation_dropdown', 'category_multiselect', 'category_dropdown', 'communication_preferences', 'contact', 'signature'].includes(field.type) && (
                 <div className="space-y-2 p-3 bg-slate-50 border border-slate-200 rounded-lg">
                   <Label className="text-xs font-medium">Default Value</Label>
                   <p className="text-xs text-slate-500 mb-2">Pre-filled value when form loads</p>
@@ -5076,6 +5131,7 @@ export default function FormBuilderPage() {
                                       isDrawerOpen={editingFieldId === field.id}
                                       onOpenDrawer={() => setEditingFieldId(field.id)}
                                       onCloseDrawer={() => setEditingFieldId(null)}
+                                      contractForms={contractForms}
                                     />
                                   ))}
                                 {provided.placeholder}
@@ -5215,6 +5271,7 @@ export default function FormBuilderPage() {
                                                   isDrawerOpen={editingFieldId === field.id}
                                                   onOpenDrawer={() => setEditingFieldId(field.id)}
                                                   onCloseDrawer={() => setEditingFieldId(null)}
+                                                  contractForms={contractForms}
                                                 />
                                               ))
                                             )}
@@ -5271,6 +5328,7 @@ export default function FormBuilderPage() {
                               isDrawerOpen={editingFieldId === field.id}
                               onOpenDrawer={() => setEditingFieldId(field.id)}
                               onCloseDrawer={() => setEditingFieldId(null)}
+                              contractForms={contractForms}
                             />
                           ))}
                           {provided.placeholder}
