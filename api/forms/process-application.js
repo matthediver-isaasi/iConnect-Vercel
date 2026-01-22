@@ -1996,12 +1996,16 @@ export default async function handler(req, res) {
       console.log('[AppProcessor] Additional members processed:', additionalMemberIds.length);
     }
 
-    if (submission_id && (createdMemberId || createdOrganizationId)) {
+    if (submission_id && (createdMemberId || createdOrganizationId || prefill_organization_id)) {
+      // organization_id is the canonical link - use created org if available, otherwise prefilled org
+      const finalOrganizationId = createdOrganizationId || prefill_organization_id || null;
+      
       await supabase
         .from('form_submission')
         .update({
           created_member_id: createdMemberId,
           created_organization_id: createdOrganizationId,
+          organization_id: finalOrganizationId,
           processed_at: new Date().toISOString()
         })
         .eq('id', submission_id);

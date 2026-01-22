@@ -101,7 +101,8 @@ export default async function handler(req, res) {
       submission_data: submission_data || {},
       created_date: new Date().toISOString(),
       tenant_id: tenantData.id,
-      ...(contract_instance_id && { contract_instance_id })
+      ...(contract_instance_id && { contract_instance_id }),
+      ...(prefill_organization_id && { organization_id: prefill_organization_id })
     };
 
     const { data: submission, error: insertError } = await supabase
