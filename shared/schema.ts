@@ -326,6 +326,9 @@ export const formDueDiligenceConfig = pgTable("form_due_diligence_config", {
   applicant_email_field: text("applicant_email_field"),
   applicant_organization_name_field: text("applicant_organization_name_field"),
   
+  // Dashboard display configuration
+  card_reference_field: text("card_reference_field"),
+  
   is_active: boolean("is_active").default(true),
   created_at: timestamp("created_at").defaultNow(),
   updated_at: timestamp("updated_at").defaultNow(),
