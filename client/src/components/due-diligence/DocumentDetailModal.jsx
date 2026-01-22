@@ -409,6 +409,9 @@ export default function DocumentDetailModal({
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="w-[80vw] max-w-[80vw] h-[90vh] max-h-[90vh] overflow-hidden flex flex-col">
         <DialogHeader>
+          {document.label && (
+            <p className="text-sm text-muted-foreground mb-1">{document.label}</p>
+          )}
           <DialogTitle className="flex items-center gap-3">
             <span className="truncate">{document.original_file_name || document.file_name}</span>
             <Badge 

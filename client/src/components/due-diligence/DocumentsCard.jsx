@@ -60,6 +60,9 @@ function DocumentItem({ document, onClick }) {
         <FileIcon className="w-5 h-5 text-muted-foreground" />
       </div>
       <div className="flex-1 min-w-0">
+        {document.label && (
+          <p className="text-xs text-muted-foreground mb-0.5">{document.label}</p>
+        )}
         <p className="text-sm font-medium truncate">{document.original_file_name}</p>
         <div className="flex items-center gap-2 mt-1 flex-wrap">
           <Badge 
