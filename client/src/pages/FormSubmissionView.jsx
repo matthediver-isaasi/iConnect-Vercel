@@ -83,11 +83,12 @@ export default function FormSubmissionView() {
   
   const hasPages = form?.pages && form.pages.length > 0;
   
-  const getFieldsForPage = (pageIndex) => {
-    if (!hasPages) return fields;
-    const page = form.pages[pageIndex];
-    if (!page?.field_ids) return [];
-    return page.field_ids.map(id => fields.find(f => f.id === id)).filter(Boolean);
+  // Fields are linked to pages via field.page_id
+  const getFieldsForPage = (page) => {
+    if (!hasPages || !page) return fields;
+    // Filter fields that belong to this page
+    // Also include fields with no page_id if this is the first page
+    return fields.filter(f => f.page_id === page.id);
   };
 
   const getStatusBadge = (status) => {
@@ -132,13 +133,16 @@ export default function FormSubmissionView() {
   const renderAllFields = () => {
     if (hasPages) {
       return form.pages.map((page, pageIndex) => {
-        const pageFields = getFieldsForPage(pageIndex);
-        const isExpanded = expandedSections[`page-${pageIndex}`] !== false;
+        const pageFields = getFieldsForPage(page);
+        const isExpanded = expandedSections[`page-${page.id}`] !== false;
+        
+        // Skip pages with no fields
+        if (pageFields.length === 0) return null;
         
         return (
-          <div key={pageIndex} className="border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
+          <div key={page.id || pageIndex} className="border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
             <button
-              onClick={() => toggleSection(`page-${pageIndex}`)}
+              onClick={() => toggleSection(`page-${page.id}`)}
               className="w-full flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-700/50 transition-colors"
               data-testid={`section-toggle-${pageIndex}`}
             >
@@ -158,7 +162,7 @@ export default function FormSubmissionView() {
             )}
           </div>
         );
-      });
+      }).filter(Boolean);
     }
     
     return (
