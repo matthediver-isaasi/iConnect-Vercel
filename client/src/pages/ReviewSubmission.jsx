@@ -750,6 +750,7 @@ export default function ReviewSubmissionPage() {
   // Also exclude: file uploads (shown in Documents card)
   // Contact fields with contracts are kept but rendered as placeholders
   const allFormFields = useMemo(() => {
+    const submissionData = ddSubmission?.original_form_values || {};
     let fields = form?.fields?.filter(f => f.visible !== false) || [];
     if (!showDescriptionFields) {
       fields = fields.filter(f => f.type !== 'instructions');
@@ -772,7 +773,7 @@ export default function ReviewSubmissionPage() {
     // Exclude image upload fields
     fields = fields.filter(f => f.type !== 'image');
     return fields;
-  }, [form, showDescriptionFields, submissionData, isFileUploadValue]);
+  }, [form, showDescriptionFields, ddSubmission, isFileUploadValue]);
 
   // Get pages from form
   const pages = useMemo(() => form?.pages || [], [form]);
