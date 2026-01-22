@@ -965,6 +965,44 @@ export default function DueDiligenceConfigPage() {
                   </div>
                 );
               })}
+              
+              {customRiskLevels.length > 0 && (
+                <div className="mt-6 space-y-2">
+                  <span className="text-sm font-medium">Risk Gradient Preview</span>
+                  <div className="relative h-8 rounded-lg overflow-hidden" data-testid="risk-gradient-preview">
+                    {(() => {
+                      const sortedLevels = [...customRiskLevels].sort((a, b) => a.threshold - b.threshold);
+                      return (
+                        <>
+                          <div 
+                            className="absolute inset-0"
+                            style={{
+                              background: `linear-gradient(to right, ${sortedLevels.map((level, i) => {
+                                const nextThreshold = sortedLevels[i + 1]?.threshold ?? 100;
+                                return `${level.color} ${level.threshold}%, ${level.color} ${nextThreshold}%`;
+                              }).join(', ')})`
+                            }}
+                          />
+                          {sortedLevels.map((level, i) => (
+                            level.threshold > 0 && (
+                              <div
+                                key={i}
+                                className="absolute top-0 bottom-0 w-0.5 bg-white"
+                                style={{ left: `${level.threshold}%` }}
+                                title={`${level.name}: ${level.threshold}%`}
+                              />
+                            )
+                          ))}
+                        </>
+                      );
+                    })()}
+                  </div>
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>0%</span>
+                    <span>100%</span>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
