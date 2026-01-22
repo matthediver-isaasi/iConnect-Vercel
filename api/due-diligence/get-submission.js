@@ -92,6 +92,18 @@ export default async function handler(req, res) {
       }
     }
 
+    // Debug logging for document display issue
+    console.log('[DD Get] Response summary:', {
+      hasSubmission: !!ddSubmission,
+      hasFormSubmission: !!ddSubmission?.form_submission,
+      formSubmissionId: ddSubmission?.form_submission?.id,
+      hasSubmissionData: !!ddSubmission?.form_submission?.submission_data,
+      submissionDataKeys: ddSubmission?.form_submission?.submission_data ? Object.keys(ddSubmission.form_submission.submission_data) : [],
+      hasForm: !!form,
+      formHasFields: !!form?.fields,
+      formHasPages: !!form?.pages
+    });
+
     return res.status(200).json({
       success: true,
       submission: ddSubmission,

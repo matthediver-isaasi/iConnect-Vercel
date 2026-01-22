@@ -83,6 +83,16 @@ function DocumentItem({ document, onClick }) {
 }
 
 export default function DocumentsCard({ formSubmissionId, submissionData, formSchema, onDocumentClick }) {
+  // Debug logging for document display issue
+  console.log('[DocumentsCard] Props received:', {
+    formSubmissionId,
+    hasSubmissionData: !!submissionData,
+    submissionDataKeys: submissionData ? Object.keys(submissionData) : [],
+    hasFormSchema: !!formSchema,
+    formSchemaFields: formSchema?.fields?.length || 0,
+    formSchemaPages: formSchema?.pages?.length || 0
+  });
+
   const { data: dbDocuments, isLoading: dbLoading } = useQuery({
     queryKey: ['submission-documents', formSubmissionId],
     queryFn: async () => {
@@ -93,10 +103,21 @@ export default function DocumentsCard({ formSubmissionId, submissionData, formSc
   });
 
   const fileFieldsFromForm = useMemo(() => {
+    console.log('[DocumentsCard] fileFieldsFromForm calculation:', {
+      hasFormSchema: !!formSchema,
+      hasSubmissionData: !!submissionData
+    });
     if (!formSchema || !submissionData) return [];
     
     // Support both formSchema.schema.fields and formSchema.fields structures
     const schema = formSchema.schema || formSchema;
+    console.log('[DocumentsCard] schema structure:', {
+      hasSchemaFields: !!schema.fields,
+      schemaFieldsCount: schema.fields?.length || 0,
+      hasSchemaPages: !!schema.pages,
+      schemaPagesCount: schema.pages?.length || 0,
+      fieldTypes: schema.fields?.map(f => ({ name: f.name, type: f.type })).slice(0, 10)
+    });
     if (!schema.fields && !schema.pages) return [];
     
     const files = [];
@@ -167,6 +188,11 @@ export default function DocumentsCard({ formSubmissionId, submissionData, formSc
   }, [formSchema, submissionData]);
 
   const documents = useMemo(() => {
+    console.log('[DocumentsCard] documents calculation:', {
+      dbDocumentsCount: dbDocuments?.length || 0,
+      fileFieldsFromFormCount: fileFieldsFromForm.length,
+      dbDocuments: dbDocuments?.map(d => ({ id: d.id, field_name: d.field_name, is_current: d.is_current_version }))
+    });
     const dbDocMap = new Map();
     (dbDocuments || []).forEach(doc => {
       if (doc.is_current_version) {
