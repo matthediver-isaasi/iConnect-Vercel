@@ -99,10 +99,13 @@ function FilePreview({ fileUrl, mimeType, fileName }) {
   );
 }
 
-function VersionItem({ version, isSelected, onSelect, showPreview = false }) {
+function VersionItem({ version, isSelected, onSelect, showPreview = false, onApprove, onReject, isUpdating, hasApprovedVersion }) {
   const statusConfig = STATUS_CONFIG[version.status] || STATUS_CONFIG.pending;
   const StatusIcon = statusConfig.icon;
   const [expanded, setExpanded] = useState(showPreview);
+
+  const isApproved = version.status === 'approved';
+  const isRejected = version.status === 'rejected';
 
   return (
     <div 
@@ -125,6 +128,28 @@ function VersionItem({ version, isSelected, onSelect, showPreview = false }) {
           </Badge>
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            variant={isApproved ? 'default' : 'outline'}
+            size="sm"
+            onClick={(e) => { e.stopPropagation(); onApprove(version); }}
+            disabled={isUpdating || isApproved}
+            className={`h-7 px-2 ${isApproved ? 'bg-green-600 hover:bg-green-700' : ''}`}
+            data-testid={`button-approve-version-${version.id}`}
+          >
+            <Check className="w-3 h-3 mr-1" />
+            Approve
+          </Button>
+          <Button
+            variant={isRejected ? 'default' : 'outline'}
+            size="sm"
+            onClick={(e) => { e.stopPropagation(); onReject(version); }}
+            disabled={isUpdating || isRejected || isApproved}
+            className={`h-7 px-2 ${isRejected ? 'bg-red-600 hover:bg-red-700' : ''}`}
+            data-testid={`button-reject-version-${version.id}`}
+          >
+            <X className="w-3 h-3 mr-1" />
+            Reject
+          </Button>
           <span className="text-xs text-muted-foreground">
             {version.created_at ? format(new Date(version.created_at), 'MMM d, yyyy') : '--'}
           </span>
@@ -193,15 +218,18 @@ export default function DocumentDetailModal({
   });
 
   const versions = versionsData || [];
+  const approvedVersion = versions.find(v => v.status === 'approved') || (document?.status === 'approved' ? document : null);
   const currentVersion = selectedVersion || versions.find(v => v.is_current_version) || document;
-  const statusConfig = STATUS_CONFIG[currentVersion?.status] || STATUS_CONFIG.pending;
+  const statusConfig = STATUS_CONFIG[approvedVersion ? 'approved' : 'pending'] || STATUS_CONFIG.pending;
   const StatusIcon = statusConfig.icon;
 
   const canSupersede = currentVersion?.status !== 'approved';
 
   const updateStatusMutation = useMutation({
-    mutationFn: async ({ status }) => {
-      if (currentVersion.isFromForm) {
+    mutationFn: async ({ status, version }) => {
+      const targetVersion = version || currentVersion;
+      
+      if (targetVersion.isFromForm) {
         const createResult = await apiRequest('POST', '/api/due-diligence/documents/create', {
           formSubmissionId,
           fieldName: document.field_name,
@@ -218,7 +246,7 @@ export default function DocumentDetailModal({
       }
       
       return await apiRequest('POST', '/api/due-diligence/documents/update-status', {
-        documentId: currentVersion.id,
+        documentId: targetVersion.id,
         status
       });
     },
@@ -232,6 +260,24 @@ export default function DocumentDetailModal({
       toast.error(error.message || 'Failed to update status');
     }
   });
+
+  const handleApproveVersion = useCallback(async (version) => {
+    try {
+      if (approvedVersion && approvedVersion.id !== version.id) {
+        await apiRequest('POST', '/api/due-diligence/documents/update-status', {
+          documentId: approvedVersion.id,
+          status: 'aged'
+        });
+      }
+      updateStatusMutation.mutate({ status: 'approved', version });
+    } catch (error) {
+      toast.error('Failed to approve version: ' + (error.message || 'Unknown error'));
+    }
+  }, [approvedVersion, updateStatusMutation]);
+
+  const handleRejectVersion = useCallback((version) => {
+    updateStatusMutation.mutate({ status: 'rejected', version });
+  }, [updateStatusMutation]);
 
   const addCommentMutation = useMutation({
     mutationFn: async ({ comment }) => {
@@ -358,40 +404,50 @@ export default function DocumentDetailModal({
           </TabsList>
 
           <TabsContent value="preview" className="flex-1 overflow-auto mt-4">
-            <div className="space-y-4">
-              <FilePreview 
-                fileUrl={currentVersion?.file_url || document.file_url} 
-                mimeType={currentVersion?.mime_type || document.mime_type} 
-                fileName={currentVersion?.file_name || document.file_name}
-              />
-              
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <span className="text-muted-foreground">File size:</span>
-                  <span className="ml-2">
-                    {currentVersion?.file_size 
-                      ? `${(currentVersion.file_size / 1024).toFixed(1)} KB` 
-                      : '--'}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Version:</span>
-                  <span className="ml-2">{currentVersion?.version || 1}</span>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Uploaded:</span>
-                  <span className="ml-2">
-                    {currentVersion?.created_at 
-                      ? format(new Date(currentVersion.created_at), 'MMM d, yyyy h:mm a') 
-                      : '--'}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Type:</span>
-                  <span className="ml-2">{currentVersion?.mime_type || '--'}</span>
+            {approvedVersion ? (
+              <div className="space-y-4">
+                <FilePreview 
+                  fileUrl={approvedVersion.file_url} 
+                  mimeType={approvedVersion.mime_type} 
+                  fileName={approvedVersion.file_name}
+                />
+                
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="text-muted-foreground">File size:</span>
+                    <span className="ml-2">
+                      {approvedVersion.file_size 
+                        ? `${(approvedVersion.file_size / 1024).toFixed(1)} KB` 
+                        : '--'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Version:</span>
+                    <span className="ml-2">{approvedVersion.version || 1}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Uploaded:</span>
+                    <span className="ml-2">
+                      {approvedVersion.created_at 
+                        ? format(new Date(approvedVersion.created_at), 'MMM d, yyyy h:mm a') 
+                        : '--'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Type:</span>
+                    <span className="ml-2">{approvedVersion.mime_type || '--'}</span>
+                  </div>
                 </div>
               </div>
-            </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center h-64 bg-muted rounded-lg gap-4">
+                <Clock className="w-12 h-12 text-muted-foreground" />
+                <p className="text-muted-foreground text-center">
+                  No approved version yet.<br />
+                  <span className="text-sm">Go to the Versions tab to approve a version.</span>
+                </p>
+              </div>
+            )}
           </TabsContent>
 
           <TabsContent value="versions" className="flex-1 overflow-auto mt-4">
@@ -409,6 +465,10 @@ export default function DocumentDetailModal({
                       isSelected={selectedVersion?.id === version.id}
                       onSelect={setSelectedVersion}
                       showPreview={index === 0}
+                      onApprove={handleApproveVersion}
+                      onReject={handleRejectVersion}
+                      isUpdating={updateStatusMutation.isPending}
+                      hasApprovedVersion={!!approvedVersion}
                     />
                   ))
                 ) : (
@@ -417,6 +477,10 @@ export default function DocumentDetailModal({
                     isSelected={true}
                     onSelect={() => {}}
                     showPreview={true}
+                    onApprove={handleApproveVersion}
+                    onReject={handleRejectVersion}
+                    isUpdating={updateStatusMutation.isPending}
+                    hasApprovedVersion={!!approvedVersion}
                   />
                 )}
               </div>
@@ -471,82 +535,41 @@ export default function DocumentDetailModal({
 
         <Separator className="my-4" />
 
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-medium">Status:</span>
-            <div className="flex gap-2">
-              <Button
-                variant={currentVersion?.status === 'approved' ? 'default' : 'outline'}
+        <div className="flex items-center justify-end gap-2">
+          {canSupersede && (
+            <div className="relative">
+              <input
+                type="file"
+                className="absolute inset-0 opacity-0 cursor-pointer"
+                onChange={handleSupersede}
+                disabled={isUploading}
+                data-testid="input-supersede-file"
+              />
+              <Button 
+                variant="outline" 
                 size="sm"
-                onClick={() => updateStatusMutation.mutate({ status: 'approved' })}
-                disabled={updateStatusMutation.isPending}
-                className={currentVersion?.status === 'approved' ? 'bg-green-600 hover:bg-green-700' : ''}
-                data-testid="button-approve"
+                disabled={isUploading}
               >
-                <Check className="w-4 h-4 mr-1" />
-                Approve
-              </Button>
-              <Button
-                variant={currentVersion?.status === 'rejected' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => updateStatusMutation.mutate({ status: 'rejected' })}
-                disabled={updateStatusMutation.isPending}
-                className={currentVersion?.status === 'rejected' ? 'bg-red-600 hover:bg-red-700' : ''}
-                data-testid="button-reject"
-              >
-                <X className="w-4 h-4 mr-1" />
-                Reject
-              </Button>
-              <Button
-                variant={currentVersion?.status === 'aged' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => updateStatusMutation.mutate({ status: 'aged' })}
-                disabled={updateStatusMutation.isPending}
-                className={currentVersion?.status === 'aged' ? 'bg-gray-600 hover:bg-gray-700' : ''}
-                data-testid="button-age"
-              >
-                <RefreshCw className="w-4 h-4 mr-1" />
-                Age
+                {isUploading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    {uploadProgress}%
+                  </>
+                ) : (
+                  <>
+                    <Upload className="w-4 h-4 mr-2" />
+                    Upload New Version
+                  </>
+                )}
               </Button>
             </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            {canSupersede && (
-              <div className="relative">
-                <input
-                  type="file"
-                  className="absolute inset-0 opacity-0 cursor-pointer"
-                  onChange={handleSupersede}
-                  disabled={isUploading}
-                  data-testid="input-supersede-file"
-                />
-                <Button 
-                  variant="outline" 
-                  size="sm"
-                  disabled={isUploading}
-                >
-                  {isUploading ? (
-                    <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      {uploadProgress}%
-                    </>
-                  ) : (
-                    <>
-                      <Upload className="w-4 h-4 mr-2" />
-                      Upload New Version
-                    </>
-                  )}
-                </Button>
-              </div>
-            )}
-            <Button variant="outline" size="sm" asChild>
-              <a href={currentVersion?.file_url || document.file_url} target="_blank" rel="noopener noreferrer" download>
-                <Download className="w-4 h-4 mr-2" />
-                Download
-              </a>
-            </Button>
-          </div>
+          )}
+          <Button variant="outline" size="sm" asChild>
+            <a href={currentVersion?.file_url || document.file_url} target="_blank" rel="noopener noreferrer" download>
+              <Download className="w-4 h-4 mr-2" />
+              Download
+            </a>
+          </Button>
         </div>
       </DialogContent>
     </Dialog>
