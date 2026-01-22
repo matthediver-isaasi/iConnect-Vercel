@@ -720,6 +720,23 @@ export default function ReviewSubmissionPage() {
   // Check if we should show description/instructions fields
   const showDescriptionFields = ddConfig?.show_description_fields || false;
 
+  // Helper to check if a field value contains file upload data
+  const isFileUploadValue = useCallback((value) => {
+    if (!value) return false;
+    if (typeof value === 'string' && value.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(value);
+        return !!(parsed.file_url || parsed.file_name);
+      } catch {
+        return false;
+      }
+    }
+    if (typeof value === 'object' && value !== null) {
+      return !!(value.file_url || value.file_name);
+    }
+    return false;
+  }, []);
+
   // Get all visible form fields (optionally filtering out instructions fields)
   // Also exclude: file uploads (shown in Documents card)
   // Contact fields with contracts are kept but rendered as placeholders
@@ -732,10 +749,21 @@ export default function ReviewSubmissionPage() {
     fields = fields.filter(f => f.type !== 'file');
     // Exclude custom fields set to file or image type upload
     fields = fields.filter(f => !(f.type === 'custom_field' && (f.field_type === 'file' || f.field_type === 'image')));
+    // Exclude custom fields where the submission data contains file upload content
+    fields = fields.filter(f => {
+      if (f.type === 'custom_field') {
+        const fieldKey = f.name || f.id;
+        const rawValue = submissionData?.[fieldKey] || submissionData?.[f.id];
+        if (isFileUploadValue(rawValue)) {
+          return false;
+        }
+      }
+      return true;
+    });
     // Exclude image upload fields
     fields = fields.filter(f => f.type !== 'image');
     return fields;
-  }, [form, showDescriptionFields]);
+  }, [form, showDescriptionFields, submissionData, isFileUploadValue]);
 
   // Get pages from form
   const pages = useMemo(() => form?.pages || [], [form]);
