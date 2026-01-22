@@ -20,17 +20,14 @@ export default async function handler(req, res) {
   try {
     const { data: contractInstances, error: instancesError } = await supabase
       .from('contract_instance')
-      .select(`
-        *,
-        form:form_id (id, name, description, slug, fields)
-      `)
+      .select('*')
       .eq('form_submission_id', formSubmissionId)
       .eq('tenant_id', tenantContext.tenantId)
       .order('created_at', { ascending: false });
 
     if (instancesError) {
       console.error('[contracts/by-submission] Instances fetch error:', instancesError);
-      if (instancesError.code === '42P01') {
+      if (instancesError.code === '42P01' || instancesError.code === 'PGRST200') {
         return res.status(200).json({ contracts: [], message: 'Contract instances not yet set up' });
       }
       return res.status(500).json({ error: 'Failed to fetch contracts' });
@@ -38,6 +35,20 @@ export default async function handler(req, res) {
 
     if (!contractInstances || contractInstances.length === 0) {
       return res.status(200).json({ contracts: [] });
+    }
+
+    const formIds = [...new Set(contractInstances.map(i => i.form_id).filter(Boolean))];
+    let formsMap = {};
+    
+    if (formIds.length > 0) {
+      const { data: forms } = await supabase
+        .from('form')
+        .select('id, name, description, slug, fields')
+        .in('id', formIds);
+      
+      (forms || []).forEach(f => {
+        formsMap[f.id] = f;
+      });
     }
 
     const instanceIds = contractInstances.map(i => i.id);
@@ -66,7 +77,7 @@ export default async function handler(req, res) {
       const signers = instance.signers || [];
       const sentAt = instance.sent_at;
       const timeoutDays = instance.timeout_days || 30;
-      const form = instance.form;
+      const form = formsMap[instance.form_id] || null;
 
       let status = instance.status || 'pending';
       let expiryDate = null;
