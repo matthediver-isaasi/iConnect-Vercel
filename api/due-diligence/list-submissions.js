@@ -116,6 +116,40 @@ export default async function handler(req, res) {
       return sub;
     });
 
+    // Collect all reviewed_by emails to look up member names
+    const reviewerEmails = [...new Set(
+      filteredSubmissions
+        .map(s => s.reviewed_by)
+        .filter(Boolean)
+    )];
+
+    // Fetch member names for reviewers
+    let reviewerMap = {};
+    if (reviewerEmails.length > 0) {
+      const { data: members } = await supabase
+        .from('member')
+        .select('email, first_name, last_name')
+        .in('email', reviewerEmails)
+        .eq('tenant_id', tenantCtx.tenantId);
+      
+      if (members) {
+        reviewerMap = Object.fromEntries(
+          members.map(m => [m.email, `${m.first_name || ''} ${m.last_name || ''}`.trim() || m.email])
+        );
+      }
+    }
+
+    // Attach reviewer names to submissions
+    filteredSubmissions = filteredSubmissions.map(sub => {
+      if (sub.reviewed_by && reviewerMap[sub.reviewed_by]) {
+        return {
+          ...sub,
+          reviewed_by_name: reviewerMap[sub.reviewed_by]
+        };
+      }
+      return sub;
+    });
+
     return res.status(200).json({
       success: true,
       submissions: filteredSubmissions,

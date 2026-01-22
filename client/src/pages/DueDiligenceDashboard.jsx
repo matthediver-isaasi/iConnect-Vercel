@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -8,10 +8,21 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Search, Filter, RefreshCw, FileText, TrendingUp, AlertTriangle, CheckCircle, Clock, Loader2, Settings } from "lucide-react";
+import { Search, Filter, RefreshCw, FileText, TrendingUp, AlertTriangle, CheckCircle, Clock, Loader2, Settings, GripVertical } from "lucide-react";
 import { format } from 'date-fns';
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { base44 } from "@/api/base44Client";
+
+const DEFAULT_COLUMN_WIDTHS = {
+  reference: 200,
+  status: 120,
+  score: 150,
+  riskLevel: 130,
+  created: 120,
+  reviewedBy: 160
+};
+
+const COLUMN_WIDTH_STORAGE_KEY = 'dd_dashboard_column_widths';
 
 async function apiRequest(method, url, body = null) {
   const options = {
@@ -65,7 +76,7 @@ function StatCard({ title, value, icon: Icon, color, subtitle }) {
   );
 }
 
-function SubmissionRow({ submission, workflowStages, riskLevels, onClick, cardReferenceField }) {
+function SubmissionRow({ submission, workflowStages, riskLevels, onClick, cardReferenceField, columnWidths }) {
   const stage = workflowStages.find(s => s.id === submission.workflow_status) || { label: submission.workflow_status, color: '#6b7280' };
   const riskConfig = riskLevels.find(r => r.name.toLowerCase() === submission.risk_level?.toLowerCase()) || { color: '#6b7280' };
   
@@ -80,6 +91,8 @@ function SubmissionRow({ submission, workflowStages, riskLevels, onClick, cardRe
   } else {
     displayReference = linkedOrgName || formValues.organization_name || formValues.company_name || formValues.name || formValues.email || submission.application_uid;
   }
+
+  const reviewerDisplay = submission.reviewed_by_name || submission.reviewed_by || '--';
   
   return (
     <TableRow 
@@ -87,8 +100,8 @@ function SubmissionRow({ submission, workflowStages, riskLevels, onClick, cardRe
       onClick={() => onClick(submission.id)}
       data-testid={`submission-row-${submission.id}`}
     >
-      <TableCell className="font-medium">{displayReference}</TableCell>
-      <TableCell>
+      <TableCell className="font-medium" style={{ width: columnWidths.reference, minWidth: columnWidths.reference }}>{displayReference}</TableCell>
+      <TableCell style={{ width: columnWidths.status, minWidth: columnWidths.status }}>
         <Badge 
           style={{ backgroundColor: stage.color, color: '#fff' }}
           className="text-xs no-default-hover-elevate no-default-active-elevate"
@@ -96,7 +109,7 @@ function SubmissionRow({ submission, workflowStages, riskLevels, onClick, cardRe
           {stage.label}
         </Badge>
       </TableCell>
-      <TableCell>
+      <TableCell style={{ width: columnWidths.score, minWidth: columnWidths.score }}>
         {submission.due_diligence_score !== null && submission.due_diligence_score !== undefined ? (
           <div className="flex items-center gap-2">
             <div className="w-16 h-2 bg-muted rounded-full overflow-hidden">
@@ -114,7 +127,7 @@ function SubmissionRow({ submission, workflowStages, riskLevels, onClick, cardRe
           <span className="text-muted-foreground text-sm">--</span>
         )}
       </TableCell>
-      <TableCell>
+      <TableCell style={{ width: columnWidths.riskLevel, minWidth: columnWidths.riskLevel }}>
         {submission.risk_level ? (
           <Badge 
             variant="outline" 
@@ -126,13 +139,67 @@ function SubmissionRow({ submission, workflowStages, riskLevels, onClick, cardRe
           <span className="text-muted-foreground text-sm">--</span>
         )}
       </TableCell>
-      <TableCell className="text-muted-foreground text-sm">
+      <TableCell className="text-muted-foreground text-sm" style={{ width: columnWidths.created, minWidth: columnWidths.created }}>
         {submission.created_at ? format(new Date(submission.created_at), 'MMM d, yyyy') : '--'}
       </TableCell>
-      <TableCell className="text-muted-foreground text-sm">
-        {submission.reviewed_by || '--'}
+      <TableCell className="text-muted-foreground text-sm" style={{ width: columnWidths.reviewedBy, minWidth: columnWidths.reviewedBy }}>
+        {reviewerDisplay}
       </TableCell>
     </TableRow>
+  );
+}
+
+function ResizableTableHead({ label, columnKey, width, onResize }) {
+  const [isResizing, setIsResizing] = useState(false);
+  const startXRef = useRef(0);
+  const startWidthRef = useRef(0);
+
+  const handleMouseDown = useCallback((e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsResizing(true);
+    startXRef.current = e.clientX;
+    startWidthRef.current = width;
+  }, [width]);
+
+  useEffect(() => {
+    if (!isResizing) return;
+
+    const handleMouseMove = (e) => {
+      const delta = e.clientX - startXRef.current;
+      const newWidth = Math.max(60, startWidthRef.current + delta);
+      onResize(columnKey, newWidth);
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizing, columnKey, onResize]);
+
+  return (
+    <TableHead 
+      className="relative select-none" 
+      style={{ width, minWidth: width }}
+    >
+      <div className="flex items-center justify-between">
+        <span>{label}</span>
+        <div
+          className={`absolute right-0 top-0 bottom-0 w-2 cursor-col-resize flex items-center justify-center hover:bg-primary/20 ${isResizing ? 'bg-primary/30' : ''}`}
+          onMouseDown={handleMouseDown}
+          data-testid={`resize-handle-${columnKey}`}
+        >
+          <div className="w-0.5 h-4 bg-border rounded-full" />
+        </div>
+      </div>
+    </TableHead>
   );
 }
 
@@ -144,6 +211,26 @@ export default function DueDiligenceDashboardPage() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [riskFilter, setRiskFilter] = useState('all');
   const [selectedFormId, setSelectedFormId] = useState('all');
+  
+  const [columnWidths, setColumnWidths] = useState(() => {
+    try {
+      const saved = localStorage.getItem(COLUMN_WIDTH_STORAGE_KEY);
+      if (saved) {
+        return { ...DEFAULT_COLUMN_WIDTHS, ...JSON.parse(saved) };
+      }
+    } catch (e) {}
+    return DEFAULT_COLUMN_WIDTHS;
+  });
+
+  const handleColumnResize = useCallback((columnKey, newWidth) => {
+    setColumnWidths(prev => {
+      const updated = { ...prev, [columnKey]: newWidth };
+      try {
+        localStorage.setItem(COLUMN_WIDTH_STORAGE_KEY, JSON.stringify(updated));
+      } catch (e) {}
+      return updated;
+    });
+  }, []);
   
   const { data: ddForms = [], isLoading: formsLoading } = useQuery({
     queryKey: ['dd-enabled-forms'],
@@ -373,16 +460,16 @@ export default function DueDiligenceDashboardPage() {
               <Loader2 className="w-8 h-8 animate-spin text-primary" />
             </div>
           ) : filteredSubmissions.length > 0 ? (
-            <div className="rounded-md border">
-              <Table>
+            <div className="rounded-md border overflow-x-auto">
+              <Table style={{ tableLayout: 'fixed', width: 'max-content', minWidth: '100%' }}>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Reference</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Score</TableHead>
-                    <TableHead>Risk Level</TableHead>
-                    <TableHead>Created</TableHead>
-                    <TableHead>Reviewed By</TableHead>
+                    <ResizableTableHead label="Reference" columnKey="reference" width={columnWidths.reference} onResize={handleColumnResize} />
+                    <ResizableTableHead label="Status" columnKey="status" width={columnWidths.status} onResize={handleColumnResize} />
+                    <ResizableTableHead label="Score" columnKey="score" width={columnWidths.score} onResize={handleColumnResize} />
+                    <ResizableTableHead label="Risk Level" columnKey="riskLevel" width={columnWidths.riskLevel} onResize={handleColumnResize} />
+                    <ResizableTableHead label="Created" columnKey="created" width={columnWidths.created} onResize={handleColumnResize} />
+                    <ResizableTableHead label="Reviewed By" columnKey="reviewedBy" width={columnWidths.reviewedBy} onResize={handleColumnResize} />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -397,6 +484,7 @@ export default function DueDiligenceDashboardPage() {
                         riskLevels={riskLevels}
                         onClick={handleRowClick}
                         cardReferenceField={refField}
+                        columnWidths={columnWidths}
                       />
                     );
                   })}
