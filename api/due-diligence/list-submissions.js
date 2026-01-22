@@ -43,8 +43,7 @@ export default async function handler(req, res) {
           form_id,
           submission_data,
           status,
-          created_date,
-          organization_id
+          created_date
         )
       `, { count: 'exact' })
       .eq('tenant_id', tenantCtx.tenantId)
@@ -74,19 +73,44 @@ export default async function handler(req, res) {
       );
     }
 
-    // Fetch organization names for submissions with organization_id
-    const orgIds = [...new Set(
-      filteredSubmissions
-        .map(s => s.form_submission?.organization_id)
-        .filter(Boolean)
-    )];
+    // Get DD configs for all forms to find organization lookup fields
+    const formIds = [...new Set(filteredSubmissions.map(s => s.form_submission?.form_id).filter(Boolean))];
+    let ddConfigByFormId = {};
+    if (formIds.length > 0) {
+      const { data: ddConfigs } = await supabase
+        .from('form_due_diligence_config')
+        .select('form_id, applicant_organization_name_field')
+        .in('form_id', formIds)
+        .eq('tenant_id', tenantCtx.tenantId);
+      
+      if (ddConfigs) {
+        ddConfigByFormId = Object.fromEntries(ddConfigs.map(c => [c.form_id, c]));
+      }
+    }
 
+    // Collect organization IDs from submission data using the configured field
+    const orgIdsToLookup = [];
+    filteredSubmissions.forEach(sub => {
+      const formId = sub.form_submission?.form_id;
+      const config = ddConfigByFormId[formId];
+      const orgField = config?.applicant_organization_name_field;
+      if (orgField) {
+        const submissionData = sub.form_submission?.submission_data || sub.original_form_values || {};
+        const orgId = submissionData[orgField];
+        if (orgId && typeof orgId === 'string' && orgId.match(/^[0-9a-f-]{36}$/i)) {
+          orgIdsToLookup.push(orgId);
+        }
+      }
+    });
+
+    // Fetch organization names
     let orgMap = {};
-    if (orgIds.length > 0) {
+    const uniqueOrgIds = [...new Set(orgIdsToLookup)];
+    if (uniqueOrgIds.length > 0) {
       const { data: orgs } = await supabase
         .from('organization')
         .select('id, name')
-        .in('id', orgIds);
+        .in('id', uniqueOrgIds);
       
       if (orgs) {
         orgMap = Object.fromEntries(orgs.map(o => [o.id, o.name]));
@@ -95,15 +119,21 @@ export default async function handler(req, res) {
 
     // Attach organization names to submissions
     filteredSubmissions = filteredSubmissions.map(sub => {
-      const orgId = sub.form_submission?.organization_id;
-      if (orgId && orgMap[orgId]) {
-        return {
-          ...sub,
-          form_submission: {
-            ...sub.form_submission,
-            organization: { id: orgId, name: orgMap[orgId] }
-          }
-        };
+      const formId = sub.form_submission?.form_id;
+      const config = ddConfigByFormId[formId];
+      const orgField = config?.applicant_organization_name_field;
+      if (orgField) {
+        const submissionData = sub.form_submission?.submission_data || sub.original_form_values || {};
+        const orgId = submissionData[orgField];
+        if (orgId && orgMap[orgId]) {
+          return {
+            ...sub,
+            form_submission: {
+              ...sub.form_submission,
+              organization: { id: orgId, name: orgMap[orgId] }
+            }
+          };
+        }
       }
       return sub;
     });
