@@ -265,6 +265,26 @@ export default function DueDiligenceConfigPage() {
     setWorkflowStages(items.map((item, index) => ({ ...item, order: index })));
   };
 
+  const handleQuestionDragEnd = (result) => {
+    if (!result.destination) return;
+    const items = Array.from(staticQuestions);
+    const [reorderedItem] = items.splice(result.source.index, 1);
+    items.splice(result.destination.index, 0, reorderedItem);
+    setStaticQuestions(items);
+  };
+
+  const questionNumbers = useMemo(() => {
+    const numbers = {};
+    let count = 0;
+    staticQuestions.forEach((item) => {
+      if (item.type !== 'header') {
+        count++;
+        numbers[item.id] = count;
+      }
+    });
+    return numbers;
+  }, [staticQuestions]);
+
   const addWorkflowStage = () => {
     const newStage = {
       id: `stage_${Date.now()}`,
@@ -633,63 +653,86 @@ export default function DueDiligenceConfigPage() {
                 </div>
               </CardHeader>
               <CardContent className="space-y-4">
-                {staticQuestions.map((item, index) => (
-                  <div key={item.id} className="border rounded-lg" data-testid={`static-question-${index}`}>
-                    {item.type === 'header' ? (
-                      <div className="flex items-center gap-3 p-3">
-                        <Badge variant="secondary" className="shrink-0">Header</Badge>
-                        <Input
-                          value={item.text || ''}
-                          onChange={(e) => updateStaticQuestion(index, 'text', e.target.value)}
-                          placeholder="Section header..."
-                          className="font-semibold flex-1"
-                          data-testid={`input-header-${index}`}
-                        />
-                        <Button variant="ghost" size="icon" onClick={() => removeStaticQuestion(index)} data-testid={`button-remove-question-${index}`}>
-                          <Trash2 className="w-4 h-4 text-destructive" />
-                        </Button>
-                      </div>
-                    ) : (
-                      <Collapsible>
-                        <div className="flex items-center gap-3 p-3">
-                          <CollapsibleTrigger asChild>
-                            <Button variant="ghost" size="icon" className="shrink-0" data-testid={`button-expand-question-${index}`}>
-                              <ChevronDown className="w-4 h-4" />
-                            </Button>
-                          </CollapsibleTrigger>
-                          <Input
-                            value={item.question || ''}
-                            onChange={(e) => updateStaticQuestion(index, 'question', e.target.value)}
-                            placeholder="Enter question..."
-                            className="flex-1"
-                            data-testid={`input-question-${index}`}
-                          />
-                          <div className="flex items-center gap-2 shrink-0">
-                            <span className="text-sm text-muted-foreground">Weight:</span>
-                            <Input
-                              type="number"
-                              value={item.weight || 1}
-                              onChange={(e) => updateStaticQuestion(index, 'weight', parseInt(e.target.value) || 1)}
-                              className="w-16"
-                              min={1}
-                              data-testid={`input-weight-${index}`}
-                            />
-                          </div>
-                          <div className="flex items-center gap-1 shrink-0">
-                            {(item.options || []).map((opt) => (
-                              <div
-                                key={opt.id}
-                                className="w-4 h-4 rounded-full"
-                                style={{ backgroundColor: opt.color }}
-                                title={`${opt.label}: ${opt.score} points`}
-                              />
-                            ))}
-                          </div>
-                          <Button variant="ghost" size="icon" onClick={() => removeStaticQuestion(index)} data-testid={`button-remove-question-${index}`}>
-                            <Trash2 className="w-4 h-4 text-destructive" />
-                          </Button>
-                        </div>
-                        <CollapsibleContent>
+                <DragDropContext onDragEnd={handleQuestionDragEnd}>
+                  <Droppable droppableId="static-questions">
+                    {(provided) => (
+                      <div {...provided.droppableProps} ref={provided.innerRef} className="space-y-4">
+                        {staticQuestions.map((item, index) => {
+                          const questionNumber = questionNumbers[item.id];
+                          return (
+                            <Draggable key={item.id} draggableId={item.id} index={index}>
+                              {(provided, snapshot) => (
+                                <div
+                                  ref={provided.innerRef}
+                                  {...provided.draggableProps}
+                                  className={cn(
+                                    "border rounded-lg",
+                                    snapshot.isDragging && "shadow-lg"
+                                  )}
+                                  data-testid={`static-question-${index}`}
+                                >
+                                  {item.type === 'header' ? (
+                                    <div className="flex items-center gap-3 p-3">
+                                      <div {...provided.dragHandleProps} className="cursor-grab">
+                                        <GripVertical className="w-4 h-4 text-muted-foreground" />
+                                      </div>
+                                      <Badge variant="secondary" className="shrink-0">Header</Badge>
+                                      <Input
+                                        value={item.text || ''}
+                                        onChange={(e) => updateStaticQuestion(index, 'text', e.target.value)}
+                                        placeholder="Section header..."
+                                        className="font-semibold flex-1"
+                                        data-testid={`input-header-${index}`}
+                                      />
+                                      <Button variant="ghost" size="icon" onClick={() => removeStaticQuestion(index)} data-testid={`button-remove-question-${index}`}>
+                                        <Trash2 className="w-4 h-4 text-destructive" />
+                                      </Button>
+                                    </div>
+                                  ) : (
+                                    <Collapsible>
+                                      <div className="flex items-center gap-3 p-3">
+                                        <div {...provided.dragHandleProps} className="cursor-grab">
+                                          <GripVertical className="w-4 h-4 text-muted-foreground" />
+                                        </div>
+                                        <span className="text-sm font-medium text-muted-foreground w-6 shrink-0">Q{questionNumber}</span>
+                                        <CollapsibleTrigger asChild>
+                                          <Button variant="ghost" size="icon" className="shrink-0" data-testid={`button-expand-question-${index}`}>
+                                            <ChevronDown className="w-4 h-4" />
+                                          </Button>
+                                        </CollapsibleTrigger>
+                                        <Input
+                                          value={item.question || ''}
+                                          onChange={(e) => updateStaticQuestion(index, 'question', e.target.value)}
+                                          placeholder="Enter question..."
+                                          className="flex-1"
+                                          data-testid={`input-question-${index}`}
+                                        />
+                                        <div className="flex items-center gap-2 shrink-0">
+                                          <span className="text-sm text-muted-foreground">Weight:</span>
+                                          <Input
+                                            type="number"
+                                            value={item.weight || 1}
+                                            onChange={(e) => updateStaticQuestion(index, 'weight', parseInt(e.target.value) || 1)}
+                                            className="w-16"
+                                            min={1}
+                                            data-testid={`input-weight-${index}`}
+                                          />
+                                        </div>
+                                        <div className="flex items-center gap-1 shrink-0">
+                                          {(item.options || []).map((opt) => (
+                                            <div
+                                              key={opt.id}
+                                              className="w-4 h-4 rounded-full"
+                                              style={{ backgroundColor: opt.color }}
+                                              title={`${opt.label}: ${opt.score} points`}
+                                            />
+                                          ))}
+                                        </div>
+                                        <Button variant="ghost" size="icon" onClick={() => removeStaticQuestion(index)} data-testid={`button-remove-question-${index}`}>
+                                          <Trash2 className="w-4 h-4 text-destructive" />
+                                        </Button>
+                                      </div>
+                                      <CollapsibleContent>
                           <div className="px-3 pb-3 pt-0 border-t bg-muted/30">
                             <div className="flex items-center justify-between py-2">
                               <span className="text-sm font-medium">Light Options</span>
@@ -754,10 +797,18 @@ export default function DueDiligenceConfigPage() {
                             </div>
                           </div>
                         </CollapsibleContent>
-                      </Collapsible>
+                                      </Collapsible>
+                                    )}
+                                  </div>
+                                )}
+                              </Draggable>
+                            );
+                          })}
+                        {provided.placeholder}
+                      </div>
                     )}
-                  </div>
-                ))}
+                  </Droppable>
+                </DragDropContext>
                 {staticQuestions.length === 0 && (
                   <p className="text-center text-muted-foreground py-6">No questions added yet</p>
                 )}

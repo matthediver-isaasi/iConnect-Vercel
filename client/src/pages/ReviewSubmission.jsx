@@ -295,6 +295,18 @@ const DEFAULT_LIGHT_OPTIONS = [
 function StaticQuestionReview({ questions, responses, notes, onResponseChange, onNoteChange }) {
   if (!questions || questions.length === 0) return null;
   
+  const questionNumbers = useMemo(() => {
+    const numbers = {};
+    let count = 0;
+    questions.forEach((item) => {
+      if (item.type !== 'header') {
+        count++;
+        numbers[item.id] = count;
+      }
+    });
+    return numbers;
+  }, [questions]);
+  
   return (
     <div className="space-y-4">
       {questions.map((item, index) => {
@@ -309,10 +321,14 @@ function StaticQuestionReview({ questions, responses, notes, onResponseChange, o
         const response = responses[item.id] || '';
         const note = notes[item.id] || '';
         const options = item.options || DEFAULT_LIGHT_OPTIONS;
+        const questionNumber = questionNumbers[item.id];
         
         return (
           <div key={item.id} className="space-y-3 p-3 bg-muted/50 rounded-lg" data-testid={`static-question-${index}`}>
-            <p className="text-sm font-medium">{item.question}</p>
+            <p className="text-sm font-medium">
+              <span className="text-muted-foreground mr-2">Q{questionNumber}.</span>
+              {item.question}
+            </p>
             <div className="flex items-center justify-center gap-3">
               {options.map((opt) => {
                 const optColor = opt.color || '#6b7280';
