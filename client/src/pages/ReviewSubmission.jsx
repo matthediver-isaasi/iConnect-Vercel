@@ -575,20 +575,12 @@ export default function ReviewSubmissionPage() {
     if (ddSubmission && form && !hasInitialized) {
       const fields = form?.fields?.filter(f => f.visible !== false) || [];
       const existingReviewedValues = ddSubmission.reviewed_form_values || {};
-      const originalValues = ddSubmission.original_form_values || {};
       
       // Initialize reviewed values using field.id as key
-      // If we have existing reviewed values (keyed by field.id), use them
-      // Otherwise, initialize from original values (keyed by field.name) 
-      const initialReviewedValues = { ...existingReviewedValues };
-      fields.forEach(field => {
-        const fieldKey = field.id || field.name;
-        if (initialReviewedValues[fieldKey] === undefined) {
-          // Copy from original values using field.name
-          initialReviewedValues[fieldKey] = originalValues[field.name];
-        }
-      });
-      setReviewedFormValues(initialReviewedValues);
+      // Only use existing reviewed values - do NOT copy from original values
+      // Original values should only appear in the left column (disabled)
+      // Reviewed values should start empty unless previously saved
+      setReviewedFormValues(existingReviewedValues);
       
       // Initialize field review status with default from config for unreviewed fields
       const existingStatus = ddSubmission.field_review_status || {};
