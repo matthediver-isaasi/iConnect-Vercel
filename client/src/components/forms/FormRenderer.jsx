@@ -745,17 +745,13 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
 
       case 'file':
         return (
-          <Input
-            type="file"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) {
-                onChange(file.name);
-              }
-            }}
-            required={field.required}
+          <CustomFieldFileUpload
+            fieldId={field.id}
+            value={value}
+            onChange={onChange}
+            allowedTypes={field.allowed_file_types || []}
             disabled={isFieldDisabled}
-            className={isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : ''}
+            label={field.label || "Upload File"}
           />
         );
 
