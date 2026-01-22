@@ -30,7 +30,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Loader2, FileText, Search, ChevronLeft, ChevronRight, Eye, Trash2, RotateCcw, Mail } from "lucide-react";
+import { Loader2, FileText, Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Eye, Trash2, RotateCcw, Mail, TrendingUp, TrendingDown, Minus, BarChart3, CheckCircle, AlertCircle, Clock } from "lucide-react";
 import moment from "moment";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
@@ -190,6 +190,73 @@ export default function FormSubmissionsPage() {
     return filteredSubmissions.slice(startIndex, startIndex + itemsPerPage);
   }, [filteredSubmissions, currentPage, itemsPerPage]);
 
+  const statusCounts = useMemo(() => {
+    const counts = { new: 0, junk: 0, actioned: 0, total: submissions.length };
+    submissions.forEach(s => {
+      const status = s.status || 'new';
+      if (counts.hasOwnProperty(status)) {
+        counts[status]++;
+      }
+    });
+    return counts;
+  }, [submissions]);
+
+  const formCounts = useMemo(() => {
+    const counts = {};
+    submissions.forEach(s => {
+      const formName = s.form_name || 'Unknown Form';
+      counts[formName] = (counts[formName] || 0) + 1;
+    });
+    return Object.entries(counts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5);
+  }, [submissions]);
+
+  const timeAnalytics = useMemo(() => {
+    const now = moment();
+    const getCountInRange = (startDate, endDate) => {
+      return submissions.filter(s => {
+        const date = moment(s.created_date);
+        return date.isBetween(startDate, endDate, null, '[]');
+      }).length;
+    };
+
+    const periods = [
+      { label: 'Last 7 Days', days: 7 },
+      { label: 'Last 30 Days', days: 30 },
+      { label: 'Last 90 Days', days: 90 },
+      { label: 'Last Year', days: 365 }
+    ];
+
+    return periods.map(period => {
+      const currentStart = moment().subtract(period.days, 'days');
+      const currentEnd = moment();
+      const previousStart = moment().subtract(period.days * 2, 'days');
+      const previousEnd = moment().subtract(period.days, 'days');
+
+      const currentCount = getCountInRange(currentStart, currentEnd);
+      const previousCount = getCountInRange(previousStart, previousEnd);
+
+      let percentChange = 0;
+      if (previousCount > 0) {
+        percentChange = ((currentCount - previousCount) / previousCount) * 100;
+      } else if (currentCount > 0) {
+        percentChange = 100;
+      }
+
+      return {
+        label: period.label,
+        current: currentCount,
+        previous: previousCount,
+        percentChange: Math.round(percentChange),
+        trend: currentCount > previousCount ? 'up' : currentCount < previousCount ? 'down' : 'same'
+      };
+    });
+  }, [submissions]);
+
+  const startIndex = filteredSubmissions.length > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0;
+  const endIndex = Math.min(currentPage * itemsPerPage, filteredSubmissions.length);
+
   const getStatusBadge = (status) => {
     const statusValue = status || 'new';
     switch (statusValue) {
@@ -268,6 +335,103 @@ export default function FormSubmissionsPage() {
           </p>
         </div>
 
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+          <Card className="border-slate-200" data-testid="card-total-submissions">
+            <CardHeader className="pb-2">
+              <CardDescription className="flex items-center gap-2">
+                <FileText className="w-4 h-4" />
+                All Submissions
+              </CardDescription>
+              <CardTitle className="text-3xl">{statusCounts.total}</CardTitle>
+            </CardHeader>
+          </Card>
+          <Card className="border-slate-200" data-testid="card-new-submissions">
+            <CardHeader className="pb-2">
+              <CardDescription className="flex items-center gap-2">
+                <Clock className="w-4 h-4 text-blue-500" />
+                New
+              </CardDescription>
+              <CardTitle className="text-3xl text-blue-600">{statusCounts.new}</CardTitle>
+            </CardHeader>
+          </Card>
+          <Card className="border-slate-200" data-testid="card-actioned-submissions">
+            <CardHeader className="pb-2">
+              <CardDescription className="flex items-center gap-2">
+                <CheckCircle className="w-4 h-4 text-green-500" />
+                Actioned
+              </CardDescription>
+              <CardTitle className="text-3xl text-green-600">{statusCounts.actioned}</CardTitle>
+            </CardHeader>
+          </Card>
+          <Card className="border-slate-200" data-testid="card-junk-submissions">
+            <CardHeader className="pb-2">
+              <CardDescription className="flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-slate-500" />
+                Junk
+              </CardDescription>
+              <CardTitle className="text-3xl text-slate-600">{statusCounts.junk}</CardTitle>
+            </CardHeader>
+          </Card>
+        </div>
+
+        <Card className="mb-6 border-slate-200" data-testid="card-time-analytics">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <BarChart3 className="w-5 h-5 text-blue-600" />
+              Submission Trends
+            </CardTitle>
+            <CardDescription>Comparing current period vs previous period</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {timeAnalytics.map((period, idx) => (
+                <div key={idx} className="bg-slate-50 rounded-lg p-4 border border-slate-100" data-testid={`analytics-period-${idx}`}>
+                  <p className="text-sm text-slate-600 mb-1">{period.label}</p>
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-2xl font-bold text-slate-900">{period.current}</span>
+                    <span className="text-xs text-slate-500">vs {period.previous}</span>
+                  </div>
+                  <div className={`flex items-center gap-1 mt-1 text-sm ${
+                    period.trend === 'up' ? 'text-green-600' : 
+                    period.trend === 'down' ? 'text-red-600' : 'text-slate-500'
+                  }`}>
+                    {period.trend === 'up' && <TrendingUp className="w-4 h-4" />}
+                    {period.trend === 'down' && <TrendingDown className="w-4 h-4" />}
+                    {period.trend === 'same' && <Minus className="w-4 h-4" />}
+                    <span>
+                      {period.trend === 'same' ? 'No change' : 
+                        `${period.percentChange > 0 ? '+' : ''}${period.percentChange}%`}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        {formCounts.length > 0 && (
+          <Card className="mb-6 border-slate-200" data-testid="card-top-forms">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg">Top Forms</CardTitle>
+              <CardDescription>Forms with the most submissions</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-wrap gap-2">
+                {formCounts.map(([formName, count], idx) => (
+                  <Badge 
+                    key={idx} 
+                    variant="secondary" 
+                    className="text-sm py-1 px-3"
+                    data-testid={`badge-top-form-${idx}`}
+                  >
+                    {formName}: {count}
+                  </Badge>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         <Card className="mb-6 border-slate-200">
           <CardContent className="p-4">
             <div className="flex flex-col md:flex-row gap-4">
@@ -281,13 +445,14 @@ export default function FormSubmissionsPage() {
                     setCurrentPage(1);
                   }}
                   className="pl-10"
+                  data-testid="input-search-submissions"
                 />
               </div>
               <Select value={selectedForm} onValueChange={(val) => {
                 setSelectedForm(val);
                 setCurrentPage(1);
               }}>
-                <SelectTrigger className="w-full md:w-[200px]">
+                <SelectTrigger className="w-full md:w-[200px]" data-testid="select-form-filter">
                   <SelectValue placeholder="All Forms" />
                 </SelectTrigger>
                 <SelectContent>
@@ -303,7 +468,7 @@ export default function FormSubmissionsPage() {
                 setSelectedStatus(val);
                 setCurrentPage(1);
               }}>
-                <SelectTrigger className="w-full md:w-[150px]">
+                <SelectTrigger className="w-full md:w-[150px]" data-testid="select-status-filter">
                   <SelectValue placeholder="All Status" />
                 </SelectTrigger>
                 <SelectContent>
@@ -395,15 +560,18 @@ export default function FormSubmissionsPage() {
               ))}
             </div>
 
-            {totalPages > 1 && (
-              <div className="mt-6 flex flex-col sm:flex-row justify-between items-center gap-4">
+            <div className="mt-6 flex flex-col sm:flex-row justify-between items-center gap-4">
+              <div className="flex items-center gap-4">
+                <span className="text-sm text-slate-600" data-testid="text-pagination-info">
+                  Showing {startIndex}-{endIndex} of {filteredSubmissions.length} results
+                </span>
                 <div className="flex items-center gap-2">
                   <Label className="text-sm text-slate-700">Show:</Label>
                   <Select value={itemsPerPage.toString()} onValueChange={(val) => {
                     setItemsPerPage(parseInt(val));
                     setCurrentPage(1);
                   }}>
-                    <SelectTrigger className="w-[100px]">
+                    <SelectTrigger className="w-[100px]" data-testid="select-items-per-page">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -415,13 +583,26 @@ export default function FormSubmissionsPage() {
                   </Select>
                   <span className="text-sm text-slate-600">per page</span>
                 </div>
+              </div>
 
+              {totalPages > 1 && (
                 <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage(1)}
+                    disabled={currentPage === 1}
+                    data-testid="button-first-page"
+                    title="First page"
+                  >
+                    <ChevronsLeft className="w-4 h-4" />
+                  </Button>
                   <Button
                     variant="outline"
                     size="sm"
                     onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                     disabled={currentPage === 1}
+                    data-testid="button-prev-page"
                   >
                     <ChevronLeft className="w-4 h-4" />
                   </Button>
@@ -445,6 +626,7 @@ export default function FormSubmissionsPage() {
                           size="sm"
                           onClick={() => setCurrentPage(pageNum)}
                           className="w-9"
+                          data-testid={`button-page-${pageNum}`}
                         >
                           {pageNum}
                         </Button>
@@ -457,12 +639,23 @@ export default function FormSubmissionsPage() {
                     size="sm"
                     onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                     disabled={currentPage === totalPages}
+                    data-testid="button-next-page"
                   >
                     <ChevronRight className="w-4 h-4" />
                   </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage(totalPages)}
+                    disabled={currentPage === totalPages}
+                    data-testid="button-last-page"
+                    title="Last page"
+                  >
+                    <ChevronsRight className="w-4 h-4" />
+                  </Button>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
           </>
         )}
       </div>
