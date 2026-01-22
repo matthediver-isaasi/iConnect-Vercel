@@ -2011,10 +2011,14 @@ export default async function handler(req, res) {
         .eq('id', submission_id);
     }
 
+    // Return the resolved organization_id (whether created or existing)
+    const resolvedOrganizationId = createdOrganizationId || prefill_organization_id || null;
+    
     return res.json({
       success: true,
       created_member_id: createdMemberId,
       created_organization_id: createdOrganizationId,
+      organization_id: resolvedOrganizationId, // Canonical org ID (created or existing)
       additional_member_ids: additionalMemberIds
     });
   } catch (error) {

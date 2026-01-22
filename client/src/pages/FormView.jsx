@@ -1762,6 +1762,26 @@ export default function FormViewPage() {
       Object.entries(formValues).filter(([key]) => !instructionsFieldIds.has(key))
     );
 
+    // Determine organization ID to include with submission
+    // Priority: 1) prefill org (effectiveOrgIdForCapacity), 2) org pipeline source field dropdown, 3) standalone org dropdown
+    let resolvedOrganizationId = effectiveOrgIdForCapacity;
+    if (!resolvedOrganizationId) {
+      // Check org pipeline config source field (if it's an organisation_dropdown)
+      if (orgCapacityConfig?.sourceFieldId) {
+        const sourceField = form?.fields?.find(f => f.id === orgCapacityConfig.sourceFieldId);
+        if (sourceField?.type === 'organisation_dropdown') {
+          // Org dropdown value IS the org UUID
+          resolvedOrganizationId = formValues[orgCapacityConfig.sourceFieldId] || null;
+          console.log('[FormView] Using org pipeline dropdown value for submission:', resolvedOrganizationId);
+        }
+      }
+      // Also check for standalone org dropdown (without org pipeline)
+      if (!resolvedOrganizationId && orgDropdownField) {
+        resolvedOrganizationId = formValues[orgDropdownField.id] || null;
+        console.log('[FormView] Using standalone org dropdown value for submission:', resolvedOrganizationId);
+      }
+    }
+
     const submissionData = {
       form_id: form.id,
       form_name: form.name,
@@ -1769,7 +1789,8 @@ export default function FormViewPage() {
       submitted_by_name: memberInfo ? `${memberInfo.first_name} ${memberInfo.last_name}` : null,
       submission_data: filteredFormValues,
       created_date: new Date().toISOString(),
-      ...(contractInstanceId && { contract_instance_id: contractInstanceId })
+      ...(contractInstanceId && { contract_instance_id: contractInstanceId }),
+      ...(resolvedOrganizationId && { prefill_organization_id: resolvedOrganizationId })
     };
 
     submitFormMutation.mutate(submissionData);

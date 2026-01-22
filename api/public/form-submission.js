@@ -192,6 +192,23 @@ export default async function handler(req, res) {
             try {
               const result = await pipelineResponse.json();
               console.log('[Public Form Submission] Entity pipeline processed:', result);
+              
+              // If the pipeline resolved an organization (created or existing) and we don't already have an org ID,
+              // update the submission record with the organization_id
+              const resolvedOrgId = result.organization_id || result.created_organization_id;
+              if (resolvedOrgId && !submissionRecord.organization_id) {
+                console.log('[Public Form Submission] Updating submission with organization_id:', resolvedOrgId);
+                const { error: updateError } = await supabase
+                  .from('form_submission')
+                  .update({ organization_id: resolvedOrgId })
+                  .eq('id', submission.id);
+                
+                if (updateError) {
+                  console.error('[Public Form Submission] Failed to update submission with organization_id:', updateError);
+                } else {
+                  console.log('[Public Form Submission] Submission updated with organization_id');
+                }
+              }
             } catch (parseErr) {
               console.log('[Public Form Submission] Entity pipeline completed (no JSON body)');
             }
