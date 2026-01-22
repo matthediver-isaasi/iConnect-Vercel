@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { AlertCircle, Plus, Trash2, Save, GripVertical, ChevronDown, ArrowLeft, Loader2, Star, ShieldCheck, Clock, FileText, Settings, ChevronRight } from "lucide-react";
+import { AlertCircle, Plus, Trash2, Save, GripVertical, ChevronDown, ArrowLeft, Loader2, Star, ShieldCheck, Clock, FileText, Settings, ChevronRight, Lock, FileCheck, UserCheck } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -842,46 +842,173 @@ export default function DueDiligenceConfigPage() {
                               ref={provided.innerRef}
                               {...provided.draggableProps}
                               className={cn(
-                                "border rounded-lg p-4",
+                                "border rounded-lg",
                                 snapshot.isDragging && "shadow-lg",
                                 stage.is_initial && "border-primary bg-primary/5"
                               )}
                               data-testid={`workflow-stage-${index}`}
                             >
-                              <div className="flex items-center gap-3">
-                                <div {...provided.dragHandleProps} className="cursor-grab">
-                                  <GripVertical className="w-5 h-5 text-muted-foreground" />
+                              <Collapsible>
+                                <div className="flex items-center gap-3 p-4">
+                                  <div {...provided.dragHandleProps} className="cursor-grab">
+                                    <GripVertical className="w-5 h-5 text-muted-foreground" />
+                                  </div>
+                                  <input
+                                    type="color"
+                                    value={stage.color}
+                                    onChange={(e) => updateWorkflowStage(index, 'color', e.target.value)}
+                                    className="w-10 h-10 rounded cursor-pointer border-0"
+                                    data-testid={`input-stage-color-${index}`}
+                                  />
+                                  <Input
+                                    value={stage.label}
+                                    onChange={(e) => updateWorkflowStage(index, 'label', e.target.value)}
+                                    className="flex-1"
+                                    data-testid={`input-stage-label-${index}`}
+                                  />
+                                  <CollapsibleTrigger asChild>
+                                    <Button variant="outline" size="sm" data-testid={`button-toggle-conditions-${index}`}>
+                                      <Lock className="w-4 h-4 mr-1" />
+                                      Conditions
+                                      {(stage.selection_conditions?.score_condition?.enabled || 
+                                        stage.selection_conditions?.signatories_received || 
+                                        stage.selection_conditions?.documents_approved) && (
+                                        <Badge variant="secondary" className="ml-2 text-xs">Active</Badge>
+                                      )}
+                                    </Button>
+                                  </CollapsibleTrigger>
+                                  <Button
+                                    variant={stage.is_initial ? "default" : "outline"}
+                                    size="sm"
+                                    onClick={() => setInitialStage(index)}
+                                    data-testid={`button-set-initial-${index}`}
+                                  >
+                                    <Star className={cn("w-4 h-4", stage.is_initial && "fill-current")} />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => removeWorkflowStage(index)}
+                                    data-testid={`button-remove-stage-${index}`}
+                                  >
+                                    <Trash2 className="w-4 h-4 text-destructive" />
+                                  </Button>
                                 </div>
-                                <input
-                                  type="color"
-                                  value={stage.color}
-                                  onChange={(e) => updateWorkflowStage(index, 'color', e.target.value)}
-                                  className="w-10 h-10 rounded cursor-pointer border-0"
-                                  data-testid={`input-stage-color-${index}`}
-                                />
-                                <Input
-                                  value={stage.label}
-                                  onChange={(e) => updateWorkflowStage(index, 'label', e.target.value)}
-                                  className="flex-1"
-                                  data-testid={`input-stage-label-${index}`}
-                                />
-                                <Button
-                                  variant={stage.is_initial ? "default" : "outline"}
-                                  size="sm"
-                                  onClick={() => setInitialStage(index)}
-                                  data-testid={`button-set-initial-${index}`}
-                                >
-                                  <Star className={cn("w-4 h-4", stage.is_initial && "fill-current")} />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  onClick={() => removeWorkflowStage(index)}
-                                  data-testid={`button-remove-stage-${index}`}
-                                >
-                                  <Trash2 className="w-4 h-4 text-destructive" />
-                                </Button>
-                              </div>
+                                <CollapsibleContent>
+                                  <div className="px-4 pb-4 pt-0 border-t bg-muted/30">
+                                    <div className="py-3">
+                                      <span className="text-sm font-medium">Selection Conditions</span>
+                                      <p className="text-xs text-muted-foreground mt-1">
+                                        Set conditions that must be met before this stage can be selected
+                                      </p>
+                                    </div>
+                                    <div className="space-y-4">
+                                      <div className="p-3 border rounded-lg bg-background space-y-3">
+                                        <div className="flex items-center gap-2">
+                                          <Switch
+                                            checked={stage.selection_conditions?.score_condition?.enabled || false}
+                                            onCheckedChange={(checked) => {
+                                              const currentConditions = stage.selection_conditions || {};
+                                              const scoreCondition = currentConditions.score_condition || { enabled: false, operator: 'above', value: 50 };
+                                              updateWorkflowStage(index, 'selection_conditions', {
+                                                ...currentConditions,
+                                                score_condition: { ...scoreCondition, enabled: checked }
+                                              });
+                                            }}
+                                            data-testid={`switch-score-condition-${index}`}
+                                          />
+                                          <ShieldCheck className="w-4 h-4 text-muted-foreground" />
+                                          <span className="text-sm font-medium">DD Score Requirement</span>
+                                        </div>
+                                        {stage.selection_conditions?.score_condition?.enabled && (
+                                          <div className="flex items-center gap-3 ml-6">
+                                            <span className="text-sm text-muted-foreground">Score must be</span>
+                                            <Select
+                                              value={stage.selection_conditions?.score_condition?.operator || 'above'}
+                                              onValueChange={(val) => {
+                                                const currentConditions = stage.selection_conditions || {};
+                                                const scoreCondition = currentConditions.score_condition || { enabled: true, operator: 'above', value: 50 };
+                                                updateWorkflowStage(index, 'selection_conditions', {
+                                                  ...currentConditions,
+                                                  score_condition: { ...scoreCondition, operator: val }
+                                                });
+                                              }}
+                                              data-testid={`select-score-operator-${index}`}
+                                            >
+                                              <SelectTrigger className="w-32">
+                                                <SelectValue />
+                                              </SelectTrigger>
+                                              <SelectContent>
+                                                <SelectItem value="above">above</SelectItem>
+                                                <SelectItem value="below">below</SelectItem>
+                                              </SelectContent>
+                                            </Select>
+                                            <Input
+                                              type="number"
+                                              min={0}
+                                              max={100}
+                                              value={stage.selection_conditions?.score_condition?.value ?? 50}
+                                              onChange={(e) => {
+                                                const currentConditions = stage.selection_conditions || {};
+                                                const scoreCondition = currentConditions.score_condition || { enabled: true, operator: 'above', value: 50 };
+                                                updateWorkflowStage(index, 'selection_conditions', {
+                                                  ...currentConditions,
+                                                  score_condition: { ...scoreCondition, value: parseInt(e.target.value) || 0 }
+                                                });
+                                              }}
+                                              className="w-20"
+                                              data-testid={`input-score-value-${index}`}
+                                            />
+                                            <span className="text-sm text-muted-foreground">%</span>
+                                          </div>
+                                        )}
+                                      </div>
+
+                                      <div className="p-3 border rounded-lg bg-background">
+                                        <div className="flex items-center gap-2">
+                                          <Switch
+                                            checked={stage.selection_conditions?.signatories_received || false}
+                                            onCheckedChange={(checked) => {
+                                              const currentConditions = stage.selection_conditions || {};
+                                              updateWorkflowStage(index, 'selection_conditions', {
+                                                ...currentConditions,
+                                                signatories_received: checked
+                                              });
+                                            }}
+                                            data-testid={`switch-signatories-condition-${index}`}
+                                          />
+                                          <UserCheck className="w-4 h-4 text-muted-foreground" />
+                                          <span className="text-sm font-medium">All Signatories Received</span>
+                                        </div>
+                                        <p className="text-xs text-muted-foreground ml-10 mt-1">
+                                          All contract signatures must be received before this stage can be selected
+                                        </p>
+                                      </div>
+
+                                      <div className="p-3 border rounded-lg bg-background">
+                                        <div className="flex items-center gap-2">
+                                          <Switch
+                                            checked={stage.selection_conditions?.documents_approved || false}
+                                            onCheckedChange={(checked) => {
+                                              const currentConditions = stage.selection_conditions || {};
+                                              updateWorkflowStage(index, 'selection_conditions', {
+                                                ...currentConditions,
+                                                documents_approved: checked
+                                              });
+                                            }}
+                                            data-testid={`switch-documents-condition-${index}`}
+                                          />
+                                          <FileCheck className="w-4 h-4 text-muted-foreground" />
+                                          <span className="text-sm font-medium">All Documents Approved</span>
+                                        </div>
+                                        <p className="text-xs text-muted-foreground ml-10 mt-1">
+                                          All uploaded documents must be approved before this stage can be selected
+                                        </p>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </CollapsibleContent>
+                              </Collapsible>
                             </div>
                           )}
                         </Draggable>

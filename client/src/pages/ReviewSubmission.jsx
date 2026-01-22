@@ -13,7 +13,7 @@ import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { ArrowLeft, Save, AlertCircle, Calculator, Loader2, NotebookText, X, RotateCcw, History, Check, Edit2, Clock, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ClipboardList } from "lucide-react";
+import { ArrowLeft, Save, AlertCircle, Calculator, Loader2, NotebookText, X, RotateCcw, History, Check, Edit2, Clock, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ClipboardList, Lock } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
@@ -517,7 +517,24 @@ export default function ReviewSubmissionPage() {
   const ddConfig = ddSubmissionData?.config;
   const form = ddSubmissionData?.form;
   const organization = ddSubmissionData?.organization;
-  
+
+  // Query for documents status (for condition checking)
+  const { data: documentsData } = useQuery({
+    queryKey: ['submission-documents', ddSubmission?.form_submission_id],
+    queryFn: async () => {
+      const result = await apiRequest('GET', `/api/due-diligence/documents/list?formSubmissionId=${ddSubmission.form_submission_id}`);
+      return result.documents || [];
+    },
+    enabled: !!ddSubmission?.form_submission_id
+  });
+
+  // Query for signatories/contracts status (for condition checking)
+  const { data: contractsData } = useQuery({
+    queryKey: ['/api/contracts/by-submission', ddSubmission?.form_submission_id],
+    queryFn: () => apiRequest('GET', `/api/contracts/by-submission?formSubmissionId=${ddSubmission.form_submission_id}`),
+    enabled: !!ddSubmission?.form_submission_id
+  });
+
   const displayReference = useMemo(() => {
     if (!ddSubmission) return '';
     const cardReferenceField = ddConfig?.card_reference_field;
@@ -873,6 +890,80 @@ export default function ReviewSubmissionPage() {
     };
   }, [ddConfig, staticQuestionResponses]);
 
+  // Compute condition status for each stage
+  const stageConditionStatus = useMemo(() => {
+    const status = {};
+    const stages = ddConfig?.workflow_stages || [];
+    
+    // Use live traffic light score if available, otherwise use stored score
+    const effectiveScore = liveTrafficLightScore?.answeredCount > 0 
+      ? liveTrafficLightScore.percentage 
+      : ddSubmission?.due_diligence_score;
+    
+    for (const stage of stages) {
+      const conditions = stage.selection_conditions || {};
+      const unmetReasons = [];
+      
+      // Check score condition
+      if (conditions.score_condition?.enabled) {
+        const currentScore = effectiveScore;
+        const requiredValue = conditions.score_condition.value ?? 50;
+        const operator = conditions.score_condition.operator || 'above';
+        
+        if (currentScore === null || currentScore === undefined) {
+          unmetReasons.push('Score not calculated');
+        } else if (operator === 'above' && currentScore < requiredValue) {
+          unmetReasons.push(`Score must be above ${requiredValue}%`);
+        } else if (operator === 'below' && currentScore > requiredValue) {
+          unmetReasons.push(`Score must be below ${requiredValue}%`);
+        }
+      }
+      
+      // Check signatories received condition
+      // If enabled: block if there are no contracts OR if any contract is not received
+      if (conditions.signatories_received) {
+        const contracts = contractsData?.contracts || [];
+        const hasContracts = contracts.length > 0;
+        
+        if (!hasContracts) {
+          // No contracts exist yet - block selection
+          unmetReasons.push('No signatories to verify');
+        } else {
+          const allReceived = contracts.every(c => 
+            c.status === 'received' || c.status === 'completed' || c.status === 'signed'
+          );
+          if (!allReceived) {
+            unmetReasons.push('Not all signatories received');
+          }
+        }
+      }
+      
+      // Check documents approved condition
+      // If enabled: block if there are no documents OR if any document is not approved
+      if (conditions.documents_approved) {
+        const documents = documentsData || [];
+        const hasDocuments = documents.length > 0;
+        
+        if (!hasDocuments) {
+          // No documents exist yet - block selection
+          unmetReasons.push('No documents to verify');
+        } else {
+          const allApproved = documents.every(d => d.status === 'approved');
+          if (!allApproved) {
+            unmetReasons.push('Not all documents approved');
+          }
+        }
+      }
+      
+      status[stage.id] = {
+        met: unmetReasons.length === 0,
+        reasons: unmetReasons
+      };
+    }
+    
+    return status;
+  }, [ddConfig, ddSubmission, documentsData, contractsData, liveTrafficLightScore]);
+
   if (!accessChecked || isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen" data-testid="loading-spinner">
@@ -929,18 +1020,52 @@ export default function ReviewSubmissionPage() {
           <div className="flex flex-col gap-1">
             <Label className="text-xs">Status</Label>
             <Select value={workflowStatus} onValueChange={handleStatusChange} data-testid="select-status">
-              <SelectTrigger className="w-44">
+              <SelectTrigger className="w-48">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {workflowStages.map((stage) => (
-                  <SelectItem key={stage.id} value={stage.id}>
-                    <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: stage.color }} />
-                      {stage.label}
-                    </div>
-                  </SelectItem>
-                ))}
+                {workflowStages.map((stage) => {
+                  const conditionStatus = stageConditionStatus[stage.id];
+                  const isLocked = conditionStatus && !conditionStatus.met;
+                  const isCurrentStage = stage.id === workflowStatus;
+                  
+                  return (
+                    <Tooltip key={stage.id}>
+                      <TooltipTrigger asChild>
+                        <div>
+                          <SelectItem 
+                            value={stage.id} 
+                            disabled={isLocked && !isCurrentStage}
+                            className={cn(isLocked && !isCurrentStage && "opacity-50")}
+                          >
+                            <div className="flex items-center gap-2">
+                              <div className="w-3 h-3 rounded-full" style={{ backgroundColor: stage.color }} />
+                              <span>{stage.label}</span>
+                              {isLocked && !isCurrentStage && (
+                                <Lock className="w-3 h-3 text-muted-foreground ml-1" />
+                              )}
+                            </div>
+                          </SelectItem>
+                        </div>
+                      </TooltipTrigger>
+                      {isLocked && !isCurrentStage && conditionStatus.reasons.length > 0 && (
+                        <TooltipContent side="left" className="max-w-64">
+                          <div className="space-y-1">
+                            <p className="font-medium text-xs">Conditions not met:</p>
+                            <ul className="text-xs space-y-0.5">
+                              {conditionStatus.reasons.map((reason, i) => (
+                                <li key={i} className="flex items-center gap-1">
+                                  <span className="w-1 h-1 rounded-full bg-current" />
+                                  {reason}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        </TooltipContent>
+                      )}
+                    </Tooltip>
+                  );
+                })}
               </SelectContent>
             </Select>
           </div>
