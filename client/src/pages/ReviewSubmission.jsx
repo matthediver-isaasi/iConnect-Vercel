@@ -721,11 +721,16 @@ export default function ReviewSubmissionPage() {
   const showDescriptionFields = ddConfig?.show_description_fields || false;
 
   // Get all visible form fields (optionally filtering out instructions fields)
+  // Also exclude: contact fields with contracts (shown in Signatories card) and file uploads (shown in Documents card)
   const allFormFields = useMemo(() => {
     let fields = form?.fields?.filter(f => f.visible !== false) || [];
     if (!showDescriptionFields) {
       fields = fields.filter(f => f.type !== 'instructions');
     }
+    // Exclude contact fields with contract_form_id (displayed in Signatories card)
+    fields = fields.filter(f => !(f.type === 'contact' && f.contract_form_id));
+    // Exclude file upload fields (displayed in Documents card)
+    fields = fields.filter(f => f.type !== 'file');
     return fields;
   }, [form, showDescriptionFields]);
 
