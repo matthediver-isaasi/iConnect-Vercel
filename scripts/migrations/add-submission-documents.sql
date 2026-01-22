@@ -73,7 +73,7 @@ CREATE POLICY "Authenticated users can view tenant documents" ON submission_docu
   FOR SELECT USING (
     auth.role() = 'authenticated' AND 
     tenant_id IN (
-      SELECT tenant_id FROM tenant_membership WHERE tenant_identity_id = auth.uid()
+      SELECT tenant_id FROM tenant_membership WHERE identity_id = auth.uid()::text
     )
   );
 
@@ -85,6 +85,6 @@ CREATE POLICY "Authenticated users can view tenant document comments" ON submiss
   FOR SELECT USING (
     auth.role() = 'authenticated' AND 
     tenant_id IN (
-      SELECT tenant_id FROM tenant_membership WHERE tenant_identity_id = auth.uid()
+      SELECT tenant_id FROM tenant_membership WHERE identity_id = auth.uid()::text
     )
   );
