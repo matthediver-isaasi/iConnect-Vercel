@@ -1,9 +1,10 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { User, Clock, Check, FileSignature, Loader2 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
+import SignatoryDetailModal from "./SignatoryDetailModal";
 
 const STATUS_CONFIG = {
   not_sent: { label: 'Not Sent', color: '#6b7280', icon: Clock },
@@ -13,15 +14,16 @@ const STATUS_CONFIG = {
   expired: { label: 'Expired', color: '#ef4444', icon: Clock }
 };
 
-function SignatoryItem({ signer, contractName, status }) {
+function SignatoryItem({ signer, contractName, status, onClick }) {
   const statusConfig = STATUS_CONFIG[status] || STATUS_CONFIG.pending;
   const StatusIcon = statusConfig.icon;
   const fullName = [signer.first_name, signer.last_name].filter(Boolean).join(' ') || 'Unknown';
   
   return (
     <div 
-      className="flex items-center gap-3 p-3 rounded-lg border hover-elevate"
+      className="flex items-center gap-3 p-3 rounded-lg border hover-elevate cursor-pointer"
       data-testid={`signatory-item-${signer.email}`}
+      onClick={onClick}
     >
       <div className="p-2 bg-muted rounded-md">
         <User className="w-5 h-5 text-muted-foreground" />
@@ -49,6 +51,19 @@ function SignatoryItem({ signer, contractName, status }) {
 }
 
 export default function SignatoriesCard({ formSubmissionId, submissionData, formSchema }) {
+  const [selectedSignatory, setSelectedSignatory] = useState(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+
+  const handleSignatoryClick = (signatory) => {
+    setSelectedSignatory(signatory);
+    setIsModalOpen(true);
+  };
+
+  const handleCloseModal = () => {
+    setIsModalOpen(false);
+    setSelectedSignatory(null);
+  };
+
   const { data: contractsData, isLoading: contractsLoading } = useQuery({
     queryKey: ['/api/contracts/by-submission', formSubmissionId],
     queryFn: () => apiRequest('GET', `/api/contracts/by-submission?formSubmissionId=${formSubmissionId}`),
@@ -134,7 +149,9 @@ export default function SignatoriesCard({ formSubmissionId, submissionData, form
               contractFormId: field.contract_form_id,
               firstName: contactData.first_name || contactData.firstName || '',
               lastName: contactData.last_name || contactData.lastName || '',
-              email: contactData.email || ''
+              email: contactData.email || '',
+              jobTitle: contactData.job_title || contactData.jobTitle || '',
+              organisation: contactData.organisation || contactData.organization || ''
             });
           }
         }
@@ -187,14 +204,18 @@ export default function SignatoriesCard({ formSubmissionId, submissionData, form
           contractName: matchingContract.name || templateName,
           status,
           contractId: matchingContract.id,
-          signedAt: matchingSigner?.signed_at
+          signedAt: matchingSigner?.signed_at,
+          sentAt: matchingContract.sentAt || matchingContract.sent_at,
+          createdAt: matchingContract.createdAt || matchingContract.created_at
         });
       } else {
         result.push({
           ...contact,
           contractName: templateName,
           status: 'not_sent',
-          contractId: null
+          contractId: null,
+          sentAt: null,
+          createdAt: null
         });
       }
     });
@@ -222,30 +243,39 @@ export default function SignatoriesCard({ formSubmissionId, submissionData, form
   }
 
   return (
-    <Card className="shadow-lg" data-testid="signatories-card">
-      <CardHeader>
-        <CardTitle className="text-lg">Signatories</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-2">
-        {signatories.length > 0 ? (
-          signatories.map((signatory, index) => (
-            <SignatoryItem 
-              key={`${signatory.fieldId}-${index}`}
-              signer={{
-                first_name: signatory.firstName,
-                last_name: signatory.lastName,
-                email: signatory.email
-              }}
-              contractName={signatory.contractName}
-              status={signatory.status}
-            />
-          ))
-        ) : (
-          <p className="text-sm text-muted-foreground text-center py-4">
-            No signatories found for this submission
-          </p>
-        )}
-      </CardContent>
-    </Card>
+    <>
+      <Card className="shadow-lg" data-testid="signatories-card">
+        <CardHeader>
+          <CardTitle className="text-lg">Signatories</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {signatories.length > 0 ? (
+            signatories.map((signatory, index) => (
+              <SignatoryItem 
+                key={`${signatory.fieldId}-${index}`}
+                signer={{
+                  first_name: signatory.firstName,
+                  last_name: signatory.lastName,
+                  email: signatory.email
+                }}
+                contractName={signatory.contractName}
+                status={signatory.status}
+                onClick={() => handleSignatoryClick(signatory)}
+              />
+            ))
+          ) : (
+            <p className="text-sm text-muted-foreground text-center py-4">
+              No signatories found for this submission
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      <SignatoryDetailModal
+        isOpen={isModalOpen}
+        onClose={handleCloseModal}
+        signatory={selectedSignatory}
+      />
+    </>
   );
 }
