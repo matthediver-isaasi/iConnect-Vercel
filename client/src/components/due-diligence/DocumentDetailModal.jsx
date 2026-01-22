@@ -62,11 +62,11 @@ function FilePreview({ fileUrl, mimeType, fileName }) {
 
   if (mimeType?.startsWith('image/')) {
     return (
-      <div className="flex items-center justify-center bg-muted rounded-lg p-4">
+      <div className="flex items-center justify-center bg-muted rounded-lg p-4 h-full min-h-[500px]">
         <img 
           src={fileUrl} 
           alt={fileName} 
-          className="max-h-96 max-w-full object-contain rounded"
+          className="max-h-full max-w-full object-contain rounded"
         />
       </div>
     );
@@ -74,7 +74,7 @@ function FilePreview({ fileUrl, mimeType, fileName }) {
 
   if (mimeType === 'application/pdf') {
     return (
-      <div className="w-full h-96 rounded-lg overflow-hidden">
+      <div className="w-full h-full min-h-[500px] rounded-lg overflow-hidden">
         <iframe 
           src={fileUrl} 
           className="w-full h-full border-0"
@@ -416,16 +416,18 @@ export default function DocumentDetailModal({
             </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="preview" className="flex-1 overflow-auto mt-4">
+          <TabsContent value="preview" className="flex-1 overflow-auto mt-4 h-full">
             {approvedVersion ? (
-              <div className="space-y-4">
-                <FilePreview 
-                  fileUrl={approvedVersion.file_url} 
-                  mimeType={approvedVersion.mime_type} 
-                  fileName={approvedVersion.file_name}
-                />
+              <div className="flex flex-col h-full gap-4">
+                <div className="flex-1 min-h-0">
+                  <FilePreview 
+                    fileUrl={approvedVersion.file_url} 
+                    mimeType={approvedVersion.mime_type} 
+                    fileName={approvedVersion.file_name}
+                  />
+                </div>
                 
-                <div className="grid grid-cols-2 gap-4 text-sm">
+                <div className="grid grid-cols-2 gap-4 text-sm flex-shrink-0">
                   <div>
                     <span className="text-muted-foreground">File size:</span>
                     <span className="ml-2">
@@ -453,7 +455,7 @@ export default function DocumentDetailModal({
                 </div>
               </div>
             ) : (
-              <div className="flex flex-col items-center justify-center h-64 bg-muted rounded-lg gap-4">
+              <div className="flex flex-col items-center justify-center h-full min-h-[500px] bg-muted rounded-lg gap-4">
                 <Clock className="w-12 h-12 text-muted-foreground" />
                 <p className="text-muted-foreground text-center">
                   No approved version yet.<br />
@@ -463,8 +465,8 @@ export default function DocumentDetailModal({
             )}
           </TabsContent>
 
-          <TabsContent value="versions" className="flex-1 overflow-auto mt-4">
-            <ScrollArea className="h-[400px]">
+          <TabsContent value="versions" className="flex-1 overflow-auto mt-4 h-full">
+            <ScrollArea className="h-full">
               <div className="space-y-3 pr-4">
                 {versionsLoading ? (
                   <div className="flex items-center justify-center py-8">
