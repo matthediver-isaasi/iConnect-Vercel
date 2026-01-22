@@ -373,7 +373,7 @@ export default function DocumentDetailModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+      <DialogContent className="w-[80vw] max-w-[80vw] h-[90vh] max-h-[90vh] overflow-hidden flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-3">
             <span className="truncate">{document.original_file_name || document.file_name}</span>
