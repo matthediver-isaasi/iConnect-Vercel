@@ -691,9 +691,18 @@ export default function ReviewSubmissionPage() {
     onSuccess: (data) => {
       setWorkflowStatus(data.new_status);
       queryClient.invalidateQueries({ queryKey: ['dd-submission', submissionId] });
+      queryClient.invalidateQueries({ queryKey: ['contracts-by-submission', ddSubmission?.form_submission_id] });
       toast.success('Status updated successfully');
       if (data.webhooks_triggered?.length > 0) {
         toast.info(`${data.webhooks_triggered.length} webhook(s) triggered`);
+      }
+      // Show notification for stage actions (e.g., contracts sent)
+      if (data.stage_actions_results?.length > 0) {
+        const contractsSent = data.stage_actions_results.filter(r => r.action === 'send_contract' && r.status === 'success');
+        if (contractsSent.length > 0) {
+          const totalSent = contractsSent.reduce((sum, r) => sum + (r.sent_count || 0), 0);
+          toast.success(`${totalSent} contract invitation(s) sent`);
+        }
       }
     },
     onError: (error) => {

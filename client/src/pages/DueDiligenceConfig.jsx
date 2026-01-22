@@ -12,7 +12,8 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { AlertCircle, Plus, Trash2, Save, GripVertical, ChevronDown, ArrowLeft, Loader2, Star, ShieldCheck, Clock, FileText, Settings, ChevronRight, Lock, FileCheck, UserCheck } from "lucide-react";
+import { AlertCircle, Plus, Trash2, Save, GripVertical, ChevronDown, ArrowLeft, Loader2, Star, ShieldCheck, Clock, FileText, Settings, ChevronRight, Lock, FileCheck, UserCheck, Play, Mail, Send } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -66,6 +67,7 @@ export default function DueDiligenceConfigPage() {
   const [workflowStages, setWorkflowStages] = useState(DEFAULT_WORKFLOW_STAGES);
   const [statusWebhooks, setStatusWebhooks] = useState([]);
   const [hasInitialized, setHasInitialized] = useState(false);
+  const [openStageSection, setOpenStageSection] = useState({}); // { stageIndex: 'conditions' | 'actions' | null }
 
   useEffect(() => {
     if (isAccessReady) {
@@ -293,7 +295,8 @@ export default function DueDiligenceConfigPage() {
       is_initial: false,
       include_in_housekeeping: true,
       order: workflowStages.length,
-      selection_conditions: {}
+      selection_conditions: {},
+      stage_actions: {}
     };
     setWorkflowStages([...workflowStages, newStage]);
   };
@@ -354,6 +357,11 @@ export default function DueDiligenceConfigPage() {
   };
 
   const availableFields = useMemo(() => form?.fields || [], [form]);
+
+  // Get contact fields that have an associated contract form (signatories)
+  const signatoryFields = useMemo(() => {
+    return (form?.fields || []).filter(f => f.type === 'contact' && f.contract_form_id);
+  }, [form]);
 
   const getConfigStatus = (fId) => {
     const config = ddConfigs.find(c => c.form_id === fId);
@@ -848,7 +856,7 @@ export default function DueDiligenceConfigPage() {
                               )}
                               data-testid={`workflow-stage-${index}`}
                             >
-                              <Collapsible>
+                              <div>
                                 <div className="flex items-center gap-3 p-4">
                                   <div {...provided.dragHandleProps} className="cursor-grab">
                                     <GripVertical className="w-5 h-5 text-muted-foreground" />
@@ -866,17 +874,38 @@ export default function DueDiligenceConfigPage() {
                                     className="flex-1"
                                     data-testid={`input-stage-label-${index}`}
                                   />
-                                  <CollapsibleTrigger asChild>
-                                    <Button variant="outline" size="sm" data-testid={`button-toggle-conditions-${index}`}>
-                                      <Lock className="w-4 h-4 mr-1" />
-                                      Conditions
-                                      {(stage.selection_conditions?.score_condition?.enabled || 
-                                        stage.selection_conditions?.signatories_received || 
-                                        stage.selection_conditions?.documents_approved) && (
-                                        <Badge variant="secondary" className="ml-2 text-xs">Active</Badge>
-                                      )}
-                                    </Button>
-                                  </CollapsibleTrigger>
+                                  <Button 
+                                    variant={openStageSection[index] === 'conditions' ? 'default' : 'outline'} 
+                                    size="sm" 
+                                    onClick={() => setOpenStageSection(prev => ({ 
+                                      ...prev, 
+                                      [index]: prev[index] === 'conditions' ? null : 'conditions' 
+                                    }))}
+                                    data-testid={`button-toggle-conditions-${index}`}
+                                  >
+                                    <Lock className="w-4 h-4 mr-1" />
+                                    Conditions
+                                    {(stage.selection_conditions?.score_condition?.enabled || 
+                                      stage.selection_conditions?.signatories_received || 
+                                      stage.selection_conditions?.documents_approved) && (
+                                      <Badge variant="secondary" className="ml-2 text-xs">Active</Badge>
+                                    )}
+                                  </Button>
+                                  <Button 
+                                    variant={openStageSection[index] === 'actions' ? 'default' : 'outline'} 
+                                    size="sm" 
+                                    onClick={() => setOpenStageSection(prev => ({ 
+                                      ...prev, 
+                                      [index]: prev[index] === 'actions' ? null : 'actions' 
+                                    }))}
+                                    data-testid={`button-toggle-actions-${index}`}
+                                  >
+                                    <Play className="w-4 h-4 mr-1" />
+                                    Actions
+                                    {(stage.stage_actions?.send_contracts?.length > 0) && (
+                                      <Badge variant="secondary" className="ml-2 text-xs">Active</Badge>
+                                    )}
+                                  </Button>
                                   <Button
                                     variant={stage.is_initial ? "default" : "outline"}
                                     size="sm"
@@ -894,7 +923,9 @@ export default function DueDiligenceConfigPage() {
                                     <Trash2 className="w-4 h-4 text-destructive" />
                                   </Button>
                                 </div>
-                                <CollapsibleContent>
+                                
+                                {/* Conditions Section */}
+                                {openStageSection[index] === 'conditions' && (
                                   <div className="px-4 pb-4 pt-0 border-t bg-muted/30">
                                     <div className="py-3">
                                       <span className="text-sm font-medium">Selection Conditions</span>
@@ -1007,8 +1038,74 @@ export default function DueDiligenceConfigPage() {
                                       </div>
                                     </div>
                                   </div>
-                                </CollapsibleContent>
-                              </Collapsible>
+                                )}
+                                
+                                {/* Actions Section */}
+                                {openStageSection[index] === 'actions' && (
+                                  <div className="px-4 pb-4 pt-0 border-t bg-muted/30">
+                                    <div className="py-3">
+                                      <span className="text-sm font-medium">Stage Actions</span>
+                                      <p className="text-xs text-muted-foreground mt-1">
+                                        Actions to perform when this stage is selected
+                                      </p>
+                                    </div>
+                                    <div className="space-y-4">
+                                      <div className="p-3 border rounded-lg bg-background">
+                                        <div className="flex items-center gap-2 mb-3">
+                                          <Send className="w-4 h-4 text-muted-foreground" />
+                                          <span className="text-sm font-medium">Send Contracts for Signing</span>
+                                        </div>
+                                        <p className="text-xs text-muted-foreground mb-3">
+                                          Select which signatory contracts to send when this stage is selected. 
+                                          The Initial Email Template configured in the contract form will be used.
+                                        </p>
+                                        {signatoryFields.length === 0 ? (
+                                          <p className="text-sm text-muted-foreground italic">
+                                            No signatory fields configured in this form. Add contact fields with associated contract forms in the Form Builder.
+                                          </p>
+                                        ) : (
+                                          <div className="space-y-2">
+                                            {signatoryFields.map((sigField) => {
+                                              const fieldId = sigField.id || sigField.name;
+                                              const isSelected = (stage.stage_actions?.send_contracts || []).includes(fieldId);
+                                              return (
+                                                <div key={fieldId} className="flex items-center gap-2">
+                                                  <Checkbox
+                                                    id={`send-contract-${index}-${fieldId}`}
+                                                    checked={isSelected}
+                                                    onCheckedChange={(checked) => {
+                                                      const currentActions = stage.stage_actions || {};
+                                                      const currentSendContracts = currentActions.send_contracts || [];
+                                                      let newSendContracts;
+                                                      if (checked) {
+                                                        newSendContracts = [...currentSendContracts, fieldId];
+                                                      } else {
+                                                        newSendContracts = currentSendContracts.filter(id => id !== fieldId);
+                                                      }
+                                                      updateWorkflowStage(index, 'stage_actions', {
+                                                        ...currentActions,
+                                                        send_contracts: newSendContracts
+                                                      });
+                                                    }}
+                                                    data-testid={`checkbox-send-contract-${index}-${fieldId}`}
+                                                  />
+                                                  <label 
+                                                    htmlFor={`send-contract-${index}-${fieldId}`}
+                                                    className="text-sm cursor-pointer flex items-center gap-2"
+                                                  >
+                                                    <Mail className="w-4 h-4 text-muted-foreground" />
+                                                    {sigField.label || sigField.name}
+                                                  </label>
+                                                </div>
+                                              );
+                                            })}
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
                             </div>
                           )}
                         </Draggable>

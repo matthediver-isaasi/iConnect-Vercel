@@ -534,6 +534,7 @@ export const contractInstance = pgTable("contract_instance", {
   form_id: varchar("form_id").notNull(), // References the contract template form
   organization_id: varchar("organization_id"), // Optional org scope
   form_submission_id: varchar("form_submission_id"), // Source form submission that triggered contract
+  source_contact_field_id: varchar("source_contact_field_id"), // ID of the contact field that created this contract
   
   // Signer details (resolved at creation time)
   signers: jsonb("signers").notNull().default([]), // [{first_name, last_name, email, signed_at, signature_data}]
