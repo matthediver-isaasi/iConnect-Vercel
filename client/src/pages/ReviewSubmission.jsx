@@ -1005,7 +1005,7 @@ export default function ReviewSubmissionPage() {
           </div>
         </div>
         
-        <div className="flex items-center gap-3">
+        <div className="flex items-end gap-3">
           <Button
             variant="outline"
             size="icon"
