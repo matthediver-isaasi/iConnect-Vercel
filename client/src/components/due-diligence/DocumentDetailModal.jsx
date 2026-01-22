@@ -179,11 +179,13 @@ function VersionItem({ version, isSelected, onSelect, showPreview = false, onApp
       
       {expanded && (
         <div className="mt-3 pt-3 border-t space-y-3">
-          <FilePreview 
-            fileUrl={version.file_url} 
-            mimeType={version.mime_type} 
-            fileName={version.file_name}
-          />
+          <div className="min-h-[400px]">
+            <FilePreview 
+              fileUrl={version.file_url} 
+              mimeType={version.mime_type} 
+              fileName={version.file_name}
+            />
+          </div>
           
           {version.comments && version.comments.length > 0 && (
             <div className="space-y-2">
