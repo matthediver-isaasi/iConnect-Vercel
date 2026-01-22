@@ -6,6 +6,7 @@ import { User, Clock, Check, FileSignature, Loader2 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 
 const STATUS_CONFIG = {
+  not_sent: { label: 'Not Sent', color: '#6b7280', icon: Clock },
   pending: { label: 'Pending', color: '#f59e0b', icon: Clock },
   out_for_signing: { label: 'Pending', color: '#f59e0b', icon: Clock },
   received: { label: 'Received', color: '#22c55e', icon: Check },
@@ -48,11 +49,57 @@ function SignatoryItem({ signer, contractName, status }) {
 }
 
 export default function SignatoriesCard({ formSubmissionId, submissionData, formSchema }) {
-  const { data: contractsData, isLoading } = useQuery({
+  const { data: contractsData, isLoading: contractsLoading } = useQuery({
     queryKey: ['/api/contracts/by-submission', formSubmissionId],
     queryFn: () => apiRequest('GET', `/api/contracts/by-submission?formSubmissionId=${formSubmissionId}`),
     enabled: !!formSubmissionId
   });
+
+  const contractFormIds = useMemo(() => {
+    if (!formSchema) return [];
+    const schema = formSchema.schema || formSchema;
+    const ids = new Set();
+    
+    const processFields = (fields) => {
+      if (!fields) return;
+      fields.forEach(field => {
+        if (field.type === 'contact' && field.contract_form_id) {
+          ids.add(field.contract_form_id);
+        }
+      });
+    };
+    
+    if (schema.pages?.length > 0) {
+      schema.pages.forEach(page => processFields(page.fields));
+    }
+    if (schema.fields) {
+      processFields(schema.fields);
+    }
+    
+    return [...ids];
+  }, [formSchema]);
+
+  const { data: contractTemplates, isLoading: templatesLoading } = useQuery({
+    queryKey: ['/api/entities/form', 'contract-templates', contractFormIds],
+    queryFn: async () => {
+      if (contractFormIds.length === 0) return [];
+      const results = await Promise.all(
+        contractFormIds.map(id => 
+          apiRequest('GET', `/api/entities/form/${id}`).catch(() => null)
+        )
+      );
+      return results.filter(Boolean);
+    },
+    enabled: contractFormIds.length > 0
+  });
+
+  const templateNamesMap = useMemo(() => {
+    const map = {};
+    (contractTemplates || []).forEach(t => {
+      if (t?.id) map[t.id] = t.name || 'Unnamed Contract';
+    });
+    return map;
+  }, [contractTemplates]);
 
   const contactFieldsWithContracts = useMemo(() => {
     if (!formSchema || !submissionData) return [];
@@ -114,6 +161,7 @@ export default function SignatoriesCard({ formSubmissionId, submissionData, form
     
     contactFieldsWithContracts.forEach(contact => {
       const matchingContract = contracts.find(c => c.formId === contact.contractFormId);
+      const templateName = templateNamesMap[contact.contractFormId] || 'Unknown Contract';
       
       if (matchingContract) {
         const matchingSigner = matchingContract.signers?.find(
@@ -125,29 +173,40 @@ export default function SignatoriesCard({ formSubmissionId, submissionData, form
             s => (s.email || '').toLowerCase() === (contact.email || '').toLowerCase()
           );
         
+        let status = 'not_sent';
+        if (isSigned) {
+          status = 'received';
+        } else if (matchingContract.status === 'expired') {
+          status = 'expired';
+        } else if (matchingContract.sentAt) {
+          status = 'pending';
+        }
+        
         result.push({
           ...contact,
-          contractName: matchingContract.name,
-          status: isSigned ? 'received' : (matchingContract.status === 'expired' ? 'expired' : 'pending'),
+          contractName: matchingContract.name || templateName,
+          status,
           contractId: matchingContract.id,
           signedAt: matchingSigner?.signed_at
         });
       } else {
         result.push({
           ...contact,
-          contractName: 'Contract Pending',
-          status: 'pending',
+          contractName: templateName,
+          status: 'not_sent',
           contractId: null
         });
       }
     });
     
     return result;
-  }, [contactFieldsWithContracts, contractsData]);
+  }, [contactFieldsWithContracts, contractsData, templateNamesMap]);
 
   if (contactFieldsWithContracts.length === 0) {
     return null;
   }
+
+  const isLoading = contractsLoading || templatesLoading;
 
   if (isLoading) {
     return (
