@@ -1,0 +1,192 @@
+import { useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { User, Clock, Check, FileSignature, Loader2 } from "lucide-react";
+import { apiRequest } from "@/lib/queryClient";
+
+const STATUS_CONFIG = {
+  pending: { label: 'Pending', color: '#f59e0b', icon: Clock },
+  out_for_signing: { label: 'Pending', color: '#f59e0b', icon: Clock },
+  received: { label: 'Received', color: '#22c55e', icon: Check },
+  expired: { label: 'Expired', color: '#ef4444', icon: Clock }
+};
+
+function SignatoryItem({ signer, contractName, status }) {
+  const statusConfig = STATUS_CONFIG[status] || STATUS_CONFIG.pending;
+  const StatusIcon = statusConfig.icon;
+  const fullName = [signer.first_name, signer.last_name].filter(Boolean).join(' ') || 'Unknown';
+  
+  return (
+    <div 
+      className="flex items-center gap-3 p-3 rounded-lg border hover-elevate"
+      data-testid={`signatory-item-${signer.email}`}
+    >
+      <div className="p-2 bg-muted rounded-md">
+        <User className="w-5 h-5 text-muted-foreground" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium truncate">{fullName}</p>
+        <p className="text-xs text-muted-foreground truncate">{signer.email}</p>
+        <div className="flex items-center gap-2 mt-1 flex-wrap">
+          <Badge 
+            variant="outline" 
+            className="text-xs"
+            style={{ borderColor: statusConfig.color, color: statusConfig.color }}
+          >
+            <StatusIcon className="w-3 h-3 mr-1" />
+            {statusConfig.label}
+          </Badge>
+          <span className="text-xs text-muted-foreground flex items-center gap-1">
+            <FileSignature className="w-3 h-3" />
+            {contractName}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function SignatoriesCard({ formSubmissionId, submissionData, formSchema }) {
+  const { data: contractsData, isLoading } = useQuery({
+    queryKey: ['/api/contracts/by-submission', formSubmissionId],
+    queryFn: () => apiRequest('GET', `/api/contracts/by-submission?formSubmissionId=${formSubmissionId}`),
+    enabled: !!formSubmissionId
+  });
+
+  const contactFieldsWithContracts = useMemo(() => {
+    if (!formSchema || !submissionData) return [];
+    
+    const schema = formSchema.schema || formSchema;
+    if (!schema.fields && !schema.pages) return [];
+    
+    const contacts = [];
+    
+    const processFields = (fields) => {
+      if (!fields) return;
+      
+      fields.forEach(field => {
+        if (field.type === 'contact' && field.contract_form_id) {
+          const fieldKey = field.name || field.id;
+          const fieldValue = submissionData[fieldKey] || submissionData[field.id];
+          
+          if (fieldValue) {
+            let contactData = fieldValue;
+            if (typeof fieldValue === 'string') {
+              try {
+                contactData = JSON.parse(fieldValue);
+              } catch {
+                contactData = {};
+              }
+            }
+            
+            contacts.push({
+              fieldId: field.id,
+              fieldKey,
+              fieldLabel: field.label || fieldKey,
+              contractFormId: field.contract_form_id,
+              firstName: contactData.first_name || contactData.firstName || '',
+              lastName: contactData.last_name || contactData.lastName || '',
+              email: contactData.email || ''
+            });
+          }
+        }
+      });
+    };
+    
+    if (schema.pages && schema.pages.length > 0) {
+      schema.pages.forEach(page => {
+        if (page.fields) processFields(page.fields);
+      });
+    }
+    
+    if (schema.fields) {
+      processFields(schema.fields);
+    }
+    
+    return contacts;
+  }, [formSchema, submissionData]);
+
+  const signatories = useMemo(() => {
+    const contracts = contractsData?.contracts || [];
+    
+    const result = [];
+    
+    contactFieldsWithContracts.forEach(contact => {
+      const matchingContract = contracts.find(c => c.formId === contact.contractFormId);
+      
+      if (matchingContract) {
+        const matchingSigner = matchingContract.signers?.find(
+          s => (s.email || '').toLowerCase() === (contact.email || '').toLowerCase()
+        );
+        
+        const isSigned = matchingSigner?.signed || 
+          matchingContract.signedSigners?.some(
+            s => (s.email || '').toLowerCase() === (contact.email || '').toLowerCase()
+          );
+        
+        result.push({
+          ...contact,
+          contractName: matchingContract.name,
+          status: isSigned ? 'received' : (matchingContract.status === 'expired' ? 'expired' : 'pending'),
+          contractId: matchingContract.id,
+          signedAt: matchingSigner?.signed_at
+        });
+      } else {
+        result.push({
+          ...contact,
+          contractName: 'Contract Pending',
+          status: 'pending',
+          contractId: null
+        });
+      }
+    });
+    
+    return result;
+  }, [contactFieldsWithContracts, contractsData]);
+
+  if (contactFieldsWithContracts.length === 0) {
+    return null;
+  }
+
+  if (isLoading) {
+    return (
+      <Card className="shadow-lg">
+        <CardHeader>
+          <CardTitle className="text-lg">Signatories</CardTitle>
+        </CardHeader>
+        <CardContent className="flex items-center justify-center py-8">
+          <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="shadow-lg" data-testid="signatories-card">
+      <CardHeader>
+        <CardTitle className="text-lg">Signatories</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {signatories.length > 0 ? (
+          signatories.map((signatory, index) => (
+            <SignatoryItem 
+              key={`${signatory.fieldId}-${index}`}
+              signer={{
+                first_name: signatory.firstName,
+                last_name: signatory.lastName,
+                email: signatory.email
+              }}
+              contractName={signatory.contractName}
+              status={signatory.status}
+            />
+          ))
+        ) : (
+          <p className="text-sm text-muted-foreground text-center py-4">
+            No signatories found for this submission
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}

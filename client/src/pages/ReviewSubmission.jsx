@@ -21,6 +21,7 @@ import { cn } from "@/lib/utils";
 import { format } from 'date-fns';
 import FormRenderer from "@/components/forms/FormRenderer";
 import DocumentsCard from "@/components/due-diligence/DocumentsCard";
+import SignatoriesCard from "@/components/due-diligence/SignatoriesCard";
 import DocumentDetailModal from "@/components/due-diligence/DocumentDetailModal";
 async function apiRequest(method, url, body = null) {
   const options = {
@@ -1080,6 +1081,12 @@ export default function ReviewSubmissionPage() {
               setSelectedDocument(doc);
               setShowDocumentModal(true);
             }}
+          />
+
+          <SignatoriesCard
+            formSubmissionId={ddSubmission.form_submission_id}
+            submissionData={ddSubmission.form_submission?.submission_data}
+            formSchema={form}
           />
         </div>
       </div>

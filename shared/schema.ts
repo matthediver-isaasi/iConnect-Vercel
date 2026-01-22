@@ -526,3 +526,60 @@ export const insertFormDraftSubmissionSchema = createInsertSchema(formDraftSubmi
 
 export type InsertFormDraftSubmission = z.infer<typeof insertFormDraftSubmissionSchema>;
 export type FormDraftSubmission = typeof formDraftSubmission.$inferSelect;
+
+// Contract Instance - tracks individual contract runs created from templates
+export const contractInstance = pgTable("contract_instance", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenant_id: varchar("tenant_id").notNull(),
+  form_id: varchar("form_id").notNull(), // References the contract template form
+  organization_id: varchar("organization_id"), // Optional org scope
+  form_submission_id: varchar("form_submission_id"), // Source form submission that triggered contract
+  
+  // Signer details (resolved at creation time)
+  signers: jsonb("signers").notNull().default([]), // [{first_name, last_name, email, signed_at, signature_data}]
+  
+  // Status tracking
+  status: varchar("status", { length: 50 }).notNull().default('pending'), // pending, out_for_signing, received, expired
+  timeout_days: integer("timeout_days").notNull().default(30),
+  
+  // Email templates for sending
+  initial_email_template_id: varchar("initial_email_template_id"),
+  
+  // Workflow tracking
+  created_from_workflow_id: varchar("created_from_workflow_id"),
+  created_from_entity_type: varchar("created_from_entity_type"),
+  created_from_entity_id: varchar("created_from_entity_id"),
+  
+  // Timestamps
+  sent_at: timestamp("sent_at"),
+  created_at: timestamp("created_at").defaultNow(),
+  updated_at: timestamp("updated_at").defaultNow(),
+});
+
+export const insertContractInstanceSchema = createInsertSchema(contractInstance).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertContractInstance = z.infer<typeof insertContractInstanceSchema>;
+export type ContractInstance = typeof contractInstance.$inferSelect;
+
+// Contract Reminder Log - tracks sent reminders to prevent duplicates
+export const contractReminderLog = pgTable("contract_reminder_log", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  reminder_key: text("reminder_key").notNull().unique(), // Unique key to prevent duplicate sends
+  contract_instance_id: varchar("contract_instance_id").notNull(),
+  signer_email: text("signer_email").notNull(),
+  sent_at: timestamp("sent_at").notNull().defaultNow(),
+  tenant_id: varchar("tenant_id").notNull(),
+  created_at: timestamp("created_at").defaultNow(),
+});
+
+export const insertContractReminderLogSchema = createInsertSchema(contractReminderLog).omit({
+  id: true,
+  created_at: true,
+});
+
+export type InsertContractReminderLog = z.infer<typeof insertContractReminderLogSchema>;
+export type ContractReminderLog = typeof contractReminderLog.$inferSelect;
