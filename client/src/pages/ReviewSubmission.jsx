@@ -292,7 +292,7 @@ const DEFAULT_LIGHT_OPTIONS = [
   { id: 'red', label: 'Red', color: '#ef4444', score: 0 }
 ];
 
-function StaticQuestionReview({ questions, responses, notes, onResponseChange, onNoteChange }) {
+function StaticQuestionReview({ questions, responses, notes, onResponseChange, onNoteChange, hideCompleted = false }) {
   if (!questions || questions.length === 0) return null;
   
   const questionNumbers = useMemo(() => {
@@ -307,9 +307,35 @@ function StaticQuestionReview({ questions, responses, notes, onResponseChange, o
     return numbers;
   }, [questions]);
   
+  const visibleQuestions = useMemo(() => {
+    if (!hideCompleted) return questions;
+    
+    return questions.filter((item) => {
+      if (item.type === 'header') {
+        const nextQuestionIndex = questions.findIndex((q, i) => i > questions.indexOf(item) && q.type !== 'header');
+        if (nextQuestionIndex === -1) return false;
+        for (let i = nextQuestionIndex; i < questions.length; i++) {
+          const q = questions[i];
+          if (q.type === 'header') break;
+          if (!responses[q.id]) return true;
+        }
+        return false;
+      }
+      return !responses[item.id];
+    });
+  }, [questions, responses, hideCompleted]);
+  
+  if (hideCompleted && visibleQuestions.length === 0) {
+    return (
+      <div className="text-center py-8 text-muted-foreground">
+        All questions have been answered!
+      </div>
+    );
+  }
+  
   return (
     <div className="space-y-4">
-      {questions.map((item, index) => {
+      {visibleQuestions.map((item, index) => {
         if (item.type === 'header') {
           return (
             <div key={item.id} className="font-semibold text-lg border-b pb-2 mt-4 first:mt-0">
@@ -443,6 +469,7 @@ export default function ReviewSubmissionPage() {
   const [selectedDocument, setSelectedDocument] = useState(null);
   const [showDocumentModal, setShowDocumentModal] = useState(false);
   const [showQuestionsDrawer, setShowQuestionsDrawer] = useState(false);
+  const [hideCompletedQuestions, setHideCompletedQuestions] = useState(false);
   const [isCalculatingScore, setIsCalculatingScore] = useState(false);
   const [hasInitialized, setHasInitialized] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
@@ -1109,6 +1136,16 @@ export default function ReviewSubmissionPage() {
                 </div>
               )}
             </div>
+            <div className="flex items-center justify-between px-6 py-3 border-b bg-muted/30">
+              <Label className="flex items-center gap-2 cursor-pointer">
+                <Switch
+                  checked={hideCompletedQuestions}
+                  onCheckedChange={setHideCompletedQuestions}
+                  data-testid="switch-hide-completed"
+                />
+                <span className="text-sm">Hide completed questions</span>
+              </Label>
+            </div>
             <div className="flex-1 overflow-y-auto p-6 min-h-0">
               <StaticQuestionReview
                 questions={ddConfig?.static_questions || []}
@@ -1116,6 +1153,7 @@ export default function ReviewSubmissionPage() {
                 notes={staticQuestionNotes}
                 onResponseChange={handleStaticResponseChange}
                 onNoteChange={handleStaticNoteChange}
+                hideCompleted={hideCompletedQuestions}
               />
             </div>
           </DialogContent>
