@@ -20,6 +20,8 @@ import { createPageUrl } from "@/utils";
 import { cn } from "@/lib/utils";
 import { format } from 'date-fns';
 import FormRenderer from "@/components/forms/FormRenderer";
+import DocumentsCard from "@/components/due-diligence/DocumentsCard";
+import DocumentDetailModal from "@/components/due-diligence/DocumentDetailModal";
 async function apiRequest(method, url, body = null) {
   const options = {
     method,
@@ -379,6 +381,8 @@ export default function ReviewSubmissionPage() {
   const [notes, setNotes] = useState('');
   const [showNotesEditor, setShowNotesEditor] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [selectedDocument, setSelectedDocument] = useState(null);
+  const [showDocumentModal, setShowDocumentModal] = useState(false);
   const [isCalculatingScore, setIsCalculatingScore] = useState(false);
   const [hasInitialized, setHasInitialized] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
@@ -916,8 +920,31 @@ export default function ReviewSubmissionPage() {
               </div>
             </CardContent>
           </Card>
+
+          <DocumentsCard
+            formSubmissionId={ddSubmission.form_submission_id}
+            submissionData={ddSubmission.form_submission?.submission_data}
+            formSchema={form}
+            onDocumentClick={(doc) => {
+              setSelectedDocument(doc);
+              setShowDocumentModal(true);
+            }}
+          />
         </div>
       </div>
+
+      <DocumentDetailModal
+        isOpen={showDocumentModal}
+        onClose={() => {
+          setShowDocumentModal(false);
+          setSelectedDocument(null);
+        }}
+        document={selectedDocument}
+        formSubmissionId={ddSubmission?.form_submission_id}
+        onDocumentUpdated={() => {
+          queryClient.invalidateQueries(['submission-documents', ddSubmission?.form_submission_id]);
+        }}
+      />
 
       <HistoryLogModal
         isOpen={showHistoryModal}
