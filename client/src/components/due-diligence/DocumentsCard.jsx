@@ -93,8 +93,11 @@ export default function DocumentsCard({ formSubmissionId, submissionData, formSc
   });
 
   const fileFieldsFromForm = useMemo(() => {
-    if (!formSchema?.schema || !submissionData) return [];
-    if (!formSchema.schema.fields && !formSchema.schema.pages) return [];
+    if (!formSchema || !submissionData) return [];
+    
+    // Support both formSchema.schema.fields and formSchema.fields structures
+    const schema = formSchema.schema || formSchema;
+    if (!schema.fields && !schema.pages) return [];
     
     const files = [];
     const processFields = (fields) => {
@@ -150,14 +153,14 @@ export default function DocumentsCard({ formSubmissionId, submissionData, formSc
       });
     };
     
-    if (formSchema.schema.pages && formSchema.schema.pages.length > 0) {
-      formSchema.schema.pages.forEach(page => {
+    if (schema.pages && schema.pages.length > 0) {
+      schema.pages.forEach(page => {
         if (page.fields) processFields(page.fields);
       });
     }
     
-    if (formSchema.schema.fields) {
-      processFields(formSchema.schema.fields);
+    if (schema.fields) {
+      processFields(schema.fields);
     }
     
     return files;
