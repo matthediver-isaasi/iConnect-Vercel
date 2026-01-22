@@ -83,16 +83,6 @@ function DocumentItem({ document, onClick }) {
 }
 
 export default function DocumentsCard({ formSubmissionId, submissionData, formSchema, onDocumentClick }) {
-  // Debug logging for document display issue
-  console.log('[DocumentsCard] Props received:', {
-    formSubmissionId,
-    hasSubmissionData: !!submissionData,
-    submissionDataKeys: submissionData ? Object.keys(submissionData) : [],
-    hasFormSchema: !!formSchema,
-    formSchemaFields: formSchema?.fields?.length || 0,
-    formSchemaPages: formSchema?.pages?.length || 0
-  });
-
   const { data: dbDocuments, isLoading: dbLoading } = useQuery({
     queryKey: ['submission-documents', formSubmissionId],
     queryFn: async () => {
@@ -103,21 +93,10 @@ export default function DocumentsCard({ formSubmissionId, submissionData, formSc
   });
 
   const fileFieldsFromForm = useMemo(() => {
-    console.log('[DocumentsCard] fileFieldsFromForm calculation:', {
-      hasFormSchema: !!formSchema,
-      hasSubmissionData: !!submissionData
-    });
     if (!formSchema || !submissionData) return [];
     
     // Support both formSchema.schema.fields and formSchema.fields structures
     const schema = formSchema.schema || formSchema;
-    console.log('[DocumentsCard] schema structure:', {
-      hasSchemaFields: !!schema.fields,
-      schemaFieldsCount: schema.fields?.length || 0,
-      hasSchemaPages: !!schema.pages,
-      schemaPagesCount: schema.pages?.length || 0,
-      fieldTypes: schema.fields?.map(f => ({ name: f.name, type: f.type })).slice(0, 10)
-    });
     if (!schema.fields && !schema.pages) return [];
     
     const files = [];
@@ -188,11 +167,10 @@ export default function DocumentsCard({ formSubmissionId, submissionData, formSc
   }, [formSchema, submissionData]);
 
   const documents = useMemo(() => {
-    console.log('[DocumentsCard] documents calculation:', {
-      dbDocumentsCount: dbDocuments?.length || 0,
-      fileFieldsFromFormCount: fileFieldsFromForm.length,
-      dbDocuments: dbDocuments?.map(d => ({ id: d.id, field_name: d.field_name, is_current: d.is_current_version }))
-    });
+    const result = [];
+    const usedFieldNames = new Set();
+    
+    // Build a map of db documents by field_name for quick lookup
     const dbDocMap = new Map();
     (dbDocuments || []).forEach(doc => {
       if (doc.is_current_version) {
@@ -200,26 +178,39 @@ export default function DocumentsCard({ formSubmissionId, submissionData, formSc
       }
     });
 
-    return fileFieldsFromForm.map(fileField => {
+    // First, add documents matched from form fields (enriched with db data if available)
+    fileFieldsFromForm.forEach(fileField => {
+      usedFieldNames.add(fileField.fieldName);
       const dbDoc = dbDocMap.get(fileField.fieldName);
       if (dbDoc) {
-        return { ...dbDoc, label: fileField.label };
+        result.push({ ...dbDoc, label: fileField.label });
+      } else {
+        result.push({
+          id: `form-${fileField.fieldName}`,
+          field_name: fileField.fieldName,
+          original_file_name: fileField.fileData.file_name || fileField.label,
+          file_url: fileField.fileData.file_url,
+          file_name: fileField.fileData.file_name,
+          file_size: fileField.fileData.file_size,
+          mime_type: fileField.fileData.mime_type,
+          status: 'pending',
+          version: 1,
+          is_current_version: true,
+          label: fileField.label,
+          isFromForm: true
+        });
       }
-      return {
-        id: `form-${fileField.fieldName}`,
-        field_name: fileField.fieldName,
-        original_file_name: fileField.fileData.file_name || fileField.label,
-        file_url: fileField.fileData.file_url,
-        file_name: fileField.fileData.file_name,
-        file_size: fileField.fileData.file_size,
-        mime_type: fileField.fileData.mime_type,
-        status: 'pending',
-        version: 1,
-        is_current_version: true,
-        label: fileField.label,
-        isFromForm: true
-      };
     });
+
+    // Second, add any db documents that weren't matched to form fields
+    // This ensures documents in the database are always displayed
+    (dbDocuments || []).forEach(doc => {
+      if (doc.is_current_version && !usedFieldNames.has(doc.field_name)) {
+        result.push(doc);
+      }
+    });
+
+    return result;
   }, [fileFieldsFromForm, dbDocuments]);
 
   if (dbLoading) {

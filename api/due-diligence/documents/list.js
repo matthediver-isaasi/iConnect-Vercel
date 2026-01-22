@@ -42,14 +42,6 @@ export default async function handler(req, res) {
 
     const { data: documents, error } = await query;
 
-    console.log('[DD Documents List] Query result:', {
-      formSubmissionId,
-      tenantId: tenantCtx.tenantId,
-      includeAllVersions,
-      documentsCount: documents?.length || 0,
-      error: error?.message
-    });
-
     if (documents && documents.length > 0) {
       const docIds = documents.map(d => d.id);
       const { data: comments } = await supabase
