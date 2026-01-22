@@ -43,11 +43,7 @@ export default async function handler(req, res) {
           submission_data,
           status,
           created_date,
-          prefill_organization_id,
-          organization:prefill_organization_id(
-            id,
-            name
-          )
+          prefill_organization_id
         )
       `, { count: 'exact' })
       .eq('tenant_id', tenantCtx.tenantId)
@@ -76,6 +72,40 @@ export default async function handler(req, res) {
         s => s.form_submission?.form_id === formId
       );
     }
+
+    // Fetch organization names for submissions with prefill_organization_id
+    const orgIds = [...new Set(
+      filteredSubmissions
+        .map(s => s.form_submission?.prefill_organization_id)
+        .filter(Boolean)
+    )];
+
+    let orgMap = {};
+    if (orgIds.length > 0) {
+      const { data: orgs } = await supabase
+        .from('organization')
+        .select('id, name')
+        .in('id', orgIds);
+      
+      if (orgs) {
+        orgMap = Object.fromEntries(orgs.map(o => [o.id, o.name]));
+      }
+    }
+
+    // Attach organization names to submissions
+    filteredSubmissions = filteredSubmissions.map(sub => {
+      const orgId = sub.form_submission?.prefill_organization_id;
+      if (orgId && orgMap[orgId]) {
+        return {
+          ...sub,
+          form_submission: {
+            ...sub.form_submission,
+            organization: { id: orgId, name: orgMap[orgId] }
+          }
+        };
+      }
+      return sub;
+    });
 
     return res.status(200).json({
       success: true,
