@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Loader2, Plus, Trash2, GripVertical, Save, ArrowLeft, FileText, ChevronDown, ChevronUp, Edit2, X, Eye, EyeOff, Lock, Unlock, UserCheck, UserMinus, Users, UserPlus, Mail, Copy, Code, ExternalLink, Filter } from "lucide-react";
+import { Loader2, Plus, Trash2, GripVertical, Save, ArrowLeft, FileText, ChevronDown, ChevronUp, Edit2, X, Eye, EyeOff, Lock, Unlock, UserCheck, UserMinus, Users, UserPlus, Mail, Copy, Code, ExternalLink, Filter, FileSignature } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -3351,6 +3351,19 @@ export default function FormBuilderPage() {
       try {
         const memberList = await base44.entities.Member.list('first_name, last_name, email');
         return memberList || [];
+      } catch {
+        return [];
+      }
+    }
+  });
+
+  // Fetch contract forms (forms with is_contract: true) for Contact field contract template selection
+  const { data: contractForms = [] } = useQuery({
+    queryKey: ['contract-forms-for-contact-field'],
+    queryFn: async () => {
+      try {
+        const allForms = await base44.entities.Form.list();
+        return (allForms || []).filter(f => f.is_contract === true);
       } catch {
         return [];
       }
