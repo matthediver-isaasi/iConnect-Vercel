@@ -51,7 +51,7 @@ function canPreview(mimeType) {
   return mimeType.startsWith('image/') || mimeType === 'application/pdf';
 }
 
-function FilePreview({ fileUrl, mimeType, fileName }) {
+function FilePreview({ fileUrl, mimeType, fileName, fixedHeight }) {
   if (!fileUrl) {
     return (
       <div className="flex items-center justify-center h-64 bg-muted rounded-lg">
@@ -62,7 +62,7 @@ function FilePreview({ fileUrl, mimeType, fileName }) {
 
   if (mimeType?.startsWith('image/')) {
     return (
-      <div className="flex items-center justify-center bg-muted rounded-lg p-4" style={{ height: '500px' }}>
+      <div className="flex items-center justify-center bg-muted rounded-lg p-4" style={{ height: fixedHeight || 'calc(100% - 100px)', minHeight: '400px' }}>
         <img 
           src={fileUrl} 
           alt={fileName} 
@@ -74,7 +74,7 @@ function FilePreview({ fileUrl, mimeType, fileName }) {
 
   if (mimeType === 'application/pdf') {
     return (
-      <div className="w-full rounded-lg overflow-hidden relative" style={{ height: '500px' }}>
+      <div className="w-full rounded-lg overflow-hidden relative" style={{ height: fixedHeight || 'calc(100% - 100px)', minHeight: '400px' }}>
         <iframe 
           src={fileUrl} 
           className="absolute inset-0 w-full h-full border-0"
@@ -99,13 +99,21 @@ function FilePreview({ fileUrl, mimeType, fileName }) {
   );
 }
 
-function VersionItem({ version, isSelected, onSelect, showPreview = false, onApprove, onReject, isUpdating, hasApprovedVersion }) {
+function VersionItem({ version, isSelected, onSelect, showPreview = false, onApprove, onReject, isUpdating, hasApprovedVersion, onAddComment, isAddingComment }) {
   const statusConfig = STATUS_CONFIG[version.status] || STATUS_CONFIG.pending;
   const StatusIcon = statusConfig.icon;
   const [expanded, setExpanded] = useState(showPreview);
+  const [commentText, setCommentText] = useState('');
 
   const isApproved = version.status === 'approved';
   const isRejected = version.status === 'rejected';
+
+  const handleAddComment = () => {
+    if (commentText.trim() && onAddComment) {
+      onAddComment(version.id, commentText);
+      setCommentText('');
+    }
+  };
 
   return (
     <div 
@@ -179,27 +187,55 @@ function VersionItem({ version, isSelected, onSelect, showPreview = false, onApp
       
       {expanded && (
         <div className="mt-3 pt-3 border-t space-y-3">
-          <div className="min-h-[400px]">
-            <FilePreview 
-              fileUrl={version.file_url} 
-              mimeType={version.mime_type} 
-              fileName={version.file_name}
-            />
-          </div>
+          <FilePreview 
+            fileUrl={version.file_url} 
+            mimeType={version.mime_type} 
+            fileName={version.file_name}
+            fixedHeight="400px"
+          />
           
-          {version.comments && version.comments.length > 0 && (
-            <div className="space-y-2">
-              <p className="text-xs font-medium text-muted-foreground">Comments</p>
-              {version.comments.map(comment => (
-                <div key={comment.id} className="bg-muted p-2 rounded text-sm">
-                  <p>{comment.comment}</p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {comment.author_name} - {format(new Date(comment.created_at), 'MMM d, yyyy h:mm a')}
-                  </p>
-                </div>
-              ))}
+          <div className="space-y-2">
+            <p className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+              <MessageSquare className="w-3 h-3" />
+              Comments ({version.comments?.length || 0})
+            </p>
+            {version.comments && version.comments.length > 0 ? (
+              <div className="space-y-2 max-h-[200px] overflow-y-auto">
+                {version.comments.map(comment => (
+                  <div key={comment.id} className="bg-muted p-2 rounded text-sm">
+                    <p>{comment.comment}</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {comment.author_name} - {format(new Date(comment.created_at), 'MMM d, yyyy h:mm a')}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">No comments yet</p>
+            )}
+            <div className="flex gap-2 mt-2">
+              <Textarea 
+                placeholder="Add a comment..."
+                value={commentText}
+                onChange={(e) => setCommentText(e.target.value)}
+                className="min-h-[60px] text-sm"
+                data-testid={`textarea-comment-${version.id}`}
+              />
             </div>
-          )}
+            <Button 
+              size="sm"
+              onClick={handleAddComment}
+              disabled={!commentText.trim() || isAddingComment}
+              data-testid={`button-add-comment-${version.id}`}
+            >
+              {isAddingComment ? (
+                <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+              ) : (
+                <Send className="w-3 h-3 mr-1" />
+              )}
+              Add Comment
+            </Button>
+          </div>
         </div>
       )}
     </div>
@@ -215,7 +251,6 @@ export default function DocumentDetailModal({
 }) {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState('preview');
-  const [newComment, setNewComment] = useState('');
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [selectedVersion, setSelectedVersion] = useState(null);
@@ -295,35 +330,24 @@ export default function DocumentDetailModal({
   }, [updateStatusMutation]);
 
   const addCommentMutation = useMutation({
-    mutationFn: async ({ comment }) => {
-      let docId = currentVersion.id;
-      
-      if (currentVersion.isFromForm) {
-        const createResult = await apiRequest('POST', '/api/due-diligence/documents/create', {
-          formSubmissionId,
-          fieldName: document.field_name,
-          fileUrl: document.file_url,
-          fileName: document.file_name,
-          fileSize: document.file_size,
-          mimeType: document.mime_type
-        });
-        docId = createResult.document.id;
-      }
-      
+    mutationFn: async ({ versionId, comment }) => {
       return await apiRequest('POST', '/api/due-diligence/documents/add-comment', {
-        documentId: docId,
+        documentId: versionId,
         comment
       });
     },
     onSuccess: () => {
       queryClient.invalidateQueries(['document-versions', formSubmissionId, document?.field_name]);
-      setNewComment('');
       toast.success('Comment added');
     },
     onError: (error) => {
       toast.error(error.message || 'Failed to add comment');
     }
   });
+
+  const handleAddVersionComment = useCallback((versionId, comment) => {
+    addCommentMutation.mutate({ versionId, comment });
+  }, [addCommentMutation]);
 
   const handleSupersede = useCallback(async (e) => {
     const file = e.target.files?.[0];
@@ -379,11 +403,6 @@ export default function DocumentDetailModal({
     }
   }, [currentVersion, formSubmissionId, document, queryClient, onDocumentUpdated]);
 
-  const handleAddComment = () => {
-    if (!newComment.trim()) return;
-    addCommentMutation.mutate({ comment: newComment.trim() });
-  };
-
   if (!document) return null;
 
   return (
@@ -403,7 +422,7 @@ export default function DocumentDetailModal({
         </DialogHeader>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 overflow-hidden flex flex-col">
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="preview" data-testid="tab-preview">
               <FileText className="w-4 h-4 mr-2" />
               Preview
@@ -411,10 +430,6 @@ export default function DocumentDetailModal({
             <TabsTrigger value="versions" data-testid="tab-versions">
               <History className="w-4 h-4 mr-2" />
               Versions ({versions.length || 1})
-            </TabsTrigger>
-            <TabsTrigger value="comments" data-testid="tab-comments">
-              <MessageSquare className="w-4 h-4 mr-2" />
-              Comments
             </TabsTrigger>
           </TabsList>
 
@@ -486,6 +501,8 @@ export default function DocumentDetailModal({
                       onReject={handleRejectVersion}
                       isUpdating={updateStatusMutation.isPending}
                       hasApprovedVersion={!!approvedVersion}
+                      onAddComment={handleAddVersionComment}
+                      isAddingComment={addCommentMutation.isPending}
                     />
                   ))
                 ) : (
@@ -498,55 +515,12 @@ export default function DocumentDetailModal({
                     onReject={handleRejectVersion}
                     isUpdating={updateStatusMutation.isPending}
                     hasApprovedVersion={!!approvedVersion}
+                    onAddComment={handleAddVersionComment}
+                    isAddingComment={addCommentMutation.isPending}
                   />
                 )}
               </div>
             </ScrollArea>
-          </TabsContent>
-
-          <TabsContent value="comments" className="flex-1 overflow-auto mt-4">
-            <div className="space-y-4">
-              <ScrollArea className="h-[300px]">
-                <div className="space-y-3 pr-4">
-                  {currentVersion?.comments && currentVersion.comments.length > 0 ? (
-                    currentVersion.comments.map(comment => (
-                      <div key={comment.id} className="bg-muted p-3 rounded-lg">
-                        <p className="text-sm">{comment.comment}</p>
-                        <p className="text-xs text-muted-foreground mt-2">
-                          {comment.author_name} - {format(new Date(comment.created_at), 'MMM d, yyyy h:mm a')}
-                        </p>
-                      </div>
-                    ))
-                  ) : (
-                    <p className="text-sm text-muted-foreground text-center py-8">
-                      No comments yet
-                    </p>
-                  )}
-                </div>
-              </ScrollArea>
-              
-              <div className="flex gap-2">
-                <Textarea 
-                  placeholder="Add a comment..."
-                  value={newComment}
-                  onChange={(e) => setNewComment(e.target.value)}
-                  className="min-h-[80px]"
-                  data-testid="textarea-new-comment"
-                />
-              </div>
-              <Button 
-                onClick={handleAddComment}
-                disabled={!newComment.trim() || addCommentMutation.isPending}
-                data-testid="button-add-comment"
-              >
-                {addCommentMutation.isPending ? (
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                ) : (
-                  <Send className="w-4 h-4 mr-2" />
-                )}
-                Add Comment
-              </Button>
-            </div>
           </TabsContent>
         </Tabs>
 
