@@ -45,6 +45,36 @@ The platform supports dynamic email templates with placeholder substitution for 
 
 An optional due diligence review capability for form submissions includes configurable workflows, scoring, risk assessment, and audit trails.
 
+### Workflow Stage Management
+
+Each due diligence form can have configurable workflow stages with:
+
+**Selection Conditions** - Requirements that must be met before a stage can be selected:
+- `require_min_score`: Minimum DD score threshold required
+- `require_all_signatures`: All signatory contracts must be signed
+- `require_all_attachments_approved`: All CRM attachments must be approved
+- `require_specific_contracts`: Specific contract instances must be signed (by field ID)
+- `require_specific_attachments`: Specific attachments must be approved (by attachment ID)
+
+Strict evaluation: Enabling a condition with zero items (no contracts/documents) blocks progression.
+
+**Stage Actions** - Automated tasks triggered when a stage is selected:
+- `send_contracts`: Array of contact field IDs whose contracts should be sent when this stage is reached
+- Contracts are sent using the Initial Email Template configured in FormBuilder contract settings
+- Actions execute on both manual status changes AND when DD submissions are created with an initial stage
+
+### Key Files:
+- `api/due-diligence/_stageActions.js`: Shared utility for executing stage actions (contract sending)
+- `api/due-diligence/init-submission.js`: Creates DD submission and executes initial stage actions
+- `api/due-diligence/update-status.js`: Updates DD status and executes stage actions
+- `client/src/pages/DueDiligenceConfig.jsx`: UI for configuring conditions and actions per stage
+- `client/src/pages/ReviewSubmission.jsx`: Review interface with stage status dropdown
+
+### Design Decisions:
+- Current stage is excluded from locking - users can stay on current stage even if conditions become unmet
+- Stage actions are non-blocking - failure doesn't prevent stage transition (logged for visibility)
+- Contract instance matching uses `source_contact_field_id` primarily, with fallback to `form_id` only when exactly one unsent instance exists
+
 ## Platform Owner Configuration System
 
 A third authentication tier for "Platform Owners" provides super-admin capabilities for managing platform-wide preferences and tenant deletion.
