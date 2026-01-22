@@ -37,13 +37,14 @@ export default async function handler(req, res) {
         reviewed_date,
         created_at,
         updated_at,
+        original_form_values,
         form_submission:form_submission_id(
           id,
           form_id,
           submission_data,
           status,
           created_date,
-          prefill_organization_id
+          organization_id
         )
       `, { count: 'exact' })
       .eq('tenant_id', tenantCtx.tenantId)
@@ -73,10 +74,10 @@ export default async function handler(req, res) {
       );
     }
 
-    // Fetch organization names for submissions with prefill_organization_id
+    // Fetch organization names for submissions with organization_id
     const orgIds = [...new Set(
       filteredSubmissions
-        .map(s => s.form_submission?.prefill_organization_id)
+        .map(s => s.form_submission?.organization_id)
         .filter(Boolean)
     )];
 
@@ -94,7 +95,7 @@ export default async function handler(req, res) {
 
     // Attach organization names to submissions
     filteredSubmissions = filteredSubmissions.map(sub => {
-      const orgId = sub.form_submission?.prefill_organization_id;
+      const orgId = sub.form_submission?.organization_id;
       if (orgId && orgMap[orgId]) {
         return {
           ...sub,
