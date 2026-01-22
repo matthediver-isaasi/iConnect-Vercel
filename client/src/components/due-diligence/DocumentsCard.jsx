@@ -83,6 +83,20 @@ function DocumentItem({ document, onClick }) {
 }
 
 export default function DocumentsCard({ formSubmissionId, submissionData, formSchema, onDocumentClick }) {
+  // DEBUG: Trace document detection issue
+  console.log('[DocumentsCard] Input props:', {
+    formSubmissionId,
+    hasSubmissionData: !!submissionData,
+    submissionDataType: typeof submissionData,
+    submissionDataKeys: submissionData ? Object.keys(submissionData).slice(0, 20) : [],
+    hasFormSchema: !!formSchema,
+    formSchemaKeys: formSchema ? Object.keys(formSchema) : [],
+    formHasFields: !!formSchema?.fields,
+    formFieldsCount: formSchema?.fields?.length,
+    formHasPages: !!formSchema?.pages,
+    formPagesCount: formSchema?.pages?.length
+  });
+
   const { data: dbDocuments, isLoading: dbLoading } = useQuery({
     queryKey: ['submission-documents', formSubmissionId],
     queryFn: async () => {
@@ -93,10 +107,21 @@ export default function DocumentsCard({ formSubmissionId, submissionData, formSc
   });
 
   const fileFieldsFromForm = useMemo(() => {
-    if (!formSchema || !submissionData) return [];
+    if (!formSchema || !submissionData) {
+      console.log('[DocumentsCard] fileFieldsFromForm: Early return - missing data');
+      return [];
+    }
     
     // Support both formSchema.schema.fields and formSchema.fields structures
     const schema = formSchema.schema || formSchema;
+    console.log('[DocumentsCard] Processing schema:', {
+      hasSchemaFields: !!schema.fields,
+      schemaFieldsCount: schema.fields?.length,
+      hasSchemaPages: !!schema.pages,
+      schemaPagesCount: schema.pages?.length,
+      allFieldTypes: schema.fields?.map(f => f.type) || [],
+      pageFieldTypes: schema.pages?.flatMap(p => p.fields?.map(f => f.type) || []) || []
+    });
     if (!schema.fields && !schema.pages) return [];
     
     const files = [];
@@ -104,6 +129,17 @@ export default function DocumentsCard({ formSubmissionId, submissionData, formSc
       if (!fields) return;
       fields.forEach(field => {
         const fieldKey = field.name || field.id;
+        // DEBUG: Log all file type fields and their matching
+        if (field.type === 'file') {
+          console.log('[DocumentsCard] File field found:', {
+            fieldName: field.name,
+            fieldId: field.id,
+            fieldKey,
+            hasMatch: !!submissionData[fieldKey],
+            submissionValue: submissionData[fieldKey] ? 'present' : 'missing',
+            allSubmissionKeys: Object.keys(submissionData || {})
+          });
+        }
         if (!fieldKey || !submissionData[fieldKey]) return;
         
         let rawValue = submissionData[fieldKey];
@@ -144,6 +180,7 @@ export default function DocumentsCard({ formSubmissionId, submissionData, formSc
         }
         
         if (isFileField && fileData) {
+          console.log('[DocumentsCard] Found file field:', { fieldKey, type: field.type, fileData });
           files.push({
             fieldName: fieldKey,
             label: field.label || fieldKey,
@@ -163,6 +200,7 @@ export default function DocumentsCard({ formSubmissionId, submissionData, formSc
       processFields(schema.fields);
     }
     
+    console.log('[DocumentsCard] fileFieldsFromForm result:', files.length, 'files found');
     return files;
   }, [formSchema, submissionData]);
 

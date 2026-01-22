@@ -92,6 +92,22 @@ export default async function handler(req, res) {
       }
     }
 
+    // DEBUG: Trace document display issue
+    console.log('[DD Get] Response data:', {
+      hasFormSubmission: !!ddSubmission?.form_submission,
+      formSubmissionId: ddSubmission?.form_submission?.id,
+      hasSubmissionData: !!ddSubmission?.form_submission?.submission_data,
+      submissionDataType: typeof ddSubmission?.form_submission?.submission_data,
+      submissionDataKeys: ddSubmission?.form_submission?.submission_data 
+        ? Object.keys(ddSubmission.form_submission.submission_data).slice(0, 10) 
+        : [],
+      hasForm: !!form,
+      formHasFields: !!form?.fields,
+      formFieldsCount: form?.fields?.length,
+      formHasPages: !!form?.pages,
+      formPagesCount: form?.pages?.length
+    });
+
     return res.status(200).json({
       success: true,
       submission: ddSubmission,
