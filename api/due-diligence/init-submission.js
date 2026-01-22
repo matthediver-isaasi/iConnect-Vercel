@@ -1,6 +1,7 @@
 import { supabase } from '../_lib/database.js';
 import { getSessionMember } from '../_lib/session.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
+import { executeStageActions } from './_stageActions.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -100,10 +101,37 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Failed to create due diligence record' });
     }
 
+    // Execute stage actions for the initial stage
+    let stageActionsResults = [];
+    const hasStageActions = initialStage && (initialStage.actions || initialStage.stage_actions);
+    if (hasStageActions) {
+      try {
+        const ddSubmissionData = {
+          ...newRecord,
+          form_submission_id: formSubmissionId,
+          form_id: formSubmission.form_id
+        };
+        const actionResults = await executeStageActions(
+          initialStatus,
+          ddSubmissionData,
+          tenantCtx.tenantId,
+          'system_init'
+        );
+        stageActionsResults = actionResults.stage_actions_results || [];
+        
+        if (stageActionsResults.length > 0) {
+          console.log('[DD Init] Initial stage actions executed:', stageActionsResults);
+        }
+      } catch (actionError) {
+        console.error('[DD Init] Error executing initial stage actions:', actionError);
+      }
+    }
+
     return res.status(201).json({
       success: true,
       id: newRecord.id,
-      message: 'Due diligence record created'
+      message: 'Due diligence record created',
+      stage_actions_results: stageActionsResults
     });
 
   } catch (error) {
