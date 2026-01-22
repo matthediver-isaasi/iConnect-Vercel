@@ -14,6 +14,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { ArrowLeft, Save, AlertCircle, Calculator, Loader2, NotebookText, X, RotateCcw, History, Check, Edit2, Clock, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ClipboardList, PanelRightOpen } from "lucide-react";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetTrigger } from "@/components/ui/sheet";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
@@ -287,9 +288,9 @@ function ReviewFieldEditor({
 }
 
 const DEFAULT_LIGHT_OPTIONS = [
-  { id: 'green', label: 'Green', color: '#22c55e', value: 100 },
-  { id: 'amber', label: 'Amber', color: '#f59e0b', value: 50 },
-  { id: 'red', label: 'Red', color: '#ef4444', value: 0 }
+  { id: 'green', label: 'Green', color: '#22c55e', score: 100 },
+  { id: 'amber', label: 'Amber', color: '#f59e0b', score: 50 },
+  { id: 'red', label: 'Red', color: '#ef4444', score: 0 }
 ];
 
 function StaticQuestionReview({ questions, responses, notes, onResponseChange, onNoteChange }) {
@@ -986,59 +987,43 @@ export default function ReviewSubmissionPage() {
 
       {ddConfig?.scoring_approach === 'static_traffic_light' && (
         <>
-          {showQuestionsDrawer && (
-            <div
-              className="fixed inset-0 z-40 bg-black/50"
-              onClick={() => setShowQuestionsDrawer(false)}
-              aria-hidden="true"
-              data-testid="drawer-backdrop"
-            />
-          )}
-          <div
-            role="dialog"
-            aria-modal={showQuestionsDrawer ? "true" : undefined}
-            aria-labelledby="dd-questions-title"
-            className={`fixed top-0 right-0 h-full z-50 flex transition-transform duration-300 ease-in-out ${showQuestionsDrawer ? 'translate-x-0' : 'translate-x-full'}`}
-            style={{ width: 'calc(100vw - 2rem)', maxWidth: '28rem' }}
-            onKeyDown={(e) => { if (e.key === 'Escape' && showQuestionsDrawer) setShowQuestionsDrawer(false); }}
-          >
-            <div
-              role="button"
-              tabIndex={0}
-              aria-label={showQuestionsDrawer ? "Close due diligence questions" : "Open due diligence questions"}
-              className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-full flex flex-col items-center gap-1 py-3 px-2 bg-purple-600 text-white rounded-l-lg cursor-pointer shadow-lg hover-elevate active-elevate-2"
-              onClick={() => setShowQuestionsDrawer(!showQuestionsDrawer)}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowQuestionsDrawer(!showQuestionsDrawer); }}
-              data-testid="button-toggle-questions-drawer"
-              style={{ writingMode: 'vertical-rl', textOrientation: 'mixed' }}
-            >
-              <ClipboardList className="w-5 h-5 mb-1" style={{ writingMode: 'horizontal-tb' }} />
-              <span className="text-xs font-medium tracking-wide">DD Questions</span>
-              <Badge variant="secondary" className="bg-white/20 text-white border-0 mt-1 text-[10px]" style={{ writingMode: 'horizontal-tb' }}>
-                {(ddConfig?.static_questions || []).filter(q => q.type !== 'header').length}
-              </Badge>
-            </div>
-            <div className="flex-1 bg-background border-l shadow-xl flex flex-col h-full overflow-hidden">
-              <div className="p-6 border-b">
-                <div className="flex items-center gap-2">
-                  <ClipboardList className="w-5 h-5 text-purple-600" />
-                  <h2 id="dd-questions-title" className="text-lg font-semibold">Due Diligence Questions</h2>
+          <Sheet open={showQuestionsDrawer} onOpenChange={setShowQuestionsDrawer}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <SheetTrigger asChild>
+                  <button
+                    className="fixed right-0 top-1/2 -translate-y-1/2 z-40 w-6 h-6 bg-white border border-slate-200 rounded-l-full shadow-sm flex items-center justify-center hover:bg-slate-50 transition-colors cursor-pointer"
+                    data-testid="button-toggle-questions-drawer"
+                  >
+                    <ChevronLeft className="w-4 h-4 text-purple-600" />
+                  </button>
+                </SheetTrigger>
+              </TooltipTrigger>
+              <TooltipContent side="left">
+                DD Questions ({(ddConfig?.static_questions || []).filter(q => q.type !== 'header').length})
+              </TooltipContent>
+            </Tooltip>
+              <SheetContent side="right" className="w-full sm:max-w-md flex flex-col p-0">
+                <SheetHeader className="p-6 border-b">
+                  <div className="flex items-center gap-2">
+                    <ClipboardList className="w-5 h-5 text-purple-600" />
+                    <SheetTitle>Due Diligence Questions</SheetTitle>
+                  </div>
+                  <SheetDescription>
+                    Answer each question using the traffic light options
+                  </SheetDescription>
+                </SheetHeader>
+                <div className="flex-1 overflow-y-auto p-6">
+                  <StaticQuestionReview
+                    questions={ddConfig?.static_questions || []}
+                    responses={staticQuestionResponses}
+                    notes={staticQuestionNotes}
+                    onResponseChange={handleStaticResponseChange}
+                    onNoteChange={handleStaticNoteChange}
+                  />
                 </div>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Answer each question using the traffic light options
-                </p>
-              </div>
-              <div className="flex-1 overflow-y-auto p-6">
-                <StaticQuestionReview
-                  questions={ddConfig?.static_questions || []}
-                  responses={staticQuestionResponses}
-                  notes={staticQuestionNotes}
-                  onResponseChange={handleStaticResponseChange}
-                  onNoteChange={handleStaticNoteChange}
-                />
-              </div>
-            </div>
-          </div>
+              </SheetContent>
+          </Sheet>
         </>
       )}
     </div>
