@@ -70,12 +70,15 @@ function SubmissionRow({ submission, workflowStages, riskLevels, onClick, cardRe
   const riskConfig = riskLevels.find(r => r.name.toLowerCase() === submission.risk_level?.toLowerCase()) || { color: '#6b7280' };
   
   const formValues = submission.form_submission?.submission_data || {};
+  const linkedOrgName = submission.form_submission?.organization?.name;
   
   let displayReference = submission.application_uid;
-  if (cardReferenceField && formValues[cardReferenceField]) {
+  if (cardReferenceField === '__organization_name__' && linkedOrgName) {
+    displayReference = linkedOrgName;
+  } else if (cardReferenceField && formValues[cardReferenceField]) {
     displayReference = formValues[cardReferenceField];
   } else {
-    displayReference = formValues.organization_name || formValues.company_name || formValues.name || formValues.email || submission.application_uid;
+    displayReference = linkedOrgName || formValues.organization_name || formValues.company_name || formValues.name || formValues.email || submission.application_uid;
   }
   
   return (
@@ -222,14 +225,17 @@ export default function DueDiligenceDashboardPage() {
     return submissions.filter(sub => {
       const uid = sub.application_uid?.toLowerCase() || '';
       const formValues = sub.form_submission?.submission_data || {};
+      const linkedOrgName = sub.form_submission?.organization?.name || '';
       const formId = sub.form_submission?.form_id;
       const refField = formId ? cardReferenceFieldByFormId[formId] : null;
       
       let displayRef = '';
-      if (refField && formValues[refField]) {
+      if (refField === '__organization_name__' && linkedOrgName) {
+        displayRef = linkedOrgName.toLowerCase();
+      } else if (refField && formValues[refField]) {
         displayRef = String(formValues[refField]).toLowerCase();
       } else {
-        displayRef = (formValues.organization_name || formValues.company_name || formValues.name || formValues.email || '').toLowerCase();
+        displayRef = (linkedOrgName || formValues.organization_name || formValues.company_name || formValues.name || formValues.email || '').toLowerCase();
       }
       
       return uid.includes(query) || displayRef.includes(query);

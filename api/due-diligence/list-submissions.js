@@ -42,7 +42,12 @@ export default async function handler(req, res) {
           form_id,
           submission_data,
           status,
-          created_date
+          created_date,
+          prefill_organization_id,
+          organization:prefill_organization_id(
+            id,
+            name
+          )
         )
       `, { count: 'exact' })
       .eq('tenant_id', tenantCtx.tenantId)

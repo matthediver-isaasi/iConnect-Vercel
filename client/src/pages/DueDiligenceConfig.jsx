@@ -470,6 +470,7 @@ export default function DueDiligenceConfigPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__default__">None (use default)</SelectItem>
+                    <SelectItem value="__organization_name__">Organization Name (linked record)</SelectItem>
                     {availableFields
                       .filter(f => !f.due_diligence && ['text', 'email', 'select', 'country'].includes(f.type))
                       .map((field) => (
