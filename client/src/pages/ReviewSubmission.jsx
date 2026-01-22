@@ -324,8 +324,8 @@ function StaticQuestionReview({ questions, responses, notes, onResponseChange, o
         const questionNumber = questionNumbers[item.id];
         
         return (
-          <div key={item.id} className="space-y-3 p-3 bg-muted/50 rounded-lg" data-testid={`static-question-${index}`}>
-            <p className="text-sm font-medium">
+          <div key={item.id} className="space-y-4 p-3 bg-muted/50 rounded-lg" data-testid={`static-question-${index}`}>
+            <p className="text-sm font-medium pb-1">
               <span className="text-muted-foreground mr-2">Q{questionNumber}.</span>
               {item.question}
             </p>
@@ -341,7 +341,7 @@ function StaticQuestionReview({ questions, responses, notes, onResponseChange, o
                     tabIndex={0}
                     onClick={() => onResponseChange(item.id, opt.id)}
                     onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onResponseChange(item.id, opt.id); }}
-                    className="relative flex flex-col items-center gap-1 cursor-pointer"
+                    className="relative flex flex-col items-center gap-2 cursor-pointer"
                     data-testid={`light-${opt.id}-${item.id}`}
                   >
                     <div
