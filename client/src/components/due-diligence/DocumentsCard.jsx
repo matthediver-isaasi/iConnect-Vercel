@@ -26,23 +26,34 @@ const STATUS_CONFIG = {
   aged: { label: 'Aged', color: '#6b7280', icon: RefreshCw }
 };
 
-function getFileIcon(mimeType) {
-  if (!mimeType) return File;
-  if (mimeType.startsWith('image/')) return Image;
-  if (mimeType === 'application/pdf') return FileText;
-  if (mimeType.includes('spreadsheet') || mimeType.includes('excel') || mimeType.includes('csv')) return FileSpreadsheet;
+function getFileIcon(mimeTypeOrFilename) {
+  if (!mimeTypeOrFilename) return File;
+  
+  // Check if it's a mime type
+  if (mimeTypeOrFilename.startsWith('image/')) return Image;
+  if (mimeTypeOrFilename === 'application/pdf') return FileText;
+  if (mimeTypeOrFilename.includes('spreadsheet') || mimeTypeOrFilename.includes('excel')) return FileSpreadsheet;
+  
+  // Check if it's a filename with extension
+  const lower = mimeTypeOrFilename.toLowerCase();
+  if (lower.endsWith('.pdf')) return FileText;
+  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.png') || lower.endsWith('.gif') || lower.endsWith('.webp')) return Image;
+  if (lower.endsWith('.xls') || lower.endsWith('.xlsx') || lower.endsWith('.csv')) return FileSpreadsheet;
+  if (lower.endsWith('.doc') || lower.endsWith('.docx') || lower.endsWith('.txt')) return FileText;
+  
   return File;
 }
 
 function DocumentItem({ document, onClick }) {
   const statusConfig = STATUS_CONFIG[document.status] || STATUS_CONFIG.pending;
   const StatusIcon = statusConfig.icon;
-  const FileIcon = getFileIcon(document.mime_type);
+  const FileIcon = getFileIcon(document.mime_type || document.original_file_name);
+  const hasUrl = !!document.file_url;
   
   return (
     <div 
-      className="flex items-center gap-3 p-3 rounded-lg border hover-elevate cursor-pointer"
-      onClick={() => onClick(document)}
+      className={`flex items-center gap-3 p-3 rounded-lg border ${hasUrl ? 'hover-elevate cursor-pointer' : 'opacity-70'}`}
+      onClick={() => hasUrl && onClick(document)}
       data-testid={`document-item-${document.id}`}
     >
       <div className="p-2 bg-muted rounded-md">
@@ -50,7 +61,7 @@ function DocumentItem({ document, onClick }) {
       </div>
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium truncate">{document.original_file_name}</p>
-        <div className="flex items-center gap-2 mt-1">
+        <div className="flex items-center gap-2 mt-1 flex-wrap">
           <Badge 
             variant="outline" 
             className="text-xs"
@@ -61,6 +72,9 @@ function DocumentItem({ document, onClick }) {
           </Badge>
           {document.version > 1 && (
             <span className="text-xs text-muted-foreground">v{document.version}</span>
+          )}
+          {!hasUrl && (
+            <span className="text-xs text-amber-600">No file URL available</span>
           )}
         </div>
       </div>
@@ -87,26 +101,46 @@ export default function DocumentsCard({ formSubmissionId, submissionData, formSc
       if (!fields) return;
       fields.forEach(field => {
         const fieldKey = field.name || field.id;
-        if (field.type === 'file' && fieldKey && submissionData[fieldKey]) {
-          let fileData = submissionData[fieldKey];
-          
-          // Parse JSON string if needed (CustomFieldFileUpload stores as JSON string)
-          if (typeof fileData === 'string') {
+        if (!fieldKey || !submissionData[fieldKey]) return;
+        
+        let rawValue = submissionData[fieldKey];
+        let fileData = null;
+        let isFileField = false;
+        
+        // Check if this is a file type field
+        if (field.type === 'file') {
+          isFileField = true;
+          if (typeof rawValue === 'string') {
             try {
-              if (fileData.startsWith('{')) {
-                fileData = JSON.parse(fileData);
-              } else {
-                // Plain string - treat as URL/filename
-                fileData = { file_url: fileData, file_name: fileData };
+              if (rawValue.startsWith('{')) {
+                fileData = JSON.parse(rawValue);
+              } else if (rawValue) {
+                // Plain filename - still include it (might be useful to show)
+                fileData = { file_name: rawValue, file_url: null };
               }
             } catch {
-              fileData = { file_url: fileData, file_name: fileData };
+              fileData = { file_name: rawValue, file_url: null };
             }
+          } else if (typeof rawValue === 'object') {
+            fileData = rawValue;
           }
-          
-          // Skip if no valid file_url
-          if (!fileData?.file_url) return;
-          
+        }
+        
+        // Also check custom_field types that might contain file upload data
+        if (field.type === 'custom_field' && typeof rawValue === 'string' && rawValue.startsWith('{')) {
+          try {
+            const parsed = JSON.parse(rawValue);
+            // Check if it looks like file upload data
+            if (parsed.file_url || parsed.file_name) {
+              isFileField = true;
+              fileData = parsed;
+            }
+          } catch {
+            // Not JSON, skip
+          }
+        }
+        
+        if (isFileField && fileData) {
           files.push({
             fieldName: fieldKey,
             label: field.label || fieldKey,
