@@ -730,8 +730,10 @@ export default function ReviewSubmissionPage() {
     }
     // Exclude file upload fields (displayed in Documents card)
     fields = fields.filter(f => f.type !== 'file');
-    // Exclude custom fields set to file type upload
-    fields = fields.filter(f => !(f.type === 'custom_field' && f.field_type === 'file'));
+    // Exclude custom fields set to file or image type upload
+    fields = fields.filter(f => !(f.type === 'custom_field' && (f.field_type === 'file' || f.field_type === 'image')));
+    // Exclude image upload fields
+    fields = fields.filter(f => f.type !== 'image');
     return fields;
   }, [form, showDescriptionFields]);
 
