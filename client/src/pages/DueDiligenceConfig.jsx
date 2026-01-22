@@ -865,13 +865,6 @@ export default function DueDiligenceConfigPage() {
                                   className="flex-1"
                                   data-testid={`input-stage-label-${index}`}
                                 />
-                                <Input
-                                  value={stage.id}
-                                  onChange={(e) => updateWorkflowStage(index, 'id', e.target.value.replace(/\s+/g, '_').toLowerCase())}
-                                  className="w-32"
-                                  placeholder="stage_id"
-                                  data-testid={`input-stage-id-${index}`}
-                                />
                                 <Button
                                   variant={stage.is_initial ? "default" : "outline"}
                                   size="sm"
@@ -888,18 +881,6 @@ export default function DueDiligenceConfigPage() {
                                 >
                                   <Trash2 className="w-4 h-4 text-destructive" />
                                 </Button>
-                              </div>
-                              <div className="mt-3 flex items-center gap-4 text-sm">
-                                <Label className="flex items-center gap-2">
-                                  <Switch
-                                    checked={stage.include_in_housekeeping}
-                                    onCheckedChange={(v) => updateWorkflowStage(index, 'include_in_housekeeping', v)}
-                                    data-testid={`switch-housekeeping-${index}`}
-                                  />
-                                  <span className="flex items-center gap-1">
-                                    <Clock className="w-3 h-3" /> Include in reminders
-                                  </span>
-                                </Label>
                               </div>
                             </div>
                           )}
