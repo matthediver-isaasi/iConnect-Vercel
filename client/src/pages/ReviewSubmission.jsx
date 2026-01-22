@@ -11,7 +11,6 @@ import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { ArrowLeft, Save, AlertCircle, Calculator, Loader2, NotebookText, X, RotateCcw, History, Check, Edit2, Clock, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ClipboardList, PanelRightOpen } from "lucide-react";
@@ -312,23 +311,36 @@ function StaticQuestionReview({ questions, responses, notes, onResponseChange, o
         const options = item.options || DEFAULT_LIGHT_OPTIONS;
         
         return (
-          <div key={item.id} className="space-y-2 p-3 bg-muted/50 rounded-lg" data-testid={`static-question-${index}`}>
+          <div key={item.id} className="space-y-3 p-3 bg-muted/50 rounded-lg" data-testid={`static-question-${index}`}>
             <p className="text-sm font-medium">{item.question}</p>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex items-center justify-center gap-3">
               {options.map((opt) => {
                 const optColor = opt.color || '#6b7280';
+                const isSelected = response === opt.id;
+                const scoreValue = opt.score !== undefined ? opt.score : '';
                 return (
-                  <Button
+                  <div
                     key={opt.id}
-                    variant={response === opt.id ? "default" : "outline"}
-                    size="sm"
+                    role="button"
+                    tabIndex={0}
                     onClick={() => onResponseChange(item.id, opt.id)}
-                    style={response === opt.id ? { backgroundColor: optColor, borderColor: optColor } : {}}
-                    className="flex-1 min-w-[60px]"
-                    data-testid={`button-${opt.id}-${item.id}`}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onResponseChange(item.id, opt.id); }}
+                    className="relative flex flex-col items-center gap-1 cursor-pointer"
+                    data-testid={`light-${opt.id}-${item.id}`}
                   >
-                    {opt.label || 'Option'}
-                  </Button>
+                    <div
+                      className={`w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-md ${isSelected ? '' : 'opacity-60'}`}
+                      style={{ 
+                        backgroundColor: optColor,
+                        boxShadow: isSelected ? `0 0 0 4px white, 0 0 0 6px ${optColor}, 0 0 16px 4px ${optColor}` : `0 2px 4px rgba(0,0,0,0.2)`
+                      }}
+                    >
+                      {scoreValue !== '' ? `${scoreValue}%` : ''}
+                    </div>
+                    <span className={`text-xs ${isSelected ? 'font-semibold' : 'text-muted-foreground'}`}>
+                      {opt.label || 'Option'}
+                    </span>
+                  </div>
                 );
               })}
             </div>
@@ -912,27 +924,6 @@ export default function ReviewSubmissionPage() {
             </CardContent>
           </Card>
 
-          {ddConfig?.scoring_approach === 'static_traffic_light' && (
-            <div
-              role="button"
-              tabIndex={0}
-              className="w-full flex items-center justify-between p-3 rounded-md bg-gradient-to-r from-purple-600 to-purple-700 text-white cursor-pointer hover-elevate active-elevate-2"
-              onClick={() => setShowQuestionsDrawer(true)}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowQuestionsDrawer(true); }}
-              data-testid="button-open-questions-drawer"
-            >
-              <div className="flex items-center gap-2">
-                <ClipboardList className="w-4 h-4" />
-                <span className="font-medium">Due Diligence Questions</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <Badge variant="secondary" className="bg-white/20 text-white border-0">
-                  {(ddConfig?.static_questions || []).filter(q => q.type !== 'header').length} questions
-                </Badge>
-                <PanelRightOpen className="w-4 h-4" />
-              </div>
-            </div>
-          )}
 
           <Card className="shadow-lg">
             <CardHeader>
@@ -993,28 +984,63 @@ export default function ReviewSubmissionPage() {
         historyLog={ddSubmission.history_log}
       />
 
-      <Sheet open={showQuestionsDrawer} onOpenChange={setShowQuestionsDrawer}>
-        <SheetContent side="right" className="w-full sm:max-w-md overflow-y-auto">
-          <SheetHeader>
-            <SheetTitle className="flex items-center gap-2">
-              <ClipboardList className="w-5 h-5 text-purple-600" />
-              Due Diligence Questions
-            </SheetTitle>
-            <SheetDescription>
-              Answer each question using the traffic light options
-            </SheetDescription>
-          </SheetHeader>
-          <div className="mt-6">
-            <StaticQuestionReview
-              questions={ddConfig?.static_questions || []}
-              responses={staticQuestionResponses}
-              notes={staticQuestionNotes}
-              onResponseChange={handleStaticResponseChange}
-              onNoteChange={handleStaticNoteChange}
+      {ddConfig?.scoring_approach === 'static_traffic_light' && (
+        <>
+          {showQuestionsDrawer && (
+            <div
+              className="fixed inset-0 z-40 bg-black/50"
+              onClick={() => setShowQuestionsDrawer(false)}
+              aria-hidden="true"
+              data-testid="drawer-backdrop"
             />
+          )}
+          <div
+            role="dialog"
+            aria-modal={showQuestionsDrawer ? "true" : undefined}
+            aria-labelledby="dd-questions-title"
+            className={`fixed top-0 right-0 h-full z-50 flex transition-transform duration-300 ease-in-out ${showQuestionsDrawer ? 'translate-x-0' : 'translate-x-full'}`}
+            style={{ width: 'calc(100vw - 2rem)', maxWidth: '28rem' }}
+            onKeyDown={(e) => { if (e.key === 'Escape' && showQuestionsDrawer) setShowQuestionsDrawer(false); }}
+          >
+            <div
+              role="button"
+              tabIndex={0}
+              aria-label={showQuestionsDrawer ? "Close due diligence questions" : "Open due diligence questions"}
+              className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-full flex flex-col items-center gap-1 py-3 px-2 bg-purple-600 text-white rounded-l-lg cursor-pointer shadow-lg hover-elevate active-elevate-2"
+              onClick={() => setShowQuestionsDrawer(!showQuestionsDrawer)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowQuestionsDrawer(!showQuestionsDrawer); }}
+              data-testid="button-toggle-questions-drawer"
+              style={{ writingMode: 'vertical-rl', textOrientation: 'mixed' }}
+            >
+              <ClipboardList className="w-5 h-5 mb-1" style={{ writingMode: 'horizontal-tb' }} />
+              <span className="text-xs font-medium tracking-wide">DD Questions</span>
+              <Badge variant="secondary" className="bg-white/20 text-white border-0 mt-1 text-[10px]" style={{ writingMode: 'horizontal-tb' }}>
+                {(ddConfig?.static_questions || []).filter(q => q.type !== 'header').length}
+              </Badge>
+            </div>
+            <div className="flex-1 bg-background border-l shadow-xl flex flex-col h-full overflow-hidden">
+              <div className="p-6 border-b">
+                <div className="flex items-center gap-2">
+                  <ClipboardList className="w-5 h-5 text-purple-600" />
+                  <h2 id="dd-questions-title" className="text-lg font-semibold">Due Diligence Questions</h2>
+                </div>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Answer each question using the traffic light options
+                </p>
+              </div>
+              <div className="flex-1 overflow-y-auto p-6">
+                <StaticQuestionReview
+                  questions={ddConfig?.static_questions || []}
+                  responses={staticQuestionResponses}
+                  notes={staticQuestionNotes}
+                  onResponseChange={handleStaticResponseChange}
+                  onNoteChange={handleStaticNoteChange}
+                />
+              </div>
+            </div>
           </div>
-        </SheetContent>
-      </Sheet>
+        </>
+      )}
     </div>
   );
 }
