@@ -13,8 +13,7 @@ import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { ArrowLeft, Save, AlertCircle, Calculator, Loader2, NotebookText, X, RotateCcw, History, Check, Edit2, Clock, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ClipboardList, PanelRightOpen } from "lucide-react";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetTrigger } from "@/components/ui/sheet";
+import { ArrowLeft, Save, AlertCircle, Calculator, Loader2, NotebookText, X, RotateCcw, History, Check, Edit2, Clock, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ClipboardList } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
@@ -909,16 +908,29 @@ export default function ReviewSubmissionPage() {
             <CardContent className="pt-6">
               <div className="flex items-center justify-between mb-4">
                 <span className="font-medium">Due Diligence Score</span>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={handleCalculateScore}
-                  disabled={isCalculatingScore}
-                  data-testid="button-calculate-score"
-                >
-                  {isCalculatingScore ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Calculator className="w-4 h-4 mr-1" />}
-                  Calculate
-                </Button>
+                <div className="flex items-center gap-2">
+                  {ddConfig?.scoring_approach === 'static_traffic_light' && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => setShowQuestionsDrawer(true)}
+                      data-testid="button-open-questions-modal"
+                    >
+                      <ClipboardList className="w-4 h-4 mr-1" />
+                      Questions
+                    </Button>
+                  )}
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={handleCalculateScore}
+                    disabled={isCalculatingScore}
+                    data-testid="button-calculate-score"
+                  >
+                    {isCalculatingScore ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Calculator className="w-4 h-4 mr-1" />}
+                    Calculate
+                  </Button>
+                </div>
               </div>
               <ScoreGradient
                 score={ddSubmission.due_diligence_score}
@@ -989,44 +1001,61 @@ export default function ReviewSubmissionPage() {
       />
 
       {ddConfig?.scoring_approach === 'static_traffic_light' && (
-        <>
-          <Sheet open={showQuestionsDrawer} onOpenChange={setShowQuestionsDrawer}>
-            <SheetTrigger asChild>
-              <button
-                className="fixed right-0 top-1/2 -translate-y-1/2 z-40 flex flex-col items-center justify-center gap-1 py-3 px-1.5 bg-primary text-primary-foreground rounded-l-lg shadow-lg cursor-pointer hover-elevate active-elevate-2"
-                data-testid="button-toggle-questions-drawer"
-                aria-label="Open due diligence questions"
-                style={{ writingMode: 'vertical-rl', textOrientation: 'mixed' }}
-              >
-                <ClipboardList className="w-4 h-4" style={{ writingMode: 'horizontal-tb' }} />
-                <span className="text-xs font-medium tracking-wide">DD Questions</span>
-                <span className="bg-white/20 text-[10px] px-1.5 py-0.5 rounded" style={{ writingMode: 'horizontal-tb' }}>
-                  {(ddConfig?.static_questions || []).filter(q => q.type !== 'header').length}
-                </span>
-              </button>
-            </SheetTrigger>
-              <SheetContent side="right" className="w-full sm:max-w-md flex flex-col p-0">
-                <SheetHeader className="p-6 border-b">
-                  <div className="flex items-center gap-2">
-                    <ClipboardList className="w-5 h-5 text-purple-600" />
-                    <SheetTitle>Due Diligence Questions</SheetTitle>
-                  </div>
-                  <SheetDescription>
-                    Answer each question using the traffic light options
-                  </SheetDescription>
-                </SheetHeader>
-                <div className="flex-1 overflow-y-auto p-6">
-                  <StaticQuestionReview
-                    questions={ddConfig?.static_questions || []}
-                    responses={staticQuestionResponses}
-                    notes={staticQuestionNotes}
-                    onResponseChange={handleStaticResponseChange}
-                    onNoteChange={handleStaticNoteChange}
-                  />
+        <Dialog open={showQuestionsDrawer} onOpenChange={setShowQuestionsDrawer}>
+          <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col p-0 gap-0">
+            <div className="bg-gradient-to-br from-blue-600 to-blue-700 text-white p-6 rounded-t-lg">
+              <div className="flex items-center justify-between gap-2 mb-3">
+                <div className="flex items-center gap-2">
+                  <ClipboardList className="w-5 h-5" />
+                  <span className="font-semibold text-lg">Due Diligence Questions</span>
                 </div>
-              </SheetContent>
-          </Sheet>
-        </>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="text-white hover:bg-white/20"
+                  onClick={() => setShowQuestionsDrawer(false)}
+                  data-testid="button-close-questions-modal"
+                >
+                  <X className="w-4 h-4" />
+                </Button>
+              </div>
+              <ScoreGradient
+                score={ddSubmission.due_diligence_score}
+                riskLevel={ddSubmission.risk_level}
+                customRiskLevels={ddConfig?.custom_risk_levels}
+              />
+              {(() => {
+                const questions = (ddConfig?.static_questions || []).filter(q => q.type !== 'header');
+                const answered = questions.filter(q => staticQuestionResponses[q.id] !== undefined && staticQuestionResponses[q.id] !== null).length;
+                const total = questions.length;
+                const progress = total > 0 ? Math.round((answered / total) * 100) : 0;
+                return (
+                  <div className="mt-4 space-y-1">
+                    <div className="flex items-center justify-between text-sm">
+                      <span>Progress</span>
+                      <span>{answered} of {total} questions answered</span>
+                    </div>
+                    <div className="h-2 bg-white/30 rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-white rounded-full transition-all duration-300"
+                        style={{ width: `${progress}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+            <div className="flex-1 overflow-y-auto p-6 min-h-0">
+              <StaticQuestionReview
+                questions={ddConfig?.static_questions || []}
+                responses={staticQuestionResponses}
+                notes={staticQuestionNotes}
+                onResponseChange={handleStaticResponseChange}
+                onNoteChange={handleStaticNoteChange}
+              />
+            </div>
+          </DialogContent>
+        </Dialog>
       )}
     </div>
   );
