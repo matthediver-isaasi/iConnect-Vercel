@@ -99,7 +99,7 @@ function FilePreview({ fileUrl, mimeType, fileName, fixedHeight }) {
   );
 }
 
-function VersionItem({ version, isSelected, onSelect, showPreview = false, onApprove, onReject, isUpdating, hasApprovedVersion, onAddComment, isAddingComment }) {
+function VersionItem({ version, isSelected, onSelect, showPreview = false, onApprove, onReject, updatingVersionId, updatingAction, hasApprovedVersion, onAddComment, isAddingComment }) {
   const statusConfig = STATUS_CONFIG[version.status] || STATUS_CONFIG.pending;
   const StatusIcon = statusConfig.icon;
   const [expanded, setExpanded] = useState(showPreview);
@@ -107,6 +107,12 @@ function VersionItem({ version, isSelected, onSelect, showPreview = false, onApp
 
   const isApproved = version.status === 'approved';
   const isRejected = version.status === 'rejected';
+  
+  // Check if this specific version is being updated
+  const isThisVersionUpdating = updatingVersionId === version.id;
+  const isApproving = isThisVersionUpdating && updatingAction === 'approve';
+  const isRejecting = isThisVersionUpdating && updatingAction === 'reject';
+  const isAnyUpdating = !!updatingVersionId;
 
   const handleAddComment = () => {
     if (commentText.trim() && onAddComment) {
@@ -140,23 +146,31 @@ function VersionItem({ version, isSelected, onSelect, showPreview = false, onApp
             variant={isApproved ? 'default' : 'outline'}
             size="sm"
             onClick={(e) => { e.stopPropagation(); onApprove(version); }}
-            disabled={isUpdating || isApproved}
+            disabled={isAnyUpdating || isApproved}
             className={`h-7 px-2 ${isApproved ? 'bg-green-600 hover:bg-green-700' : ''}`}
             data-testid={`button-approve-version-${version.id}`}
           >
-            <Check className="w-3 h-3 mr-1" />
-            Approve
+            {isApproving ? (
+              <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+            ) : (
+              <Check className="w-3 h-3 mr-1" />
+            )}
+            {isApproving ? 'Approving...' : 'Approve'}
           </Button>
           <Button
             variant={isRejected ? 'default' : 'outline'}
             size="sm"
             onClick={(e) => { e.stopPropagation(); onReject(version); }}
-            disabled={isUpdating || isRejected || isApproved}
+            disabled={isAnyUpdating || isRejected || isApproved}
             className={`h-7 px-2 ${isRejected ? 'bg-red-600 hover:bg-red-700' : ''}`}
             data-testid={`button-reject-version-${version.id}`}
           >
-            <X className="w-3 h-3 mr-1" />
-            Reject
+            {isRejecting ? (
+              <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+            ) : (
+              <X className="w-3 h-3 mr-1" />
+            )}
+            {isRejecting ? 'Rejecting...' : 'Reject'}
           </Button>
           <Button
             variant="outline"
@@ -254,6 +268,8 @@ export default function DocumentDetailModal({
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [selectedVersion, setSelectedVersion] = useState(null);
+  const [updatingVersionId, setUpdatingVersionId] = useState(null);
+  const [updatingAction, setUpdatingAction] = useState(null);
 
   const { data: versionsData, isLoading: versionsLoading } = useQuery({
     queryKey: ['document-versions', formSubmissionId, document?.field_name],
@@ -276,9 +292,11 @@ export default function DocumentDetailModal({
   const canSupersede = currentVersion?.status !== 'approved';
 
   const updateStatusMutation = useMutation({
-    mutationFn: async ({ status, version }) => {
+    mutationFn: async ({ status, version, previousApprovedId }) => {
       const targetVersion = version || currentVersion;
       
+      // For form-only documents, create first using existing endpoint
+      let targetDocId = targetVersion.id;
       if (targetVersion.isFromForm) {
         const createResult = await apiRequest('POST', '/api/due-diligence/documents/create', {
           formSubmissionId,
@@ -288,15 +306,20 @@ export default function DocumentDetailModal({
           fileSize: document.file_size,
           mimeType: document.mime_type
         });
-        
-        return await apiRequest('POST', '/api/due-diligence/documents/update-status', {
-          documentId: createResult.document.id,
-          status
+        targetDocId = createResult.document.id;
+      }
+      
+      // For approvals, use the combined endpoint that handles aging + approve in one call
+      if (status === 'approved') {
+        return await apiRequest('POST', '/api/due-diligence/documents/approve-with-aging', {
+          documentId: targetDocId,
+          previousApprovedId: previousApprovedId || null
         });
       }
       
+      // For rejections, use the simple update-status endpoint
       return await apiRequest('POST', '/api/due-diligence/documents/update-status', {
-        documentId: targetVersion.id,
+        documentId: targetDocId,
         status
       });
     },
@@ -305,27 +328,27 @@ export default function DocumentDetailModal({
       queryClient.invalidateQueries(['document-versions', formSubmissionId, document?.field_name]);
       toast.success('Document status updated');
       onDocumentUpdated?.();
+      setUpdatingVersionId(null);
+      setUpdatingAction(null);
     },
     onError: (error) => {
       toast.error(error.message || 'Failed to update status');
+      setUpdatingVersionId(null);
+      setUpdatingAction(null);
     }
   });
 
-  const handleApproveVersion = useCallback(async (version) => {
-    try {
-      if (approvedVersion && approvedVersion.id !== version.id) {
-        await apiRequest('POST', '/api/due-diligence/documents/update-status', {
-          documentId: approvedVersion.id,
-          status: 'aged'
-        });
-      }
-      updateStatusMutation.mutate({ status: 'approved', version });
-    } catch (error) {
-      toast.error('Failed to approve version: ' + (error.message || 'Unknown error'));
-    }
+  const handleApproveVersion = useCallback((version) => {
+    setUpdatingVersionId(version.id);
+    setUpdatingAction('approve');
+    // Pass the previous approved version ID to handle aging in a single API call
+    const previousApprovedId = (approvedVersion && approvedVersion.id !== version.id) ? approvedVersion.id : null;
+    updateStatusMutation.mutate({ status: 'approved', version, previousApprovedId });
   }, [approvedVersion, updateStatusMutation]);
 
   const handleRejectVersion = useCallback((version) => {
+    setUpdatingVersionId(version.id);
+    setUpdatingAction('reject');
     updateStatusMutation.mutate({ status: 'rejected', version });
   }, [updateStatusMutation]);
 
@@ -502,7 +525,8 @@ export default function DocumentDetailModal({
                       showPreview={index === 0}
                       onApprove={handleApproveVersion}
                       onReject={handleRejectVersion}
-                      isUpdating={updateStatusMutation.isPending}
+                      updatingVersionId={updatingVersionId}
+                      updatingAction={updatingAction}
                       hasApprovedVersion={!!approvedVersion}
                       onAddComment={handleAddVersionComment}
                       isAddingComment={addCommentMutation.isPending}
@@ -516,7 +540,8 @@ export default function DocumentDetailModal({
                     showPreview={true}
                     onApprove={handleApproveVersion}
                     onReject={handleRejectVersion}
-                    isUpdating={updateStatusMutation.isPending}
+                    updatingVersionId={updatingVersionId}
+                    updatingAction={updatingAction}
                     hasApprovedVersion={!!approvedVersion}
                     onAddComment={handleAddVersionComment}
                     isAddingComment={addCommentMutation.isPending}
