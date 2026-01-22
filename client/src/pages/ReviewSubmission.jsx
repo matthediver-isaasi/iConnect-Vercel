@@ -934,10 +934,10 @@ export default function ReviewSubmissionPage() {
                 <span className="text-muted-foreground">Last Updated</span>
                 <span>{ddSubmission.updated_at ? format(new Date(ddSubmission.updated_at), 'MMM d, yyyy h:mm a') : '--'}</span>
               </div>
-              {ddSubmission.reviewed_by && (
+              {(ddSubmission.reviewed_by_name || ddSubmission.reviewed_by) && (
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Reviewed By</span>
-                  <span>{ddSubmission.reviewed_by}</span>
+                  <span>{ddSubmission.reviewed_by_name || ddSubmission.reviewed_by}</span>
                 </div>
               )}
               <div className="flex items-center justify-between">

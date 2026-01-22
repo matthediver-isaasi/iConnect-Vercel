@@ -92,25 +92,27 @@ export default async function handler(req, res) {
       }
     }
 
-    // DEBUG: Trace document display issue
-    console.log('[DD Get] Response data:', {
-      hasFormSubmission: !!ddSubmission?.form_submission,
-      formSubmissionId: ddSubmission?.form_submission?.id,
-      hasSubmissionData: !!ddSubmission?.form_submission?.submission_data,
-      submissionDataType: typeof ddSubmission?.form_submission?.submission_data,
-      submissionDataKeys: ddSubmission?.form_submission?.submission_data 
-        ? Object.keys(ddSubmission.form_submission.submission_data).slice(0, 10) 
-        : [],
-      hasForm: !!form,
-      formHasFields: !!form?.fields,
-      formFieldsCount: form?.fields?.length,
-      formHasPages: !!form?.pages,
-      formPagesCount: form?.pages?.length
-    });
+    // Look up reviewer name if there's a reviewed_by email
+    let reviewerName = null;
+    if (ddSubmission.reviewed_by) {
+      const { data: reviewer } = await supabase
+        .from('member')
+        .select('first_name, last_name')
+        .eq('email', ddSubmission.reviewed_by)
+        .eq('tenant_id', tenantCtx.tenantId)
+        .single();
+      
+      if (reviewer) {
+        reviewerName = [reviewer.first_name, reviewer.last_name].filter(Boolean).join(' ') || null;
+      }
+    }
 
     return res.status(200).json({
       success: true,
-      submission: ddSubmission,
+      submission: {
+        ...ddSubmission,
+        reviewed_by_name: reviewerName
+      },
       config: ddConfig,
       form: form,
       organization: organization
