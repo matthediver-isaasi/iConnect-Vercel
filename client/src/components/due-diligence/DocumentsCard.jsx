@@ -88,11 +88,29 @@ export default function DocumentsCard({ formSubmissionId, submissionData, formSc
       fields.forEach(field => {
         const fieldKey = field.name || field.id;
         if (field.type === 'file' && fieldKey && submissionData[fieldKey]) {
-          const fileData = submissionData[fieldKey];
+          let fileData = submissionData[fieldKey];
+          
+          // Parse JSON string if needed (CustomFieldFileUpload stores as JSON string)
+          if (typeof fileData === 'string') {
+            try {
+              if (fileData.startsWith('{')) {
+                fileData = JSON.parse(fileData);
+              } else {
+                // Plain string - treat as URL/filename
+                fileData = { file_url: fileData, file_name: fileData };
+              }
+            } catch {
+              fileData = { file_url: fileData, file_name: fileData };
+            }
+          }
+          
+          // Skip if no valid file_url
+          if (!fileData?.file_url) return;
+          
           files.push({
             fieldName: fieldKey,
             label: field.label || fieldKey,
-            fileData: typeof fileData === 'object' ? fileData : { file_url: fileData, file_name: fileData }
+            fileData
           });
         }
       });
