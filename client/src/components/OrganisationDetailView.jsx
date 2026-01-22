@@ -40,6 +40,7 @@ import {
   User,
   Calendar,
   ClipboardList,
+  ClipboardCheck,
   Wallet,
   FileText,
   LayoutGrid,
@@ -59,7 +60,8 @@ import {
   Clock,
   Send,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  Eye
 } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -355,6 +357,65 @@ export default function OrganisationDetailView({
   });
   
   const orgContracts = orgContractsData?.contracts || [];
+
+  // Organization Form Submissions query
+  const { data: orgFormSubmissions = [], isLoading: formSubmissionsLoading } = useQuery({
+    queryKey: ['org-form-submissions', organization?.id],
+    enabled: !!organization?.id && (activeTab === 'forms' || activeTab === 'activity'),
+    queryFn: async () => {
+      try {
+        const submissions = await base44.entities.FormSubmission.list({
+          filter: { organization_id: organization.id }
+        });
+        // Sort by created_at descending
+        return (submissions || []).sort((a, b) => 
+          new Date(b.created_at || 0) - new Date(a.created_at || 0)
+        );
+      } catch {
+        return [];
+      }
+    }
+  });
+
+  // Fetch form details for the submissions
+  const { data: formsMap = {} } = useQuery({
+    queryKey: ['forms-for-submissions', orgFormSubmissions.map(s => s.form_id).join(',')],
+    enabled: orgFormSubmissions.length > 0,
+    queryFn: async () => {
+      try {
+        const formIds = [...new Set(orgFormSubmissions.map(s => s.form_id).filter(Boolean))];
+        const formsData = {};
+        for (const formId of formIds) {
+          const form = await base44.entities.Form.get(formId);
+          if (form) formsData[formId] = form;
+        }
+        return formsData;
+      } catch {
+        return {};
+      }
+    }
+  });
+
+  // Form submission preview state
+  const [previewSubmission, setPreviewSubmission] = useState(null);
+  const [deleteSubmissionId, setDeleteSubmissionId] = useState(null);
+  const [deleteConfirmStep, setDeleteConfirmStep] = useState(0);
+
+  // Delete form submission mutation
+  const deleteFormSubmissionMutation = useMutation({
+    mutationFn: async (submissionId) => {
+      await base44.entities.FormSubmission.delete(submissionId);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['org-form-submissions', organization.id] });
+      toast.success('Form submission deleted');
+      setDeleteSubmissionId(null);
+      setDeleteConfirmStep(0);
+    },
+    onError: (error) => {
+      toast.error('Failed to delete submission: ' + error.message);
+    }
+  });
 
   // Create note mutation
   const createNoteMutation = useMutation({
@@ -1040,7 +1101,7 @@ export default function OrganisationDetailView({
         </div>
         
         {!isNew && (
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="px-6">
+          <Tabs value={activeTab} onValueChange={(val) => { setActiveTab(val); setDeleteSubmissionId(null); setDeleteConfirmStep(0); }} className="px-6">
             <TabsList className="bg-transparent border-b-0">
               <TabsTrigger value="overview" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none" data-testid="tab-overview">
                 Overview
@@ -1053,6 +1114,9 @@ export default function OrganisationDetailView({
               </TabsTrigger>
               <TabsTrigger value="notes" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none" data-testid="tab-notes">
                 Notes
+              </TabsTrigger>
+              <TabsTrigger value="forms" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none" data-testid="tab-forms">
+                Forms
               </TabsTrigger>
               <TabsTrigger value="documents" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none" data-testid="tab-documents">
                 Documents
@@ -1243,31 +1307,87 @@ export default function OrganisationDetailView({
               </CardTitle>
             </CardHeader>
             <CardContent>
-              {bookingsLoading ? (
+              {(bookingsLoading || formSubmissionsLoading) ? (
                 <div className="flex items-center justify-center py-12">
                   <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
                 </div>
-              ) : orgBookings.length === 0 ? (
+              ) : (orgBookings.length === 0 && orgFormSubmissions.length === 0) ? (
                 <div className="text-center py-12 text-slate-500">
                   <Calendar className="w-12 h-12 mx-auto mb-3 text-slate-300" />
                   <p>No recent activity</p>
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {orgBookings.slice(0, 10).map(booking => (
-                    <div key={booking.id} className="flex items-start gap-4 p-4 bg-slate-50 rounded-lg" data-testid={`activity-${booking.id}`}>
-                      <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
-                        <Calendar className="w-5 h-5 text-blue-600" />
-                      </div>
-                      <div>
-                        <p className="font-medium text-slate-900">{booking.event_title || 'Event Booking'}</p>
-                        <p className="text-sm text-slate-500">
-                          {booking.created_date ? new Date(booking.created_date).toLocaleDateString('en-GB') : 'Unknown date'}
-                        </p>
-                        <Badge variant="outline" className="mt-2 capitalize">{booking.status || 'confirmed'}</Badge>
-                      </div>
-                    </div>
-                  ))}
+                  {(() => {
+                    const bookingItems = orgBookings.slice(0, 10).map(booking => ({
+                      type: 'booking',
+                      id: booking.id,
+                      date: new Date(booking.created_date || 0),
+                      data: booking
+                    }));
+                    const submissionItems = orgFormSubmissions.slice(0, 10).map(submission => ({
+                      type: 'form_submission',
+                      id: submission.id,
+                      date: new Date(submission.created_at || 0),
+                      data: submission
+                    }));
+                    const allItems = [...bookingItems, ...submissionItems]
+                      .sort((a, b) => b.date - a.date)
+                      .slice(0, 15);
+                    
+                    return allItems.map(item => {
+                      if (item.type === 'booking') {
+                        const booking = item.data;
+                        return (
+                          <div key={`booking-${booking.id}`} className="flex items-start gap-4 p-4 bg-slate-50 dark:bg-slate-800 rounded-lg" data-testid={`activity-booking-${booking.id}`}>
+                            <div className="w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center flex-shrink-0">
+                              <Calendar className="w-5 h-5 text-blue-600" />
+                            </div>
+                            <div>
+                              <p className="font-medium text-slate-900 dark:text-slate-100">{booking.event_title || 'Event Booking'}</p>
+                              <p className="text-sm text-slate-500">
+                                {booking.created_date ? new Date(booking.created_date).toLocaleDateString('en-GB') : 'Unknown date'}
+                              </p>
+                              <Badge variant="outline" className="mt-2 capitalize">{booking.status || 'confirmed'}</Badge>
+                            </div>
+                          </div>
+                        );
+                      } else {
+                        const submission = item.data;
+                        const form = formsMap[submission.form_id];
+                        return (
+                          <div 
+                            key={`submission-${submission.id}`} 
+                            className="flex items-start gap-4 p-4 bg-slate-50 dark:bg-slate-800 rounded-lg cursor-pointer hover-elevate"
+                            onClick={() => setPreviewSubmission(submission)}
+                            data-testid={`activity-submission-${submission.id}`}
+                          >
+                            <div className="w-10 h-10 rounded-full bg-green-100 dark:bg-green-900 flex items-center justify-center flex-shrink-0">
+                              <ClipboardCheck className="w-5 h-5 text-green-600" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="font-medium text-slate-900 dark:text-slate-100">{form?.name || 'Form Submission'}</p>
+                              <p className="text-sm text-slate-500">
+                                {submission.created_at ? format(new Date(submission.created_at), 'dd MMM yyyy, HH:mm') : 'Unknown date'}
+                              </p>
+                              <Badge variant="outline" className="mt-2">Form Submitted</Badge>
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setPreviewSubmission(submission);
+                              }}
+                              data-testid={`button-activity-preview-${submission.id}`}
+                            >
+                              <Eye className="w-4 h-4 text-slate-400" />
+                            </Button>
+                          </div>
+                        );
+                      }
+                    });
+                  })()}
                 </div>
               )}
             </CardContent>
@@ -1570,6 +1690,126 @@ export default function OrganisationDetailView({
           </Card>
         )}
 
+        {activeTab === 'forms' && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <ClipboardCheck className="w-5 h-5 text-blue-600" />
+                Form Submissions
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {formSubmissionsLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+                </div>
+              ) : orgFormSubmissions.length === 0 ? (
+                <div className="text-center py-12 text-slate-500">
+                  <ClipboardCheck className="w-12 h-12 mx-auto mb-3 text-slate-300" />
+                  <p>No form submissions for this organisation</p>
+                  <p className="text-sm text-slate-400 mt-1">
+                    Form submissions linked to this organisation will appear here
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {orgFormSubmissions.map(submission => {
+                    const form = formsMap[submission.form_id];
+                    const isDeleting = deleteSubmissionId === submission.id;
+                    return (
+                      <div 
+                        key={submission.id} 
+                        className="p-4 bg-slate-50 dark:bg-slate-800 rounded-lg"
+                        data-testid={`submission-${submission.id}`}
+                      >
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex-1 min-w-0">
+                            <h4 className="font-medium text-slate-900 dark:text-slate-100">
+                              {form?.name || 'Unknown Form'}
+                            </h4>
+                            <p className="text-sm text-slate-500 mt-1">
+                              Submitted: {submission.created_at ? format(new Date(submission.created_at), 'dd MMM yyyy, HH:mm') : 'Unknown'}
+                            </p>
+                            {submission.form_values && (
+                              <div className="mt-2 text-sm text-slate-600 dark:text-slate-400">
+                                {(() => {
+                                  const values = submission.form_values;
+                                  const previewFields = Object.entries(values).slice(0, 3);
+                                  return previewFields.map(([key, value]) => {
+                                    const displayValue = typeof value === 'object' ? JSON.stringify(value) : String(value || '');
+                                    const truncated = displayValue.length > 50 ? displayValue.slice(0, 50) + '...' : displayValue;
+                                    return (
+                                      <span key={key} className="inline-block mr-3">
+                                        <span className="text-slate-400">{key}:</span> {truncated}
+                                      </span>
+                                    );
+                                  });
+                                })()}
+                                {Object.keys(submission.form_values || {}).length > 3 && (
+                                  <span className="text-slate-400">+{Object.keys(submission.form_values).length - 3} more</span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setPreviewSubmission(submission)}
+                              data-testid={`button-preview-submission-${submission.id}`}
+                            >
+                              <Eye className="w-4 h-4 mr-1" />
+                              Preview
+                            </Button>
+                            {isAdmin && (
+                              <Button
+                                variant={isDeleting && deleteConfirmStep === 1 ? 'destructive' : 'outline'}
+                                size="sm"
+                                onClick={() => {
+                                  if (isDeleting && deleteConfirmStep === 1) {
+                                    deleteFormSubmissionMutation.mutate(submission.id);
+                                  } else {
+                                    setDeleteSubmissionId(submission.id);
+                                    setDeleteConfirmStep(1);
+                                  }
+                                }}
+                                disabled={deleteFormSubmissionMutation.isPending}
+                                data-testid={`button-delete-submission-${submission.id}`}
+                              >
+                                {deleteFormSubmissionMutation.isPending && isDeleting ? (
+                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : (
+                                  <>
+                                    <Trash2 className="w-4 h-4 mr-1" />
+                                    {isDeleting && deleteConfirmStep === 1 ? 'Confirm Delete' : 'Delete'}
+                                  </>
+                                )}
+                              </Button>
+                            )}
+                            {isDeleting && deleteConfirmStep === 1 && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => {
+                                  setDeleteSubmissionId(null);
+                                  setDeleteConfirmStep(0);
+                                }}
+                                data-testid={`button-cancel-delete-${submission.id}`}
+                              >
+                                Cancel
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
         {activeTab === 'documents' && (
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-2">
@@ -1729,6 +1969,71 @@ export default function OrganisationDetailView({
               >
                 Delete
               </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        <AlertDialog open={!!previewSubmission} onOpenChange={(open) => !open && setPreviewSubmission(null)}>
+          <AlertDialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+            <AlertDialogHeader>
+              <AlertDialogTitle className="flex items-center gap-2">
+                <ClipboardCheck className="w-5 h-5 text-blue-600" />
+                Form Submission Preview
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                {previewSubmission && formsMap[previewSubmission.form_id]?.name || 'Form Submission'} - 
+                Submitted {previewSubmission?.created_at ? format(new Date(previewSubmission.created_at), 'dd MMM yyyy, HH:mm') : 'Unknown'}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <div className="py-4">
+              {previewSubmission?.form_values && (
+                <div className="space-y-3">
+                  {(() => {
+                    const form = formsMap[previewSubmission.form_id];
+                    const fields = form?.fields || [];
+                    const values = previewSubmission.form_values;
+                    
+                    const displayFields = fields.length > 0 
+                      ? fields.map(field => ({
+                          key: field.id,
+                          label: field.label || field.id,
+                          value: values[field.id]
+                        })).filter(f => f.value !== undefined && f.value !== null && f.value !== '')
+                      : Object.entries(values).map(([key, value]) => ({
+                          key,
+                          label: key.replace(/_/g, ' ').replace(/([A-Z])/g, ' $1').trim(),
+                          value
+                        }));
+
+                    return displayFields.map(({ key, label, value }) => {
+                      let displayValue;
+                      if (typeof value === 'boolean') {
+                        displayValue = value ? 'Yes' : 'No';
+                      } else if (Array.isArray(value)) {
+                        displayValue = value.join(', ');
+                      } else if (typeof value === 'object' && value !== null) {
+                        displayValue = JSON.stringify(value, null, 2);
+                      } else {
+                        displayValue = String(value || '');
+                      }
+                      
+                      return (
+                        <div key={key} className="p-3 bg-slate-50 dark:bg-slate-800 rounded-lg">
+                          <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">
+                            {label}
+                          </p>
+                          <p className="text-slate-900 dark:text-slate-100 whitespace-pre-wrap">
+                            {displayValue || <span className="text-slate-400 italic">Empty</span>}
+                          </p>
+                        </div>
+                      );
+                    });
+                  })()}
+                </div>
+              )}
+            </div>
+            <AlertDialogFooter>
+              <AlertDialogCancel data-testid="button-close-preview">Close</AlertDialogCancel>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
