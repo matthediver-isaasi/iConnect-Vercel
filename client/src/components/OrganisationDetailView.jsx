@@ -367,9 +367,9 @@ export default function OrganisationDetailView({
         const submissions = await base44.entities.FormSubmission.list({
           filter: { organization_id: organization.id }
         });
-        // Sort by created_at descending
+        // Sort by created_date descending
         return (submissions || []).sort((a, b) => 
-          new Date(b.created_at || 0) - new Date(a.created_at || 0)
+          new Date(b.created_date || 0) - new Date(a.created_date || 0)
         );
       } catch {
         return [];
@@ -1328,7 +1328,7 @@ export default function OrganisationDetailView({
                     const submissionItems = orgFormSubmissions.slice(0, 10).map(submission => ({
                       type: 'form_submission',
                       id: submission.id,
-                      date: new Date(submission.created_at || 0),
+                      date: new Date(submission.created_date || 0),
                       data: submission
                     }));
                     const allItems = [...bookingItems, ...submissionItems]
@@ -1368,7 +1368,7 @@ export default function OrganisationDetailView({
                             <div className="flex-1 min-w-0">
                               <p className="font-medium text-slate-900 dark:text-slate-100">{form?.name || 'Form Submission'}</p>
                               <p className="text-sm text-slate-500">
-                                {submission.created_at ? format(new Date(submission.created_at), 'dd MMM yyyy, HH:mm') : 'Unknown date'}
+                                {submission.created_date ? format(new Date(submission.created_date), 'dd MMM yyyy, HH:mm') : 'Unknown date'}
                               </p>
                               <Badge variant="outline" className="mt-2">Form Submitted</Badge>
                             </div>
@@ -1728,12 +1728,12 @@ export default function OrganisationDetailView({
                               {form?.name || 'Unknown Form'}
                             </h4>
                             <p className="text-sm text-slate-500 mt-1">
-                              Submitted: {submission.created_at ? format(new Date(submission.created_at), 'dd MMM yyyy, HH:mm') : 'Unknown'}
+                              Submitted: {submission.created_date ? format(new Date(submission.created_date), 'dd MMM yyyy, HH:mm') : 'Unknown'}
                             </p>
-                            {submission.form_values && (
+                            {submission.submission_data && (
                               <div className="mt-2 text-sm text-slate-600 dark:text-slate-400">
                                 {(() => {
-                                  const values = submission.form_values;
+                                  const values = submission.submission_data;
                                   const previewFields = Object.entries(values).slice(0, 3);
                                   return previewFields.map(([key, value]) => {
                                     const displayValue = typeof value === 'object' ? JSON.stringify(value) : String(value || '');
@@ -1745,8 +1745,8 @@ export default function OrganisationDetailView({
                                     );
                                   });
                                 })()}
-                                {Object.keys(submission.form_values || {}).length > 3 && (
-                                  <span className="text-slate-400">+{Object.keys(submission.form_values).length - 3} more</span>
+                                {Object.keys(submission.submission_data || {}).length > 3 && (
+                                  <span className="text-slate-400">+{Object.keys(submission.submission_data).length - 3} more</span>
                                 )}
                               </div>
                             )}
@@ -1982,16 +1982,16 @@ export default function OrganisationDetailView({
               </AlertDialogTitle>
               <AlertDialogDescription>
                 {previewSubmission && formsMap[previewSubmission.form_id]?.name || 'Form Submission'} - 
-                Submitted {previewSubmission?.created_at ? format(new Date(previewSubmission.created_at), 'dd MMM yyyy, HH:mm') : 'Unknown'}
+                Submitted {previewSubmission?.created_date ? format(new Date(previewSubmission.created_date), 'dd MMM yyyy, HH:mm') : 'Unknown'}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <div className="py-4">
-              {previewSubmission?.form_values && (
+              {previewSubmission?.submission_data && (
                 <div className="space-y-3">
                   {(() => {
                     const form = formsMap[previewSubmission.form_id];
                     const fields = form?.fields || [];
-                    const values = previewSubmission.form_values;
+                    const values = previewSubmission.submission_data;
                     
                     const displayFields = fields.length > 0 
                       ? fields.map(field => ({
