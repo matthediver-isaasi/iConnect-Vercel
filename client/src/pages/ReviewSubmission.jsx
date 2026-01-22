@@ -256,7 +256,19 @@ function ReviewFieldEditor({
           />
         ) : (
           <div className="p-2 bg-white rounded border text-sm min-h-[40px]">
-            {reviewedValue || displayOriginal || <span className="text-muted-foreground italic">No value</span>}
+            {(() => {
+              const val = reviewedValue ?? displayOriginal;
+              if (!val) return <span className="text-muted-foreground italic">No value</span>;
+              if (typeof val === 'string') return val;
+              if (Array.isArray(val)) return val.join(', ');
+              if (typeof val === 'object') {
+                if (val.firstName || val.lastName) {
+                  return [val.firstName, val.lastName].filter(Boolean).join(' ');
+                }
+                return JSON.stringify(val, null, 2);
+              }
+              return String(val);
+            })()}
           </div>
         )}
         
@@ -511,12 +523,29 @@ export default function ReviewSubmissionPage() {
     const cardReferenceField = ddConfig?.card_reference_field;
     const formValues = ddSubmission.original_form_values || {};
     
+    // Helper to safely convert any value to a display string
+    const toDisplayString = (val) => {
+      if (!val) return '';
+      if (typeof val === 'string') return val;
+      if (typeof val === 'object') {
+        // Handle contact field objects
+        if (val.firstName || val.lastName) {
+          return [val.firstName, val.lastName].filter(Boolean).join(' ');
+        }
+        // Handle other objects
+        return JSON.stringify(val);
+      }
+      return String(val);
+    };
+    
     if (cardReferenceField === '__organization_name__' && organization?.name) {
       return organization.name;
     } else if (cardReferenceField && formValues[cardReferenceField]) {
-      return formValues[cardReferenceField];
+      return toDisplayString(formValues[cardReferenceField]);
     }
-    return organization?.name || formValues.organization_name || formValues.company_name || formValues.name || ddSubmission.application_uid;
+    
+    const fallbackValue = organization?.name || formValues.organization_name || formValues.company_name || formValues.name || ddSubmission.application_uid;
+    return toDisplayString(fallbackValue);
   }, [ddSubmission, ddConfig, organization]);
 
   const workflowStages = useMemo(() => {
