@@ -167,10 +167,6 @@ export default function DocumentsCard({ formSubmissionId, submissionData, formSc
   }, [formSchema, submissionData]);
 
   const documents = useMemo(() => {
-    const result = [];
-    const usedFieldNames = new Set();
-    
-    // Build a map of db documents by field_name for quick lookup
     const dbDocMap = new Map();
     (dbDocuments || []).forEach(doc => {
       if (doc.is_current_version) {
@@ -178,39 +174,26 @@ export default function DocumentsCard({ formSubmissionId, submissionData, formSc
       }
     });
 
-    // First, add documents matched from form fields (enriched with db data if available)
-    fileFieldsFromForm.forEach(fileField => {
-      usedFieldNames.add(fileField.fieldName);
+    return fileFieldsFromForm.map(fileField => {
       const dbDoc = dbDocMap.get(fileField.fieldName);
       if (dbDoc) {
-        result.push({ ...dbDoc, label: fileField.label });
-      } else {
-        result.push({
-          id: `form-${fileField.fieldName}`,
-          field_name: fileField.fieldName,
-          original_file_name: fileField.fileData.file_name || fileField.label,
-          file_url: fileField.fileData.file_url,
-          file_name: fileField.fileData.file_name,
-          file_size: fileField.fileData.file_size,
-          mime_type: fileField.fileData.mime_type,
-          status: 'pending',
-          version: 1,
-          is_current_version: true,
-          label: fileField.label,
-          isFromForm: true
-        });
+        return { ...dbDoc, label: fileField.label };
       }
+      return {
+        id: `form-${fileField.fieldName}`,
+        field_name: fileField.fieldName,
+        original_file_name: fileField.fileData.file_name || fileField.label,
+        file_url: fileField.fileData.file_url,
+        file_name: fileField.fileData.file_name,
+        file_size: fileField.fileData.file_size,
+        mime_type: fileField.fileData.mime_type,
+        status: 'pending',
+        version: 1,
+        is_current_version: true,
+        label: fileField.label,
+        isFromForm: true
+      };
     });
-
-    // Second, add any db documents that weren't matched to form fields
-    // This ensures documents in the database are always displayed
-    (dbDocuments || []).forEach(doc => {
-      if (doc.is_current_version && !usedFieldNames.has(doc.field_name)) {
-        result.push(doc);
-      }
-    });
-
-    return result;
   }, [fileFieldsFromForm, dbDocuments]);
 
   if (dbLoading) {
