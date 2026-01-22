@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS submission_document (
   tenant_id UUID NOT NULL REFERENCES tenant(id) ON DELETE CASCADE,
   form_submission_id UUID NOT NULL REFERENCES form_submission(id) ON DELETE CASCADE,
   
-  -- Document identification
+  -- Document identification --
   field_name TEXT NOT NULL, -- The form field name this document is for
   original_file_name TEXT NOT NULL, -- Original filename from upload
   

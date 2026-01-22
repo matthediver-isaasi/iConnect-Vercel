@@ -53,6 +53,7 @@ export default function DueDiligenceConfigPage() {
   const [scoringApproach, setScoringApproach] = useState('dynamic');
   const [defaultReviewState, setDefaultReviewState] = useState('amended');
   const [cardReferenceField, setCardReferenceField] = useState('');
+  const [showDescriptionFields, setShowDescriptionFields] = useState(false);
   const [scoringRules, setScoringRules] = useState({ rules: [], risk_thresholds: {} });
   const [staticQuestions, setStaticQuestions] = useState([]);
   const [customRiskLevels, setCustomRiskLevels] = useState(DEFAULT_RISK_LEVELS);
@@ -110,6 +111,7 @@ export default function DueDiligenceConfigPage() {
       setScoringApproach(ddConfig.scoring_approach || 'dynamic');
       setDefaultReviewState(ddConfig.default_review_state || 'amended');
       setCardReferenceField(ddConfig.card_reference_field || '');
+      setShowDescriptionFields(ddConfig.show_description_fields || false);
       setScoringRules(ddConfig.scoring_rules || { rules: [], risk_thresholds: {} });
       setStaticQuestions(ddConfig.static_questions || []);
       setCustomRiskLevels(ddConfig.custom_risk_levels?.length > 0 ? ddConfig.custom_risk_levels : DEFAULT_RISK_LEVELS);
@@ -127,6 +129,7 @@ export default function DueDiligenceConfigPage() {
         scoring_approach: data.scoringApproach,
         default_review_state: data.defaultReviewState,
         card_reference_field: data.cardReferenceField || null,
+        show_description_fields: data.showDescriptionFields || false,
         scoring_rules: data.scoringRules,
         static_questions: data.staticQuestions,
         custom_risk_levels: data.customRiskLevels,
@@ -155,6 +158,7 @@ export default function DueDiligenceConfigPage() {
       scoringApproach,
       defaultReviewState,
       cardReferenceField,
+      showDescriptionFields,
       scoringRules,
       staticQuestions,
       customRiskLevels,
@@ -481,6 +485,22 @@ export default function DueDiligenceConfigPage() {
                     }
                   </SelectContent>
                 </Select>
+              </div>
+
+              <div className="space-y-3 pt-4 border-t">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label className="text-base font-medium">Show Description Fields</Label>
+                    <p className="text-sm text-muted-foreground">
+                      Display instruction/description-only fields in the review view. These fields show formatted text but don't collect data.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={showDescriptionFields}
+                    onCheckedChange={setShowDescriptionFields}
+                    data-testid="switch-show-description-fields"
+                  />
+                </div>
               </div>
             </CardContent>
           </Card>

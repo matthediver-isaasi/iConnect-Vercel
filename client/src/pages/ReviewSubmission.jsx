@@ -122,11 +122,32 @@ function ReviewFieldEditor({
   // Check if this is a due diligence only field (reviewer-only, not from submission)
   const isDueDiligenceOnly = field.due_diligence === true;
   
+  // Check if this is an instructions/description-only field
+  const isInstructionsField = field.type === 'instructions';
+  
   const displayOriginal = Array.isArray(originalValue) 
     ? originalValue.join(', ') 
     : (typeof originalValue === 'object' && originalValue !== null)
       ? JSON.stringify(originalValue, null, 2)
       : (originalValue || '');
+
+  // Instructions/description-only fields: display formatted content, no interaction
+  if (isInstructionsField) {
+    return (
+      <div 
+        className="col-span-2 p-4 border rounded-lg bg-slate-50 border-slate-200"
+        data-testid={`review-field-instructions-${stateKey}`}
+      >
+        {field.label && (
+          <Label className="text-sm font-medium mb-2 block">{field.label}</Label>
+        )}
+        <div 
+          className="prose prose-sm max-w-none text-muted-foreground"
+          dangerouslySetInnerHTML={{ __html: field.content || '<p>No instructions provided.</p>' }}
+        />
+      </div>
+    );
+  }
 
   // Due diligence only fields: single column, blue background, no toggle
   if (isDueDiligenceOnly) {
@@ -600,10 +621,17 @@ export default function ReviewSubmissionPage() {
     updateStatusMutation.mutate(newStatus);
   };
 
-  // Get all visible form fields
+  // Check if we should show description/instructions fields
+  const showDescriptionFields = ddConfig?.show_description_fields || false;
+
+  // Get all visible form fields (optionally filtering out instructions fields)
   const allFormFields = useMemo(() => {
-    return form?.fields?.filter(f => f.visible !== false) || [];
-  }, [form]);
+    let fields = form?.fields?.filter(f => f.visible !== false) || [];
+    if (!showDescriptionFields) {
+      fields = fields.filter(f => f.type !== 'instructions');
+    }
+    return fields;
+  }, [form, showDescriptionFields]);
 
   // Get pages from form
   const pages = useMemo(() => form?.pages || [], [form]);
