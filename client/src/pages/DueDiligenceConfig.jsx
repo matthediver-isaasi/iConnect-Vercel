@@ -42,8 +42,8 @@ const PRESET_COLORS = [
 ];
 
 const DEFAULT_LIGHT_OPTIONS = [
-  { id: 'green', label: 'Green', color: '#22c55e', score: 100 },
-  { id: 'amber', label: 'Amber', color: '#f59e0b', score: 50 },
+  { id: 'green', label: 'Green', color: '#22c55e', score: 2 },
+  { id: 'amber', label: 'Amber', color: '#f59e0b', score: 1 },
   { id: 'red', label: 'Red', color: '#ef4444', score: 0 }
 ];
 
@@ -681,7 +681,7 @@ export default function DueDiligenceConfigPage() {
                                 key={opt.id}
                                 className="w-4 h-4 rounded-full"
                                 style={{ backgroundColor: opt.color }}
-                                title={`${opt.label}: ${opt.score}%`}
+                                title={`${opt.label}: ${opt.score} points`}
                               />
                             ))}
                           </div>
@@ -736,11 +736,10 @@ export default function DueDiligenceConfigPage() {
                                       value={opt.score}
                                       onChange={(e) => updateLightOption(index, optIndex, 'score', parseInt(e.target.value) || 0)}
                                       min={0}
-                                      max={100}
                                       className="w-16"
                                       data-testid={`input-option-score-${index}-${optIndex}`}
                                     />
-                                    <span className="text-sm text-muted-foreground">%</span>
+                                    <span className="text-sm text-muted-foreground">pts</span>
                                   </div>
                                   <Button
                                     variant="ghost"

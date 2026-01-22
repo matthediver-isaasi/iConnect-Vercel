@@ -338,7 +338,7 @@ function StaticQuestionReview({ questions, responses, notes, onResponseChange, o
                         boxShadow: isSelected ? `0 0 0 4px white, 0 0 0 6px ${optColor}, 0 0 16px 4px ${optColor}` : `0 2px 4px rgba(0,0,0,0.2)`
                       }}
                     >
-                      {scoreValue !== '' ? `${scoreValue}%` : ''}
+                      {scoreValue !== '' ? scoreValue : ''}
                     </div>
                     <span className={`text-xs ${isSelected ? 'font-semibold' : 'text-muted-foreground'}`}>
                       {opt.label || 'Option'}
@@ -702,34 +702,38 @@ export default function ReviewSubmissionPage() {
     if (ddConfig?.scoring_approach !== 'static_traffic_light') return null;
     
     const questions = (ddConfig?.static_questions || []).filter(q => q.type !== 'header');
-    if (questions.length === 0) return { score: 0, riskLevel: null };
+    if (questions.length === 0) return { score: 0, percentage: 0, maxScore: 0, riskLevel: null, answeredCount: 0, totalQuestions: 0 };
     
-    let totalWeightedScore = 0;
-    let totalWeight = 0;
+    let actualScore = 0;
+    let maxPossibleScore = 0;
     let answeredCount = 0;
     
     for (const question of questions) {
-      const selectedOptionId = staticQuestionResponses[question.id];
-      const weight = question.weight || 1;
+      const options = question.light_options || question.options || [];
       
+      // Calculate max possible score for this question (highest option score)
+      const maxOptionScore = options.reduce((max, opt) => {
+        const optScore = opt.score ?? opt.value ?? 0;
+        return Math.max(max, optScore);
+      }, 0);
+      maxPossibleScore += maxOptionScore;
+      
+      // Get actual score if answered
+      const selectedOptionId = staticQuestionResponses[question.id];
       if (selectedOptionId !== undefined && selectedOptionId !== null) {
         answeredCount++;
-        // Find the selected option to get its score
-        const options = question.light_options || [];
         const selectedOption = options.find(opt => opt.id === selectedOptionId);
-        
         if (selectedOption) {
-          // Use opt.score with fallback to opt.value for legacy data
           const optionScore = selectedOption.score ?? selectedOption.value ?? 0;
-          totalWeightedScore += optionScore * weight;
-          totalWeight += weight;
+          actualScore += optionScore;
         }
       }
     }
     
-    const score = totalWeight > 0 ? Math.round(totalWeightedScore / totalWeight) : 0;
+    // Calculate percentage (actual / max * 100)
+    const percentage = maxPossibleScore > 0 ? Math.round((actualScore / maxPossibleScore) * 100) : 0;
     
-    // Determine risk level based on score
+    // Determine risk level based on percentage
     const customLevels = ddConfig?.custom_risk_levels || [];
     const defaultLevels = [
       { name: 'low', threshold: 80 },
@@ -744,13 +748,20 @@ export default function ReviewSubmissionPage() {
     
     let riskLevel = sortedLevels[sortedLevels.length - 1]?.name || 'unknown';
     for (const level of sortedLevels) {
-      if (score >= level.threshold) {
+      if (percentage >= level.threshold) {
         riskLevel = level.name;
         break;
       }
     }
     
-    return { score, riskLevel, answeredCount, totalQuestions: questions.length };
+    return { 
+      score: actualScore, 
+      maxScore: maxPossibleScore, 
+      percentage, 
+      riskLevel, 
+      answeredCount, 
+      totalQuestions: questions.length 
+    };
   }, [ddConfig, staticQuestionResponses]);
 
   if (!accessChecked || isLoading) {
@@ -977,10 +988,15 @@ export default function ReviewSubmissionPage() {
                 )}
               </div>
               <ScoreGradient
-                score={liveTrafficLightScore?.answeredCount > 0 ? liveTrafficLightScore.score : ddSubmission.due_diligence_score}
+                score={liveTrafficLightScore?.answeredCount > 0 ? liveTrafficLightScore.percentage : ddSubmission.due_diligence_score}
                 riskLevel={liveTrafficLightScore?.answeredCount > 0 ? liveTrafficLightScore.riskLevel : ddSubmission.risk_level}
                 customRiskLevels={ddConfig?.custom_risk_levels}
               />
+              {liveTrafficLightScore?.answeredCount > 0 && (
+                <div className="mt-2 text-xs opacity-80">
+                  Score: {liveTrafficLightScore.score} / {liveTrafficLightScore.maxScore}
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -1053,10 +1069,15 @@ export default function ReviewSubmissionPage() {
                 <span className="font-semibold text-lg">Due Diligence Questions</span>
               </div>
               <ScoreGradient
-                score={liveTrafficLightScore?.answeredCount > 0 ? liveTrafficLightScore.score : ddSubmission.due_diligence_score}
+                score={liveTrafficLightScore?.answeredCount > 0 ? liveTrafficLightScore.percentage : ddSubmission.due_diligence_score}
                 riskLevel={liveTrafficLightScore?.answeredCount > 0 ? liveTrafficLightScore.riskLevel : ddSubmission.risk_level}
                 customRiskLevels={ddConfig?.custom_risk_levels}
               />
+              {liveTrafficLightScore?.answeredCount > 0 && (
+                <div className="mt-1 text-sm opacity-80">
+                  Score: {liveTrafficLightScore.score} / {liveTrafficLightScore.maxScore}
+                </div>
+              )}
               {liveTrafficLightScore && (
                 <div className="mt-4 space-y-1">
                   <div className="flex items-center justify-between text-sm">
