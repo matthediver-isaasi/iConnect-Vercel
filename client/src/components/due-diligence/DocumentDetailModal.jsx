@@ -62,7 +62,7 @@ function FilePreview({ fileUrl, mimeType, fileName }) {
 
   if (mimeType?.startsWith('image/')) {
     return (
-      <div className="flex items-center justify-center bg-muted rounded-lg p-4 h-full min-h-[500px]">
+      <div className="flex items-center justify-center bg-muted rounded-lg p-4" style={{ height: '500px' }}>
         <img 
           src={fileUrl} 
           alt={fileName} 
@@ -74,10 +74,10 @@ function FilePreview({ fileUrl, mimeType, fileName }) {
 
   if (mimeType === 'application/pdf') {
     return (
-      <div className="w-full h-full min-h-[500px] rounded-lg overflow-hidden">
+      <div className="w-full rounded-lg overflow-hidden relative" style={{ height: '500px' }}>
         <iframe 
           src={fileUrl} 
-          className="w-full h-full border-0"
+          className="absolute inset-0 w-full h-full border-0"
           title={fileName}
         />
       </div>
@@ -457,7 +457,7 @@ export default function DocumentDetailModal({
                 </div>
               </div>
             ) : (
-              <div className="flex flex-col items-center justify-center h-full min-h-[500px] bg-muted rounded-lg gap-4">
+              <div className="flex flex-col items-center justify-center bg-muted rounded-lg gap-4" style={{ height: '500px' }}>
                 <Clock className="w-12 h-12 text-muted-foreground" />
                 <p className="text-muted-foreground text-center">
                   No approved version yet.<br />
