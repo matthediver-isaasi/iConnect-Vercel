@@ -84,11 +84,13 @@ export default function FormSubmissionView() {
   const hasPages = form?.pages && form.pages.length > 0;
   
   // Fields are linked to pages via field.page_id
+  // Filter out due_diligence fields - they should not be shown to end users
+  const visibleFields = fields.filter(f => !f.due_diligence);
+  
   const getFieldsForPage = (page) => {
-    if (!hasPages || !page) return fields;
+    if (!hasPages || !page) return visibleFields;
     // Filter fields that belong to this page
-    // Also include fields with no page_id if this is the first page
-    return fields.filter(f => f.page_id === page.id);
+    return visibleFields.filter(f => f.page_id === page.id);
   };
 
   const getStatusBadge = (status) => {
@@ -107,6 +109,20 @@ export default function FormSubmissionView() {
   const renderField = (field) => {
     if (!field) return null;
     
+    // Instructions fields are display-only, render them directly
+    if (field.type === 'instructions') {
+      return (
+        <div key={field.id}>
+          <FormRenderer
+            field={field}
+            value=""
+            onChange={() => {}}
+            disabled={true}
+          />
+        </div>
+      );
+    }
+    
     const value = submissionData[field.id];
     
     if (value === undefined || value === null || value === '') {
@@ -119,7 +135,7 @@ export default function FormSubmissionView() {
     }
 
     return (
-      <div key={field.id} className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
+      <div key={field.id} className="p-4 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
         <FormRenderer
           field={field}
           value={value}
@@ -140,19 +156,19 @@ export default function FormSubmissionView() {
         if (pageFields.length === 0) return null;
         
         return (
-          <div key={page.id || pageIndex} className="border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
+          <div key={page.id || pageIndex} className="border border-blue-200 dark:border-blue-800 rounded-lg overflow-hidden">
             <button
               onClick={() => toggleSection(`page-${page.id}`)}
-              className="w-full flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-700/50 transition-colors"
+              className="w-full flex items-center justify-between p-4 bg-blue-100 dark:bg-blue-900/50 hover:bg-blue-200 dark:hover:bg-blue-800/50 transition-colors"
               data-testid={`section-toggle-${pageIndex}`}
             >
-              <h3 className="font-semibold text-slate-900 dark:text-slate-100">
+              <h3 className="font-semibold text-blue-900 dark:text-blue-100">
                 {page.title || `Section ${pageIndex + 1}`}
               </h3>
               {isExpanded ? (
-                <ChevronUp className="w-5 h-5 text-slate-500" />
+                <ChevronUp className="w-5 h-5 text-blue-600 dark:text-blue-400" />
               ) : (
-                <ChevronDown className="w-5 h-5 text-slate-500" />
+                <ChevronDown className="w-5 h-5 text-blue-600 dark:text-blue-400" />
               )}
             </button>
             {isExpanded && (
@@ -167,7 +183,7 @@ export default function FormSubmissionView() {
     
     return (
       <div className="space-y-4">
-        {fields.map(field => renderField(field))}
+        {visibleFields.map(field => renderField(field))}
       </div>
     );
   };
@@ -249,7 +265,7 @@ export default function FormSubmissionView() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {fields.length > 0 ? (
+            {visibleFields.length > 0 ? (
               <div className="space-y-4">
                 {renderAllFields()}
               </div>
