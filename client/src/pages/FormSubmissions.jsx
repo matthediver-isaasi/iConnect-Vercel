@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from "react";
+import { Link } from "react-router-dom";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -368,15 +369,16 @@ export default function FormSubmissionsPage() {
                             <RotateCcw className="w-4 h-4" />
                           )}
                         </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setViewingSubmission(submission)}
-                          data-testid={`button-view-submission-${submission.id}`}
-                        >
-                          <Eye className="w-4 h-4 mr-1" />
-                          View
-                        </Button>
+                        <Link to={`/FormSubmission/${submission.id}`}>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            data-testid={`button-view-submission-${submission.id}`}
+                          >
+                            <Eye className="w-4 h-4 mr-1" />
+                            View Full
+                          </Button>
+                        </Link>
                         <Button
                           variant="outline"
                           size="sm"

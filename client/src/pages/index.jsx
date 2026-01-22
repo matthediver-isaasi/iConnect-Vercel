@@ -168,6 +168,8 @@ import MemberDirectorySettings from "./MemberDirectorySettings";
 
 import FormSubmissions from "./FormSubmissions";
 
+import FormSubmissionView from "./FormSubmissionView";
+
 import FormSettings from "./FormSettings";
 
 import NewsEditor from "./NewsEditor";
@@ -466,6 +468,8 @@ const PAGES = {
     
     FormSubmissions: FormSubmissions,
     
+    FormSubmissionView: FormSubmissionView,
+    
     FormSettings: FormSettings,
     
     NewsEditor: NewsEditor,
@@ -756,6 +760,8 @@ function PagesContent() {
                 <Route path="/MemberDirectorySettings" element={<MemberDirectorySettings />} />
                 
                 <Route path="/FormSubmissions" element={<FormSubmissions />} />
+                
+                <Route path="/FormSubmission/:submissionId" element={<FormSubmissionView />} />
                 
                 <Route path="/FormSettings" element={<FormSettings />} />
                 

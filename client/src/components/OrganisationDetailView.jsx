@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from "react";
+import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -1372,17 +1373,15 @@ export default function OrganisationDetailView({
                               </p>
                               <Badge variant="outline" className="mt-2">Form Submitted</Badge>
                             </div>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setPreviewSubmission(submission);
-                              }}
-                              data-testid={`button-activity-preview-${submission.id}`}
-                            >
-                              <Eye className="w-4 h-4 text-slate-400" />
-                            </Button>
+                            <Link to={`/FormSubmission/${submission.id}`} onClick={(e) => e.stopPropagation()}>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                data-testid={`button-activity-preview-${submission.id}`}
+                              >
+                                <Eye className="w-4 h-4 text-slate-400" />
+                              </Button>
+                            </Link>
                           </div>
                         );
                       }
@@ -1752,15 +1751,16 @@ export default function OrganisationDetailView({
                             )}
                           </div>
                           <div className="flex items-center gap-2 flex-shrink-0">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => setPreviewSubmission(submission)}
-                              data-testid={`button-preview-submission-${submission.id}`}
-                            >
-                              <Eye className="w-4 h-4 mr-1" />
-                              Preview
-                            </Button>
+                            <Link to={`/FormSubmission/${submission.id}`}>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                data-testid={`button-view-submission-${submission.id}`}
+                              >
+                                <Eye className="w-4 h-4 mr-1" />
+                                View Full
+                              </Button>
+                            </Link>
                             {isAdmin && (
                               <Button
                                 variant={isDeleting && deleteConfirmStep === 1 ? 'destructive' : 'outline'}
