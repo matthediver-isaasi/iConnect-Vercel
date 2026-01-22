@@ -150,6 +150,19 @@ function VersionItem({ version, isSelected, onSelect, showPreview = false, onApp
             <X className="w-3 h-3 mr-1" />
             Reject
           </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 px-2"
+            asChild
+            onClick={(e) => e.stopPropagation()}
+            data-testid={`button-download-version-${version.id}`}
+          >
+            <a href={version.file_url} target="_blank" rel="noopener noreferrer" download>
+              <Download className="w-3 h-3 mr-1" />
+              Download
+            </a>
+          </Button>
           <span className="text-xs text-muted-foreground">
             {version.created_at ? format(new Date(version.created_at), 'MMM d, yyyy') : '--'}
           </span>
@@ -564,12 +577,6 @@ export default function DocumentDetailModal({
               </Button>
             </div>
           )}
-          <Button variant="outline" size="sm" asChild>
-            <a href={currentVersion?.file_url || document.file_url} target="_blank" rel="noopener noreferrer" download>
-              <Download className="w-4 h-4 mr-2" />
-              Download
-            </a>
-          </Button>
         </div>
       </DialogContent>
     </Dialog>
