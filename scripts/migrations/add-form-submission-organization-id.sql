@@ -15,10 +15,3 @@ ADD COLUMN IF NOT EXISTS organization_id UUID REFERENCES organization(id);
 -- Create an index for efficient lookups
 CREATE INDEX IF NOT EXISTS idx_form_submission_organization_id 
 ON form_submission(organization_id);
-
--- Optional: Backfill existing submissions that have created_organization_id
--- This will link existing form submissions to their created organizations
-UPDATE form_submission 
-SET organization_id = created_organization_id 
-WHERE organization_id IS NULL 
-  AND created_organization_id IS NOT NULL;
