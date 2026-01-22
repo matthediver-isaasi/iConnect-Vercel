@@ -39,7 +39,8 @@ export default async function handler(req, res) {
           form_id,
           submission_data,
           status,
-          created_date
+          created_date,
+          organization_id
         )
       `)
       .eq('tenant_id', tenantCtx.tenantId);
@@ -75,11 +76,28 @@ export default async function handler(req, res) {
       .eq('tenant_id', tenantCtx.tenantId)
       .single();
 
+    // Look up organization name if there's an organization_id (tenant-scoped for security)
+    let organization = null;
+    const orgId = ddSubmission.form_submission?.organization_id;
+    if (orgId) {
+      const { data: org } = await supabase
+        .from('organization')
+        .select('id, name')
+        .eq('id', orgId)
+        .eq('tenant_id', tenantCtx.tenantId)
+        .single();
+      
+      if (org) {
+        organization = org;
+      }
+    }
+
     return res.status(200).json({
       success: true,
       submission: ddSubmission,
       config: ddConfig,
-      form: form
+      form: form,
+      organization: organization
     });
 
   } catch (error) {

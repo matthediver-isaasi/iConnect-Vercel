@@ -412,6 +412,20 @@ export default function ReviewSubmissionPage() {
   const ddSubmission = ddSubmissionData?.submission;
   const ddConfig = ddSubmissionData?.config;
   const form = ddSubmissionData?.form;
+  const organization = ddSubmissionData?.organization;
+  
+  const displayReference = useMemo(() => {
+    if (!ddSubmission) return '';
+    const cardReferenceField = ddConfig?.card_reference_field;
+    const formValues = ddSubmission.original_form_values || {};
+    
+    if (cardReferenceField === '__organization_name__' && organization?.name) {
+      return organization.name;
+    } else if (cardReferenceField && formValues[cardReferenceField]) {
+      return formValues[cardReferenceField];
+    }
+    return organization?.name || formValues.organization_name || formValues.company_name || formValues.name || ddSubmission.application_uid;
+  }, [ddSubmission, ddConfig, organization]);
 
   const workflowStages = useMemo(() => {
     return ddConfig?.workflow_stages?.length > 0 
@@ -660,7 +674,7 @@ export default function ReviewSubmissionPage() {
           </Button>
           <div>
             <div className="flex items-center gap-3">
-              <h1 className="text-xl font-bold">{ddSubmission.application_uid}</h1>
+              <h1 className="text-xl font-bold">{displayReference}</h1>
               {hasUnsavedChanges && (
                 <Badge variant="outline" className="bg-amber-100 text-amber-800 border-amber-300">
                   Unsaved Changes

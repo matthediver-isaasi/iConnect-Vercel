@@ -80,17 +80,24 @@ export default async function handler(req, res) {
         .map(s => s.form_submission?.organization_id)
         .filter(Boolean)
     )];
+    
+    console.log('[DD List] Found organization IDs:', orgIds);
 
-    // Fetch organization names
+    // Fetch organization names (tenant-scoped for security)
     let orgMap = {};
     if (orgIds.length > 0) {
-      const { data: orgs } = await supabase
+      const { data: orgs, error: orgError } = await supabase
         .from('organization')
         .select('id, name')
-        .in('id', orgIds);
+        .in('id', orgIds)
+        .eq('tenant_id', tenantCtx.tenantId);
       
+      if (orgError) {
+        console.error('[DD List] Org lookup error:', orgError);
+      }
       if (orgs) {
         orgMap = Object.fromEntries(orgs.map(o => [o.id, o.name]));
+        console.log('[DD List] Organization map:', orgMap);
       }
     }
 
