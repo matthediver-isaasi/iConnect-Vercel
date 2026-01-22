@@ -318,7 +318,7 @@ function StaticQuestionReview({ questions, responses, notes, onResponseChange, o
               {options.map((opt) => {
                 const optColor = opt.color || '#6b7280';
                 const isSelected = response === opt.id;
-                const scoreValue = opt.score !== undefined ? opt.score : '';
+                const scoreValue = opt.score !== undefined ? opt.score : (opt.value !== undefined ? opt.value : '');
                 return (
                   <div
                     key={opt.id}
@@ -330,8 +330,11 @@ function StaticQuestionReview({ questions, responses, notes, onResponseChange, o
                     data-testid={`light-${opt.id}-${item.id}`}
                   >
                     <div
-                      className={`w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-md ${isSelected ? '' : 'opacity-60'}`}
+                      className={`flex items-center justify-center text-white font-bold text-sm ${isSelected ? '' : 'opacity-60'}`}
                       style={{ 
+                        width: '48px',
+                        height: '48px',
+                        borderRadius: '50%',
                         backgroundColor: optColor,
                         boxShadow: isSelected ? `0 0 0 4px white, 0 0 0 6px ${optColor}, 0 0 16px 4px ${optColor}` : `0 2px 4px rgba(0,0,0,0.2)`
                       }}
@@ -988,21 +991,20 @@ export default function ReviewSubmissionPage() {
       {ddConfig?.scoring_approach === 'static_traffic_light' && (
         <>
           <Sheet open={showQuestionsDrawer} onOpenChange={setShowQuestionsDrawer}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <SheetTrigger asChild>
-                  <button
-                    className="fixed right-0 top-1/2 -translate-y-1/2 z-40 w-6 h-6 bg-white border border-slate-200 rounded-l-full shadow-sm flex items-center justify-center hover:bg-slate-50 transition-colors cursor-pointer"
-                    data-testid="button-toggle-questions-drawer"
-                  >
-                    <ChevronLeft className="w-4 h-4 text-purple-600" />
-                  </button>
-                </SheetTrigger>
-              </TooltipTrigger>
-              <TooltipContent side="left">
-                DD Questions ({(ddConfig?.static_questions || []).filter(q => q.type !== 'header').length})
-              </TooltipContent>
-            </Tooltip>
+            <SheetTrigger asChild>
+              <button
+                className="fixed right-0 top-1/2 -translate-y-1/2 z-40 flex flex-col items-center justify-center gap-1 py-3 px-1.5 bg-primary text-primary-foreground rounded-l-lg shadow-lg cursor-pointer hover-elevate active-elevate-2"
+                data-testid="button-toggle-questions-drawer"
+                aria-label="Open due diligence questions"
+                style={{ writingMode: 'vertical-rl', textOrientation: 'mixed' }}
+              >
+                <ClipboardList className="w-4 h-4" style={{ writingMode: 'horizontal-tb' }} />
+                <span className="text-xs font-medium tracking-wide">DD Questions</span>
+                <span className="bg-white/20 text-[10px] px-1.5 py-0.5 rounded" style={{ writingMode: 'horizontal-tb' }}>
+                  {(ddConfig?.static_questions || []).filter(q => q.type !== 'header').length}
+                </span>
+              </button>
+            </SheetTrigger>
               <SheetContent side="right" className="w-full sm:max-w-md flex flex-col p-0">
                 <SheetHeader className="p-6 border-b">
                   <div className="flex items-center gap-2">

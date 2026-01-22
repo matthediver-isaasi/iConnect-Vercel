@@ -42,9 +42,9 @@ const PRESET_COLORS = [
 ];
 
 const DEFAULT_LIGHT_OPTIONS = [
-  { id: 'green', label: 'Green', color: '#22c55e', value: 100 },
-  { id: 'amber', label: 'Amber', color: '#f59e0b', value: 50 },
-  { id: 'red', label: 'Red', color: '#ef4444', value: 0 }
+  { id: 'green', label: 'Green', color: '#22c55e', score: 100 },
+  { id: 'amber', label: 'Amber', color: '#f59e0b', score: 50 },
+  { id: 'red', label: 'Red', color: '#ef4444', score: 0 }
 ];
 
 export default function DueDiligenceConfigPage() {
@@ -227,7 +227,7 @@ export default function DueDiligenceConfigPage() {
       id: `opt_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       label: 'New Option',
       color: PRESET_COLORS[options.length % PRESET_COLORS.length],
-      value: 0
+      score: 0
     };
     updated[questionIndex] = { ...question, options: [...options, newOption] };
     setStaticQuestions(updated);
@@ -681,7 +681,7 @@ export default function DueDiligenceConfigPage() {
                                 key={opt.id}
                                 className="w-4 h-4 rounded-full"
                                 style={{ backgroundColor: opt.color }}
-                                title={`${opt.label}: ${opt.value}%`}
+                                title={`${opt.label}: ${opt.score}%`}
                               />
                             ))}
                           </div>
@@ -733,12 +733,12 @@ export default function DueDiligenceConfigPage() {
                                   <div className="flex items-center gap-1 shrink-0">
                                     <Input
                                       type="number"
-                                      value={opt.value}
-                                      onChange={(e) => updateLightOption(index, optIndex, 'value', parseInt(e.target.value) || 0)}
+                                      value={opt.score}
+                                      onChange={(e) => updateLightOption(index, optIndex, 'score', parseInt(e.target.value) || 0)}
                                       min={0}
                                       max={100}
                                       className="w-16"
-                                      data-testid={`input-option-value-${index}-${optIndex}`}
+                                      data-testid={`input-option-score-${index}-${optIndex}`}
                                     />
                                     <span className="text-sm text-muted-foreground">%</span>
                                   </div>
