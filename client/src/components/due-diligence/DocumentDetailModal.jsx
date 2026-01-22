@@ -157,21 +157,6 @@ function VersionItem({ version, isSelected, onSelect, showPreview = false, onApp
             {isApproving ? 'Approving...' : 'Approve'}
           </Button>
           <Button
-            variant={isRejected ? 'default' : 'outline'}
-            size="sm"
-            onClick={(e) => { e.stopPropagation(); onReject(version); }}
-            disabled={isAnyUpdating || isRejected || isApproved}
-            className={`h-7 px-2 ${isRejected ? 'bg-red-600 hover:bg-red-700' : ''}`}
-            data-testid={`button-reject-version-${version.id}`}
-          >
-            {isRejecting ? (
-              <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-            ) : (
-              <X className="w-3 h-3 mr-1" />
-            )}
-            {isRejecting ? 'Rejecting...' : 'Reject'}
-          </Button>
-          <Button
             variant="outline"
             size="sm"
             className="h-7 px-2"
