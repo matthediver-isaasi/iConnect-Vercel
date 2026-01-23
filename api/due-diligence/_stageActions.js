@@ -347,7 +347,8 @@ export async function executeContractSendingActions(contactFieldIds, ddSubmissio
   return results;
 }
 
-export async function executeMeetingRequestActions(stageId, ddSubmission, tenantId, triggeredBy) {
+export async function executeMeetingRequestActions(stageId, ddSubmission, tenantId, triggeredBy, options = {}) {
+  const { selectedAgentId } = options;
   const results = [];
   
   try {
@@ -401,7 +402,7 @@ export async function executeMeetingRequestActions(stageId, ddSubmission, tenant
       const template = mr.meeting_template;
       if (!template) {
         results.push({
-          action: 'meeting_request',
+          action: 'send_meeting_request',
           meeting_request_id: mr.id,
           status: 'skipped',
           reason: 'Meeting template not found'
@@ -416,7 +417,7 @@ export async function executeMeetingRequestActions(stageId, ddSubmission, tenant
 
       if (!recipientEmail) {
         results.push({
-          action: 'meeting_request',
+          action: 'send_meeting_request',
           meeting_request_id: mr.id,
           template_name: template.name,
           status: 'skipped',
@@ -428,7 +429,7 @@ export async function executeMeetingRequestActions(stageId, ddSubmission, tenant
       // Get email template if configured
       if (!template.email_template_id) {
         results.push({
-          action: 'meeting_request',
+          action: 'send_meeting_request',
           meeting_request_id: mr.id,
           template_name: template.name,
           status: 'skipped',
@@ -446,7 +447,7 @@ export async function executeMeetingRequestActions(stageId, ddSubmission, tenant
 
       if (templateError || !emailTemplate) {
         results.push({
-          action: 'meeting_request',
+          action: 'send_meeting_request',
           meeting_request_id: mr.id,
           template_name: template.name,
           status: 'skipped',
@@ -464,7 +465,7 @@ export async function executeMeetingRequestActions(stageId, ddSubmission, tenant
 
       if (!agentAssignments || agentAssignments.length === 0) {
         results.push({
-          action: 'meeting_request',
+          action: 'send_meeting_request',
           meeting_request_id: mr.id,
           template_name: template.name,
           status: 'skipped',
@@ -473,8 +474,14 @@ export async function executeMeetingRequestActions(stageId, ddSubmission, tenant
         continue;
       }
 
-      // Get booking agent details (use first available for now)
-      const agentId = agentAssignments[0].identity_id;
+      // Use selected agent if provided and valid, otherwise use first available
+      let agentId = agentAssignments[0].identity_id;
+      if (selectedAgentId) {
+        const selectedAssignment = agentAssignments.find(a => a.identity_id === selectedAgentId);
+        if (selectedAssignment) {
+          agentId = selectedAgentId;
+        }
+      }
       const { data: agentMembership } = await supabase
         .from('tenant_membership')
         .select('booking_slug, identity:identity_id(first_name, last_name)')
@@ -484,7 +491,7 @@ export async function executeMeetingRequestActions(stageId, ddSubmission, tenant
 
       if (!agentMembership?.booking_slug) {
         results.push({
-          action: 'meeting_request',
+          action: 'send_meeting_request',
           meeting_request_id: mr.id,
           template_name: template.name,
           status: 'skipped',
@@ -534,7 +541,7 @@ export async function executeMeetingRequestActions(stageId, ddSubmission, tenant
         console.log(`[DD Stage Actions] Sent meeting invitation to ${recipientEmail} for ${template.name}`);
         
         results.push({
-          action: 'meeting_request',
+          action: 'send_meeting_request',
           meeting_request_id: mr.id,
           template_name: template.name,
           recipient_email: recipientEmail,
@@ -543,19 +550,19 @@ export async function executeMeetingRequestActions(stageId, ddSubmission, tenant
       } catch (emailError) {
         console.error(`[DD Stage Actions] Failed to send meeting invitation to ${recipientEmail}:`, emailError);
         results.push({
-          action: 'meeting_request',
+          action: 'send_meeting_request',
           meeting_request_id: mr.id,
           template_name: template.name,
           recipient_email: recipientEmail,
-          status: 'failed',
-          reason: emailError.message
+          status: 'error',
+          error: emailError.message
         });
       }
     }
   } catch (error) {
     console.error('[DD Stage Actions] Error executing meeting request actions:', error);
     results.push({
-      action: 'meeting_request',
+      action: 'send_meeting_request',
       status: 'error',
       error: error.message
     });
@@ -564,7 +571,7 @@ export async function executeMeetingRequestActions(stageId, ddSubmission, tenant
   return results;
 }
 
-export async function executeStageActions(stageId, ddSubmission, tenantId, triggeredBy) {
+export async function executeStageActions(stageId, ddSubmission, tenantId, triggeredBy, options = {}) {
   const formId = ddSubmission.form_submission?.form_id || ddSubmission.form_id;
   
   if (!formId) {
@@ -617,7 +624,8 @@ export async function executeStageActions(stageId, ddSubmission, tenantId, trigg
     stageId,
     ddSubmission,
     tenantId,
-    triggeredBy
+    triggeredBy,
+    options
   );
   results.push(...meetingResults);
 

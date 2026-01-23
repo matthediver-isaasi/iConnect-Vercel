@@ -13,7 +13,7 @@ import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { ArrowLeft, Save, AlertCircle, Calculator, Loader2, NotebookText, X, RotateCcw, History, Check, Edit2, Clock, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ClipboardList, Lock } from "lucide-react";
+import { ArrowLeft, Save, AlertCircle, Calculator, Loader2, NotebookText, X, RotateCcw, History, Check, Edit2, Clock, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ClipboardList, Lock, Calendar } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
@@ -487,6 +487,8 @@ export default function ReviewSubmissionPage() {
   const [hasInitialized, setHasInitialized] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
+  const [agentSelectionModal, setAgentSelectionModal] = useState({ open: false, agents: [], pendingStatus: null, meetingActions: [] });
+  const [selectedAgentId, setSelectedAgentId] = useState(null);
 
   useEffect(() => {
     if (isAccessReady) {
@@ -682,10 +684,11 @@ export default function ReviewSubmissionPage() {
   });
 
   const updateStatusMutation = useMutation({
-    mutationFn: async (newStatus) => {
+    mutationFn: async ({ newStatus, selectedAgentId }) => {
       return await apiRequest('POST', '/api/due-diligence/update-status', {
         submissionId: submissionId,
-        newStatus: newStatus
+        newStatus: newStatus,
+        selectedAgentId: selectedAgentId || null
       });
     },
     onSuccess: (data) => {
@@ -696,13 +699,23 @@ export default function ReviewSubmissionPage() {
       if (data.webhooks_triggered?.length > 0) {
         toast.info(`${data.webhooks_triggered.length} webhook(s) triggered`);
       }
-      // Show notification for stage actions (e.g., contracts sent)
+      // Show notification for stage actions (e.g., contracts sent, meeting invitations)
       if (data.stage_actions_results?.length > 0) {
         const contractsSent = data.stage_actions_results.filter(r => r.action === 'send_contract' && r.status === 'success');
         if (contractsSent.length > 0) {
           const totalSent = contractsSent.reduce((sum, r) => sum + (r.sent_count || 0), 0);
           toast.success(`${totalSent} contract invitation(s) sent`);
         }
+        
+        // Show meeting request results
+        const meetingRequests = data.stage_actions_results.filter(r => r.action === 'send_meeting_request');
+        meetingRequests.forEach(result => {
+          if (result.status === 'success') {
+            toast.success(`Meeting invitation sent to ${result.recipient_email}`);
+          } else if (result.status === 'error') {
+            toast.error(`Failed to send meeting invitation: ${result.error}`);
+          }
+        });
       }
     },
     onError: (error) => {
@@ -730,9 +743,70 @@ export default function ReviewSubmissionPage() {
     });
   };
 
-  const handleStatusChange = (newStatus) => {
+  const handleStatusChange = async (newStatus) => {
     if (newStatus === workflowStatus) return;
-    updateStatusMutation.mutate(newStatus);
+    
+    // Check if this stage has meeting request actions with multiple agents
+    try {
+      const formId = form?.id || ddSubmission?.form_submission?.form_id;
+      if (formId) {
+        const checkResult = await apiRequest('POST', '/api/due-diligence/check-stage-actions', {
+          stageId: newStatus,
+          formId: formId
+        });
+        
+        if (checkResult.requires_agent_selection && checkResult.meeting_actions?.length > 0) {
+          // Get all unique agents from all meeting actions
+          const allAgents = [];
+          const seenIds = new Set();
+          checkResult.meeting_actions.forEach(action => {
+            action.agents.forEach(agent => {
+              if (!seenIds.has(agent.identity_id)) {
+                seenIds.add(agent.identity_id);
+                allAgents.push(agent);
+              }
+            });
+          });
+          
+          // Only show modal if there are valid agents to select from
+          if (allAgents.length > 1) {
+            setAgentSelectionModal({
+              open: true,
+              agents: allAgents,
+              pendingStatus: newStatus,
+              meetingActions: checkResult.meeting_actions
+            });
+            setSelectedAgentId(allAgents[0]?.identity_id || null);
+            return;
+          } else if (allAgents.length === 0) {
+            toast.error('No booking agents available for this meeting type. Please configure agents first.');
+            return;
+          }
+          // If only 1 agent, proceed without modal (will auto-select first)
+        }
+      }
+    } catch (error) {
+      console.error('Error checking stage actions:', error);
+      // Show error for auth/access issues but allow proceeding for other errors
+      if (error.message?.includes('Authentication') || error.message?.includes('Tenant')) {
+        toast.error('Unable to change status: ' + error.message);
+        return;
+      }
+    }
+    
+    // No agent selection needed, proceed directly
+    updateStatusMutation.mutate({ newStatus, selectedAgentId: null });
+  };
+
+  const handleConfirmAgentSelection = () => {
+    const { pendingStatus } = agentSelectionModal;
+    setAgentSelectionModal({ open: false, agents: [], pendingStatus: null, meetingActions: [] });
+    updateStatusMutation.mutate({ newStatus: pendingStatus, selectedAgentId });
+  };
+
+  const handleCancelAgentSelection = () => {
+    setAgentSelectionModal({ open: false, agents: [], pendingStatus: null, meetingActions: [] });
+    setSelectedAgentId(null);
   };
 
   // Check if we should show description/instructions fields
@@ -1326,6 +1400,57 @@ export default function ReviewSubmissionPage() {
         onClose={setShowHistoryModal}
         historyLog={ddSubmission.history_log}
       />
+
+      <Dialog open={agentSelectionModal.open} onOpenChange={(open) => !open && handleCancelAgentSelection()}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Calendar className="w-5 h-5" />
+              Select Meeting Host
+            </DialogTitle>
+            <DialogDescription>
+              This status change will send a meeting invitation. Please select which team member should host the meeting.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-4">
+            {agentSelectionModal.agents.map((agent) => (
+              <label
+                key={agent.identity_id}
+                className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                  selectedAgentId === agent.identity_id
+                    ? 'border-primary bg-primary/5'
+                    : 'border-border hover-elevate'
+                }`}
+                data-testid={`agent-option-${agent.identity_id}`}
+              >
+                <input
+                  type="radio"
+                  name="agent"
+                  value={agent.identity_id}
+                  checked={selectedAgentId === agent.identity_id}
+                  onChange={() => setSelectedAgentId(agent.identity_id)}
+                  className="sr-only"
+                />
+                <div className="flex-1">
+                  <div className="font-medium">{agent.name}</div>
+                  <div className="text-sm text-muted-foreground">{agent.email}</div>
+                </div>
+                {selectedAgentId === agent.identity_id && (
+                  <Check className="w-5 h-5 text-primary" />
+                )}
+              </label>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={handleCancelAgentSelection} data-testid="button-cancel-agent">
+              Cancel
+            </Button>
+            <Button onClick={handleConfirmAgentSelection} disabled={!selectedAgentId} data-testid="button-confirm-agent">
+              Confirm & Change Status
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {ddConfig?.scoring_approach === 'static_traffic_light' && (
         <Dialog open={showQuestionsDrawer} onOpenChange={setShowQuestionsDrawer}>

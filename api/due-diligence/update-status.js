@@ -24,7 +24,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { submissionId, newStatus, customMessage } = req.body;
+    const { submissionId, newStatus, customMessage, selectedAgentId } = req.body;
 
     if (!submissionId || !newStatus) {
       return res.status(400).json({ error: 'submissionId and newStatus are required' });
@@ -122,12 +122,13 @@ export default async function handler(req, res) {
       }
     }
 
-    // Execute stage actions (e.g., send contracts) using shared utility
+    // Execute stage actions (e.g., send contracts, meeting requests) using shared utility
     const actionResults = await executeStageActions(
       newStatus,
       ddSubmission,
       tenantCtx.tenantId,
-      member.email
+      member.email,
+      { selectedAgentId }
     );
     const stageActionsResults = actionResults.stage_actions_results || [];
 
