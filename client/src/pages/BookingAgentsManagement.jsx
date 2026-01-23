@@ -282,7 +282,8 @@ export default function BookingAgentsManagement() {
   };
 
   return (
-    <div className="container mx-auto py-6 space-y-6" data-testid="page-booking-agents">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8" data-testid="page-booking-agents">
+      <div className="max-w-7xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold">Booking Management</h1>
@@ -691,6 +692,7 @@ export default function BookingAgentsManagement() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      </div>
     </div>
   );
 }
