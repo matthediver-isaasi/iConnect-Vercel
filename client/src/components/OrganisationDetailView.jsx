@@ -1857,7 +1857,19 @@ export default function OrganisationDetailView({
         )}
 
         {activeTab === 'documents' && (() => {
-          const signedContracts = orgContracts.filter(c => c.status === 'received');
+          // Flatten all signed documents from all contracts
+          const signedDocuments = orgContracts.flatMap(contract => 
+            (contract.signedSigners || [])
+              .filter(signer => signer.submission_id)
+              .map(signer => ({
+                contractId: contract.id,
+                contractName: contract.name,
+                signerName: signer.name || signer.email,
+                signerEmail: signer.email,
+                submissionId: signer.submission_id,
+                signedAt: signer.signed_at || contract.lastUpdated
+              }))
+          );
           return (
             <Card>
               <CardHeader className="flex flex-row items-center justify-between gap-2">
@@ -1871,7 +1883,7 @@ export default function OrganisationDetailView({
                   <div className="flex items-center justify-center py-12">
                     <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
                   </div>
-                ) : signedContracts.length === 0 ? (
+                ) : signedDocuments.length === 0 ? (
                   <div className="text-center py-12 text-slate-500">
                     <FileSignature className="w-12 h-12 mx-auto mb-3 text-slate-300" />
                     <p>No signed documents yet</p>
@@ -1881,11 +1893,11 @@ export default function OrganisationDetailView({
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    {signedContracts.map(contract => (
+                    {signedDocuments.map(doc => (
                       <div 
-                        key={contract.id} 
+                        key={`${doc.contractId}-${doc.submissionId}`} 
                         className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800 rounded-lg"
-                        data-testid={`signed-document-${contract.id}`}
+                        data-testid={`signed-document-${doc.submissionId}`}
                       >
                         <div className="flex items-center gap-3">
                           <div className="p-2 bg-green-100 dark:bg-green-900 rounded-md">
@@ -1893,30 +1905,28 @@ export default function OrganisationDetailView({
                           </div>
                           <div>
                             <h4 className="font-medium text-slate-900 dark:text-slate-100">
-                              {contract.name}
+                              {doc.contractName}
                             </h4>
                             <p className="text-xs text-slate-500">
-                              Signed {formatDate(contract.lastUpdated)}
+                              Signed by {doc.signerName} {doc.signedAt ? `on ${formatDate(doc.signedAt)}` : ''}
                             </p>
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
-                          {contract.signedSigners?.[0]?.submission_id && (
-                            <Button 
-                              variant="outline" 
-                              size="sm"
-                              onClick={() => handlePdfPreview(contract.signedSigners[0].submission_id)}
-                              disabled={pdfPreview.isLoading}
-                              data-testid={`button-view-pdf-${contract.id}`}
-                            >
-                              {pdfPreview.isLoading ? (
-                                <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-                              ) : (
-                                <Eye className="w-3 h-3 mr-1" />
-                              )}
-                              View PDF
-                            </Button>
-                          )}
+                          <Button 
+                            variant="outline" 
+                            size="sm"
+                            onClick={() => handlePdfPreview(doc.submissionId)}
+                            disabled={pdfPreview.isLoading}
+                            data-testid={`button-view-pdf-${doc.submissionId}`}
+                          >
+                            {pdfPreview.isLoading ? (
+                              <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                            ) : (
+                              <Eye className="w-3 h-3 mr-1" />
+                            )}
+                            View PDF
+                          </Button>
                         </div>
                       </div>
                     ))}
