@@ -500,9 +500,52 @@ export async function executeMeetingRequestActions(stageId, ddSubmission, tenant
         continue;
       }
 
-      // Build booking URL with proper encoding
-      const bookingUrl = `${baseUrl}/book/${encodeURIComponent(agentMembership.booking_slug)}?meeting=${encodeURIComponent(template.slug)}`;
+      // Build base booking URL
+      const baseBookingUrl = `${baseUrl}/book/${encodeURIComponent(agentMembership.booking_slug)}?meeting=${encodeURIComponent(template.slug)}`;
       const agentName = [agentMembership.identity?.first_name, agentMembership.identity?.last_name].filter(Boolean).join(' ') || 'Team Member';
+      const normalizedEmail = recipientEmail.toLowerCase();
+
+      // Create tracking record FIRST to get the ID for the booking URL
+      const { data: trackingRecord, error: trackingError } = await supabase
+        .from('dd_meeting_request')
+        .insert({
+          tenant_id: tenantId,
+          form_submission_id: formSubmissionId,
+          stage_meeting_request_id: mr.id,
+          meeting_template_id: template.id,
+          agent_identity_id: agentId,
+          recipient_email: normalizedEmail,
+          recipient_first_name: firstName || null,
+          recipient_last_name: null,
+          status: 'pending',
+          sent_at: null, // Will update after sending
+          booking_url: baseBookingUrl,
+          is_original: true
+        })
+        .select()
+        .single();
+      
+      if (trackingError) {
+        console.error('[DD Stage Actions] Failed to create meeting request tracking record:', trackingError);
+        results.push({
+          action: 'send_meeting_request',
+          meeting_request_id: mr.id,
+          template_name: template.name,
+          recipient_email: recipientEmail,
+          status: 'error',
+          error: 'Failed to create tracking record'
+        });
+        continue;
+      }
+
+      // Build final booking URL with tracking ID
+      const bookingUrl = `${baseBookingUrl}&dd_request=${trackingRecord.id}`;
+      
+      // Update the tracking record with the final booking URL
+      await supabase
+        .from('dd_meeting_request')
+        .update({ booking_url: bookingUrl })
+        .eq('id', trackingRecord.id);
 
       // Prepare email content
       let subject = emailTemplate.subject || 'Meeting Invitation';
@@ -512,7 +555,7 @@ export async function executeMeetingRequestActions(stageId, ddSubmission, tenant
       const recipientName = firstName || 'there';
       subject = subject
         .replace(/\{\{recipient_name\}\}/gi, recipientName)
-        .replace(/\{\{recipient_email\}\}/gi, recipientEmail)
+        .replace(/\{\{recipient_email\}\}/gi, normalizedEmail)
         .replace(/\{\{meeting_type\}\}/gi, template.name)
         .replace(/\{\{duration\}\}/gi, `${template.duration_minutes} minutes`)
         .replace(/\{\{agent_name\}\}/gi, agentName)
@@ -521,7 +564,7 @@ export async function executeMeetingRequestActions(stageId, ddSubmission, tenant
 
       body = body
         .replace(/\{\{recipient_name\}\}/gi, recipientName)
-        .replace(/\{\{recipient_email\}\}/gi, recipientEmail)
+        .replace(/\{\{recipient_email\}\}/gi, normalizedEmail)
         .replace(/\{\{meeting_type\}\}/gi, template.name)
         .replace(/\{\{duration\}\}/gi, `${template.duration_minutes} minutes`)
         .replace(/\{\{agent_name\}\}/gi, agentName)
@@ -530,7 +573,7 @@ export async function executeMeetingRequestActions(stageId, ddSubmission, tenant
 
       try {
         await sendEmail({
-          to: recipientEmail,
+          to: normalizedEmail,
           subject,
           html: body,
           from: emailTemplate.from_email,
@@ -538,33 +581,14 @@ export async function executeMeetingRequestActions(stageId, ddSubmission, tenant
           tenantId
         });
 
-        console.log(`[DD Stage Actions] Sent meeting invitation to ${recipientEmail} for ${template.name}`);
-        
-        // Create tracking record in dd_meeting_request table
-        const { data: trackingRecord, error: trackingError } = await supabase
+        // Update tracking record with sent_at timestamp
+        await supabase
           .from('dd_meeting_request')
-          .insert({
-            tenant_id: tenantId,
-            form_submission_id: formSubmissionId,
-            stage_meeting_request_id: mr.id,
-            meeting_template_id: template.id,
-            agent_identity_id: agentId,
-            recipient_email: recipientEmail,
-            recipient_first_name: firstName || null,
-            recipient_last_name: null,
-            status: 'pending',
-            sent_at: new Date().toISOString(),
-            booking_url: bookingUrl,
-            is_original: true
-          })
-          .select()
-          .single();
-        
-        if (trackingError) {
-          console.error('[DD Stage Actions] Failed to create meeting request tracking record:', trackingError);
-        } else {
-          console.log(`[DD Stage Actions] Created tracking record ${trackingRecord.id} for meeting request`);
-        }
+          .update({ sent_at: new Date().toISOString() })
+          .eq('id', trackingRecord.id);
+
+        console.log(`[DD Stage Actions] Sent meeting invitation to ${recipientEmail} for ${template.name}`);
+        console.log(`[DD Stage Actions] Created tracking record ${trackingRecord.id} for meeting request`);
         
         results.push({
           action: 'send_meeting_request',

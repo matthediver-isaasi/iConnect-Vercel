@@ -290,6 +290,90 @@ export default async function handler(req, res) {
         console.error('[Public Booking] Calendar event creation failed:', calendarError);
       }
 
+      // Check if this booking completes any pending DD meeting requests (first-past-the-post)
+      let linkedMeetingRequestId = null;
+      try {
+        // Check for dd_request parameter in URL (passed from booking link)
+        const ddRequestId = req.body.dd_request_id || req.query.dd_request;
+        
+        let winningRequest = null;
+        
+        if (ddRequestId) {
+          // Use precise matching via dd_request_id from URL
+          const { data: directMatch } = await supabase
+            .from('dd_meeting_request')
+            .select('id, form_submission_id, meeting_template_id')
+            .eq('id', ddRequestId)
+            .eq('tenant_id', tenantId)
+            .eq('status', 'pending')
+            .single();
+          
+          if (directMatch) {
+            winningRequest = directMatch;
+          }
+        }
+        
+        // Fallback: try to match by email + template + tenant (case-insensitive)
+        if (!winningRequest && selectedTemplate?.id) {
+          const { data: emailMatches } = await supabase
+            .from('dd_meeting_request')
+            .select('id, form_submission_id, meeting_template_id')
+            .eq('tenant_id', tenantId)
+            .eq('meeting_template_id', selectedTemplate.id)
+            .ilike('recipient_email', attendee_email)
+            .eq('status', 'pending')
+            .limit(1);
+          
+          if (emailMatches && emailMatches.length > 0) {
+            winningRequest = emailMatches[0];
+          }
+        }
+
+        if (winningRequest) {
+          // Mark the winning request as booked
+          const { error: linkError } = await supabase
+            .from('dd_meeting_request')
+            .update({
+              status: 'booked',
+              agent_booking_id: booking.id
+            })
+            .eq('id', winningRequest.id);
+          
+          if (!linkError) {
+            linkedMeetingRequestId = winningRequest.id;
+            console.log(`[Public Booking] Linked DD meeting request ${winningRequest.id} to booking ${booking.id}`);
+            
+            // Update the booking with form_submission_id for traceability
+            await supabase
+              .from('agent_booking')
+              .update({ form_submission_id: winningRequest.form_submission_id })
+              .eq('id', booking.id);
+            
+            // Cancel ALL other pending requests for the same form_submission + meeting_template (first-past-the-post)
+            const { data: othersToCancel } = await supabase
+              .from('dd_meeting_request')
+              .select('id')
+              .eq('form_submission_id', winningRequest.form_submission_id)
+              .eq('meeting_template_id', winningRequest.meeting_template_id)
+              .eq('tenant_id', tenantId)
+              .eq('status', 'pending')
+              .neq('id', winningRequest.id);
+            
+            if (othersToCancel && othersToCancel.length > 0) {
+              const otherIds = othersToCancel.map(r => r.id);
+              await supabase
+                .from('dd_meeting_request')
+                .update({ status: 'cancelled' })
+                .in('id', otherIds);
+              console.log(`[Public Booking] Cancelled ${otherIds.length} other pending requests for same submission/template`);
+            }
+          }
+        }
+      } catch (linkError) {
+        console.error('[Public Booking] Error linking DD meeting request:', linkError);
+        // Don't fail the booking if linking fails
+      }
+
       return res.status(201).json({
         success: true,
         booking: {
@@ -297,7 +381,8 @@ export default async function handler(req, res) {
           starts_at: booking.starts_at,
           ends_at: booking.ends_at,
           status: booking.status,
-          calendarEventCreated: !!calendarEventId
+          calendarEventCreated: !!calendarEventId,
+          linkedMeetingRequestId
         },
         agent: {
           name: `${identity.first_name || ''} ${identity.last_name || ''}`.trim(),

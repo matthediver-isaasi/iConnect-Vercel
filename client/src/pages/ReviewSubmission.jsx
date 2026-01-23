@@ -22,6 +22,7 @@ import { format } from 'date-fns';
 import FormRenderer from "@/components/forms/FormRenderer";
 import DocumentsCard from "@/components/due-diligence/DocumentsCard";
 import SignatoriesCard from "@/components/due-diligence/SignatoriesCard";
+import MeetingRequestsCard from "@/components/due-diligence/MeetingRequestsCard";
 import DocumentDetailModal from "@/components/due-diligence/DocumentDetailModal";
 async function apiRequest(method, url, body = null) {
   const options = {
@@ -1378,6 +1379,10 @@ export default function ReviewSubmissionPage() {
             formSubmissionId={ddSubmission.form_submission_id}
             submissionData={ddSubmission.form_submission?.submission_data}
             formSchema={form}
+          />
+
+          <MeetingRequestsCard
+            formSubmissionId={ddSubmission.form_submission_id}
           />
         </div>
       </div>
