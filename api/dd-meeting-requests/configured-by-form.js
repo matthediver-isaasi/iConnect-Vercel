@@ -47,7 +47,7 @@ export default async function handler(req, res) {
         due_diligence_stage_id,
         is_active,
         recipient_email_field,
-        recipient_name_field,
+        first_name_field,
         meeting_template:meeting_template_id (
           id, name, slug, duration_minutes, meeting_type
         )
@@ -102,7 +102,7 @@ export default async function handler(req, res) {
         meeting_template: config.meeting_template,
         agents: agents,
         recipient_email_field: config.recipient_email_field,
-        recipient_name_field: config.recipient_name_field
+        first_name_field: config.first_name_field
       };
     });
 
