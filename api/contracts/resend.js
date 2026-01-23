@@ -148,6 +148,7 @@ export default async function handler(req, res) {
       if ((s.email || '').toLowerCase() === signerEmail.toLowerCase()) {
         return {
           ...s,
+          sent_at: s.sent_at || new Date().toISOString(),
           last_resent_at: new Date().toISOString(),
           resend_count: (s.resend_count || 0) + 1
         };

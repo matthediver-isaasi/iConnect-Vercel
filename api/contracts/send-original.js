@@ -240,6 +240,7 @@ export default async function handler(req, res) {
       if ((s.email || '').toLowerCase() === signer.email.toLowerCase()) {
         return {
           ...s,
+          sent_at: s.sent_at || new Date().toISOString(),
           last_resent_at: new Date().toISOString()
         };
       }

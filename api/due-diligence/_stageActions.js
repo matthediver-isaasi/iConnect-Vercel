@@ -247,6 +247,7 @@ export async function executeContractSendingActions(contactFieldIds, ddSubmissio
       const signers = contractInstance.signers || [];
       let sentCount = 0;
       let failedCount = 0;
+      const sentSignerEmails = [];
 
       for (const signer of signers) {
         if (!signer.email) {
@@ -283,6 +284,7 @@ export async function executeContractSendingActions(contactFieldIds, ddSubmissio
             tenantId
           });
           sentCount++;
+          sentSignerEmails.push(signer.email.toLowerCase());
           console.log(`[DD Stage Actions] Sent contract to ${signer.email}`);
         } catch (emailError) {
           failedCount++;
@@ -291,9 +293,22 @@ export async function executeContractSendingActions(contactFieldIds, ddSubmissio
       }
 
       if (sentCount > 0) {
+        const now = new Date().toISOString();
+        const updatedSigners = signers.map(s => {
+          if (sentSignerEmails.includes((s.email || '').toLowerCase())) {
+            return {
+              ...s,
+              sent_at: s.sent_at || now,
+              last_resent_at: now
+            };
+          }
+          return s;
+        });
+
         await supabase
           .from('contract_instance')
           .update({
+            signers: updatedSigners,
             sent_at: new Date().toISOString(),
             status: 'out_for_signing',
             updated_at: new Date().toISOString()

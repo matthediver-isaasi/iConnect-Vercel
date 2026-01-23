@@ -224,7 +224,7 @@ export default function SignatoriesCard({ formSubmissionId, submissionData, form
             status = 'received';
           } else if (contract.status === 'expired') {
             status = 'expired';
-          } else if (contract.sentAt) {
+          } else if (signer.sent_at || signer.last_resent_at) {
             status = 'pending';
           }
           
