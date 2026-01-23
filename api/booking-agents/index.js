@@ -13,28 +13,48 @@ export default async function handler(req, res) {
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
   const { tenantId } = session;
 
+  // Validate tenantId
+  if (!tenantId || tenantId === 'undefined') {
+    console.error('[booking-agents] Invalid tenantId:', tenantId);
+    return res.status(400).json({ error: 'Invalid tenant context' });
+  }
+
   if (req.method === 'GET') {
     try {
-      const { data, error } = await supabase
-        .from('tenant_identity')
+      // Query via tenant_membership to get identities for this tenant
+      const { data: memberships, error } = await supabase
+        .from('tenant_membership')
         .select(`
-          id,
-          email,
-          first_name,
-          last_name,
-          booking_slug,
-          is_booking_agent
+          identity_id,
+          tenant_identity:identity_id (
+            id,
+            email,
+            first_name,
+            last_name,
+            booking_slug,
+            is_booking_agent
+          )
         `)
         .eq('tenant_id', tenantId)
-        .order('first_name', { ascending: true });
+        .eq('status', 'active');
 
       if (error) {
         console.error('[booking-agents] Fetch error:', error);
         return res.status(500).json({ error: 'Failed to fetch team members' });
       }
 
-      const agents = (data || []).filter(m => m.is_booking_agent === true);
-      const allMembers = data || [];
+      // Flatten to get unique identities
+      const identityMap = new Map();
+      for (const m of memberships || []) {
+        if (m.tenant_identity) {
+          identityMap.set(m.tenant_identity.id, m.tenant_identity);
+        }
+      }
+      
+      const allMembers = Array.from(identityMap.values()).sort((a, b) => 
+        (a.first_name || '').localeCompare(b.first_name || '')
+      );
+      const agents = allMembers.filter(m => m.is_booking_agent === true);
 
       return res.json({ agents, allMembers });
     } catch (err) {
@@ -51,22 +71,23 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'Identity ID is required' });
       }
 
-      const { data: identity, error: fetchError } = await supabase
-        .from('tenant_identity')
-        .select('id, tenant_id')
-        .eq('id', identity_id)
+      // Verify the identity belongs to this tenant via membership
+      const { data: membership, error: membershipError } = await supabase
+        .from('tenant_membership')
+        .select('identity_id')
         .eq('tenant_id', tenantId)
+        .eq('identity_id', identity_id)
+        .eq('status', 'active')
         .single();
 
-      if (fetchError || !identity) {
-        return res.status(404).json({ error: 'Team member not found' });
+      if (membershipError || !membership) {
+        return res.status(404).json({ error: 'Team member not found in this tenant' });
       }
 
       const { data, error } = await supabase
         .from('tenant_identity')
         .update({ is_booking_agent: is_booking_agent === true })
         .eq('id', identity_id)
-        .eq('tenant_id', tenantId)
         .select()
         .single();
 

@@ -13,6 +13,12 @@ export default async function handler(req, res) {
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
   const { tenantId } = session;
 
+  // Validate tenantId
+  if (!tenantId || tenantId === 'undefined') {
+    console.error('[agent-meeting-templates] Invalid tenantId:', tenantId);
+    return res.status(400).json({ error: 'Invalid tenant context' });
+  }
+
   if (req.method === 'GET') {
     try {
       const { identity_id, meeting_template_id } = req.query;
