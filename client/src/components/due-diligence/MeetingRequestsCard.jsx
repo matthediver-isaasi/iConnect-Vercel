@@ -135,11 +135,11 @@ export default function MeetingRequestsCard({ formSubmissionId, formId }) {
     sentLoading, configuredLoading, isLoading,
     requestsCount: requests.length, 
     configuredMeetingsCount: configuredMeetings.length,
-    hasContent,
-    sentData,
-    configuredData,
-    _debug: configuredData?._debug
+    hasContent
   });
+  if (configuredData) {
+    console.log('[MeetingRequestsCard] configuredData response:', JSON.stringify(configuredData, null, 2));
+  }
 
   if ((!formSubmissionId && !formId) || (!hasContent && !isLoading)) {
     console.log('[MeetingRequestsCard] Returning null - no content or IDs');
