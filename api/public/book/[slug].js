@@ -66,11 +66,12 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Tenant not found' });
     }
 
-    // Find identity by booking slug
+    // Find identity by booking slug AND tenant_id to ensure tenant isolation
     const { data: identity, error: identityError } = await supabase
       .from('tenant_identity')
       .select('id, first_name, last_name, email, avatar_url, booking_slug')
       .eq('booking_slug', slug)
+      .eq('tenant_id', tenantId)
       .single();
 
     if (identityError || !identity) {
@@ -90,6 +91,35 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Booking page not active for this organization' });
     }
 
+    // Fetch meeting templates assigned to this agent
+    const { data: agentTemplates } = await supabase
+      .from('agent_meeting_template')
+      .select(`
+        id,
+        is_active,
+        custom_duration_minutes,
+        template:meeting_template_id(
+          id, slug, name, description, duration_minutes, meeting_type, is_active, sort_order
+        )
+      `)
+      .eq('tenant_id', tenantId)
+      .eq('identity_id', identity.id)
+      .eq('is_active', true);
+
+    // Filter active templates and format them
+    const meetingTypes = (agentTemplates || [])
+      .filter(at => at.template?.is_active)
+      .map(at => ({
+        id: at.template.id,
+        slug: at.template.slug,
+        name: at.template.name,
+        description: at.template.description,
+        duration_minutes: at.custom_duration_minutes || at.template.duration_minutes,
+        meeting_type: at.template.meeting_type,
+        sort_order: at.template.sort_order
+      }))
+      .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+
     if (req.method === 'GET') {
       return res.json({
         agent: {
@@ -104,6 +134,7 @@ export default async function handler(req, res) {
           title: profile.booking_title,
           description: profile.booking_description
         },
+        meetingTypes,
         tenant: tenant ? {
           name: tenant.name,
           logo: tenant.logo_url,
@@ -120,16 +151,33 @@ export default async function handler(req, res) {
         attendee_timezone,
         attendee_notes,
         starts_at,
-        duration_minutes
+        duration_minutes,
+        meeting_template_id,
+        meeting_template_slug
       } = req.body;
 
       if (!attendee_name || !attendee_email || !starts_at) {
         return res.status(400).json({ error: 'Name, email, and time slot are required' });
       }
 
+      // Resolve meeting template if specified - must be from agent's assigned templates
+      let selectedTemplate = null;
+      if (meeting_template_id) {
+        selectedTemplate = meetingTypes.find(mt => mt.id === meeting_template_id);
+        if (!selectedTemplate && meetingTypes.length > 0) {
+          return res.status(400).json({ error: 'Invalid meeting template for this agent' });
+        }
+      } else if (meeting_template_slug) {
+        selectedTemplate = meetingTypes.find(mt => mt.slug === meeting_template_slug);
+        if (!selectedTemplate && meetingTypes.length > 0) {
+          return res.status(400).json({ error: 'Invalid meeting template for this agent' });
+        }
+      }
+
       const startTime = new Date(starts_at);
-      const duration = duration_minutes || profile.default_slot_minutes;
+      const duration = selectedTemplate?.duration_minutes || duration_minutes || profile.default_slot_minutes;
       const endTime = new Date(startTime.getTime() + duration * 60 * 1000);
+      const meetingType = selectedTemplate?.meeting_type || 'phone';
 
       const { data: conflicts } = await supabase
         .from('agent_booking')
@@ -150,6 +198,10 @@ export default async function handler(req, res) {
         .ilike('email', attendee_email)
         .limit(1);
 
+      const meetingTitle = selectedTemplate 
+        ? `${selectedTemplate.name} with ${attendee_name}`
+        : `Meeting with ${attendee_name}`;
+
       const { data: booking, error: bookingError } = await supabase
         .from('agent_booking')
         .insert({
@@ -160,12 +212,14 @@ export default async function handler(req, res) {
           attendee_phone,
           attendee_timezone: attendee_timezone || profile.timezone,
           attendee_notes,
-          title: `Meeting with ${attendee_name}`,
+          title: meetingTitle,
           starts_at: startTime.toISOString(),
           ends_at: endTime.toISOString(),
           duration_minutes: duration,
           status: 'confirmed',
-          member_id: memberMatch?.[0]?.id || null
+          member_id: memberMatch?.[0]?.id || null,
+          meeting_template_id: selectedTemplate?.id || null,
+          meeting_type: meetingType
         })
         .select()
         .single();

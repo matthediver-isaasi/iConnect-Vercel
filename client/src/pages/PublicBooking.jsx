@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react';
-import { useParams } from 'react-router-dom';
+import { useState, useMemo, useEffect } from 'react';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { 
   Loader2, 
   Calendar, 
@@ -17,14 +18,28 @@ import {
   ChevronRight,
   User,
   Mail,
-  Phone,
+  Phone as PhoneIcon,
   MessageSquare,
   CheckCircle2,
   AlertTriangle,
-  Globe
+  Globe,
+  Video,
+  MapPin
 } from 'lucide-react';
 import { format, addDays, startOfWeek, isSameDay } from 'date-fns';
 import { publicClient } from '@/api/publicClient';
+
+const MEETING_TYPE_ICONS = {
+  phone: PhoneIcon,
+  google_meet: Video,
+  in_person: MapPin
+};
+
+const MEETING_TYPE_LABELS = {
+  phone: 'Phone Call',
+  google_meet: 'Google Meet',
+  in_person: 'In Person'
+};
 
 function getVisitorTimezone() {
   try {
@@ -45,11 +60,15 @@ function formatTimeInTimezone(isoString, timezone) {
 
 export default function PublicBooking() {
   const { slug } = useParams();
+  const [searchParams] = useSearchParams();
+  const meetingParam = searchParams.get('meeting');
+  
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [selectedSlot, setSelectedSlot] = useState(null);
   const [weekStart, setWeekStart] = useState(startOfWeek(new Date(), { weekStartsOn: 1 }));
   const [visitorTimezone] = useState(getVisitorTimezone);
   const [step, setStep] = useState('select');
+  const [selectedMeetingType, setSelectedMeetingType] = useState(null);
   
   const [formData, setFormData] = useState({
     name: '',
@@ -63,6 +82,26 @@ export default function PublicBooking() {
     queryFn: () => publicClient.getBookingInfo(slug),
     enabled: !!slug
   });
+
+  const meetingTypes = pageData?.meetingTypes || [];
+  
+  useEffect(() => {
+    if (meetingTypes.length > 0 && !selectedMeetingType) {
+      if (meetingParam) {
+        const matchBySlug = meetingTypes.find(mt => mt.slug === meetingParam);
+        const matchById = meetingTypes.find(mt => mt.id === meetingParam);
+        if (matchBySlug) {
+          setSelectedMeetingType(matchBySlug);
+        } else if (matchById) {
+          setSelectedMeetingType(matchById);
+        } else {
+          setSelectedMeetingType(meetingTypes[0]);
+        }
+      } else if (meetingTypes.length === 1) {
+        setSelectedMeetingType(meetingTypes[0]);
+      }
+    }
+  }, [meetingTypes, meetingParam, selectedMeetingType]);
 
   const weekStartStr = format(weekStart, 'yyyy-MM-dd');
   
@@ -109,6 +148,8 @@ export default function PublicBooking() {
   const selectedDateStr = format(selectedDate, 'yyyy-MM-dd');
   const availableSlots = slotsData?.slots?.[selectedDateStr] || [];
 
+  const effectiveDuration = selectedMeetingType?.duration_minutes || pageData?.profile?.slotMinutes || 30;
+
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!selectedSlot || !formData.name || !formData.email) return;
@@ -120,7 +161,8 @@ export default function PublicBooking() {
       attendee_notes: formData.notes || null,
       attendee_timezone: visitorTimezone,
       starts_at: selectedSlot.start,
-      duration_minutes: pageData?.profile?.slotMinutes || 30
+      duration_minutes: effectiveDuration,
+      meeting_template_id: selectedMeetingType?.id || null
     });
   };
 
@@ -220,8 +262,17 @@ export default function PublicBooking() {
               <div className="flex items-center gap-4 text-sm text-muted-foreground">
                 <div className="flex items-center gap-1">
                   <Clock className="h-4 w-4" />
-                  {pageData?.profile?.slotMinutes || 30} min
+                  {effectiveDuration} min
                 </div>
+                {selectedMeetingType && (
+                  <div className="flex items-center gap-1">
+                    {(() => {
+                      const Icon = MEETING_TYPE_ICONS[selectedMeetingType.meeting_type] || PhoneIcon;
+                      return <Icon className="h-4 w-4" />;
+                    })()}
+                    {MEETING_TYPE_LABELS[selectedMeetingType.meeting_type] || selectedMeetingType.meeting_type}
+                  </div>
+                )}
                 <div className="flex items-center gap-1">
                   <Globe className="h-4 w-4" />
                   {visitorTimezone}
@@ -231,9 +282,65 @@ export default function PublicBooking() {
           </CardHeader>
 
           <CardContent className="p-0">
-            {step === 'select' && (
+            {meetingTypes.length > 1 && !selectedMeetingType && (
+              <div className="p-6 border-b">
+                <h3 className="font-semibold mb-4">Select a Meeting Type</h3>
+                <div className="space-y-2">
+                  {meetingTypes.map((mt) => {
+                    const Icon = MEETING_TYPE_ICONS[mt.meeting_type] || PhoneIcon;
+                    return (
+                      <button
+                        key={mt.id}
+                        onClick={() => setSelectedMeetingType(mt)}
+                        className="w-full p-4 border rounded-lg text-left hover-elevate flex items-start gap-4"
+                        data-testid={`meeting-type-${mt.slug}`}
+                      >
+                        <div className="p-2 bg-muted rounded-lg shrink-0">
+                          <Icon className="h-5 w-5" />
+                        </div>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium">{mt.name}</span>
+                            <Badge variant="secondary" className="text-xs">
+                              {mt.duration_minutes} min
+                            </Badge>
+                          </div>
+                          {mt.description && (
+                            <p className="text-sm text-muted-foreground mt-1">{mt.description}</p>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            
+            {step === 'select' && (meetingTypes.length === 0 || selectedMeetingType) && (
               <div className="grid md:grid-cols-2 divide-y md:divide-y-0 md:divide-x">
                 <div className="p-6">
+                  {meetingTypes.length > 1 && selectedMeetingType && (
+                    <div className="mb-4 p-3 bg-muted rounded-lg flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        {(() => {
+                          const Icon = MEETING_TYPE_ICONS[selectedMeetingType.meeting_type] || PhoneIcon;
+                          return <Icon className="h-4 w-4" />;
+                        })()}
+                        <span className="font-medium">{selectedMeetingType.name}</span>
+                        <Badge variant="secondary" className="text-xs">
+                          {selectedMeetingType.duration_minutes} min
+                        </Badge>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setSelectedMeetingType(null)}
+                        data-testid="button-change-meeting-type"
+                      >
+                        Change
+                      </Button>
+                    </div>
+                  )}
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="font-semibold">Select a Date</h3>
                     <div className="flex gap-1">

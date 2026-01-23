@@ -1,6 +1,6 @@
 # Overview
 
-This project is a multi-tenant SaaS membership management platform built with React (Vite) and Express.js. It offers comprehensive features for managing members, organizations, events, bookings, program tickets, resources, and blog posts. The platform also includes robust administrative functions and integrates with external services for CRM, payments, and accounting, aiming to be an all-in-one solution for organizations.
+This project is a multi-tenant SaaS membership management platform built with React and Express.js. It provides a comprehensive solution for organizations to manage members, organizations, events, bookings, program tickets, resources, and blog posts. The platform includes robust administrative functions and integrates with external services for CRM, payments, and accounting, aiming to be an all-in-one platform for various organizational needs.
 
 # User Preferences
 
@@ -14,7 +14,7 @@ The frontend uses React 18 with TypeScript/JSX, Vite, TanStack Query, shadcn/ui 
 
 ## Backend
 
-The backend is built with Express.js, using PostgreSQL (Neon serverless) with Drizzle ORM. It follows a generic entity CRUD API pattern, incorporates password-based authentication and server-side session management, and uses an admin security model with role-based access control. All API endpoints are implemented as Vercel serverless functions.
+The backend is built with Express.js, using PostgreSQL (Neon serverless) with Drizzle ORM. It follows a generic entity CRUD API pattern, incorporates password-based authentication, server-side session management, and an admin security model with role-based access control. All API endpoints are implemented as Vercel serverless functions.
 
 ## Multi-Tenant SaaS Architecture
 
@@ -26,12 +26,11 @@ A centralized `tenant_identity` table handles all user authentication for owners
 
 ## Deployment & Domain Architecture
 
-All development, testing, and debugging occur on Vercel; the Replit workspace is for code editing only.
-The domain structure uses `iconn.app` for tenant owner management and `{tenant}.iconn.app` for member portals. Session cookies use `.iconn.app` for cross-subdomain sharing. Preview and production environments function identically, with differences only in Vercel branch deployments and environment variables, not in code logic.
+All development, testing, and debugging occur on Vercel; the Replit workspace is for code editing only. The domain structure uses `iconn.app` for tenant owner management and `{tenant}.iconn.app` for member portals. Session cookies use `.iconn.app` for cross-subdomain sharing.
 
 ## Data Model & Features
 
-The data model includes core entities like Member, Organization, Role, and TeamMember, supporting various functionalities such as role segmentation, event/booking management, content management (BlogPost, Resource), and a dynamic page builder. Additional features include a custom forms system with conditional logic, workflows, Speaker profiles, Card Deck content, navigation/settings configuration, communication preferences, custom fields, training funds, voucher codes, and an internal notes system.
+The data model includes core entities like Member, Organization, Role, and TeamMember, supporting functionalities such as role segmentation, event/booking management, content management (BlogPost, Resource), a dynamic page builder, custom forms with conditional logic, workflows, Speaker profiles, Card Deck content, navigation/settings configuration, communication preferences, custom fields, training funds, voucher codes, and an internal notes system.
 
 ## Role Management System
 
@@ -43,37 +42,7 @@ The platform supports dynamic email templates with placeholder substitution for 
 
 ## Form Due Diligence Extension System
 
-An optional due diligence review capability for form submissions includes configurable workflows, scoring, risk assessment, and audit trails.
-
-### Workflow Stage Management
-
-Each due diligence form can have configurable workflow stages with:
-
-**Selection Conditions** - Requirements that must be met before a stage can be selected:
-- `require_min_score`: Minimum DD score threshold required
-- `require_all_signatures`: All signatory contracts must be signed
-- `require_all_attachments_approved`: All CRM attachments must be approved
-- `require_specific_contracts`: Specific contract instances must be signed (by field ID)
-- `require_specific_attachments`: Specific attachments must be approved (by attachment ID)
-
-Strict evaluation: Enabling a condition with zero items (no contracts/documents) blocks progression.
-
-**Stage Actions** - Automated tasks triggered when a stage is selected:
-- `send_contracts`: Array of contact field IDs whose contracts should be sent when this stage is reached
-- Contracts are sent using the Initial Email Template configured in FormBuilder contract settings
-- Actions execute on both manual status changes AND when DD submissions are created with an initial stage
-
-### Key Files:
-- `api/due-diligence/_stageActions.js`: Shared utility for executing stage actions (contract sending)
-- `api/due-diligence/init-submission.js`: Creates DD submission and executes initial stage actions
-- `api/due-diligence/update-status.js`: Updates DD status and executes stage actions
-- `client/src/pages/DueDiligenceConfig.jsx`: UI for configuring conditions and actions per stage
-- `client/src/pages/ReviewSubmission.jsx`: Review interface with stage status dropdown
-
-### Design Decisions:
-- Current stage is excluded from locking - users can stay on current stage even if conditions become unmet
-- Stage actions are non-blocking - failure doesn't prevent stage transition (logged for visibility)
-- Contract instance matching uses `source_contact_field_id` primarily, with fallback to `form_id` only when exactly one unsent instance exists
+An optional due diligence review capability for form submissions includes configurable workflows, scoring, risk assessment, and audit trails. Each due diligence form can have configurable workflow stages with selection conditions (e.g., minimum score, required signatures) and stage actions (e.g., sending contracts).
 
 ## Platform Owner Configuration System
 
@@ -85,7 +54,7 @@ The platform supports per-tenant branding customization for public-facing pages,
 
 ## Form Embedding System
 
-Forms can be embedded on external websites via iFrame, with a public API endpoint (`/api/public/form/[slug]`) providing form data and an embed page (`/embed/form/:slug`) for rendering. Security ensures tenant scoping and public-safe field returns.
+Forms can be embedded on external websites via iFrame, with a public API endpoint (`/api/public/form/[slug]`) providing form data and an embed page (`/embed/form/:slug`) for rendering.
 
 ## Public API Client
 
@@ -94,10 +63,6 @@ All public-facing pages use a centralized `publicClient` for tenant-aware API re
 ## Session Validation Security Pattern
 
 Hybrid pages use a `sessionValidated` flag in `LayoutContext` to prevent leaking member-only data to unauthenticated users with stale localStorage, ensuring authenticated API calls only occur after session validation.
-
-## Outlook Email Integration
-
-The platform supports Microsoft Outlook integration for email tracking on member records, involving OAuth for `outlook_connection` and `member_email` tables for syncing emails.
 
 ## Tenant Email Domain Provisioning System
 
@@ -117,93 +82,15 @@ Workflows are tenant-scoped entities that enable automated actions based on enti
 
 ## Supabase Realtime Subscriptions
 
-The frontend uses Supabase Realtime to subscribe to database changes and automatically refresh lists when data is modified. The `useRealtimeSubscription` hook in `client/src/hooks/useRealtimeSubscription.js` provides tenant-scoped subscriptions that invalidate TanStack Query cache keys when INSERT/UPDATE/DELETE events occur. Currently implemented for OrganisationsList and MembersList pages.
+The frontend uses Supabase Realtime to subscribe to database changes and automatically refresh lists when data is modified. A `useRealtimeSubscription` hook provides tenant-scoped subscriptions that invalidate TanStack Query cache keys for INSERT/UPDATE/DELETE events, currently implemented for OrganisationsList and MembersList pages.
 
 ## Contract Signing Module
 
-A contract signing system built on the existing FormBuilder infrastructure, allowing structured forms with signature fields to be sent to signers for electronic signatures. The system separates **contract templates** (forms) from **contract instances** (individual contract runs created via workflows).
+A contract signing system built on the existing FormBuilder infrastructure allows structured forms with signature fields to be sent to signers for electronic signatures. It separates contract templates (forms marked as contracts with settings like required signers, timeout days, reminder schedules) from contract instances (individual contract runs linked to organizations and signers, with status tracking). Key features include a signature field type, workflow integration for creating instances, multi-signer support, and automated reminders.
 
-### Architecture:
-- **Contract Templates**: Forms marked with `is_contract=true` define the structure and schema. Templates specify:
-  - Number of signers required (`required_signers_count`)
-  - Timeout days for expiration
-  - Initial email template for sending
-  - Reminder schedules
-- **Contract Instances**: Created when a workflow's "Create Contract" action executes. Each instance is linked to:
-  - A specific organization
-  - Resolved signer details (names and emails)
-  - Status tracking (draft, out_for_signing, received, expired)
+## Agent Booking System with Meeting Templates
 
-### Key Features:
-- **Contract Mode Toggle**: Forms can be marked as contracts via `is_contract` flag in FormBuilder
-- **Template Settings**: Stored in `contract_settings` JSON field including:
-  - `required_signers_count`: Number of signers this template requires
-  - `timeout_days`: Days before contract expires (default 30)
-  - `initial_email_template_id`: Email template for sending signing invitations
-  - `reminders`: Array of reminder configurations with days before timeout and email template
-- **Signature Field**: New form field type `signature` with canvas-based signature capture
-- **Workflow Integration**: "Create Contract" action in workflows:
-  - Maps organization from trigger entity
-  - Maps signer details (first name, last name, email) from entity fields or static values
-  - Option to send for signing immediately
-- **Multi-Signer Support**: Contracts can have multiple signers (external parties)
-- **Status Tracking**: draft, out_for_signing, received, expired
-- **Automated Reminders**: Cron job sends reminder emails based on configured schedule
-
-### API Endpoints:
-- `GET /api/contracts/by-organization?organizationId=xxx`: Get all contract instances for an organization
-- `GET /api/contracts/status?formId=xxx`: Get contract status with signed/unsigned signers
-- `GET /api/cron/send-contract-reminders`: Cron endpoint for processing pending reminders
-
-### Frontend Components:
-- `SignatureField`: Canvas-based signature capture component in `client/src/components/forms/SignatureField.jsx`
-- FormBuilder contract settings panel for configuring template settings (signer count, email template, reminders)
-- WorkflowManagement "Create Contract" action for creating instances with signer mappings
-- FormManagement page with Standard Forms and Contracts tabs
-- Documents tab in OrganisationDetailView showing linked contract instances
-
-### Database Tables Required:
-```sql
--- Contract instances table for tracking individual contract runs
-CREATE TABLE contract_instance (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  tenant_id UUID NOT NULL REFERENCES tenant(id),
-  form_id UUID NOT NULL REFERENCES form(id),
-  organization_id UUID REFERENCES organization(id),
-  signers JSONB NOT NULL DEFAULT '[]',
-  status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'out_for_signing', 'received', 'expired')),
-  timeout_days INTEGER NOT NULL DEFAULT 30,
-  sent_at TIMESTAMPTZ,
-  created_from_workflow_id UUID REFERENCES workflow(id),
-  created_from_entity_type TEXT,
-  created_from_entity_id UUID,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE INDEX idx_contract_instance_tenant ON contract_instance(tenant_id);
-CREATE INDEX idx_contract_instance_form ON contract_instance(form_id);
-CREATE INDEX idx_contract_instance_organization ON contract_instance(organization_id);
-CREATE INDEX idx_contract_instance_status ON contract_instance(status);
-
--- Add contract_instance_id to form_submission for linking signatures
-ALTER TABLE form_submission ADD COLUMN contract_instance_id UUID REFERENCES contract_instance(id);
-CREATE INDEX idx_form_submission_contract_instance ON form_submission(contract_instance_id);
-
--- Contract reminder log for tracking sent reminders
-CREATE TABLE contract_reminder_log (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  reminder_key TEXT NOT NULL UNIQUE,
-  contract_instance_id UUID NOT NULL REFERENCES contract_instance(id),
-  signer_email TEXT NOT NULL,
-  sent_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  tenant_id UUID NOT NULL REFERENCES tenant(id),
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE INDEX idx_contract_reminder_log_tenant ON contract_reminder_log(tenant_id);
-CREATE INDEX idx_contract_reminder_log_instance ON contract_reminder_log(contract_instance_id);
-```
+The platform includes a booking system where team members can be designated as "booking agents" with personal booking pages. It features tenant-scoped meeting templates, agent-template assignments, and database tables for managing templates, agent availability, and bookings.
 
 # External Dependencies
 
