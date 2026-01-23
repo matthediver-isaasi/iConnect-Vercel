@@ -2046,15 +2046,6 @@ export default function OrganisationDetailView({
                   <ExternalLink className="w-4 h-4" />
                   Open in New Tab
                 </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={closePdfPreview}
-                  aria-label="Close preview"
-                  data-testid="button-close-pdf-preview"
-                >
-                  <X className="w-4 h-4" />
-                </Button>
               </div>
             </div>
             <div className="flex-1 bg-muted">

@@ -8,7 +8,7 @@ import { Separator } from "@/components/ui/separator";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { 
-  User, Check, Clock, FileSignature, AlertCircle, Send, Loader2, UserPlus, CheckCircle2, Download, X, ExternalLink
+  User, Check, Clock, FileSignature, AlertCircle, Send, Loader2, UserPlus, CheckCircle2, Download, X, ExternalLink, Eye
 } from "lucide-react";
 import { format } from 'date-fns';
 import { apiRequest } from "@/lib/queryClient";
@@ -66,13 +66,13 @@ function SignerRow({ signer, onSend, onDownload, isSending, isDownloading, isFie
           onClick={() => onDownload(signer.submission_id)}
           disabled={isDownloading}
           className="flex-shrink-0"
-          title="Download signed PDF"
+          title="View signed PDF"
           data-testid={`button-download-${signer.email}`}
         >
           {isDownloading ? (
             <Loader2 className="w-4 h-4 animate-spin" />
           ) : (
-            <Download className="w-4 h-4" />
+            <Eye className="w-4 h-4" />
           )}
         </Button>
       )}
@@ -430,15 +430,6 @@ export default function SignatoryDetailModal({
             >
               <ExternalLink className="w-4 h-4" />
               Open in New Tab
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={closePdfPreview}
-              aria-label="Close preview"
-              data-testid="button-close-pdf-preview"
-            >
-              <X className="w-4 h-4" />
             </Button>
           </div>
         </div>
