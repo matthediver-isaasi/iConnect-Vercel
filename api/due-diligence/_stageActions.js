@@ -351,8 +351,14 @@ export async function executeMeetingRequestActions(stageId, ddSubmission, tenant
   const { selectedAgentId } = options;
   const results = [];
   
+  console.log('[DD Meeting Request] ========== START executeMeetingRequestActions ==========');
+  console.log('[DD Meeting Request] Params:', { stageId, tenantId, triggeredBy, selectedAgentId });
+  console.log('[DD Meeting Request] ddSubmission ID:', ddSubmission?.id);
+  console.log('[DD Meeting Request] form_submission_id:', ddSubmission?.form_submission_id);
+  
   try {
     // Fetch meeting request configs for this stage
+    console.log('[DD Meeting Request] Querying stage_meeting_request for stageId:', stageId, 'tenantId:', tenantId);
     const { data: meetingRequests, error: mrError } = await supabase
       .from('stage_meeting_request')
       .select(`
@@ -366,9 +372,15 @@ export async function executeMeetingRequestActions(stageId, ddSubmission, tenant
       .eq('is_active', true)
       .order('sort_order', { ascending: true });
 
-    if (mrError || !meetingRequests || meetingRequests.length === 0) {
+    if (mrError) {
+      console.log('[DD Meeting Request] Query error:', mrError);
       return results;
     }
+    if (!meetingRequests || meetingRequests.length === 0) {
+      console.log('[DD Meeting Request] No meeting request configs found for this stage. Returning empty results.');
+      return results;
+    }
+    console.log('[DD Meeting Request] Found', meetingRequests.length, 'meeting request config(s):', meetingRequests.map(m => ({ id: m.id, template_id: m.meeting_template_id, template_name: m.meeting_template?.name })));
 
     const formSubmissionId = ddSubmission.form_submission_id;
     if (!formSubmissionId) {
@@ -476,11 +488,18 @@ export async function executeMeetingRequestActions(stageId, ddSubmission, tenant
 
       // Use selected agent if provided and valid, otherwise use first available
       let agentId = agentAssignments[0].identity_id;
+      console.log('[DD Meeting Request] Agent assignments:', agentAssignments.map(a => a.identity_id));
+      console.log('[DD Meeting Request] selectedAgentId from options:', selectedAgentId);
       if (selectedAgentId) {
         const selectedAssignment = agentAssignments.find(a => a.identity_id === selectedAgentId);
         if (selectedAssignment) {
           agentId = selectedAgentId;
+          console.log('[DD Meeting Request] Using selected agent:', agentId);
+        } else {
+          console.log('[DD Meeting Request] Selected agent not in assignments, using first:', agentId);
         }
+      } else {
+        console.log('[DD Meeting Request] No agent selected, using first:', agentId);
       }
       // Note: booking_slug is on tenant_identity, not tenant_membership
       const { data: agentMembership } = await supabase
@@ -491,7 +510,14 @@ export async function executeMeetingRequestActions(stageId, ddSubmission, tenant
         .single();
 
       const agentIdentity = agentMembership?.identity;
+      console.log('[DD Meeting Request] Agent identity lookup result:', { 
+        agentId, 
+        found: !!agentIdentity, 
+        booking_slug: agentIdentity?.booking_slug,
+        name: agentIdentity ? `${agentIdentity.first_name} ${agentIdentity.last_name}` : null
+      });
       if (!agentIdentity?.booking_slug) {
+        console.log('[DD Meeting Request] SKIPPING - Agent has no booking_slug');
         results.push({
           action: 'send_meeting_request',
           meeting_request_id: mr.id,
@@ -574,6 +600,12 @@ export async function executeMeetingRequestActions(stageId, ddSubmission, tenant
         .replace(/\{\{booking_link\}\}/gi, `<a href="${bookingUrl}">Book a meeting</a>`);
 
       try {
+        console.log('[DD Meeting Request] About to send email:', {
+          to: normalizedEmail,
+          subject,
+          from: emailTemplate.from_email,
+          bookingUrl
+        });
         await sendEmail({
           to: normalizedEmail,
           subject,
@@ -582,6 +614,7 @@ export async function executeMeetingRequestActions(stageId, ddSubmission, tenant
           replyTo: emailTemplate.reply_to,
           tenantId
         });
+        console.log('[DD Meeting Request] Email sent successfully!');
 
         // Update tracking record with sent_at timestamp
         await supabase
