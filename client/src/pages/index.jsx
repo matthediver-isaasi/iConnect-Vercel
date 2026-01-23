@@ -162,6 +162,8 @@ import EmbedResource from "./EmbedResource";
 
 import EmbedEvent from "./EmbedEvent";
 
+import EmbedAlternativeSigner from "./EmbedAlternativeSigner";
+
 import PublicBooking from "./PublicBooking";
 
 import MyBookings from "./MyBookings";
@@ -892,6 +894,7 @@ function StandaloneRoutes() {
             <Route path="/embed/form/:slug" element={<EmbedForm />} />
             <Route path="/embed/resource/:identifier" element={<EmbedResource />} />
             <Route path="/embed/event/:identifier" element={<EmbedEvent />} />
+            <Route path="/embed/alternative-signer" element={<EmbedAlternativeSigner />} />
             <Route path="/EventDetails" element={<EventDetails />} />
             <Route path="/book/:slug" element={<PublicBooking />} />
         </Routes>

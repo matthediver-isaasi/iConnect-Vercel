@@ -546,6 +546,10 @@ export const contractInstance = pgTable("contract_instance", {
   // Email templates for sending
   initial_email_template_id: varchar("initial_email_template_id"),
   
+  // Timeout notification tracking (for "alternative signer" feature)
+  timeout_notification_round: integer("timeout_notification_round").notNull().default(0), // Which round of signers we're on
+  timeout_notification_sent_at: timestamp("timeout_notification_sent_at"), // When timeout email was last sent to applicant
+  
   // Workflow tracking
   created_from_workflow_id: varchar("created_from_workflow_id"),
   created_from_entity_type: varchar("created_from_entity_type"),

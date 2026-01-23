@@ -3258,7 +3258,12 @@ export default function FormBuilderPage() {
       organization_id: null, // Linked organisation
       reminders: [], // [{id, days_before_timeout, email_template_id}]
       require_signature: true,
-      signers: [] // [{id, name, email, type: 'external'|'member', member_id}]
+      signers: [], // [{id, name, email, type: 'external'|'member', member_id}]
+      // Timeout notification settings (for alternative signer feature)
+      timeout_email_template_id: null, // Email to send when contract times out
+      applicant_name_field: null, // Field ID from DD form for applicant's name
+      applicant_email_field: null, // Field ID from DD form for applicant's email
+      alternative_signer_form_id: null // Form where applicant provides new signer details
     }
   });
   
@@ -3339,6 +3344,20 @@ export default function FormBuilderPage() {
         return (templates || []).filter(t => t.is_active !== false);
       } catch (err) {
         console.warn('Failed to fetch email templates:', err);
+        return [];
+      }
+    },
+  });
+
+  // Fetch all forms for alternative signer form selection
+  const { data: allForms = [] } = useQuery({
+    queryKey: ['all-forms-for-selection'],
+    queryFn: async () => {
+      try {
+        const forms = await base44.entities.Form.list();
+        return (forms || []).filter(f => f.is_active !== false && !f.is_contract);
+      } catch (err) {
+        console.warn('Failed to fetch forms:', err);
         return [];
       }
     },
@@ -4449,6 +4468,117 @@ export default function FormBuilderPage() {
                           </div>
                         ))}
                       </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Timeout Notification Settings - Alternative Signer Feature */}
+                <div className="pt-3 border-t border-slate-100">
+                  <div className="flex items-center gap-2 mb-3">
+                    <AlertCircle className="w-4 h-4 text-amber-500" />
+                    <Label className="text-sm font-medium">Timeout Notification</Label>
+                  </div>
+                  <p className="text-xs text-slate-500 mb-3">
+                    When the contract expires without a signature, notify the original applicant to provide an alternative signer.
+                  </p>
+                  
+                  <div className="space-y-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs text-slate-600">Timeout Email Template</Label>
+                      <Select
+                        value={formData.contract_settings?.timeout_email_template_id || "_none"}
+                        onValueChange={(value) => setFormData({
+                          ...formData,
+                          contract_settings: {
+                            ...formData.contract_settings,
+                            timeout_email_template_id: value === "_none" ? null : value
+                          }
+                        })}
+                      >
+                        <SelectTrigger data-testid="select-timeout-email-template">
+                          <SelectValue placeholder="Select email template..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="_none">No template (disabled)</SelectItem>
+                          {emailTemplates.map(template => (
+                            <SelectItem key={template.id} value={template.id}>{template.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {formData.contract_settings?.timeout_email_template_id && (
+                      <>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-slate-600">Alternative Signer Form</Label>
+                          <p className="text-xs text-slate-400 mb-1">
+                            Form where the applicant can provide new signer details
+                          </p>
+                          <Select
+                            value={formData.contract_settings?.alternative_signer_form_id || "_none"}
+                            onValueChange={(value) => setFormData({
+                              ...formData,
+                              contract_settings: {
+                                ...formData.contract_settings,
+                                alternative_signer_form_id: value === "_none" ? null : value
+                              }
+                            })}
+                          >
+                            <SelectTrigger data-testid="select-alternative-signer-form">
+                              <SelectValue placeholder="Select form..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="_none">No form selected</SelectItem>
+                              {allForms.map(form => (
+                                <SelectItem key={form.id} value={form.id}>{form.name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="space-y-1">
+                            <Label className="text-xs text-slate-600">Applicant Name Field ID</Label>
+                            <p className="text-xs text-slate-400 mb-1">
+                              Field ID from the source DD form (e.g., "first_name")
+                            </p>
+                            <Input
+                              value={formData.contract_settings?.applicant_name_field || ""}
+                              onChange={(e) => setFormData({
+                                ...formData,
+                                contract_settings: {
+                                  ...formData.contract_settings,
+                                  applicant_name_field: e.target.value || null
+                                }
+                              })}
+                              placeholder="e.g., first_name"
+                              data-testid="input-applicant-name-field"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs text-slate-600">Applicant Email Field ID</Label>
+                            <p className="text-xs text-slate-400 mb-1">
+                              Field ID from the source DD form (e.g., "email")
+                            </p>
+                            <Input
+                              value={formData.contract_settings?.applicant_email_field || ""}
+                              onChange={(e) => setFormData({
+                                ...formData,
+                                contract_settings: {
+                                  ...formData.contract_settings,
+                                  applicant_email_field: e.target.value || null
+                                }
+                              })}
+                              placeholder="e.g., email"
+                              data-testid="input-applicant-email-field"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="bg-amber-50 dark:bg-amber-900/20 p-2 rounded text-xs text-amber-700 dark:text-amber-300">
+                          <strong>Note:</strong> The timeout email should contain a link placeholder that will be replaced with the alternative signer form URL. Use <code className="bg-amber-100 dark:bg-amber-800 px-1 rounded">{'{{alternative_signer_link}}'}</code> in your email template.
+                        </div>
+                      </>
                     )}
                   </div>
                 </div>
