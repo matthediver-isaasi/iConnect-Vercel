@@ -41,7 +41,12 @@ function SignerRow({ signer, onSend, isSending, isFieldSigned, isLegacyAmbiguous
         <User className="w-4 h-4 text-muted-foreground" />
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium truncate">{fullName}</p>
+        <div className="flex items-center gap-2">
+          <p className="text-sm font-medium truncate">{fullName}</p>
+          {signer.isOriginal && (
+            <Badge variant="secondary" className="text-xs flex-shrink-0">Original</Badge>
+          )}
+        </div>
         <p className="text-xs text-muted-foreground truncate">{signer.email}</p>
       </div>
       <Badge 

@@ -197,7 +197,9 @@ export default function SignatoriesCard({ formSubmissionId, submissionData, form
       const templateName = templateNamesMap[contact.contractFormId] || 'Unknown Contract';
       
       const fieldSignerHistory = [];
-      const seenEmails = new Set();
+      const seenKeys = new Set();
+      const originalContactEmail = (contact.email || '').toLowerCase();
+      let originalFoundInContracts = false;
       
       contractsForField.forEach(contract => {
         const allSigners = [...(contract.signers || []), ...(contract.signedSigners || [])];
@@ -205,8 +207,13 @@ export default function SignatoriesCard({ formSubmissionId, submissionData, form
           const email = (signer.email || '').toLowerCase();
           const uniqueKey = `${contract.id}-${email}`;
           
-          if (seenEmails.has(uniqueKey)) return;
-          seenEmails.add(uniqueKey);
+          if (seenKeys.has(uniqueKey)) return;
+          seenKeys.add(uniqueKey);
+          
+          const isOriginal = email === originalContactEmail;
+          if (isOriginal) {
+            originalFoundInContracts = true;
+          }
           
           const isSigned = signer.signed || contract.signedSigners?.some(
             s => (s.email || '').toLowerCase() === email
@@ -222,20 +229,36 @@ export default function SignatoriesCard({ formSubmissionId, submissionData, form
           }
           
           fieldSignerHistory.push({
-            firstName: signer.first_name || signer.name?.split(' ')[0] || '',
-            lastName: signer.last_name || signer.name?.split(' ').slice(1).join(' ') || '',
+            firstName: isOriginal ? contact.firstName : (signer.first_name || signer.name?.split(' ')[0] || ''),
+            lastName: isOriginal ? contact.lastName : (signer.last_name || signer.name?.split(' ').slice(1).join(' ') || ''),
             email: signer.email,
-            jobTitle: signer.job_title || '',
-            organisation: signer.organisation || signer.organization || '',
+            jobTitle: isOriginal ? contact.jobTitle : (signer.job_title || ''),
+            organisation: isOriginal ? contact.organisation : (signer.organisation || signer.organization || ''),
             status,
             contractId: contract.id,
             signedAt: signer.signed_at,
             sentAt: signer.added_at || contract.sentAt || contract.sent_at,
             createdAt: contract.createdAt || contract.created_at,
-            addedAt: signer.added_at
+            addedAt: signer.added_at,
+            isOriginal
           });
         });
       });
+      
+      if (originalContactEmail && !originalFoundInContracts) {
+        fieldSignerHistory.unshift({
+          firstName: contact.firstName,
+          lastName: contact.lastName,
+          email: contact.email,
+          jobTitle: contact.jobTitle || '',
+          organisation: contact.organisation || '',
+          status: 'not_sent',
+          contractId: matchingContract?.id || null,
+          signedAt: null,
+          sentAt: null,
+          isOriginal: true
+        });
+      }
       
       fieldSignerHistory.sort((a, b) => {
         const dateA = new Date(a.addedAt || a.sentAt || a.createdAt || 0);
