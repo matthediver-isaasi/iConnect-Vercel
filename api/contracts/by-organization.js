@@ -102,7 +102,20 @@ export default async function handler(req, res) {
 
         for (const signer of signers) {
           if (signer.signed) {
-            signedSigners.push(signer);
+            // Already marked as signed - look up submission_id if not present
+            if (!signer.submission_id) {
+              const signerSubmission = instanceSubmissions.find(sub => {
+                if (!sub.submission_data) return false;
+                const subEmail = (sub.submission_data.signer_email || sub.submission_data.email || '').toLowerCase();
+                return subEmail === (signer.email || '').toLowerCase();
+              });
+              signedSigners.push({
+                ...signer,
+                submission_id: signerSubmission?.id || null
+              });
+            } else {
+              signedSigners.push(signer);
+            }
           } else {
             const signerSubmission = instanceSubmissions.find(sub => {
               if (!sub.submission_data) return false;
@@ -117,7 +130,8 @@ export default async function handler(req, res) {
               signedSigners.push({
                 ...signer,
                 signed: true,
-                signed_at: signerSubmission.created_date
+                signed_at: signerSubmission.created_date,
+                submission_id: signerSubmission.id
               });
             } else {
               unsignedSigners.push(signer);

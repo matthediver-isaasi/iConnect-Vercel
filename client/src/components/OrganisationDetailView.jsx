@@ -1810,142 +1810,74 @@ export default function OrganisationDetailView({
           </Card>
         )}
 
-        {activeTab === 'documents' && (
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between gap-2">
-              <CardTitle className="flex items-center gap-2">
-                <FileSignature className="w-5 h-5 text-blue-600" />
-                Contracts & Documents
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {contractsLoading ? (
-                <div className="flex items-center justify-center py-12">
-                  <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
-                </div>
-              ) : orgContracts.length === 0 ? (
-                <div className="text-center py-12 text-slate-500">
-                  <FileSignature className="w-12 h-12 mx-auto mb-3 text-slate-300" />
-                  <p>No contracts linked to this organisation</p>
-                  <p className="text-sm text-slate-400 mt-1">
-                    Create a contract in Form Management and link it to this organisation
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {orgContracts.map(contract => (
-                    <div 
-                      key={contract.id} 
-                      className="p-4 bg-slate-50 dark:bg-slate-800 rounded-lg space-y-3"
-                      data-testid={`contract-${contract.id}`}
-                    >
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <h4 className="font-medium text-slate-900 dark:text-slate-100">
-                            {contract.name}
-                          </h4>
-                          {contract.description && (
-                            <p className="text-sm text-slate-500 mt-1 line-clamp-2">
-                              {contract.description}
+        {activeTab === 'documents' && (() => {
+          const signedContracts = orgContracts.filter(c => c.status === 'received');
+          return (
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between gap-2">
+                <CardTitle className="flex items-center gap-2">
+                  <FileSignature className="w-5 h-5 text-blue-600" />
+                  Signed Documents
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {contractsLoading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+                  </div>
+                ) : signedContracts.length === 0 ? (
+                  <div className="text-center py-12 text-slate-500">
+                    <FileSignature className="w-12 h-12 mx-auto mb-3 text-slate-300" />
+                    <p>No signed documents yet</p>
+                    <p className="text-sm text-slate-400 mt-1">
+                      Documents will appear here once contracts are fully signed
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {signedContracts.map(contract => (
+                      <div 
+                        key={contract.id} 
+                        className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800 rounded-lg"
+                        data-testid={`signed-document-${contract.id}`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 bg-green-100 dark:bg-green-900 rounded-md">
+                            <FileText className="w-5 h-5 text-green-600 dark:text-green-400" />
+                          </div>
+                          <div>
+                            <h4 className="font-medium text-slate-900 dark:text-slate-100">
+                              {contract.name}
+                            </h4>
+                            <p className="text-xs text-slate-500">
+                              Signed {formatDate(contract.lastUpdated)}
                             </p>
-                          )}
-                        </div>
-                        <Badge 
-                          variant={
-                            contract.status === 'received' ? 'default' :
-                            contract.status === 'out_for_signing' ? 'secondary' : 
-                            'outline'
-                          }
-                          className={
-                            contract.status === 'received' ? 'bg-green-100 text-green-700 border-green-200' :
-                            contract.status === 'out_for_signing' ? 'bg-amber-100 text-amber-700 border-amber-200' :
-                            ''
-                          }
-                          data-testid={`contract-status-${contract.id}`}
-                        >
-                          {contract.status === 'received' && (
-                            <CheckCircle2 className="w-3 h-3 mr-1" />
-                          )}
-                          {contract.status === 'out_for_signing' && (
-                            <Send className="w-3 h-3 mr-1" />
-                          )}
-                          {contract.status === 'draft' && (
-                            <FileText className="w-3 h-3 mr-1" />
-                          )}
-                          {contract.status === 'draft' ? 'Draft' : 
-                           contract.status === 'out_for_signing' ? 'Out for Signing' : 
-                           'Received'}
-                        </Badge>
-                      </div>
-                      
-                      <div className="flex flex-wrap gap-4 text-sm text-slate-500">
-                        {contract.timeoutDays && (
-                          <div className="flex items-center gap-1">
-                            <Clock className="w-4 h-4" />
-                            <span>{contract.timeoutDays} days timeout</span>
-                          </div>
-                        )}
-                        <div className="flex items-center gap-1">
-                          <FileText className="w-4 h-4" />
-                          <span>{contract.fieldsCount || 0} fields</span>
-                        </div>
-                        {contract.totalSigners > 0 && (
-                          <div className="flex items-center gap-1">
-                            <Users className="w-4 h-4" />
-                            <span>{contract.signedCount}/{contract.totalSigners} signed</span>
-                          </div>
-                        )}
-                      </div>
-
-                      {contract.totalSigners > 0 && (
-                        <div className="pt-2 border-t border-slate-200 dark:border-slate-700">
-                          <p className="text-xs text-slate-500 mb-2">Signers:</p>
-                          <div className="flex flex-wrap gap-2">
-                            {contract.signedSigners?.map((signer, idx) => (
-                              <Badge 
-                                key={`signed-${idx}`} 
-                                variant="secondary"
-                                className="text-xs bg-green-50 text-green-700"
-                              >
-                                {signer.name}
-                                <CheckCircle2 className="w-3 h-3 ml-1 text-green-600" />
-                              </Badge>
-                            ))}
-                            {contract.unsignedSigners?.map((signer, idx) => (
-                              <Badge 
-                                key={`unsigned-${idx}`} 
-                                variant="secondary"
-                                className="text-xs"
-                              >
-                                {signer.name}
-                                <AlertCircle className="w-3 h-3 ml-1 text-amber-500" />
-                              </Badge>
-                            ))}
                           </div>
                         </div>
-                      )}
-                      
-                      <div className="flex items-center justify-between pt-2">
-                        <span className="text-xs text-slate-400">
-                          Last updated: {formatDate(contract.lastUpdated)}
-                        </span>
-                        <Button 
-                          variant="outline" 
-                          size="sm"
-                          onClick={() => window.open(`/form/${contract.slug}`, '_blank')}
-                          data-testid={`button-view-contract-${contract.id}`}
-                        >
-                          <ExternalLink className="w-3 h-3 mr-1" />
-                          View
-                        </Button>
+                        <div className="flex items-center gap-2">
+                          {contract.signedSigners?.[0]?.submission_id && (
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              onClick={() => {
+                                const submissionId = contract.signedSigners[0].submission_id;
+                                window.open(`/api/contracts/download-pdf?submissionId=${submissionId}`, '_blank');
+                              }}
+                              data-testid={`button-download-pdf-${contract.id}`}
+                            >
+                              <Download className="w-3 h-3 mr-1" />
+                              Download PDF
+                            </Button>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        )}
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          );
+        })()}
 
         <AlertDialog open={!!noteToDelete} onOpenChange={(open) => !open && setNoteToDelete(null)}>
           <AlertDialogContent>
