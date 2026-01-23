@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { executeStageActions } from '../due-diligence/_stageActions.js';
 
 export default async function handler(req, res) {
   console.log('[Public Form Submission] === ENDPOINT CALLED ===');
@@ -318,6 +319,31 @@ export default async function handler(req, res) {
           // Don't fail the submission, just log the error
         } else {
           console.log('[Public Form Submission] Due diligence record created:', newDDRecord.id);
+          
+          // Execute stage actions for the initial stage (e.g., send contracts)
+          const hasStageActions = initialStage && (initialStage.actions || initialStage.stage_actions);
+          if (hasStageActions) {
+            try {
+              const ddSubmissionData = {
+                ...newDDRecord,
+                form_submission_id: submission.id,
+                form_id: form.id
+              };
+              const actionResults = await executeStageActions(
+                initialStatus,
+                ddSubmissionData,
+                tenantData.id,
+                'system_init'
+              );
+              
+              if (actionResults?.stage_actions_results?.length > 0) {
+                console.log('[Public Form Submission] Initial stage actions executed:', actionResults.stage_actions_results);
+              }
+            } catch (actionError) {
+              console.error('[Public Form Submission] Error executing initial stage actions:', actionError);
+              // Don't fail the submission for action errors
+            }
+          }
         }
       } catch (ddError) {
         console.error('[Public Form Submission] Error creating DD record:', ddError);
