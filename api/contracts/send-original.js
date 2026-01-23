@@ -186,7 +186,7 @@ export default async function handler(req, res) {
       .eq('id', tenantContext.tenantId)
       .single();
 
-    const appUrl = process.env.APP_URL || `https://${tenant?.slug || 'app'}.iconn.app`;
+    const appUrl = `https://${tenant?.slug || 'app'}.iconn.app`;
     const signUrl = `${appUrl}/form/${contractForm.slug}?signer_email=${encodeURIComponent(signer.email)}&signer_name=${encodeURIComponent(signerData.first_name || '')}&contract_instance=${contractInstance.id}`;
 
     const signerName = [signerData.first_name, signerData.last_name].filter(Boolean).join(' ') || 'Signer';

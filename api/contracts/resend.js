@@ -116,7 +116,7 @@ export default async function handler(req, res) {
       .eq('id', tenantContext.tenantId)
       .single();
 
-    const appUrl = process.env.APP_URL || `https://${tenant?.slug || 'app'}.iconn.app`;
+    const appUrl = `https://${tenant?.slug || 'app'}.iconn.app`;
     
     const signUrl = `${appUrl}/form/${form.slug}?signer_email=${encodeURIComponent(signer.email)}&signer_name=${encodeURIComponent(signer.first_name || signer.name || '')}&contract_instance=${contractInstance.id}`;
 

@@ -74,7 +74,7 @@ export async function executeContractSendingActions(contactFieldIds, ddSubmissio
       .eq('id', tenantId)
       .single();
 
-    const baseUrl = process.env.APP_URL || `https://${tenant?.slug || 'app'}.iconn.app`;
+    const baseUrl = `https://${tenant?.slug || 'app'}.iconn.app`;
 
     const { data: contractInstances, error: instancesError } = await supabase
       .from('contract_instance')
