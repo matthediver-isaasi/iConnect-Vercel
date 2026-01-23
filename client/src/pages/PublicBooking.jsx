@@ -247,7 +247,7 @@ export default function PublicBooking() {
                 </AvatarFallback>
               </Avatar>
               <div>
-                <CardTitle className="text-2xl">{pageData?.profile?.title || 'Book a Meeting'}</CardTitle>
+                <CardTitle className="text-2xl">{selectedMeetingType?.name || pageData?.profile?.title || 'Book a Meeting'}</CardTitle>
                 {pageData?.agent?.name && (
                   <CardDescription className="mt-1">
                     with {pageData.agent.name}
@@ -514,7 +514,7 @@ export default function PublicBooking() {
 
                   <div className="space-y-2">
                     <Label htmlFor="phone" className="flex items-center gap-2">
-                      <Phone className="h-4 w-4" />
+                      <PhoneIcon className="h-4 w-4" />
                       Phone Number (optional)
                     </Label>
                     <Input
