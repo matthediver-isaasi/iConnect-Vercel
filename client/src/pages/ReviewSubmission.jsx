@@ -1445,6 +1445,11 @@ export default function ReviewSubmissionPage() {
             <DialogDescription>
               This status change will send a meeting invitation. Please select which team member should host the meeting.
             </DialogDescription>
+            {agentSelectionModal.meetingActions?.length > 0 && (
+              <div className="mt-2 text-sm font-medium">
+                Meeting: {agentSelectionModal.meetingActions.map(a => a.meeting_template?.name).filter(Boolean).join(', ')}
+              </div>
+            )}
           </DialogHeader>
           <div className="space-y-3 py-4">
             {agentSelectionModal.agents.map((agent) => (
