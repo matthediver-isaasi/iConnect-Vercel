@@ -33,7 +33,7 @@ export default async function handler(req, res) {
 
     const { data: submission, error: subError } = await supabase
       .from('form_submission')
-      .select('*, form:form_id(id, name, schema, fields, tenant_id)')
+      .select('*, form:form_id(id, name, fields, tenant_id)')
       .eq('id', submissionId)
       .single();
 
@@ -85,13 +85,6 @@ export default async function handler(req, res) {
     let allFields = [];
     if (form.fields && Array.isArray(form.fields)) {
       allFields = form.fields;
-    } else if (form.schema) {
-      const schema = form.schema;
-      if (schema.pages && Array.isArray(schema.pages)) {
-        allFields = schema.pages.flatMap(p => p.fields || []);
-      } else if (schema.fields && Array.isArray(schema.fields)) {
-        allFields = schema.fields;
-      }
     }
 
     for (const field of allFields) {
