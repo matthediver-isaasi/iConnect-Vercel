@@ -51,17 +51,17 @@ function SignatoryItem({ signer, contractName, status, onClick }) {
 }
 
 export default function SignatoriesCard({ formSubmissionId, submissionData, formSchema }) {
-  const [selectedSignatory, setSelectedSignatory] = useState(null);
+  const [selectedFieldId, setSelectedFieldId] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   const handleSignatoryClick = (signatory) => {
-    setSelectedSignatory(signatory);
+    setSelectedFieldId(signatory.fieldId);
     setIsModalOpen(true);
   };
 
   const handleCloseModal = () => {
     setIsModalOpen(false);
-    setSelectedSignatory(null);
+    setSelectedFieldId(null);
   };
 
   const { data: contractsData, isLoading: contractsLoading } = useQuery({
@@ -357,15 +357,20 @@ export default function SignatoriesCard({ formSubmissionId, submissionData, form
         </CardContent>
       </Card>
 
-      <SignatoryDetailModal
-        isOpen={isModalOpen}
-        onClose={handleCloseModal}
-        signatory={selectedSignatory}
-        fieldSignerHistory={selectedSignatory?.fieldSignerHistory || []}
-        isFieldSigned={selectedSignatory?.isFieldSigned || false}
-        isLegacyAmbiguous={selectedSignatory?.isLegacyAmbiguous || false}
-        formSubmissionId={formSubmissionId}
-      />
+      {(() => {
+        const currentSignatory = signatories.find(s => s.fieldId === selectedFieldId);
+        return (
+          <SignatoryDetailModal
+            isOpen={isModalOpen}
+            onClose={handleCloseModal}
+            signatory={currentSignatory}
+            fieldSignerHistory={currentSignatory?.fieldSignerHistory || []}
+            isFieldSigned={currentSignatory?.isFieldSigned || false}
+            isLegacyAmbiguous={currentSignatory?.isLegacyAmbiguous || false}
+            formSubmissionId={formSubmissionId}
+          />
+        );
+      })()}
     </>
   );
 }
