@@ -43,7 +43,7 @@ export async function executeContractSendingActions(contactFieldIds, ddSubmissio
     
     const { data: formSubmission, error: subError } = await supabase
       .from('form_submission')
-      .select('form_id, form_values, organization_id')
+      .select('form_id, submission_data, organization_id')
       .eq('id', formSubmissionId)
       .eq('tenant_id', tenantId)
       .single();
@@ -123,7 +123,7 @@ export async function executeContractSendingActions(contactFieldIds, ddSubmissio
       }
 
       if (!contractInstance) {
-        const formValues = formSubmission.form_values || {};
+        const formValues = formSubmission.submission_data || {};
         const fieldKey = field.name || field.id;
         const fieldValue = formValues[fieldKey] || formValues[field.id];
         
@@ -391,7 +391,7 @@ export async function executeMeetingRequestActions(stageId, ddSubmission, tenant
     // Get form submission data
     const { data: formSubmission, error: subError } = await supabase
       .from('form_submission')
-      .select('form_id, form_values, organization_id')
+      .select('form_id, submission_data, organization_id')
       .eq('id', formSubmissionId)
       .eq('tenant_id', tenantId)
       .single();
@@ -423,7 +423,7 @@ export async function executeMeetingRequestActions(stageId, ddSubmission, tenant
       }
 
       // Get recipient email from form values
-      const formValues = formSubmission.form_values || {};
+      const formValues = formSubmission.submission_data || {};
       const recipientEmail = formValues[mr.recipient_email_field];
       const firstName = mr.first_name_field ? formValues[mr.first_name_field] : null;
 
