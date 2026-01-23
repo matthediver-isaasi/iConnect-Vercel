@@ -240,7 +240,8 @@ export default function SignatoriesCard({ formSubmissionId, submissionData, form
             sentAt: signer.added_at || contract.sentAt || contract.sent_at,
             createdAt: contract.createdAt || contract.created_at,
             addedAt: signer.added_at,
-            isOriginal
+            isOriginal,
+            submission_id: signer.submission_id
           });
         });
       });

@@ -105,7 +105,8 @@ export default async function handler(req, res) {
               signedSigners.push({
                 ...signer,
                 signed: true,
-                signed_at: signerSubmission.created_date
+                signed_at: signerSubmission.created_date,
+                submission_id: signerSubmission.id
               });
             } else {
               unsignedSigners.push(signer);
