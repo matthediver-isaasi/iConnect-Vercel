@@ -771,6 +771,7 @@ export default function ReviewSubmissionPage() {
         console.log('[ReviewSubmission] check-stage-actions response:', checkResult);
         console.log('[ReviewSubmission] requires_agent_selection:', checkResult.requires_agent_selection);
         console.log('[ReviewSubmission] meeting_actions length:', checkResult.meeting_actions?.length);
+        console.log('[ReviewSubmission] DEBUG INFO:', checkResult._debug);
         
         if (checkResult.requires_agent_selection && checkResult.meeting_actions?.length > 0) {
           // Get all unique agents from all meeting actions

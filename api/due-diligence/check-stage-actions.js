@@ -166,6 +166,19 @@ export default async function handler(req, res) {
     console.log('[DD Check Stage Actions] Final result:', JSON.stringify(result, null, 2));
     console.log('[DD Check Stage Actions] ========== END ==========');
 
+    // Include debug info in response for troubleshooting
+    result._debug = {
+      input: { stageId, formId, tenantId: tenantCtx.tenantId },
+      stage_meeting_requests_found: meetingRequests?.length || 0,
+      stage_meeting_requests_data: meetingRequests?.map(mr => ({
+        id: mr.id,
+        due_diligence_stage_id: mr.due_diligence_stage_id,
+        is_active: mr.is_active,
+        template: mr.meeting_template
+      })) || [],
+      unique_agents_count: allUniqueAgents.size
+    };
+
     return res.status(200).json(result);
   } catch (error) {
     console.error('[DD Check Stage Actions] Error:', error);
