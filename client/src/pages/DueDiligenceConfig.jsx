@@ -1259,21 +1259,11 @@ export default function DueDiligenceConfigPage() {
                                                             <SelectValue placeholder="Select meeting type..." />
                                                           </SelectTrigger>
                                                           <SelectContent>
-                                                            {meetingTemplates.length === 0 ? (
-                                                              <SelectItem value="none" disabled>No meeting types created</SelectItem>
-                                                            ) : (
-                                                              <>
-                                                                {meetingTemplates.map(template => (
-                                                                  <SelectItem 
-                                                                    key={template.id} 
-                                                                    value={template.id}
-                                                                    disabled={!template.email_template_id}
-                                                                  >
-                                                                    {template.name}{!template.email_template_id ? ' (no email template)' : ''}
-                                                                  </SelectItem>
-                                                                ))}
-                                                              </>
-                                                            )}
+                                                            {meetingTemplates.filter(t => t.email_template_id).map(template => (
+                                                              <SelectItem key={template.id} value={template.id}>
+                                                                {template.name}
+                                                              </SelectItem>
+                                                            ))}
                                                           </SelectContent>
                                                         </Select>
                                                       </div>
