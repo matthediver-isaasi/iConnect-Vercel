@@ -1,7 +1,8 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Upload, X, FileText, FileImage, FileSpreadsheet, File, Loader2, Download, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
+import { useSecureFileUrl, isSecureReference } from "@/hooks/useSecureFileUrl";
 
 const ALLOWED_FILE_TYPES = {
   pdf: { extension: '.pdf', mimeTypes: ['application/pdf'], icon: FileText },
@@ -137,26 +138,47 @@ export default function CustomFieldFileUpload({
     setIsUploading(true);
     
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-      
-      const response = await fetch('/api/integrations/upload-file', {
+      const signedUrlResponse = await fetch('/api/storage/signed-upload-url', {
         method: 'POST',
-        body: formData
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          fileName: file.name,
+          fileSize: file.size,
+          mimeType: file.type,
+          type: 'form-submission',
+          isPrivate: true
+        })
       });
       
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || 'Upload failed');
+      if (!signedUrlResponse.ok) {
+        const errorData = await signedUrlResponse.json().catch(() => ({}));
+        if (signedUrlResponse.status === 401) {
+          throw new Error('You must be logged in to upload files');
+        }
+        throw new Error(errorData.error || 'Failed to get upload URL');
       }
       
-      const result = await response.json();
+      const { signedUrl, fileUrl, path: storagePath, bucket } = await signedUrlResponse.json();
+      
+      const uploadResponse = await fetch(signedUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': file.type, 'x-upsert': 'true' },
+        body: file
+      });
+      
+      if (!uploadResponse.ok) {
+        throw new Error('Failed to upload file to storage');
+      }
       
       const fileData = {
-        file_url: result.file_url,
-        file_name: result.file_name || file.name,
-        file_size: result.file_size || file.size,
-        mime_type: result.mime_type || file.type,
+        file_url: fileUrl,
+        storage_path: storagePath,
+        bucket: bucket,
+        file_name: file.name,
+        file_size: file.size,
+        mime_type: file.type,
+        is_private: true,
         uploaded_at: new Date().toISOString()
       };
       
@@ -177,7 +199,36 @@ export default function CustomFieldFileUpload({
   
   const FileIcon = parsedValue?.file_name ? getFileIcon(parsedValue.file_name) : File;
   
+  const fileUrl = parsedValue?.file_url;
+  const { resolvedUrl, isLoading: isResolvingUrl, isSecure } = useSecureFileUrl(fileUrl);
+  
+  const handleOpenFile = useCallback(async (e, download = false) => {
+    if (!isSecure) {
+      return;
+    }
+    
+    e.preventDefault();
+    
+    if (!resolvedUrl) {
+      toast.error('Unable to access file');
+      return;
+    }
+    
+    const link = document.createElement('a');
+    link.href = resolvedUrl;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    if (download) {
+      link.download = parsedValue?.file_name || '';
+    }
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }, [resolvedUrl, isSecure, parsedValue?.file_name]);
+  
   if (parsedValue?.file_url) {
+    const displayUrl = resolvedUrl || fileUrl;
+    
     return (
       <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
         <FileIcon className="w-8 h-8 text-blue-500 flex-shrink-0" />
@@ -190,26 +241,42 @@ export default function CustomFieldFileUpload({
           )}
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
-          <Button
-            variant="ghost"
-            size="icon"
-            asChild
-            data-testid={`button-download-file-${fieldId}`}
-          >
-            <a href={parsedValue.file_url} target="_blank" rel="noopener noreferrer" download>
-              <Download className="w-4 h-4" />
-            </a>
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            asChild
-            data-testid={`button-view-file-${fieldId}`}
-          >
-            <a href={parsedValue.file_url} target="_blank" rel="noopener noreferrer">
-              <ExternalLink className="w-4 h-4" />
-            </a>
-          </Button>
+          {isResolvingUrl ? (
+            <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+          ) : (
+            <>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={isSecure ? (e) => handleOpenFile(e, true) : undefined}
+                asChild={!isSecure}
+                data-testid={`button-download-file-${fieldId}`}
+              >
+                {isSecure ? (
+                  <span><Download className="w-4 h-4" /></span>
+                ) : (
+                  <a href={displayUrl} target="_blank" rel="noopener noreferrer" download>
+                    <Download className="w-4 h-4" />
+                  </a>
+                )}
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={isSecure ? handleOpenFile : undefined}
+                asChild={!isSecure}
+                data-testid={`button-view-file-${fieldId}`}
+              >
+                {isSecure ? (
+                  <span><ExternalLink className="w-4 h-4" /></span>
+                ) : (
+                  <a href={displayUrl} target="_blank" rel="noopener noreferrer">
+                    <ExternalLink className="w-4 h-4" />
+                  </a>
+                )}
+              </Button>
+            </>
+          )}
           {!disabled && (
             <Button
               variant="ghost"

@@ -257,39 +257,64 @@ class EntitiesProxy {
   get FormSubmissionDueDiligence() { return this._getEntity('FormSubmissionDueDiligence'); }
 }
 
-const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25MB in bytes
+const MAX_FILE_SIZE_PUBLIC = 10 * 1024 * 1024; // 10MB for public assets
+const MAX_FILE_SIZE_PRIVATE = 25 * 1024 * 1024; // 25MB for private uploads
+const MAX_FILE_SIZE = MAX_FILE_SIZE_PRIVATE; // Legacy compatibility
+
+const UPLOAD_TYPES = {
+  BRANDING: 'branding',
+  PAGE: 'page',
+  FORM_SUBMISSION: 'form-submission',
+  ATTACHMENT: 'attachment',
+  DOCUMENT: 'document',
+  UPLOAD: 'upload'
+};
+
+function isPrivateUploadType(type) {
+  return ['form-submission', 'attachment', 'document', 'private'].includes(type);
+}
 
 class CoreIntegration {
   constructor(apiRequest) {
     this.apiRequest = apiRequest;
   }
 
-  async UploadFile({ file, onProgress }) {
+  async UploadFile({ file, onProgress, type = 'upload', entityId = null, isPrivate = null }) {
     if (!file) {
       throw new Error('No file provided');
     }
     
-    if (file.size > MAX_FILE_SIZE) {
-      throw new Error(`File size exceeds maximum allowed size of 25MB. Your file is ${(file.size / (1024 * 1024)).toFixed(1)}MB.`);
+    const usePrivate = isPrivate !== null ? isPrivate : isPrivateUploadType(type);
+    const maxSize = usePrivate ? MAX_FILE_SIZE_PRIVATE : MAX_FILE_SIZE_PUBLIC;
+    
+    if (file.size > maxSize) {
+      const maxMB = maxSize / (1024 * 1024);
+      throw new Error(`File size exceeds maximum allowed size of ${maxMB}MB. Your file is ${(file.size / (1024 * 1024)).toFixed(1)}MB.`);
     }
     
-    const signedUrlResponse = await fetch('/api/integrations/signed-upload-url', {
+    const signedUrlResponse = await fetch('/api/storage/signed-upload-url', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
       body: JSON.stringify({
         fileName: file.name,
         fileSize: file.size,
-        mimeType: file.type
+        mimeType: file.type,
+        type: type,
+        entityId: entityId,
+        isPrivate: usePrivate
       })
     });
     
     if (!signedUrlResponse.ok) {
       const errorData = await signedUrlResponse.json().catch(() => ({}));
+      if (signedUrlResponse.status === 401) {
+        throw new Error('You must be logged in to upload files');
+      }
       throw new Error(errorData.error || 'Failed to get upload URL');
     }
     
-    const { signedUrl, publicUrl, token } = await signedUrlResponse.json();
+    const { signedUrl, fileUrl, path: storagePath, bucket, isPrivate: resultPrivate } = await signedUrlResponse.json();
     
     await new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
@@ -319,18 +344,65 @@ class CoreIntegration {
     });
     
     return {
-      file_url: publicUrl,
+      file_url: fileUrl,
+      storage_path: storagePath,
+      bucket: bucket,
       file_name: file.name,
       file_size: file.size,
-      mime_type: file.type
+      mime_type: file.type,
+      is_private: resultPrivate
     };
   }
 
-  async UploadPrivateFile({ file, onProgress }) {
-    return this.UploadFile({ file, onProgress });
+  async UploadPrivateFile({ file, onProgress, type = 'document', entityId = null }) {
+    return this.UploadFile({ file, onProgress, type, entityId, isPrivate: true });
+  }
+
+  async UploadFormSubmissionFile({ file, onProgress, formId = null }) {
+    return this.UploadFile({ file, onProgress, type: UPLOAD_TYPES.FORM_SUBMISSION, entityId: formId, isPrivate: true });
+  }
+
+  async UploadBrandingAsset({ file, onProgress }) {
+    return this.UploadFile({ file, onProgress, type: UPLOAD_TYPES.BRANDING, isPrivate: false });
+  }
+
+  async UploadPageAsset({ file, onProgress, pageId = null }) {
+    return this.UploadFile({ file, onProgress, type: UPLOAD_TYPES.PAGE, entityId: pageId, isPrivate: false });
+  }
+
+  async GetSecureFileUrl({ storagePath, bucket = 'private-uploads', download = false }) {
+    const params = new URLSearchParams({
+      bucket,
+      path: storagePath,
+      ...(download && { download: 'true' })
+    });
+
+    const response = await fetch(`/api/storage/secure-url?${params}`, {
+      credentials: 'include'
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      if (response.status === 401) {
+        throw new Error('You must be logged in to access this file');
+      }
+      if (response.status === 403) {
+        throw new Error('You do not have permission to access this file');
+      }
+      throw new Error(errorData.error || 'Failed to get file URL');
+    }
+
+    const { signedUrl } = await response.json();
+    return signedUrl;
   }
 
   async CreateFileSignedUrl({ file_url }) {
+    if (file_url && file_url.startsWith('/api/storage/secure-url')) {
+      const urlObj = new URL(file_url, window.location.origin);
+      const bucket = urlObj.searchParams.get('bucket');
+      const storagePath = urlObj.searchParams.get('path');
+      return { signedUrl: await this.GetSecureFileUrl({ storagePath, bucket }) };
+    }
     return this.apiRequest('/api/integrations/create-signed-url', {
       method: 'POST',
       body: JSON.stringify({ file_url }),
