@@ -47,7 +47,7 @@ export default async function handler(req, res) {
       return res.status(200).json({ configured_meetings: [], _debug: { reason: 'no_workflow_stages' } });
     }
 
-    const stageKeys = workflowStages.map(s => s.key);
+    const stageKeys = workflowStages.map(s => s.id);
     console.log('[DD Configured Meetings] Stage keys from workflow:', stageKeys);
 
     const { data: meetingConfigs, error: configsError } = await supabase
@@ -103,7 +103,7 @@ export default async function handler(req, res) {
 
     const result = meetingConfigs.map(config => {
       const stageKey = config.due_diligence_stage_id;
-      const stage = workflowStages.find(s => s.key === stageKey);
+      const stage = workflowStages.find(s => s.id === stageKey);
       const agents = agentAssignments
         .filter(a => a.meeting_template_id === config.meeting_template?.id)
         .map(a => a.identity)
