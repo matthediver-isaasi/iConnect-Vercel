@@ -1,4 +1,3 @@
-import { sendEmail } from '../_lib/emailService.js';
 import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
 
@@ -166,57 +165,12 @@ export default async function handler(req, res) {
       contractInstanceId = newContract.id;
     }
 
-    const { data: tenant } = await supabase
-      .from('tenant')
-      .select('*')
-      .eq('id', tenantContext.tenantId)
-      .single();
-
-    const appUrl = process.env.APP_URL || `https://${tenant?.slug || 'app'}.replit.app`;
-    const signerName = [signer.firstName, signer.lastName].filter(Boolean).join(' ') || 'Signer';
-    
-    const signUrl = `${appUrl}/form/${contractForm.slug}?signer_email=${encodeURIComponent(signer.email)}&signer_name=${encodeURIComponent(signerName)}&contract_instance=${contractInstanceId}`;
-
-    const emailSubject = `Contract Ready for Signature: ${contractForm.name}`;
-    const emailBody = `
-      <p>Dear ${signerName},</p>
-      <p>You have been requested to sign the following contract: <strong>${contractForm.name}</strong></p>
-      ${contractForm.description ? `<p>${contractForm.description}</p>` : ''}
-      <p>Please click the link below to review and sign the contract:</p>
-      <p><a href="${signUrl}" style="display: inline-block; padding: 12px 24px; background-color: #2563eb; color: white; text-decoration: none; border-radius: 6px;">Review and Sign Contract</a></p>
-      ${timeoutDays ? `<p>Please note: This contract will expire in ${timeoutDays} days.</p>` : ''}
-      <p>Thank you.</p>
-    `;
-
-    let emailSent = false;
-    try {
-      await sendEmail({
-        to: signer.email,
-        subject: emailSubject,
-        body: emailBody,
-        tenantId: tenantContext.tenantId,
-        tenant
-      });
-      emailSent = true;
-      console.log(`[contracts/add-signer] Sent contract to new signer ${signer.email}`);
-    } catch (emailError) {
-      console.error('[contracts/add-signer] Failed to send email:', emailError);
-    }
-
-    await supabase
-      .from('contract_instance')
-      .update({ 
-        status: 'out_for_signing',
-        sent_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', contractInstanceId);
+    console.log(`[contracts/add-signer] Added signer ${signer.email} to contract ${contractInstanceId} (not sent yet)`);
 
     return res.status(200).json({ 
       success: true, 
-      message: emailSent ? 'Signer added and contract sent' : 'Signer added (email could not be sent)',
-      contractInstanceId,
-      emailSent
+      message: 'Signer added successfully. Use the Send button to send them the contract.',
+      contractInstanceId
     });
 
   } catch (error) {

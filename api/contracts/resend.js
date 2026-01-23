@@ -122,10 +122,13 @@ export default async function handler(req, res) {
 
     const signerName = [signer.first_name, signer.last_name].filter(Boolean).join(' ') || signer.name || 'Signer';
 
-    const emailSubject = `Reminder: Contract Ready for Signature - ${form.name}`;
+    const isFirstSend = !signer.last_resent_at && !contractInstance.sent_at;
+    const emailSubject = isFirstSend 
+      ? `Contract Ready for Signature: ${form.name}`
+      : `Reminder: Contract Ready for Signature - ${form.name}`;
     const emailBody = `
       <p>Dear ${signerName},</p>
-      <p>This is a reminder that you have been requested to sign the following contract: <strong>${form.name}</strong></p>
+      <p>${isFirstSend ? 'You have been' : 'This is a reminder that you have been'} requested to sign the following contract: <strong>${form.name}</strong></p>
       ${form.description ? `<p>${form.description}</p>` : ''}
       <p>Please click the link below to review and sign the contract:</p>
       <p><a href="${signUrl}" style="display: inline-block; padding: 12px 24px; background-color: #2563eb; color: white; text-decoration: none; border-radius: 6px;">Review and Sign Contract</a></p>
@@ -152,16 +155,23 @@ export default async function handler(req, res) {
       return s;
     });
 
+    const updatePayload = {
+      signers: updatedSigners,
+      updated_at: new Date().toISOString()
+    };
+
+    if (isFirstSend || contractInstance.status === 'draft') {
+      updatePayload.status = 'out_for_signing';
+      updatePayload.sent_at = new Date().toISOString();
+    }
+
     await supabase
       .from('contract_instance')
-      .update({
-        signers: updatedSigners,
-        updated_at: new Date().toISOString()
-      })
+      .update(updatePayload)
       .eq('id', contractInstanceId)
       .eq('tenant_id', tenantContext.tenantId);
 
-    console.log(`[contracts/resend] Resent contract ${contractInstanceId} to ${signer.email}`);
+    console.log(`[contracts/resend] ${isFirstSend ? 'Sent' : 'Resent'} contract ${contractInstanceId} to ${signer.email}`);
 
     return res.status(200).json({
       success: true,
