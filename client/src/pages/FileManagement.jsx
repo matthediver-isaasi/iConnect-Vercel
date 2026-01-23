@@ -459,9 +459,7 @@ export default function FileManagementPage() {
         mime_type: file.type,
         file_size: file.size,
         uploaded_by: memberInfo?.email || "unknown",
-        folder_id: selectedFolder,
-        storage_path: path,
-        bucket: bucket
+        folder_id: selectedFolder
       });
 
       queryClient.invalidateQueries({ queryKey: ['file-repository'] });
