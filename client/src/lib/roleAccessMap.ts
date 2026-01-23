@@ -411,6 +411,17 @@ export const ROLE_ACCESS_MAP: Module[] = [
     ]
   },
   {
+    id: "calendar",
+    label: "Calendar & Scheduling",
+    icon: "Calendar",
+    pages: [
+      {
+        id: "calendar.agents",
+        label: "Booking Agents"
+      }
+    ]
+  },
+  {
     id: "support",
     label: "Support",
     icon: "HelpCircle",
@@ -838,6 +849,7 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "action_article_edit": "content.articles.edit",
   "action_article_delete": "content.articles.delete",
   "page_SupportManagement": "support.management",
+  "page_BookingAgentsManagement": "calendar.agents",
   "page_AboutMe": "user.about-me",
   "page_Preferences_new": "user.about-me",
   "communication.preferences": "user.about-me",
