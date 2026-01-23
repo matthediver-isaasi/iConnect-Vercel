@@ -25,7 +25,7 @@ export default async function handler(req, res) {
 
     const { data: submission, error: subError } = await supabase
       .from('form_submission')
-      .select('pdf_path, form:form_id(tenant_id)')
+      .select('pdf_path, tenant_id')
       .eq('id', submissionId)
       .single();
 
@@ -34,7 +34,7 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Submission not found' });
     }
 
-    if (submission.form?.tenant_id !== session.tenantId) {
+    if (submission.tenant_id !== session.tenantId) {
       return res.status(403).json({ error: 'Unauthorized' });
     }
 
