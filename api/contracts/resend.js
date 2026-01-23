@@ -101,7 +101,7 @@ export default async function handler(req, res) {
 
     const { data: form, error: formError } = await supabase
       .from('form')
-      .select('id, name, description, slug')
+      .select('id, name, description, slug, contract_settings')
       .eq('id', contractInstance.form_id)
       .single();
 
@@ -116,19 +116,16 @@ export default async function handler(req, res) {
       .eq('id', tenantContext.tenantId)
       .single();
 
-    const appUrl = process.env.APP_URL || `https://${tenant?.slug || 'app'}.replit.app`;
+    const appUrl = process.env.APP_URL || `https://${tenant?.slug || 'app'}.iconn.app`;
     
     const signUrl = `${appUrl}/form/${form.slug}?signer_email=${encodeURIComponent(signer.email)}&signer_name=${encodeURIComponent(signer.first_name || signer.name || '')}&contract_instance=${contractInstance.id}`;
 
     const signerName = [signer.first_name, signer.last_name].filter(Boolean).join(' ') || signer.name || 'Signer';
 
-    const isFirstSend = !signer.last_resent_at && !contractInstance.sent_at;
-    const emailSubject = isFirstSend 
-      ? `Contract Ready for Signature: ${form.name}`
-      : `Reminder: Contract Ready for Signature - ${form.name}`;
-    const emailBody = `
+    let emailSubject = `Contract Ready for Signature: ${form.name}`;
+    let emailBody = `
       <p>Dear ${signerName},</p>
-      <p>${isFirstSend ? 'You have been' : 'This is a reminder that you have been'} requested to sign the following contract: <strong>${form.name}</strong></p>
+      <p>You have been requested to sign the following contract: <strong>${form.name}</strong></p>
       ${form.description ? `<p>${form.description}</p>` : ''}
       <p>Please click the link below to review and sign the contract:</p>
       <p><a href="${signUrl}" style="display: inline-block; padding: 12px 24px; background-color: #2563eb; color: white; text-decoration: none; border-radius: 6px;">Review and Sign Contract</a></p>
@@ -136,10 +133,38 @@ export default async function handler(req, res) {
       <p>Thank you.</p>
     `;
 
+    const contractSettings = form.contract_settings || {};
+    const initialTemplateId = contractSettings.initial_email_template_id;
+
+    if (initialTemplateId) {
+      const { data: emailTemplate } = await supabase
+        .from('email_template')
+        .select('*')
+        .eq('id', initialTemplateId)
+        .eq('tenant_id', tenantContext.tenantId)
+        .single();
+
+      if (emailTemplate) {
+        emailSubject = (emailTemplate.subject || emailSubject)
+          .replace(/\{\{signer_name\}\}/gi, signerName)
+          .replace(/\{\{signer_email\}\}/gi, signer.email)
+          .replace(/\{\{contract_name\}\}/gi, form.name)
+          .replace(/\{\{signing_url\}\}/gi, signUrl)
+          .replace(/\{\{signing_link\}\}/gi, `<a href="${signUrl}">Click here to sign</a>`);
+
+        emailBody = (emailTemplate.body || emailBody)
+          .replace(/\{\{signer_name\}\}/gi, signerName)
+          .replace(/\{\{signer_email\}\}/gi, signer.email)
+          .replace(/\{\{contract_name\}\}/gi, form.name)
+          .replace(/\{\{signing_url\}\}/gi, signUrl)
+          .replace(/\{\{signing_link\}\}/gi, `<a href="${signUrl}">Click here to sign</a>`);
+      }
+    }
+
     await sendEmail({
       to: signer.email,
       subject: emailSubject,
-      body: emailBody,
+      html: emailBody,
       tenantId: tenantContext.tenantId,
       tenant
     });
@@ -156,14 +181,18 @@ export default async function handler(req, res) {
       return s;
     });
 
+    const isSignerFirstSend = !signer.sent_at && !signer.last_resent_at;
+
     const updatePayload = {
       signers: updatedSigners,
       updated_at: new Date().toISOString()
     };
 
-    if (isFirstSend || contractInstance.status === 'draft') {
+    if (isSignerFirstSend || contractInstance.status === 'draft') {
       updatePayload.status = 'out_for_signing';
-      updatePayload.sent_at = new Date().toISOString();
+      if (!contractInstance.sent_at) {
+        updatePayload.sent_at = new Date().toISOString();
+      }
     }
 
     await supabase
@@ -172,7 +201,7 @@ export default async function handler(req, res) {
       .eq('id', contractInstanceId)
       .eq('tenant_id', tenantContext.tenantId);
 
-    console.log(`[contracts/resend] ${isFirstSend ? 'Sent' : 'Resent'} contract ${contractInstanceId} to ${signer.email}`);
+    console.log(`[contracts/resend] Sent contract ${contractInstanceId} to ${signer.email}`);
 
     return res.status(200).json({
       success: true,
