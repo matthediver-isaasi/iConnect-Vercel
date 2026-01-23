@@ -8,7 +8,7 @@ import { Separator } from "@/components/ui/separator";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { 
-  User, Check, Clock, FileSignature, AlertCircle, Send, Loader2, UserPlus, CheckCircle2, Download
+  User, Check, Clock, FileSignature, AlertCircle, Send, Loader2, UserPlus, CheckCircle2, Download, X, ExternalLink
 } from "lucide-react";
 import { format } from 'date-fns';
 import { apiRequest } from "@/lib/queryClient";
@@ -212,6 +212,7 @@ export default function SignatoryDetailModal({
 }) {
   const [sendingEmail, setSendingEmail] = useState(null);
   const [downloadingSubmissionId, setDownloadingSubmissionId] = useState(null);
+  const [pdfPreview, setPdfPreview] = useState({ isOpen: false, url: null, fileName: null });
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -297,17 +298,10 @@ export default function SignatoryDetailModal({
         throw new Error(data.error || 'Failed to get download URL');
       }
       
-      const link = document.createElement('a');
-      link.href = data.downloadUrl;
-      link.download = data.fileName || 'signed-contract.pdf';
-      link.target = '_blank';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      
-      toast({
-        title: "Download Started",
-        description: "Your signed contract PDF is downloading.",
+      setPdfPreview({
+        isOpen: true,
+        url: data.downloadUrl,
+        fileName: data.fileName || 'signed-contract.pdf'
       });
     } catch (error) {
       toast({
@@ -320,12 +314,34 @@ export default function SignatoryDetailModal({
     }
   };
 
+  const handlePdfDownload = () => {
+    if (pdfPreview.url) {
+      const link = document.createElement('a');
+      link.href = pdfPreview.url;
+      link.download = pdfPreview.fileName;
+      link.target = '_blank';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      toast({
+        title: "Download Started",
+        description: "Your signed contract PDF is downloading.",
+      });
+    }
+  };
+
+  const closePdfPreview = () => {
+    setPdfPreview({ isOpen: false, url: null, fileName: null });
+  };
+
   if (!signatory) return null;
 
   const statusConfig = STATUS_CONFIG[signatory.status] || STATUS_CONFIG.pending;
   const StatusIcon = statusConfig.icon;
 
   return (
+    <>
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col" data-testid="signatory-detail-modal">
         <DialogHeader className="flex-shrink-0">
@@ -386,5 +402,58 @@ export default function SignatoryDetailModal({
         </ScrollArea>
       </DialogContent>
     </Dialog>
+
+    <Dialog open={pdfPreview.isOpen} onOpenChange={closePdfPreview}>
+      <DialogContent className="max-w-4xl h-[85vh] flex flex-col p-0" data-testid="pdf-preview-modal">
+        <div className="flex items-center justify-between px-4 py-3 border-b flex-shrink-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <FileSignature className="w-5 h-5 flex-shrink-0" />
+            <span className="font-medium truncate">{pdfPreview.fileName}</span>
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handlePdfDownload}
+              className="gap-2"
+              data-testid="button-download-pdf"
+            >
+              <Download className="w-4 h-4" />
+              Download
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => pdfPreview.url && window.open(pdfPreview.url, '_blank')}
+              className="gap-2"
+              data-testid="button-open-new-tab"
+            >
+              <ExternalLink className="w-4 h-4" />
+              Open in New Tab
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={closePdfPreview}
+              aria-label="Close preview"
+              data-testid="button-close-pdf-preview"
+            >
+              <X className="w-4 h-4" />
+            </Button>
+          </div>
+        </div>
+        <div className="flex-1 bg-muted">
+          {pdfPreview.url && (
+            <iframe
+              src={pdfPreview.url}
+              className="w-full h-full border-0"
+              title="PDF Preview"
+              data-testid="pdf-preview-iframe"
+            />
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }
