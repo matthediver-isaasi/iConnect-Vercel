@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { jsPDF } from 'jspdf';
-import { getSessionTenantUser } from '../_session.js';
+import { getSessionTenantUser } from '../_lib/session.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
