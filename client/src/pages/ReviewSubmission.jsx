@@ -745,16 +745,32 @@ export default function ReviewSubmissionPage() {
   };
 
   const handleStatusChange = async (newStatus) => {
-    if (newStatus === workflowStatus) return;
+    console.log('[ReviewSubmission] handleStatusChange called');
+    console.log('[ReviewSubmission] newStatus:', newStatus);
+    console.log('[ReviewSubmission] currentStatus:', workflowStatus);
+    
+    if (newStatus === workflowStatus) {
+      console.log('[ReviewSubmission] Status unchanged, returning early');
+      return;
+    }
     
     // Check if this stage has meeting request actions with multiple agents
     try {
       const formId = form?.id || ddSubmission?.form_submission?.form_id;
+      console.log('[ReviewSubmission] formId:', formId);
+      console.log('[ReviewSubmission] form:', form);
+      console.log('[ReviewSubmission] ddSubmission?.form_submission?.form_id:', ddSubmission?.form_submission?.form_id);
+      
       if (formId) {
+        console.log('[ReviewSubmission] Calling check-stage-actions API...');
         const checkResult = await apiRequest('POST', '/api/due-diligence/check-stage-actions', {
           stageId: newStatus,
           formId: formId
         });
+        
+        console.log('[ReviewSubmission] check-stage-actions response:', checkResult);
+        console.log('[ReviewSubmission] requires_agent_selection:', checkResult.requires_agent_selection);
+        console.log('[ReviewSubmission] meeting_actions length:', checkResult.meeting_actions?.length);
         
         if (checkResult.requires_agent_selection && checkResult.meeting_actions?.length > 0) {
           // Get all unique agents from all meeting actions
@@ -769,8 +785,12 @@ export default function ReviewSubmissionPage() {
             });
           });
           
+          console.log('[ReviewSubmission] allAgents collected:', allAgents);
+          console.log('[ReviewSubmission] allAgents count:', allAgents.length);
+          
           // Only show modal if there are valid agents to select from
           if (allAgents.length > 1) {
+            console.log('[ReviewSubmission] Opening agent selection modal');
             setAgentSelectionModal({
               open: true,
               agents: allAgents,
@@ -780,14 +800,20 @@ export default function ReviewSubmissionPage() {
             setSelectedAgentId(allAgents[0]?.identity_id || null);
             return;
           } else if (allAgents.length === 0) {
+            console.log('[ReviewSubmission] No agents available');
             toast.error('No booking agents available for this meeting type. Please configure agents first.');
             return;
           }
+          console.log('[ReviewSubmission] Only 1 agent, auto-selecting');
           // If only 1 agent, proceed without modal (will auto-select first)
+        } else {
+          console.log('[ReviewSubmission] Agent selection not required or no meeting actions');
         }
+      } else {
+        console.log('[ReviewSubmission] No formId available, skipping agent check');
       }
     } catch (error) {
-      console.error('Error checking stage actions:', error);
+      console.error('[ReviewSubmission] Error checking stage actions:', error);
       // Show error for auth/access issues but allow proceeding for other errors
       if (error.message?.includes('Authentication') || error.message?.includes('Tenant')) {
         toast.error('Unable to change status: ' + error.message);
@@ -796,6 +822,7 @@ export default function ReviewSubmissionPage() {
     }
     
     // No agent selection needed, proceed directly
+    console.log('[ReviewSubmission] Proceeding with status update, no agent selection needed');
     updateStatusMutation.mutate({ newStatus, selectedAgentId: null });
   };
 
