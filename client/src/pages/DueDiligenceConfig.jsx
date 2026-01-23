@@ -195,11 +195,23 @@ export default function DueDiligenceConfigPage() {
   };
 
   const getEmailFields = () => {
-    return (form?.fields || []).filter(f => f.type === 'email');
+    return (form?.fields || []).filter(f => 
+      f.type === 'email' || 
+      f.type === 'text' || 
+      f.type === 'short_text' ||
+      f.type === 'contact' ||
+      (f.label || f.name || '').toLowerCase().includes('email')
+    );
   };
 
   const getTextFields = () => {
-    return (form?.fields || []).filter(f => f.type === 'text' || f.type === 'short_text');
+    return (form?.fields || []).filter(f => 
+      f.type === 'text' || 
+      f.type === 'short_text' || 
+      f.type === 'name' ||
+      f.type === 'contact' ||
+      (f.label || f.name || '').toLowerCase().includes('name')
+    );
   };
 
   const normalizeStaticQuestions = (questions) => {
