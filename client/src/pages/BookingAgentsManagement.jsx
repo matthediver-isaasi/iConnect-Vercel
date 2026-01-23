@@ -591,6 +591,9 @@ export default function BookingAgentsManagement() {
                                 {assignedAgents.length} agents
                               </span>
                             </div>
+                            <div className="text-xs text-muted-foreground mt-1 font-mono">
+                              ?meeting={template.slug}
+                            </div>
                             {template.description && (
                               <p className="text-sm text-muted-foreground mt-1">
                                 {template.description}
