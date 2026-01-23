@@ -101,6 +101,8 @@ export default function MeetingRequestsCard({ formSubmissionId, formId }) {
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
+  console.log('[MeetingRequestsCard] Props:', { formSubmissionId, formId });
+
   const handleRequestClick = (request) => {
     setSelectedRequest(request);
     setIsModalOpen(true);
@@ -129,7 +131,17 @@ export default function MeetingRequestsCard({ formSubmissionId, formId }) {
   const isLoading = sentLoading || configuredLoading;
   const hasContent = requests.length > 0 || configuredMeetings.length > 0;
 
+  console.log('[MeetingRequestsCard] State:', { 
+    sentLoading, configuredLoading, isLoading,
+    requestsCount: requests.length, 
+    configuredMeetingsCount: configuredMeetings.length,
+    hasContent,
+    sentData,
+    configuredData
+  });
+
   if ((!formSubmissionId && !formId) || (!hasContent && !isLoading)) {
+    console.log('[MeetingRequestsCard] Returning null - no content or IDs');
     return null;
   }
 
