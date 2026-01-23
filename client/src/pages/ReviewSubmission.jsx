@@ -1411,6 +1411,7 @@ export default function ReviewSubmissionPage() {
 
           <MeetingRequestsCard
             formSubmissionId={ddSubmission.form_submission_id}
+            formId={form?.id || ddSubmission?.form_submission?.form_id}
           />
         </div>
       </div>

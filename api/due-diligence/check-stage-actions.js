@@ -192,8 +192,8 @@ export default async function handler(req, res) {
     console.log('[DD Check Stage Actions] Unique agents count:', allUniqueAgents.size);
     console.log('[DD Check Stage Actions] Unique agent IDs:', Array.from(allUniqueAgents));
     
-    // Only require agent selection if there are multiple distinct agents
-    result.requires_agent_selection = allUniqueAgents.size > 1;
+    // Always require agent selection when there are meeting actions (even with 1 agent for better UX)
+    result.requires_agent_selection = allUniqueAgents.size >= 1;
 
     console.log('[DD Check Stage Actions] Final result:', JSON.stringify(result, null, 2));
     console.log('[DD Check Stage Actions] ========== END ==========');

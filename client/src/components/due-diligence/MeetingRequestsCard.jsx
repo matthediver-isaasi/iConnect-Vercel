@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Calendar, Clock, Check, User, Loader2 } from "lucide-react";
+import { Calendar, Clock, Check, User, Loader2, Send, Info } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import MeetingRequestDetailModal from "./MeetingRequestDetailModal";
 
@@ -10,7 +10,8 @@ const STATUS_CONFIG = {
   pending: { label: 'Pending', color: '#f59e0b', icon: Clock },
   booked: { label: 'Booked', color: '#22c55e', icon: Check },
   cancelled: { label: 'Cancelled', color: '#6b7280', icon: Clock },
-  expired: { label: 'Expired', color: '#ef4444', icon: Clock }
+  expired: { label: 'Expired', color: '#ef4444', icon: Clock },
+  not_sent: { label: 'Not sent', color: '#94a3b8', icon: Send }
 };
 
 function MeetingRequestItem({ request, onClick }) {
@@ -56,7 +57,47 @@ function MeetingRequestItem({ request, onClick }) {
   );
 }
 
-export default function MeetingRequestsCard({ formSubmissionId }) {
+function ConfiguredMeetingItem({ config }) {
+  const statusConfig = STATUS_CONFIG.not_sent;
+  const StatusIcon = statusConfig.icon;
+  const agentNames = config.agents?.map(a => 
+    [a.first_name, a.last_name].filter(Boolean).join(' ')
+  ).filter(Boolean).join(', ') || 'No agents assigned';
+  
+  return (
+    <div 
+      className="flex items-center gap-3 p-3 rounded-lg border bg-muted/30"
+      data-testid={`configured-meeting-${config.config_id}`}
+    >
+      <div className="p-2 bg-muted rounded-md">
+        <Calendar className="w-5 h-5 text-muted-foreground" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium truncate">{config.meeting_template?.name || 'Meeting'}</p>
+        <div className="flex items-center gap-2 mt-1 flex-wrap">
+          <Badge 
+            variant="outline" 
+            className="text-xs"
+            style={{ borderColor: statusConfig.color, color: statusConfig.color }}
+          >
+            <StatusIcon className="w-3 h-3 mr-1" />
+            {statusConfig.label}
+          </Badge>
+          <span className="text-xs text-muted-foreground flex items-center gap-1">
+            <User className="w-3 h-3" />
+            {agentNames}
+          </span>
+        </div>
+        <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+          <Info className="w-3 h-3" />
+          Will trigger on <span className="font-medium" style={{ color: config.stage_color || 'inherit' }}>{config.stage_name}</span> stage
+        </p>
+      </div>
+    </div>
+  );
+}
+
+export default function MeetingRequestsCard({ formSubmissionId, formId }) {
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
@@ -70,15 +111,25 @@ export default function MeetingRequestsCard({ formSubmissionId }) {
     setSelectedRequest(null);
   };
 
-  const { data, isLoading, error } = useQuery({
+  const { data: sentData, isLoading: sentLoading } = useQuery({
     queryKey: ['/api/dd-meeting-requests/by-submission', formSubmissionId],
     queryFn: () => apiRequest('GET', `/api/dd-meeting-requests/by-submission?formSubmissionId=${formSubmissionId}`),
     enabled: !!formSubmissionId
   });
 
-  const requests = data?.requests || [];
+  const { data: configuredData, isLoading: configuredLoading } = useQuery({
+    queryKey: ['/api/dd-meeting-requests/configured-by-form', formId],
+    queryFn: () => apiRequest('GET', `/api/dd-meeting-requests/configured-by-form?formId=${formId}`),
+    enabled: !!formId
+  });
+
+  const requests = sentData?.requests || [];
+  const configuredMeetings = configuredData?.configured_meetings || [];
   
-  if (!formSubmissionId || (requests.length === 0 && !isLoading)) {
+  const isLoading = sentLoading || configuredLoading;
+  const hasContent = requests.length > 0 || configuredMeetings.length > 0;
+
+  if ((!formSubmissionId && !formId) || (!hasContent && !isLoading)) {
     return null;
   }
 
@@ -95,21 +146,8 @@ export default function MeetingRequestsCard({ formSubmissionId }) {
     );
   }
 
-  if (error) {
-    return null;
-  }
-
-  const groupedByTemplate = requests.reduce((acc, req) => {
-    const templateId = req.meeting_template_id;
-    if (!acc[templateId]) {
-      acc[templateId] = {
-        template: req.meeting_template,
-        requests: []
-      };
-    }
-    acc[templateId].requests.push(req);
-    return acc;
-  }, {});
+  const sentTemplateIds = new Set(requests.map(r => r.meeting_template_id));
+  const unsent = configuredMeetings.filter(c => !sentTemplateIds.has(c.meeting_template?.id));
 
   const hasBookedRequest = requests.some(r => r.status === 'booked');
 
@@ -119,18 +157,33 @@ export default function MeetingRequestsCard({ formSubmissionId }) {
         <CardHeader>
           <CardTitle className="text-lg">Meeting Requests</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-2">
-          {requests.length > 0 ? (
-            requests.map((request) => (
-              <MeetingRequestItem 
-                key={request.id}
-                request={request}
-                onClick={() => handleRequestClick(request)}
-              />
-            ))
-          ) : (
+        <CardContent className="space-y-3">
+          {unsent.length > 0 && (
+            <div className="space-y-2">
+              {unsent.map((config) => (
+                <ConfiguredMeetingItem 
+                  key={config.config_id}
+                  config={config}
+                />
+              ))}
+            </div>
+          )}
+          
+          {requests.length > 0 && (
+            <div className="space-y-2">
+              {requests.map((request) => (
+                <MeetingRequestItem 
+                  key={request.id}
+                  request={request}
+                  onClick={() => handleRequestClick(request)}
+                />
+              ))}
+            </div>
+          )}
+
+          {!hasContent && (
             <p className="text-sm text-muted-foreground text-center py-4">
-              No meeting requests for this submission
+              No meeting requests configured
             </p>
           )}
         </CardContent>
