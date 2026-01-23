@@ -66,15 +66,28 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Tenant not found' });
     }
 
-    // Find identity by booking slug AND tenant_id to ensure tenant isolation
+    // Find identity by booking slug, then verify tenant membership
+    // (tenant_identity table doesn't have tenant_id column)
     const { data: identity, error: identityError } = await supabase
       .from('tenant_identity')
       .select('id, first_name, last_name, email, avatar_url, booking_slug')
       .eq('booking_slug', slug)
-      .eq('tenant_id', tenantId)
       .single();
 
     if (identityError || !identity) {
+      return res.status(404).json({ error: 'Booking page not found' });
+    }
+
+    // Verify this identity belongs to the tenant via tenant_membership
+    const { data: membership } = await supabase
+      .from('tenant_membership')
+      .select('identity_id')
+      .eq('identity_id', identity.id)
+      .eq('tenant_id', tenantId)
+      .limit(1)
+      .single();
+
+    if (!membership) {
       return res.status(404).json({ error: 'Booking page not found' });
     }
 
