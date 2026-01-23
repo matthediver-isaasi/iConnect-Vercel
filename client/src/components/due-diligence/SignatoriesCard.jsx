@@ -175,12 +175,77 @@ export default function SignatoriesCard({ formSubmissionId, submissionData, form
     const contracts = contractsData?.contracts || [];
     
     const result = [];
-    const processedEmails = new Set();
     
     contactFieldsWithContracts.forEach(contact => {
-      const matchingContract = contracts.find(c => c.formId === contact.contractFormId);
+      let contractsForField = contracts.filter(c => 
+        c.sourceContactFieldId === contact.fieldId
+      );
+      
+      let isLegacyAmbiguous = false;
+      if (contractsForField.length === 0) {
+        const legacyCandidates = contracts.filter(c => 
+          c.formId === contact.contractFormId && !c.sourceContactFieldId
+        );
+        if (legacyCandidates.length === 1) {
+          contractsForField = legacyCandidates;
+        } else if (legacyCandidates.length > 1) {
+          isLegacyAmbiguous = true;
+        }
+      }
+      
+      const matchingContract = contractsForField[0];
       const templateName = templateNamesMap[contact.contractFormId] || 'Unknown Contract';
       
+      const fieldSignerHistory = [];
+      const seenEmails = new Set();
+      
+      contractsForField.forEach(contract => {
+        const allSigners = [...(contract.signers || []), ...(contract.signedSigners || [])];
+        allSigners.forEach(signer => {
+          const email = (signer.email || '').toLowerCase();
+          const uniqueKey = `${contract.id}-${email}`;
+          
+          if (seenEmails.has(uniqueKey)) return;
+          seenEmails.add(uniqueKey);
+          
+          const isSigned = signer.signed || contract.signedSigners?.some(
+            s => (s.email || '').toLowerCase() === email
+          );
+          
+          let status = 'not_sent';
+          if (isSigned) {
+            status = 'received';
+          } else if (contract.status === 'expired') {
+            status = 'expired';
+          } else if (contract.sentAt) {
+            status = 'pending';
+          }
+          
+          fieldSignerHistory.push({
+            firstName: signer.first_name || signer.name?.split(' ')[0] || '',
+            lastName: signer.last_name || signer.name?.split(' ').slice(1).join(' ') || '',
+            email: signer.email,
+            jobTitle: signer.job_title || '',
+            organisation: signer.organisation || signer.organization || '',
+            status,
+            contractId: contract.id,
+            signedAt: signer.signed_at,
+            sentAt: signer.added_at || contract.sentAt || contract.sent_at,
+            createdAt: contract.createdAt || contract.created_at,
+            addedAt: signer.added_at
+          });
+        });
+      });
+      
+      fieldSignerHistory.sort((a, b) => {
+        const dateA = new Date(a.addedAt || a.sentAt || a.createdAt || 0);
+        const dateB = new Date(b.addedAt || b.sentAt || b.createdAt || 0);
+        return dateA - dateB;
+      });
+      
+      const hasSignedSigner = fieldSignerHistory.some(s => s.status === 'received');
+      
+      let currentStatus = 'not_sent';
       if (matchingContract) {
         const matchingSigner = matchingContract.signers?.find(
           s => (s.email || '').toLowerCase() === (contact.email || '').toLowerCase()
@@ -191,84 +256,28 @@ export default function SignatoriesCard({ formSubmissionId, submissionData, form
             s => (s.email || '').toLowerCase() === (contact.email || '').toLowerCase()
           );
         
-        let status = 'not_sent';
-        if (isSigned) {
-          status = 'received';
+        if (isSigned || hasSignedSigner) {
+          currentStatus = 'received';
         } else if (matchingContract.status === 'expired') {
-          status = 'expired';
+          currentStatus = 'expired';
         } else if (matchingContract.sentAt) {
-          status = 'pending';
+          currentStatus = 'pending';
         }
-        
-        const uniqueKey = `${matchingContract.id}-${(contact.email || '').toLowerCase()}`;
-        processedEmails.add(uniqueKey);
-        
-        result.push({
-          ...contact,
-          contractName: matchingContract.name || templateName,
-          status,
-          contractId: matchingContract.id,
-          signedAt: matchingSigner?.signed_at,
-          sentAt: matchingContract.sentAt || matchingContract.sent_at,
-          createdAt: matchingContract.createdAt || matchingContract.created_at
-        });
-      } else {
-        const uniqueKey = `no-contract-${(contact.email || '').toLowerCase()}`;
-        processedEmails.add(uniqueKey);
-        result.push({
-          ...contact,
-          contractName: templateName,
-          status: 'not_sent',
-          contractId: null,
-          sentAt: null,
-          createdAt: null
-        });
+      } else if (hasSignedSigner) {
+        currentStatus = 'received';
       }
-    });
-    
-    contracts.forEach(contract => {
-      const templateName = templateNamesMap[contract.formId] || contract.name || 'Unknown Contract';
-      const allContractSigners = [...(contract.signers || []), ...(contract.signedSigners || [])];
       
-      allContractSigners.forEach(signer => {
-        const signerEmail = (signer.email || '').toLowerCase();
-        if (!signerEmail) return;
-        
-        const uniqueKey = `${contract.id}-${signerEmail}`;
-        if (processedEmails.has(uniqueKey)) return;
-        
-        processedEmails.add(uniqueKey);
-        
-        const isSigned = signer.signed || contract.signedSigners?.some(
-          s => (s.email || '').toLowerCase() === signerEmail
-        );
-        
-        let status = 'not_sent';
-        if (isSigned) {
-          status = 'received';
-        } else if (contract.status === 'expired') {
-          status = 'expired';
-        } else if (contract.sentAt) {
-          status = 'pending';
-        }
-        
-        result.push({
-          fieldId: `contract-${contract.id}-${signerEmail}`,
-          fieldKey: `contract-signer-${signerEmail}`,
-          fieldLabel: 'Contract Signer',
-          contractFormId: contract.formId,
-          firstName: signer.first_name || signer.name?.split(' ')[0] || '',
-          lastName: signer.last_name || signer.name?.split(' ').slice(1).join(' ') || '',
-          email: signer.email,
-          jobTitle: signer.job_title || '',
-          organisation: signer.organisation || signer.organization || '',
-          contractName: templateName,
-          status,
-          contractId: contract.id,
-          signedAt: signer.signed_at,
-          sentAt: contract.sentAt || contract.sent_at,
-          createdAt: contract.createdAt || contract.created_at
-        });
+      result.push({
+        ...contact,
+        contractName: matchingContract?.name || templateName,
+        status: currentStatus,
+        contractId: matchingContract?.id || null,
+        signedAt: matchingContract?.signedSigners?.[0]?.signed_at,
+        sentAt: matchingContract?.sentAt || matchingContract?.sent_at,
+        createdAt: matchingContract?.createdAt || matchingContract?.created_at,
+        fieldSignerHistory,
+        isFieldSigned: hasSignedSigner,
+        isLegacyAmbiguous
       });
     });
     
@@ -329,7 +338,9 @@ export default function SignatoriesCard({ formSubmissionId, submissionData, form
         isOpen={isModalOpen}
         onClose={handleCloseModal}
         signatory={selectedSignatory}
-        allSignatories={signatories}
+        fieldSignerHistory={selectedSignatory?.fieldSignerHistory || []}
+        isFieldSigned={selectedSignatory?.isFieldSigned || false}
+        isLegacyAmbiguous={selectedSignatory?.isLegacyAmbiguous || false}
         formSubmissionId={formSubmissionId}
       />
     </>

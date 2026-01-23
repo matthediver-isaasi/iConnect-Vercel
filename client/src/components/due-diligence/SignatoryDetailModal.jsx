@@ -6,8 +6,10 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { 
-  User, Check, Clock, FileSignature, Mail, Briefcase, Building2, Users, AlertCircle, Send, Loader2
+  User, Check, Clock, FileSignature, Mail, Briefcase, Building2, Users, AlertCircle, Send, Loader2, UserPlus, CheckCircle2
 } from "lucide-react";
 import { format } from 'date-fns';
 import { apiRequest } from "@/lib/queryClient";
@@ -36,16 +38,17 @@ function DetailRow({ icon: Icon, label, value }) {
   );
 }
 
-function SignerListItem({ signer, isActive, onResend, isResending, showContractName = false }) {
+function SignerHistoryItem({ signer, onResend, isResending, isFieldSigned, isLegacyAmbiguous }) {
   const statusConfig = STATUS_CONFIG[signer.status] || STATUS_CONFIG.pending;
   const StatusIcon = statusConfig.icon;
   const fullName = [signer.firstName, signer.lastName].filter(Boolean).join(' ') || 'Unknown';
-  const canResend = signer.status !== 'received' && signer.contractId;
+  const canResend = !isFieldSigned && !isLegacyAmbiguous && signer.status !== 'received' && signer.contractId;
+  const isWinner = signer.status === 'received';
   
   return (
     <div 
-      className={`flex items-center gap-3 p-3 rounded-lg border ${isActive ? 'border-primary bg-primary/5' : ''}`}
-      data-testid={`signer-list-item-${signer.email}`}
+      className={`flex items-center gap-3 p-3 rounded-lg border ${isWinner ? 'border-green-500 bg-green-50' : ''}`}
+      data-testid={`signer-history-item-${signer.email}`}
     >
       <div className="p-2 bg-muted rounded-md">
         <User className="w-4 h-4 text-muted-foreground" />
@@ -53,8 +56,11 @@ function SignerListItem({ signer, isActive, onResend, isResending, showContractN
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <p className="text-sm font-medium truncate">{fullName}</p>
-          {isActive && (
-            <Badge variant="outline" className="text-xs">Active</Badge>
+          {isWinner && (
+            <Badge variant="outline" className="text-xs border-green-500 text-green-600">
+              <CheckCircle2 className="w-3 h-3 mr-1" />
+              Signed
+            </Badge>
           )}
         </div>
         <p className="text-xs text-muted-foreground truncate">{signer.email}</p>
@@ -67,15 +73,14 @@ function SignerListItem({ signer, isActive, onResend, isResending, showContractN
             <StatusIcon className="w-3 h-3 mr-1" />
             {statusConfig.label}
           </Badge>
-          {showContractName && signer.contractName && (
-            <span className="text-xs text-muted-foreground flex items-center gap-1">
-              <FileSignature className="w-3 h-3" />
-              {signer.contractName}
-            </span>
-          )}
           {signer.sentAt && (
             <span className="text-xs text-muted-foreground">
               Sent {format(new Date(signer.sentAt), 'MMM d, yyyy')}
+            </span>
+          )}
+          {signer.signedAt && (
+            <span className="text-xs text-green-600">
+              Signed {format(new Date(signer.signedAt), 'MMM d, yyyy')}
             </span>
           )}
         </div>
@@ -102,11 +107,122 @@ function SignerListItem({ signer, isActive, onResend, isResending, showContractN
   );
 }
 
+function AddAlternativeSignerForm({ onSubmit, isSubmitting, isDisabled, isLegacyAmbiguous }) {
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [email, setEmail] = useState('');
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!firstName.trim() || !email.trim()) return;
+    onSubmit({ firstName: firstName.trim(), lastName: lastName.trim(), email: email.trim() });
+  };
+
+  const resetForm = () => {
+    setFirstName('');
+    setLastName('');
+    setEmail('');
+  };
+
+  if (isLegacyAmbiguous) {
+    return (
+      <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg text-center">
+        <AlertCircle className="w-8 h-8 text-amber-500 mx-auto mb-2" />
+        <p className="text-sm font-medium text-amber-700">Ambiguous contract data</p>
+        <p className="text-xs text-amber-600 mt-1">Cannot add signers due to legacy data. Please contact support.</p>
+      </div>
+    );
+  }
+
+  if (isDisabled) {
+    return (
+      <div className="p-4 bg-green-50 border border-green-200 rounded-lg text-center">
+        <CheckCircle2 className="w-8 h-8 text-green-500 mx-auto mb-2" />
+        <p className="text-sm font-medium text-green-700">This field has been signed</p>
+        <p className="text-xs text-green-600 mt-1">No additional signers can be added</p>
+      </div>
+    );
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="p-4 bg-muted/50 rounded-lg space-y-4">
+      <h4 className="text-sm font-semibold flex items-center gap-2">
+        <UserPlus className="w-4 h-4" />
+        Add Alternative Signer
+      </h4>
+      <p className="text-xs text-muted-foreground">
+        Add another person who can sign this document. The first person to sign will be recorded.
+      </p>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1">
+          <Label htmlFor="alt-first-name" className="text-xs">First Name *</Label>
+          <Input
+            id="alt-first-name"
+            value={firstName}
+            onChange={(e) => setFirstName(e.target.value)}
+            placeholder="First name"
+            required
+            data-testid="input-alt-first-name"
+          />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="alt-last-name" className="text-xs">Last Name</Label>
+          <Input
+            id="alt-last-name"
+            value={lastName}
+            onChange={(e) => setLastName(e.target.value)}
+            placeholder="Last name"
+            data-testid="input-alt-last-name"
+          />
+        </div>
+      </div>
+      <div className="space-y-1">
+        <Label htmlFor="alt-email" className="text-xs">Email Address *</Label>
+        <Input
+          id="alt-email"
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="email@example.com"
+          required
+          data-testid="input-alt-email"
+        />
+      </div>
+      <div className="flex justify-end gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={resetForm}
+          data-testid="button-reset-alt-signer"
+        >
+          Clear
+        </Button>
+        <Button
+          type="submit"
+          size="sm"
+          disabled={isSubmitting || !firstName.trim() || !email.trim()}
+          data-testid="button-add-alt-signer"
+        >
+          {isSubmitting ? (
+            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+          ) : (
+            <Send className="w-4 h-4 mr-2" />
+          )}
+          Add & Send Contract
+        </Button>
+      </div>
+    </form>
+  );
+}
+
 export default function SignatoryDetailModal({ 
   isOpen, 
   onClose, 
   signatory,
-  allSignatories = [],
+  fieldSignerHistory = [],
+  isFieldSigned = false,
+  isLegacyAmbiguous = false,
   formSubmissionId
 }) {
   const [activeTab, setActiveTab] = useState('active');
@@ -139,9 +255,38 @@ export default function SignatoryDetailModal({
     }
   });
 
+  const addSignerMutation = useMutation({
+    mutationFn: async (newSigner) => {
+      return apiRequest('POST', `/api/contracts/add-signer`, {
+        formSubmissionId,
+        fieldId: signatory?.fieldId,
+        contractFormId: signatory?.contractFormId,
+        signer: newSigner
+      });
+    },
+    onSuccess: () => {
+      toast({
+        title: "Signer Added",
+        description: "The new signer has been added and the contract has been sent.",
+      });
+      queryClient.invalidateQueries({ queryKey: ['/api/contracts/by-submission', formSubmissionId] });
+    },
+    onError: (error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to add signer.",
+        variant: "destructive",
+      });
+    }
+  });
+
   const handleResend = (signer) => {
     setResendingEmail(signer.email);
     resendMutation.mutate(signer);
+  };
+
+  const handleAddSigner = (newSigner) => {
+    addSignerMutation.mutate(newSigner);
   };
 
   if (!signatory) return null;
@@ -149,8 +294,7 @@ export default function SignatoryDetailModal({
   const statusConfig = STATUS_CONFIG[signatory.status] || STATUS_CONFIG.pending;
   const StatusIcon = statusConfig.icon;
   const fullName = [signatory.firstName, signatory.lastName].filter(Boolean).join(' ') || 'Unknown';
-
-  const signatoryList = allSignatories.length > 0 ? allSignatories : [signatory];
+  const canResendActive = !isFieldSigned && !isLegacyAmbiguous && signatory.status !== 'received' && signatory.contractId;
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -159,24 +303,31 @@ export default function SignatoryDetailModal({
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-3 min-w-0">
               <div className="p-2 bg-muted rounded-md">
-                <User className="w-5 h-5" />
+                <FileSignature className="w-5 h-5" />
               </div>
               <div className="min-w-0">
-                <DialogTitle className="text-lg truncate">{fullName}</DialogTitle>
-                <p className="text-sm text-muted-foreground truncate">{signatory.email}</p>
+                <DialogTitle className="text-lg truncate">{signatory.fieldLabel || 'Signatory'}</DialogTitle>
+                <p className="text-sm text-muted-foreground truncate">{signatory.contractName}</p>
               </div>
             </div>
-            <Badge 
-              className="flex-shrink-0"
-              style={{ 
-                backgroundColor: statusConfig.bgColor, 
-                color: statusConfig.color,
-                borderColor: statusConfig.color
-              }}
-            >
-              <StatusIcon className="w-3 h-3 mr-1" />
-              {statusConfig.label}
-            </Badge>
+            {isFieldSigned ? (
+              <Badge className="flex-shrink-0 bg-green-100 text-green-700 border-green-300">
+                <CheckCircle2 className="w-3 h-3 mr-1" />
+                Completed
+              </Badge>
+            ) : (
+              <Badge 
+                className="flex-shrink-0"
+                style={{ 
+                  backgroundColor: statusConfig.bgColor, 
+                  color: statusConfig.color,
+                  borderColor: statusConfig.color
+                }}
+              >
+                <StatusIcon className="w-3 h-3 mr-1" />
+                {statusConfig.label}
+              </Badge>
+            )}
           </div>
         </DialogHeader>
 
@@ -188,7 +339,7 @@ export default function SignatoryDetailModal({
             </TabsTrigger>
             <TabsTrigger value="all" className="flex items-center gap-2" data-testid="tab-all">
               <Users className="w-4 h-4" />
-              All
+              All ({fieldSignerHistory.length})
             </TabsTrigger>
           </TabsList>
 
@@ -198,7 +349,7 @@ export default function SignatoryDetailModal({
                 <div className="p-4 bg-muted/50 rounded-lg">
                   <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
                     <User className="w-4 h-4" />
-                    Contact Details
+                    Current Signer Details
                   </h3>
                   <div className="space-y-1">
                     <DetailRow 
@@ -229,7 +380,7 @@ export default function SignatoryDetailModal({
                 <div className="p-4 bg-muted/50 rounded-lg">
                   <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
                     <FileSignature className="w-4 h-4" />
-                    Contract Details
+                    Contract Status
                   </h3>
                   <div className="space-y-1">
                     <DetailRow 
@@ -240,7 +391,7 @@ export default function SignatoryDetailModal({
                     <DetailRow 
                       icon={Clock} 
                       label="Status" 
-                      value={statusConfig.label} 
+                      value={isFieldSigned ? 'Completed' : statusConfig.label} 
                     />
                     {signatory.signedAt && (
                       <DetailRow 
@@ -259,7 +410,7 @@ export default function SignatoryDetailModal({
                   </div>
                 </div>
 
-                {signatory.status !== 'received' && signatory.contractId && (
+                {canResendActive && (
                   <>
                     <Separator />
                     <div className="flex justify-end">
@@ -278,37 +429,58 @@ export default function SignatoryDetailModal({
                     </div>
                   </>
                 )}
+
+                {isFieldSigned && (
+                  <div className="p-4 bg-green-50 border border-green-200 rounded-lg text-center">
+                    <CheckCircle2 className="w-8 h-8 text-green-500 mx-auto mb-2" />
+                    <p className="text-sm font-medium text-green-700">This document has been signed</p>
+                  </div>
+                )}
               </div>
             </ScrollArea>
           </TabsContent>
 
           <TabsContent value="all" className="flex-1 overflow-hidden mt-4">
             <ScrollArea className="h-full">
-              <div className="pr-4">
-                <h3 className="text-sm font-semibold mb-4 flex items-center gap-2">
-                  <Users className="w-4 h-4" />
-                  All Signers ({signatoryList.length})
-                </h3>
-                
-                {signatoryList.length > 0 ? (
-                  <div className="space-y-2">
-                    {signatoryList.map((signer, index) => (
-                      <SignerListItem 
-                        key={`${signer.contractId || 'no-contract'}-${signer.email}-${index}`}
-                        signer={signer}
-                        isActive={signer.email === signatory.email && signer.contractId === signatory.contractId}
-                        onResend={handleResend}
-                        isResending={resendingEmail === signer.email}
-                        showContractName={true}
-                      />
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-center py-8 text-muted-foreground">
-                    <Users className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                    <p>No signers found</p>
-                  </div>
-                )}
+              <div className="space-y-4 pr-4">
+                <div>
+                  <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                    <Users className="w-4 h-4" />
+                    Signer History for this Field
+                  </h3>
+                  <p className="text-xs text-muted-foreground mb-4">
+                    Everyone who has been asked to sign this document. The first to complete it wins.
+                  </p>
+                  
+                  {fieldSignerHistory.length > 0 ? (
+                    <div className="space-y-2">
+                      {fieldSignerHistory.map((signer, index) => (
+                        <SignerHistoryItem 
+                          key={`${signer.contractId || 'no-contract'}-${signer.email}-${index}`}
+                          signer={signer}
+                          onResend={handleResend}
+                          isResending={resendingEmail === signer.email}
+                          isFieldSigned={isFieldSigned}
+                          isLegacyAmbiguous={isLegacyAmbiguous}
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-6 text-muted-foreground border rounded-lg">
+                      <Users className="w-10 h-10 mx-auto mb-2 opacity-50" />
+                      <p className="text-sm">No signers have been contacted yet</p>
+                    </div>
+                  )}
+                </div>
+
+                <Separator />
+
+                <AddAlternativeSignerForm 
+                  onSubmit={handleAddSigner}
+                  isSubmitting={addSignerMutation.isPending}
+                  isDisabled={isFieldSigned || isLegacyAmbiguous}
+                  isLegacyAmbiguous={isLegacyAmbiguous}
+                />
               </div>
             </ScrollArea>
           </TabsContent>

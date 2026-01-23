@@ -125,6 +125,7 @@ export default async function handler(req, res) {
       return {
         id: instance.id,
         formId: instance.form_id,
+        sourceContactFieldId: instance.source_contact_field_id,
         name: form?.name || 'Unknown Contract',
         description: form?.description,
         slug: form?.slug,

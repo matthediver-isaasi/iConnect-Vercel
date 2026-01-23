@@ -47,6 +47,58 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'This signer has already signed the contract' });
     }
 
+    let fieldContracts = [];
+    if (contractInstance.source_contact_field_id) {
+      const { data: contracts } = await supabase
+        .from('contract_instance')
+        .select('id, signers')
+        .eq('form_submission_id', contractInstance.form_submission_id)
+        .eq('source_contact_field_id', contractInstance.source_contact_field_id)
+        .eq('tenant_id', tenantContext.tenantId);
+      fieldContracts = contracts || [];
+    } else if (contractInstance.form_submission_id) {
+      const { data: legacyCandidates } = await supabase
+        .from('contract_instance')
+        .select('id, signers')
+        .eq('form_submission_id', contractInstance.form_submission_id)
+        .eq('form_id', contractInstance.form_id)
+        .is('source_contact_field_id', null)
+        .eq('tenant_id', tenantContext.tenantId);
+      if (legacyCandidates?.length === 1) {
+        fieldContracts = legacyCandidates;
+      } else if (legacyCandidates?.length > 1) {
+        return res.status(400).json({ error: 'Cannot resend: ambiguous legacy contract data. Please contact support.' });
+      }
+    }
+
+    let fieldAlreadySigned = fieldContracts.some(c => 
+      (c.signers || []).some(s => s.signed === true && s.email?.toLowerCase() !== signerEmail.toLowerCase())
+    );
+
+    if (!fieldAlreadySigned) {
+      const contractIds = fieldContracts.map(c => c.id);
+      if (contractIds.length > 0) {
+        const { data: submissions } = await supabase
+          .from('form_submission')
+          .select('id, data')
+          .in('contract_instance_id', contractIds)
+          .eq('tenant_id', tenantContext.tenantId);
+
+        fieldAlreadySigned = (submissions || []).some(sub => {
+          if (!sub.data) return false;
+          const subEmail = (sub.data.signer_email || sub.data.email || '').toLowerCase();
+          if (subEmail === signerEmail.toLowerCase()) return false;
+          return Object.values(sub.data).some(v => 
+            typeof v === 'object' && v?.type === 'signature'
+          );
+        });
+      }
+    }
+
+    if (fieldAlreadySigned) {
+      return res.status(400).json({ error: 'This field has already been signed by another signer' });
+    }
+
     const { data: form, error: formError } = await supabase
       .from('form')
       .select('id, name, description, slug')
