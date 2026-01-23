@@ -81,13 +81,27 @@ export default async function handler(req, res) {
 
     result.has_meeting_actions = true;
     console.log('[DD Check Stage Actions] Found', meetingRequests.length, 'meeting request configs');
+    
+    // Detailed debug for each step
+    const debugSteps = [];
 
     for (const mr of meetingRequests) {
       const template = mr.meeting_template;
+      const stepDebug = {
+        meeting_request_id: mr.id,
+        template_id: template?.id,
+        template_name: template?.name,
+        agent_assignments: [],
+        agent_memberships: [],
+        agents_added: 0
+      };
+      
       console.log('[DD Check Stage Actions] Processing meeting request:', { id: mr.id, template });
       
       if (!template) {
         console.log('[DD Check Stage Actions] No template for meeting request', mr.id);
+        stepDebug.error = 'No template linked';
+        debugSteps.push(stepDebug);
         continue;
       }
 
@@ -99,6 +113,9 @@ export default async function handler(req, res) {
         .eq('meeting_template_id', template.id)
         .eq('tenant_id', tenantCtx.tenantId);
 
+      stepDebug.agent_assignments = agentAssignments || [];
+      stepDebug.agent_assignment_error = agentError?.message;
+
       console.log('[DD Check Stage Actions] agent_meeting_template result:', {
         error: agentError,
         count: agentAssignments?.length || 0,
@@ -107,6 +124,8 @@ export default async function handler(req, res) {
 
       if (!agentAssignments || agentAssignments.length === 0) {
         console.log('[DD Check Stage Actions] No agent assignments for template', template.id);
+        stepDebug.error = 'No agent assignments found';
+        debugSteps.push(stepDebug);
         continue;
       }
 
@@ -119,6 +138,14 @@ export default async function handler(req, res) {
           .eq('identity_id', assignment.identity_id)
           .eq('tenant_id', tenantCtx.tenantId)
           .single();
+
+        stepDebug.agent_memberships.push({
+          identity_id: assignment.identity_id,
+          found: !!agentMembership,
+          booking_slug: agentMembership?.booking_slug || null,
+          has_identity: !!agentMembership?.identity,
+          error: membershipError?.message
+        });
 
         console.log('[DD Check Stage Actions] Agent membership result:', {
           error: membershipError,
@@ -134,10 +161,13 @@ export default async function handler(req, res) {
             email: agentMembership.identity.email,
             booking_slug: agentMembership.booking_slug
           });
+          stepDebug.agents_added++;
         } else {
           console.log('[DD Check Stage Actions] Agent skipped - missing booking_slug or identity');
         }
       }
+      
+      debugSteps.push(stepDebug);
 
       console.log('[DD Check Stage Actions] Agent details collected:', agentDetails.length);
 
@@ -176,7 +206,8 @@ export default async function handler(req, res) {
         is_active: mr.is_active,
         template: mr.meeting_template
       })) || [],
-      unique_agents_count: allUniqueAgents.size
+      unique_agents_count: allUniqueAgents.size,
+      processing_steps: debugSteps
     };
 
     return res.status(200).json(result);
