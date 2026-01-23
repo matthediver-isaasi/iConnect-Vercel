@@ -29,7 +29,8 @@ function SignerRow({ signer, onSend, isSending, isFieldSigned, isLegacyAmbiguous
   const fullName = [signer.firstName, signer.lastName].filter(Boolean).join(' ') || 'Unknown';
   const isWinner = signer.status === 'received' || signer.signed;
   const isNotSent = signer.status === 'not_sent' || signer.status === 'draft';
-  const canSend = !isFieldSigned && !isLegacyAmbiguous && !isWinner && signer.contractId;
+  const hasValidEmail = !!signer.email;
+  const canSend = !isFieldSigned && !isLegacyAmbiguous && !isWinner && hasValidEmail;
   const buttonLabel = isNotSent ? 'Send' : 'Resend';
   
   return (
@@ -197,10 +198,23 @@ export default function SignatoryDetailModal({
 
   const sendMutation = useMutation({
     mutationFn: async (signer) => {
-      return apiRequest('POST', `/api/contracts/resend`, {
-        contractInstanceId: signer.contractId,
-        signerEmail: signer.email
-      });
+      if (signer.contractId) {
+        return apiRequest('POST', `/api/contracts/resend`, {
+          contractInstanceId: signer.contractId,
+          signerEmail: signer.email
+        });
+      } else {
+        return apiRequest('POST', `/api/contracts/send-original`, {
+          formSubmissionId,
+          fieldId: signatory?.fieldId,
+          contractFormId: signatory?.contractFormId,
+          signer: {
+            firstName: signer.firstName,
+            lastName: signer.lastName,
+            email: signer.email
+          }
+        });
+      }
     },
     onSuccess: () => {
       toast({

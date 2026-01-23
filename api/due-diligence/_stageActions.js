@@ -1,6 +1,30 @@
 import { supabase } from '../_lib/database.js';
 import { sendEmail } from '../_lib/emailService.js';
 
+function extractContactFromFieldValue(fieldValue) {
+  if (!fieldValue) return null;
+  
+  let contactData = fieldValue;
+  if (typeof fieldValue === 'string') {
+    try {
+      contactData = JSON.parse(fieldValue);
+    } catch {
+      return null;
+    }
+  }
+  
+  const email = contactData.email;
+  if (!email) return null;
+  
+  return {
+    first_name: contactData.first_name || contactData.firstName || '',
+    last_name: contactData.last_name || contactData.lastName || '',
+    email: email,
+    signed: false,
+    added_at: new Date().toISOString()
+  };
+}
+
 export async function executeContractSendingActions(contactFieldIds, ddSubmission, tenantId, triggeredBy) {
   const results = [];
   
@@ -17,24 +41,26 @@ export async function executeContractSendingActions(contactFieldIds, ddSubmissio
   try {
     const formId = ddSubmission.form_submission?.form_id || ddSubmission.form_id;
     
+    const { data: formSubmission, error: subError } = await supabase
+      .from('form_submission')
+      .select('form_id, form_values, organization_id')
+      .eq('id', formSubmissionId)
+      .eq('tenant_id', tenantId)
+      .single();
+    
+    if (subError || !formSubmission) {
+      console.error('[DD Stage Actions] Could not find form submission:', subError);
+      return results;
+    }
+    
     if (!formId) {
-      const { data: formSub } = await supabase
-        .from('form_submission')
-        .select('form_id')
-        .eq('id', formSubmissionId)
-        .single();
-      
-      if (!formSub) {
-        console.error('[DD Stage Actions] Could not find form submission');
-        return results;
-      }
-      ddSubmission.form_id = formSub.form_id;
+      ddSubmission.form_id = formSubmission.form_id;
     }
 
     const { data: sourceForm, error: formError } = await supabase
       .from('form')
       .select('id, fields')
-      .eq('id', ddSubmission.form_submission?.form_id || ddSubmission.form_id)
+      .eq('id', formSubmission.form_id || ddSubmission.form_id)
       .single();
 
     if (formError || !sourceForm) {
@@ -97,14 +123,62 @@ export async function executeContractSendingActions(contactFieldIds, ddSubmissio
       }
 
       if (!contractInstance) {
-        results.push({
-          action: 'send_contract',
-          field_id: fieldId,
-          field_label: field.label || field.name,
-          status: 'skipped',
-          reason: 'No contract instance found for this field'
-        });
-        continue;
+        const formValues = formSubmission.form_values || {};
+        const fieldKey = field.name || field.id;
+        const fieldValue = formValues[fieldKey] || formValues[field.id];
+        
+        const signerData = extractContactFromFieldValue(fieldValue);
+        
+        if (!signerData) {
+          results.push({
+            action: 'send_contract',
+            field_id: fieldId,
+            field_label: field.label || field.name,
+            status: 'skipped',
+            reason: 'No contact data found in form submission for this field'
+          });
+          continue;
+        }
+        
+        const { data: contractFormForSettings } = await supabase
+          .from('form')
+          .select('contract_settings')
+          .eq('id', field.contract_form_id)
+          .single();
+        
+        const timeoutDays = contractFormForSettings?.contract_settings?.timeout_days || 30;
+        
+        const { data: newInstance, error: createError } = await supabase
+          .from('contract_instance')
+          .insert({
+            tenant_id: tenantId,
+            form_id: field.contract_form_id,
+            form_submission_id: formSubmissionId,
+            organization_id: formSubmission.organization_id,
+            source_contact_field_id: fieldId,
+            signers: [signerData],
+            status: 'draft',
+            timeout_days: timeoutDays,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          })
+          .select()
+          .single();
+        
+        if (createError || !newInstance) {
+          console.error('[DD Stage Actions] Failed to create contract instance:', createError);
+          results.push({
+            action: 'send_contract',
+            field_id: fieldId,
+            field_label: field.label || field.name,
+            status: 'failed',
+            reason: 'Failed to create contract instance'
+          });
+          continue;
+        }
+        
+        console.log(`[DD Stage Actions] Created contract instance ${newInstance.id} for field ${fieldId}`);
+        contractInstance = newInstance;
       }
 
       if (contractInstance.sent_at) {
