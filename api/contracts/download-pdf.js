@@ -45,6 +45,12 @@ export default async function handler(req, res) {
       return res.status(403).json({ error: 'Unauthorized - tenant mismatch' });
     }
 
+    console.log('[contracts/download-pdf] Submission data:', {
+      submissionId,
+      pdf_path: submission.pdf_path,
+      tenant_id: submission.tenant_id
+    });
+
     if (!submission.pdf_path) {
       return res.status(404).json({ error: 'PDF not found for this submission' });
     }
