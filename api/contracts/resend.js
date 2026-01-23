@@ -118,7 +118,7 @@ export default async function handler(req, res) {
 
     const appUrl = `https://${tenant?.slug || 'app'}.iconn.app`;
     
-    const signUrl = `${appUrl}/form/${form.slug}?signer_email=${encodeURIComponent(signer.email)}&signer_name=${encodeURIComponent(signer.first_name || signer.name || '')}&contract_instance=${contractInstance.id}`;
+    const signUrl = `${appUrl}/FormView?slug=${form.slug}&signer_email=${encodeURIComponent(signer.email)}&signer_name=${encodeURIComponent(signer.first_name || signer.name || '')}&contract_instance=${contractInstance.id}`;
 
     const signerName = [signer.first_name, signer.last_name].filter(Boolean).join(' ') || signer.name || 'Signer';
 

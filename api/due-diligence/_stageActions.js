@@ -255,7 +255,7 @@ export async function executeContractSendingActions(contactFieldIds, ddSubmissio
           continue;
         }
 
-        const signingUrl = `${baseUrl}/form/${contractForm.slug}?contract_instance=${contractInstance.id}&signer=${encodeURIComponent(signer.email)}`;
+        const signingUrl = `${baseUrl}/FormView?slug=${contractForm.slug}&contract_instance=${contractInstance.id}&signer=${encodeURIComponent(signer.email)}`;
 
         let subject = emailTemplate.subject || 'Contract for Signing';
         let body = emailTemplate.body || '';
