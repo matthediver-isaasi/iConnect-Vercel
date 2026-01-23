@@ -260,15 +260,23 @@ export async function executeContractSendingActions(contactFieldIds, ddSubmissio
         let subject = emailTemplate.subject || 'Contract for Signing';
         let body = emailTemplate.body || '';
 
+        const signerFirstName = signer.first_name || signer.name?.split(' ')[0] || '';
+        const signerLastName = signer.last_name || signer.name?.split(' ').slice(1).join(' ') || '';
+        const signerFullName = signer.name || [signerFirstName, signerLastName].filter(Boolean).join(' ') || '';
+
         subject = subject
-          .replace(/\{\{signer_name\}\}/gi, signer.name || '')
+          .replace(/\{\{signer_name\}\}/gi, signerFullName)
+          .replace(/\{\{signer_first_name\}\}/gi, signerFirstName)
+          .replace(/\{\{signer_last_name\}\}/gi, signerLastName)
           .replace(/\{\{signer_email\}\}/gi, signer.email)
           .replace(/\{\{contract_name\}\}/gi, contractForm.name)
           .replace(/\{\{signing_url\}\}/gi, signingUrl)
           .replace(/\{\{signing_link\}\}/gi, `<a href="${signingUrl}">Click here to sign</a>`);
 
         body = body
-          .replace(/\{\{signer_name\}\}/gi, signer.name || '')
+          .replace(/\{\{signer_name\}\}/gi, signerFullName)
+          .replace(/\{\{signer_first_name\}\}/gi, signerFirstName)
+          .replace(/\{\{signer_last_name\}\}/gi, signerLastName)
           .replace(/\{\{signer_email\}\}/gi, signer.email)
           .replace(/\{\{contract_name\}\}/gi, contractForm.name)
           .replace(/\{\{signing_url\}\}/gi, signingUrl)

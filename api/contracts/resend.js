@@ -145,8 +145,13 @@ export default async function handler(req, res) {
         .single();
 
       if (emailTemplate) {
+        const signerFirstName = signer.first_name || signer.name?.split(' ')[0] || '';
+        const signerLastName = signer.last_name || signer.name?.split(' ').slice(1).join(' ') || '';
+
         emailSubject = (emailTemplate.subject || emailSubject)
           .replace(/\{\{signer_name\}\}/gi, signerName)
+          .replace(/\{\{signer_first_name\}\}/gi, signerFirstName)
+          .replace(/\{\{signer_last_name\}\}/gi, signerLastName)
           .replace(/\{\{signer_email\}\}/gi, signer.email)
           .replace(/\{\{contract_name\}\}/gi, form.name)
           .replace(/\{\{signing_url\}\}/gi, signUrl)
@@ -154,6 +159,8 @@ export default async function handler(req, res) {
 
         emailBody = (emailTemplate.body || emailBody)
           .replace(/\{\{signer_name\}\}/gi, signerName)
+          .replace(/\{\{signer_first_name\}\}/gi, signerFirstName)
+          .replace(/\{\{signer_last_name\}\}/gi, signerLastName)
           .replace(/\{\{signer_email\}\}/gi, signer.email)
           .replace(/\{\{contract_name\}\}/gi, form.name)
           .replace(/\{\{signing_url\}\}/gi, signUrl)
