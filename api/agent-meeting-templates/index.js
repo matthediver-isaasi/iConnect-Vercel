@@ -63,14 +63,17 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'identity_id and meeting_template_id are required' });
       }
 
-      const { data: identity } = await supabase
-        .from('tenant_identity')
-        .select('id')
-        .eq('id', identity_id)
+      // Verify agent exists in this tenant via tenant_membership
+      // (tenant_identity table doesn't have tenant_id column)
+      const { data: membership } = await supabase
+        .from('tenant_membership')
+        .select('identity_id')
+        .eq('identity_id', identity_id)
         .eq('tenant_id', tenantId)
+        .limit(1)
         .single();
 
-      if (!identity) {
+      if (!membership) {
         return res.status(404).json({ error: 'Agent not found in this tenant' });
       }
 
