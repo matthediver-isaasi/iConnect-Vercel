@@ -1,13 +1,17 @@
 import { useState } from "react";
+import { useMutation } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { 
-  User, Check, Clock, FileSignature, Mail, Briefcase, Building2, History, AlertCircle
+  User, Check, Clock, FileSignature, Mail, Briefcase, Building2, Users, AlertCircle, Send, Loader2
 } from "lucide-react";
 import { format } from 'date-fns';
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 
 const STATUS_CONFIG = {
   not_sent: { label: 'Not Sent', color: '#6b7280', bgColor: '#f3f4f6', icon: Clock },
@@ -32,28 +36,68 @@ function DetailRow({ icon: Icon, label, value }) {
   );
 }
 
-function TimelineEvent({ event, isLast }) {
+function SignerListItem({ signer, isActive, onResend, isResending, showContractName = false }) {
+  const statusConfig = STATUS_CONFIG[signer.status] || STATUS_CONFIG.pending;
+  const StatusIcon = statusConfig.icon;
+  const fullName = [signer.firstName, signer.lastName].filter(Boolean).join(' ') || 'Unknown';
+  const canResend = signer.status !== 'received' && signer.contractId;
+  
   return (
-    <div className="flex gap-3">
-      <div className="flex flex-col items-center">
-        <div 
-          className="w-3 h-3 rounded-full border-2"
-          style={{ 
-            borderColor: event.color || '#6b7280',
-            backgroundColor: event.filled ? (event.color || '#6b7280') : 'transparent'
-          }}
-        />
-        {!isLast && <div className="w-0.5 flex-1 bg-border mt-1" />}
+    <div 
+      className={`flex items-center gap-3 p-3 rounded-lg border ${isActive ? 'border-primary bg-primary/5' : ''}`}
+      data-testid={`signer-list-item-${signer.email}`}
+    >
+      <div className="p-2 bg-muted rounded-md">
+        <User className="w-4 h-4 text-muted-foreground" />
       </div>
-      <div className="pb-4">
-        <p className="text-sm font-medium">{event.title}</p>
-        <p className="text-xs text-muted-foreground">{event.description}</p>
-        {event.date && (
-          <p className="text-xs text-muted-foreground mt-1">
-            {format(new Date(event.date), 'MMM d, yyyy h:mm a')}
-          </p>
-        )}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <p className="text-sm font-medium truncate">{fullName}</p>
+          {isActive && (
+            <Badge variant="outline" className="text-xs">Active</Badge>
+          )}
+        </div>
+        <p className="text-xs text-muted-foreground truncate">{signer.email}</p>
+        <div className="flex items-center gap-2 mt-1 flex-wrap">
+          <Badge 
+            variant="outline" 
+            className="text-xs"
+            style={{ borderColor: statusConfig.color, color: statusConfig.color }}
+          >
+            <StatusIcon className="w-3 h-3 mr-1" />
+            {statusConfig.label}
+          </Badge>
+          {showContractName && signer.contractName && (
+            <span className="text-xs text-muted-foreground flex items-center gap-1">
+              <FileSignature className="w-3 h-3" />
+              {signer.contractName}
+            </span>
+          )}
+          {signer.sentAt && (
+            <span className="text-xs text-muted-foreground">
+              Sent {format(new Date(signer.sentAt), 'MMM d, yyyy')}
+            </span>
+          )}
+        </div>
       </div>
+      {canResend && (
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => onResend(signer)}
+          disabled={isResending}
+          data-testid={`button-resend-${signer.email}`}
+        >
+          {isResending ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <>
+              <Send className="w-4 h-4 mr-1" />
+              Resend
+            </>
+          )}
+        </Button>
+      )}
     </div>
   );
 }
@@ -61,9 +105,43 @@ function TimelineEvent({ event, isLast }) {
 export default function SignatoryDetailModal({ 
   isOpen, 
   onClose, 
-  signatory 
+  signatory,
+  allSignatories = [],
+  formSubmissionId
 }) {
-  const [activeTab, setActiveTab] = useState('preview');
+  const [activeTab, setActiveTab] = useState('active');
+  const [resendingEmail, setResendingEmail] = useState(null);
+  const { toast } = useToast();
+
+  const resendMutation = useMutation({
+    mutationFn: async (signer) => {
+      return apiRequest('POST', `/api/contracts/resend`, {
+        contractInstanceId: signer.contractId,
+        signerEmail: signer.email
+      });
+    },
+    onSuccess: () => {
+      toast({
+        title: "Contract Resent",
+        description: "The contract has been resent to the signer.",
+      });
+      queryClient.invalidateQueries({ queryKey: ['/api/contracts/by-submission', formSubmissionId] });
+      setResendingEmail(null);
+    },
+    onError: (error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to resend contract.",
+        variant: "destructive",
+      });
+      setResendingEmail(null);
+    }
+  });
+
+  const handleResend = (signer) => {
+    setResendingEmail(signer.email);
+    resendMutation.mutate(signer);
+  };
 
   if (!signatory) return null;
 
@@ -71,56 +149,7 @@ export default function SignatoryDetailModal({
   const StatusIcon = statusConfig.icon;
   const fullName = [signatory.firstName, signatory.lastName].filter(Boolean).join(' ') || 'Unknown';
 
-  const timeline = [];
-  
-  timeline.push({
-    title: 'Contract Created',
-    description: `${signatory.contractName} assigned to ${fullName}`,
-    date: signatory.createdAt || null,
-    color: '#6b7280',
-    filled: true
-  });
-
-  if (signatory.status === 'not_sent') {
-    timeline.push({
-      title: 'Awaiting Send',
-      description: 'Contract has not been sent for signing yet',
-      color: '#6b7280',
-      filled: false
-    });
-  } else if (signatory.sentAt) {
-    timeline.push({
-      title: 'Sent for Signing',
-      description: `Contract sent to ${signatory.email}`,
-      date: signatory.sentAt,
-      color: '#f59e0b',
-      filled: true
-    });
-  }
-
-  if (signatory.status === 'received' && signatory.signedAt) {
-    timeline.push({
-      title: 'Contract Signed',
-      description: `Signed by ${fullName}`,
-      date: signatory.signedAt,
-      color: '#22c55e',
-      filled: true
-    });
-  } else if (signatory.status === 'expired') {
-    timeline.push({
-      title: 'Contract Expired',
-      description: 'The signing deadline has passed',
-      color: '#ef4444',
-      filled: true
-    });
-  } else if (signatory.status === 'pending') {
-    timeline.push({
-      title: 'Awaiting Signature',
-      description: `Waiting for ${fullName} to sign`,
-      color: '#f59e0b',
-      filled: false
-    });
-  }
+  const signatoryList = allSignatories.length > 0 ? allSignatories : [signatory];
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -152,17 +181,17 @@ export default function SignatoryDetailModal({
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col overflow-hidden">
           <TabsList className="w-full justify-start flex-shrink-0">
-            <TabsTrigger value="preview" className="flex items-center gap-2" data-testid="tab-preview">
-              <FileSignature className="w-4 h-4" />
-              Preview
+            <TabsTrigger value="active" className="flex items-center gap-2" data-testid="tab-active">
+              <User className="w-4 h-4" />
+              Active
             </TabsTrigger>
-            <TabsTrigger value="versions" className="flex items-center gap-2" data-testid="tab-versions">
-              <History className="w-4 h-4" />
-              Versions
+            <TabsTrigger value="all" className="flex items-center gap-2" data-testid="tab-all">
+              <Users className="w-4 h-4" />
+              All
             </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="preview" className="flex-1 overflow-hidden mt-4">
+          <TabsContent value="active" className="flex-1 overflow-hidden mt-4">
             <ScrollArea className="h-full">
               <div className="space-y-4 pr-4">
                 <div className="p-4 bg-muted/50 rounded-lg">
@@ -228,32 +257,55 @@ export default function SignatoryDetailModal({
                     )}
                   </div>
                 </div>
+
+                {signatory.status !== 'received' && signatory.contractId && (
+                  <>
+                    <Separator />
+                    <div className="flex justify-end">
+                      <Button
+                        onClick={() => handleResend(signatory)}
+                        disabled={resendingEmail === signatory.email}
+                        data-testid="button-resend-active"
+                      >
+                        {resendingEmail === signatory.email ? (
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        ) : (
+                          <Send className="w-4 h-4 mr-2" />
+                        )}
+                        Resend Contract
+                      </Button>
+                    </div>
+                  </>
+                )}
               </div>
             </ScrollArea>
           </TabsContent>
 
-          <TabsContent value="versions" className="flex-1 overflow-hidden mt-4">
+          <TabsContent value="all" className="flex-1 overflow-hidden mt-4">
             <ScrollArea className="h-full">
               <div className="pr-4">
                 <h3 className="text-sm font-semibold mb-4 flex items-center gap-2">
-                  <History className="w-4 h-4" />
-                  Contract History
+                  <Users className="w-4 h-4" />
+                  All Signers ({signatoryList.length})
                 </h3>
                 
-                {timeline.length > 0 ? (
-                  <div className="space-y-0">
-                    {timeline.map((event, index) => (
-                      <TimelineEvent 
-                        key={index} 
-                        event={event} 
-                        isLast={index === timeline.length - 1} 
+                {signatoryList.length > 0 ? (
+                  <div className="space-y-2">
+                    {signatoryList.map((signer, index) => (
+                      <SignerListItem 
+                        key={`${signer.contractId || 'no-contract'}-${signer.email}-${index}`}
+                        signer={signer}
+                        isActive={signer.email === signatory.email && signer.contractId === signatory.contractId}
+                        onResend={handleResend}
+                        isResending={resendingEmail === signer.email}
+                        showContractName={true}
                       />
                     ))}
                   </div>
                 ) : (
                   <div className="text-center py-8 text-muted-foreground">
-                    <History className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                    <p>No timeline events</p>
+                    <Users className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                    <p>No signers found</p>
                   </div>
                 )}
               </div>

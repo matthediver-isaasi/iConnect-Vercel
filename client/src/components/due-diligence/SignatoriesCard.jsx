@@ -175,6 +175,7 @@ export default function SignatoriesCard({ formSubmissionId, submissionData, form
     const contracts = contractsData?.contracts || [];
     
     const result = [];
+    const processedEmails = new Set();
     
     contactFieldsWithContracts.forEach(contact => {
       const matchingContract = contracts.find(c => c.formId === contact.contractFormId);
@@ -199,6 +200,9 @@ export default function SignatoriesCard({ formSubmissionId, submissionData, form
           status = 'pending';
         }
         
+        const uniqueKey = `${matchingContract.id}-${(contact.email || '').toLowerCase()}`;
+        processedEmails.add(uniqueKey);
+        
         result.push({
           ...contact,
           contractName: matchingContract.name || templateName,
@@ -209,6 +213,8 @@ export default function SignatoriesCard({ formSubmissionId, submissionData, form
           createdAt: matchingContract.createdAt || matchingContract.created_at
         });
       } else {
+        const uniqueKey = `no-contract-${(contact.email || '').toLowerCase()}`;
+        processedEmails.add(uniqueKey);
         result.push({
           ...contact,
           contractName: templateName,
@@ -220,10 +226,58 @@ export default function SignatoriesCard({ formSubmissionId, submissionData, form
       }
     });
     
+    contracts.forEach(contract => {
+      const templateName = templateNamesMap[contract.formId] || contract.name || 'Unknown Contract';
+      const allContractSigners = [...(contract.signers || []), ...(contract.signedSigners || [])];
+      
+      allContractSigners.forEach(signer => {
+        const signerEmail = (signer.email || '').toLowerCase();
+        if (!signerEmail) return;
+        
+        const uniqueKey = `${contract.id}-${signerEmail}`;
+        if (processedEmails.has(uniqueKey)) return;
+        
+        processedEmails.add(uniqueKey);
+        
+        const isSigned = signer.signed || contract.signedSigners?.some(
+          s => (s.email || '').toLowerCase() === signerEmail
+        );
+        
+        let status = 'not_sent';
+        if (isSigned) {
+          status = 'received';
+        } else if (contract.status === 'expired') {
+          status = 'expired';
+        } else if (contract.sentAt) {
+          status = 'pending';
+        }
+        
+        result.push({
+          fieldId: `contract-${contract.id}-${signerEmail}`,
+          fieldKey: `contract-signer-${signerEmail}`,
+          fieldLabel: 'Contract Signer',
+          contractFormId: contract.formId,
+          firstName: signer.first_name || signer.name?.split(' ')[0] || '',
+          lastName: signer.last_name || signer.name?.split(' ').slice(1).join(' ') || '',
+          email: signer.email,
+          jobTitle: signer.job_title || '',
+          organisation: signer.organisation || signer.organization || '',
+          contractName: templateName,
+          status,
+          contractId: contract.id,
+          signedAt: signer.signed_at,
+          sentAt: contract.sentAt || contract.sent_at,
+          createdAt: contract.createdAt || contract.created_at
+        });
+      });
+    });
+    
     return result;
   }, [contactFieldsWithContracts, contractsData, templateNamesMap]);
 
-  if (contactFieldsWithContracts.length === 0) {
+  const hasSignatories = signatories.length > 0;
+
+  if (!hasSignatories) {
     return null;
   }
 
@@ -275,6 +329,8 @@ export default function SignatoriesCard({ formSubmissionId, submissionData, form
         isOpen={isModalOpen}
         onClose={handleCloseModal}
         signatory={selectedSignatory}
+        allSignatories={signatories}
+        formSubmissionId={formSubmissionId}
       />
     </>
   );
