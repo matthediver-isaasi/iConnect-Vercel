@@ -60,6 +60,7 @@ const builtInPages = [
   { value: "AwardManagement", label: "Award Management" },
   { value: "Balances", label: "Balances" },
   { value: "Bookings", label: "Bookings" },
+  { value: "booking-agents", label: "Booking Agents" },
   { value: "BorderRadiusSettings", label: "Border Radius Settings" },
   { value: "ButtonElements", label: "Button Elements" },
   { value: "ButtonStyleManagement", label: "Button Styles" },
