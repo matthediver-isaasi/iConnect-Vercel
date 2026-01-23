@@ -5,13 +5,13 @@ const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 export default async function handler(req, res) {
-  const session = await getSessionTenantUser(req, res);
-  if (!session) {
+  const tenantUser = await getSessionTenantUser(req);
+  if (!tenantUser) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
-  const { tenantId } = session;
+  const tenantId = tenantUser._sessionTenantId || tenantUser.tenant_id;
 
   // Validate tenantId
   if (!tenantId || tenantId === 'undefined') {

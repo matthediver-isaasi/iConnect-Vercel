@@ -5,14 +5,19 @@ const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 export default async function handler(req, res) {
-  const session = await getSessionTenantUser(req, res);
-  if (!session) {
+  const tenantUser = await getSessionTenantUser(req);
+  if (!tenantUser) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
-  const { tenantId } = session;
+  const tenantId = tenantUser._sessionTenantId || tenantUser.tenant_id;
   const { id } = req.query;
+
+  if (!tenantId || tenantId === 'undefined') {
+    console.error('[meeting-templates] Invalid tenantId:', tenantId);
+    return res.status(400).json({ error: 'Invalid tenant context' });
+  }
 
   if (!id) {
     return res.status(400).json({ error: 'Template ID is required' });
