@@ -72,6 +72,7 @@ export default function FormViewPage() {
   const prefillOrgId = urlParams.get('organization_id');
   const draftToken = urlParams.get('draft');
   const contractInstanceId = urlParams.get('contract_instance');
+  const signerEmail = urlParams.get('signer_email');
   
   // Draft save state
   const [resumeToken, setResumeToken] = useState(draftToken || null);
@@ -1787,7 +1788,10 @@ export default function FormViewPage() {
       form_name: form.name,
       submitted_by_email: memberInfo?.email || null,
       submitted_by_name: memberInfo ? `${memberInfo.first_name} ${memberInfo.last_name}` : null,
-      submission_data: filteredFormValues,
+      submission_data: {
+        ...filteredFormValues,
+        ...(signerEmail && { signer_email: signerEmail })
+      },
       created_date: new Date().toISOString(),
       ...(contractInstanceId && { contract_instance_id: contractInstanceId }),
       ...(resolvedOrganizationId && { prefill_organization_id: resolvedOrganizationId })

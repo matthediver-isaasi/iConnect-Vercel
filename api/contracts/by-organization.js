@@ -55,7 +55,7 @@ export default async function handler(req, res) {
     
     const { data: submissions, error: subError } = await supabase
       .from('form_submission')
-      .select('id, form_id, data, created_at, contract_instance_id')
+      .select('id, form_id, submission_data, created_at, contract_instance_id')
       .in('contract_instance_id', instanceIds);
 
     if (subError) {
@@ -93,9 +93,9 @@ export default async function handler(req, res) {
             signedSigners.push(signer);
           } else {
             const signerSubmission = instanceSubmissions.find(sub => {
-              if (!sub.data) return false;
-              const subEmail = (sub.data.signer_email || sub.data.email || '').toLowerCase();
-              const hasSignature = Object.values(sub.data).some(v => 
+              if (!sub.submission_data) return false;
+              const subEmail = (sub.submission_data.signer_email || sub.submission_data.email || '').toLowerCase();
+              const hasSignature = Object.values(sub.submission_data).some(v => 
                 typeof v === 'object' && v?.type === 'signature'
               );
               return subEmail === (signer.email || '').toLowerCase() && hasSignature;
