@@ -397,14 +397,17 @@ export default function FileManagementPage() {
     setUploadProgress(0);
     
     try {
-      // Step 1: Get signed upload URL from server
-      const signedUrlResponse = await fetch('/api/integrations/signed-upload-url', {
+      // Step 1: Get signed upload URL from tenant-scoped storage API
+      const signedUrlResponse = await fetch('/api/storage/signed-upload-url', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({
           fileName: file.name,
           fileSize: file.size,
-          mimeType: file.type
+          mimeType: file.type,
+          type: 'upload',
+          isPrivate: false
         })
       });
       
@@ -413,7 +416,7 @@ export default function FileManagementPage() {
         throw new Error(errorData.error || 'Failed to get upload URL');
       }
       
-      const { signedUrl, publicUrl, token } = await signedUrlResponse.json();
+      const { signedUrl, fileUrl, path, bucket } = await signedUrlResponse.json();
       
       // Step 2: Upload file directly to Supabase with progress tracking
       await new Promise((resolve, reject) => {
@@ -443,7 +446,7 @@ export default function FileManagementPage() {
         xhr.send(file);
       });
 
-      // Step 3: Create file repository record
+      // Step 3: Create file repository record with tenant-scoped path
       let fileType = "other";
       if (file.type.startsWith("image/")) fileType = "image";
       else if (file.type.startsWith("video/")) fileType = "video";
@@ -451,12 +454,14 @@ export default function FileManagementPage() {
 
       await base44.entities.FileRepository.create({
         file_name: file.name,
-        file_url: publicUrl,
+        file_url: fileUrl,
         file_type: fileType,
         mime_type: file.type,
         file_size: file.size,
         uploaded_by: memberInfo?.email || "unknown",
-        folder_id: selectedFolder
+        folder_id: selectedFolder,
+        storage_path: path,
+        bucket: bucket
       });
 
       queryClient.invalidateQueries({ queryKey: ['file-repository'] });
