@@ -202,7 +202,8 @@ export default function SignatoriesCard({ formSubmissionId, submissionData, form
       let originalFoundInContracts = false;
       
       contractsForField.forEach(contract => {
-        const allSigners = [...(contract.signers || []), ...(contract.signedSigners || [])];
+        // Process signedSigners FIRST so their submission_id is preserved (not overwritten by duplicate from signers array)
+        const allSigners = [...(contract.signedSigners || []), ...(contract.signers || [])];
         allSigners.forEach(signer => {
           const email = (signer.email || '').toLowerCase();
           const uniqueKey = `${contract.id}-${email}`;
