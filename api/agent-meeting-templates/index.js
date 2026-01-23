@@ -26,10 +26,12 @@ export default async function handler(req, res) {
         `)
         .eq('tenant_id', tenantId);
 
-      if (identity_id) {
+      // Only filter by identity_id if it's a valid UUID (not "undefined" string)
+      if (identity_id && identity_id !== 'undefined') {
         query = query.eq('identity_id', identity_id);
       }
-      if (meeting_template_id) {
+      // Only filter by meeting_template_id if it's a valid UUID (not "undefined" string)
+      if (meeting_template_id && meeting_template_id !== 'undefined') {
         query = query.eq('meeting_template_id', meeting_template_id);
       }
 
