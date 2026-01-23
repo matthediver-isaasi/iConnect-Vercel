@@ -51,9 +51,9 @@ export default async function handler(req, res) {
 
     for (const signer of signers) {
       const signerSubmission = (submissions || []).find(sub => {
-        if (!sub.data) return false;
-        const subEmail = (sub.data.signer_email || sub.data.email || '').toLowerCase();
-        const hasSignature = Object.values(sub.data).some(v => 
+        if (!sub.submission_data) return false;
+        const subEmail = (sub.submission_data.signer_email || sub.submission_data.email || '').toLowerCase();
+        const hasSignature = Object.values(sub.submission_data).some(v => 
           typeof v === 'object' && v?.type === 'signature'
         );
         return subEmail === (signer.email || '').toLowerCase() && hasSignature;
@@ -62,7 +62,7 @@ export default async function handler(req, res) {
       if (signerSubmission) {
         signedSigners.push({
           ...signer,
-          signed_at: signerSubmission.created_at,
+          signed_at: signerSubmission.created_date,
           submission_id: signerSubmission.id
         });
       } else {

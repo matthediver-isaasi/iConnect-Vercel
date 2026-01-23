@@ -55,7 +55,7 @@ export default async function handler(req, res) {
     
     const { data: submissions, error: subError } = await supabase
       .from('form_submission')
-      .select('id, form_id, submission_data, created_at, contract_instance_id')
+      .select('id, form_id, submission_data, created_date, contract_instance_id')
       .in('contract_instance_id', instanceIds);
 
     if (subError) {
@@ -105,7 +105,7 @@ export default async function handler(req, res) {
               signedSigners.push({
                 ...signer,
                 signed: true,
-                signed_at: signerSubmission.created_at
+                signed_at: signerSubmission.created_date
               });
             } else {
               unsignedSigners.push(signer);
