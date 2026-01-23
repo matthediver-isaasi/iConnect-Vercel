@@ -70,18 +70,20 @@ export default async function handler(req, res) {
 
     const baseUrl = `https://${tenant?.slug || 'app'}.iconn.app`;
 
+    // Note: booking_slug is on tenant_identity, not tenant_membership
     const { data: agentMembership } = await supabase
       .from('tenant_membership')
-      .select('booking_slug')
+      .select('identity:identity_id(booking_slug)')
       .eq('identity_id', meetingRequest.agent_identity_id)
       .eq('tenant_id', tenantId)
       .single();
 
-    if (!agentMembership?.booking_slug) {
+    const agentBookingSlug = agentMembership?.identity?.booking_slug;
+    if (!agentBookingSlug) {
       return res.status(400).json({ error: 'Agent has no booking slug configured' });
     }
 
-    const bookingUrl = `${baseUrl}/book/${encodeURIComponent(agentMembership.booking_slug)}?meeting=${encodeURIComponent(template.slug)}`;
+    const bookingUrl = `${baseUrl}/book/${encodeURIComponent(agentBookingSlug)}?meeting=${encodeURIComponent(template.slug)}`;
     const agentName = [meetingRequest.agent?.first_name, meetingRequest.agent?.last_name].filter(Boolean).join(' ') || 'Team Member';
     const recipientName = meetingRequest.recipient_first_name || 'there';
 

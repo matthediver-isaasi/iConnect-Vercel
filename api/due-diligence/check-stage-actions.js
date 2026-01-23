@@ -132,34 +132,36 @@ export default async function handler(req, res) {
       const agentDetails = [];
       for (const assignment of agentAssignments) {
         console.log('[DD Check Stage Actions] Looking up agent membership for identity:', assignment.identity_id);
+        // Note: booking_slug is on tenant_identity, not tenant_membership
         const { data: agentMembership, error: membershipError } = await supabase
           .from('tenant_membership')
-          .select('booking_slug, identity:identity_id(id, first_name, last_name, email)')
+          .select('identity:identity_id(id, first_name, last_name, email, booking_slug)')
           .eq('identity_id', assignment.identity_id)
           .eq('tenant_id', tenantCtx.tenantId)
           .single();
 
+        const identity = agentMembership?.identity;
         stepDebug.agent_memberships.push({
           identity_id: assignment.identity_id,
           found: !!agentMembership,
-          booking_slug: agentMembership?.booking_slug || null,
-          has_identity: !!agentMembership?.identity,
+          booking_slug: identity?.booking_slug || null,
+          has_identity: !!identity,
           error: membershipError?.message
         });
 
         console.log('[DD Check Stage Actions] Agent membership result:', {
           error: membershipError,
           data: agentMembership,
-          hasBookingSlug: !!agentMembership?.booking_slug,
-          hasIdentity: !!agentMembership?.identity
+          hasBookingSlug: !!identity?.booking_slug,
+          hasIdentity: !!identity
         });
 
-        if (agentMembership?.booking_slug && agentMembership.identity) {
+        if (identity?.booking_slug && identity) {
           agentDetails.push({
-            identity_id: agentMembership.identity.id,
-            name: [agentMembership.identity.first_name, agentMembership.identity.last_name].filter(Boolean).join(' '),
-            email: agentMembership.identity.email,
-            booking_slug: agentMembership.booking_slug
+            identity_id: identity.id,
+            name: [identity.first_name, identity.last_name].filter(Boolean).join(' '),
+            email: identity.email,
+            booking_slug: identity.booking_slug
           });
           stepDebug.agents_added++;
         } else {

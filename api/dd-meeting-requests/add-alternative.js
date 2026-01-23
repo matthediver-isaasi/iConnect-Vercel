@@ -82,14 +82,16 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Agent not found' });
     }
 
+    // Note: booking_slug is on tenant_identity, not tenant_membership
     const { data: agentMembership } = await supabase
       .from('tenant_membership')
-      .select('booking_slug')
+      .select('identity:identity_id(booking_slug)')
       .eq('identity_id', agentIdentityId)
       .eq('tenant_id', tenantId)
       .single();
 
-    if (!agentMembership?.booking_slug) {
+    const agentBookingSlug = agentMembership?.identity?.booking_slug;
+    if (!agentBookingSlug) {
       return res.status(400).json({ error: 'Agent has no booking slug configured' });
     }
 
@@ -100,7 +102,7 @@ export default async function handler(req, res) {
       .single();
 
     const baseUrl = `https://${tenant?.slug || 'app'}.iconn.app`;
-    const bookingUrl = `${baseUrl}/book/${encodeURIComponent(agentMembership.booking_slug)}?meeting=${encodeURIComponent(template.slug)}`;
+    const bookingUrl = `${baseUrl}/book/${encodeURIComponent(agentBookingSlug)}?meeting=${encodeURIComponent(template.slug)}`;
 
     const normalizedEmail = recipientEmail.toLowerCase();
     

@@ -482,14 +482,16 @@ export async function executeMeetingRequestActions(stageId, ddSubmission, tenant
           agentId = selectedAgentId;
         }
       }
+      // Note: booking_slug is on tenant_identity, not tenant_membership
       const { data: agentMembership } = await supabase
         .from('tenant_membership')
-        .select('booking_slug, identity:identity_id(first_name, last_name)')
+        .select('identity:identity_id(first_name, last_name, booking_slug)')
         .eq('identity_id', agentId)
         .eq('tenant_id', tenantId)
         .single();
 
-      if (!agentMembership?.booking_slug) {
+      const agentIdentity = agentMembership?.identity;
+      if (!agentIdentity?.booking_slug) {
         results.push({
           action: 'send_meeting_request',
           meeting_request_id: mr.id,
@@ -501,8 +503,8 @@ export async function executeMeetingRequestActions(stageId, ddSubmission, tenant
       }
 
       // Build base booking URL
-      const baseBookingUrl = `${baseUrl}/book/${encodeURIComponent(agentMembership.booking_slug)}?meeting=${encodeURIComponent(template.slug)}`;
-      const agentName = [agentMembership.identity?.first_name, agentMembership.identity?.last_name].filter(Boolean).join(' ') || 'Team Member';
+      const baseBookingUrl = `${baseUrl}/book/${encodeURIComponent(agentIdentity.booking_slug)}?meeting=${encodeURIComponent(template.slug)}`;
+      const agentName = [agentIdentity.first_name, agentIdentity.last_name].filter(Boolean).join(' ') || 'Team Member';
       const normalizedEmail = recipientEmail.toLowerCase();
 
       // Create tracking record FIRST to get the ID for the booking URL
