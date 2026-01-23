@@ -3,13 +3,41 @@
  * 
  * This endpoint generates pre-signed upload URLs for large file uploads
  * directly to Supabase Storage. It enforces tenant isolation by prefixing
- * all storage paths with the authenticated user's tenant ID.
+ * all storage paths with the tenant ID.
+ * 
+ * For authenticated users: tenant is determined from session
+ * For public form submissions: tenant is looked up from the form record
  * 
  * This is the secure replacement for /api/integrations/signed-upload-url
  */
 
 import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
+
+/**
+ * Look up tenant from form record for public form submissions
+ */
+async function getTenantFromForm(formId) {
+  if (!formId) return null;
+  
+  try {
+    const { data: form, error } = await supabase
+      .from('form')
+      .select('tenant_id')
+      .eq('id', formId)
+      .single();
+    
+    if (error || !form) {
+      console.log('[SignedUpload] Form lookup failed:', error?.message || 'Form not found');
+      return null;
+    }
+    
+    return form.tenant_id;
+  } catch (err) {
+    console.error('[SignedUpload] Error looking up form tenant:', err);
+    return null;
+  }
+}
 
 const BUCKETS = {
   PUBLIC: 'public-assets',
@@ -80,20 +108,37 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Get tenant context - REQUIRED for all uploads
+    // Get request body first to check upload type
+    const { fileName, fileSize, mimeType, type: uploadType, entityId, isPrivate, formId } = req.body;
+
+    // Get tenant context
     const tenantContext = await getTenantContext(req);
     
-    if (!tenantContext.isAuthenticated || !tenantContext.tenantId) {
-      return res.status(401).json({ 
-        error: 'Authentication required',
-        message: 'You must be logged in to upload files'
-      });
+    let tenantId = tenantContext.tenantId;
+    
+    // For public form submissions, allow unauthenticated uploads
+    // but still require a valid form to determine tenant
+    if (!tenantContext.isAuthenticated || !tenantId) {
+      if (uploadType === 'form-submission' && formId) {
+        // Look up tenant from the form record
+        tenantId = await getTenantFromForm(formId);
+        
+        if (!tenantId) {
+          return res.status(400).json({ 
+            error: 'Invalid form',
+            message: 'Could not determine tenant for this form submission'
+          });
+        }
+        
+        console.log('[SignedUpload] Public form submission - tenant from form:', tenantId);
+      } else {
+        // Non-form uploads require authentication
+        return res.status(401).json({ 
+          error: 'Authentication required',
+          message: 'You must be logged in to upload files'
+        });
+      }
     }
-
-    const tenantId = tenantContext.tenantId;
-
-    // Get request body
-    const { fileName, fileSize, mimeType, type: uploadType, entityId, isPrivate } = req.body;
 
     if (!fileName) {
       return res.status(400).json({ error: 'fileName is required' });

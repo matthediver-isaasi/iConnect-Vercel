@@ -1864,6 +1864,7 @@ export default function FormViewPage() {
                 disabled={disabledFieldIds.has(currentField.id)}
                 onValidityChange={handleValidityChange}
                 autoFocus={['text', 'email', 'url', 'number', 'tel', 'textarea'].includes(currentField.type)}
+                formId={form?.id}
               />
             )}
           </CardContent>
@@ -2087,6 +2088,7 @@ export default function FormViewPage() {
                     organizationInfo={effectiveOrganizationInfo}
                     disabled={disabledFieldIds.has(field.id)}
                     onValidityChange={handleValidityChange}
+                    formId={form?.id}
                   />
                 ));
               }
@@ -2111,6 +2113,7 @@ export default function FormViewPage() {
                           organizationInfo={effectiveOrganizationInfo}
                           disabled={disabledFieldIds.has(field.id)}
                           onValidityChange={handleValidityChange}
+                          formId={form?.id}
                         />
                       ))}
                     </div>
@@ -2134,6 +2137,7 @@ export default function FormViewPage() {
                               organizationInfo={effectiveOrganizationInfo}
                               disabled={disabledFieldIds.has(field.id)}
                               onValidityChange={handleValidityChange}
+                              formId={form?.id}
                             />
                           ))}
                         </div>

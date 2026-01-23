@@ -91,6 +91,7 @@ function getAllowedTypesLabel(allowedTypes) {
 
 export default function CustomFieldFileUpload({ 
   fieldId,
+  formId,
   value, 
   onChange, 
   allowedTypes = [], 
@@ -147,7 +148,8 @@ export default function CustomFieldFileUpload({
           fileSize: file.size,
           mimeType: file.type,
           type: 'form-submission',
-          isPrivate: true
+          isPrivate: true,
+          formId: formId
         })
       });
       

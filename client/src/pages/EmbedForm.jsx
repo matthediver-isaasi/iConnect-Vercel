@@ -477,6 +477,7 @@ export default function EmbedFormPage() {
                 onValidityChange={handleValidityChange}
                 disabled={false}
                 autoFocus={['text', 'email', 'url', 'number', 'tel', 'textarea'].includes(currentField.type)}
+                formId={form?.id}
               />
             )}
           </CardContent>
@@ -577,6 +578,7 @@ export default function EmbedFormPage() {
                 }}
                 onValidityChange={handleValidityChange}
                 disabled={false}
+                formId={form?.id}
               />
             ))}
           </div>

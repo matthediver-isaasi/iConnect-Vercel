@@ -219,7 +219,7 @@ function CommunicationPreferencesField({ field, value, onChange, disabled }) {
   );
 }
 
-export default function FormRenderer({ field, value, onChange, memberInfo, organizationInfo, disabled = false, onValidityChange, autoFocus = false, hideLabel = false }) {
+export default function FormRenderer({ field, value, onChange, memberInfo, organizationInfo, disabled = false, onValidityChange, autoFocus = false, hideLabel = false, formId = null }) {
   const [showOtherInput, setShowOtherInput] = useState(false);
   const [otherValue, setOtherValue] = useState('');
   const [domainError, setDomainError] = useState('');
@@ -747,6 +747,7 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
         return (
           <CustomFieldFileUpload
             fieldId={field.id}
+            formId={formId}
             value={value}
             onChange={onChange}
             allowedTypes={field.allowed_file_types || []}
@@ -969,6 +970,7 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
           return (
             <CustomFieldFileUpload
               fieldId={field.id}
+              formId={formId}
               value={value}
               onChange={(fileData) => !isFieldDisabled && onChange(fileData)}
               allowedTypes={customFieldDef.allowed_file_types || []}
