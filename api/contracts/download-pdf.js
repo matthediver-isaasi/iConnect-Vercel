@@ -3,6 +3,7 @@ import { getSessionTenantUser } from '../_lib/session.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const INTERNAL_API_SECRET = process.env.INTERNAL_API_SECRET;
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -23,7 +24,7 @@ export default async function handler(req, res) {
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    const { data: submission, error: subError } = await supabase
+    let { data: submission, error: subError } = await supabase
       .from('form_submission')
       .select('pdf_path, tenant_id')
       .eq('id', submissionId)
@@ -45,14 +46,55 @@ export default async function handler(req, res) {
       return res.status(403).json({ error: 'Unauthorized - tenant mismatch' });
     }
 
-    console.log('[contracts/download-pdf] Submission data:', {
-      submissionId,
-      pdf_path: submission.pdf_path,
-      tenant_id: submission.tenant_id
-    });
-
+    // Generate PDF on-demand if it doesn't exist
     if (!submission.pdf_path) {
-      return res.status(404).json({ error: 'PDF not found for this submission' });
+      console.log('[contracts/download-pdf] PDF not found, generating on-demand for:', submissionId);
+      
+      if (!INTERNAL_API_SECRET) {
+        console.error('[contracts/download-pdf] INTERNAL_API_SECRET not configured');
+        return res.status(500).json({ error: 'Server configuration error - cannot generate PDF' });
+      }
+      
+      // Get the base URL for internal API call
+      const protocol = req.headers['x-forwarded-proto'] || 'http';
+      const host = req.headers['x-forwarded-host'] || req.headers.host;
+      const baseUrl = `${protocol}://${host}`;
+      
+      try {
+        const generateResponse = await fetch(`${baseUrl}/api/contracts/generate-pdf`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            submissionId,
+            internalToken: INTERNAL_API_SECRET
+          })
+        });
+        
+        if (!generateResponse.ok) {
+          const errorData = await generateResponse.json().catch(() => ({}));
+          console.error('[contracts/download-pdf] PDF generation failed:', errorData);
+          return res.status(500).json({ error: 'Failed to generate PDF', details: errorData.error });
+        }
+        
+        const generateResult = await generateResponse.json();
+        console.log('[contracts/download-pdf] PDF generated successfully:', generateResult);
+        
+        // Refresh submission data to get the new pdf_path
+        const { data: refreshedSubmission } = await supabase
+          .from('form_submission')
+          .select('pdf_path, tenant_id')
+          .eq('id', submissionId)
+          .single();
+        
+        submission = refreshedSubmission;
+        
+        if (!submission?.pdf_path) {
+          return res.status(500).json({ error: 'PDF generated but path not saved' });
+        }
+      } catch (genError) {
+        console.error('[contracts/download-pdf] PDF generation error:', genError);
+        return res.status(500).json({ error: 'Failed to generate PDF', details: genError.message });
+      }
     }
 
     const { data: signedUrl, error: signError } = await supabase.storage
