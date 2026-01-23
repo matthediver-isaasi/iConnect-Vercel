@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { AlertCircle, Plus, Trash2, Save, GripVertical, ChevronDown, ArrowLeft, Loader2, Star, ShieldCheck, Clock, FileText, Settings, ChevronRight, Lock, FileCheck, UserCheck, Play, Mail, Send } from "lucide-react";
+import { AlertCircle, Plus, Trash2, Save, GripVertical, ChevronDown, ArrowLeft, Loader2, Star, ShieldCheck, Clock, FileText, Settings, ChevronRight, Lock, FileCheck, UserCheck, Play, Mail, Send, Calendar, Pencil } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { toast } from "sonner";
@@ -68,6 +68,7 @@ export default function DueDiligenceConfigPage() {
   const [statusWebhooks, setStatusWebhooks] = useState([]);
   const [hasInitialized, setHasInitialized] = useState(false);
   const [openStageSection, setOpenStageSection] = useState({}); // { stageIndex: 'conditions' | 'actions' | null }
+  const [pendingMeetingRequest, setPendingMeetingRequest] = useState(null); // { stageId, templateId, emailField, firstNameField, editId? }
 
   useEffect(() => {
     if (isAccessReady) {
@@ -113,6 +114,93 @@ export default function DueDiligenceConfigPage() {
     },
     enabled: !!formId && accessChecked
   });
+
+  const { data: meetingTemplatesData } = useQuery({
+    queryKey: ['meeting-templates'],
+    queryFn: async () => {
+      const response = await fetch('/api/meeting-templates', { credentials: 'include' });
+      if (!response.ok) return [];
+      const data = await response.json();
+      return data.templates || [];
+    },
+    enabled: !!formId && accessChecked
+  });
+  const meetingTemplates = meetingTemplatesData || [];
+
+  const { data: stageMeetingRequestsData, refetch: refetchStageMeetingRequests } = useQuery({
+    queryKey: ['stage-meeting-requests'],
+    queryFn: async () => {
+      const response = await fetch('/api/stage-meeting-requests', { credentials: 'include' });
+      if (!response.ok) return [];
+      const data = await response.json();
+      return data.meeting_requests || [];
+    },
+    enabled: !!formId && accessChecked
+  });
+  const stageMeetingRequests = stageMeetingRequestsData || [];
+
+  const addStageMeetingRequest = async (stageId, meetingTemplateId, recipientEmailField, firstNameField) => {
+    try {
+      const response = await fetch('/api/stage-meeting-requests', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          due_diligence_stage_id: stageId,
+          meeting_template_id: meetingTemplateId,
+          recipient_email_field: recipientEmailField,
+          first_name_field: firstNameField
+        })
+      });
+      if (!response.ok) throw new Error('Failed to add meeting request');
+      await refetchStageMeetingRequests();
+      toast.success('Meeting request action added');
+    } catch (err) {
+      toast.error(err.message || 'Failed to add meeting request');
+    }
+  };
+
+  const removeStageMeetingRequest = async (id) => {
+    try {
+      const response = await fetch(`/api/stage-meeting-requests/${id}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+      if (!response.ok) throw new Error('Failed to remove meeting request');
+      await refetchStageMeetingRequests();
+      toast.success('Meeting request action removed');
+    } catch (err) {
+      toast.error(err.message || 'Failed to remove meeting request');
+    }
+  };
+
+  const updateStageMeetingRequest = async (id, meetingTemplateId, recipientEmailField, firstNameField) => {
+    try {
+      const response = await fetch(`/api/stage-meeting-requests/${id}`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          meeting_template_id: meetingTemplateId,
+          recipient_email_field: recipientEmailField,
+          first_name_field: firstNameField
+        })
+      });
+      if (!response.ok) throw new Error('Failed to update meeting request');
+      await refetchStageMeetingRequests();
+      toast.success('Meeting request action updated');
+    } catch (err) {
+      toast.error(err.message || 'Failed to update meeting request');
+    }
+  };
+
+  const getEmailFields = () => {
+    return (form?.fields || []).filter(f => f.type === 'email');
+  };
+
+  const getTextFields = () => {
+    return (form?.fields || []).filter(f => f.type === 'text' || f.type === 'short_text');
+  };
 
   const normalizeStaticQuestions = (questions) => {
     if (!questions || !Array.isArray(questions)) return [];
@@ -1099,6 +1187,179 @@ export default function DueDiligenceConfigPage() {
                                                 </div>
                                               );
                                             })}
+                                          </div>
+                                        )}
+                                      </div>
+                                      
+                                      <div className="p-3 border rounded-lg bg-background">
+                                        <div className="flex items-center gap-2 mb-3">
+                                          <Calendar className="w-4 h-4 text-muted-foreground" />
+                                          <span className="text-sm font-medium">Send Meeting Invitations</span>
+                                        </div>
+                                        <p className="text-xs text-muted-foreground mb-3">
+                                          Send meeting booking invitations when this stage is selected.
+                                          The email template configured on the meeting type will be used.
+                                        </p>
+                                        {meetingTemplates.length === 0 ? (
+                                          <p className="text-sm text-muted-foreground italic">
+                                            No meeting types configured. Create meeting types in the Booking Agents management page.
+                                          </p>
+                                        ) : (
+                                          <div className="space-y-2">
+                                            {(() => {
+                                              const stageRequests = stageMeetingRequests.filter(mr => mr.due_diligence_stage_id === stage.id);
+                                              return (
+                                                <>
+                                                  {stageRequests.map((mr) => (
+                                                    <div key={mr.id} className="flex items-center justify-between gap-2 p-2 border rounded bg-muted/50">
+                                                      <div className="flex items-center gap-2 flex-wrap">
+                                                        <Calendar className="w-4 h-4 text-muted-foreground" />
+                                                        <span className="text-sm">{mr.meeting_template?.name || 'Unknown meeting type'}</span>
+                                                        <Badge variant="outline" className="text-xs">Email: {mr.recipient_email_field}</Badge>
+                                                        {mr.first_name_field && (
+                                                          <Badge variant="outline" className="text-xs">Name: {mr.first_name_field}</Badge>
+                                                        )}
+                                                      </div>
+                                                      <div className="flex items-center gap-1">
+                                                        <Button
+                                                          size="icon"
+                                                          variant="ghost"
+                                                          onClick={() => setPendingMeetingRequest({
+                                                            stageId: stage.id,
+                                                            templateId: mr.meeting_template_id,
+                                                            emailField: mr.recipient_email_field,
+                                                            firstNameField: mr.first_name_field || '',
+                                                            editId: mr.id
+                                                          })}
+                                                          data-testid={`button-edit-meeting-request-${mr.id}`}
+                                                        >
+                                                          <Pencil className="w-4 h-4" />
+                                                        </Button>
+                                                        <Button
+                                                          size="icon"
+                                                          variant="ghost"
+                                                          onClick={() => removeStageMeetingRequest(mr.id)}
+                                                          data-testid={`button-remove-meeting-request-${mr.id}`}
+                                                        >
+                                                          <Trash2 className="w-4 h-4" />
+                                                        </Button>
+                                                      </div>
+                                                    </div>
+                                                  ))}
+                                                  
+                                                  {pendingMeetingRequest?.stageId === stage.id ? (
+                                                    <div className="space-y-3 p-3 border rounded bg-muted/30">
+                                                      <div className="space-y-2">
+                                                        <Label className="text-xs">Meeting Type</Label>
+                                                        <Select
+                                                          value={pendingMeetingRequest.templateId || ''}
+                                                          onValueChange={(v) => setPendingMeetingRequest(prev => ({ ...prev, templateId: v }))}
+                                                        >
+                                                          <SelectTrigger data-testid={`select-pending-template-${index}`}>
+                                                            <SelectValue placeholder="Select meeting type..." />
+                                                          </SelectTrigger>
+                                                          <SelectContent>
+                                                            {meetingTemplates.filter(t => t.email_template_id).map(template => (
+                                                              <SelectItem key={template.id} value={template.id}>
+                                                                {template.name}
+                                                              </SelectItem>
+                                                            ))}
+                                                          </SelectContent>
+                                                        </Select>
+                                                      </div>
+                                                      <div className="space-y-2">
+                                                        <Label className="text-xs">Recipient Email Field</Label>
+                                                        <Select
+                                                          value={pendingMeetingRequest.emailField || ''}
+                                                          onValueChange={(v) => setPendingMeetingRequest(prev => ({ ...prev, emailField: v }))}
+                                                        >
+                                                          <SelectTrigger data-testid={`select-pending-email-${index}`}>
+                                                            <SelectValue placeholder="Select email field..." />
+                                                          </SelectTrigger>
+                                                          <SelectContent>
+                                                            {getEmailFields().map(field => (
+                                                              <SelectItem key={field.id || field.name} value={field.name || field.id}>
+                                                                {field.label || field.name}
+                                                              </SelectItem>
+                                                            ))}
+                                                            {getEmailFields().length === 0 && (
+                                                              <SelectItem value="none" disabled>No email fields in form</SelectItem>
+                                                            )}
+                                                          </SelectContent>
+                                                        </Select>
+                                                      </div>
+                                                      <div className="space-y-2">
+                                                        <Label className="text-xs">First Name Field (optional)</Label>
+                                                        <Select
+                                                          value={pendingMeetingRequest.firstNameField || 'none'}
+                                                          onValueChange={(v) => setPendingMeetingRequest(prev => ({ ...prev, firstNameField: v === 'none' ? '' : v }))}
+                                                        >
+                                                          <SelectTrigger data-testid={`select-pending-firstname-${index}`}>
+                                                            <SelectValue placeholder="Select name field..." />
+                                                          </SelectTrigger>
+                                                          <SelectContent>
+                                                            <SelectItem value="none">None</SelectItem>
+                                                            {getTextFields().map(field => (
+                                                              <SelectItem key={field.id || field.name} value={field.name || field.id}>
+                                                                {field.label || field.name}
+                                                              </SelectItem>
+                                                            ))}
+                                                          </SelectContent>
+                                                        </Select>
+                                                      </div>
+                                                      <div className="flex gap-2">
+                                                        <Button
+                                                          size="sm"
+                                                          variant="outline"
+                                                          onClick={() => setPendingMeetingRequest(null)}
+                                                        >
+                                                          Cancel
+                                                        </Button>
+                                                        <Button
+                                                          size="sm"
+                                                          onClick={async () => {
+                                                            if (!pendingMeetingRequest.templateId || !pendingMeetingRequest.emailField) {
+                                                              toast.error('Please select a meeting type and email field');
+                                                              return;
+                                                            }
+                                                            if (pendingMeetingRequest.editId) {
+                                                              await updateStageMeetingRequest(
+                                                                pendingMeetingRequest.editId,
+                                                                pendingMeetingRequest.templateId,
+                                                                pendingMeetingRequest.emailField,
+                                                                pendingMeetingRequest.firstNameField || null
+                                                              );
+                                                            } else {
+                                                              await addStageMeetingRequest(
+                                                                stage.id,
+                                                                pendingMeetingRequest.templateId,
+                                                                pendingMeetingRequest.emailField,
+                                                                pendingMeetingRequest.firstNameField || null
+                                                              );
+                                                            }
+                                                            setPendingMeetingRequest(null);
+                                                          }}
+                                                          data-testid={`button-confirm-meeting-request-${index}`}
+                                                        >
+                                                          {pendingMeetingRequest.editId ? 'Update' : 'Add'}
+                                                        </Button>
+                                                      </div>
+                                                    </div>
+                                                  ) : (
+                                                    <Button
+                                                      size="sm"
+                                                      variant="outline"
+                                                      onClick={() => setPendingMeetingRequest({ stageId: stage.id, templateId: '', emailField: '', firstNameField: '' })}
+                                                      className="mt-2"
+                                                      data-testid={`button-add-meeting-request-${index}`}
+                                                    >
+                                                      <Plus className="w-4 h-4 mr-1" />
+                                                      Add Meeting Invitation
+                                                    </Button>
+                                                  )}
+                                                </>
+                                              );
+                                            })()}
                                           </div>
                                         )}
                                       </div>

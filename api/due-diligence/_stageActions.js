@@ -347,6 +347,223 @@ export async function executeContractSendingActions(contactFieldIds, ddSubmissio
   return results;
 }
 
+export async function executeMeetingRequestActions(stageId, ddSubmission, tenantId, triggeredBy) {
+  const results = [];
+  
+  try {
+    // Fetch meeting request configs for this stage
+    const { data: meetingRequests, error: mrError } = await supabase
+      .from('stage_meeting_request')
+      .select(`
+        *,
+        meeting_template:meeting_template_id (
+          id, name, slug, duration_minutes, meeting_type, email_template_id
+        )
+      `)
+      .eq('due_diligence_stage_id', stageId)
+      .eq('tenant_id', tenantId)
+      .eq('is_active', true)
+      .order('sort_order', { ascending: true });
+
+    if (mrError || !meetingRequests || meetingRequests.length === 0) {
+      return results;
+    }
+
+    const formSubmissionId = ddSubmission.form_submission_id;
+    if (!formSubmissionId) {
+      console.log('[DD Stage Actions] No form submission ID, skipping meeting requests');
+      return results;
+    }
+
+    // Get form submission data
+    const { data: formSubmission, error: subError } = await supabase
+      .from('form_submission')
+      .select('form_id, form_values, organization_id')
+      .eq('id', formSubmissionId)
+      .eq('tenant_id', tenantId)
+      .single();
+
+    if (subError || !formSubmission) {
+      console.error('[DD Stage Actions] Could not find form submission:', subError);
+      return results;
+    }
+
+    // Get tenant info for base URL
+    const { data: tenant } = await supabase
+      .from('tenant')
+      .select('slug')
+      .eq('id', tenantId)
+      .single();
+
+    const baseUrl = `https://${tenant?.slug || 'app'}.iconn.app`;
+
+    for (const mr of meetingRequests) {
+      const template = mr.meeting_template;
+      if (!template) {
+        results.push({
+          action: 'meeting_request',
+          meeting_request_id: mr.id,
+          status: 'skipped',
+          reason: 'Meeting template not found'
+        });
+        continue;
+      }
+
+      // Get recipient email from form values
+      const formValues = formSubmission.form_values || {};
+      const recipientEmail = formValues[mr.recipient_email_field];
+      const firstName = mr.first_name_field ? formValues[mr.first_name_field] : null;
+
+      if (!recipientEmail) {
+        results.push({
+          action: 'meeting_request',
+          meeting_request_id: mr.id,
+          template_name: template.name,
+          status: 'skipped',
+          reason: `No email found in field: ${mr.recipient_email_field}`
+        });
+        continue;
+      }
+
+      // Get email template if configured
+      if (!template.email_template_id) {
+        results.push({
+          action: 'meeting_request',
+          meeting_request_id: mr.id,
+          template_name: template.name,
+          status: 'skipped',
+          reason: 'No email template configured for meeting type'
+        });
+        continue;
+      }
+
+      const { data: emailTemplate, error: templateError } = await supabase
+        .from('email_template')
+        .select('*')
+        .eq('id', template.email_template_id)
+        .eq('tenant_id', tenantId)
+        .single();
+
+      if (templateError || !emailTemplate) {
+        results.push({
+          action: 'meeting_request',
+          meeting_request_id: mr.id,
+          template_name: template.name,
+          status: 'skipped',
+          reason: 'Email template not found'
+        });
+        continue;
+      }
+
+      // Find a booking agent assigned to this template
+      const { data: agentAssignments } = await supabase
+        .from('agent_meeting_template')
+        .select('identity_id')
+        .eq('meeting_template_id', template.id)
+        .eq('tenant_id', tenantId);
+
+      if (!agentAssignments || agentAssignments.length === 0) {
+        results.push({
+          action: 'meeting_request',
+          meeting_request_id: mr.id,
+          template_name: template.name,
+          status: 'skipped',
+          reason: 'No booking agents assigned to this meeting type'
+        });
+        continue;
+      }
+
+      // Get booking agent details (use first available for now)
+      const agentId = agentAssignments[0].identity_id;
+      const { data: agentMembership } = await supabase
+        .from('tenant_membership')
+        .select('booking_slug, identity:identity_id(first_name, last_name)')
+        .eq('identity_id', agentId)
+        .eq('tenant_id', tenantId)
+        .single();
+
+      if (!agentMembership?.booking_slug) {
+        results.push({
+          action: 'meeting_request',
+          meeting_request_id: mr.id,
+          template_name: template.name,
+          status: 'skipped',
+          reason: 'Booking agent has no booking slug configured'
+        });
+        continue;
+      }
+
+      // Build booking URL with proper encoding
+      const bookingUrl = `${baseUrl}/book/${encodeURIComponent(agentMembership.booking_slug)}?meeting=${encodeURIComponent(template.slug)}`;
+      const agentName = [agentMembership.identity?.first_name, agentMembership.identity?.last_name].filter(Boolean).join(' ') || 'Team Member';
+
+      // Prepare email content
+      let subject = emailTemplate.subject || 'Meeting Invitation';
+      let body = emailTemplate.body || '';
+
+      // Replace placeholders (use 'there' as fallback for empty names in greetings)
+      const recipientName = firstName || 'there';
+      subject = subject
+        .replace(/\{\{recipient_name\}\}/gi, recipientName)
+        .replace(/\{\{recipient_email\}\}/gi, recipientEmail)
+        .replace(/\{\{meeting_type\}\}/gi, template.name)
+        .replace(/\{\{duration\}\}/gi, `${template.duration_minutes} minutes`)
+        .replace(/\{\{agent_name\}\}/gi, agentName)
+        .replace(/\{\{booking_url\}\}/gi, bookingUrl)
+        .replace(/\{\{booking_link\}\}/gi, `<a href="${bookingUrl}">Book a meeting</a>`);
+
+      body = body
+        .replace(/\{\{recipient_name\}\}/gi, recipientName)
+        .replace(/\{\{recipient_email\}\}/gi, recipientEmail)
+        .replace(/\{\{meeting_type\}\}/gi, template.name)
+        .replace(/\{\{duration\}\}/gi, `${template.duration_minutes} minutes`)
+        .replace(/\{\{agent_name\}\}/gi, agentName)
+        .replace(/\{\{booking_url\}\}/gi, bookingUrl)
+        .replace(/\{\{booking_link\}\}/gi, `<a href="${bookingUrl}">Book a meeting</a>`);
+
+      try {
+        await sendEmail({
+          to: recipientEmail,
+          subject,
+          html: body,
+          from: emailTemplate.from_email,
+          replyTo: emailTemplate.reply_to,
+          tenantId
+        });
+
+        console.log(`[DD Stage Actions] Sent meeting invitation to ${recipientEmail} for ${template.name}`);
+        
+        results.push({
+          action: 'meeting_request',
+          meeting_request_id: mr.id,
+          template_name: template.name,
+          recipient_email: recipientEmail,
+          status: 'success'
+        });
+      } catch (emailError) {
+        console.error(`[DD Stage Actions] Failed to send meeting invitation to ${recipientEmail}:`, emailError);
+        results.push({
+          action: 'meeting_request',
+          meeting_request_id: mr.id,
+          template_name: template.name,
+          recipient_email: recipientEmail,
+          status: 'failed',
+          reason: emailError.message
+        });
+      }
+    }
+  } catch (error) {
+    console.error('[DD Stage Actions] Error executing meeting request actions:', error);
+    results.push({
+      action: 'meeting_request',
+      status: 'error',
+      error: error.message
+    });
+  }
+
+  return results;
+}
+
 export async function executeStageActions(stageId, ddSubmission, tenantId, triggeredBy) {
   const formId = ddSubmission.form_submission?.form_id || ddSubmission.form_id;
   
@@ -384,6 +601,7 @@ export async function executeStageActions(stageId, ddSubmission, tenantId, trigg
 
   const results = [];
 
+  // Execute contract sending actions
   if (stageActions.send_contracts && stageActions.send_contracts.length > 0) {
     const contractResults = await executeContractSendingActions(
       stageActions.send_contracts,
@@ -393,6 +611,15 @@ export async function executeStageActions(stageId, ddSubmission, tenantId, trigg
     );
     results.push(...contractResults);
   }
+
+  // Execute meeting request actions (stored in stage_meeting_request table)
+  const meetingResults = await executeMeetingRequestActions(
+    stageId,
+    ddSubmission,
+    tenantId,
+    triggeredBy
+  );
+  results.push(...meetingResults);
 
   return { stage_actions_results: results };
 }

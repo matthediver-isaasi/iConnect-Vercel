@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { base44 } from '@/api/base44Client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -61,8 +62,15 @@ export default function BookingAgentsManagement() {
     description: '',
     duration_minutes: 30,
     meeting_type: 'phone',
-    is_active: true
+    is_active: true,
+    email_template_id: ''
   });
+
+  const { data: emailTemplatesData } = useQuery({
+    queryKey: ['email-templates'],
+    queryFn: () => base44.entities.EmailTemplate.list()
+  });
+  const emailTemplates = emailTemplatesData || [];
 
   const { data: agentsData, isLoading: agentsLoading } = useQuery({
     queryKey: ['booking-agents'],
@@ -201,7 +209,8 @@ export default function BookingAgentsManagement() {
       description: '',
       duration_minutes: 30,
       meeting_type: 'phone',
-      is_active: true
+      is_active: true,
+      email_template_id: ''
     });
   };
 
@@ -212,7 +221,8 @@ export default function BookingAgentsManagement() {
       description: template.description || '',
       duration_minutes: template.duration_minutes,
       meeting_type: template.meeting_type,
-      is_active: template.is_active
+      is_active: template.is_active,
+      email_template_id: template.email_template_id || ''
     });
     setTemplateDialogOpen(true);
   };
@@ -516,6 +526,28 @@ export default function BookingAgentsManagement() {
                           </SelectContent>
                         </Select>
                       </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Invitation Email Template</Label>
+                      <Select
+                        value={templateForm.email_template_id || 'none'}
+                        onValueChange={(v) => setTemplateForm(prev => ({ ...prev, email_template_id: v === 'none' ? '' : v }))}
+                      >
+                        <SelectTrigger data-testid="select-email-template">
+                          <SelectValue placeholder="Select email template (optional)" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">No email template</SelectItem>
+                          {emailTemplates.map(template => (
+                            <SelectItem key={template.id} value={template.id}>
+                              {template.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">
+                        Used when inviting to meetings from workflows
+                      </p>
                     </div>
                     <div className="flex items-center gap-2">
                       <Switch

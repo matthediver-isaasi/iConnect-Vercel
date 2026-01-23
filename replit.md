@@ -92,6 +92,14 @@ A contract signing system built on the existing FormBuilder infrastructure allow
 
 The platform includes a booking system where team members can be designated as "booking agents" with personal booking pages. It features tenant-scoped meeting templates, agent-template assignments, and database tables for managing templates, agent availability, and bookings.
 
+### Due Diligence Meeting Request Actions
+
+Meeting invitations can be sent as stage actions within due diligence workflows. The `stage_meeting_request` table stores configurations linking DD stages to meeting templates, specifying which form field contains the recipient's email. When a stage is selected, the system sends booking invitation emails using the email template configured on the meeting type. Key components:
+- `meeting_template.email_template_id` - Links meeting types to email templates for invitations
+- `stage_meeting_request` table - Stores stage-to-meeting-template mappings with field configurations
+- `/api/stage-meeting-requests` - CRUD endpoints for managing stage meeting request configurations
+- `executeMeetingRequestActions()` in `_stageActions.js` - Executes meeting invitation sending when stages are triggered
+
 # External Dependencies
 
 **Supabase:** Primary database (PostgreSQL) and file storage.
