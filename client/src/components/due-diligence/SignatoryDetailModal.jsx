@@ -275,7 +275,7 @@ export default function SignatoryDetailModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-lg max-h-[85vh] flex flex-col" data-testid="signatory-detail-modal">
+      <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col" data-testid="signatory-detail-modal">
         <DialogHeader className="flex-shrink-0">
           <div className="flex items-center gap-3 min-w-0">
             <div className="p-2 bg-muted rounded-md">
