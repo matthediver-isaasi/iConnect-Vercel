@@ -4,14 +4,16 @@
 -- Run this SQL in your Supabase SQL Editor
 
 -- Step 1: Add email_template_id to meeting_template for invitation email
-ALTER TABLE meeting_template ADD COLUMN IF NOT EXISTS email_template_id VARCHAR REFERENCES email_template(id) ON DELETE SET NULL;
+-- Note: email_template.id is UUID type
+ALTER TABLE meeting_template ADD COLUMN IF NOT EXISTS email_template_id UUID REFERENCES email_template(id) ON DELETE SET NULL;
 
 -- Step 2: Create stage_meeting_request table
 -- Stores meeting request configurations per due diligence stage
+-- Note: due_diligence_stage_id is a string ID from the workflow_stages JSON, not a foreign key
 CREATE TABLE IF NOT EXISTS stage_meeting_request (
   id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid()::text,
   tenant_id UUID NOT NULL REFERENCES tenant(id) ON DELETE CASCADE,
-  due_diligence_stage_id VARCHAR NOT NULL REFERENCES due_diligence_stage(id) ON DELETE CASCADE,
+  due_diligence_stage_id VARCHAR NOT NULL,
   meeting_template_id VARCHAR NOT NULL REFERENCES meeting_template(id) ON DELETE CASCADE,
   
   -- Field mappings from form submission
