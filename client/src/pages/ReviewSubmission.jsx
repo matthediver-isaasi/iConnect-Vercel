@@ -789,8 +789,8 @@ export default function ReviewSubmissionPage() {
           console.log('[ReviewSubmission] allAgents collected:', allAgents);
           console.log('[ReviewSubmission] allAgents count:', allAgents.length);
           
-          // Only show modal if there are valid agents to select from
-          if (allAgents.length > 1) {
+          // Show modal if there are any agents to select from (even just 1 for confirmation)
+          if (allAgents.length >= 1) {
             console.log('[ReviewSubmission] Opening agent selection modal');
             setAgentSelectionModal({
               open: true,
