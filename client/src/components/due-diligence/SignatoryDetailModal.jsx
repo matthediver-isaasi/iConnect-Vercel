@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,8 +10,8 @@ import {
   User, Check, Clock, FileSignature, Mail, Briefcase, Building2, Users, AlertCircle, Send, Loader2
 } from "lucide-react";
 import { format } from 'date-fns';
-import { apiRequest, queryClient } from "@/lib/queryClient";
-import { useToast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/components/ui/use-toast";
 
 const STATUS_CONFIG = {
   not_sent: { label: 'Not Sent', color: '#6b7280', bgColor: '#f3f4f6', icon: Clock },
@@ -112,6 +112,7 @@ export default function SignatoryDetailModal({
   const [activeTab, setActiveTab] = useState('active');
   const [resendingEmail, setResendingEmail] = useState(null);
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   const resendMutation = useMutation({
     mutationFn: async (signer) => {
