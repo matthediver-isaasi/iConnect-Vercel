@@ -22,23 +22,24 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'formId is required' });
     }
 
-    const { data: ddStages, error: stagesError } = await supabase
-      .from('due_diligence_stage')
-      .select('id, stage_key, name, color')
-      .eq('tenant_id', tenantId)
+    const { data: ddConfig, error: configError } = await supabase
+      .from('form_due_diligence_config')
+      .select('workflow_stages')
       .eq('form_id', formId)
-      .order('display_order', { ascending: true });
+      .eq('tenant_id', tenantId)
+      .single();
 
-    if (stagesError) {
-      console.error('[DD Configured Meetings] Error fetching stages:', stagesError);
-      return res.status(500).json({ error: 'Failed to fetch stages' });
-    }
-
-    if (!ddStages || ddStages.length === 0) {
+    if (configError || !ddConfig) {
+      console.log('[DD Configured Meetings] No DD config found for form:', formId);
       return res.status(200).json({ configured_meetings: [] });
     }
 
-    const stageIds = ddStages.map(s => s.id);
+    const workflowStages = ddConfig.workflow_stages || [];
+    if (workflowStages.length === 0) {
+      return res.status(200).json({ configured_meetings: [] });
+    }
+
+    const stageKeys = workflowStages.map(s => s.key);
     const { data: meetingConfigs, error: configsError } = await supabase
       .from('stage_meeting_request')
       .select(`
@@ -52,7 +53,7 @@ export default async function handler(req, res) {
         )
       `)
       .eq('tenant_id', tenantId)
-      .in('due_diligence_stage_id', stageIds)
+      .in('due_diligence_stage_id', stageKeys)
       .eq('is_active', true);
 
     if (configsError) {
@@ -85,7 +86,8 @@ export default async function handler(req, res) {
     }
 
     const result = meetingConfigs.map(config => {
-      const stage = ddStages.find(s => s.id === config.due_diligence_stage_id);
+      const stageKey = config.due_diligence_stage_id;
+      const stage = workflowStages.find(s => s.key === stageKey);
       const agents = agentAssignments
         .filter(a => a.meeting_template_id === config.meeting_template?.id)
         .map(a => a.identity)
@@ -93,9 +95,9 @@ export default async function handler(req, res) {
 
       return {
         config_id: config.id,
-        stage_id: config.due_diligence_stage_id,
-        stage_name: stage?.name || 'Unknown Stage',
-        stage_key: stage?.stage_key || null,
+        stage_id: stageKey,
+        stage_name: stage?.label || stageKey || 'Unknown Stage',
+        stage_key: stageKey,
         stage_color: stage?.color || null,
         meeting_template: config.meeting_template,
         agents: agents,
