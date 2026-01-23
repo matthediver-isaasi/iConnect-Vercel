@@ -686,26 +686,25 @@ export async function executeStageActions(stageId, ddSubmission, tenantId, trigg
   const workflowStages = ddConfig.workflow_stages || [];
   const stage = workflowStages.find(s => s.id === stageId);
   
-  // Support both "actions" and "stage_actions" keys for compatibility
-  const stageActions = stage.actions || stage.stage_actions;
-  if (!stage || !stageActions) {
-    return { stage_actions_results: [] };
-  }
-
   const results = [];
 
-  // Execute contract sending actions
-  if (stageActions.send_contracts && stageActions.send_contracts.length > 0) {
-    const contractResults = await executeContractSendingActions(
-      stageActions.send_contracts,
-      ddSubmission,
-      tenantId,
-      triggeredBy
-    );
-    results.push(...contractResults);
+  // Execute contract sending actions if stage has them configured
+  if (stage) {
+    // Support both "actions" and "stage_actions" keys for compatibility
+    const stageActions = stage.actions || stage.stage_actions;
+    if (stageActions?.send_contracts && stageActions.send_contracts.length > 0) {
+      const contractResults = await executeContractSendingActions(
+        stageActions.send_contracts,
+        ddSubmission,
+        tenantId,
+        triggeredBy
+      );
+      results.push(...contractResults);
+    }
   }
 
   // Execute meeting request actions (stored in stage_meeting_request table)
+  // These are stored separately from workflow stage config, so always check
   const meetingResults = await executeMeetingRequestActions(
     stageId,
     ddSubmission,
