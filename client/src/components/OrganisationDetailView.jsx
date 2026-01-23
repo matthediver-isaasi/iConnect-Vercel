@@ -24,6 +24,10 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+} from "@/components/ui/dialog";
 import { 
   Building2, 
   ArrowLeft, 
@@ -401,6 +405,7 @@ export default function OrganisationDetailView({
   const [previewSubmission, setPreviewSubmission] = useState(null);
   const [deleteSubmissionId, setDeleteSubmissionId] = useState(null);
   const [deleteConfirmStep, setDeleteConfirmStep] = useState(0);
+  const [pdfPreview, setPdfPreview] = useState({ isOpen: false, url: null, fileName: null, isLoading: false });
 
   // Delete form submission mutation
   const deleteFormSubmissionMutation = useMutation({
@@ -715,6 +720,47 @@ export default function OrganisationDetailView({
     });
     setCustomFieldValues(valuesMap);
     setIsEditing(false);
+  };
+
+  const handlePdfPreview = async (submissionId) => {
+    setPdfPreview(prev => ({ ...prev, isLoading: true }));
+    try {
+      const response = await fetch(`/api/contracts/download-pdf?submissionId=${submissionId}`, {
+        credentials: 'include'
+      });
+      const data = await response.json();
+      
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to load PDF');
+      }
+      
+      setPdfPreview({
+        isOpen: true,
+        url: data.downloadUrl,
+        fileName: data.fileName || 'signed-contract.pdf',
+        isLoading: false
+      });
+    } catch (error) {
+      toast.error(error.message || 'Failed to load PDF');
+      setPdfPreview({ isOpen: false, url: null, fileName: null, isLoading: false });
+    }
+  };
+
+  const handlePdfDownload = () => {
+    if (pdfPreview.url) {
+      const link = document.createElement('a');
+      link.href = pdfPreview.url;
+      link.download = pdfPreview.fileName;
+      link.target = '_blank';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      toast.success('Download started');
+    }
+  };
+
+  const closePdfPreview = () => {
+    setPdfPreview({ isOpen: false, url: null, fileName: null, isLoading: false });
   };
 
   const renderFieldEditor = (field) => {
@@ -1859,14 +1905,16 @@ export default function OrganisationDetailView({
                             <Button 
                               variant="outline" 
                               size="sm"
-                              onClick={() => {
-                                const submissionId = contract.signedSigners[0].submission_id;
-                                window.open(`/api/contracts/download-pdf?submissionId=${submissionId}`, '_blank');
-                              }}
-                              data-testid={`button-download-pdf-${contract.id}`}
+                              onClick={() => handlePdfPreview(contract.signedSigners[0].submission_id)}
+                              disabled={pdfPreview.isLoading}
+                              data-testid={`button-view-pdf-${contract.id}`}
                             >
-                              <Download className="w-3 h-3 mr-1" />
-                              Download PDF
+                              {pdfPreview.isLoading ? (
+                                <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                              ) : (
+                                <Eye className="w-3 h-3 mr-1" />
+                              )}
+                              View PDF
                             </Button>
                           )}
                         </div>
@@ -1969,6 +2017,58 @@ export default function OrganisationDetailView({
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        <Dialog open={pdfPreview.isOpen} onOpenChange={closePdfPreview}>
+          <DialogContent className="max-w-4xl h-[85vh] flex flex-col p-0" data-testid="pdf-preview-modal">
+            <div className="flex items-center justify-between px-4 py-3 border-b flex-shrink-0">
+              <div className="flex items-center gap-2 min-w-0">
+                <FileSignature className="w-5 h-5 flex-shrink-0" />
+                <span className="font-medium truncate">{pdfPreview.fileName}</span>
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handlePdfDownload}
+                  className="gap-2"
+                  data-testid="button-download-pdf"
+                >
+                  <Download className="w-4 h-4" />
+                  Download
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => pdfPreview.url && window.open(pdfPreview.url, '_blank')}
+                  className="gap-2"
+                  data-testid="button-open-new-tab"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  Open in New Tab
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={closePdfPreview}
+                  aria-label="Close preview"
+                  data-testid="button-close-pdf-preview"
+                >
+                  <X className="w-4 h-4" />
+                </Button>
+              </div>
+            </div>
+            <div className="flex-1 bg-muted">
+              {pdfPreview.url && (
+                <iframe
+                  src={pdfPreview.url}
+                  className="w-full h-full border-0"
+                  title="PDF Preview"
+                  data-testid="pdf-preview-iframe"
+                />
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
 
         <WorkflowConfirmationModal
           open={showConfirmationModal}
