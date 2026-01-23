@@ -34,8 +34,14 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Submission not found' });
     }
 
+    console.log('[contracts/download-pdf] Tenant check:', {
+      submissionTenantId: submission.tenant_id,
+      sessionTenantId: session.tenantId,
+      match: submission.tenant_id === session.tenantId
+    });
+
     if (submission.tenant_id !== session.tenantId) {
-      return res.status(403).json({ error: 'Unauthorized' });
+      return res.status(403).json({ error: 'Unauthorized - tenant mismatch' });
     }
 
     if (!submission.pdf_path) {
