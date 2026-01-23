@@ -43,6 +43,7 @@ waitForPort = 5000
 
 [userenv.shared]
 ZOHO_CRM_API_DOMAIN = "https://www.zohoapis.eu"
+INTERNAL_API_SECRET = "f922dda6e15928142cdc288d4c68414eb879de814fafbcc7bd1ef79fa809299f"
 
 [userenv.development]
 VITE_DEFAULT_TENANT = "gsf"
