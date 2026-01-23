@@ -829,6 +829,9 @@ export default function ReviewSubmissionPage() {
 
   const handleConfirmAgentSelection = () => {
     const { pendingStatus } = agentSelectionModal;
+    console.log('[ReviewSubmission] handleConfirmAgentSelection called');
+    console.log('[ReviewSubmission] pendingStatus:', pendingStatus);
+    console.log('[ReviewSubmission] selectedAgentId:', selectedAgentId);
     setAgentSelectionModal({ open: false, agents: [], pendingStatus: null, meetingActions: [] });
     updateStatusMutation.mutate({ newStatus: pendingStatus, selectedAgentId });
   };
