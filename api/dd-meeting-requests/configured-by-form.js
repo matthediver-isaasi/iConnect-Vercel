@@ -22,6 +22,8 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'formId is required' });
     }
 
+    console.log('[DD Configured Meetings] Query params:', { formId, tenantId });
+
     const { data: ddConfig, error: configError } = await supabase
       .from('form_due_diligence_config')
       .select('workflow_stages')
@@ -29,17 +31,25 @@ export default async function handler(req, res) {
       .eq('tenant_id', tenantId)
       .single();
 
+    console.log('[DD Configured Meetings] DD config result:', { 
+      hasConfig: !!ddConfig, 
+      error: configError,
+      workflowStagesCount: ddConfig?.workflow_stages?.length || 0
+    });
+
     if (configError || !ddConfig) {
       console.log('[DD Configured Meetings] No DD config found for form:', formId);
-      return res.status(200).json({ configured_meetings: [] });
+      return res.status(200).json({ configured_meetings: [], _debug: { reason: 'no_dd_config', formId, tenantId, error: configError } });
     }
 
     const workflowStages = ddConfig.workflow_stages || [];
     if (workflowStages.length === 0) {
-      return res.status(200).json({ configured_meetings: [] });
+      return res.status(200).json({ configured_meetings: [], _debug: { reason: 'no_workflow_stages' } });
     }
 
     const stageKeys = workflowStages.map(s => s.key);
+    console.log('[DD Configured Meetings] Stage keys from workflow:', stageKeys);
+
     const { data: meetingConfigs, error: configsError } = await supabase
       .from('stage_meeting_request')
       .select(`
@@ -56,13 +66,19 @@ export default async function handler(req, res) {
       .in('due_diligence_stage_id', stageKeys)
       .eq('is_active', true);
 
+    console.log('[DD Configured Meetings] Meeting configs result:', {
+      error: configsError,
+      count: meetingConfigs?.length || 0,
+      data: meetingConfigs
+    });
+
     if (configsError) {
       console.error('[DD Configured Meetings] Error fetching meeting configs:', configsError);
       return res.status(500).json({ error: 'Failed to fetch meeting configurations' });
     }
 
     if (!meetingConfigs || meetingConfigs.length === 0) {
-      return res.status(200).json({ configured_meetings: [] });
+      return res.status(200).json({ configured_meetings: [], _debug: { reason: 'no_meeting_configs', stageKeys, tenantId } });
     }
 
     const templateIds = [...new Set(meetingConfigs.map(c => c.meeting_template?.id).filter(Boolean))];

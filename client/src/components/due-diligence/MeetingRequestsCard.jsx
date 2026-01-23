@@ -137,7 +137,8 @@ export default function MeetingRequestsCard({ formSubmissionId, formId }) {
     configuredMeetingsCount: configuredMeetings.length,
     hasContent,
     sentData,
-    configuredData
+    configuredData,
+    _debug: configuredData?._debug
   });
 
   if ((!formSubmissionId && !formId) || (!hasContent && !isLoading)) {
