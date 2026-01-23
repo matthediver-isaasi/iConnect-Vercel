@@ -1,5 +1,5 @@
 import { supabase } from '../_lib/database.js';
-import { getTenantUser } from '../_lib/sessionUtils.js';
+import { getSessionTenantUser } from '../_lib/session.js';
 import { sendEmail } from '../_lib/emailService.js';
 
 export default async function handler(req, res) {
@@ -8,7 +8,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const tenantUser = await getTenantUser(req);
+    const tenantUser = await getSessionTenantUser(req);
     if (!tenantUser) {
       return res.status(401).json({ error: 'Authentication required' });
     }
