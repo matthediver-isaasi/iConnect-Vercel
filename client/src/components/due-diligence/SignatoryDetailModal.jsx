@@ -8,7 +8,7 @@ import { Separator } from "@/components/ui/separator";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { 
-  User, Check, Clock, FileSignature, AlertCircle, Send, Loader2, UserPlus, CheckCircle2
+  User, Check, Clock, FileSignature, AlertCircle, Send, Loader2, UserPlus, CheckCircle2, Download
 } from "lucide-react";
 import { format } from 'date-fns';
 import { apiRequest } from "@/lib/queryClient";
@@ -23,7 +23,7 @@ const STATUS_CONFIG = {
   expired: { label: 'Expired', color: '#ef4444', bgColor: '#fee2e2', icon: AlertCircle }
 };
 
-function SignerRow({ signer, onSend, isSending, isFieldSigned, isLegacyAmbiguous }) {
+function SignerRow({ signer, onSend, onDownload, isSending, isDownloading, isFieldSigned, isLegacyAmbiguous }) {
   const statusConfig = STATUS_CONFIG[signer.status] || STATUS_CONFIG.pending;
   const StatusIcon = statusConfig.icon;
   const fullName = [signer.firstName, signer.lastName].filter(Boolean).join(' ') || 'Unknown';
@@ -32,6 +32,7 @@ function SignerRow({ signer, onSend, isSending, isFieldSigned, isLegacyAmbiguous
   const hasValidEmail = !!signer.email;
   const canSend = !isFieldSigned && !isLegacyAmbiguous && !isWinner && hasValidEmail;
   const buttonLabel = isNotSent ? 'Send' : 'Resend';
+  const canDownload = isWinner && signer.submission_id;
   
   return (
     <div 
@@ -58,6 +59,23 @@ function SignerRow({ signer, onSend, isSending, isFieldSigned, isLegacyAmbiguous
         <StatusIcon className="w-3 h-3 mr-1" />
         {statusConfig.label}
       </Badge>
+      {canDownload && (
+        <Button
+          size="icon"
+          variant="ghost"
+          onClick={() => onDownload(signer.submission_id)}
+          disabled={isDownloading}
+          className="flex-shrink-0"
+          title="Download signed PDF"
+          data-testid={`button-download-${signer.email}`}
+        >
+          {isDownloading ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <Download className="w-4 h-4" />
+          )}
+        </Button>
+      )}
       {canSend ? (
         <Button
           size="sm"
@@ -193,6 +211,7 @@ export default function SignatoryDetailModal({
   formSubmissionId
 }) {
   const [sendingEmail, setSendingEmail] = useState(null);
+  const [downloadingSubmissionId, setDownloadingSubmissionId] = useState(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -268,6 +287,39 @@ export default function SignatoryDetailModal({
     addSignerMutation.mutate(newSigner);
   };
 
+  const handleDownload = async (submissionId) => {
+    setDownloadingSubmissionId(submissionId);
+    try {
+      const response = await fetch(`/api/contracts/download-pdf?submissionId=${submissionId}`);
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to get download URL');
+      }
+      
+      const link = document.createElement('a');
+      link.href = data.downloadUrl;
+      link.download = data.fileName || 'signed-contract.pdf';
+      link.target = '_blank';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      toast({
+        title: "Download Started",
+        description: "Your signed contract PDF is downloading.",
+      });
+    } catch (error) {
+      toast({
+        title: "Download Failed",
+        description: error.message || "Failed to download PDF.",
+        variant: "destructive",
+      });
+    } finally {
+      setDownloadingSubmissionId(null);
+    }
+  };
+
   if (!signatory) return null;
 
   const statusConfig = STATUS_CONFIG[signatory.status] || STATUS_CONFIG.pending;
@@ -306,7 +358,9 @@ export default function SignatoryDetailModal({
                       key={`${signer.contractId || 'no-contract'}-${signer.email}-${index}`}
                       signer={signer}
                       onSend={handleSend}
+                      onDownload={handleDownload}
                       isSending={sendingEmail === signer.email}
+                      isDownloading={downloadingSubmissionId === signer.submission_id}
                       isFieldSigned={isFieldSigned}
                       isLegacyAmbiguous={isLegacyAmbiguous}
                     />

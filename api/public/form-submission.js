@@ -232,6 +232,42 @@ export default async function handler(req, res) {
       }
     }
 
+    // Generate PDF for contract signatures
+    if (contract_instance_id) {
+      const hasSignatureData = Object.values(submission_data || {}).some(v => 
+        v && typeof v === 'object' && (v.type === 'signature' || (v.data && v.signed_at))
+      );
+      
+      if (hasSignatureData) {
+        try {
+          console.log('[Public Form Submission] Generating PDF for contract signature:', submission.id);
+          const INTERNAL_API_SECRET = process.env.INTERNAL_API_SECRET;
+          if (!INTERNAL_API_SECRET) {
+            console.error('[Public Form Submission] INTERNAL_API_SECRET not configured, skipping PDF generation');
+          } else {
+            const pdfResponse = await fetch(`${baseUrl}/api/contracts/generate-pdf`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                submissionId: submission.id,
+                internalToken: INTERNAL_API_SECRET
+              })
+            });
+          
+            if (pdfResponse.ok) {
+              const pdfResult = await pdfResponse.json();
+              console.log('[Public Form Submission] PDF generated:', pdfResult);
+            } else {
+              const pdfError = await pdfResponse.json().catch(() => ({}));
+              console.error('[Public Form Submission] PDF generation failed:', pdfError);
+            }
+          }
+        } catch (pdfErr) {
+          console.error('[Public Form Submission] PDF generation error:', pdfErr);
+        }
+      }
+    }
+
     // Auto-create due diligence record if form has due diligence enabled
     console.log('[Public Form Submission] Checking DD enabled:', form.due_diligence_required, 'form_id:', form.id);
     if (form.due_diligence_required) {
